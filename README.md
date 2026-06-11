@@ -2,7 +2,7 @@
 
 > *A year is a long time to carry an ember. But it's longer still to carry one alone.*
 
-A year-long Discord RPG where eight strangers become a fellowship — three rolls a day, one tree at a crossroads, and something waking in the east.
+A year-long Discord RPG where eight strangers become a fellowship — two rolls a day (more on weekends), one tree at a crossroads, and something waking in the east.
 
 Built with TypeScript, Discord.js, SQLite, and pixel-perfect ASCII art.
 
@@ -10,9 +10,9 @@ Built with TypeScript, Discord.js, SQLite, and pixel-perfect ASCII art.
 
 ## What is this?
 
-The Warden's Oak is a slow-burn narrative game played over a real calendar year. Each day, players get three d20 rolls — travel, rest, or act — and the world advances around them. Miss a day? Your character rests by the fire. Miss too many? The world moves on without you.
+The Warden's Oak is a slow-burn narrative game played over a real calendar year. Each day, players get two d20 rolls — more on weekends — to travel, rest, or act, and the world advances around them. Miss a day? Your character rests by the fire. Miss too many? The world moves on without you.
 
-It draws from **Frieren** (time as tension), **D&D** (visible dice), **Lord of the Rings** (fellowship of many), **Castlevania** (gothic threat on the horizon), and **MapleStory** (the social grind as ritual).
+It draws from **Frieren** (time as tension), **D&D** (visible dice), **Lord of the Rings** (fellowship of many), **Castlevania** (gothic threat on the horizon), **anime** (friendship as mechanic), **MapleStory** (the social grind as ritual), and **Fable** (NPCs who live their own lives).
 
 ---
 
@@ -36,7 +36,9 @@ Discord Bot (TypeScript)
   ├── Command router
   ├── Daily roll engine
   ├── ASCII art renderer
-  ├── Auto-sim engine (for absent players)
+  ├── Auto-sim engine (PC + NPC)
+  ├── NPC routine simulation
+  ├── Daily economy tick
   ├── Weekly scheduler (cron)
   │
   ├── Graph DB (SQLite + custom edge model)

@@ -10,7 +10,7 @@ Each day, the world advances. You get three rolls. You travel, rest, scout, figh
 
 After a few weeks, paths cross. A fellowship forms — not because destiny demands it, but because you all saw the same smoke, heard the same rumor, and a warden who never speaks finally looked east.
 
-Twelve months later, in December, whatever has been waking will arrive. Whether the fellowship is still standing — that depends on three rolls a day, once a week at minimum, for an entire year.
+Twelve months later, in December, whatever has been waking will arrive. Whether the fellowship is still standing — that depends on two rolls a day (more on weekends), once a week at minimum, for an entire year.
 
 This is a game about memory. About the spaces between. About a tree at a crossroads and the names carved into its bark, some so old the bark has swallowed them halfway.
 
@@ -27,6 +27,7 @@ This is a game about memory. About the spaces between. About a tree at a crossro
 | **castlevania** | tonal | Gothic fantasy. The threat should feel like Dracula's castle on the horizon — distant, impossible, slowly approaching. Pixel monsters. |
 | **animé** | emotional | Friendship-as-mechanic. Dramatic narrative framing. Characters have feelings and the game names them. "Lina seems distant today." |
 | **maplestory** | nostalgic | The social grind as ritual. A central hub where players idle. Rare drops as bragging rights. The game *feels like* Henesys at 2am in 2006. |
+| **fable** | simulation | NPCs live daily lives independent of players. They work, earn, spend, grieve, celebrate. The world breathes — shops open and close, rumors spread, fortunes rise and fall. A blacksmith who had a good week might commission a new sign. A farmer whose crop failed might drink alone at the tavern. |
 
 ---
 
@@ -34,7 +35,7 @@ This is a game about memory. About the spaces between. About a tree at a crossro
 
 ### The Daily Roll (Core Loop)
 
-Each real day = 1 in-game day. The player receives **3 rolls**.
+Each real day = 1 in-game day. The player receives **2 rolls** on weekdays — more on weekends (see Weekly Rhythm below).
 
 A roll is a d20 check against a target number, modified by:
 - Character stats (strength, agility, wits, bond)
@@ -47,15 +48,16 @@ Roll categories:
 2. **Rest / Recover** — heal stamina, repair gear, prepare. Required periodically (SIM element).
 3. **Act** — scout, fight, talk to NPCs, investigate, trade, craft
 
-Players choose how to spend their 3 rolls each day, within what's possible at their current location.
+Players choose how to spend their rolls each day, within what's possible at their current location.
 
 ### Weekly Rhythm
 
 | Period | Behavior |
 |--------|----------|
-| **Monday–Thursday** | Standard 3 daily rolls. Minor quests. Minor rewards. |
-| **Friday** | Standard rolls + weekly quest becomes available. |
-| **Saturday–Sunday** | **Bonus rolls** (4–5 instead of 3). Larger battles. Major quest progression. Weekend events. |
+| **Monday–Thursday** | **2 daily rolls.** Minor quests. Minor rewards. |
+| **Friday** | **3 rolls** + weekly quest becomes available. |
+| **Saturday** | **4 rolls.** Larger battles. Major quest progression. Weekend events. |
+| **Sunday** | **3 rolls.** Major quest progression. Weekend events. |
 
 ### The Weekly Floor
 
@@ -64,6 +66,29 @@ Players choose how to spend their 3 rolls each day, within what's possible at th
 1. **Week 1 missed:** Character auto-sims in "resting" mode at last safe location. Minor stat decay. Notification to other fellowship members: *"Bram hasn't been seen in days."*
 2. **Week 2 missed:** Character becomes "lost." World events happen *to* them — injury, ambush, capture. Fellowship receives a distress signal or rumor.
 3. **Week 3 missed:** Death. Character dies off-screen. Name carved into the Warden's Oak. Fellowship notified. Player may start a new character who joins sooner (convergence catch-up mechanic).
+
+### Social Incentives & Co-op Play
+
+> *The game is not designed for daily players. It's designed to make you want your friends to log in.*
+
+**No one is expected to play every day.** The game respects that players have lives. The weekly floor (at least once per week) is the real bar. But when a player *does* show up, the game should make other players *feel it* — and want to come back.
+
+**Co-op bonuses — rewards that flow to others:**
+
+| Action | Bonus | Why it incentives others |
+|--------|-------|--------------------------|
+| **Travel together** (2+ PCs in same party) | +2 convergence bonus to all rolls. Shared discovery XP. | "Kaelen is heading to Stonebridge — if I log in tonight, we travel together and both get the bonus." |
+| **Camp together** (shared rest at same location) | Bonus stamina recovery. A shared campfire scene is generated — visible to all party members. | "Lina's at the Oak. If I rest there too, we both recover faster and get a campfire moment." |
+| **Co-op quest completion** | All participating PCs get full quest rewards (no splitting). Bonus bond points between participants. | "Bram and I could take down those wolves together — he gets the reward too, even if I do the heavy lifting." |
+| **Gift an item** (PC → PC) | The giver earns bond points. The receiver gets the item. Both get a shared memory logged to their character. | "Elara left me a healing herb at the Oak. I should log in and thank her — or return the favor." |
+| **Shared scouting** (one PC scouts, another is nearby) | The non-scouting PC also receives the scouting intel. Discovered locations are shared. | "I scouted the eastern ridge. If Kaelen logs in tomorrow, he'll see it on his map too." |
+| **Missed-week rescue** | A PC who rescues a "lost" comrade (Week 2 penalty) earns a rare bond trait. The rescued player returns with gratitude — and a stat boon the rescuer helped unlock. | "Bram's been missing for two weeks. If I find him, we both get something unique." |
+
+**Design principles:**
+- **No penalties for playing solo.** A lone player can do anything — just slower, harder, with more risk.
+- **Bonuses are additive, never zero-sum.** Co-op doesn't split rewards; it *creates* extra rewards that wouldn't exist otherwise.
+- **Shared context creates FOMO that feels like warmth, not pressure.** A campfire scene you missed is still visible later — it becomes a memory, not a punishment.
+- **The weekly rhythm is the cadence.** Bonuses are calibrated so that a player who logs in once on Saturday (with 4 rolls) can meaningfully contribute to the party's progress for the entire week.
 
 ### Auto-Simulation
 
@@ -82,6 +107,129 @@ Characters have **stamina**. It decays with travel, combat, and failed rolls. It
 - Rare items (healing herbs, blessed water)
 
 Running on low stamina penalizes all subsequent rolls (-1 per point below threshold). The game *forces* downtime — you cannot sprint for months. This is the Frieren pacing: the spaces between matter.
+
+---
+
+## NPC Simulation & Town Economy
+
+> *The blacksmith doesn't wait for a hero to walk in. He wakes at dawn, lights his forge, and earns his bread — whether you're watching or not.*
+
+Every in-game day, the world ticks forward for its inhabitants. NPCs have lives: jobs, homes, routines, income, expenses, and changing sentiments. This simulation is **deterministic under the hood** — no LLM calls for daily ticks — with weekly LLM sentiment updates for key characters.
+
+### NPC Daily Loop
+
+Each in-game day, every key NPC runs through a fixed simulation tick:
+
+```
+DAWN  → Wake. Check home/family state.
+MORN  → Travel to workplace. Begin job.
+NOON  → Meal break. Socialize with nearby NPCs.
+AFTN  → Continue job. Fulfill orders. Earn income.
+EVEN  → Leave work. Optional: tavern, market, temple, home.
+NIGHT → Sleep. Recover.
+```
+
+**What gets tracked per NPC:**
+| Attribute | Description |
+|-----------|-------------|
+| `role` | Blacksmith, farmer, innkeeper, guard, merchant, priest, herbalist, etc. |
+| `workplace_id` | Location node where they work |
+| `home_id` | Location node where they sleep |
+| `daily_income` | Base coins earned per work day (modified by skill, demand, events) |
+| `wealth` | Accumulated savings. Affects what they can buy, upgrade, or commission |
+| `stamina_npc` | Like player stamina — decays with work, recovers with rest. Affects output quality |
+| `sentiment` | Mood vector: `{hope, fear, trust_in_fellowship, local_tension}` — updated weekly via LLM |
+| `bonds` | Edges to other NPCs: family, friendship, rivalry, debt, romance |
+| `goals` | What they're working toward: "save for a new anvil," "find missing brother," "court the baker" |
+| `flaws` | D&D-style personality flaw: greedy, cowardly, naive, proud, etc. Affects decision weights |
+| `ideals` | D&D-style driving belief: "community first," "knowledge is power," "wealth is security" |
+
+> **Canonical model — see [world-state-projection.md](./world-state-projection.md).** The list above is a summary. How each of these drivers is actually typed — which are enums, which are edges, which are cached prose — and the precise distinction between `sentiment`, `bonds`, and `relationships`, is defined there. Treat that file as the source of truth; this table is illustrative.
+
+### Weekly LLM Sentiment Update
+
+Once per in-game week (or real-world weekend), key NPCs within 2 hops of active players receive a **lightweight LLM pass**:
+
+**Input (token-minimal):**
+- NPC's current state snapshot (role, wealth delta this week, any significant events)
+- World event overlay (threat proximity, weather, local rumors)
+- Player interaction log (did any PC talk to them? trade? threaten?)
+
+**Output:**
+- Updated `sentiment` vector
+- Potentially revised `goals`, `flaws`, or `ideals` (if something happened that would change a person)
+- A 1–2 sentence "state of mind" summary for the weekly digest
+
+**Token budget:** ~200 tokens per NPC per week. At ~10 key NPCs, that's ~2K tokens/week — a rounding error against the main quest LLM budget.
+
+### Town Economy
+
+Each settlement runs a **light economic simulation** — enough to make the world feel responsive, not enough to become an MMO crafting spreadsheet.
+
+**Economic attributes per settlement:**
+| Attribute | Description |
+|-----------|-------------|
+| `prosperity` | 0–100. Drives shop quality, NPC wealth growth, available quests |
+| `supply` | Map of `{resource: quantity}`. Grain, iron, lumber, herbs, etc. Produced by NPC jobs |
+| `demand` | Map of `{resource: quantity}`. Consumed by NPCs and upkeep. Drives trade between towns |
+| `tax_rate` | Percentage skimmed by local lord/reeve. Affects NPC disposable income |
+| `population` | Count of generic residents (statistical) + key NPCs (simulated) |
+
+**Daily economic tick (deterministic):**
+1. NPCs produce resources based on their role (farmer → grain, blacksmith → tools)
+2. NPCs consume resources (food, basic goods)
+3. Surplus goes to town `supply` pool; deficit draws from it
+4. Trade between nearby settlements resolves shortages (automatic, abstracted)
+5. `prosperity` drifts: +1 if supply > demand, -1 if deficit persists for 3+ days
+6. NPC income modified by prosperity: +10% in thriving towns, -20% in struggling ones
+
+**What players see:**
+- Shop prices fluctuate slightly day to day (template: *"Bread is dear today — the miller's wheel broke."*)
+- NPCs comment on their fortunes (*"Business has been good since the road reopened."*)
+- Quest hooks emerge from economic pressure (*"If someone could clear the wolves from the north pasture, the whole village would eat better this winter."*)
+- A struggling town visibly deteriorates: fewer lanterns lit, boarded windows, thinner NPC dialogue
+
+**What players do NOT see:**
+- Spreadsheets. Raw numbers. The simulation is felt through narrative, not displayed as a dashboard.
+
+### Example: A Week in the Life of Garrick the Blacksmith
+
+```
+DAY 1 (Mon)  → Wakes at forge. Repairs 3 farming tools. Earns 15c. 
+                Eats at inn. Talks to Mera the herbalist — 
+                she mentions strange lights in the east wood.
+DAY 2 (Tue)  → Standard workday. Earns 15c. 
+                Player Kaelen visits! Sells a reinforced shield for 45c.
+                Wealth now 230c. Goal "save for new anvil" is 70% complete.
+DAY 3 (Wed)  → Rain. Forge work slows. Earns only 8c.
+                Drinks at tavern. Rumor: Stonebridge smoke visible from ridge.
+DAY 4 (Thu)  → Standard workday. Earns 15c.
+                Sentiment: hope -3 (the smoke from Stonebridge unsettles him).
+DAY 5 (Fri)  → Market day! Sells surplus tools. Earns 25c.
+                Wealth hits 250c. Goal COMPLETE: commissions new anvil from 
+                traveling merchant. Town prosperity +1.
+DAY 6 (Sat)  → Installs new anvil. Forge quality upgraded. 
+                Future daily_income increases from 15c to 20c.
+                Sentiment: hope +5. Shares ale with neighbors to celebrate.
+DAY 7 (Sun)  → Rest day. Visits temple. Prays for Stonebridge.
+                
+WEEKLY LLM UPDATE:
+  INPUT:  Garrick (blacksmith), wealth 280c ↑, new anvil installed, 
+          Stonebridge smoke visible, player Kaelen visited once
+  OUTPUT: sentiment {hope: 6→8, fear: 3→5, trust_in_fellowship: 2→4}
+          goals: "forge a masterwork blade for the fellowship" (new)
+          summary: "Garrick is proud of his new anvil but the smoke 
+          from Stonebridge keeps him up at night. He's decided to 
+          put his best steel toward helping the travelers."
+```
+
+### Integration with the Rest of the Game
+
+- **Resting at an inn?** The innkeeper's prosperity affects room quality and price. A thriving inn might have warm baths and good gossip; a struggling one has thin walls and watered ale.
+- **Shopping?** What's in stock depends on what NPCs have produced. A blacksmith who had a bad week might not have that sword you wanted.
+- **Quest generation?** Economic pressure generates natural quests. Failing crops → clear the field of monsters. Trade route blocked → escort the merchant.
+- **Convergence?** Wealthy towns attract more travelers. Players naturally converge toward prosperous settlements, which become organic hubs.
+- **The December climax?** If towns are struggling economically all year, the final battle is harder — fewer supplies, weaker allies, thinner defenses. A prosperous kingdom puts up a better fight.
 
 ### Convergence
 
@@ -160,7 +308,9 @@ The graph DB stores all location nodes and their connections.
 │  │  - ASCII art renderer               │            │
 │  │  - Daily roll engine                │            │
 │  │  - Weekly scheduler (cron)          │            │
-│  │  - Auto-sim engine                  │            │
+│  │  - Auto-sim engine (PC + NPC)       │            │
+│  │  - Daily economy tick               │            │
+│  │  - NPC routine simulation           │            │
 │  └─────────────┬───────────────────────┘            │
 │                │                                    │
 │       ┌────────▼────────┐                           │
@@ -204,11 +354,14 @@ The binding constraint. Every AI call must justify its cost.
 - Graph DB queries and edge updates
 - Location descriptions (template + graph data)
 - ASCII art scene rendering (templates + procedural)
-- Auto-sim passive updates (template: `"[Name] rests at [Location]. [Condition]."`)
+- Auto-sim passive updates for PCs (template: `"[Name] rests at [Location]. [Condition]."`)
+- NPC daily routine ticks (job, income, spending — all deterministic)
+- Town economy daily tick (supply/demand, prosperity drift)
 - Weekly scheduler triggers
 
 **Expensive (LLM, use sparingly):**
 - NPC dialogue and character moments (cache responses per NPC+context)
+- NPC weekly sentiment updates (~200 tokens per key NPC per week; ~2K/week for 10 NPCs)
 - Quest generation (generate once, reuse)
 - Major world events (weekends only, max 1–2 per weekend)
 - Death narrations (one-time, per character death)
@@ -226,9 +379,12 @@ The binding constraint. Every AI call must justify its cost.
 ```
 Node types:
   Character { id, name, class, stats, status, player_id }
-  Location  { id, name, type, description_cache, coordinates }
-  NPC       { id, name, role, location_id, dialogue_cache_keys }
-  Item      { id, name, type, owner_id, location_id }
+  Location  { id, name, type, description_cache, coordinates,
+              prosperity, supply_map, demand_map, tax_rate, population }
+  NPC       { id, name, role, location_id, workplace_id, home_id,
+              daily_income, wealth, stamina_npc, sentiment,
+              goals, flaws, ideals, dialogue_cache_keys }
+  Item      { id, name, type, owner_id, location_id, price }
   Quest     { id, name, status, generated_text, reward }
 
 Edge types:
@@ -236,9 +392,14 @@ Edge types:
   rivals(Char→Char, reason)        at_location(Char|NPC|Item→Location)
   owns(Char→Item)                  on_quest(Char→Quest, progress)
   bonded_to(Char→Location, reason) mentioned_in(NPC→Quest)
+  works_at(NPC→Location)           lives_at(NPC→Location)
+  bonded_npc(NPC→NPC, type, value)   trades_with(Location→Location, goods)
+  owes_debt(NPC→NPC, amount)       supplies(Location→Location, resource)
 ```
 
 The LLM receives only the subgraph reachable within 2 hops of the current context. A player at the Oak sees: Oak → warden, nearby characters, recent quests, known locations within travel range. Not the entire kingdom.
+
+> **World state projection.** This same graph is mirrored into a browsable, Obsidian-style markdown vault — one file per entity, `[[wikilinks]]` as edges — rendered deterministically each tick at ~0 LLM tokens, so the whole world's state is viewable at a glance. See [world-state-projection.md](./world-state-projection.md) for the render model, the data-vs-prose split, the D&D character-driver tiers, and an example template.
 
 ### ASCII Art Engine
 
@@ -273,6 +434,7 @@ Renders scenes, characters, and items as pixelated ASCII art. Design principles:
 | **"Let's make the AI smarter"** | Endless prompt engineering. Token budget blows up. | Ship with dumb-but-charming AI. Improve only if engagement survives Month 1. |
 | **"One more NPC system"** | Faction reputation, romance arcs, betrayal mechanics — each is a subsystem. | Start with 1 NPC depth mechanic (trust). Add only if the first one lands. |
 | **"The ASCII engine should animate"** | Frame-by-frame animation in Discord text is possible but dev-heavy. | Static scenes first. "Animation" is scene-to-scene transition. |
+| **"Full Fable economy simulation"** | Property ownership, rent collection, regional trade route optimization, NPC business competition — each is a subsystem. | Light economy only: jobs, income, prosperity drift, simple supply/demand. The economy is flavor, not a spreadsheet. Add depth only if the POC survives Month 3. |
 | **"Let's support 20+ players"** | Graph DB and token budget don't scale linearly. | Hard cap at 8. If the POC works, the sequel campaign can be designed for scale. |
 | **"Balancing classes and stats"** | D&D-style class balance is an infinite timesink. | 3–4 broad archetypes (Warrior, Ranger, Sage, Rogue). No subclasses. Stats are simple. |
 | **"The graph DB should be Neo4j/ArangoDB"** | Operational overhead for a POC with 8 players. | SQLite with a custom edge table. Migrate to a real graph DB only if it survives Month 3. |
@@ -395,7 +557,7 @@ January  ○ Wipe. Names on the Oak. Next generation?
 
 ## Rolls
 
-- 2 rolls on week days, 3 on friday 4 saturday 3 sunday.
+- 2 rolls on weekdays, 3 on Friday, 4 on Saturday, 3 on Sunday.
 - Each roll increments in seriousness or step size (unless story resumes from the previous day)
 - At least one roll is a multi step choice with decisions affecting final DC
 
