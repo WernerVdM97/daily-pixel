@@ -1,5 +1,7 @@
 # The Warden's Oak
 
+![loading](./loading.gif)
+
 > *A year is a long time to carry an ember. But it's longer still to carry one alone.*
 
 A year-long Discord RPG where eight strangers become a fellowship — two rolls a day (more on weekends), one tree at a crossroads, and something waking in the east.
