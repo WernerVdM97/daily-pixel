@@ -4,9 +4,18 @@
 
 > *A year is a long time to carry an ember. But it's longer still to carry one alone.*
 
-A year-long Discord RPG where eight strangers become a fellowship — two rolls a day (more on weekends), one tree at a crossroads, and something waking in the east.
+A daily Discord RPG where strangers become a fellowship — decisions, dice rolls, one tree at a crossroads, and trouble waking in the east.
 
-Built with TypeScript, Discord.js, SQLite, and pixel-perfect ASCII art.
+---
+
+## Roadmap
+
+| Phase                   | What                                                                                            | Status  |
+| ----------------------- | ----------------------------------------------------------------------------------------------- | ------- |
+| **Phase 1 — Design**    | Explore mechanics, engine, UX, and world.<br>All docs live in [`docs/sparks/`](./docs/sparks/). | Ongoing |
+| **Phase 2 — POC**       | A bot that rolls dice and shows an ASCII tree.<br>See [[the-poc]].                              | Next    |
+| **Phase 3 — MVP**       | Daily decision leading up to rolls, co-op, NPC basics, weekly rhythm.                           | Planned |
+| **Phase 4 — Full Game** | Year-long campaign. NPC economy, moral drift, LLM narratives, finall climax.                    | Distant |
 
 ---
 
@@ -18,20 +27,20 @@ It draws from **Frieren** (time as tension), **D&D** (visible dice), **Lord of t
 
 ---
 
-## Quick start
+## Design principles
 
-```bash
-git clone https://github.com/YOUR_USER/daily-pixel.git
-cd daily-pixel
-npm install
-cp .env.example .env
-# Edit .env with your Discord bot token and API keys
-npm run dev
-```
+- **Cheap by default.** Roll resolution, stat math, and templates run without touching an LLM.
+- **Lazy evaluation.** NPCs aren't alive until met. Locations are procedural until visited.
+- **Mobile-first Discord.** ~30 char wide ASCII scenes. One message per daily roll batch.
+- **Optimised for 8 players.** Thematic choice (a fellowship), not a technical limit.
 
 ---
 
-## Architecture
+## Design docs
+
+The full design vault lives in [`docs/sparks/`](./docs/sparks/) — every idea, mechanic, and decision. Start with [`docs/README.md`](./docs/README.md) (the map of content) and [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) (how docs are organised).
+
+## Planned architecture
 
 ```
 Discord Bot (TypeScript)
@@ -50,21 +59,6 @@ Discord Bot (TypeScript)
   └── LLM Gateway (token-optimized, lazy evaluation)
       └── Narrative generation, NPC dialogue, quest creation
 ```
-
----
-
-## Design principles
-
-- **Cheap by default.** Roll resolution, stat math, and templates run without touching an LLM.
-- **Lazy evaluation.** NPCs aren't alive until met. Locations are procedural until visited.
-- **Mobile-first Discord.** ~30 char wide ASCII scenes. One message per daily roll batch.
-- **Hard cap at 8 players.** Graph DB and token budget don't scale linearly.
-
----
-
-## Design docs
-
-The full design vault lives in [`docs/`](./docs/README.md) — vision, game mechanics, engine, UI, and decision records. Start with [`docs/README.md`](./docs/README.md) (the map of content) and [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) (how docs are organised).
 
 ---
 
