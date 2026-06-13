@@ -10,7 +10,7 @@ A daily Discord RPG where strangers become a fellowship — decisions, dice roll
 
 ## Roadmap
 
-See [[docs/README|README]] for current progress.
+See [Docs-Readme](docs/README) for current progress.
 
 | Phase                   | What                                                                                            | Status  |
 | ----------------------- | ----------------------------------------------------------------------------------------------- | ------- |
