@@ -39,31 +39,56 @@ superseded_by: "[[new-doc]]"
 
 That's the whole template. No required body sections — write the body in whatever shape the idea wants.
 
-### Todo list flavours:
+### Lists Flavours
 
-Where thematically applicable use:
+Use Obsidian task markers to signal the *kind* of item in a list — not just its completion state. Grouped by when you'd reach for them.
 
-- [ ] to-do
-- [/] incomplete
-- [x] done
-- [-] canceled
-- [x] forwarded
-- [<] scheduling
-- [?] question
-- [!] important
-- [*] star
-- ["] quote
-- [l] location
-- [b] bookmark
-- [i] information
-- [S] savings
-- [I] idea
-- [p] pros
-- [c] cons
-- [u] up
-- [d] down
+**Decision-making (use in any doc):**
 
-to describe lists.
+| Marker | Meaning | Example |
+|---|---|---|
+| `[?] question` | Open design question | `[?] Should the warden speak more after month 3?` |
+| `[!] important` | Critical, must-resolve | `[!] Death-at-3-weeks is hostile to the stated philosophy` |
+| `[I] idea` | Alternative approach | `[I] What if bonds decay with distance instead of time?` |
+| `[p] pros` | Argument for | `[p] SQLite — zero ops, file-based, sync API` |
+| `[c] cons` | Argument against | `[c] SQLite — no concurrent writers, not a graph DB` |
+
+**Progress tracking (use in build plans and specs):**
+
+| Marker           | Meaning                | Example                                                 |
+| ---------------- | ---------------------- | ------------------------------------------------------- |
+| `[ ] to-do`      | Not started            | `[ ] Implement /action slash command`                   |
+| `[/] incomplete` | In progress            | `[/] LLM decision prompt — works, needs error handling` |
+| `[x] done`       | Resolved / implemented | `[x] Bot responds to /ping`                             |
+| `[-] canceled`   | Rejected / won't do    | `[-] ascii-image-converter — deferred to MVP`           |
+| `[>] forwarded`  | Moved to another doc   | `[>] See [[poc-build-plan]] for implementation order`   |
+| `[<] scheduling` | Planned for later      | `[<] NPC economy tick — after core loop ships`          |
+
+**Example — a real doc body using these:**
+
+```markdown
+## Open questions
+
+- [?] Should /hi show the opening scene every day or only on first join?
+- [!] Bail mechanic: is wisdom the right stat, or should it be class-based?
+
+## Trade-offs
+
+- [p] Pre-rendered ASCII fragments: zero tokens, zero latency, always looks right
+- [c] Pre-rendered ASCII fragments: only 4 scenes, no variety, feels static after day 3
+- [I] Hybrid: pre-rendered backgrounds + LLM-generated character descriptions
+
+## POC scope
+
+- [x] /action hunt with LLM decisions
+- [/] /action travel — works, needs road.ascii wired up
+- [ ] /backpack emoji grid
+- [-] ascii-image-converter — punted to MVP
+- [<] Daily cron tick — manual /sleep for POC
+- [>] Hosting details → [[poc-tech-stack]]
+```
+
+**When to NOT use these:** If a list has only one kind of item (all to-dos, all questions), plain `- [ ]` is cleaner. The flavours earn their keep when a single list mixes different kinds — decisions, progress, and deferred items living side by side.
 
 ---
 
@@ -84,14 +109,14 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 
 ## 3. `domain` — the folder
 
-| Folder | Domain | Holds |
-|---|---|---|
-| `vision/` | `vision` | Mission, pillars, north star, goals, non-goals. The "why." |
-| `game/` | `game` | Core loop, mechanics, economy, world, narrative design. |
-| `engine/` | `engine` | Graph DB, render, simulation, LLM gateway, data model. The "how it runs." |
-| `ui/` | `ui` | Discord UX, command flows, ASCII presentation, and `ui/mockups/`. |
-| `decisions/` | — | Decision records (ADRs): cross-cutting trade-offs that have been resolved. |
-| `sparks/` | `spark` | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
+| Folder       | Domain   | Holds                                                                                                                                                |
+| ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vision/`    | `vision` | Mission, pillars, north star, goals, non-goals. The "why."                                                                                           |
+| `game/`      | `game`   | Core loop, mechanics, economy, world, narrative design.                                                                                              |
+| `engine/`    | `engine` | Graph DB, render, simulation, LLM gateway, data model. The "how it runs."                                                                            |
+| `ui/`        | `ui`     | Discord UX, command flows, ASCII presentation, and `ui/mockups/`.                                                                                    |
+| `decisions/` | —        | Decision records (ADRs): cross-cutting trade-offs that have been resolved.                                                                           |
+| `sparks/`    | `spark`  | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
 
 `domain` in frontmatter always matches the folder the file sits in.
 
