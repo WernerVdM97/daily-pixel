@@ -1,3 +1,13 @@
+---
+title: Render Engine — Size Estimates
+status: spark
+domain: engine
+tags: [render, png, mp4, discord, estimates]
+related:
+  - "[[ascii-render-pipeline]]"
+  - "[[render-strategy]]"
+---
+
 # Render Engine — Size Estimates
 
 Server-side PNG and MP4 generation for Discord delivery. Numbers from a real Pillow-based test (2026-06-12).

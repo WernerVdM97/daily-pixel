@@ -1,3 +1,14 @@
+---
+title: ASCII Render Pipeline — Confirmed Intent
+status: decided
+domain: engine
+tags: [render, ascii, discord, poc]
+related:
+  - "[[render-engine-estimates]]"
+  - "[[render-strategy]]"
+  - "[[world-state-projection]]"
+---
+
 # ASCII Render Pipeline — Confirmed Intent
 
 > Interview-me output. Confirmed: yes.

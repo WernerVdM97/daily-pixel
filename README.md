@@ -62,6 +62,12 @@ Discord Bot (TypeScript)
 
 ---
 
+## Design docs
+
+The full design vault lives in [`docs/`](./docs/README.md) — vision, game mechanics, engine, UI, and decision records. Start with [`docs/README.md`](./docs/README.md) (the map of content) and [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) (how docs are organised).
+
+---
+
 ## License
 
 MIT — see [LICENSE](./LICENSE)
