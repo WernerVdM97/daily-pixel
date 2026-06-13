@@ -1,18 +1,14 @@
 ---
 title: The Warden's Oak — Pitch & Pillars
-status: exploring
+status: decided
 domain: vision
 phase: poc
 tags:
-- pitch
-- vision
-- pillars
-- thematic-dna
 - narrative
 related:
-- '[[core-loop]]'
+- '[[mvp-core-loop]]'
 - '[[world-setting]]'
-- '[[progression]]'
+- '[[mvp-progression]]'
 ---
 
 # The Warden's Oak

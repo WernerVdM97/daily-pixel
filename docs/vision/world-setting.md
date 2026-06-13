@@ -1,12 +1,13 @@
 ---
 title: World & Setting
 status: exploring
-domain: game
-tags: [world, setting, wardens-oak, threat, map]
+domain: vision
+tags:
+- narrative
 related:
-  - "[[npc-economy]]"
-  - "[[progression]]"
-  - "[[architecture]]"
+- '[[mvp-progression]]'
+- '[[mvp-architecture]]'
+phase: poc
 ---
 
 ## World & Setting
@@ -25,7 +26,7 @@ A **warden** tends it: an NPC who never leaves, never fights, never gives quests
 - Cryptic warden dialogue that deepens over the year
 - The most-trafficked node in the graph DB
 
-**The warden's secret:** They are not one person. The warden has been many people across centuries. The current warden is the *last*. When they die, the Oak dies. This is never stated directly — only implied through fragments and year-long observation.
+**The warden's secret:** They are not one person. The warden has been many people across centuries. The current warden is the *last*. When they die, the Oak dies. THIS IS NEVER STATED DIRECTLY — only implied through fragments and year-long observation.
 
 ### The Threat
 

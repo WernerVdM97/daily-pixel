@@ -1,11 +1,17 @@
 ---
 title: Render Engine — Size Estimates
 status: spark
-domain: engine
-tags: [render, png, mp4, discord, estimates]
+domain: spark
+tags:
+  - render
+  - png
+  - mp4
+  - discord
+  - estimates
 related:
-  - "[[ascii-render-pipeline]]"
+  - "[[mvp-ascii-render-pipeline]]"
   - "[[render-strategy]]"
+phase: mvp+
 ---
 
 # Render Engine — Size Estimates

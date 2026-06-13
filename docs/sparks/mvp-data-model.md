@@ -1,14 +1,16 @@
 ---
 title: Graph Data Model — Schema Reference
-status: exploring
-domain: engine
-tags: [data-model, graph-db, schema, sqlite, nodes, edges]
+status: spark
+domain: spark
+tags:
+- data-model
 related:
-  - "[[architecture]]"
-  - "[[world-state-projection]]"
-  - "[[social-model]]"
-  - "[[character-drivers]]"
-  - "[[moral-drift]]"
+- '[[mvp-architecture]]'
+- '[[mvp+world-state-projection]]'
+- '[[mvp-social-model]]'
+- '[[mvp-character-drivers]]'
+- '[[mvp+moral-drift]]'
+phase: mvp
 ---
  
 # Graph Data Model
@@ -37,7 +39,7 @@ stats:
 status:     active | resting | lost | dead
 stamina:    int 0-10
 moral_vector: {hope: -10..10, fear: -10..10, trust: -10..10, corruption: 0..10}
-alignment_label: string  # derived from moral_vector, see [[moral-drift]]
+alignment_label: string  # derived from moral_vector, see [[mvp+moral-drift]]
 portrait_asset: path
 ```
 
@@ -144,7 +146,7 @@ Data is deterministic, prose is cached LLM output. The graph stores both — ren
 
 ## Per-Entity Frontmatter Schema (Vault Projection)
 
-`render()` writes these fields into each entity's markdown file frontmatter. See [[world-state-projection]] for the full render model.
+`render()` writes these fields into each entity's markdown file frontmatter. See [[mvp+world-state-projection]] for the full render model.
 
 ### Character (PC)
 

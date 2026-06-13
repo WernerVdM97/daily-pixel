@@ -1,11 +1,13 @@
 ---
 title: Convergence, Climax & Player Lifecycle
-status: exploring
-domain: game
-tags: [progression, convergence, climax, lifecycle, december]
+status: spark
+domain: spark
+tags:
+- progression
 related:
-  - "[[core-loop]]"
-  - "[[world-setting]]"
+- '[[mvp-core-loop]]'
+- '[[world-setting]]'
+phase: mvp
 ---
 
 ## Convergence

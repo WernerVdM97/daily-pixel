@@ -1,12 +1,15 @@
 ---
 title: NPC Simulation & Town Economy
-status: exploring
-domain: game
-tags: [npc-sim, economy, simulation, town, fable]
+status: spark
+domain: spark
+tags:
+- social
+- simulation
 related:
-  - "[[world-state-projection]]"
-  - "[[social-model]]"
-  - "[[core-loop]]"
+- '[[mvp+world-state-projection]]'
+- '[[mvp-social-model]]'
+- '[[mvp-core-loop]]'
+phase: mvp+
 ---
 
 ## NPC Simulation & Town Economy
@@ -43,7 +46,7 @@ NIGHT → Sleep. Recover.
 | `flaws` | D&D-style personality flaw: greedy, cowardly, naive, proud, etc. Affects decision weights |
 | `ideals` | D&D-style driving belief: "community first," "knowledge is power," "wealth is security" |
 
-> **Canonical model — see [character-drivers.md](../engine/character-drivers.md) and [social-model.md](../engine/social-model.md).** The list above is a summary. How each of these drivers is actually typed — which are enums, which are edges, which are cached prose — and the precise distinction between `sentiment`, `bonds`, and `relationships`, is defined there. Treat those files as the source of truth; this table is illustrative.
+> **Canonical model — see [[mvp-character-drivers]] and [[mvp-social-model]].** The list above is a summary. How each of these drivers is actually typed — which are enums, which are edges, which are cached prose — and the precise distinction between `sentiment`, `bonds`, and `relationships`, is defined there. Treat those files as the source of truth; this table is illustrative.
 
 ### Weekly LLM Sentiment Update
 

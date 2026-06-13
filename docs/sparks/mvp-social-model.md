@@ -1,17 +1,20 @@
 ---
 title: Sentiment, Bonds & Relationships
-status: exploring
-domain: engine
-tags: [sentiment, bonds, relationships, social, edges, data-model]
+status: spark
+domain: spark
+tags:
+- social
+- data-model
 related:
-  - "[[world-state-projection]]"
-  - "[[character-drivers]]"
-  - "[[moral-drift]]"
+- '[[mvp+world-state-projection]]'
+- '[[mvp-character-drivers]]'
+- '[[mvp+moral-drift]]'
+phase: mvp
 ---
 
 ## Sentiment, Bonds & Relationships
 
-Three axes that are easy to conflate but do different jobs. Keeping them separate is what lets the social simulation run deterministically — and it's the substrate the moral system ([[moral-drift]]) acts on.
+Three axes that are easy to conflate but do different jobs. Keeping them separate is what lets the social simulation run deterministically — and it's the substrate the moral system ([[mvp+moral-drift]]) acts on.
 
 | | Lives in | Directed? | Affective? | Answers |
 |---|---|---|---|---|

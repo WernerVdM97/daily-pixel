@@ -1,12 +1,16 @@
 ---
 title: Moral Drift — Alignment as a Derived Label
-status: exploring
-domain: engine
-tags: [moral-drift, alignment, corruption, governor, data-model]
+status: spark
+domain: spark
+tags:
+- moral
+- characters
+- data-model
 related:
-  - "[[world-state-projection]]"
-  - "[[character-drivers]]"
-  - "[[social-model]]"
+- '[[mvp+world-state-projection]]'
+- '[[mvp-character-drivers]]'
+- '[[mvp-social-model]]'
+phase: mvp+
 ---
 
 ## Moral Drift — Alignment as a Derived Label
@@ -42,7 +46,7 @@ Optional, on-theme for a dice game: gate big discrete temptations behind a **mor
 
 **World mechanic — ambient corruption.** `world_pressure` is the lever a world mechanic pulls. Proximity to the Threat applies a constant `good −p` each tick: linger near the rising evil and you drift dark *whether you act or not* — your conscience now fights an external field, not just your own choices. This is the Castlevania/Barovia premise, and the source campaign records it directly: a character "accepted the dark gift" and gained `vampirism` / `lichdom` traits. A **dark gift** is just a discrete large-delta event plus a trait flag that can flip the bucket.
 
-**Ripple — moral drift reshapes the three axes in [[social-model]], for free:**
+**Ripple — moral drift reshapes the three axes in [[mvp-social-model]], for free:**
 
 | Drift effect | Mechanism | Result |
 |---|---|---|
@@ -52,7 +56,7 @@ Optional, on-theme for a dice game: gate big discrete temptations behind a **mor
 
 **When the LLM gets paid:** never for the drift — it is pure data. Only on a **threshold crossing** (the bucket actually flips, or behavior diverges sharply from the ideal): generate one cached beat — *"Garrick catches his own reflection and doesn't recognize the man holding the coin"* — append it to the C log, reuse forever. A full corruption system, emergent, at ~0 marginal token cost.
 
-**Schema — added to the source-of-truth driver block in [[character-drivers]]:**
+**Schema — added to the source-of-truth driver block in [[mvp-character-drivers]]:**
 
 ```yaml
 moral_position: {law: -12, good: 41}   # the continuous truth — drifts each tick

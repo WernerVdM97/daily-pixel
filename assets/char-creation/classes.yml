@@ -1,0 +1,23 @@
+# Character classes — loaded by /join wizard
+# modifiers: Physical (DEX+CON+STR), Wisdom, Intelligence, Charisma
+# starting_items: references item IDs from item-sets.yml
+
+- name: Warrior
+  description: Blade and shield. Front line. The first in and the last out.
+  modifiers: { physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }
+
+- name: Ranger
+  description: Bow and beast. The wilds are home. You read tracks like others read letters.
+  modifiers: { physical: 1, wisdom: 2, intelligence: 0, charisma: -1 }
+
+- name: Wizard
+  description: Arcane and ancient. The old words still work — if you dare speak them.
+  modifiers: { physical: -2, wisdom: 0, intelligence: 3, charisma: 0 }
+
+- name: Bard
+  description: Song and story. A well-told tale opens more doors than any key.
+  modifiers: { physical: -1, wisdom: 0, intelligence: 1, charisma: 2 }
+
+- name: Priest
+  description: Faith and flame. The old gods are quiet — but not gone.
+  modifiers: { physical: 0, wisdom: 2, intelligence: 0, charisma: 1 }

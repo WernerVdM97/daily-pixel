@@ -1,12 +1,14 @@
 ---
 title: Core Loop — Rolls, Weekly Rhythm, Co-op
-status: exploring
-domain: game
-tags: [core-loop, rolls, weekly-rhythm, co-op, auto-sim, stamina]
+status: spark
+domain: spark
+tags:
+- game-design
 related:
-  - "[[progression]]"
-  - "[[world-setting]]"
-  - "[[npc-economy]]"
+- '[[mvp-progression]]'
+- '[[world-setting]]'
+- '[[mvp+npc-economy]]'
+phase: mvp
 ---
 
 ## Game Mechanics

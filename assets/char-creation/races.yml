@@ -1,0 +1,17 @@
+# Character races — loaded by /join wizard
+
+- name: Human
+  description: The most common folk. Adaptable, ambitious, everywhere.
+  modifiers: { physical: 0, wisdom: 0, intelligence: 0, charisma: 1 }
+
+- name: Dwarf
+  description: Stone and steel. Stocky, stubborn, unshakeable.
+  modifiers: { physical: 1, wisdom: 1, intelligence: 0, charisma: -2 }
+
+- name: Elf
+  description: Grace and age. You've seen centuries. The Oak was a sapling when you were young.
+  modifiers: { physical: -1, wisdom: 1, intelligence: 1, charisma: 0 }
+
+- name: Halfling
+  description: Small and lucky. The world is big — you've learned to slip through the cracks.
+  modifiers: { physical: -2, wisdom: 0, intelligence: 0, charisma: 2 }

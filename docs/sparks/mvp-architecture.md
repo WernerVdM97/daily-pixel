@@ -1,12 +1,17 @@
 ---
 title: Technical Architecture (High Level)
-status: exploring
-domain: engine
-tags: [architecture, graph-db, llm, tokens, ascii, sqlite]
+status: spark
+domain: spark
+tags:
+- engine
+- data-model
+- llm
+- ascii
 related:
-  - "[[world-state-projection]]"
-  - "[[ascii-render-pipeline]]"
-  - "[[hazard-map]]"
+- '[[mvp+world-state-projection]]'
+- '[[mvp-ascii-render-pipeline]]'
+- '[[hazard-map]]'
+phase: mvp
 ---
 
 ## Technical Architecture (High Level)
@@ -116,7 +121,7 @@ Edge types:
 
 The LLM receives only the subgraph reachable within 2 hops of the current context. A player at the Oak sees: Oak → warden, nearby characters, recent quests, known locations within travel range. Not the entire kingdom.
 
-> **World state projection.** This same graph is mirrored into a browsable, Obsidian-style markdown vault — one file per entity, `[[wikilinks]]` as edges — rendered deterministically each tick at ~0 LLM tokens, so the whole world's state is viewable at a glance. See [world-state-projection.md](world-state-projection.md) for the render model, the data-vs-prose split, the D&D character-driver tiers, and an example template.
+> **World state projection.** This same graph is mirrored into a browsable, Obsidian-style markdown vault — one file per entity, `[[wikilinks]]` as edges — rendered deterministically each tick at ~0 LLM tokens, so the whole world's state is viewable at a glance. See [world-state-projection.md](mvp+world-state-projection.md) for the render model, the data-vs-prose split, the D&D character-driver tiers, and an example template.
 
 ### ASCII Art Engine
 

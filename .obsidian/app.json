@@ -10,5 +10,6 @@
     "agent/"
   ],
   "showUnsupportedFiles": true,
-  "showLineNumber": true
+  "showLineNumber": true,
+  "alwaysUpdateLinks": true
 }

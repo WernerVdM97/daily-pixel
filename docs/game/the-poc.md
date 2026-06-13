@@ -1,15 +1,18 @@
 ---
 title: The POC — One-Week Proof of Concept
 status: exploring
-domain: vision
+domain: game
 phase: poc
-tags: [poc, scope, implementation, roadmap]
+tags:
+- poc
+- scope
+- build-plan
 related:
-  - "[[architecture]]"
-  - "[[core-loop]]"
-  - "[[discord-ux]]"
-  - "[[hazard-map]]"
-  - "[[pitch-and-pillars]]"
+- '[[mvp-architecture]]'
+- '[[mvp-core-loop]]'
+- '[[poc-discord-ux]]'
+- '[[hazard-map]]'
+- '[[pitch-and-pillars]]'
 ---
 
 # The POC — One-Week Proof of Concept
@@ -57,43 +60,50 @@ Calling `/hi` after an action, just resumes the last state of the action (unless
 
 #### Opening Scene — `/hi`
 
+Always opens with pure atmosphere, then presents contextual day-job hooks after the player clicks [Begin].
+
 ```
 /hi
   │
   ▼
 ┌──────────────────────────────────────┐
-│  MESSAGE 1 — The Warden's Oak        │
+│  MESSAGE 1 — The Oak (atmosphere)    │
 │                                      │
 │  [oak.ascii]                         │
 │                                      │
 │  The fire has been burning since     │
 │  before you arrived. The warden —    │
-│  silent, hooded — sets down a cup.   │
-│  Inside: not water. A single ember,  │
-│  glowing faintly.                    │
+│  silent, hooded — tends the flames.  │
+│  They don't look up. Not yet.        │
 │                                      │
-│  "You're the last," says the warden. │
-│  "The others came through weeks ago. │
-│  East, toward the smoke."            │
+│  [Begin]                             │
+└──────────────────┬───────────────────┘
+                   │ Player clicks
+                   ▼
+┌──────────────────────────────────────┐
+│  MESSAGE 2 — Warden + Day-job hooks  │
 │                                      │
-│  They look at you. Then east.        │
+│  The warden sets down a cup. Inside: │
+│  not water. A single ember.          │
 │                                      │
-│  ⚔️ Kaelen — Warrior                 │
-│  Rolls today: 2/2                    │
+│  "You're the last."                 │
+│  "The others went east."            │
 │                                      │
-│  [Go east]  [Rest here]  [Scout]     │
-│  [Hunt]     [Talk to warden]         │
+│  ⚔️ Kaelen — Town Guard (10c)       │
+│  Rolls: 2/2 · Stamina: 9/10          │
+│                                      │
+│  [Patrol the walls] [Check east gate]│
+│  [Train at barracks] [Something…]    │
 └──────────────────────────────────────┘
 ```
 
-**The opening scene does three things:** introduces the world (the Oak, the warden, the ember), establishes the stakes (the smoke, the others who went ahead), and drops the player straight into their first decision — no tutorial, no lore dump.
+**Message 1 is pure atmosphere.** The player arrives, takes in the Oak, then chooses to begin. No decisions yet — just presence.
 
-The action buttons in the opening scene map directly to `/action <type>`:
-- `[Go east]` → `/action travel`
-- `[Rest here]` → `/action rest`
-- `[Scout]` → `/action scout`
-- `[Hunt]` → `/action hunt`
-- `[Talk to warden]` → `/action talk`
+**Message 2 is the decision point, rooted in who the character is.** The hooks are contextual to the player's day-job (loaded from `day-jobs.yml`). A Town Guard gets patrol/gate/barracks. A Hunter gets tracking/trapping/snares. A Scribe gets cataloging/letters/maps. The final button [Something else…] opens free `/action` choices.
+
+**Weekdays** show job hooks. **Weekends** (Friday–Sunday) show open-ended adventure hooks instead — travel, scout, hunt, talk. No guaranteed income, higher risk/reward.
+
+**Repeated `/hi`** on the same day returns the cached scene. **Mid-action resumption:** if the player disconnected mid-action, [Begin] resumes from the last decision. Timed-out actions show the failed outcome.
 
 #### Action Flow
 

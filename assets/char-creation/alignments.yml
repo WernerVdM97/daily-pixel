@@ -1,0 +1,38 @@
+# Character alignments — loaded by /join wizard
+# Rendered as a 3×3 grid of buttons
+
+- name: Lawful Good
+  axis: [lawful, good]
+  description: Order and compassion. The code is the shield.
+
+- name: Neutral Good
+  axis: [neutral, good]
+  description: Kindness above all. Rules are tools, not masters.
+
+- name: Chaotic Good
+  axis: [chaotic, good]
+  description: Freedom and mercy. Break the law to save the innocent.
+
+- name: Lawful Neutral
+  axis: [lawful, neutral]
+  description: Order is its own virtue. The code, always.
+
+- name: True Neutral
+  axis: [neutral, neutral]
+  description: Balance. You walk the middle road.
+
+- name: Chaotic Neutral
+  axis: [chaotic, neutral]
+  description: Impulse and instinct. No master, no chain.
+
+- name: Lawful Evil
+  axis: [lawful, evil]
+  description: Cruelty within the rules. The system serves you.
+
+- name: Neutral Evil
+  axis: [neutral, evil]
+  description: Selfishness without restraint. You take what you want.
+
+- name: Chaotic Evil
+  axis: [chaotic, evil]
+  description: Destruction for its own sake. The world burns.

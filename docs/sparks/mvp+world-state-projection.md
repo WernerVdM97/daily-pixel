@@ -1,14 +1,19 @@
 ---
 title: The Vault View — World State Projection
-status: exploring
-domain: engine
-tags: [render, vault, graph-db, markdown, tokens, projection]
+status: spark
+domain: spark
+tags:
+- ascii
+- vault
+- data-model
+- llm
 related:
-  - "[[character-drivers]]"
-  - "[[social-model]]"
-  - "[[moral-drift]]"
-  - "[[ascii-render-pipeline]]"
-  - "[[pitch-and-pillars]]"
+- '[[mvp-character-drivers]]'
+- '[[mvp-social-model]]'
+- '[[mvp+moral-drift]]'
+- '[[mvp-ascii-render-pipeline]]'
+- '[[pitch-and-pillars]]'
+phase: mvp+
 ---
 
 # The Vault View — World State Projection
@@ -17,7 +22,7 @@ related:
 
 ---
 
-A companion to [pitch-and-pillars.md](../vision/pitch-and-pillars.md). That doc describes *what* the world is. This one describes how the entire living world — every PC, NPC, location, item, and quest — is mirrored into a browsable Obsidian-style markdown vault **without spending a meaningful number of LLM tokens.**
+A companion to [[pitch-and-pillars.md]]. That doc describes *what* the world is. This one describes how the entire living world — every PC, NPC, location, item, and quest — is mirrored into a browsable Obsidian-style markdown vault **without spending a meaningful number of LLM tokens.**
 
 The reference is a real year-long Curse of Strahd campaign archive: one markdown file per entity, `[[wikilinks]]` between them, aggregate roll-up files (a party sheet, a quest list, a session log), published as a static site. That vault was hand-written by a human DM. Ours is **rendered automatically from the graph DB** — but it should *read* as if a careful chronicler kept it.
 

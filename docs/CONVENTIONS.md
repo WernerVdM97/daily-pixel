@@ -18,7 +18,7 @@ domain: engine           # vision | game | engine | ui | spark
 phase: mvp               # poc | mvp | mvp+ — when this is targeted for implementation
 tags: [render, vault]    # free-form, lowercase, for cross-cutting search
 related:                 # wikilinks to sibling docs
-  - "[[world-state-projection]]"
+  - "[[mvp+world-state-projection]]"
 # --- optional, only when they apply ---
 supersedes: "[[old-doc]]"
 superseded_by: "[[new-doc]]"

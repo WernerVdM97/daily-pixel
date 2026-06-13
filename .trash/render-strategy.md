@@ -1,11 +1,18 @@
 ---
 title: "Render Strategy: ASCII for POC, PNG/MP4 deferred"
-status: decided
-domain: engine
-tags: [decision, render, ascii, png, mp4, scope]
+status: spark
+domain: spark
+tags:
+  - decision
+  - render
+  - ascii
+  - png
+  - mp4
+  - scope
 related:
-  - "[[ascii-render-pipeline]]"
+  - "[[mvp-ascii-render-pipeline]]"
   - "[[render-engine-estimates]]"
+phase: poc
 ---
 
 # Decision: Render Strategy
@@ -14,7 +21,7 @@ related:
 
 Two render docs appeared to contradict each other:
 
-- **[[ascii-render-pipeline]]** (`decided`) scopes the visual layer as **ASCII-only** in Discord code blocks, and explicitly lists PNG generation and video/MP4 as *out of scope*.
+- **[[mvp-ascii-render-pipeline]]** (`decided`) scopes the visual layer as **ASCII-only** in Discord code blocks, and explicitly lists PNG generation and video/MP4 as *out of scope*.
 - **[[render-engine-estimates]]** (`spark`) measures **server-side PNG and MP4** file sizes against Discord upload limits — exactly the thing the pipeline doc rules out.
 
 Left unreconciled, this is the textbook slop pattern: two docs pulling opposite directions with no record of which wins.

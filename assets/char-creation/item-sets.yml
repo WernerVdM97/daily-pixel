@@ -1,0 +1,29 @@
+# Starting item sets — loaded by /join wizard
+
+- name: Soldier's Kit
+  description: Standard issue. Nothing fancy, nothing missing.
+  items:
+    - { name: Iron Sword, emoji: "⚔️" }
+    - { name: Wooden Shield, emoji: "🛡️" }
+    - { name: Travel Rations, emoji: "🍞", quantity: 3 }
+
+- name: Hunter's Kit
+  description: For the wilds. Light, quiet, practical.
+  items:
+    - { name: Hunter's Bow, emoji: "🏹" }
+    - { name: Trapping Kit, emoji: "🪤" }
+    - { name: Herbal Poultice, emoji: "🌿", quantity: 2 }
+
+- name: Scholar's Kit
+  description: Ink and insight. Knowledge weighs nothing but buys everything.
+  items:
+    - { name: Leather Journal, emoji: "📖" }
+    - { name: Ink & Quill, emoji: "🖋️" }
+    - { name: Old Map Fragment, emoji: "🗺️" }
+
+- name: Traveler's Kit
+  description: For the road. Light pack, quick feet.
+  items:
+    - { name: Walking Staff, emoji: "🦯" }
+    - { name: Cloak, emoji: "🧥" }
+    - { name: Coin Pouch, emoji: "👛", quantity: 5 }

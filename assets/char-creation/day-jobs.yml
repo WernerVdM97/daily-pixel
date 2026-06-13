@@ -1,0 +1,43 @@
+# Day jobs — loaded by /join wizard
+# Performance depends on the listed stats (higher stats = better income / outcomes).
+# Player picks one during character creation. Can be abandoned for risky actions.
+
+- name: Town Guard
+  depends_on: [physical]
+  base_income: 10
+  description: Patrol the walls. Break up tavern brawls. The town sleeps safer.
+
+- name: Blacksmith
+  depends_on: [physical]
+  base_income: 10
+  description: Hammer and anvil. Every town needs one. Every blade remembers your name.
+
+- name: Hunter
+  depends_on: [physical, wisdom]
+  base_income: 8
+  description: Track game in the eastern woods. The Oak's larder depends on you.
+
+- name: Scribe
+  depends_on: [intelligence]
+  base_income: 12
+  description: Copy manuscripts. Translate old tongues. The warden's library is yours.
+
+- name: Herbalist
+  depends_on: [wisdom]
+  base_income: 8
+  description: Gather roots and remedies. The sick come to you before the priest.
+
+- name: Minstrel
+  depends_on: [charisma]
+  base_income: 9
+  description: Play the taverns. Carry news between towns. Every song is a secret.
+
+- name: Merchant
+  depends_on: [charisma, intelligence]
+  base_income: 14
+  description: Buy low in Stonebridge, sell high at the Oak. Coin before creed.
+
+- name: Acolyte
+  depends_on: [wisdom, charisma]
+  base_income: 7
+  description: Tend the shrine. Bless the harvest. The people need someone to believe in.

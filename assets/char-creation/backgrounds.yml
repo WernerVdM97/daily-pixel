@@ -1,0 +1,26 @@
+# Character backgrounds (upbringing) — loaded by /join wizard
+# How you grew up. Shapes your stats, not your current job.
+
+- name: Soldier
+  description: Raised in a military family. Discipline was your first language. The scars are your father's.
+  modifiers: { physical: 1, wisdom: 0, intelligence: -1, charisma: 0 }
+
+- name: Merchant
+  description: Grew up behind a counter. You could read a ledger before you could read a story.
+  modifiers: { physical: -1, wisdom: 0, intelligence: 1, charisma: 1 }
+
+- name: Scholar
+  description: Books over breakfast. Your parents taught you the old tongues — some of them true.
+  modifiers: { physical: -1, wisdom: 0, intelligence: 2, charisma: -1 }
+
+- name: Folk Hero
+  description: Common blood, uncommon courage. Your village still tells stories about the fire you pulled them from.
+  modifiers: { physical: 0, wisdom: 0, intelligence: 0, charisma: 1 }
+
+- name: Outcast
+  description: You grew up on the edge of things. The forest taught you what people wouldn't.
+  modifiers: { physical: 0, wisdom: 1, intelligence: 0, charisma: -1 }
+
+- name: Noble
+  description: Manor-born. You learned poise, politics, and how to make a room listen.
+  modifiers: { physical: -1, wisdom: -1, intelligence: 1, charisma: 2 }

@@ -1,9 +1,11 @@
 ---
 title: 
 status: spark            # spark | exploring | decided | superseded
-domain:                  # vision | game | engine | ui
+domain: spark            # vision | game | engine | ui | spark
+phase: mvp               # poc | mvp | mvp+
 tags: []
 related: []
+---
 ---
 
 start here
@@ -11,4 +13,3 @@ start here
 ---
 
 footer
-

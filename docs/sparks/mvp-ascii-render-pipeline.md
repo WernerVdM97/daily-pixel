@@ -1,12 +1,14 @@
 ---
 title: ASCII Render Pipeline — Confirmed Intent
-status: decided
-domain: engine
-tags: [render, ascii, discord, poc]
+status: spark
+domain: spark
+tags:
+- ascii
+- discord
+- poc
 related:
-  - "[[render-engine-estimates]]"
-  - "[[render-strategy]]"
-  - "[[world-state-projection]]"
+- '[[mvp+world-state-projection]]'
+phase: mvp
 ---
 
 # ASCII Render Pipeline — Confirmed Intent
@@ -58,6 +60,7 @@ ascii-image-converter <image> -W 30 -g --map " .:-=+*#@" 2>&1 | sed 's/\x1b\[[0-
 - `sed` strips ANSI escape codes for Discord code blocks
 
 **Render split:**
+
 | Source | Method |
 |--------|--------|
 | Character portraits | photo → ascii-image-converter → strip ANSI → code block |

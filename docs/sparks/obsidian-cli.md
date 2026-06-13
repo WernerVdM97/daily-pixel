@@ -1,10 +1,13 @@
 ---
 title: Obsidian CLI
 status: spark
-domain: engine
-tags: [tooling, automation, cli, vault]
+domain: spark
+tags:
+- engine
+- vault
 related:
-  - "[[CONVENTIONS]]"
+- '[[CONVENTIONS]]'
+phase: poc
 ---
 
 # Obsidian CLI
