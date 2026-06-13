@@ -1,6 +1,6 @@
 ---
 name: multiplayer
-description: Multiplayer game development principles. Architecture, networking, synchronization.
+description: Co-op multiplayer principles for a server-authoritative, async/turn-based game. Architecture, state sync, server authority.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 ---
 
@@ -24,11 +24,13 @@ What type of multiplayer?
 │   └── Host-based (one player is server)
 │
 ├── Turn-based
-│   └── Client-server (simple)
+│   └── Client-server (simple)        ← this game
 │
 └── Massive (MMO)
     └── Distributed servers
 ```
+
+This game is **co-op + turn-based**: one authoritative server (the Discord bot + graph DB) owns all state; Discord is the client. There is no live session to host — just scheduled ticks — so it gets dedicated-server *authority* at near-zero hosting cost.
 
 ### Comparison
 
@@ -50,82 +52,42 @@ What type of multiplayer?
 | **Input Sync** | Player inputs | Action games |
 | **Hybrid** | Both | Most games |
 
-### Lag Compensation
-
-| Technique | Purpose |
-|-----------|---------|
-| **Prediction** | Client predicts server |
-| **Interpolation** | Smooth remote players |
-| **Reconciliation** | Fix mispredictions |
-| **Lag compensation** | Rewind for hit detection |
+This game is **State Sync** — the graph *is* the state, and a tick simply produces the next state. (The source's *lag compensation* — prediction, interpolation, reconciliation, hit-rewind — does not apply: nothing happens between ticks, so there is no lag to hide.)
 
 ---
 
-## 3. Network Optimization
-
-### Bandwidth Reduction
-
-| Technique | Savings |
-|-----------|---------|
-| **Delta compression** | Send only changes |
-| **Quantization** | Reduce precision |
-| **Priority** | Important data first |
-| **Area of interest** | Only nearby entities |
-
-### Update Rates
-
-| Type | Rate |
-|------|------|
-| Position | 20-60 Hz |
-| Health | On change |
-| Inventory | On change |
-| Chat | On send |
-
----
-
-## 4. Security Principles
+## 3. Security Principles
 
 ### Server Authority
 
 ```
-Client: "I hit the enemy"
-Server: Validate → did projectile actually hit?
-         → was player in valid state?
-         → was timing possible?
+Client: "I rolled a 20 and looted the sword"
+Server: Validate → did the roll engine actually produce that result?
+         → was the PC in a valid state/location to act?
+         → does the item exist and belong here?
 ```
+
+The bot rolls the dice and owns the graph; a client can never assert an outcome.
 
 ### Anti-Cheat
 
 | Cheat | Prevention |
 |-------|------------|
-| Speed hack | Server validates movement |
-| Aimbot | Server validates sight line |
-| Item dupe | Server owns inventory |
-| Wall hack | Don't send hidden data |
+| Forged roll | Server rolls; clients never submit results |
+| Item dupe | Server owns inventory (graph edges) |
+| Acting while lost/dead | Server validates PC state before any action |
+
+(Real-time exploits — speed hacks, aimbots, wall hacks — don't exist in a turn-based text game.)
 
 ---
 
-## 5. Matchmaking
-
-### Considerations
-
-| Factor | Impact |
-|--------|--------|
-| **Skill** | Fair matches |
-| **Latency** | Playable connection |
-| **Wait time** | Player patience |
-| **Party size** | Group play |
-
----
-
-## 6. Anti-Patterns
+## 4. Anti-Patterns
 
 | ❌ Don't | ✅ Do |
 |----------|-------|
 | Trust the client | Server is authority |
-| Send everything | Send only necessary |
-| Ignore latency | Design for 100-200ms |
-| Sync exact positions | Interpolate/predict |
+| Let a client submit a roll or result | Server rolls and validates |
+| Send everything every tick | Deliver only what changed, batched into 1-2 messages |
 
 ---
 
