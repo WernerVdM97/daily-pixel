@@ -14,7 +14,8 @@ Using `docs/templates/doc-template.md`;
 ---
 title: Human-readable title
 status: spark            # spark | exploring | decided | superseded
-domain: engine           # vision | game | engine | ui
+domain: engine           # vision | game | engine | ui | spark
+phase: mvp               # poc | mvp | mvp+ — when this is targeted for implementation
 tags: [render, vault]    # free-form, lowercase, for cross-cutting search
 related:                 # wikilinks to sibling docs
   - "[[world-state-projection]]"
@@ -24,7 +25,17 @@ superseded_by: "[[new-doc]]"
 ---
 ```
 
-`title`, `status`, `domain` are **required**. `tags` and `related` are strongly encouraged. The `supersedes` / `superseded_by` pair appears only on docs involved in a replacement.
+`title`, `status`, `domain` are **required**. `tags`, `phase`, and `related` are strongly encouraged. The `supersedes` / `superseded_by` pair appears only on docs involved in a replacement.
+
+### `phase` — the implementation target
+
+| phase | Meaning |
+|---|---|
+| `poc` | Essential for a short proof-of-concept. Ship or die. |
+| `mvp` | Core game loop, needed before anyone plays for real. |
+| `mvp+` | Polish, depth, and deferred features. Only after POC survives. |
+
+`phase` is orthogonal to `status`. A doc can be `status: spark, phase: poc` (raw idea, but essential) or `status: exploring, phase: mvp+` (fleshed-out, but deferred).
 
 That's the whole template. No required body sections — write the body in whatever shape the idea wants.
 
@@ -58,7 +69,7 @@ to describe lists.
 
 ## 2. `status` — the maturity signal (lives here, never in the folder)
 
-A doc never moves between folders as it matures. Its maturity is this one field.
+A doc only moves between folders once as it matures from a spark. Its maturity is further tagged in this one field.
 
 | status | Meaning | Trust it to… |
 |---|---|---|
@@ -80,7 +91,7 @@ A doc never moves between folders as it matures. Its maturity is this one field.
 | `engine/` | `engine` | Graph DB, render, simulation, LLM gateway, data model. The "how it runs." |
 | `ui/` | `ui` | Discord UX, command flows, ASCII presentation, and `ui/mockups/`. |
 | `decisions/` | — | Decision records (ADRs): cross-cutting trade-offs that have been resolved. |
-| `sparks/` | — | Unsorted inbox. Raw dumps that haven't earned a domain yet. |
+| `sparks/` | `spark` | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
 
 `domain` in frontmatter always matches the folder the file sits in.
 
@@ -88,9 +99,11 @@ A doc never moves between folders as it matures. Its maturity is this one field.
 
 ## 4. The sparks → domain flow
 
-1. New idea, not sure where it belongs? → drop it in `sparks/` with `status: spark`.
-2. When it earns a clear domain, **`git mv`** it into that folder and bump `status` to `exploring`.
+1. New idea → drop it in `sparks/` with `status: spark`, `domain: spark`.
+2. When it earns a clear domain and firm direction, **`git mv`** it into that folder and bump `status` to `exploring` (or `decided`).
 3. When it becomes the direction → `status: decided`.
+
+**During Phase 1 (design), all docs live in `sparks/`.** The domain folders (`vision/`, `game/`, `engine/`, `ui/`) are empty — reserved for Phase 2 when design crystallizes into implementation. This keeps the repo honest: we're designing, not pretending to have a codebase.
 
 Sparks are allowed to be messy and to contradict each other. The other folders are not.
 
@@ -112,7 +125,7 @@ This is the single most important anti-slop habit: **contradictions become one d
 
 - **Filenames:** `kebab-case.md`, descriptive, one topic per file. No dates in the name (that's git's job).
 - **Links:** use Obsidian-style `[[doc-name]]` (filename, no path/extension) in `related` and prose — on-theme with the vault and resilient to moves. Plain relative links work too for GitHub rendering.
-- **Assets:** images live in an `assets/` folder inside their domain (e.g. `engine/assets/`), or `ui/mockups/` for mockups. Name them after the doc they support.
+- **Assets:** images live in `docs/assets/`. Name them after the doc they support.
 
 ---
 
