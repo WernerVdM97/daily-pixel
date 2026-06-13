@@ -1,0 +1,9 @@
+{
+  "tabSize": 2,
+  "useTab": false,
+  "openBehavior": "file:docs/README",
+  "newFileLocation": "folder",
+  "newFileFolderPath": "docs/sparks",
+  "attachmentFolderPath": "./assets/new",
+  "trashOption": "local"
+}

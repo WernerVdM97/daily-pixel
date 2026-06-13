@@ -46,6 +46,7 @@ _Where conflicts get settled, once._
 _Unsorted, allowed to be messy. Promote into a domain when it earns one._
 
 - 🌱 [Login Streaks](./sparks/login-streaks.md) — reward consecutive logins (e.g. the bonus roll in the example scene). To be scoped.
+- 🌱 [Obsidian CLI](./sparks/obsidian-cli.md) — using Obsidian CLI for vault automation, frontmatter linting, MOC generation, and agentic access.
 
 ---
 
