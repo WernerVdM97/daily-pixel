@@ -8,6 +8,8 @@ The deal is simple: **bodies are free-form** (dump ideas however you like), but 
 
 ## 1. Every file starts with frontmatter
 
+Using `docs/templates/doc-template.md`;
+
 ```yaml
 ---
 title: Human-readable title
@@ -25,6 +27,32 @@ superseded_by: "[[new-doc]]"
 `title`, `status`, `domain` are **required**. `tags` and `related` are strongly encouraged. The `supersedes` / `superseded_by` pair appears only on docs involved in a replacement.
 
 That's the whole template. No required body sections — write the body in whatever shape the idea wants.
+
+### Todo list flavours:
+
+Where thematically applicable use:
+
+- [ ] to-do
+- [/] incomplete
+- [x] done
+- [-] canceled
+- [x] forwarded
+- [<] scheduling
+- [?] question
+- [!] important
+- [*] star
+- ["] quote
+- [l] location
+- [b] bookmark
+- [i] information
+- [S] savings
+- [I] idea
+- [p] pros
+- [c] cons
+- [u] up
+- [d] down
+
+to describe lists.
 
 ---
 
