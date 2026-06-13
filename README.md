@@ -10,6 +10,8 @@ A daily Discord RPG where strangers become a fellowship — decisions, dice roll
 
 ## Roadmap
 
+See [[docs/README|README]] for current progress.
+
 | Phase                   | What                                                                                            | Status  |
 | ----------------------- | ----------------------------------------------------------------------------------------------- | ------- |
 | **Phase 1 — Design**    | Explore mechanics, engine, UX, and world.<br>All docs live in [`docs/sparks/`](./docs/sparks/). | Ongoing |
