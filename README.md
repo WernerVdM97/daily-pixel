@@ -6,7 +6,10 @@
 
 A daily Discord RPG where strangers become a fellowship — decisions, dice rolls, one tree at a crossroads, and trouble waking in the east.
 
-See [gameplay loop](./docs/assets/core-loop.png) explained in a picture.
+## Visual Guides
+
+ - [gameplay loop](./docs/assets/core-loop.png)
+ - [character creation](./docs/assets/character-creation.png)
 
 ---
 
