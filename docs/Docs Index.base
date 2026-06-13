@@ -1,0 +1,44 @@
+filters:
+  and:
+    - file.ext == "md"
+    - file.inFolder("docs")
+    - file.name != "README.md"
+    - file.name != "CONVENTIONS.md"
+formulas:
+  Untitled: ""
+properties:
+  title:
+    displayName: Title
+  status:
+    displayName: Status
+  domain:
+    displayName: Domain
+  tags:
+    displayName: Tags
+  file.folder:
+    displayName: Folder
+views:
+  - type: table
+    name: By Domain
+    groupBy:
+      property: domain
+      direction: ASC
+    order:
+      - status
+      - title
+      - file.tags
+    sort:
+      - property: title
+        direction: ASC
+      - property: status
+        direction: ASC
+    columnSize:
+      note.title: 420
+  - type: table
+    name: By Status
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - domain
+      - title
