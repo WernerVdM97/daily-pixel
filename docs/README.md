@@ -26,7 +26,7 @@ _How it **runs** under the hood._
 - 🔭 [Technical Architecture](./engine/architecture.md) — the high-level system diagram, token-optimization strategy, graph DB schema, ASCII art engine.
 - 🔭 [Graph Data Model — Schema Reference](./engine/data-model.md) — standalone reference: all node types, edge types, per-entity frontmatter schema, query patterns.
 - 🔭 [The Vault View — World State Projection](./engine/world-state-projection.md) — graph DB → markdown vault at ~0 tokens; the render pipeline, data-vs-prose split, two mechanisms.
-- 🔭 [Character Drivers — the D&D Layer](./engine/character-drivers.md) — how alignment/class/ideals/flaws/bonds are modeled along the data↔prose spectrum.
+- 🔭 [Character Drivers — the D&D Layer](./engine/character-drivers.md) — how alignment/class/ideals/flaws/bonds are modeled along the data ↔ prose spectrum.
 - 🔭 [Sentiment, Bonds & Relationships](./engine/social-model.md) — the three social axes and how each updates and drives the sim.
 - 🔭 [Moral Drift](./engine/moral-drift.md) — continuous moral vector, derived alignment label, the governor loop, ambient corruption.
 - ✅ [ASCII Render Pipeline](./engine/ascii-render-pipeline.md) — confirmed POC render path: photos → ASCII via CLI → Discord code blocks.
