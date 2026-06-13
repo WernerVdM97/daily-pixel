@@ -5,5 +5,8 @@
   "newFileLocation": "folder",
   "newFileFolderPath": "docs/sparks",
   "attachmentFolderPath": "./assets/new",
-  "trashOption": "local"
+  "trashOption": "local",
+  "userIgnoreFilters": [
+    "agent/"
+  ]
 }
