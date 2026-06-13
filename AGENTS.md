@@ -1,6 +1,6 @@
 This repo is the design vault for **The Warden's Oak**.
 
-When creating or editing any doc under `docs/`, follow the conventions in
+When creating or editing ANY doc under `docs/`, **read and follow** the conventions in
 **[docs/CONVENTIONS.md](./docs/CONVENTIONS.md)** — most importantly:
 
 - every doc carries frontmatter (`title`, `status`, `domain` required);
