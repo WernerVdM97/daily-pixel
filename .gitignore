@@ -1,0 +1,6 @@
+# Obsidian — personal config
+.obsidian/*
+!.obsidian/app.json
+!.obsidian/core-plugins.json
+!.obsidian/themes/
+!.obsidian/themes/**
