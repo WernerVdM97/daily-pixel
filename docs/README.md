@@ -24,6 +24,7 @@ _What the game **is** to play._
 _How it **runs** under the hood._
 
 - 🔭 [Technical Architecture](./engine/architecture.md) — the high-level system diagram, token-optimization strategy, graph DB schema, ASCII art engine.
+- 🔭 [Graph Data Model — Schema Reference](./engine/data-model.md) — standalone reference: all node types, edge types, per-entity frontmatter schema, query patterns.
 - 🔭 [The Vault View — World State Projection](./engine/world-state-projection.md) — graph DB → markdown vault at ~0 tokens; the render pipeline, data-vs-prose split, two mechanisms.
 - 🔭 [Character Drivers — the D&D Layer](./engine/character-drivers.md) — how alignment/class/ideals/flaws/bonds are modeled along the data↔prose spectrum.
 - 🔭 [Sentiment, Bonds & Relationships](./engine/social-model.md) — the three social axes and how each updates and drives the sim.
@@ -34,6 +35,7 @@ _How it **runs** under the hood._
 ## 🖥️ ui/ — Discord UX & mockups
 _What the player sees and touches._
 
+- 🔭 [Discord UX — Command Flows & Interaction Patterns](./ui/discord-ux.md) — the action layer, command structure, daily roll flow, button/reaction patterns, mobile-first constraints.
 - 🔭 [Example Scenes — Rendered Mockups](./ui/example-scenes.md) — the Day-47 daily-roll card and the Warden-at-night interaction, as ASCII.
 - 🖼️ `ui/mockups/roll_result_card.png` — image mockup of a roll result card.
 
