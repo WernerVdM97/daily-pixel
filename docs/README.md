@@ -3,9 +3,14 @@
 The design vault for **The Warden's Oak**. Every doc carries frontmatter. Promoted docs graduate from [`sparks/`](./sparks/) to domain folders. 
 Read **[CONVENTIONS.md](./CONVENTIONS.md)** first.
 
+> **Maintenance:** 
+> When you add a doc, add its row to the right table.
+> When status or phase changes, update the badge and table.
+> If a file exists that isn't listed, it's drifting toward slop.
+
 ---
 
-🌱 `spark` · 🔭 `exploring` · ✅ `decided` · 🪦 `superseded`
+🌱 `spark` · 🔭 `exploring` · ✅ `decided` · 🪦 `superseded` · 🚫 `nogo`
 
 ---
 
@@ -13,11 +18,12 @@ Read **[CONVENTIONS.md](./CONVENTIONS.md)** first.
 
 mission, pillars, north star
 
-| Status | Doc | Summary |
-|---|---|---|
-| ✅ | [Pitch & Pillars](./vision/pitch-and-pillars.md) | Elevator pitch, year-long premise, thematic DNA |
-| ✅ | [Hazard Map](./vision/hazard-map.md) | No-gos, rabbit holes, known risks, scope discipline |
-| 🔭 | [World & Setting](./vision/world-setting.md) | The Oak, the Threat, emergent map |
+| Status | Doc                                              | Summary                                             |
+| ------ | ------------------------------------------------ | --------------------------------------------------- |
+| ✅      | [Pitch & Pillars](./vision/pitch-and-pillars.md) | Elevator pitch, year-long premise, thematic DNA     |
+| ✅      | [Hazard Map](./vision/hazard-map.md)             | No-gos, rabbit holes, known risks, scope discipline |
+| 🔭     | [World & Setting](./vision/world-setting.md)     | The Oak, the Threat, emergent map                   |
+
 
 ## 🎲 game
 
@@ -60,7 +66,6 @@ ongoing sparks
 | 🌱 | [Build — Scenes](./sparks/poc-build-scenes.md) | ASCII fragment library, composition, mobile testing |
 | 🌱 | [Build — Polish](./sparks/poc-build-polish.md) | Error handling, LLM fallback, flavor text, `/sleep` tick |
 | 🌱 | [Build — Deploy](./sparks/poc-build-deploy.md) | LXC provisioning, deploy, invite testers, observe |
-| 🌱 | [Obsidian CLI](./sparks/obsidian-cli.md) | Vault automation tooling |
 
 ## 🔥 MVP 
 
@@ -91,4 +96,10 @@ deferred depth & polish
 
 ---
 
-> **Maintenance:** when you add a doc, add its row to the right table. When status or phase changes, update the badge and table. If a file exists that isn't listed, it's drifting toward slop.
+## 🚫 Nogo
+
+explored and rejected — kept so we don't re-litigate
+
+| Status | Doc | Summary |
+|---|---|---|
+| 🚫 | [Obsidian CLI](./sparks/obsidian-cli.md) | Vault automation via CLI — rejected in favor of Python scripts |

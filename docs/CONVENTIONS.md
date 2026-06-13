@@ -13,7 +13,7 @@ Using `docs/templates/doc-template.md`;
 ```yaml
 ---
 title: Human-readable title
-status: spark            # spark | exploring | decided | superseded
+status: spark            # spark | exploring | decided | superseded | nogo
 domain: engine           # vision | game | engine | ui | spark
 phase: mvp               # poc | mvp | mvp+ — when this is targeted for implementation
 tags: [render, vault]    # free-form, lowercase, for cross-cutting search
@@ -102,8 +102,11 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 | `exploring` | A real candidate direction, actively being fleshed out. Not locked. | …discuss and prototype against, knowing it may change. |
 | `decided` | This **is** the direction. Build against it. | …implement. Changing it requires a decision record. |
 | `superseded` | Kept for history. Points to what replaced it via `superseded_by`. | …understand why we moved on. Nothing else. |
+| `nogo` | Explored and rejected. Won't pursue — at least not in current form. | …remember why we said no. Don't resurrect without new information. |
 
 **Rule:** to overturn a `decided` doc, write a `decisions/` record and flip the old doc to `superseded` — don't silently edit it into something new, and don't open a competing third doc.
+
+**When to use `nogo`:** a spark was explored (prototyped, researched, or discussed) and the conclusion was "not now, maybe never." Unlike `superseded`, there's no replacement — just a door we chose not to walk through. Kept so we don't re-litigate the same idea next month.
 
 ---
 
@@ -116,7 +119,8 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 | `engine/`    | `engine` | Graph DB, render, simulation, LLM gateway, data model. The "how it runs."                                                                            |
 | `ui/`        | `ui`     | Discord UX, command flows, ASCII presentation, and `ui/mockups/`.                                                                                    |
 | `decisions/` | —        | Decision records (ADRs): cross-cutting trade-offs that have been resolved.                                                                           |
-| `sparks/`    | `spark`  | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
+| `sparks/`    | `spark`    | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
+| `archived/`  | `archived` | Rejected ideas (`status: nogo`). Kept for history so we don't re-litigate. |
 
 `domain` in frontmatter always matches the folder the file sits in.
 

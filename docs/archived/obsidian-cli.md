@@ -1,13 +1,13 @@
 ---
 title: Obsidian CLI
-status: spark
-domain: spark
+status: nogo
+domain: archived
 tags:
 - engine
 - vault
 related:
 - '[[CONVENTIONS]]'
-phase: poc
+phase: nogo
 ---
 
 # Obsidian CLI
@@ -18,7 +18,7 @@ Obsidian CLI (`obsidian`) exposes vault operations — read, write, search, fron
 
 - **Automate convention checks**: validate `title`/`status`/`domain` frontmatter on every doc; catch missing fields before they become slop.
 - **Auto-generate the map of content**: script the `docs/README.md` status table by querying frontmatter across the vault.
-- **Programmatic search**: find all `status: spark` docs, orphaned `[[wikilinks]]`, or files with a given tag.
+- **Programmatic search**: find all `status: nogo` docs, orphaned `[[wikilinks]]`, or files with a given tag.
 - **Agentic access via MCP**: the `obsidian-cli-rest` community plugin turns CLI commands into an HTTP API + MCP server — letting AI agents (or scripts) interact with the vault. Could wire Pi into the vault directly.
 
 ## Quick reference
