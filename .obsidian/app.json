@@ -8,5 +8,6 @@
   "trashOption": "local",
   "userIgnoreFilters": [
     "agent/"
-  ]
+  ],
+  "showUnsupportedFiles": true
 }
