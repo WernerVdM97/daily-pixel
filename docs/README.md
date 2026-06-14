@@ -57,15 +57,15 @@ discord presentation
 
 ongoing sparks
 
-| Status | Doc | Summary |
-|---|---|---|
-| 🌱 | [Discord UX](./sparks/poc-discord-ux.md) | Mobile constraints, button rules, emoji signals, command list |
-| 🌱 | [Build — Scaffold](./sparks/poc-build-scaffold.md) | Project init, DB, deterministic commands |
-| 🌱 | [Build — Deterministic](./sparks/poc-build-deterministic.md) | `/hi`, `/look`, `/backpack`, `/stats`, `/help`, `/feedback` |
-| 🌱 | [Build — Probabilistic](./sparks/poc-build-probabilistic.md) | `/action` flow, LLM decisions, roll/skip, persistence |
-| 🌱 | [Build — Scenes](./sparks/poc-build-scenes.md) | ASCII fragment library, composition, mobile testing |
-| 🌱 | [Build — Polish](./sparks/poc-build-polish.md) | Error handling, LLM fallback, flavor text, `/sleep` tick |
-| 🌱 | [Build — Deploy](./sparks/poc-build-deploy.md) | LXC provisioning, deploy, invite testers, observe |
+| Status | Doc                                                          | Summary                                                       |
+| ------ | ------------------------------------------------------------ | ------------------------------------------------------------- |
+| 🌱     | [Discord UX](./sparks/poc-discord-ux.md)                     | Mobile constraints, button rules, emoji signals, command list |
+| 🌱     | [Build — Scaffold](./sparks/poc-build-scaffold.md)           | Project init, DB, deterministic commands                      |
+| 🌱     | [Build — Deterministic](./sparks/poc-build-deterministic.md) | `/hi`, `/look`, `/backpack`, `/stats`, `/help`, `/feedback`   |
+| 🌱     | [Build — Probabilistic](./sparks/poc-build-probabilistic.md) | `/action` flow, LLM decisions, roll/skip, persistence         |
+| 🌱     | [Build — Scenes](./sparks/poc-build-scenes.md)               | ASCII fragment library, composition, mobile testing           |
+| 🌱     | [Build — Polish](./sparks/poc-build-polish.md)               | Error handling, LLM fallback, flavor text, `/sleep` tick      |
+| 🌱     | [Build — Deploy](./sparks/poc-build-deploy.md)               | LXC provisioning, deploy, invite testers, observe             |
 
 ## 🔥 MVP 
 
