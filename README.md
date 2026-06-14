@@ -1,6 +1,6 @@
 # The Warden's Oak
 
-![loading](./assets/ui/loading.gif)
+![wardens-oak](./docs/assets/wardens-oak.jpg)
 
 > *A year is a long time to carry an ember. But it's longer still to carry one alone.*
 
