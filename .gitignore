@@ -4,3 +4,7 @@
 !.obsidian/core-plugins.json
 !.obsidian/themes/
 !.obsidian/themes/**
+
+# OS cruft
+Thumbs.db
+.DS_Store
