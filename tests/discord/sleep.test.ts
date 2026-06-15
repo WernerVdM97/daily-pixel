@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { makeSleepCommand } from "../../src/discord/commands/sleep.js";
 
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
@@ -82,5 +82,39 @@ describe("/sleep", () => {
 
     expect(result).not.toContain("soul(s) stirred");
     expect(result).not.toContain("NPC(s) on the move");
+  });
+
+  it("returns user-friendly message when tick throws", async () => {
+    const engine = {
+      tick: () => { throw new Error('Database not initialized'); },
+    } as unknown as MockWorldEngine;
+    const handler = makeSleepCommand(engine);
+    const result = await handler({
+      user: { id: ADMIN_ID },
+    });
+
+    // Should use mapError fallback instead of raw rejection
+    expect(result).toContain('The warden has been notified');
+    expect(result).not.toContain('Database not initialized');
+  });
+
+  it("warns at handler creation when ADMIN_USER_ID is unset", () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Temporarily clear env var for this test
+    const prev = process.env.ADMIN_USER_ID;
+    delete process.env.ADMIN_USER_ID;
+
+    new MockWorldEngine();
+    // Constructor doesn't trigger warning — it's in makeSleepCommand
+    makeSleepCommand(new MockWorldEngine());
+
+    expect(warn).toHaveBeenCalledWith(
+      '[sleep] WARNING: ADMIN_USER_ID is not set. Admin `/sleep` will be unreachable —',
+      'the world can only advance via nightly cron. Set this env var to enable admin tick.',
+    );
+
+    process.env.ADMIN_USER_ID = prev;
+    warn.mockRestore();
   });
 });

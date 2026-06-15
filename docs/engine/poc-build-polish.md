@@ -176,13 +176,14 @@ Run the full flow end-to-end before shipping:
 - [x] `/bug` and `/feedback` → rows in DB
 - [ ] Mobile: full `/action` flow on phone Discord (manual check at deploy)
 - [ ] Check all text for typos (manual pass before deploy)
+- [ ] Verify `ADMIN_USER_ID` is set in production `.env` (startup warns otherwise)
 - [x] Verify SQLite file persists across bot restart
 
 ---
 
 ## S6 Handover
 
-- [x] **Shipped:** Help content fully updated per §5 (/sleep, /action, economy breakdown, rest section). `/sleep` command handler (frontend side): admin → tick + day transition message with scaling flavor; non-admin → camp-by-the-Oak rest scene, no tick. End-to-end happy-path test (`tests/e2e/happy-path.test.ts`) covering all 13 checklist flows. Restart persistence test (`tests/db/restart-persistence.test.ts`) verifying SQLite data survives close-reopen cycle. Code simplification: unused `channelId` removed from sleep command handler; flavor-let replaced with const ternary.
+- [x] **Shipped:** Help content fully updated per §5 (/sleep, /action, economy breakdown, rest section). `/sleep` command handler (frontend side): admin → tick + day transition message with scaling flavor; non-admin → camp-by-the-Oak rest scene, no tick. End-to-end happy-path test (`tests/e2e/happy-path.test.ts`) covering all 13 checklist flows. Restart persistence test (`tests/db/restart-persistence.test.ts`) verifying SQLite data survives close-reopen cycle. Code simplification: unused `channelId` removed from sleep command handler; flavor-let replaced with const ternary. **Review-driven fixes:** startup warning when ADMIN_USER_ID is unset; tick() wrapped in try/catch with mapError fallback.
 - [!] **Frozen:** `makeSleepCommand(engine)` added to frontend command API — consumes `WorldEngine.tick(isAdmin)` with no interface changes. `makeHelpCommand()` behavior unchanged (returns static string). No changes to `WorldEngine.ts` or `LlmGateway.ts` (seam still clean).
 - [x] **Tests:** 368 passing (23 new), 32 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New files: `tests/e2e/happy-path.test.ts` (13 tests), `tests/discord/sleep.test.ts` (6 tests), `tests/db/restart-persistence.test.ts` (2 tests). Updated: `tests/discord/help.test.ts` (6 tests, added /sleep assertions).
 - [>] **Next (S7):** Deploy — CI, Containerfile (Podman dev), LXC provision, systemd, deploy-check, invite testers. See `docs/engine/poc-build-deploy.md`. Also: manual typos pass, mobile test, and the 30-min timeout auto-fail runtime hook.
