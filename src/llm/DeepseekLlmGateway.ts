@@ -11,6 +11,8 @@ export interface DeepseekConfig {
   temperature?: number;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetch?: typeof fetch;
+  /** If true, log all LLM request/response data to console. */
+  verbose?: boolean;
 }
 
 export class DeepseekLlmGateway implements LlmGateway {
@@ -18,12 +20,14 @@ export class DeepseekLlmGateway implements LlmGateway {
   private model: string;
   private temperature: number;
   private fetchFn: typeof fetch;
+  private verbose: boolean;
 
   constructor(config: DeepseekConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model ?? 'deepseek-v4-flash';
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
+    this.verbose = config.verbose ?? false;
   }
 
   async decide(context: LlmContext): Promise<LlmDecision> {
@@ -42,6 +46,10 @@ export class DeepseekLlmGateway implements LlmGateway {
       stream: false,
     };
 
+    if (this.verbose) {
+      console.log('[llm:request]', JSON.stringify(requestBody, null, 2));
+    }
+
     const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
@@ -52,7 +60,9 @@ export class DeepseekLlmGateway implements LlmGateway {
     });
 
     if (!response.ok) {
-      throw new Error(`DeepSeek API error ${response.status}: ${await response.text().catch(() => '')}`);
+      const errText = await response.text().catch(() => '');
+      console.error('[llm:error]', response.status, errText);
+      throw new Error(`DeepSeek API error ${response.status}: ${errText}`);
     }
 
     const data = await response.json() as {
@@ -64,11 +74,20 @@ export class DeepseekLlmGateway implements LlmGateway {
       throw new Error('DeepSeek returned empty response');
     }
 
+    if (this.verbose) {
+      console.log('[llm:response:raw]', content);
+    }
+
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(content);
     } catch {
+      console.error('[llm:parse-error]', content.slice(0, 500));
       throw new Error(`Failed to parse DeepSeek response: ${content.slice(0, 200)}`);
+    }
+
+    if (this.verbose) {
+      console.log('[llm:parsed]', JSON.stringify(parsed, null, 2));
     }
 
     return this.parseDecision(parsed);

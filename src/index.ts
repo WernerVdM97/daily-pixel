@@ -132,7 +132,10 @@ async function main() {
   // 4. LLM gateway
   let llm: FallbackLlmGateway;
   if (DEEPSEEK_API_KEY) {
-    const deepseek = new DeepseekLlmGateway({ apiKey: DEEPSEEK_API_KEY });
+    const deepseek = new DeepseekLlmGateway({
+      apiKey: DEEPSEEK_API_KEY,
+      verbose: process.env.VERBOSE_LLM === 'true',
+    });
     llm = new FallbackLlmGateway(deepseek, {
       onTier2Fallback: () => {
         const metaRepo = new MetaRepository(initDb());
