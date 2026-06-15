@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily Pixel Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+WorkingDirectory=/home/bot/app
+ExecStart=/usr/bin/npx tsx src/index.ts
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/bot/app/.env
+
+[Install]
+WantedBy=multi-user.target

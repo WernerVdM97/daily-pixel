@@ -1,3 +1,6 @@
+/** 30 minutes in ms — mid-action state auto-times out after this. */
+const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
+
 import type Database from 'better-sqlite3';
 import type { LlmGateway } from '../llm/LlmGateway.js';
 import type { UserRepository } from '../db/repositories/user.js';
@@ -50,6 +53,41 @@ function seededRandomRange(seed: number, min: number, max: number): number {
 function locationTagsContain(tags: string | null, tag: string): boolean {
   if (!tags) return false;
   return tags.split(',').map(t => t.trim()).includes(tag);
+}
+
+/**
+ * Check if the stored action state has been sitting idle past the 30-min timeout.
+ * If stale, atomically clears the state and inserts a timed_out action row so the
+ * player sees the correct outcome in their journal.
+ *
+ * @returns true if the state was stale and has been auto-failed
+ */
+function isStateStale(
+  state: InternalActionState,
+  _row: { id: number },
+  actionRepo: ActionRepository,
+  charRepo: CharacterRepository,
+  characterId: number,
+): boolean {
+  // If the state predates lastActionAt (pre-S7 state), treat as not stale
+  if (!state.lastActionAt) return false;
+
+  const elapsed = Date.now() - state.lastActionAt;
+  if (elapsed < ACTION_TIMEOUT_MS) return false;
+
+  // Atomically clear the mid-action state and record the timeout
+  actionRepo.create({
+    characterId,
+    rawInput: state.rawInput,
+    type: state.distilledType,
+    decisionsJson: JSON.stringify(state.decisions),
+    finalDc: state.accumulatedDc,
+    playerRolled: null,
+    outcome: 'timed_out',
+  });
+  charRepo.update(characterId, { last_action_state: null });
+
+  return true;
 }
 
 interface WorldEngineConfig {
@@ -208,6 +246,12 @@ export class WorldEngineImpl implements WorldEngine {
     if (!row.last_action_state) throw new Error('No action in progress');
 
     const internalState = JSON.parse(row.last_action_state) as InternalActionState;
+
+    // 30-min timeout auto-fail: if the state has been sitting untouched, auto-fail it
+    if (isStateStale(internalState, row, this.actionRepo, this.charRepo, characterId)) {
+      throw new Error('Action timed out after 30 minutes');
+    }
+
     const char = this.rowToCharacterData(row);
     const items = this.getItems(characterId);
 
@@ -335,6 +379,12 @@ export class WorldEngineImpl implements WorldEngine {
     if (!row.last_action_state) throw new Error('No action to resume');
 
     const internalState = JSON.parse(row.last_action_state) as InternalActionState;
+
+    // 30-min timeout auto-fail: if the state has been sitting untouched, auto-fail it
+    if (isStateStale(internalState, row, this.actionRepo, this.charRepo, characterId)) {
+      throw new Error('Action timed out after 30 minutes');
+    }
+
     const { state, nextDecision } = this.machine.resume(internalState);
 
     return {
@@ -602,6 +652,8 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   private persistState(characterId: number, state: InternalActionState): void {
+    // Stamp lastActionAt on every persist so the 30-min timeout hook has a basis
+    state.lastActionAt = Date.now();
     this.charRepo.update(characterId, {
       last_action_state: JSON.stringify(state),
     });

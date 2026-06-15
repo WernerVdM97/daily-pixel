@@ -1,0 +1,7 @@
+[Unit]
+Description=Check for Daily Pixel updates
+
+[Service]
+Type=oneshot
+User=bot
+ExecStart=/home/bot/app/scripts/deploy-check.sh
