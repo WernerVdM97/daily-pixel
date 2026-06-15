@@ -1,0 +1,229 @@
+/**
+ * /action — take an action in the world.
+ *
+ * Flow:
+ *   1. Slash command `/action <description>` → starts the action state machine
+ *      → shows the first decision prompt with option buttons
+ *   2. Button click → steps the machine → next decision or final outcome
+ *
+ * Interaction routing handled by main Events.InteractionCreate in index.ts
+ * via the `action:` custom ID prefix.
+ */
+
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  type ChatInputCommandInteraction,
+  type MessageComponentInteraction,
+} from 'discord.js';
+import type { WorldEngine } from '../../engine/WorldEngine.js';
+import type { ActionStepResult } from '../../engine/WorldEngine.js';
+import { formatOutcome, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
+
+// ── Custom IDs ──
+
+const CID_PREFIX = 'action:choice:';
+const CID_BAIL = 'action:bail';
+
+function choiceCid(decisionIdx: number, optionIdx: number): string {
+  return `${CID_PREFIX}${decisionIdx}:${optionIdx}`;
+}
+
+export function parseActionCid(customId: string): { decisionIdx: number; optionIdx: number } | null {
+  if (!customId.startsWith(CID_PREFIX)) return null;
+  const rest = customId.slice(CID_PREFIX.length);
+  const colonIdx = rest.indexOf(':');
+  if (colonIdx === -1) return null;
+  return {
+    decisionIdx: parseInt(rest.slice(0, colonIdx), 10),
+    optionIdx: parseInt(rest.slice(colonIdx + 1), 10),
+  };
+}
+
+// ── Factory ──
+
+export function makeActionCommand(engine: WorldEngine) {
+  return async (interaction: ChatInputCommandInteraction): Promise<string> => {
+    const description = interaction.options.getString('description', true);
+
+    // Guard: must have a character
+    const character = engine.getCharacter(interaction.user.id);
+    if (!character) {
+      await interaction.reply({
+        content: "You don't have a character yet. Type `/join` to create one.",
+        ephemeral: true,
+      });
+      return 'action_guard_no_character';
+    }
+
+    // Guard: can't act mid-action — must resume or wait for timeout
+    if (character.lastActionState !== null) {
+      await interaction.reply({
+        content: '⏳ You are already in the middle of an action.\n' +
+          'Complete it or wait 30 minutes for it to time out.',
+        ephemeral: true,
+      });
+      return 'action_guard_mid_action';
+    }
+
+    // Start the action
+    try {
+      const result = await engine.startAction(character.id, description);
+      await interaction.reply(buildDecisionMessage(result.firstDecision, 0));
+      return 'action_started';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await interaction.reply({
+        content: `❌ **Could not act.**\n${msg}`,
+        ephemeral: true,
+      });
+      return 'action_error';
+    }
+  };
+}
+
+// ── Handle button clicks ──
+
+export async function handleActionChoice(
+  i: MessageComponentInteraction,
+  engine: WorldEngine,
+): Promise<void> {
+  // Look up character ID from Discord user
+  const character = engine.getCharacter(i.user.id);
+  if (!character) {
+    await i.reply({
+      content: "You don't have a character. Type `/join` first.",
+      ephemeral: true,
+    });
+    return;
+  }
+  const charId = character.id;
+
+  // Bail
+  if (i.customId === CID_BAIL) {
+    try {
+      const result = await engine.stepAction(charId, '__bail__');
+      await handleActionResult(i, result, engine);
+    } catch (err) {
+      await i.reply({
+        content: `❌ ${(err as Error).message}`,
+        ephemeral: true,
+      });
+    }
+    return;
+  }
+
+  // Choice
+  const parsed = parseActionCid(i.customId);
+  if (!parsed) return;
+
+  try {
+    const result = await engine.stepAction(charId, parsed.optionIdx.toString());
+    await handleActionResult(i, result, engine);
+  } catch (err) {
+    console.error('[action] stepAction error:', err);
+    await i.update({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('⚔️ Action Failed')
+          .setDescription(`❌ ${(err as Error).message}\n\nTry \`/action\` again.`)
+          .setColor(0xe74c3c)
+          .toJSON(),
+      ],
+      components: [],
+    });
+  }
+}
+
+async function handleActionResult(
+  i: MessageComponentInteraction,
+  result: ActionStepResult,
+  engine: WorldEngine,
+): Promise<void> {
+  if (result.resolved) {
+    // Show the outcome
+    const character = engine.getCharacter(i.user.id);
+    const outcome = result.outcome;
+
+    const ctx: OutcomeRenderContext = {
+      stamina: character?.stamina ?? 10,
+      rollsRemaining: character?.rollsRemaining ?? 2,
+      health: character?.health ?? 10,
+      maxHealth: character?.maxHealth ?? 10,
+      wealth: character?.wealth ?? 0,
+    };
+
+    await i.update({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
+          .setDescription(formatOutcome(outcome, ctx))
+          .setColor(outcomeColor(outcome.outcome))
+          .toJSON(),
+      ],
+      components: [],
+    });
+  } else {
+    // Show the next decision
+    const decisionIdx = result.state.decisions.length;
+    await i.update(buildDecisionMessage(result.nextDecision, decisionIdx));
+  }
+}
+
+// ── Helpers ──
+
+function buildDecisionMessage(
+  decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
+  decisionIdx: number,
+): {
+  embeds: ReturnType<EmbedBuilder['toJSON']>[];
+  components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
+} {
+  const embed = new EmbedBuilder()
+    .setTitle('🤔 Decision')
+    .setDescription(decision.prompt)
+    .setColor(0xdaa520)
+    .setFooter({ text: decisionIdx === 0 ? 'Choose your approach' : `Decision ${decisionIdx + 1}` });
+
+  const components: ActionRowBuilder<ButtonBuilder>[] = [];
+
+  // Options as buttons (max 5 per row)
+  for (let i = 0; i < decision.options.length; i += 5) {
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    for (const opt of decision.options.slice(i, i + 5)) {
+      const isBail = opt.dcModifier === null;
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(isBail ? CID_BAIL : choiceCid(decisionIdx, i + decision.options.indexOf(opt)))
+          .setLabel(shortLabel(opt.label, 80))
+          .setStyle(isBail ? ButtonStyle.Danger : ButtonStyle.Primary),
+      );
+    }
+    components.push(row);
+  }
+
+  return {
+    embeds: [embed.toJSON()],
+    components: components.map(r => r.toJSON()),
+  };
+}
+
+function shortLabel(label: string, maxLen: number): string {
+  return label.length > maxLen ? label.slice(0, maxLen - 1) + '…' : label;
+}
+
+function outcomeColor(outcome: string): number {
+  switch (outcome) {
+    case 'success': return 0x2ecc71;
+    case 'failure': return 0xe74c3c;
+    case 'skipped': return 0xf39c12;
+    case 'timed_out': return 0x95a5a6;
+    default: return 0x3498db;
+  }
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}

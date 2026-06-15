@@ -50,6 +50,7 @@ import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
 import { makeHiCommand, type DayJobDef } from './discord/commands/hi.js';
 import { makeJoinCommand } from './discord/commands/join.js';
+import { makeActionCommand } from './discord/commands/action.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
@@ -205,12 +206,7 @@ async function main() {
   const joinWizards = new WizardSession();
   registry.register('join', asHandler(makeJoinCommand(engine, joinWizards)));
 
-  // /action handler — built in S3 but no Discord command handler file exists yet
-  registry.register('action', asHandler(async (_interaction: unknown) =>
-    '⚔️ **Action**\n\n' +
-    'The `/action` command is not yet wired to Discord. ' +
-    'Use the engine layer directly for testing.',
-  ));
+  registry.register('action', asHandler(makeActionCommand(engine)));
 
   // 8. Discord client
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -324,6 +320,24 @@ async function main() {
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong. Try `/join` again.',
+            ephemeral: true,
+          }).catch(() => {});
+        }
+      }
+      return;
+    }
+
+    // ── Action choices ──
+    if (customId && customId.startsWith('action:')) {
+      if (!interaction.isButton()) return;
+      try {
+        const { handleActionChoice } = await import('./discord/commands/action.js');
+        await handleActionChoice(interaction, engine);
+      } catch (err) {
+        console.error('[action] Error handling choice:', err);
+        if ('reply' in interaction) {
+          await (interaction as { reply: Function }).reply({
+            content: 'Something went wrong with your action. Try `/action` again.',
             ephemeral: true,
           }).catch(() => {});
         }
