@@ -46,7 +46,7 @@ export function parseActionCid(customId: string): { decisionIdx: number; optionI
 
 export function makeActionCommand(engine: WorldEngine) {
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
-    const description = interaction.options.getString('description', true);
+    const description = interaction.options.getString('description');
 
     // Guard: must have a character
     const character = engine.getCharacter(interaction.user.id);
@@ -58,7 +58,7 @@ export function makeActionCommand(engine: WorldEngine) {
       return 'action_guard_no_character';
     }
 
-    // If mid-action, resume instead of starting fresh
+    // If mid-action, resume regardless of description
     if (character.lastActionState !== null) {
       await interaction.deferReply();
       try {
@@ -71,6 +71,15 @@ export function makeActionCommand(engine: WorldEngine) {
         await interaction.editReply({ content: `❌ **Could not resume.**\n${msg}` });
         return 'action_error';
       }
+    }
+
+    // No description provided and not mid-action
+    if (!description) {
+      await interaction.reply({
+        content: '⚔️ **Take an action**\nDescribe what you want to do, e.g. `/action hunt a deer`.',
+        ephemeral: true,
+      });
+      return 'action_no_description';
     }
 
     // Defer first — LLM call can take >3 seconds

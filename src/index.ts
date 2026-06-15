@@ -231,8 +231,8 @@ async function main() {
           {
             type: 3, // STRING
             name: 'description',
-            description: 'What do you want to do?',
-            required: true,
+            description: 'What do you want to do? (Leave blank to resume mid-action)',
+            required: false,
           },
         ],
       },
