@@ -174,6 +174,9 @@ export class WorldEngineImpl implements WorldEngine {
         return this.actionRepo.findRecentByCharacterId(characterId, 2)
           .map(a => ({ type: a.type, outcome: a.outcome }));
       },
+      getKnownLocations: () => {
+        return this.locationRepo.findAll().map(l => l.name);
+      },
     };
 
     this.machine = new ActionStateMachine(fallbackLlm, config.rollD20, contextResolver);

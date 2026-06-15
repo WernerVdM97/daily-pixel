@@ -19,6 +19,8 @@ export interface WorldContextResolver {
   getNearbyNpcs(location: string): Array<{ name: string; description: string }>;
   getNearbyPcs(location: string, excludeCharId: number): Array<{ name: string; class: string }>;
   getRecentActions(characterId: number): Array<{ type: string; outcome: string }>;
+  /** All known location names — so the LLM can generate valid set_location mutations. */
+  getKnownLocations(): string[];
 }
 
 /**
@@ -46,6 +48,7 @@ export class ActionStateMachine {
       getNearbyNpcs: () => [],
       getNearbyPcs: () => [],
       getRecentActions: () => [],
+      getKnownLocations: () => [],
     },
   ) {}
 
@@ -254,6 +257,12 @@ export class ActionStateMachine {
     // Full inventory — lets the LLM decide remove_item targets and avoid duplicate add_item
     if (items.length > 0) {
       hintParts.push(`inventory: ${items.map(i => `${i.emoji} ${i.name} (${i.stat}+${i.modifier}, qty ${i.quantity})`).join(', ')}`);
+    }
+
+    // Known locations — the LLM MUST use exact names from this list for set_location
+    const locations = this.resolver.getKnownLocations();
+    if (locations.length > 1) {
+      hintParts.push(`locations: ${locations.join(', ')}`);
     }
 
     return {

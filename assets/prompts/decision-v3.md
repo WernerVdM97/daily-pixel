@@ -72,6 +72,8 @@ Victory is rarely clean. Include a small cost alongside the reward:
 **Location movement:**
 Every action where the player travels MUST include `set_location`. Players should move between locations — don't keep them in one place for more than 2 actions.
 
+**CRITICAL: You MUST use exact location names from the `locations:` list provided in the SCALING HINT.** Never invent a location name. The engine will reject unknown locations and the player will see a broken scene. Copy the name exactly as it appears in the list.
+
 **Item breakage / loss:**
 Use `remove_item` when the player pushes gear beyond its limits. Check the INVENTORY in the input context to choose which item breaks.
 
@@ -151,7 +153,7 @@ NEARBY NPCS: {name + description}
 NEARBY PCS: {name + class}
 RECENT ACTIONS (last 2): {type + outcome summary}
 PLAYER INPUT: {raw_input}
-SCALING HINT: {item bonuses, inventory list}
+SCALING HINT: {item bonuses, inventory list, available location names}
 
 # Appended on call 2+ only:
 PREVIOUS DECISIONS:
