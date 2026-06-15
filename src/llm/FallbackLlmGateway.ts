@@ -42,12 +42,16 @@ export class FallbackLlmGateway implements LlmGateway {
   async decide(context: LlmContext): Promise<LlmDecision> {
     try {
       return await this.inner.decide(context);
-    } catch {
+    } catch (firstErr) {
+      console.error('[llm:fallback:tier1]', firstErr instanceof Error ? firstErr.message : String(firstErr));
+
       // Tier 1: retry with stripped context
       try {
         const stripped = this.stripContext(context);
         return await this.inner.decide(stripped);
-      } catch {
+      } catch (secondErr) {
+        console.error('[llm:fallback:tier2]', secondErr instanceof Error ? secondErr.message : String(secondErr));
+
         // Tier 2: divine intervention
         this.options.onTier2Fallback?.();
         return this.buildDivineIntervention();

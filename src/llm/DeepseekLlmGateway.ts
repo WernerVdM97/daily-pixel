@@ -50,6 +50,9 @@ export class DeepseekLlmGateway implements LlmGateway {
       console.log('[llm:request]', JSON.stringify(requestBody, null, 2));
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
     const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
@@ -57,7 +60,8 @@ export class DeepseekLlmGateway implements LlmGateway {
         'Authorization': `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(requestBody),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');

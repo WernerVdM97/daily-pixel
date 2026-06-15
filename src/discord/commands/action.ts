@@ -104,6 +104,22 @@ export function makeActionCommand(engine: WorldEngine) {
     // Start the action
     try {
       const result = await engine.startAction(character.id, description);
+
+      // If the LLM returned done: true immediately (divine intervention), show the prompt as a grey embed
+      if (result.firstDecision.options.length === 0) {
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('⚔️ Action')
+              .setDescription(result.firstDecision.prompt)
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+          components: [],
+        });
+        return 'action_divine';
+      }
+
       setPendingDecision(interaction.user.id, result.firstDecision);
       await interaction.editReply(buildDecisionMessage(result.firstDecision, 0));
       return 'action_started';
