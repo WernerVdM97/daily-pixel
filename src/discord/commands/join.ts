@@ -68,7 +68,7 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession) {
     }
 
     // Show current step
-    await interaction.reply(buildStepMessage(state));
+    await interaction.reply({ ...buildStepMessage(state), ephemeral: true });
     return "join_wizard_started";
   };
 }

@@ -303,7 +303,12 @@ async function main() {
         const result = await handler(interaction);
         // If the handler already replied (join/hi manage their own flow), skip
         if (interaction.replied || interaction.deferred) return;
-        await interaction.reply(result);
+
+        const ephemeralCommands = ['stats', 'backpack', 'journal', 'bug', 'feedback', 'help', 'hi'];
+        await interaction.reply({
+          content: result,
+          ephemeral: ephemeralCommands.includes(commandName),
+        });
         if (VERBOSE) {
           console.log(`[verbose] /${commandName} → ${result.slice(0, 200)}`);
         }
