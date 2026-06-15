@@ -96,16 +96,16 @@ Single-threaded. Each session is a fresh context that starts from the prior hand
 
 > **Coding model:** every session runs on `deepseek-v4-pro`. (This is the *coding* model — distinct from the *in-game* LLM, which is v4-flash per [[poc-tech-stack]].)
 
-| # | Milestone (start → stop) | Coding style / skills |
-|---|---|---|
-| **S0** | Foundation & seam: init, tsconfig, deps, `.env`; schema + repos; `WorldEngine` + `LlmGateway` + mocks; asset loaders (fail-fast); `/ping` smoke | spec-driven + incremental; **doubt-driven on the seam** |
-| **S1** | `/join` 6-step wizard → character in DB; `/stats`, `/backpack` | TDD + frontend-ui-engineering |
-| **S2** | Remaining deterministic commands (`/look`, `/journal`, `/help`, `/feedback`, `/bug`, `/hi`) + scenes (loader, validator, tag resolver, render template) | TDD (pure resolver) + incremental |
-| **S3** | One action end-to-end: state machine, DeepSeek `LlmGateway`, reactive decision loop, DC math (literal/signed), roll/skip/bail, mutation validate+apply, mid-action persistence + resumption | **TDD (hard)** + **doubt-driven** + source-driven (API client) |
-| **S4** | Action polish: two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering | TDD (inject failing mock) + doubt-driven |
-| **S5** | World tick: `/sleep` (admin tick + non-admin rest), idempotent cron, `meta` (day/cron), player effects, seeded NPC movement, scaling | TDD (seeded determinism) + incremental |
-| **S6** | Polish pass + pre-deploy: help content, flavor, end-to-end checklist, mobile pass, restart persistence | verify + code-review-and-quality + code-simplification |
-| **S7** | Deploy: CI, Containerfile (Podman dev), LXC provision, systemd, deploy-check, invite testers | ci-cd-and-automation + shipping-and-launch |
+| # | Milestone (start → stop) | Coding style / skills | Build doc |
+|---|---|---|---|
+| **S0** | Foundation & seam: init, tsconfig, deps, `.env`; schema + repos; `WorldEngine` + `LlmGateway` + mocks; asset loaders (fail-fast); `/ping` smoke | spec-driven + incremental; **doubt-driven on the seam** | [[poc-build-scaffold]] |
+| **S1** | `/join` 6-step wizard → character in DB; `/stats`, `/backpack` | TDD + frontend-ui-engineering | [[poc-build-scaffold]] |
+| **S2** | Remaining deterministic commands (`/look`, `/journal`, `/help`, `/feedback`, `/bug`, `/hi`) + scenes (loader, validator, tag resolver, render template) | TDD (pure resolver) + incremental | [[poc-build-scaffold]], [[poc-build-scenes]] |
+| **S3** | One action end-to-end: state machine, DeepSeek `LlmGateway`, reactive decision loop, DC math (literal/signed), roll/skip/bail, mutation validate+apply, mid-action persistence + resumption | **TDD (hard)** + **doubt-driven** + source-driven (API client) | [[poc-build-probabilistic]] |
+| **S4** | Action polish: two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering | TDD (inject failing mock) + doubt-driven | [[poc-build-polish]] |
+| **S5** | World tick: `/sleep` (admin tick + non-admin rest), idempotent cron, `meta` (day/cron), player effects, seeded NPC movement, scaling | TDD (seeded determinism) + incremental | [[poc-build-world-tick]] |
+| **S6** | Polish pass + pre-deploy: help content, flavor, end-to-end checklist, mobile pass, restart persistence | verify + code-review-and-quality + code-simplification | [[poc-build-polish]] |
+| **S7** | Deploy: CI, Containerfile (Podman dev), LXC provision, systemd, deploy-check, invite testers | ci-cd-and-automation + shipping-and-launch | [[poc-build-deploy]] |
 
 ### Tests — the exit gate per session
 
