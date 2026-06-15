@@ -11,7 +11,8 @@ import type { NpcRepository } from '../db/repositories/npc.js';
 import { LocationRepository } from '../db/repositories/location.js';
 import { MetaRepository } from '../db/repositories/meta.js';
 import { FallbackLlmGateway, DIVINE_INTERVENTION_TYPE, DIVINE_MESSAGE } from '../llm/FallbackLlmGateway.js';
-import { ActionStateMachine, type InternalActionState } from './action/machine.js';
+import { PROMPT_VERSION } from '../llm/prompt-builder.js';
+import { ActionStateMachine, type InternalActionState, type WorldContextResolver } from './action/machine.js';
 import { validateMutations, applyMutations } from './action/mutations.js';
 import { computeStats, type ClassDef, type ModifierDef } from './StatComputer.js';
 import type {
@@ -87,6 +88,7 @@ function isStateStale(
       finalDc: state.accumulatedDc,
       playerRolled: null,
       outcome: 'timed_out',
+      promptVersion: PROMPT_VERSION,
     });
     charRepo.update(characterId, { last_action_state: null });
   })();
@@ -156,7 +158,25 @@ export class WorldEngineImpl implements WorldEngine {
       },
     });
 
-    this.machine = new ActionStateMachine(fallbackLlm, config.rollD20);
+    const contextResolver: WorldContextResolver = {
+      getNearbyNpcs: (location: string) => {
+        return this.npcRepo.findByLocation(location)
+          .filter(n => n.description)
+          .map(n => ({ name: n.name, description: n.description! }));
+      },
+      getNearbyPcs: (location: string, excludeCharId: number) => {
+        const allChars = this.charRepo.findAll();
+        return allChars
+          .filter(c => c.location === location && c.id !== excludeCharId)
+          .map(c => ({ name: c.name, class: c.class }));
+      },
+      getRecentActions: (characterId: number) => {
+        return this.actionRepo.findRecentByCharacterId(characterId, 2)
+          .map(a => ({ type: a.type, outcome: a.outcome }));
+      },
+    };
+
+    this.machine = new ActionStateMachine(fallbackLlm, config.rollD20, contextResolver);
   }
 
   // ── Character lifecycle ──
@@ -337,9 +357,18 @@ export class WorldEngineImpl implements WorldEngine {
           location: row.location,
         };
 
+        // Per spec: malformed mutations are silently dropped, valid ones applied.
+        // Mutate the outcome so the renderer sees only the mutations that were actually applied.
         const validation = validateMutations(result.outcome.mutations, ctx);
         if (!validation.valid) {
-          throw new Error(`Mutation validation failed: ${validation.errors.map(e => e.message).join('; ')}`);
+          console.warn(
+            '[engine] Dropping invalid mutations:',
+            validation.errors.map(e => `[${e.index}] ${e.message}`).join('; '),
+          );
+          const invalidIndices = new Set(validation.errors.map(e => e.index));
+          result.outcome.mutations = result.outcome.mutations.filter(
+            (_, i) => !invalidIndices.has(i),
+          );
         }
 
         const applied = applyMutations(result.outcome.mutations, ctx);
@@ -374,6 +403,7 @@ export class WorldEngineImpl implements WorldEngine {
           finalDc: result.outcome.finalDc,
           playerRolled: result.outcome.playerRolled,
           outcome: result.outcome.outcome,
+          promptVersion: PROMPT_VERSION,
         });
 
         // Spawn NPCs

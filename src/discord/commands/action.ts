@@ -21,6 +21,7 @@ import {
 import type { WorldEngine, ActionDecision } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
+import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
 
 // ── Custom IDs ──
@@ -197,8 +198,17 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
     }
 
-    // Defer first — LLM call can take >3 seconds
+    // Defer first — LLM call can take >3 seconds.
+    // Immediately edit with an idle message so the player isn't staring at a blank spinner.
     await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setDescription(`⏳ **Starting…**\n_${randomIdleMessage()}_`)
+          .setColor(0x95a5a6)
+          .toJSON(),
+      ],
+    });
 
     // Start the action
     try {
@@ -251,12 +261,12 @@ export async function handleActionChoice(
   const charId = character.id;
 
   // Defer the button click — stepAction calls LLM which can take >3 seconds.
-  // Then immediately blank buttons to show "Thinking..." loading state.
+  // Then immediately blank buttons and show idle message during the wait.
   await i.deferUpdate();
   await i.editReply({
     embeds: [
       new EmbedBuilder()
-        .setDescription('⏳ **Thinking…**')
+        .setDescription(`⏳ **Thinking…**\n_${randomIdleMessage()}_`)
         .setColor(0x95a5a6)
         .toJSON(),
     ],

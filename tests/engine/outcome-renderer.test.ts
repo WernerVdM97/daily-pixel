@@ -1,8 +1,33 @@
-// RED: Test fails because OutcomeRenderer doesn't exist yet
-
 import { describe, it, expect } from 'vitest';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 import { formatOutcome } from '../../src/engine/OutcomeRenderer.js';
+
+// ── Helpers ──
+
+function ctx(overrides?: Partial<{
+  stamina: number;
+  rollsRemaining: number;
+  health: number;
+  maxHealth: number;
+  wealth: number;
+}>): {
+  stamina: number;
+  rollsRemaining: number;
+  health: number;
+  maxHealth: number;
+  wealth: number;
+} {
+  return {
+    stamina: 8,
+    rollsRemaining: 1,
+    health: 10,
+    maxHealth: 12,
+    wealth: 5,
+    ...overrides,
+  };
+}
+
+// ── Success ──
 
 describe('OutcomeRenderer — success', () => {
   const successOutcome: ActionOutcome = {
@@ -15,14 +40,7 @@ describe('OutcomeRenderer — success', () => {
   };
 
   it('shows roll vs DC with checkmark', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(successOutcome, ctx());
     expect(result).toContain('🎲');
     expect(result).toContain('16 vs 14');
     expect(result).toContain('✓');
@@ -30,115 +48,130 @@ describe('OutcomeRenderer — success', () => {
   });
 
   it('includes the outcome text from the LLM', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(successOutcome, ctx());
     expect(result).toContain('The wolfsbane flares');
   });
 
-  it('shows stamina and rolls in footer', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+  it('shows stamina and rolls in footer (always, no delta when unchanged)', () => {
+    const result = formatOutcome(successOutcome, ctx());
     expect(result).toContain('Stamina: 8/10');
     expect(result).toContain('Rolls: 1/2');
+    // No delta suffix when mutations don't touch them
+    expect(result).not.toContain('Stamina: 8/10 (');
+    expect(result).not.toContain('Rolls: 1/2 (');
   });
 
   it('does not show health when unchanged', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(successOutcome, ctx());
     expect(result).not.toContain('Health');
   });
 
-  it('shows health when it changed', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 8,
-      maxHealth: 12,
-      wealth: 5,
-      healthChanged: true,
-    });
+  it('shows health with delta when modified via mutation', () => {
+    const outcome: ActionOutcome = {
+      ...successOutcome,
+      mutations: [{ type: 'modify_health', amount: -2 }],
+    };
+    const result = formatOutcome(outcome, ctx({ health: 8 }));
+    expect(result).toContain('Health: 8/12 (-2)');
+  });
 
-    expect(result).toContain('Health: 8/12');
+  it('shows positive health delta', () => {
+    const outcome: ActionOutcome = {
+      ...successOutcome,
+      mutations: [{ type: 'modify_health', amount: 3 }],
+    };
+    const result = formatOutcome(outcome, ctx({ health: 13 }));
+    expect(result).toContain('Health: 13/12 (+3)');
   });
 
   it('does not show wealth when unchanged', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(successOutcome, ctx());
     expect(result).not.toContain('Wealth');
   });
 
-  it('lists items gained in summary line', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-      itemsGained: [
-        { emoji: '🦊', name: 'Wolf Pelt' },
-        { emoji: '🍖', name: 'Wolf Meat' },
+  it('lists items gained from add_item mutations', () => {
+    const outcome: ActionOutcome = {
+      ...successOutcome,
+      mutations: [
+        { type: 'add_item', emoji: '🦊', name: 'Wolf Pelt', stat: 'physical', modifier: 2 },
+        { type: 'add_item', emoji: '🍖', name: 'Wolf Meat', stat: 'stamina', modifier: 1 },
       ],
-    });
-
+    };
+    const result = formatOutcome(outcome, ctx());
     expect(result).toContain('+ 🦊 Wolf Pelt');
     expect(result).toContain('+ 🍖 Wolf Meat');
   });
 
-  it('shows location change in summary', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-      newLocation: 'Deep Forest',
-    });
-
+  it('shows location change from set_location mutation', () => {
+    const outcome: ActionOutcome = {
+      ...successOutcome,
+      mutations: [{ type: 'set_location', name: 'Deep Forest' }],
+    };
+    const result = formatOutcome(outcome, ctx());
     expect(result).toContain('→ Deep Forest');
   });
 
   it('includes items, location, and stats in full summary line', () => {
-    const result = formatOutcome(successOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-      itemsGained: [{ emoji: '🦊', name: 'Wolf Pelt' }],
-      newLocation: 'Deep Forest',
-    });
-
-    // Expect a combined line with separator
+    const outcome: ActionOutcome = {
+      ...successOutcome,
+      mutations: [
+        { type: 'add_item', emoji: '🦊', name: 'Wolf Pelt', stat: 'physical', modifier: 2 },
+        { type: 'set_location', name: 'Deep Forest' },
+        { type: 'modify_stamina', amount: -2 },
+      ],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 6 }));
     expect(result).toContain('+ 🦊 Wolf Pelt');
     expect(result).toContain('→ Deep Forest');
-    expect(result).toContain('Stamina: 8/10');
+    expect(result).toContain('Stamina: 6/10 (-2)');
     expect(result).toContain('Rolls: 1/2');
   });
 });
+
+// ── Stamina delta display ──
+
+describe('OutcomeRenderer — stamina delta', () => {
+  const base: ActionOutcome = {
+    distilledType: 'hunt',
+    finalDc: 14,
+    playerRolled: 16,
+    outcome: 'success',
+    outcomeText: 'You push through.',
+    mutations: [],
+  };
+
+  it('shows negative stamina delta', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_stamina', amount: -3 }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 5 }));
+    expect(result).toContain('Stamina: 5/10 (-3)');
+  });
+
+  it('shows positive stamina delta', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_stamina', amount: 2 }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 10 }));
+    expect(result).toContain('Stamina: 10/10 (+2)');
+  });
+
+  it('aggregates multiple stamina mutations', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [
+        { type: 'modify_stamina', amount: -5 },
+        { type: 'modify_stamina', amount: 2 },
+      ],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 5 }));
+    expect(result).toContain('Stamina: 5/10 (-3)');
+  });
+});
+
+// ── Failure ──
 
 describe('OutcomeRenderer — failure', () => {
   const failureOutcome: ActionOutcome = {
@@ -151,46 +184,33 @@ describe('OutcomeRenderer — failure', () => {
   };
 
   it('shows roll vs DC with cross', () => {
-    const result = formatOutcome(failureOutcome, {
-      stamina: 7,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(failureOutcome, ctx({ stamina: 7 }));
     expect(result).toContain('🎲');
     expect(result).toContain('3 vs 14');
     expect(result).toContain('✗');
     expect(result).toContain('Failure');
   });
 
-  it('lists items lost', () => {
-    const result = formatOutcome(failureOutcome, {
-      stamina: 7,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-      itemsLost: ['Iron Sword'],
-    });
-
+  it('lists items lost from remove_item mutations', () => {
+    const outcome: ActionOutcome = {
+      ...failureOutcome,
+      mutations: [{ type: 'remove_item', name: 'Iron Sword' }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 7 }));
     expect(result).toContain('- Iron Sword');
   });
 
-  it('shows health in footer when changed on failure', () => {
-    const result = formatOutcome(failureOutcome, {
-      stamina: 6,
-      rollsRemaining: 1,
-      health: 8,
-      maxHealth: 12,
-      wealth: 5,
-      healthChanged: true,
-    });
-
-    expect(result).toContain('Health: 8/12');
+  it('shows health with delta on failure', () => {
+    const outcome: ActionOutcome = {
+      ...failureOutcome,
+      mutations: [{ type: 'modify_health', amount: -2 }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 6, health: 8 }));
+    expect(result).toContain('Health: 8/12 (-2)');
   });
 });
+
+// ── Skipped ──
 
 describe('OutcomeRenderer — skipped', () => {
   const skipOutcome: ActionOutcome = {
@@ -203,31 +223,19 @@ describe('OutcomeRenderer — skipped', () => {
   };
 
   it('shows skip symbol and text', () => {
-    const result = formatOutcome(skipOutcome, {
-      stamina: 9,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(skipOutcome, ctx({ stamina: 9 }));
     expect(result).toContain('↩');
     expect(result).toContain('Skipped');
     expect(result).toContain('You retreat from the situation.');
   });
 
   it('does not show a roll line for skipped', () => {
-    const result = formatOutcome(skipOutcome, {
-      stamina: 9,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(skipOutcome, ctx({ stamina: 9 }));
     expect(result).not.toContain('🎲');
   });
 });
+
+// ── Timed out ──
 
 describe('OutcomeRenderer — timed out', () => {
   const timeoutOutcome: ActionOutcome = {
@@ -240,19 +248,14 @@ describe('OutcomeRenderer — timed out', () => {
   };
 
   it('shows timeout symbol and text', () => {
-    const result = formatOutcome(timeoutOutcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(timeoutOutcome, ctx());
     expect(result).toContain('⏰');
     expect(result).toContain('Timed out');
     expect(result).toContain('The moment passes.');
   });
 });
+
+// ── Natural 1 / 20 ──
 
 describe('OutcomeRenderer — natural 1 / natural 20', () => {
   const nat1Outcome: ActionOutcome = {
@@ -274,36 +277,24 @@ describe('OutcomeRenderer — natural 1 / natural 20', () => {
   };
 
   it('marks nat1 as failure regardless of DC', () => {
-    const result = formatOutcome(nat1Outcome, {
-      stamina: 8,
-      rollsRemaining: 0,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(nat1Outcome, ctx());
     expect(result).toContain('1 vs 5');
     expect(result).toContain('✗');
     expect(result).toContain('Failure');
   });
 
   it('marks nat20 as success regardless of DC', () => {
-    const result = formatOutcome(nat20Outcome, {
-      stamina: 8,
-      rollsRemaining: 0,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+    const result = formatOutcome(nat20Outcome, ctx());
     expect(result).toContain('20 vs 30');
     expect(result).toContain('✓');
     expect(result).toContain('Success');
   });
 });
 
+// ── Wealth ──
+
 describe('OutcomeRenderer — wealth', () => {
-  const outcome: ActionOutcome = {
+  const base: ActionOutcome = {
     distilledType: 'hunt',
     finalDc: 14,
     playerRolled: 16,
@@ -312,41 +303,126 @@ describe('OutcomeRenderer — wealth', () => {
     mutations: [],
   };
 
-  it('shows wealth when wealthChanged is true', () => {
-    const result = formatOutcome(outcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 15,
-      wealthChanged: true,
-    });
-
-    expect(result).toContain('Wealth: 15');
+  it('shows wealth with delta when modify_wealth mutation exists', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_wealth', amount: 10 }],
+    };
+    const result = formatOutcome(outcome, ctx({ wealth: 15 }));
+    expect(result).toContain('Wealth: 15 (+10)');
   });
 
-  it('does not show wealth when wealthChanged is false', () => {
-    const result = formatOutcome(outcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-      wealthChanged: false,
-    });
+  it('shows negative wealth delta', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_wealth', amount: -3 }],
+    };
+    const result = formatOutcome(outcome, ctx({ wealth: 2 }));
+    expect(result).toContain('Wealth: 2 (-3)');
+  });
 
+  it('does not show wealth when no modify_wealth mutation', () => {
+    const result = formatOutcome(base, ctx({ wealth: 5 }));
     expect(result).not.toContain('Wealth');
   });
 
-  it('does not show wealth when wealthChanged is undefined', () => {
-    const result = formatOutcome(outcome, {
-      stamina: 8,
-      rollsRemaining: 1,
-      health: 10,
-      maxHealth: 12,
-      wealth: 5,
-    });
-
+  it('does not show wealth when modify_wealth amount is zero', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_wealth', amount: 0 }],
+    };
+    const result = formatOutcome(outcome, ctx({ wealth: 5 }));
     expect(result).not.toContain('Wealth');
+  });
+});
+
+// ── Rolls delta ──
+
+describe('OutcomeRenderer — rolls delta', () => {
+  const base: ActionOutcome = {
+    distilledType: 'explore',
+    finalDc: 12,
+    playerRolled: 15,
+    outcome: 'success',
+    outcomeText: 'You search carefully.',
+    mutations: [],
+  };
+
+  it('shows negative rolls delta', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_rolls_remaining', amount: -1 }],
+    };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 0 }));
+    expect(result).toContain('Rolls: 0/2 (-1)');
+  });
+
+  it('shows positive rolls delta', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_rolls_remaining', amount: 1 }],
+    };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 1 }));
+    expect(result).toContain('Rolls: 1/2 (+1)');
+  });
+});
+
+// ── spawn_npc is ignored (narrated by LLM in outcome_text) ──
+
+describe('OutcomeRenderer — spawn_npc ignored', () => {
+  const outcome: ActionOutcome = {
+    distilledType: 'hunt',
+    finalDc: 15,
+    playerRolled: 18,
+    outcome: 'success',
+    outcomeText: 'A stranger emerges from the trees. "Well met," she says.',
+    mutations: [
+      { type: 'spawn_npc', name: 'Elena', class: 'Hunter', description: 'A scarred ranger' },
+    ],
+  };
+
+  it('does not mention NPC spawn in summary line', () => {
+    const result = formatOutcome(outcome, ctx());
+    expect(result).not.toContain('Elena');
+    expect(result).toContain('Stamina: 8/10');
+    expect(result).toContain('Rolls: 1/2');
+  });
+});
+
+// ── Multiple mutation types in one outcome ──
+
+describe('OutcomeRenderer — complex outcome', () => {
+  it('handles items, health, wealth, and location all together', () => {
+    const outcome: ActionOutcome = {
+      distilledType: 'hunt',
+      finalDc: 14,
+      playerRolled: 18,
+      outcome: 'success',
+      outcomeText: 'You defeat the creature and claim its lair.',
+      mutations: [
+        { type: 'add_item', emoji: '🦊', name: 'Wolf Pelt', stat: 'physical', modifier: 2 },
+        { type: 'remove_item', name: 'Torch' },
+        { type: 'set_location', name: 'Wolf Den' },
+        { type: 'modify_health', amount: -3 },
+        { type: 'modify_stamina', amount: -2 },
+        { type: 'modify_wealth', amount: 15 },
+        { type: 'modify_rolls_remaining', amount: -1 },
+      ],
+    };
+
+    const result = formatOutcome(outcome, ctx({
+      stamina: 6,
+      rollsRemaining: 0,
+      health: 7,
+      wealth: 20,
+    }));
+
+    expect(result).toContain('+ 🦊 Wolf Pelt');
+    expect(result).toContain('- Torch');
+    expect(result).toContain('→ Wolf Den');
+    expect(result).toContain('Health: 7/12 (-3)');
+    expect(result).toContain('Stamina: 6/10 (-2)');
+    expect(result).toContain('Rolls: 0/2 (-1)');
+    expect(result).toContain('Wealth: 20 (+15)');
   });
 });

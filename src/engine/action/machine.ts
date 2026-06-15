@@ -11,6 +11,17 @@ import type {
 import { accumulateDc, computeItemBonus, resolveRoll, validateDcModifier } from './dc.js';
 
 /**
+ * Injectable resolver for world context — NPCs, other PCs, and recent actions.
+ * Passed to ActionStateMachine so it can populate the LLM context with live world state
+ * without coupling to specific repositories.
+ */
+export interface WorldContextResolver {
+  getNearbyNpcs(location: string): Array<{ name: string; description: string }>;
+  getNearbyPcs(location: string, excludeCharId: number): Array<{ name: string; class: string }>;
+  getRecentActions(characterId: number): Array<{ type: string; outcome: string }>;
+}
+
+/**
  * Extends ActionState with internal fields stored in the JSON column
  * but not exposed on the public ActionState interface.
  */
@@ -31,6 +42,11 @@ export class ActionStateMachine {
   constructor(
     private llm: LlmGateway,
     private rollD20: () => number = () => Math.floor(Math.random() * 20) + 1,
+    private resolver: WorldContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+    },
   ) {}
 
   async start(
@@ -228,12 +244,18 @@ export class ActionStateMachine {
     stat?: string,
   ): LlmContext {
     const hintParts: string[] = [];
+
+    // Item bonus for the current stat
     if (stat) {
       const bonus = computeItemBonus(items, stat);
       hintParts.push(bonus !== 0 ? `${stat} item bonus: ${bonus >= 0 ? '+' : ''}${bonus}` : `no ${stat} items`);
     }
 
-    // Map character to LlmContext character (health/stamina are number, not undefined)
+    // Full inventory — lets the LLM decide remove_item targets and avoid duplicate add_item
+    if (items.length > 0) {
+      hintParts.push(`inventory: ${items.map(i => `${i.emoji} ${i.name} (${i.stat}+${i.modifier}, qty ${i.quantity})`).join(', ')}`);
+    }
+
     return {
       character: {
         class: char.class,
@@ -244,9 +266,9 @@ export class ActionStateMachine {
         dayJob: char.dayJob,
       },
       location: { name: char.location },
-      nearbyNpcs: [],
-      nearbyPcs: [],
-      recentActions: [],
+      nearbyNpcs: this.resolver.getNearbyNpcs(char.location),
+      nearbyPcs: this.resolver.getNearbyPcs(char.location, char.id),
+      recentActions: this.resolver.getRecentActions(char.id),
       rawInput,
       ...(previous.length > 0 ? { previousDecisions: previous } : {}),
       scalingHint: hintParts.join(' | ') || 'No relevant items',

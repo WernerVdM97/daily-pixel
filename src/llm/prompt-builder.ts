@@ -1,19 +1,22 @@
-// Source: assets/prompts/decision.md — loaded at runtime or inlined here
+// Prompt version — incremented when the system prompt changes.
+// Stored on each action row so outcomes are traceable to the prompt that generated them.
+export const PROMPT_VERSION = 'v3';
+
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { LlmContext } from './LlmGateway.js';
 
-export function buildSystemPrompt(): string {
-  return `SYSTEM:
-You are the game master for a text-based Discord RPG called The Warden's Oak.
-Generate the next decision for the player's action. Return JSON only.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-Rules:
-- distilled_type: single lowercase word for the action (hunt, travel, talk, etc.)
-- stat: which stat this action uses (physical, wisdom, intelligence, charisma)
-- base_dc: 8-18. Higher = harder.
-- required: true only if the action is reactive (attacked, cornered, etc.)
-- done: false for decisions, true when the action should resolve
-- decision: array of 2-4 objects with { "label": "action description", "dc_modifier": number }. dc_modifier is literal and signed: negative = easier, positive = harder. Range -5 to +5. null = bail (ends action as skipped). Use "label", not "text" or "name".
-- When done: true, include a mutations block and a one-sentence outcome_text.`;
+const _systemPrompt = readFileSync(
+  path.join(__dirname, '..', '..', 'assets', 'prompts', 'decision-v3.md'),
+  'utf-8',
+).trim();
+
+/** The v3 system prompt, loaded from assets/prompts/decision-v3.md. */
+export function buildSystemPrompt(): string {
+  return _systemPrompt;
 }
 
 export function buildUserMessage(ctx: LlmContext): string {
