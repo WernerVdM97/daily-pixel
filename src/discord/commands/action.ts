@@ -174,10 +174,13 @@ export async function handleActionChoice(
   // Defer the button click — stepAction calls LLM which can take >3 seconds
   await i.deferUpdate();
 
-  // Bail
+  // Bail — look up the actual bail option label from the pending decision
   if (i.customId === CID_BAIL) {
     try {
-      const result = await engine.stepAction(charId, '__bail__');
+      const decision = pendingDecisions.get(i.user.id);
+      const bailOption = decision?.options.find(o => o.dcModifier === null);
+      const bailLabel = bailOption?.label ?? 'Bail';
+      const result = await engine.stepAction(charId, bailLabel);
       await handleActionResult(i, result, engine);
     } catch (err) {
       await i.editReply({

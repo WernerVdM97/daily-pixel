@@ -110,6 +110,35 @@ export class ActionStateMachine {
     const newDecisions = [...state.decisions, record];
     const newDc = accumulateDc(state.accumulatedDc, [option.dcModifier]);
 
+    // Force-resolve after 3 decisions — don't call LLM again
+    if (state.decisions.length >= 2) { // 2 previous + this one = third decision
+      const d20 = this.rollD20();
+      const bonus = computeItemBonus(items, state.rollStat);
+      const outcome = resolveRoll(d20, bonus, newDc);
+
+      const finalState: InternalActionState = {
+        ...state,
+        decisions: newDecisions,
+        accumulatedDc: newDc,
+        pendingDecision: state.pendingDecision,
+      };
+
+      return {
+        resolved: true,
+        state: finalState,
+        outcome: {
+          distilledType: state.distilledType,
+          finalDc: newDc,
+          playerRolled: d20,
+          outcome,
+          mutations: [],
+          outcomeText: outcome === 'success'
+            ? `Your ${state.distilledType} succeeds.`
+            : `Your ${state.distilledType} fails.`,
+        },
+      };
+    }
+
     // Call LLM to determine next step
     const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items, state.rollStat);
     const decision = await this.llm.decide(context);
