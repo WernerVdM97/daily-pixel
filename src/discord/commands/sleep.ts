@@ -2,7 +2,7 @@
  * /sleep — rest or advance the world.
  *
  * Admin (ADMIN_USER_ID env var): triggers the daily tick.
- * Non-admin: returns a camp-by-the-Oak rest scene, no tick.
+ * Non-admin: returns to the Oak — location is moved, no tick.
  */
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { mapError } from "../../engine/ErrorMapper.js";
@@ -48,12 +48,23 @@ export function makeSleepCommand(engine: WorldEngine) {
       }
     }
 
-    // Non-admin: rest scene, no tick
+    // Non-admin: return to the Oak, move location
+    const character = engine.getCharacter(interaction.user.id);
+    if (!character) {
+      return "You don't have a character yet. Type `/join` to create one.";
+    }
+
+    const alreadyThere = character.location === "The Warden's Oak";
+    engine.restAtOak(interaction.user.id);
+    const locationLine = alreadyThere
+      ? 'The Oak\'s familiar boughs cradle you once more.'
+      : 'You bank the fire and bed down beneath the Oak.';
+
     return [
-      '🏕️ **Camp by the Oak**',
+      '🏕️ **The Warden\'s Oak**',
       '═'.repeat(30),
       '',
-      'You bank the fire and bed down beneath the Oak.',
+      locationLine,
       'The day turns when the world wills it — not when you do.',
       '',
       '*The ember glows. The Oak stands watch. Rest, for now.*',

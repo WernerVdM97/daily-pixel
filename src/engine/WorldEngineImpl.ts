@@ -460,6 +460,27 @@ export class WorldEngineImpl implements WorldEngine {
       .run(characterId, text);
   }
 
+  // ── Rest & recovery ──
+
+  restAtOak(discordUserId: string): CharacterData | null {
+    const user = this.userRepo.findByDiscordId(discordUserId);
+    if (!user) return null;
+    const row = this.charRepo.findByUserId(user.id);
+    if (!row) return null;
+
+    const oakName = "The Warden's Oak";
+    if (row.location === oakName) {
+      // Already at the Oak — still return the character so the command can flavour it
+      return this.rowToCharacterData(row);
+    }
+
+    this.charRepo.update(row.id, { location: oakName });
+    return this.rowToCharacterData({
+      ...row,
+      location: oakName,
+    });
+  }
+
   // ── World tick (S5) ──
 
   tick(isAdmin: boolean): TickResult {
