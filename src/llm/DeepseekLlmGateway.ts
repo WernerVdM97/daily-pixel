@@ -160,6 +160,11 @@ export class DeepseekLlmGateway implements LlmGateway {
       console.warn('[llm:validate]', warnings.join('; '));
       console.warn('[llm:validate] raw response:', JSON.stringify(raw).slice(0, 500));
     }
+
+    // Check mutations is an array when present
+    if (raw.mutations !== undefined && !Array.isArray(raw.mutations)) {
+      console.warn('[llm:validate] mutations is not an array:', typeof raw.mutations, JSON.stringify(raw.mutations).slice(0, 200));
+    }
   }
 
   private parseStat(raw: unknown): 'physical' | 'wisdom' | 'intelligence' | 'charisma' {

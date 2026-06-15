@@ -164,7 +164,7 @@ export class ActionStateMachine {
           finalDc: newDc,
           playerRolled: d20,
           outcome,
-          mutations: (decision.mutations as WorldMutation[] | undefined) ?? [],
+          mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
           outcomeText: decision.outcomeText ?? 'The action resolves.',
         },
       };
