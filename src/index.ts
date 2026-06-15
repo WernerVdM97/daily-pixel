@@ -72,6 +72,8 @@ if (!ADMIN_USER_ID) {
   console.warn('WARNING: ADMIN_USER_ID is not set. Admin `/sleep` will be unreachable.');
 }
 
+const VERBOSE = process.env.VERBOSE === 'true';
+
 // ── YAML asset loading (fail-fast) ──
 
 function loadCharCreationAssets() {
@@ -282,6 +284,12 @@ async function main() {
     if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
 
+      if (VERBOSE) {
+        const user = interaction.user.tag;
+        const options = interaction.options.data.map(o => `${o.name}=${o.value}`).join(', ');
+        console.log(`[verbose] /${commandName} from ${user} options: ${options || '(none)'}`);
+      }
+
       const handler = registry.get(commandName);
       if (!handler) {
         await interaction.reply({
@@ -296,6 +304,9 @@ async function main() {
         // If the handler already replied (join/hi manage their own flow), skip
         if (interaction.replied || interaction.deferred) return;
         await interaction.reply(result);
+        if (VERBOSE) {
+          console.log(`[verbose] /${commandName} → ${result.slice(0, 200)}`);
+        }
       } catch (err) {
         console.error(`[discord] Error handling /${commandName}:`, err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -313,11 +324,12 @@ async function main() {
       : null;
 
     if (customId && customId.startsWith('join:')) {
-      // Narrow to the types handleInteraction expects
       if (!interaction.isButton() && !interaction.isModalSubmit()) return;
+      if (VERBOSE) console.log(`[verbose] join:${interaction.isButton() ? 'button' : 'modal'} from ${interaction.user.tag} cid=${customId}`);
       try {
         const { handleInteraction } = await import('./discord/commands/join.js');
         await handleInteraction(interaction, engine, joinWizards);
+        if (VERBOSE) console.log(`[verbose] join: done`);
       } catch (err) {
         console.error('[join] Error handling interaction:', err);
         if ('reply' in interaction) {
@@ -333,9 +345,11 @@ async function main() {
     // ── Action choices ──
     if (customId && customId.startsWith('action:')) {
       if (!interaction.isButton()) return;
+      if (VERBOSE) console.log(`[verbose] action:button from ${interaction.user.tag} cid=${customId}`);
       try {
         const { handleActionChoice } = await import('./discord/commands/action.js');
         await handleActionChoice(interaction, engine);
+        if (VERBOSE) console.log(`[verbose] action: done`);
       } catch (err) {
         console.error('[action] Error handling choice:', err);
         if ('reply' in interaction) {
