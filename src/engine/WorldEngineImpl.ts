@@ -424,133 +424,131 @@ export class WorldEngineImpl implements WorldEngine {
       }
     }
 
-    // ── Advance day number ──
-    const currentDayStr = this.metaRepo.get('day_number') ?? '1';
-    const newDay = Number(currentDayStr) + 1;
-    this.metaRepo.set('day_number', String(newDay));
-    this.metaRepo.set('last_cron_date', today);
+    // Wrap all writes in a transaction so a partial failure doesn't
+    // leave the world half-ticked and the cron date poisoned.
+    return this.db.transaction((): TickResult => {
+      // ── Advance day number ──
+      const currentDayStr = this.metaRepo.get('day_number') ?? '1';
+      const newDay = Number(currentDayStr) + 1;
+      this.metaRepo.set('day_number', String(newDay));
+      this.metaRepo.set('last_cron_date', today);
 
-    // ── Player effects ──
-    const allChars = this.charRepo.findAll();
-    for (const charRow of allChars) {
-      const loc = this.locationRepo.findByName(charRow.location);
-      const isSafe = loc?.is_safe === 1;
+      // ── Player effects ──
+      const allChars = this.charRepo.findAll();
+      for (const charRow of allChars) {
+        const loc = this.locationRepo.findByName(charRow.location);
+        const isSafe = loc?.is_safe === 1;
 
-      // Safe: recover stamina +5 (cap 10), health +3 (cap max_health)
-      // Wilds: decay stamina -1 (floor 0)
-      let newStamina: number;
-      let newHealth: number | undefined;
+        let newStamina: number;
+        let newHealth: number | undefined;
 
-      if (isSafe) {
-        newStamina = Math.min(charRow.stamina + 5, 10);
-        newHealth = Math.min(charRow.health + 3, charRow.max_health);
-      } else {
-        newStamina = Math.max(charRow.stamina - 1, 0);
-        // No health change in wilds
-      }
-
-      // Day-job income
-      const income = this.dayJobIncome[charRow.day_job] ?? 0;
-
-      const updates: Record<string, unknown> = {
-        rolls_remaining: 2,
-        stamina: newStamina,
-        wealth: charRow.wealth + income,
-      };
-      if (newHealth !== undefined) {
-        updates.health = newHealth;
-      }
-
-      this.charRepo.update(charRow.id, updates);
-    }
-
-    // ── NPC effects ──
-    const allLocations = this.locationRepo.findAll();
-    const npcMovements: NpcMovement[] = [];
-    const allNpcs = this.npcRepo.findAll();
-
-    for (const npc of allNpcs) {
-      const cls = npc.class ?? '';
-
-      if (cls === 'Blacksmith') {
-        // Stays at current location, works the forge
-        this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + 5 });
-        continue;
-      }
-
-      // 80% chance to move, seeded by NPC.id + newDay
-      const seed = npc.id + newDay;
-      const rng = mulberry32(seed);
-      const shouldMove = rng() < 0.8;
-
-      if (!shouldMove) {
-        // Merchant still earns even if not moving
-        if (cls === 'Merchant') {
-          this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + seededRandomRange(seed + 1, 5, 15) });
+        if (isSafe) {
+          newStamina = Math.min(charRow.stamina + 5, 10);
+          newHealth = Math.min(charRow.health + 3, charRow.max_health);
+        } else {
+          newStamina = Math.max(charRow.stamina - 1, 0);
         }
-        continue;
+
+        const income = this.dayJobIncome[charRow.day_job] ?? 0;
+
+        const updates: Record<string, unknown> = {
+          rolls_remaining: 2,
+          stamina: newStamina,
+          wealth: charRow.wealth + income,
+        };
+        if (newHealth !== undefined) {
+          updates.health = newHealth;
+        }
+
+        this.charRepo.update(charRow.id, updates);
       }
 
-      // Determine destination by class
-      let candidates: string[] = [];
+      // ── NPC effects ──
+      const allLocations = this.locationRepo.findAll();
+      const npcMovements: NpcMovement[] = [];
+      const allNpcs = this.npcRepo.findAll();
 
-      if (cls === 'Hunter') {
-        candidates = allLocations
-          .filter(l => locationTagsContain(l.tags, 'wilderness') || locationTagsContain(l.tags, 'forest'))
-          .map(l => l.name);
-      } else if (cls === 'Merchant') {
-        candidates = allLocations
-          .filter(l => locationTagsContain(l.tags, 'town') || locationTagsContain(l.tags, 'market') || locationTagsContain(l.tags, 'square'))
-          .map(l => l.name);
-      } else if (cls === 'Herbalist') {
-        candidates = allLocations
-          .filter(l => locationTagsContain(l.tags, 'forest') || locationTagsContain(l.tags, 'river'))
-          .map(l => l.name);
-      } else if (cls === 'Acolyte') {
-        candidates = allLocations
-          .filter(l => locationTagsContain(l.tags, 'shrine') || locationTagsContain(l.tags, 'temple'))
-          .map(l => l.name);
-      } else {
-        // Unknown class: move to a random location (excluding current? No, random from all)
-        candidates = allLocations.map(l => l.name);
+      for (const npc of allNpcs) {
+        const cls = npc.class ?? '';
+
+        if (cls === 'Blacksmith') {
+          this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + 5 });
+          continue;
+        }
+
+        // 80% chance to move, seeded by NPC.id + newDay
+        // Use multiplier to avoid seed collisions across NPCs.
+        const seed = npc.id * 100000 + newDay;
+        const rng = mulberry32(seed);
+        const shouldMove = rng() < 0.8;
+
+        if (!shouldMove) {
+          if (cls === 'Merchant') {
+            this.npcRepo.update(npc.id, {
+              wealth: (npc.wealth ?? 0) + seededRandomRange(seed + 100000, 5, 15),
+            });
+          }
+          continue;
+        }
+
+        // Determine destination by class
+        let candidates: string[] = [];
+
+        if (cls === 'Hunter') {
+          candidates = allLocations
+            .filter(l => locationTagsContain(l.tags, 'wilderness') || locationTagsContain(l.tags, 'forest'))
+            .map(l => l.name);
+        } else if (cls === 'Merchant') {
+          candidates = allLocations
+            .filter(l => locationTagsContain(l.tags, 'town') || locationTagsContain(l.tags, 'market') || locationTagsContain(l.tags, 'square'))
+            .map(l => l.name);
+        } else if (cls === 'Herbalist') {
+          candidates = allLocations
+            .filter(l => locationTagsContain(l.tags, 'forest') || locationTagsContain(l.tags, 'river'))
+            .map(l => l.name);
+        } else if (cls === 'Acolyte') {
+          candidates = allLocations
+            .filter(l => locationTagsContain(l.tags, 'shrine') || locationTagsContain(l.tags, 'temple'))
+            .map(l => l.name);
+        } else {
+          candidates = allLocations.map(l => l.name);
+        }
+
+        if (candidates.length === 0) {
+          candidates = allLocations.map(l => l.name);
+        }
+
+        const filteredCandidates = candidates.filter(c => c !== npc.location);
+        if (filteredCandidates.length === 0) {
+          continue;
+        }
+
+        const destIndex = Math.floor(rng() * filteredCandidates.length);
+        const dest = filteredCandidates[destIndex];
+
+        const fromLocation = npc.location ?? '(unknown)';
+        this.npcRepo.updateLocation(npc.id, dest);
+
+        if (cls === 'Merchant') {
+          this.npcRepo.update(npc.id, {
+            wealth: (npc.wealth ?? 0) + seededRandomRange(seed + 200000, 5, 15),
+          });
+        }
+
+        npcMovements.push({
+          npcId: npc.id,
+          npcName: npc.name,
+          fromLocation,
+          toLocation: dest,
+        });
       }
 
-      // Fallback: if no candidates match, use all locations
-      if (candidates.length === 0) {
-        candidates = allLocations.map(l => l.name);
-      }
-
-      // Exclude current location so the NPC truly "moves"
-      const filteredCandidates = candidates.filter(c => c !== npc.location);
-      if (filteredCandidates.length === 0) {
-        continue; // nowhere to go
-      }
-
-      // Pick destination with seeded rng
-      const destIndex = Math.floor(rng() * filteredCandidates.length);
-      const dest = filteredCandidates[destIndex];
-
-      const fromLocation = npc.location ?? '(unknown)';
-      this.npcRepo.updateLocation(npc.id, dest);
-
-      // Merchant gains wealth 5-15 on movement
-      if (cls === 'Merchant') {
-        this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + seededRandomRange(seed + 1, 5, 15) });
-      }
-
-      npcMovements.push({
-        npcId: npc.id,
-        npcName: npc.name,
-        fromLocation,
-        toLocation: dest,
-      });
-    }
-
-    return {
-      dayNumber: newDay,
-      playersAffected: allChars.length,
-      npcMovements,
-    };
+      return {
+        dayNumber: newDay,
+        playersAffected: allChars.length,
+        npcMovements,
+      };
+    })();
   }
 
   // ── Meta ──
