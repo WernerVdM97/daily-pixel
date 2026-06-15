@@ -121,8 +121,10 @@ The bot's action message can be the thread parent. Player responses and follow-u
 | `/hi` | Deterministic | Opening scene. Atmosphere → [Begin] → day-job hooks (weekday) or adventure hooks (weekend). Once per day (cached). Resumes mid-action state. |
 | `/action <type>` | Probabilistic | Hunt, travel, rest, scout, talk, attack. Consumes 1 roll. |
 | `/look` | Deterministic | Current location scene + description. |
+| `/journal` | Deterministic | Known locations, NPCs, recent actions. |
 | `/backpack` | Deterministic | Emoji grid of items. |
 | `/stats` | Deterministic | Character status. Same layout as `/join` summary screen. |
 | `/sleep` | Deterministic | Advance the day. Reset rolls. Cooldown: once per real day. |
 | `/help` | Deterministic | Command reference. |
 | `/feedback` | Deterministic | Submit feedback. |
+| `/bug` | Deterministic | Report a bug. |

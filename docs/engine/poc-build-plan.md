@@ -19,13 +19,14 @@ related:
 
 ## Sections
 
-| Doc | Covers |
-|---|---|
-| [[poc-build-scaffold]] | Project init, bot registration, DB setup, deterministic commands (`/hi`, `/look`, `/help`, `/backpack`, `/stats`, `/feedback`) |
-| [[poc-build-probabilistic]] | Probabilistic action flow: `/action <type>`, LLM decisions, DC adjustment, roll/skip, outcomes, persistence |
-| [[poc-build-scenes]] | ASCII fragment library, scene composition, mobile testing |
-| [[poc-build-polish]] | Error handling, LLM fallback, flavor text, help text, `/sleep` tick |
-| [[poc-build-deploy]] | LXC provisioning, deploy, invite testers, observe |
+| Doc                         | Covers                                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [[poc-build-scaffold]]      | Project init, bot registration, DB setup, deterministic commands (`/hi`, `/look`, `/journal`, `/help`, `/backpack`, `/stats`, `/feedback`, `/bug`) |
+| [[poc-build-probabilistic]] | Probabilistic action flow: `/action <type>`, LLM decisions, DC adjustment, roll/skip, outcomes, persistence                    |
+| [[poc-build-scenes]]        | ASCII fragment library, scene composition, mobile testing                                                                      |
+| [[poc-build-polish]]        | Error handling, LLM fallback, flavor text, help text, pre-deploy final pass                                                       |
+| [[world-tick]]              | `/sleep` daily tick: day advance, roll reset, stamina recovery. Extracted from polish.                                              |
+| [[poc-build-deploy]]        | LXC provisioning, deploy, invite testers, observe                                                                              |
 
 ---
 

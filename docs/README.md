@@ -1,7 +1,8 @@
 # Docs — Map of Content
 
-The design vault for **The Warden's Oak**. Every doc carries frontmatter. Promoted docs graduate from [`sparks/`](./sparks/) to domain folders. 
-Read **[CONVENTIONS.md](./CONVENTIONS.md)** first.
+The design vault for **The Warden's Oak**. Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain folders. 
+
+Read **[CONVENTIONS](./CONVENTIONS.md)** first.
 
 > **Maintenance:** 
 > When you add a doc, add its row to the right table.
@@ -24,7 +25,6 @@ mission, pillars, north star
 | ✅      | [Hazard Map](./vision/hazard-map.md)             | No-gos, rabbit holes, known risks, scope discipline |
 | 🔭     | [World & Setting](./vision/world-setting.md)     | The Oak, the Threat, emergent map                   |
 
-
 ## 🎲 game
 
 mechanics, loop, actions
@@ -38,10 +38,16 @@ mechanics, loop, actions
 
 how it runs
 
-| Status | Doc | Summary |
-|---|---|---|
-| ✅ | [POC Tech Stack](./engine/poc-tech-stack.md) | Tech choices, architecture diagrams, hosting, no-gos for POC vs MVP |
-| ✅ | [POC Build Plan](./engine/poc-build-plan.md) | Root doc. Links to sub-docs below |
+| Status | Doc                                          | Summary                                                             |
+| ------ | -------------------------------------------- | ------------------------------------------------------------------- |
+| ✅      | [POC Tech Stack](./engine/poc-tech-stack.md) | Tech choices, architecture diagrams, hosting, no-gos for POC vs MVP |
+| ✅      | [POC Build Plan](./engine/poc-build-plan.md) | Root doc. Links to sub-docs below                                   |
+| 🔭     | [Build — Scaffold](./engine/poc-build-scaffold.md) | Project init, DB, character creation, deterministic commands     |
+| 🔭     | [Build — Probabilistic](./engine/poc-build-probabilistic.md) | `/action` flow, reactive LLM decisions, roll/skip, mutations     |
+| 🔭     | [Build — Scenes](./engine/poc-build-scenes.md) | ASCII fragment catalog, tag matching, integration, mobile testing     |
+| 🔭     | [Build — Polish](./engine/poc-build-polish.md) | Error handling, LLM fallback, outcome rendering, help content, final pass     |
+| 🔭     | [World Tick](./engine/world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
+| 🔭     | [Build — Deploy](./engine/poc-build-deploy.md) | CI/CD, LXC provisioning, systemd, auto-update, tester invite, observation     |
 
 ## 🖥️ ui
 
@@ -60,12 +66,6 @@ ongoing sparks
 | Status | Doc                                                          | Summary                                                       |
 | ------ | ------------------------------------------------------------ | ------------------------------------------------------------- |
 | 🌱     | [Discord UX](./sparks/poc-discord-ux.md)                     | Mobile constraints, button rules, emoji signals, command list |
-| 🌱     | [Build — Scaffold](./sparks/poc-build-scaffold.md)           | Project init, DB, deterministic commands                      |
-| 🌱     | [Build — Deterministic](./sparks/poc-build-deterministic.md) | `/hi`, `/look`, `/backpack`, `/stats`, `/help`, `/feedback`   |
-| 🌱     | [Build — Probabilistic](./sparks/poc-build-probabilistic.md) | `/action` flow, LLM decisions, roll/skip, persistence         |
-| 🌱     | [Build — Scenes](./sparks/poc-build-scenes.md)               | ASCII fragment library, composition, mobile testing           |
-| 🌱     | [Build — Polish](./sparks/poc-build-polish.md)               | Error handling, LLM fallback, flavor text, `/sleep` tick      |
-| 🌱     | [Build — Deploy](./sparks/poc-build-deploy.md)               | LXC provisioning, deploy, invite testers, observe             |
 
 ## 🔥 MVP 
 
@@ -100,6 +100,6 @@ deferred depth & polish
 
 explored and rejected — kept so we don't re-litigate
 
-| Status | Doc | Summary |
-|---|---|---|
-| 🚫 | [Obsidian CLI](./sparks/obsidian-cli.md) | Vault automation via CLI — rejected in favor of Python scripts |
+| Status | Doc                                        | Summary                                                        |
+| ------ | ------------------------------------------ | -------------------------------------------------------------- |
+| 🚫     | [Obsidian CLI](./archived/obsidian-cli.md) | Vault automation via CLI — rejected in favor of Python scripts |

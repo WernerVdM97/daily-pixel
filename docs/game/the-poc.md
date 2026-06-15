@@ -39,7 +39,7 @@ One process. No cron. Actions split into two paths: probabilistic (LLM + dice + 
 
 | Feature                 | Implementation                                                                                                                                                                                                                                                                                                                               |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Slash commands**      | `/hi` (opening scene), `/action <type>`, `/look`, `/help`<br>`/backpack` (deterministic), `/stats` (deterministic)                                                                                                                                                                                                                            |
+| **Slash commands**      | `/hi` (opening scene), `/action <type>`, `/look`, `/journal`, `/help`<br>`/backpack` (deterministic), `/stats` (deterministic), `/feedback`, `/bug`                                                                                                                                                                                                                            |
 | **Action types**        | ex `hunt`, `travel`, `rest`, `scout`, `talk`, `attack`<br>fixed list for POC, free-form for MVP<br>Actions should be based off of set character abilities.                                                                                                                                                                                   |
 | **Roll economy**        | 2 daily rolls. Each `/action` consumes 1.<br>Unused rolls lost at midnight.                                                                                                                                                                                                                                                                  |
 | **Decision generation** | LLM (DeepSeek V4 Flash) generates 1-2 decision branches per action.<br>TBD tokens per call.<br>Decisions can spawn new nodes in DB (new NPC interaction, new item found, new town discovered)                                                                                                                                                |
@@ -170,7 +170,7 @@ One message per action, evolving through states as the player interacts.
 | Type | Trigger | LLM? | Dice? | Consumes roll? | Example |
 |---|---|---|---|---|---|
 | **Probabilistic** | `/action <type>` | Yes — generates decisions | Yes — d20 vs DC | Yes (1 of 2/day) | `/action hunt`, `/action travel` |
-| **Deterministic** | `/backpack`, `/stats`, `/look`, `/help` | No | No | No | `/backpack` → emoji grid of items |
+| **Deterministic** | `/backpack`, `/stats`, `/look`, `/journal`, `/help`, `/feedback`, `/bug` | No | No | No | `/backpack` → emoji grid of items |
 
 **Deterministic actions are instant.** The bot fetches data and renders it — no LLM call, no decision tree, no roll consumed. A player can check their backpack as many times as they want.
 
@@ -192,7 +192,7 @@ Pre-rendered scenes loaded from `assets/` as string constants:
 
 ## Feedback
 
-Lastly, each session should end with a reminder to submit feedback via `/feedback`.
+Lastly, each session should end with a reminder to submit feedback via `/feedback` and bugs via `/bug`.
 
 ---
 
