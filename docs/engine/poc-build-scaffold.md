@@ -201,8 +201,8 @@ At startup, before the bot logs in: load all files from `assets/char-creation/` 
 | `backgrounds.yml` | `name`, `description`, optional `modifiers`                                                                             |
 | `races.yml`       | `name`, `description`, optional `modifiers`                                                                             |
 | `alignments.yml`  | `name`, `description` — exactly 9 entries for 3×3 grid                                                                  |
-| `day-jobs.yml`    | `name`, `description`, `depends_on` (array of stat names), `base_income` (integer), `actions` (exactly 3 — the weekday `/hi` action-button labels)  |
-| `item-sets.yml`   | `name`, `items` (array of `{name, emoji, stat, modifier, quantity}`), tied to classes                                   |
+| `day-jobs.yml`    | `name`, `description`, `depends_on` (array of stat names), `base_income` (integer), `actions` (exactly 3 — each with `label`, `income`, `hook`)  |
+| `item-sets.yml`   | `name`, `description`, `for_classes` (array of class names), `items` (array of `{name, emoji, stat, modifier, quantity}`)                                   |
 
 **Prompts:** `assets/prompts/*.md` (e.g. `decision.md`, `fallback.md`) load under the same fail-fast contract — plain text with `{…}` placeholders, not YAML. Exit if a required prompt file is missing. See [[poc-build-probabilistic]] §2.
 
@@ -299,3 +299,12 @@ Free-text → INSERT into `bug_reports`. Reply: "Bug noted. The warden will inve
 - [!] **Frozen:** `src/engine/WorldEngine.ts` (the seam — 14 methods, one cohesive interface), `src/llm/LlmGateway.ts` (single `decide(context) → Decision`), `src/db/schema.sql` (9 tables), `src/db/repositories/types.ts` (row types). Changing any requires raising it as a decision record.
 - [x] **Tests:** 47 passing, 8 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. Working dir is `~/projects/daily-pixel/` (local — NFS at `/mnt/nas/stuff/repos/` blocks native addons).
 - [>] **Next (S1):** `/join` 6-step wizard → character in DB; `/stats`, `/backpack`. Start from `src/discord/CommandRegistry.ts` — register new commands, test handlers against `MockWorldEngine`, then wire up real `WorldEngine` implementation in `src/engine/` using User + Character repos. See `docs/engine/poc-build-poa.md` §5 for S1 scope and test requirements.
+
+---
+
+## S1 Handover
+
+- [x] **Shipped:** `/join` 6-step wizard (in-memory `WizardSession` state machine with 10-min TTL, Discord modal+button flow editing message in place, guards: already-has-character, name validation 2-30 chars no @/#, step 1→6 progression, confirm → `engine.createCharacter`), `/stats` (full character sheet formatter), `/backpack` (emoji grid with legend, empty-pack message), `StatComputer` (pure function summing class+upbringing+race modifiers, throws on unknown names).
+- [!] **Frozen:** `WizardSession` (public API: `start`, `setName`, `choose`, `confirm`, `reset`, `getSession`, `isExpired` — used by join handler and testable in isolation), `computeStats(className, upbringingName, raceName, classes, upbringings, races) → StatBlock`.
+- [x] **Tests:** 95 passing (48 new), 12 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New files: `tests/engine/stat-computer.test.ts` (7), `tests/discord/wizard-session.test.ts` (27), `tests/discord/stats-backpack.test.ts` (9), `tests/discord/join.test.ts` (5).
+- [>] **Next (S2):** Remaining deterministic commands (`/look`, `/journal`, `/help`, `/feedback`, `/bug`, `/hi`) + scenes (loader, validator, tag resolver, render template). See `docs/engine/poc-build-poa.md` §5 for S2 scope — pure resolver, no LLM, test tag matching units.

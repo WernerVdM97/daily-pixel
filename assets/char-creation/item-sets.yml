@@ -1,29 +1,52 @@
 # Starting item sets — loaded by /join wizard
+# for_classes maps kits to classes. Items carry stat + modifier for d20 bonuses.
 
 - name: Soldier's Kit
   description: Standard issue. Nothing fancy, nothing missing.
+  for_classes: [Warrior, Priest]
   items:
-    - { name: Iron Sword, emoji: "⚔️" }
-    - { name: Wooden Shield, emoji: "🛡️" }
-    - { name: Travel Rations, emoji: "🍞", quantity: 3 }
+    - { name: Iron Sword, emoji: "⚔️", stat: physical, modifier: 2 }
+    - { name: Wooden Shield, emoji: "🛡️", stat: physical, modifier: 1 }
+    - {
+        name: Travel Rations,
+        emoji: "🍞",
+        stat: physical,
+        modifier: 0,
+        quantity: 3,
+      }
 
 - name: Hunter's Kit
   description: For the wilds. Light, quiet, practical.
+  for_classes: [Ranger]
   items:
-    - { name: Hunter's Bow, emoji: "🏹" }
-    - { name: Trapping Kit, emoji: "🪤" }
-    - { name: Herbal Poultice, emoji: "🌿", quantity: 2 }
+    - { name: Hunter's Bow, emoji: "🏹", stat: physical, modifier: 2 }
+    - { name: Trapping Kit, emoji: "🪤", stat: wisdom, modifier: 1 }
+    - {
+        name: Herbal Poultice,
+        emoji: "🌿",
+        stat: physical,
+        modifier: 0,
+        quantity: 2,
+      }
 
 - name: Scholar's Kit
   description: Ink and insight. Knowledge weighs nothing but buys everything.
+  for_classes: [Wizard]
   items:
-    - { name: Leather Journal, emoji: "📖" }
-    - { name: Ink & Quill, emoji: "🖋️" }
-    - { name: Old Map Fragment, emoji: "🗺️" }
+    - { name: Leather Journal, emoji: "📖", stat: intelligence, modifier: 1 }
+    - { name: Ink & Quill, emoji: "🖋️", stat: intelligence, modifier: 0 }
+    - { name: Old Map Fragment, emoji: "🗺️", stat: wisdom, modifier: 1 }
 
 - name: Traveler's Kit
   description: For the road. Light pack, quick feet.
+  for_classes: [Bard]
   items:
-    - { name: Walking Staff, emoji: "🦯" }
-    - { name: Cloak, emoji: "🧥" }
-    - { name: Coin Pouch, emoji: "👛", quantity: 5 }
+    - { name: Walking Staff, emoji: "🦯", stat: physical, modifier: 1 }
+    - { name: Cloak, emoji: "🧥", stat: charisma, modifier: 1 }
+    - {
+        name: Coin Pouch,
+        emoji: "👛",
+        stat: charisma,
+        modifier: 0,
+        quantity: 5,
+      }
