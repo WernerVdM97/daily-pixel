@@ -38,6 +38,10 @@ export interface InternalActionState extends ActionState {
   required: boolean;
   /** Epoch ms when this state was last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
+  /** Mutations from the LLM when it resolved immediately (done: true).
+   *  Used so bail on a pre-resolved action applies the LLM's mutations instead of empty arrays. */
+  preResolvedMutations?: WorldMutation[];
+  preResolvedOutcomeText?: string;
 }
 
 export class ActionStateMachine {
@@ -65,6 +69,14 @@ export class ActionStateMachine {
     const decision = await this.llm.decide(context);
 
     const firstDecision = this.toActionDecision(decision, decision.required);
+
+    // When the LLM resolves immediately (done: true), stash the mutations so the
+    // bail path can apply them instead of returning empty arrays.
+    const preResolvedMutations = decision.done && Array.isArray(decision.mutations)
+      ? decision.mutations as WorldMutation[]
+      : undefined;
+    const preResolvedOutcomeText = decision.done ? (decision.outcomeText ?? undefined) : undefined;
+
     const state: InternalActionState = {
       rawInput,
       decisions: [],
@@ -74,6 +86,8 @@ export class ActionStateMachine {
       rollStat: decision.stat,
       required: decision.required,
       lastActionAt: Date.now(),
+      ...(preResolvedMutations ? { preResolvedMutations } : {}),
+      ...(preResolvedOutcomeText ? { preResolvedOutcomeText } : {}),
     };
 
     return { state, firstDecision };
@@ -101,6 +115,13 @@ export class ActionStateMachine {
         chosen: choice,
         dcModifier: 0,
       };
+
+      // When the LLM resolved immediately (done: true), apply its mutations
+      // instead of discarding them. Otherwise return empty bail outcome.
+      const outcomeMutations = state.preResolvedMutations ?? [];
+      const outcomeText = state.preResolvedOutcomeText ?? 'You retreat from the situation.';
+      const outcomeType = state.preResolvedMutations ? 'success' as const : 'skipped' as const;
+
       return {
         resolved: true,
         state: {
@@ -112,9 +133,9 @@ export class ActionStateMachine {
           distilledType: state.distilledType,
           finalDc: state.accumulatedDc,
           playerRolled: null,
-          outcome: 'skipped',
-          mutations: [],
-          outcomeText: 'You retreat from the situation.',
+          outcome: outcomeType,
+          mutations: outcomeMutations,
+          outcomeText,
         },
       };
     }

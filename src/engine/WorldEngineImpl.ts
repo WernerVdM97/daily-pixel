@@ -376,6 +376,11 @@ export class WorldEngineImpl implements WorldEngine {
 
         const applied = applyMutations(result.outcome.mutations, ctx);
 
+        // Log location changes for debugging (TODO: remove after confirming fix)
+        if (applied.location !== row.location) {
+          console.log(`[engine] location change: "${row.location}" → "${applied.location}"`);
+        }
+
         // Apply character state changes
         const updates: Record<string, unknown> = {};
         if (applied.currentHealth !== row.health) updates.health = applied.currentHealth;
@@ -384,7 +389,10 @@ export class WorldEngineImpl implements WorldEngine {
         if (applied.rollsRemaining !== row.rolls_remaining) updates.rolls_remaining = applied.rollsRemaining;
         if (applied.location !== row.location) updates.location = applied.location;
         if (Object.keys(updates).length > 0) {
+          console.log(`[engine] applying updates to char ${characterId}:`, JSON.stringify(updates));
           this.charRepo.update(characterId, updates);
+        } else {
+          console.log(`[engine] no field changes to apply for char ${characterId}`);
         }
 
         // Add items
