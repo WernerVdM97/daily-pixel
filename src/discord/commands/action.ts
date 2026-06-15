@@ -250,9 +250,14 @@ function buildDecisionMessage(
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
 } {
+  // Discord embed descriptions are capped at 4096 characters
+  const truncated = decision.prompt.length > 4000
+    ? decision.prompt.slice(0, 3997) + '...'
+    : decision.prompt;
+
   const embed = new EmbedBuilder()
     .setTitle('🤔 Decision')
-    .setDescription(decision.prompt)
+    .setDescription(truncated)
     .setColor(0xdaa520)
     .setFooter({ text: decisionIdx === 0 ? 'Choose your approach' : `Decision ${decisionIdx + 1}` });
 
