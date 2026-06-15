@@ -211,7 +211,7 @@ export class ActionStateMachine {
 
     return {
       prompt: llm.prompt ?? `${capitalize(llm.distilledType)} — choose your approach:`,
-      options,
+      options: ensureBail(options, required),
     };
   }
 
@@ -249,8 +249,19 @@ export class ActionStateMachine {
   }
 }
 
+// ── Module-level helpers ──
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function ensureBail(
+  options: Array<{ label: string; dcModifier: number | null }>,
+  required: boolean,
+): Array<{ label: string; dcModifier: number | null }> {
+  if (required) return options;
+  if (options.some(o => o.dcModifier === null)) return options;
+  return [...options, { label: 'Step back', dcModifier: null }];
 }
 
 function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen: string; dcModifier: number }[] {
