@@ -41,23 +41,8 @@ WorldEngine interface — never a discord.js object, never an ASCII string,
 never a raw SQLite row. The replaceability test: swapping the in-process
 WorldEngine for an HTTP client must change zero frontend code.
 
-S0 scope (stop when these are done AND their tests are green, or if you start spinning and need direction from the user):
-  - Project init: package.json, tsconfig (strict, ES2022), tsx, deps, .env (gitignored)
-  - SQLite schema = the 9 tables incl. `meta`; migrations; repository interfaces
-  - WorldEngine interface (one cohesive interface) + LlmGateway interface
-  - MockWorldEngine + MockLlmGateway (test fixtures)
-  - YAML + .ascii asset loaders with fail-fast validation at boot
-  - Command registry skeleton + /ping → "pong" smoke test
-  - Tests: schema migrates, repo CRUD on in-memory sqlite, asset-loader fail-fast
-    cases, mocks satisfy interfaces
-
-USE SKILLS: spec-driven + doubt-driven on the seam; TDD is the backbone (test first).
-Conventions: 2-space indent; do not commit to main; follow CONVENTIONS.md.
-
 START NOW: read the docs, then POST FOR MY APPROVAL — before writing any
-implementation — (a) the WorldEngine interface, (b) the LlmGateway interface,
-(c) schema.sql. Do not write implementation code until I sign off on the seam.
-When S0 is done, append the 5-line handover block to poc-build-scaffold.md.
+implementation — See the spec at `[>] Next...` last handoff in `poc-build-scaffold`
 ```
 
 ---
