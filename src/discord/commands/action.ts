@@ -302,15 +302,23 @@ async function applyActionResult(
     trail.push('');
     trail.push(formatOutcome(outcome, ctx));
 
-    await i.webhook.editMessage(i.message.id, {
-      embeds: [
-        new EmbedBuilder()
+    const outcomeEmbed = new EmbedBuilder()
           .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
           .setDescription(trail.join('\n'))
           .setColor(outcomeColor(outcome.outcome))
-          .toJSON(),
-      ],
+          .toJSON();
+
+    // Update the private message
+    await i.webhook.editMessage(i.message.id, {
+      embeds: [outcomeEmbed],
       components: [],
+    });
+
+    // Post a public copy to the channel
+    const charName = character?.name ?? 'Unknown';
+    await i.followUp({
+      content: `**${charName}** — ${outcome.distilledType}`,
+      embeds: [outcomeEmbed],
     });
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
