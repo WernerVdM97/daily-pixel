@@ -83,12 +83,35 @@ SQLite lives at `./data/daily-pixel.db` (auto-created). No build step — `tsx` 
 
 ### Podman (dev container)
 
+**Build:**
 ```bash
 podman build -t daily-pixel-dev .
+```
+
+**Run (foreground — logs stream to terminal):**
+```bash
 podman run --rm -it \
-  -v $(pwd)/data:/home/bot/app/data \
+  -v $(pwd)/data:/app/data \
   --env-file .env \
   daily-pixel-dev
+```
+
+**Run (detached — runs in background):**
+```bash
+podman run -d --name daily-pixel \
+  -v $(pwd)/data:/app/data \
+  --env-file .env \
+  daily-pixel-dev
+```
+
+**Tail logs from detached container:**
+```bash
+podman logs -f daily-pixel
+```
+
+**Stop and remove detached container:**
+```bash
+podman stop daily-pixel && podman rm daily-pixel
 ```
 
 SQLite persists in `./data/`. `.env` is mounted at runtime, never baked into the image. See [`Containerfile`](./Containerfile) and [`docs/engine/poc-build-deploy.md`](./docs/engine/poc-build-deploy.md) §2.
