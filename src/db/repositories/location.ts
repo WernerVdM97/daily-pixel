@@ -25,17 +25,18 @@ export class LocationRepository {
     isSafe?: number;
   }): LocationRow {
     const stmt = this.db.prepare(`
-      INSERT INTO locations (name, description, tags, is_safe)
+      INSERT OR IGNORE INTO locations (name, description, tags, is_safe)
       VALUES (@name, @description, @tags, @is_safe)
     `);
-    const result = stmt.run({
+    stmt.run({
       name: data.name,
       description: data.description ?? null,
       tags: data.tags ?? null,
       is_safe: data.isSafe ?? 0,
     });
+    // Return the row (may already exist — INSERT OR IGNORE makes this idempotent)
     return this.db
-      .prepare('SELECT * FROM locations WHERE id = ?')
-      .get(result.lastInsertRowid) as LocationRow;
+      .prepare('SELECT * FROM locations WHERE name = ?')
+      .get(data.name) as LocationRow;
   }
 }
