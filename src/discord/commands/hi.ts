@@ -112,11 +112,21 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
 			}
 		}
 
-		// Resumption hint
-		const resumeHint = character.lastActionState
-			? "\n\n⚠️ You have an unfinished action. `/hi` or `/action continue` to resume."
-			: "";
+		// Resumption — show the pending decision prompt instead of the greeting
+		// Resumption — show the pending decision prompt instead of the greeting
+		if (character.lastActionState) {
+			const resumeResult = engine.resumeAction(character.id);
+			const prompt = resumeResult.nextDecision.prompt;
+			return [
+				'⏳ **Unfinished Action**',
+				'═'.repeat(30),
+				'',
+				prompt,
+				'',
+				'Use `/action` to continue.',
+			].join('\n');
+		}
 
-		return [header, "", "─".repeat(30), ...actionLines, resumeHint].join("\n");
+		return [header, "", "─".repeat(30), ...actionLines].join("\n");
 	};
 }

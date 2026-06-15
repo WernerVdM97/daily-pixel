@@ -58,14 +58,19 @@ export function makeActionCommand(engine: WorldEngine) {
       return 'action_guard_no_character';
     }
 
-    // Guard: can't act mid-action — must resume or wait for timeout
+    // If mid-action, resume instead of starting fresh
     if (character.lastActionState !== null) {
-      await interaction.reply({
-        content: '⏳ You are already in the middle of an action.\n' +
-          'Complete it or wait 30 minutes for it to time out.',
-        ephemeral: true,
-      });
-      return 'action_guard_mid_action';
+      await interaction.deferReply();
+      try {
+        const resumeResult = engine.resumeAction(character.id);
+        const decisionIdx = resumeResult.state.decisions.length;
+        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx));
+        return 'action_resumed';
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await interaction.editReply({ content: `❌ **Could not resume.**\n${msg}` });
+        return 'action_error';
+      }
     }
 
     // Defer first — LLM call can take >3 seconds

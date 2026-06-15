@@ -335,9 +335,9 @@ describe('E2E — full happy path', () => {
     const hiCommand = makeHiCommand(ctx.engine, DAY_JOBS);
     const result = await hiCommand({ user: { id: DISCORD_USER_ID } });
 
-    // Should show unfinished action hint
-    expect(result).toContain('unfinished');
-    expect(result).toContain('/hi');
+    // Should show unfinished action prompt
+    expect(result).toContain('Unfinished');
+    expect(result).toContain('/action');
   });
 
   // ── 8. /sleep (admin) → day advanced, rolls reset ──
