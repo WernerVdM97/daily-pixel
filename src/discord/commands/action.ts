@@ -18,7 +18,7 @@ import {
   type ChatInputCommandInteraction,
   type MessageComponentInteraction,
 } from 'discord.js';
-import type { WorldEngine } from '../../engine/WorldEngine.js';
+import type { WorldEngine, ActionDecision } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 
@@ -31,6 +31,14 @@ function choiceCid(decisionIdx: number, optionIdx: number): string {
   return `${CID_PREFIX}${decisionIdx}:${optionIdx}`;
 }
 
+// Track the most recent pending decision per user, so button clicks
+// can look up the option label from the option index.
+const pendingDecisions = new Map<string, ActionDecision>();
+
+export function setPendingDecision(userId: string, decision: ActionDecision): void {
+  pendingDecisions.set(userId, decision);
+}
+
 export function parseActionCid(customId: string): { decisionIdx: number; optionIdx: number } | null {
   if (!customId.startsWith(CID_PREFIX)) return null;
   const rest = customId.slice(CID_PREFIX.length);
@@ -40,6 +48,13 @@ export function parseActionCid(customId: string): { decisionIdx: number; optionI
     decisionIdx: parseInt(rest.slice(0, colonIdx), 10),
     optionIdx: parseInt(rest.slice(colonIdx + 1), 10),
   };
+}
+
+function getChoiceLabel(userId: string, optionIdx: number): string | null {
+  const decision = pendingDecisions.get(userId);
+  if (!decision) return null;
+  const opt = decision.options[optionIdx];
+  return opt?.label ?? null;
 }
 
 // ── Factory ──
@@ -63,6 +78,7 @@ export function makeActionCommand(engine: WorldEngine) {
       await interaction.deferReply();
       try {
         const resumeResult = engine.resumeAction(character.id);
+        setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
         await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx));
         return 'action_resumed';
@@ -88,6 +104,7 @@ export function makeActionCommand(engine: WorldEngine) {
     // Start the action
     try {
       const result = await engine.startAction(character.id, description);
+      setPendingDecision(interaction.user.id, result.firstDecision);
       await interaction.editReply(buildDecisionMessage(result.firstDecision, 0));
       return 'action_started';
     } catch (err) {
@@ -135,12 +152,22 @@ export async function handleActionChoice(
     return;
   }
 
-  // Choice
+  // Choice — look up the option label from the stored pending decision
   const parsed = parseActionCid(i.customId);
   if (!parsed) return;
 
+  const label = getChoiceLabel(i.user.id, parsed.optionIdx);
+  if (!label) {
+    await i.editReply({
+      content: '❌ Your action session expired. Try `/action` again.',
+      components: [],
+      embeds: [],
+    });
+    return;
+  }
+
   try {
-    const result = await engine.stepAction(charId, parsed.optionIdx.toString());
+    const result = await engine.stepAction(charId, label);
     await handleActionResult(i, result, engine);
   } catch (err) {
     console.error('[action] stepAction error:', err);
@@ -187,6 +214,7 @@ async function handleActionResult(
     });
   } else {
     // Show the next decision
+    setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
     await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx));
   }
