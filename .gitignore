@@ -5,6 +5,19 @@
 !.obsidian/themes/
 !.obsidian/themes/**
 
+# Environment
+.env
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Database
+*.db
+*.db-journal
+
 # OS cruft
 Thumbs.db
 .DS_Store
