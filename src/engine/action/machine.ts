@@ -110,8 +110,14 @@ export class ActionStateMachine {
     const newDecisions = [...state.decisions, record];
     const newDc = accumulateDc(state.accumulatedDc, [option.dcModifier]);
 
-    // Force-resolve after 2 decisions — don't call LLM again
-    if (state.decisions.length >= 1) { // 1 previous + this one = second decision
+    const isLastDecision = state.decisions.length >= 1; // third+ decision capped
+
+    // Call LLM to determine next step
+    const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items, state.rollStat);
+    const decision = await this.llm.decide(context);
+
+    // Force-resolve if this is the last allowed decision
+    if (isLastDecision) {
       const d20 = this.rollD20();
       const bonus = computeItemBonus(items, state.rollStat);
       const outcome = resolveRoll(d20, bonus, newDc);
@@ -120,7 +126,7 @@ export class ActionStateMachine {
         ...state,
         decisions: newDecisions,
         accumulatedDc: newDc,
-        pendingDecision: state.pendingDecision,
+        pendingDecision: this.toActionDecision(decision, state.required),
       };
 
       return {
@@ -131,17 +137,13 @@ export class ActionStateMachine {
           finalDc: newDc,
           playerRolled: d20,
           outcome,
-          mutations: [],
-          outcomeText: outcome === 'success'
+          mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
+          outcomeText: decision.outcomeText ?? (outcome === 'success'
             ? `Your ${state.distilledType} succeeds.`
-            : `Your ${state.distilledType} fails.`,
+            : `Your ${state.distilledType} fails.`),
         },
       };
     }
-
-    // Call LLM to determine next step
-    const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items, state.rollStat);
-    const decision = await this.llm.decide(context);
 
     if (decision.done) {
       // Resolve: roll + outcome
