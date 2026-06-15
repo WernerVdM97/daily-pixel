@@ -84,7 +84,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
 
     // If mid-action, resume regardless of description
     if (character.lastActionState !== null) {
-      await interaction.deferReply();
+      await interaction.deferReply({ ephemeral: true });
       try {
         const resumeResult = engine.resumeAction(character.id);
 
@@ -125,7 +125,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     }
 
     // Defer first — LLM call can take >3 seconds
-    await interaction.deferReply();
+    await interaction.deferReply({ ephemeral: true });
 
     // Start the action
     try {
