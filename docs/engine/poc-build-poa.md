@@ -41,19 +41,19 @@ The POC is a monolith ([[poc-tech-stack]]), but we draw **one load-bearing seam*
 
 ```
   ┌─────────────────────────┐         ┌──────────────────────────┐
-  │  FRONTEND (adapter)      │  port   │  BACKEND (world engine)  │
-  │  src/discord/, src/scenes│ ──────▶ │  src/engine/, src/db/    │
-  │  • slash-command routing │  data   │  • domain model + rules  │
-  │  • buttons / modals      │ (JSON)  │  • action state machine  │
-  │  • ASCII render          │ ◀────── │  • tick / sim / repos    │
-  │  • knows Discord         │         │  • knows nothing of      │
-  │                          │         │    Discord or ASCII      │
+  │ FRONTEND (adapter)      │  port   │  BACKEND (world engine)  │
+  │ src/discord/, src/scenes│ ──────▶ │  src/engine/, src/db/    │
+  │ • slash-command routing │  data   │  • domain model + rules  │
+  │ • buttons / modals      │ (JSON)  │  • action state machine  │
+  │ • ASCII render          │ ◀────── │  • tick / sim / repos    │
+  │ • knows Discord         │         │  • knows nothing of      │
+  │                         │         │    Discord or ASCII      │
   └─────────────────────────┘         └──────────────────────────┘
-        WorldEngine interface = the only thing both sides import
+   WorldEngine interface = the only thing both sides import
 ```
 
 - [!] **Replaceability test:** swapping the in-process `WorldEngine` for an HTTP client that implements the same interface must change **zero** frontend code. If a future move to a separate instance touches `src/discord/`, the seam leaked — fix the seam, not the frontend.
-- [x] **Ceremony level: lightweight.** One module boundary + the serializable-data rule. **No** formal hexagonal port layer, **no** stub HTTP adapter, **no** contract-test harness yet — that's MVP-grade architecture and would eat the week. Portability is *preserved as a property*, not *exercised*.
+- [>] **Ceremony level: lightweight.** One module boundary + the serializable-data rule. **No** formal hexagonal port layer, **no** stub HTTP adapter, **no** contract-test harness yet — that's MVP-grade architecture and would eat the week. Portability is *preserved as a property*, not *exercised*.
 - [p] In-process now = no network, no serialization cost, single `tsx` process — matches the monolith/no-Docker stance.
 - [p] Later = lift `src/engine/` into its own instance; the frontend swaps an in-process `WorldEngine` for an HTTP one. The MVP split in [[poc-tech-stack]] becomes a deployment change, not a rewrite.
 
@@ -134,8 +134,3 @@ A fresh session has none of the prior context. Two cheap habits carry it:
 - [?] Open: keep handover blocks inline in each build doc, or collect them in one running `poc-build-handover.md`? Inline for now; revisit if it gets noisy.
 
 ---
-
-## 7. Residual open questions
-
-- [?] Does S2 risk being too large (six commands + the whole scene subsystem)? If so, split scenes into its own S2b.
-- [x] **Resolved (no):** S0 does *not* stub the `/hi` resumption contract — it lands in S3, when mid-action state first exists.

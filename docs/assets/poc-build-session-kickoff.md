@@ -7,9 +7,7 @@
 
 ## Load order (first → last) and why
 
-A fresh session has no prior context. Load the **stable framing first**, the **task spec in the
-middle**, and put the **one concrete first action + exit gate last** — recency makes it the
-highest-salience instruction in the window.
+A fresh session has no prior context. Load the **stable framing first**, the **task spec in the middle**, and put the **one concrete first action + exit gate last** — recency makes it the highest-salience instruction in the window.
 
 | Order | Load | Why here |
 |---|---|---|
@@ -19,9 +17,7 @@ highest-salience instruction in the window.
 | 4 | `docs/decisions/poc-spec-reconciliation.md` | The resolved decisions it must honor (the `meta` table, fail-fast, DC sign, etc.). |
 | 5 | `docs/CONVENTIONS.md` + `AGENTS.md` | Only needed at session end, for the handover block + repo rules (2-space indent). Load last so it doesn't crowd build context. |
 
-**Point it at last:** not "go build everything." The seam is the load-bearing, expensive-to-retrofit
-decision, so the final instruction makes the session produce the *interfaces + schema for sign-off
-before any implementation*. That is the POA's "doubt-driven on the seam" cashed out.
+**Point it at last:** not "go build everything." The seam is the load-bearing, expensive-to-retrofit decision, so the final instruction makes the session produce the *interfaces + schema for sign-off before any implementation*. That is the POA's "doubt-driven on the seam" cashed out.
 
 ---
 
@@ -36,8 +32,7 @@ Read these docs in this order before doing anything:
   1. docs/engine/poc-build-poa.md        — the session plan, the seam, handover
   2. docs/engine/poc-tech-stack.md       — stack + constraints
   3. docs/engine/poc-build-scaffold.md   — the S0 spec (schema, loaders, registry)
-  4. docs/decisions/poc-spec-reconciliation.md — decisions you must honor
-  5. docs/CONVENTIONS.md + AGENTS.md     — only when you write the handover at the end
+  4. docs/CONVENTIONS.md + AGENTS.md     — only when you write the handover at the end
 
 THE ONE RULE THAT MATTERS MOST (the seam): the codebase has a hard boundary
 between the Discord frontend (src/discord, src/scenes) and the world engine
@@ -46,7 +41,7 @@ WorldEngine interface — never a discord.js object, never an ASCII string,
 never a raw SQLite row. The replaceability test: swapping the in-process
 WorldEngine for an HTTP client must change zero frontend code.
 
-S0 scope (stop when these are done AND their tests are green):
+S0 scope (stop when these are done AND their tests are green, or if you start spinning and need direction from the user):
   - Project init: package.json, tsconfig (strict, ES2022), tsx, deps, .env (gitignored)
   - SQLite schema = the 9 tables incl. `meta`; migrations; repository interfaces
   - WorldEngine interface (one cohesive interface) + LlmGateway interface
@@ -56,7 +51,7 @@ S0 scope (stop when these are done AND their tests are green):
   - Tests: schema migrates, repo CRUD on in-memory sqlite, asset-loader fail-fast
     cases, mocks satisfy interfaces
 
-Style: spec-driven + doubt-driven on the seam; TDD is the backbone (test first).
+USE SKILLS: spec-driven + doubt-driven on the seam; TDD is the backbone (test first).
 Conventions: 2-space indent; do not commit to main; follow CONVENTIONS.md.
 
 START NOW: read the docs, then POST FOR MY APPROVAL — before writing any
@@ -76,9 +71,6 @@ Same skeleton, three swaps:
 - Set **style** from the POA session table (e.g. S3 = TDD-hard + doubt-driven + source-driven;
   S7 = ci-cd + shipping). Every session runs on `deepseek-v4-pro`.
 
-And the very first read instruction becomes **"read the handover block at the bottom of the
-previous session's doc"** — that's the point of the handover: the new context resumes from one
-place instead of re-deriving state.
+And the very first read instruction becomes **"read the handover block at the bottom of the previous session's doc"** — that's the point of the handover: the new context resumes from one place instead of re-deriving state.
 
-> **Caveat:** this assumes the build happens in *this* repo. It's currently a docs-only vault, so
-> S0's real first micro-step is deciding whether `src/` lives here or in a sibling repo.
+> **Caveat:** this assumes the build happens in *this* repo. It's currently a docs-only vault, so S0's real first micro-step is deciding whether `src/` lives here or in a sibling repo.
