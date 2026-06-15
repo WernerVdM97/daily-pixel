@@ -202,7 +202,8 @@ async function main() {
   registry.register('bug', withTextOption(makeBugCommand(engine)));
   registry.register('sleep', asHandler(makeSleepCommand(engine)));
   registry.register('hi', asHandler(makeHiCommand(engine, dayJobs)));
-  registry.register('join', asHandler(makeJoinCommand(engine, new WizardSession())));
+  const joinWizards = new WizardSession();
+  registry.register('join', asHandler(makeJoinCommand(engine, joinWizards)));
 
   // /action handler — built in S3 but no Discord command handler file exists yet
   registry.register('action', asHandler(async (_interaction: unknown) =>
@@ -276,33 +277,58 @@ async function main() {
     }
   });
 
-  // Handle slash command interactions
+  // Handle all interactions
   client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
+    // ── Slash commands ──
+    if (interaction.isChatInputCommand()) {
+      const { commandName } = interaction;
 
-    const { commandName } = interaction;
+      const handler = registry.get(commandName);
+      if (!handler) {
+        await interaction.reply({
+          content: `Unknown command \`/${commandName}\`. Try \`/help\`.`,
+          ephemeral: true,
+        });
+        return;
+      }
 
-    const handler = registry.get(commandName);
-    if (!handler) {
-      await interaction.reply({
-        content: `Unknown command \`/${commandName}\`. Try \`/help\`.`,
-        ephemeral: true,
-      });
+      try {
+        const result = await handler(interaction);
+        // If the handler already replied (join/hi manage their own flow), skip
+        if (interaction.replied || interaction.deferred) return;
+        await interaction.reply(result);
+      } catch (err) {
+        console.error(`[discord] Error handling /${commandName}:`, err);
+        const msg = err instanceof Error ? err.message : String(err);
+        await interaction.reply({
+          content: `⚠️ **Something went wrong.**\n\`\`\`${msg}\`\`\``,
+          ephemeral: true,
+        });
+      }
       return;
     }
 
-    try {
-      const result = await handler(interaction);
-      // If the handler already replied (join/hi manage their own flow), skip
-      if (interaction.replied || interaction.deferred) return;
-      await interaction.reply(result);
-    } catch (err) {
-      console.error(`[discord] Error handling /${commandName}:`, err);
-      const msg = err instanceof Error ? err.message : String(err);
-      await interaction.reply({
-        content: `⚠️ **Something went wrong.**\n\`\`\`${msg}\`\`\``,
-        ephemeral: true,
-      });
+    // ── Button clicks and modal submissions (join wizard) ──
+    const customId = 'customId' in interaction
+      ? (interaction as { customId: string }).customId
+      : null;
+
+    if (customId && customId.startsWith('join:')) {
+      // Narrow to the types handleInteraction expects
+      if (!interaction.isButton() && !interaction.isModalSubmit()) return;
+      try {
+        const { handleInteraction } = await import('./discord/commands/join.js');
+        await handleInteraction(interaction, engine, joinWizards);
+      } catch (err) {
+        console.error('[join] Error handling interaction:', err);
+        if ('reply' in interaction) {
+          await (interaction as { reply: Function }).reply({
+            content: 'Something went wrong. Try `/join` again.',
+            ephemeral: true,
+          }).catch(() => {});
+        }
+      }
+      return;
     }
   });
 

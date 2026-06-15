@@ -69,59 +69,16 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession) {
 
     // Show current step
     await interaction.reply(buildStepMessage(state));
-
-    // Collector for button/modal interactions
-    const collector = interaction.channel!.createMessageComponentCollector({
-      filter: (i: MessageComponentInteraction) =>
-        i.user.id === interaction.user.id,
-      time: 10 * 60 * 1000, // 10 min
-    });
-
-    collector.on(
-      "collect",
-      async (i: MessageComponentInteraction | ModalSubmitInteraction) => {
-        try {
-          await handleInteraction(i, engine, wizards, interaction);
-        } catch (e) {
-          console.error(e);
-          // If the session expired or was deleted, tell the user
-          if (i.isRepliable()) {
-            await i
-              .reply({
-                content: "Something went wrong. Try `/join` again.",
-                ephemeral: true,
-              })
-              .catch(() => {});
-          }
-        }
-      },
-    );
-
-    collector.on("end", async (_, reason) => {
-      if (reason === "time") {
-        wizards.reset(interaction.user.id);
-        await interaction
-          .editReply({
-            content:
-              "⏰ Character creation timed out. Type `/join` to start over.",
-            components: [],
-            embeds: [],
-          })
-          .catch(() => {});
-      }
-    });
-
     return "join_wizard_started";
   };
 }
 
 // ── Interaction handler ──
 
-async function handleInteraction(
+export async function handleInteraction(
   i: MessageComponentInteraction | ModalSubmitInteraction,
   engine: WorldEngine,
   wizards: WizardSession,
-  original: ChatInputCommandInteraction,
 ): Promise<void> {
   const userId = i.user.id;
 
@@ -131,7 +88,7 @@ async function handleInteraction(
     try {
       const state = wizards.setName(userId, name);
       await i.deferUpdate();
-      await original.editReply(buildStepMessage(state));
+      await i.editReply(buildStepMessage(state));
     } catch (e) {
       if (i.isRepliable() && !i.replied && !i.deferred) {
         await i.reply({
