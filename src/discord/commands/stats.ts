@@ -23,10 +23,10 @@ export function formatStats(char: CharacterData): string {
 
 	// Stats
 	lines.push("**Stats:**");
-	lines.push(`  Physical:     ${padStat(char.stats.physical)}`);
-	lines.push(`  Wisdom:       ${padStat(char.stats.wisdom)}`);
-	lines.push(`  Intelligence: ${padStat(char.stats.intelligence)}`);
-	lines.push(`  Charisma:     ${padStat(char.stats.charisma)}`);
+	lines.push(`  Physical:     ${formatStat(char.stats.physical)}`);
+	lines.push(`  Wisdom:       ${formatStat(char.stats.wisdom)}`);
+	lines.push(`  Intelligence: ${formatStat(char.stats.intelligence)}`);
+	lines.push(`  Charisma:     ${formatStat(char.stats.charisma)}`);
 	lines.push("");
 
 	// Vitals
@@ -41,7 +41,7 @@ export function formatStats(char: CharacterData): string {
 	return lines.join("\n");
 }
 
-function padStat(value: number): string {
+function formatStat(value: number): string {
 	const sign = value >= 0 ? "+" : "";
 	return `${sign}${value}`;
 }

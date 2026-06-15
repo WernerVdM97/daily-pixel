@@ -83,6 +83,7 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession) {
 				try {
 					await handleInteraction(i, engine, wizards, interaction);
 				} catch (e) {
+					console.error(e);
 					// If the session expired or was deleted, tell the user
 					if (i.isRepliable()) {
 						await i
@@ -311,7 +312,7 @@ function buildNameModal(): ModalBuilder {
 		);
 }
 
-// ── Step definitions (option labels — loaded from YAML at runtime) ──
+// ── Step definitions — hardcoded for S1 (YAML loading deferred to S2) ──
 
 interface StepDef {
 	label: string;
