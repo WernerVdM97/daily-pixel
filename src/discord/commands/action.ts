@@ -171,19 +171,9 @@ export async function handleActionChoice(
   }
   const charId = character.id;
 
-  // Defer the button click — stepAction calls LLM which can take >3 seconds
+  // Defer the button click — stepAction calls LLM which can take >3 seconds.
+  // Discord shows a spinner on the clicked button and greys out the others.
   await i.deferUpdate();
-
-  // Blank out buttons immediately to show loading state
-  await i.editReply({
-    embeds: [
-      new EmbedBuilder()
-        .setDescription('⏳ **Thinking…**')
-        .setColor(0x95a5a6)
-        .toJSON(),
-    ],
-    components: [],
-  });
 
   // Bail — look up the actual bail option label from the pending decision
   if (i.customId === CID_BAIL) {
@@ -261,7 +251,7 @@ async function applyActionResult(
     trail.push('');
     trail.push(formatOutcome(outcome, ctx));
 
-    await i.message.edit({
+    await i.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
@@ -274,7 +264,7 @@ async function applyActionResult(
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
-    await i.message.edit(buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
+    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
   }
 }
 
