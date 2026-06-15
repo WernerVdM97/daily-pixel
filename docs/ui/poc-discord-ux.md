@@ -1,13 +1,18 @@
 ---
 title: Discord UX — POC Constraints
-status: spark
-domain: spark
+status: exploring
+domain: ui
 phase: poc
 tags:
 - discord
+- ui
 related:
 - '[[the-poc]]'
 - '[[poc-example-scenes]]'
+- '[[poc-build-scenes]]'
+- '[[poc-build-probabilistic]]'
+- '[[poc-build-world-tick]]'
+- '[[poc-spec-reconciliation]]'
 - '[[mvp-discord-ux]]'
 ---
 
@@ -23,7 +28,7 @@ The primary viewport is a **phone Discord client**. Everything must work at:
 
 | Constraint | Limit |
 |---|---|
-| **Width** | ~30 characters safe minimum for phone portrait. Tested max: 60 chars (desktop/tablet). |
+| **Width** | Hard cap **30 chars** — phone portrait, no horizontal scroll (enforced at scene load, see [[poc-build-scenes]] §2). |
 | **Height** | ~32 lines max per message (tested). Keep scenes + body + buttons within this. |
 | **Message size** | One message per action (edit in place, don't spawn new messages) |
 | **Buttons per row** | 5 max (Discord), prefer 3-4 for fat-finger safety |
@@ -36,12 +41,12 @@ The primary viewport is a **phone Discord client**. Everything must work at:
 
 ## Buttons Only
 
-No reactions, no select menus, no free-text parsing in POC. Buttons cover every interaction:
+No reactions, no select menus. Free text is limited to two entry points — the `/action <description>` command argument and the `/join` name modal; **every branching interaction is buttons**, and game logic never parses button labels (each button carries its payload).
 
 - Character creation: class pick, upbringing, race, build, alignment, day-job, item set
-- Opening scene: action buttons mapped to `/action <type>`
+- Opening scene: day-job / adventure hooks that launch the `/action` flow
 - Decision flow: LLM-generated options + [Roll d20] / [Skip]
-- Confirmation: [Confirm] / [Abort]
+- Confirmation: [Confirm] / [Start Over]
 
 **Button rules:**
 - Max 5 per message row (Discord hard limit)
@@ -119,12 +124,12 @@ The bot's action message can be the thread parent. Player responses and follow-u
 |---|---|---|
 | `/join` | Deterministic | Character creation wizard. One-time. |
 | `/hi` | Deterministic | Opening scene. Atmosphere → [Begin] → day-job hooks (weekday) or adventure hooks (weekend). Once per day (cached). Resumes mid-action state. |
-| `/action <type>` | Probabilistic | Hunt, travel, rest, scout, talk, attack. Consumes 1 roll. |
+| `/action <description>` | Probabilistic | Free-text action; the LLM distills the type (hunt, travel, talk…). Consumes 1 roll. |
 | `/look` | Deterministic | Current location scene + description. |
 | `/journal` | Deterministic | Known locations, NPCs, recent actions. |
 | `/backpack` | Deterministic | Emoji grid of items. |
 | `/stats` | Deterministic | Character status. Same layout as `/join` summary screen. |
-| `/sleep` | Deterministic | Advance the day. Reset rolls. Cooldown: once per real day. |
+| `/sleep` | Deterministic | **Admin:** advance the day + reset rolls (also fires via nightly cron). **Non-admin:** make camp by the Oak (rest scene), no tick. See [[poc-build-world-tick]]. |
 | `/help` | Deterministic | Command reference. |
 | `/feedback` | Deterministic | Submit feedback. |
 | `/bug` | Deterministic | Report a bug. |

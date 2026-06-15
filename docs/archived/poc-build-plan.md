@@ -1,20 +1,21 @@
 ---
 title: POC Build Plan
-status: decided
+status: superseded
 domain: engine
 phase: poc
 tags:
 - poc
 - build-plan
+superseded_by: '[[poc-build-poa]]'
 related:
-- '[[the-poc]]'
+- '[[poc-build-poa]]'
 - '[[poc-tech-stack]]'
 - '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build Plan
 
-> *Root doc. Each section links to its own build doc where subtasks are tracked.*
+> **Superseded by [[poc-build-poa]].** The build root + ordered session plan now lives there; the slices are self-standing docs ([[poc-build-scaffold]] → [[poc-build-deploy]]); the success criteria moved to [[poc-build-deploy]] §6. Kept below for history.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: POC Build — ASCII Scenes
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
@@ -8,7 +8,7 @@ tags:
 - build-plan
 - ascii
 related:
-- '[[poc-build-plan]]'
+- '[[poc-build-poa]]'
 - '[[poc-build-scaffold]]'
 - '[[poc-build-probabilistic]]'
 - '[[poc-spec-reconciliation]]'
@@ -16,7 +16,7 @@ related:
 
 # POC Build — ASCII Scenes
 
-> *Part of [[poc-build-plan]]. Fragment catalog, tag-based deterministic matching, and integration into `/hi`, `/look`, and `/action`.*
+> *Part of [[poc-build-poa]]. Fragment catalog, tag-based deterministic matching, and integration into `/hi`, `/look`, and `/action`.*
 
 ---
 

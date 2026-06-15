@@ -1,6 +1,6 @@
 ---
 title: POC Build — Probabilistic Actions
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
@@ -8,14 +8,14 @@ tags:
 - build-plan
 - llm
 related:
-- '[[poc-build-plan]]'
+- '[[poc-build-poa]]'
 - '[[poc-build-scaffold]]'
 - '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build — Probabilistic Actions
 
-> *Part of [[poc-build-plan]]. The core game loop: `/action` → reactive LLM decisions → DC adjustment → roll or skip → outcome → persistence. One LLM call per decision for true narrative branching.*
+> *Part of [[poc-build-poa]]. The core game loop: `/action` → reactive LLM decisions → DC adjustment → roll or skip → outcome → persistence. One LLM call per decision for true narrative branching.*
 
 ---
 
@@ -76,37 +76,15 @@ One action = one Discord message edited through states. Roll consumed immediatel
 
 **Model:** DeepSeek V4 Flash.
 
+**Prompt storage:** all system/prompt templates live in `assets/prompts/` at the repo root, loaded + validated at boot like the other assets ([[poc-build-scaffold]] startup sequence) — never inlined in code. One file per prompt (e.g. `assets/prompts/decision.md`, `assets/prompts/fallback.md`), referenced by name.
+
 **Pattern:** Reactive — one LLM call per decision. Previous choices feed into the next prompt for true narrative branching. The mutations block only appears in the final call.
 
-### Call 1 — Initial prompt
+### Prompt template
+
+The system prompt is **`assets/prompts/decision.md`** (loaded at boot, see [[poc-build-scaffold]]). The bot fills the `{…}` placeholders with character, location, nearby NPCs/PCs, and recent actions. On **call 2+**, the running `PREVIOUS DECISIONS` block is appended so prior choices feed the next decision for true narrative branching:
 
 ```
-SYSTEM:
-You are the game master for a text-based Discord RPG called The Warden's Oak.
-Generate the first decision for the player's action. Return JSON only.
-
-Rules:
-- distilled_type: single lowercase word for the action (hunt, travel, talk, etc.)
-- stat: which stat this action uses (physical, wisdom, intelligence, charisma)
-- base_dc: 8-18. Higher = harder. (Daily scaling narrows this — see [[poc-build-world-tick]] §4.)
-- required: true only if the action is reactive (attacked, cornered, etc.)
-- done: false for decisions, true when the action should resolve
-- decision: 2-4 options. dc_modifier is literal and signed: negative = a good decision that lowers difficulty (easier), positive = raises it (harder). Range -5 to +5. null = bail (ends action as skipped).
-- When done: true, include a mutations block (see below).
-
-CHARACTER: {class, stats, health, stamina, alignment, day_job}
-LOCATION: {name}
-NEARBY NPCS: {name + description}
-NEARBY PCS: {name + class}
-RECENT ACTIONS (last 2): {type + outcome summary}
-PLAYER INPUT: {raw_input}
-```
-
-### Call 2+ — includes previous decisions
-
-```
-...same context as above...
-
 PREVIOUS DECISIONS:
 1. "Elder Bram catches your arm..." → chose: "Take the wolfsbane" (-2, DC now 13)
 2. "You find the tracks heading east..." → chose: "Circle wide" (-2, DC now 11)

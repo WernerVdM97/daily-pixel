@@ -1,13 +1,13 @@
 ---
 title: POC Build — Polish
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
 - poc
 - build-plan
 related:
-- '[[poc-build-plan]]'
+- '[[poc-build-poa]]'
 - '[[poc-build-scaffold]]'
 - '[[poc-build-probabilistic]]'
 - '[[poc-spec-reconciliation]]'
@@ -15,7 +15,7 @@ related:
 
 # POC Build — Polish
 
-> *Part of [[poc-build-plan]]. Error handling, LLM fallback, outcome rendering, idle messages, help content, and pre-deploy final pass. `/sleep` tick moved to [[poc-build-world-tick]].*
+> *Part of [[poc-build-poa]]. Error handling, LLM fallback, outcome rendering, idle messages, help content, and pre-deploy final pass. `/sleep` tick moved to [[poc-build-world-tick]].*
 
 ---
 
@@ -42,21 +42,7 @@ Two-tier. Fallback rate tracked via a `meta` counter (tier-2 inserts no `actions
 
 ### Tier 1 — Simpler retry
 
-On first failure (malformed JSON, timeout >5s, or API error), retry with stripped prompt:
-
-```
-SYSTEM: You are the game master for a text-based Discord RPG.
-Generate one simple decision. Return JSON only.
-
-Rules: distilled_type (single word), stat (physical/wisdom/intelligence/charisma),
-base_dc (8-18), required (true/false), done (false), decision (2-4 options, 
-dc_modifier -5 to +5, null = bail).
-
-CHARACTER: {class, stats, health, stamina}
-PLAYER INPUT: {raw_input}
-```
-
-No NPCs, no location, no history. Just character basics + raw input.
+On first failure (malformed JSON, timeout >5s, or API error), retry with the stripped prompt **`assets/prompts/fallback.md`** (loaded at boot, see [[poc-build-scaffold]]). No NPCs, no location, no history — just character basics + raw input.
 
 ### Tier 2 — Divine intervention
 

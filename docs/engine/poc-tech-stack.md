@@ -8,7 +8,7 @@ tags:
 - engine
 related:
 - '[[the-poc]]'
-- '[[poc-build-plan]]'
+- '[[poc-build-poa]]'
 - '[[poc-spec-reconciliation]]'
 ---
 ,

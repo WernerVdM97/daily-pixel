@@ -1,6 +1,6 @@
 ---
 title: POC Build — Deploy
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
@@ -8,14 +8,14 @@ tags:
 - build-plan
 - deploy
 related:
-- '[[poc-build-plan]]'
+- '[[poc-build-poa]]'
 - '[[poc-tech-stack]]'
 - '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build — Deploy
 
-> *Part of [[poc-build-plan]]. Dev environment, CI/CD, LXC provisioning, production deploy, auto-update, and tester invite.*
+> *Part of the POC build ([[poc-build-poa]]). Dev environment, CI/CD, LXC provisioning, production deploy, auto-update, and tester invite.*
 
 ---
 
@@ -241,7 +241,7 @@ Bot starts immediately. Timer checks every hour (±2 min jitter) and restarts if
 
 ## 6. Observe
 
-Track against success criteria from [[poc-build-plan]].
+Track against these success criteria — **green light for MVP if the first two pass**:
 
 | Criterion | Threshold | How to check |
 |---|---|---|

@@ -9,7 +9,7 @@ tags:
 - engine
 related:
 - '[[poc-tech-stack]]'
-- '[[poc-build-plan]]'
+- '[[poc-build-poa]]'
 - '[[poc-build-probabilistic]]'
 - '[[poc-build-polish]]'
 - '[[poc-build-world-tick]]'
@@ -20,7 +20,7 @@ related:
 
 # POC Spec Reconciliation
 
-> *Resolves the contradictions found in a coherency review across [[poc-tech-stack]] and the [[poc-build-plan]] children. One record so the conflicts become a single decision, not rival docs that drift.*
+> *Resolves the contradictions found in a coherency review across [[poc-tech-stack]] and the [[poc-build-poa]] children. One record so the conflicts become a single decision, not rival docs that drift.*
 
 ---
 

@@ -1,20 +1,20 @@
 ---
 title: POC Build — Scaffold
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
 - poc
 - build-plan
 related:
-- '[[poc-build-plan]]'
+- '[[poc-build-poa]]'
 - '[[poc-tech-stack]]'
 - '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build — Scaffold
 
-> *Part of [[poc-build-plan]]. Foundation layer: project init, database, character creation, and all deterministic commands. Everything else depends on this.*
+> *Part of [[poc-build-poa]]. Foundation layer: project init, database, character creation, and all deterministic commands. Everything else depends on this.*
 
 ---
 
@@ -33,9 +33,10 @@ Monolith TypeScript project. No build step — `tsx` runs directly.
 **Startup sequence** (`src/index.ts`):
 1. Load + validate all YAML files from `assets/char-creation/`
 2. Load + validate all `.ascii` files from `assets/scenes/`
-3. Initialize SQLite, run schema migrations
-4. Register slash commands with Discord
-5. Login client, set status
+3. Load + validate all prompt templates from `assets/prompts/` (fail-fast if a required prompt is missing — see [[poc-build-probabilistic]])
+4. Initialize SQLite, run schema migrations
+5. Register slash commands with Discord
+6. Login client, set status
 
 ---
 
@@ -202,6 +203,8 @@ At startup, before the bot logs in: load all files from `assets/char-creation/` 
 | `alignments.yml`  | `name`, `description` — exactly 9 entries for 3×3 grid                                                                  |
 | `day-jobs.yml`    | `name`, `description`, `depends_on` (array of stat names), `base_income` (integer), `actions` (exactly 3 — the weekday `/hi` action-button labels)  |
 | `item-sets.yml`   | `name`, `items` (array of `{name, emoji, stat, modifier, quantity}`), tied to classes                                   |
+
+**Prompts:** `assets/prompts/*.md` (e.g. `decision.md`, `fallback.md`) load under the same fail-fast contract — plain text with `{…}` placeholders, not YAML. Exit if a required prompt file is missing. See [[poc-build-probabilistic]] §2.
 
 ---
 

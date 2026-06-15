@@ -33,7 +33,7 @@ mechanics, loop, actions
 
 | Status | Doc | Summary |
 |---|---|---|
-| 🔭 | [The POC — Intent](./game/the-poc.md) | What the POC is, what ships, action flow, two action types |
+| ✅ | [The POC — Intent](./game/the-poc.md) | The one question, the daily ritual, what ships, what's deliberately out |
 | ✅ | [Onboarding](./game/poc-onboarding.md) | Deterministic `/join` wizard. Data in `assets/char-creation/` |
 
 ## ⚙️ engine
@@ -43,13 +43,13 @@ how it runs
 | Status | Doc                                          | Summary                                                             |
 | ------ | -------------------------------------------- | ------------------------------------------------------------------- |
 | ✅      | [POC Tech Stack](./engine/poc-tech-stack.md) | Tech choices, architecture diagrams, hosting, no-gos for POC vs MVP |
-| ✅      | [POC Build Plan](./engine/poc-build-plan.md) | Root doc. Links to sub-docs below                                   |
-| 🔭     | [Build — Scaffold](./engine/poc-build-scaffold.md) | Project init, DB, character creation, deterministic commands     |
-| 🔭     | [Build — Probabilistic](./engine/poc-build-probabilistic.md) | `/action` flow, reactive LLM decisions, roll/skip, mutations     |
-| 🔭     | [Build — Scenes](./engine/poc-build-scenes.md) | ASCII fragment catalog, tag matching, integration, mobile testing     |
-| 🔭     | [Build — Polish](./engine/poc-build-polish.md) | Error handling, LLM fallback, outcome rendering, help content, final pass     |
-| 🔭     | [World Tick](./engine/poc-build-world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
-| 🔭     | [Build — Deploy](./engine/poc-build-deploy.md) | CI/CD, LXC provisioning, systemd, auto-update, tester invite, observation     |
+| ✅      | [Build — Plan of Attack](./engine/poc-build-poa.md) | Build root: patterns per slice, light portable-backend seam, sequential session plan (deepseek-v4-pro) |
+| ✅      | [Build — Scaffold](./engine/poc-build-scaffold.md) | Project init, DB, character creation, deterministic commands     |
+| ✅      | [Build — Probabilistic](./engine/poc-build-probabilistic.md) | `/action` flow, reactive LLM decisions, roll/skip, mutations     |
+| ✅      | [Build — Scenes](./engine/poc-build-scenes.md) | ASCII fragment catalog, tag matching, integration, mobile testing     |
+| ✅      | [Build — Polish](./engine/poc-build-polish.md) | Error handling, LLM fallback, outcome rendering, help content, final pass     |
+| ✅      | [World Tick](./engine/poc-build-world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
+| ✅      | [Build — Deploy](./engine/poc-build-deploy.md) | CI/CD, LXC provisioning, systemd, auto-update, tester invite, observation     |
 
 ## 🖥️ ui
 
@@ -58,6 +58,7 @@ discord presentation
 | Status | Doc                                          | Summary                                                         |
 | ------ | -------------------------------------------- | --------------------------------------------------------------- |
 | ✅      | [Example Scenes](./ui/poc-example-scenes.md) | `/join`, `/hi`, `/action hunt`, `/backpack`, `/stats`, `/sleep` |
+| 🔭     | [Discord UX](./ui/poc-discord-ux.md)         | Mobile constraints, buttons-only, one-message-per-action, emoji signals, threads, accessibility, command list |
 
 ## 📐 decisions
 
@@ -73,10 +74,7 @@ resolved cross-cutting trade-offs (ADRs)
 
 ongoing sparks
 
-| Status | Doc                                                          | Summary                                                       |
-| ------ | ------------------------------------------------------------ | ------------------------------------------------------------- |
-| 🌱     | [Discord UX](./sparks/poc-discord-ux.md)                     | Mobile constraints, button rules, emoji signals, command list |
-| 🌱     | [Build — Plan of Attack](./sparks/poc-build-poa.md)          | Patterns per build slice, portable-backend seam, agent execution plan |
+_No open POC sparks — all promoted to domain folders._
 
 ## 🔥 MVP 
 
@@ -107,10 +105,11 @@ deferred depth & polish
 
 ---
 
-## 🚫 Nogo
+## 🚫 Archived
 
-explored and rejected — kept so we don't re-litigate
+explored & rejected (`nogo`) or replaced (`superseded`) — kept so we don't re-litigate
 
 | Status | Doc                                        | Summary                                                        |
 | ------ | ------------------------------------------ | -------------------------------------------------------------- |
 | 🚫     | [Obsidian CLI](./archived/obsidian-cli.md) | Vault automation via CLI — rejected in favor of Python scripts |
+| 🪦     | [POC Build Plan](./archived/poc-build-plan.md) | Old root/sections index — superseded by [[poc-build-poa]]; criteria moved to deploy §6 |

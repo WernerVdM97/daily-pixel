@@ -1,6 +1,6 @@
 ---
 title: World Tick — Daily Simulation
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
@@ -8,7 +8,7 @@ tags:
 - build-plan
 - tick
 related:
-- '[[poc-build-plan]]'
+- '[[poc-build-poa]]'
 - '[[poc-build-scaffold]]'
 - '[[poc-build-probabilistic]]'
 - '[[poc-spec-reconciliation]]'
@@ -16,7 +16,7 @@ related:
 
 # World Tick — Daily Simulation
 
-> *Part of [[poc-build-plan]]. Extracted from polish. The daily tick: day advance, player state updates, NPC movement, and world scaling.*
+> *Part of [[poc-build-poa]]. Extracted from polish. The daily tick: day advance, player state updates, NPC movement, and world scaling.*
 
 ---
 
