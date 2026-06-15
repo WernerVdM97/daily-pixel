@@ -22,8 +22,11 @@ export function makeLookCommand(
 
     const { ascii } = resolveScene(location.tags);
 
+    // Wrap ASCII in a code block so Discord renders it monospace
     const lines: string[] = [];
+    lines.push('```');
     lines.push(ascii);
+    lines.push('```');
     lines.push("");
     lines.push(`🏠 **${location.name}**`);
     lines.push("─".repeat(30));
