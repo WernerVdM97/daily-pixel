@@ -46,7 +46,7 @@ how it runs
 | 🔭     | [Build — Probabilistic](./engine/poc-build-probabilistic.md) | `/action` flow, reactive LLM decisions, roll/skip, mutations     |
 | 🔭     | [Build — Scenes](./engine/poc-build-scenes.md) | ASCII fragment catalog, tag matching, integration, mobile testing     |
 | 🔭     | [Build — Polish](./engine/poc-build-polish.md) | Error handling, LLM fallback, outcome rendering, help content, final pass     |
-| 🔭     | [World Tick](poc-world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
+| 🔭     | [World Tick](poc-build-world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
 | 🔭     | [Build — Deploy](./engine/poc-build-deploy.md) | CI/CD, LXC provisioning, systemd, auto-update, tester invite, observation     |
 
 ## 🖥️ ui
