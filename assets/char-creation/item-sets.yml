@@ -50,3 +50,55 @@
         modifier: 0,
         quantity: 5,
       }
+
+- name: Berserker's Kit
+  description: Heavy blade, hot blood. No shield — you are the wall.
+  for_classes: [Warrior]
+  items:
+    - { name: Great Axe, emoji: "🪓", stat: physical, modifier: 2 }
+    - { name: Rage Charm, emoji: "🔴", stat: physical, modifier: 1 }
+    - {
+        name: Bone Trophy,
+        emoji: "🦴",
+        stat: charisma,
+        modifier: 0,
+        quantity: 1,
+      }
+
+- name: Devout's Kit
+  description: Faith over steel. The old gods provide.
+  for_classes: [Priest]
+  items:
+    - { name: Holy Symbol, emoji: "✨", stat: wisdom, modifier: 2 }
+    - { name: Prayer Beads, emoji: "📿", stat: wisdom, modifier: 1 }
+    - { name: Bandages, emoji: "🩹", stat: physical, modifier: 0, quantity: 3 }
+
+- name: Wilds Kit
+  description: Teeth and tracks. The forest gives you what you need.
+  for_classes: [Ranger]
+  items:
+    - { name: Carved Whistle, emoji: "🪈", stat: wisdom, modifier: 1 }
+    - { name: Climbing Gear, emoji: "🧗", stat: physical, modifier: 1 }
+    - { name: Dried Herbs, emoji: "🌾", stat: wisdom, modifier: 0, quantity: 3 }
+
+- name: Apprentice's Kit
+  description: A spark and a word. Magic wants to be learned.
+  for_classes: [Wizard]
+  items:
+    - { name: Wand of Embers, emoji: "🪄", stat: intelligence, modifier: 2 }
+    - { name: Component Pouch, emoji: "🎒", stat: intelligence, modifier: 1 }
+    - { name: Candle of Night, emoji: "🕯️", stat: wisdom, modifier: 1 }
+
+- name: Performer's Kit
+  description: An instrument and an audience. Every room is a stage.
+  for_classes: [Bard]
+  items:
+    - { name: Lute, emoji: "🎸", stat: charisma, modifier: 2 }
+    - { name: Fancy Costume, emoji: "🎭", stat: charisma, modifier: 1 }
+    - {
+        name: Love Letter,
+        emoji: "💌",
+        stat: charisma,
+        modifier: 0,
+        quantity: 1,
+      }

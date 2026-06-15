@@ -15,3 +15,15 @@
 - name: Halfling
   description: Small and lucky. The world is big — you've learned to slip through the cracks.
   modifiers: { physical: -2, wisdom: 0, intelligence: 0, charisma: 2 }
+
+- name: Half-Elf
+  description: Two bloodlines, one heart. You walk between worlds — welcome in neither, at home in both.
+  modifiers: { physical: -1, wisdom: 1, intelligence: 1, charisma: 0 }
+
+- name: Half-Orc
+  description: Two bloods, one fist. You carry the strength of one world and the rejection of both.
+  modifiers: { physical: 2, wisdom: -1, intelligence: 0, charisma: -1 }
+
+- name: Dúnedain
+  description: Blood of the West. Your people have guarded the borders for so long the villages forgot you exist.
+  modifiers: { physical: 1, wisdom: 1, intelligence: 0, charisma: -1 }

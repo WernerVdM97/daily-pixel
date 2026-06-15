@@ -123,3 +123,18 @@
     - label: Counsel a villager
       income: 2
       hook: She dreams of the Oak every night — same dream, same hour. The tree is burning from the roots up. She asks if that means something. You don't know how to answer.
+
+- name: Wanderer
+  depends_on: [charisma]
+  base_income: 2
+  description: No roof, no boss, no routine. You sleep under the Oak and eat what luck brings.
+  actions:
+    - label: Panhandle at the market
+      income: 3
+      hook: You find a spot by the fountain. Most walk past. A woman drops a coin — then leans close. "You were at the Oak last night, weren't you? Did you see the smoke?" You didn't. But now you're wondering.
+    - label: Sing for supper
+      income: 5
+      hook: You hum an old tune by the tavern fire. A traveller buys you stew in exchange for the next verse. Halfway through, he stops eating. "Where did you learn that song?" he asks, too quietly.
+    - label: Scavenge the roadside
+      income: 2
+      hook: The ditch beyond the east gate yields nothing but broken pottery — until you spot a glint under a rusted cart wheel. A silver earring, bent but real. The engraving on the back is in a script you don't recognise.
