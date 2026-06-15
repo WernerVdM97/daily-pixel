@@ -83,10 +83,9 @@ describe("/look", () => {
 		engine.setCharacter(
 			MockWorldEngine.defaultCharacter({ location: "Nowhere" }),
 		);
-		// No location set in engine — defaults to mock default
-		// Let's test: engine returns a mock location anyway, so this works fine.
-		// But what if we override to null?
-		engine.setLocation(null as never);
+		// Explicitly set null — _locationSet flag ensures getLocation returns null,
+		// not the old mock default.
+		engine.setLocation(null);
 
 		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);

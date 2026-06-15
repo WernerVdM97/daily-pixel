@@ -7,6 +7,7 @@ export interface DayJobDef {
 	depends_on: string[];
 	base_income: number;
 	description: string;
+	/** Exactly 3 actions per day job — enforced by getDayJobActions at runtime. */
 	actions: DayJobAction[];
 }
 

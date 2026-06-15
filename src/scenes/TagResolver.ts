@@ -8,29 +8,29 @@ import type { SceneFile } from "./SceneLoader.js";
  * (Map iteration order). On zero overlap, returns "unknown".
  */
 export class TagResolver {
-	constructor(private readonly scenes: Map<string, SceneFile>) {}
+  constructor(private readonly scenes: Map<string, SceneFile>) {}
 
-	resolve(locationTags: string[]): string {
-		let bestName = "unknown";
-		let bestScore = 0;
+  resolve(locationTags: string[]): string {
+    let bestName = "unknown";
+    let bestScore = 0;
 
-		for (const [name, scene] of this.scenes) {
-			const score = intersectionSize(locationTags, scene.tags);
-			if (score > bestScore) {
-				bestScore = score;
-				bestName = name;
-			}
-		}
+    for (const [name, scene] of this.scenes) {
+      const score = intersectionSize(locationTags, scene.tags);
+      if (score > bestScore) {
+        bestScore = score;
+        bestName = name;
+      }
+    }
 
-		return bestName;
-	}
+    return bestName;
+  }
 }
 
 function intersectionSize(a: string[], b: string[]): number {
-	const set = new Set(b);
-	let count = 0;
-	for (const item of a) {
-		if (set.has(item)) count++;
-	}
-	return count;
+  const set = new Set(b);
+  let count = 0;
+  for (const item of a) {
+    if (set.has(item)) count++;
+  }
+  return count;
 }
