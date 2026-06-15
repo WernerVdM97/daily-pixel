@@ -9,6 +9,7 @@ tags:
 related:
 - '[[poc-build-plan]]'
 - '[[poc-tech-stack]]'
+- '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build — Scaffold
@@ -40,7 +41,7 @@ Monolith TypeScript project. No build step — `tsx` runs directly.
 
 ## 2. Database
 
-SQLite via `better-sqlite3` — sync API, file-based, zero ops. Eight tables.
+SQLite via `better-sqlite3` — sync API, file-based, zero ops. Nine tables.
 
 ### `users`
 
@@ -68,7 +69,7 @@ One per user for POC. Split from `users` so the Discord identity and in-world en
 | `health`            | INTEGER DEFAULT 10              | Current HP                                                      |
 | `max_health`        | INTEGER DEFAULT 10              | Max HP                                                          |
 | `stamina`           | INTEGER DEFAULT 10              |                                                                 |
-| `rolls_remaining`   | INTEGER DEFAULT 2               | Reset by `/sleep`                                               |
+| `rolls_remaining`   | INTEGER DEFAULT 2               | Reset by the daily tick (admin `/sleep` or cron), not player rest |
 | `location`          | TEXT DEFAULT "The Warden's Oak" |                                                                 |
 | `wealth`            | INTEGER DEFAULT 0               | Copper                                                          |
 | `last_action_state` | TEXT (JSON, NULLABLE)           | Full action snapshot for `/hi` resumption. NULL when idle.      |
@@ -98,7 +99,7 @@ Inserted only at action completion. Mid-action state lives in `player_characters
     "prompt": "You spot deer tracks heading east into the thicket, and larger prints — wolf — north.",
     "options": [
       { "label": "Follow deer", "dc_modifier": 0 },
-      { "label": "Track wolf", "dc_modifier": -2 },
+      { "label": "Track wolf", "dc_modifier": 2 },
       { "label": "Bail", "dc_modifier": null }
     ],
     "chosen": "Follow deer"
@@ -106,8 +107,8 @@ Inserted only at action completion. Mid-action state lives in `player_characters
   {
     "prompt": "The thicket is dense and dry. Move slow and quiet, or push through?",
     "options": [
-      { "label": "Stalk", "dc_modifier": 2 },
-      { "label": "Rush", "dc_modifier": -1 },
+      { "label": "Stalk", "dc_modifier": -1 },
+      { "label": "Rush", "dc_modifier": 2 },
       { "label": "Bail", "dc_modifier": null }
     ],
     "chosen": "Stalk"
@@ -129,7 +130,7 @@ Inserted only at action completion. Mid-action state lives in `player_characters
 
 ### `npcs`
 
-Spawned by the LLM during probabilistic actions. Mirrors `player_characters` with fewer columns.
+Spawned by the LLM during probabilistic actions. Mirrors `player_characters` with fewer columns. At spawn only `name`, `class`, and `description` are populated (see [[poc-build-probabilistic]] §4); the rest are nullable. NPC daily movement keys on `class` ([[poc-build-world-tick]] §3).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -174,6 +175,15 @@ Spawned by the LLM during probabilistic actions. Mirrors `player_characters` wit
 | `text` | TEXT NOT NULL | |
 | `created_at` | TEXT NOT NULL | |
 
+### `meta`
+
+Single-row-per-key store for global world state. Holds the day counter (used by NPC-movement seeding and world scaling) and the cron cooldown. See [[poc-build-world-tick]].
+
+| Column | Type | Notes |
+|---|---|---|
+| `key` | TEXT PK | e.g. `day_number`, `last_cron_date`, `llm_fallback_count` |
+| `value` | TEXT NOT NULL | Stringified value |
+
 **Initial seed:** `"The Warden's Oak"` with tags `"oak, interior, fire, sanctuary"` and `is_safe = 1`. Scene resolved at render time via tag matching.
 
 ---
@@ -190,7 +200,7 @@ At startup, before the bot logs in: load all files from `assets/char-creation/` 
 | `backgrounds.yml` | `name`, `description`, optional `modifiers`                                                                             |
 | `races.yml`       | `name`, `description`, optional `modifiers`                                                                             |
 | `alignments.yml`  | `name`, `description` — exactly 9 entries for 3×3 grid                                                                  |
-| `day-jobs.yml`    | `name`, `description`, `depends_on` (array of stat names), `base_income` (integer)                                      |
+| `day-jobs.yml`    | `name`, `description`, `depends_on` (array of stat names), `base_income` (integer), `actions` (exactly 3 — the weekday `/hi` action-button labels)  |
 | `item-sets.yml`   | `name`, `items` (array of `{name, emoji, stat, modifier, quantity}`), tied to classes                                   |
 
 ---

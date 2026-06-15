@@ -10,6 +10,7 @@ tags:
 related:
 - '[[poc-build-plan]]'
 - '[[poc-tech-stack]]'
+- '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build — Deploy
@@ -252,6 +253,7 @@ Track against success criteria from [[poc-build-plan]].
 | LLM feels coherent | Must-pass | Sample `decisions_json`. Fallback rate <10%. |
 
 Also monitor:
-- LLM fallback rate: `SELECT COUNT(*) FROM actions WHERE outcome = 'timed_out'` as % of total
-- `/bug` reports in `bug_reports` table
-- SQLite file size (sanity — shouldn't balloon)
+- [I] LLM fallback rate: `meta.llm_fallback_count` ÷ total actions. (Tier-2 fallback inserts no `actions` row, so the counter — not a row count — is the source of truth. See [[poc-build-polish]] §2.)
+- [I] Timeout rate (distinct from fallback): `SELECT COUNT(*) FROM actions WHERE outcome = 'timed_out'` as % of total
+- [I] `/bug` reports in `bug_reports` table
+- [I] SQLite file size (sanity — shouldn't balloon)

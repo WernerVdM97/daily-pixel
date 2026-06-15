@@ -10,6 +10,7 @@ related:
 - '[[poc-build-plan]]'
 - '[[poc-build-scaffold]]'
 - '[[poc-build-probabilistic]]'
+- '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build — Polish
@@ -23,7 +24,7 @@ related:
 | Error | Response |
 |---|---|
 | Invalid command | Ephemeral: "Unknown command. Try `/help`." |
-| No rolls remaining | Ephemeral: "The day is done. Rest at the Oak, or `/sleep` to advance." |
+| No rolls remaining | Ephemeral: "The day is done. `/sleep` to make camp by the Oak — the world turns at nightfall." |
 | Already mid-action | Ephemeral: "You're already in the middle of something. `/hi` to resume." |
 | DB error | Log to console. Player sees: "Something went wrong. The warden has been notified." |
 | Discord API error (rate limit, timeout) | Retry with exponential backoff (1s, 2s, 4s). Max 3 retries. |
@@ -37,7 +38,7 @@ related:
 
 ## 2. LLM Fallback
 
-Two-tier. Fallback rate tracked — if >10% of actions hit fallback, revisit prompt or provider.
+Two-tier. Fallback rate tracked via a `meta` counter (tier-2 inserts no `actions` row — see [[poc-build-deploy]] §6). If >10% of actions hit fallback, revisit prompt or provider.
 
 ### Tier 1 — Simpler retry
 
@@ -72,7 +73,7 @@ If retry also fails:
 
 ## 3. Outcome Rendering
 
-The final LLM response includes `outcome_text` — the LLM narrates the result in one sentence. The bot renders deterministic consequences below.
+The final LLM response includes `outcome_text` — the LLM narrates the result in one sentence (see [[poc-spec-reconciliation]] D1). If that call fails, malforms, or times out, fall back to a template variant (3-5 per `distilled_type`, defined in [[poc-build-probabilistic]] §4) and log the fallback. The bot renders deterministic consequences below either way.
 
 ### Success example
 
@@ -152,7 +153,7 @@ Shown while the bot waits for an LLM response (<5s). Picked randomly:
 /journal   — Browse your journal: locations, NPCs, recent actions.
 /backpack  — Check your inventory.
 /stats     — View your character sheet.
-/sleep     — Advance to the next day.
+/sleep     — Make camp by the Oak and rest.
 /bug       — Report a bug.
 /feedback  — Share your thoughts.
 ```
@@ -162,7 +163,7 @@ Shown while the bot waits for an LLM response (<5s). Picked randomly:
 ```
 You have 2 rolls per day.
 Each /action consumes 1 roll.
-Use /sleep to advance to the next day and regain your rolls.
+Your rolls reset at nightfall, when the world turns to the next day.
 Optional actions can be skipped (Bail or Skip button).
 Required actions (attacked, cornered) cannot be skipped.
 ```
@@ -180,7 +181,8 @@ Run the full flow end-to-end before shipping:
 - [ ] `/backpack` → items grid (starting items from join)
 - [ ] `/stats` → full sheet with correct values
 - [ ] `/hi` again → cached scene, no regeneration
-- [ ] `/sleep` → day advanced, rolls reset
+- [ ] `/sleep` (admin) → day advanced, rolls reset
+- [ ] `/sleep` (non-admin) → camp-by-the-Oak rest scene, no tick, nothing changes
 - [ ] `/hi` after sleep → new day, new hooks
 - [ ] LLM failure → tier 1 retry → tier 2 divine intervention
 - [ ] Mid-action disconnect → `/hi` resume from last decision

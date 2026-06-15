@@ -10,6 +10,7 @@ tags:
 related:
 - '[[poc-build-plan]]'
 - '[[poc-build-scaffold]]'
+- '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build — Probabilistic Actions
@@ -87,10 +88,10 @@ Generate the first decision for the player's action. Return JSON only.
 Rules:
 - distilled_type: single lowercase word for the action (hunt, travel, talk, etc.)
 - stat: which stat this action uses (physical, wisdom, intelligence, charisma)
-- base_dc: 8-18. Higher = harder.
+- base_dc: 8-18. Higher = harder. (Daily scaling narrows this — see [[poc-build-world-tick]] §4.)
 - required: true only if the action is reactive (attacked, cornered, etc.)
 - done: false for decisions, true when the action should resolve
-- decision: 2-4 options. dc_modifier range -5 to +5. null = bail (ends action as skipped).
+- decision: 2-4 options. dc_modifier is literal and signed: negative = a good decision that lowers difficulty (easier), positive = raises it (harder). Range -5 to +5. null = bail (ends action as skipped).
 - When done: true, include a mutations block (see below).
 
 CHARACTER: {class, stats, health, stamina, alignment, day_job}
@@ -107,8 +108,8 @@ PLAYER INPUT: {raw_input}
 ...same context as above...
 
 PREVIOUS DECISIONS:
-1. "Elder Bram catches your arm..." → chose: "Take the wolfsbane" (+2, DC now 13)
-2. "You find the tracks heading east..." → chose: "Circle wide" (+2, DC now 11)
+1. "Elder Bram catches your arm..." → chose: "Take the wolfsbane" (-2, DC now 13)
+2. "You find the tracks heading east..." → chose: "Circle wide" (-2, DC now 11)
 ```
 
 ### Response JSON — decision (not done)
@@ -123,9 +124,9 @@ PREVIOUS DECISIONS:
   "decision": {
     "prompt": "Elder Bram catches your arm. 'The grey one's been taking sheep from the east fold...'",
     "options": [
-      { "label": "Take the wolfsbane", "dc_modifier": 2 },
+      { "label": "Take the wolfsbane", "dc_modifier": -2 },
       { "label": "Decline — I'll use steel", "dc_modifier": 0 },
-      { "label": "Ask Bram what else he knows", "dc_modifier": 1 },
+      { "label": "Ask Bram what else he knows", "dc_modifier": -1 },
       { "label": "Bail", "dc_modifier": null }
     ]
   }
@@ -139,6 +140,7 @@ PREVIOUS DECISIONS:
   "distilled_type": "hunt",
   "stat": "wisdom",
   "done": true,
+  "outcome_text": "The wolfsbane flares; the beast recoils and limps into the dark.",
   "mutations": {
     "health_delta": 0,
     "stamina_delta": -1,
@@ -185,7 +187,7 @@ item_bonus = SUM(items.modifier WHERE items.stat = action.stat AND items.charact
 final_dc = running_dc - item_bonus
 ```
 
-`dc_modifier` is applied per decision as the player progresses. Items matching the action's stat reduce the final DC (they help).
+`dc_modifier` is literal and signed — added per decision as the player progresses. **Negative = a good decision that lowers difficulty (easier); positive = raises it (harder).** Items matching the action's stat also reduce the final DC (they help).
 
 ### d20 Roll
 
@@ -210,18 +212,18 @@ Pure d20. No player stat added to the roll directly — stats express through it
 
 ## 4. Outcome Resolution
 
-### Template text
+### Outcome text
 
-The LLM does not write outcomes. Templates do — zero token cost.
+The final (`done: true`) LLM call returns `outcome_text` — one narrated sentence (see [[poc-spec-reconciliation]] D1). Templates are the **fallback**, not the default: if the final call fails, malforms, or times out, pick a template variant and **log the fallback**.
 
 | Outcome | Source |
 |---|---|
-| `success` | 3-5 variants per distilled_type, picked randomly |
-| `failure` | 3-5 variants per distilled_type, picked randomly |
-| `skipped` | 3-5 generic variants |
+| `success` | LLM `outcome_text`. Fallback: 3-5 variants per distilled_type, picked randomly |
+| `failure` | LLM `outcome_text`. Fallback: 3-5 variants per distilled_type, picked randomly |
+| `skipped` | 3-5 generic variants (no LLM call on bail/skip) |
 | `timed_out` | 1 variant: "The moment passes. Whatever you were doing, it's gone now." |
 
-Template format: `"🎲 {roll} vs {dc} {'✓'|'✗'} {flavor_text}"`
+Render format: `"🎲 {roll} vs {dc} {'✓'|'✗'} {outcome_text}"`. Rendering detail in [[poc-build-polish]] §3.
 
 ### Mutation application
 
@@ -260,9 +262,9 @@ Saved to `player_characters.last_action_state` after every LLM response. Enables
     {
       "prompt": "Elder Bram catches your arm...",
       "options": [
-        { "label": "Take the wolfsbane", "dc_modifier": 2 },
+        { "label": "Take the wolfsbane", "dc_modifier": -2 },
         { "label": "Decline", "dc_modifier": 0 },
-        { "label": "Ask Bram", "dc_modifier": 1 },
+        { "label": "Ask Bram", "dc_modifier": -1 },
         { "label": "Bail", "dc_modifier": null }
       ],
       "chosen": "Take the wolfsbane"
@@ -282,7 +284,7 @@ Saved to `player_characters.last_action_state` after every LLM response. Enables
 
 | Case | Handling |
 |---|---|
-| No rolls remaining | Ephemeral: "The day is done. Rest at the Oak, or `/sleep` to advance." |
+| No rolls remaining | Ephemeral: "The day is done. `/sleep` to make camp by the Oak — the world turns at nightfall." |
 | Already mid-action | Ephemeral: "You're already in the middle of something. `/hi` to resume." |
 | LLM API unavailable | Fallback to hardcoded generic decision. Track fallback rate. |
 | LLM malformed JSON | Retry once. Still invalid → fallback. |

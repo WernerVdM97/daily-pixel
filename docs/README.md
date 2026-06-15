@@ -1,6 +1,8 @@
 # Docs — Map of Content
 
-The design vault for **The Warden's Oak**. Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain folders. 
+The design vault for **The Warden's Oak** — a text-rendered, multiplayer daily RPG in the lineage of the classic **MUD (multi-user dungeon)**: a shared, persistent world you explore through commands, rendered in words rather than pixels.
+
+Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain folders. 
 
 Read **[CONVENTIONS](./CONVENTIONS.md)** first.
 
@@ -46,7 +48,7 @@ how it runs
 | 🔭     | [Build — Probabilistic](./engine/poc-build-probabilistic.md) | `/action` flow, reactive LLM decisions, roll/skip, mutations     |
 | 🔭     | [Build — Scenes](./engine/poc-build-scenes.md) | ASCII fragment catalog, tag matching, integration, mobile testing     |
 | 🔭     | [Build — Polish](./engine/poc-build-polish.md) | Error handling, LLM fallback, outcome rendering, help content, final pass     |
-| 🔭     | [World Tick](poc-build-world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
+| 🔭     | [World Tick](./engine/poc-build-world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
 | 🔭     | [Build — Deploy](./engine/poc-build-deploy.md) | CI/CD, LXC provisioning, systemd, auto-update, tester invite, observation     |
 
 ## 🖥️ ui
@@ -56,6 +58,14 @@ discord presentation
 | Status | Doc                                          | Summary                                                         |
 | ------ | -------------------------------------------- | --------------------------------------------------------------- |
 | ✅      | [Example Scenes](./ui/poc-example-scenes.md) | `/join`, `/hi`, `/action hunt`, `/backpack`, `/stats`, `/sleep` |
+
+## 📐 decisions
+
+resolved cross-cutting trade-offs (ADRs)
+
+| Status | Doc | Summary |
+|---|---|---|
+| ✅ | [POC Spec Reconciliation](./decisions/poc-spec-reconciliation.md) | Resolves POC contradictions: outcome narration, cron tick, ASCII scenes, DC sign, supporting fixes |
 
 ---
 

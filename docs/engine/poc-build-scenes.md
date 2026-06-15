@@ -11,6 +11,7 @@ related:
 - '[[poc-build-plan]]'
 - '[[poc-build-scaffold]]'
 - '[[poc-build-probabilistic]]'
+- '[[poc-spec-reconciliation]]'
 ---
 
 # POC Build — ASCII Scenes
@@ -99,8 +100,7 @@ At startup, after YAML validation (scaffold spec), the bot loads all `.ascii` fi
 | File count | < 1 file in directory |
 | Frontmatter | Missing or unparseable |
 | Tags | Empty array or any tag contains spaces |
-| Width — hard cap | Any line exceeds 60 characters |
-| Width — safe zone | Lines > 30 chars: log warning (phone scroll risk) |
+| Width — hard cap | Any line exceeds 30 characters (matches the mobile no-scroll must-pass, §5) |
 | Height | Any file exceeds 32 lines (Discord message budget) |
 
 Failures log filename + specific error, then exit. Bot never comes online with a scene that breaks rendering.

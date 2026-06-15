@@ -9,6 +9,7 @@ tags:
 related:
 - '[[the-poc]]'
 - '[[poc-build-plan]]'
+- '[[poc-spec-reconciliation]]'
 ---
 ,
 # POC Tech Stack
@@ -26,7 +27,8 @@ related:
 | Runtime       | Node.js + tsx              | No build step. `tsx` runs TS directly.                                                                                       |
 | Database      | SQLite (`better-sqlite3`)  | File-based, zero ops. Lives in the LXC container. Sync API — no connection pool, no async overhead for a single-process bot. |
 | LLM           | DeepSeek V4 Flash API      | Cheap, fast. ~$0.14/1M input tokens.                                                                                         |
-| ASCII art     | Hardcoded string constants | 4 fragments from `assets/*.ascii`. Zero dependencies.                                                                        |
+| Game data     | YAML (`js-yaml`)           | Char-creation options + item sets in `assets/char-creation/*.yml`. Loaded + validated at startup, fail-fast.                  |
+| ASCII art     | File-loaded fragments      | 21 `.ascii` files in `assets/scenes/` with tag frontmatter, parsed via `js-yaml`. Deterministic tag matching — see [[poc-build-scenes]]. |
 | Hosting       | LXC Debian container       | Single container, single process. No Docker overhead for POC.                                                                |
 
 ---
@@ -82,10 +84,10 @@ Split for MVP: TypeScript handles Discord I/O only (the "frontend"). A separate 
 |---|---|---|
 | **Split front/back architecture** | POC is a monolith. One process, one container. Splitting adds dev complexity without proving anything about engagement. | MVP — when sim ticks and multi-player concurrency matter. |
 | **Backend runtime other than Node** | TypeScript does everything in POC. No need to learn/debug a second language stack yet. | MVP — when the world sim needs a dedicated runtime. |
-| **Docker / Docker Compose** | LXC Debian container is simpler. One `apt install nodejs`, one `npm install`, one `tsx index.ts`. | MVP — when front + back need orchestration. |
+| **Docker / Docker Compose (prod)** | Production runs in an LXC Debian container. One `apt install nodejs`, one `npm install`, one `tsx index.ts`. A Podman `Containerfile` exists for **local dev parity only** ([[poc-build-deploy]] §2) — no orchestration. | MVP — when front + back need orchestration. |
 | **Graph DB / edge model** | SQLite with flat tables is enough. `players` + `actions` + `items`. No recursive CTEs, no graph traversal. | MVP — when the 2-hop subgraph queries actually matter. |
 | **Connection pooling / async DB** | `better-sqlite3` is synchronous. Single process = no contention. | MVP — if the backend handles concurrent player requests. |
-| **Cron / tick scheduler** | Manual `/sleep` triggers the tick. No automated daily pass. | MVP — when the game runs unattended. |
+| ~~**Cron / tick scheduler**~~ | **Superseded by [[poc-spec-reconciliation]] (D2).** The POC now runs an admin-gated `/sleep` **and** a nightly 3:30 UTC cron — see [[poc-build-world-tick]]. | — |
 
 ---
 

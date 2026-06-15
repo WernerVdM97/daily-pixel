@@ -11,6 +11,7 @@ related:
 - '[[poc-build-plan]]'
 - '[[poc-build-scaffold]]'
 - '[[poc-build-probabilistic]]'
+- '[[poc-spec-reconciliation]]'
 ---
 
 # World Tick — Daily Simulation
@@ -26,7 +27,9 @@ related:
 | **Admin `/sleep`** | Gated to a configured Discord user ID (env var `ADMIN_USER_ID`). Advances the world immediately. **No cooldown** — admin can tick multiple times in one real day for testing. |
 | **Cron (3:30 UTC)** | Fires exactly once per real day. If the admin already ticked today, cron is a no-op. Night-owl friendly. |
 
-Cooldown tracking: store `last_cron_date` in memory or a small `meta` table. Compare against current UTC date.
+Cooldown tracking: store `last_cron_date` in the `meta` table ([[poc-build-scaffold]]). Compare against current UTC date. The `day_number` counter lives in the same table.
+
+Only these two advance the world. A **non-admin `/sleep`** is *not* a tick trigger — it returns a rest scene and changes nothing (see §6).
 
 ---
 
@@ -41,7 +44,7 @@ For every player in `player_characters`:
 | **Wilds decay** | If NOT at a safe location: `stamina = MAX(stamina - 1, 0)`. |
 | **Day-job income** | `wealth += base_income` from `day-jobs.yml` matching the player's `day_job`. Always applies regardless of location. |
 | **Roll reset** | `rolls_remaining = 2`. |
-| **Day counter** | Increment global day counter. |
+| **Day counter** | Increment `meta.day_number`. |
 
 ### Consolation for unused rolls
 
@@ -53,9 +56,9 @@ Players who didn't use all their rolls still get income and recovery. They sacri
 
 For every NPC in `npcs`:
 
-**80% chance to move.** Destination determined by `day_job`. Movement is deterministic — same NPC with same day_job always moves to the same type of location.
+**80% chance to move.** Destination determined by `class` (the only role field populated at spawn — see [[poc-build-scaffold]] `npcs`). Movement is deterministic — same NPC with same class always moves to the same type of location.
 
-| Day-job | Movement pattern |
+| Class | Movement pattern |
 |---|---|
 | Blacksmith | Stays at current location. `wealth += 5` (worked the forge). |
 | Hunter | Moves to a random `locations` row where `tags` matches `wilderness` or `forest`. |
@@ -101,11 +104,16 @@ Scaling flavors:
 
 ## 6. `/sleep` Command
 
-Admin-only slash command. No arguments.
+Available to everyone. No arguments. Behaviour branches on whether the caller is the admin.
 
-**Behaviour:**
-1. Check `interaction.user.id === ADMIN_USER_ID`. If not → ephemeral "Only the warden may turn the hourglass."
-2. Run the full tick (sections 2-5).
-3. Reply (visible to channel): day transition message.
+**Admin (`interaction.user.id === ADMIN_USER_ID`):**
+1. Run the full tick (sections 2-5).
+2. Reply (visible to channel): the day transition message.
 
 **No cooldown for admin.** Typing `/sleep` five times advances five days. Useful for testing the DC creep and NPC movement patterns.
+
+**Non-admin:**
+
+Returns a valid in-world response — the camp-by-the-Oak rest scene + flavor — and does **not** trigger the tick. No day advance, no roll reset, no stamina change. The day only turns at nightfall (cron) or when the warden turns the hourglass.
+
+> *"You bank the fire and bed down beneath the Oak. The day turns when the world wills it — not when you do."*
