@@ -26,7 +26,7 @@ A fresh session has no prior context. Load the **stable framing first**, the **t
 ```
 You're a senior TypeScript engineer starting the build of "The Warden's Oak" —
 a Discord MUD POC. We build in single-threaded, test-gated sessions per the
-plan of attack. This is SESSION S0: Foundation & seam.
+plan of attack.
 
 Read these docs in this order before doing anything:
   1. docs/engine/poc-build-poa.md        — the session plan, the seam, handover
