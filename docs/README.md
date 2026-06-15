@@ -1,6 +1,6 @@
 # Docs — Map of Content
 
-The design vault for **The Warden's Oak** — a text-rendered, multiplayer daily RPG in the lineage of the classic **MUD (multi-user dungeon)**: a shared, persistent world you explore through commands, rendered in words rather than pixels.
+The design vault for **The Warden's Oak**. Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain folders. 
 
 Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain folders. 
 
@@ -76,6 +76,7 @@ ongoing sparks
 | Status | Doc                                                          | Summary                                                       |
 | ------ | ------------------------------------------------------------ | ------------------------------------------------------------- |
 | 🌱     | [Discord UX](./sparks/poc-discord-ux.md)                     | Mobile constraints, button rules, emoji signals, command list |
+| 🌱     | [Build — Plan of Attack](./sparks/poc-build-poa.md)          | Patterns per build slice, portable-backend seam, agent execution plan |
 
 ## 🔥 MVP 
 
