@@ -66,7 +66,7 @@ export function isWeekend(): boolean {
 
 // ── Command factory ──
 
-export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
+export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[], oakScene: string) {
 	return async (interaction: { user: { id: string } }): Promise<string> => {
 		const character = engine.getCharacter(interaction.user.id);
 		if (!character) {
@@ -113,7 +113,6 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
 		}
 
 		// Resumption — show the pending decision prompt instead of the greeting
-		// Resumption — show the pending decision prompt instead of the greeting
 		if (character.lastActionState) {
 			const resumeResult = engine.resumeAction(character.id);
 			const prompt = resumeResult.nextDecision.prompt;
@@ -127,6 +126,7 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
 			].join('\n');
 		}
 
-		return [header, "", "─".repeat(30), ...actionLines].join("\n");
+		const sceneBlock = oakScene ? ['```', oakScene, '```', ''] : [];
+		return [...sceneBlock, header, "", "─".repeat(30), ...actionLines].join("\n");
 	};
 }

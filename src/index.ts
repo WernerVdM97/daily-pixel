@@ -198,6 +198,18 @@ async function main() {
   registry.register('help', asHandler(makeHelpCommand()));
   registry.register('stats', asHandler(makeStatsCommand(engine)));
   registry.register('backpack', asHandler(makeBackpackCommand(engine)));
+
+  // Scene helpers
+  const oakScene = scenes.get('oak')?.body ?? '';
+  const getCurrentScene = (discordUserId: string): string => {
+    const char = engine.getCharacter(discordUserId);
+    if (!char) return '';
+    const loc = engine.getLocation(char.location);
+    const tags = loc?.tags ?? [];
+    const sceneName = tagResolver.resolve(tags);
+    return scenes.get(sceneName)?.body ?? '';
+  };
+
   registry.register('look', asHandler(makeLookCommand(engine, (tags) => {
     const sceneName = tagResolver.resolve(tags);
     const scene = scenes.get(sceneName);
@@ -207,11 +219,11 @@ async function main() {
   registry.register('feedback', withTextOption(makeFeedbackCommand(engine)));
   registry.register('bug', withTextOption(makeBugCommand(engine)));
   registry.register('sleep', asHandler(makeSleepCommand(engine)));
-  registry.register('hi', asHandler(makeHiCommand(engine, dayJobs)));
+  registry.register('hi', asHandler(makeHiCommand(engine, dayJobs, oakScene)));
   const joinWizards = new WizardSession();
   registry.register('join', asHandler(makeJoinCommand(engine, joinWizards)));
 
-  registry.register('action', asHandler(makeActionCommand(engine)));
+  registry.register('action', asHandler(makeActionCommand(engine, getCurrentScene)));
 
   // 8. Discord client
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });

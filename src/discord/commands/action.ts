@@ -35,6 +35,9 @@ function choiceCid(decisionIdx: number, optionIdx: number): string {
 // can look up the option label from the option index.
 const pendingDecisions = new Map<string, ActionDecision>();
 
+// Scene lookup — set by makeActionCommand, used by button handlers.
+let _sceneLookup: ((userId: string) => string) | null = null;
+
 function setPendingDecision(userId: string, decision: ActionDecision): void {
   // If the LLM returned no options, use a fallback so the stored
   // decision matches what buildDecisionMessage renders.
@@ -64,7 +67,8 @@ export function getChoiceLabel(userId: string, optionIdx: number): string | null
 
 // ── Factory ──
 
-export function makeActionCommand(engine: WorldEngine) {
+export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId: string) => string) {
+  _sceneLookup = getCurrentScene;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
     const description = interaction.options.getString('description');
 
@@ -101,7 +105,8 @@ export function makeActionCommand(engine: WorldEngine) {
 
         setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
-        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state));
+        const scene = _sceneLookup?.(interaction.user.id);
+        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state, scene));
         return 'action_resumed';
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -142,7 +147,8 @@ export function makeActionCommand(engine: WorldEngine) {
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state));
+      const scene = _sceneLookup?.(interaction.user.id);
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, scene));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -264,7 +270,8 @@ async function applyActionResult(
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
-    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
+    const scene = _sceneLookup?.(i.user.id);
+    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx, result.state, scene));
   }
 }
 
@@ -274,6 +281,7 @@ function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
   decisionIdx: number,
   state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }> },
+  sceneBody?: string,
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -284,6 +292,15 @@ function buildDecisionMessage(
   // Show action trail above the current decision
   if (state) {
     const trail: string[] = [];
+
+    // Scene block at the very top
+    if (sceneBody) {
+      trail.push('```');
+      trail.push(sceneBody);
+      trail.push('```');
+      trail.push('');
+    }
+
     trail.push(`**You:** ${state.rawInput}`);
     for (const d of state.decisions) {
       trail.push(`→ *${d.chosen}* (DC ${d.dcModifier >= 0 ? '+' : ''}${d.dcModifier})`);
