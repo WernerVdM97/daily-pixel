@@ -132,6 +132,20 @@ export function makeHiCommand(
 
 		const currentScene = getScene(interaction.user.id);
 		const sceneBlock = currentScene ? ['```', currentScene, '```', ''] : [];
-		return [...sceneBlock, header, "", "─".repeat(30), ...actionLines].join("\n");
+
+		// Location info
+		const location = engine.getLocation(character.location);
+		const locationLines: string[] = [];
+		if (location) {
+			locationLines.push(`🏠 **${location.name}**`);
+			locationLines.push(`_${location.description}_`);
+			locationLines.push(location.isSafe ? '🛡️ Safe' : '⚠️ Unsafe');
+			locationLines.push('');
+		} else {
+			locationLines.push(`🏠 **${character.location}**`);
+			locationLines.push('');
+		}
+
+		return [...sceneBlock, ...locationLines, header, "", "─".repeat(30), ...actionLines].join("\n");
 	};
 }
