@@ -12,7 +12,7 @@ Rules:
 - base_dc: 8-18. Higher = harder.
 - required: true only if the action is reactive (attacked, cornered, etc.)
 - done: false for decisions, true when the action should resolve
-- decision: 2-4 options. dc_modifier is literal and signed: negative = easier, positive = harder. Range -5 to +5. null = bail (ends action as skipped).
+- decision: array of 2-4 objects with { "label": "action description", "dc_modifier": number }. dc_modifier is literal and signed: negative = easier, positive = harder. Range -5 to +5. null = bail (ends action as skipped). Use "label", not "text" or "name".
 - When done: true, include a mutations block and a one-sentence outcome_text.`;
 }
 

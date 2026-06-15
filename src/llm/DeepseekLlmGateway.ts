@@ -98,7 +98,7 @@ export class DeepseekLlmGateway implements LlmGateway {
   }
 
   private parseDecision(raw: Record<string, unknown>): LlmDecision {
-    return {
+    const decision: LlmDecision = {
       ...(raw.prompt === undefined ? {} : { prompt: String(raw.prompt) }),
       distilledType: String(raw.distilled_type ?? ''),
       stat: this.parseStat(raw.stat),
@@ -107,13 +107,55 @@ export class DeepseekLlmGateway implements LlmGateway {
       done: Boolean(raw.done),
       decision: Array.isArray(raw.decision)
         ? raw.decision.map((opt: Record<string, unknown>) => ({
-            label: String(opt.label || opt.text || ''),
+            label: String(opt.label ?? ''),
             dcModifier: opt.dc_modifier === null ? null : Number(opt.dc_modifier ?? 0),
           }))
         : [],
       ...(raw.mutations === undefined ? {} : { mutations: raw.mutations as unknown[] }),
       ...(raw.outcome_text === undefined ? {} : { outcomeText: String(raw.outcome_text) }),
     };
+
+    this.validateDecision(raw, decision);
+    return decision;
+  }
+
+  private validateDecision(raw: Record<string, unknown>, d: LlmDecision): void {
+    const warnings: string[] = [];
+
+    if (!d.distilledType) warnings.push('distilled_type is empty');
+
+    const validStats = ['physical', 'wisdom', 'intelligence', 'charisma'];
+    if (!validStats.includes(d.stat)) {
+      warnings.push(`stat "${d.stat}" is not one of ${validStats.join('/')} (raw: ${JSON.stringify(raw.stat)})`);
+    }
+
+    if (d.baseDc < 8 || d.baseDc > 18) {
+      warnings.push(`base_dc ${d.baseDc} is outside expected range 8-18`);
+    }
+
+    if (!Array.isArray(raw.decision)) {
+      warnings.push('decision is not an array');
+    } else if (!d.done && d.decision.length === 0) {
+      warnings.push('decision array is empty but done=false — player will have no options');
+    } else {
+      for (let i = 0; i < d.decision.length; i++) {
+        const opt = d.decision[i];
+        if (!opt.label) {
+          const rawOpt = (raw.decision as Array<Record<string, unknown>>)[i];
+          const hasText = !!rawOpt?.text || !!rawOpt?.name;
+          warnings.push(`option[${i}] has empty label` +
+            (hasText ? ` — LLM used "${rawOpt?.text || rawOpt?.name}" instead of "label"` : ''));
+        }
+        if (opt.dcModifier !== null && (opt.dcModifier < -5 || opt.dcModifier > 5)) {
+          warnings.push(`option[${i}] dc_modifier ${opt.dcModifier} is outside range -5 to +5`);
+        }
+      }
+    }
+
+    if (warnings.length > 0) {
+      console.warn('[llm:validate]', warnings.join('; '));
+      console.warn('[llm:validate] raw response:', JSON.stringify(raw).slice(0, 500));
+    }
   }
 
   private parseStat(raw: unknown): 'physical' | 'wisdom' | 'intelligence' | 'charisma' {
