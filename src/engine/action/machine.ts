@@ -8,7 +8,7 @@ import type {
   CharacterData,
   ItemData,
 } from '../WorldEngine.js';
-import { accumulateDc, computeItemBonus, resolveRoll } from './dc.js';
+import { accumulateDc, computeItemBonus, resolveRoll, validateDcModifier } from './dc.js';
 
 /**
  * Extends ActionState with internal fields stored in the JSON column
@@ -21,6 +21,8 @@ export interface InternalActionState extends ActionState {
   distilledType: string;
   /** The stat used for this action's roll. */
   rollStat: string;
+  /** Whether this is a reactive action — bail is not allowed. */
+  required: boolean;
 }
 
 export class ActionStateMachine {
@@ -41,7 +43,7 @@ export class ActionStateMachine {
     const context = this.buildContext(char, rawInput, [], items);
     const decision = await this.llm.decide(context);
 
-    const firstDecision = this.toActionDecision(decision);
+    const firstDecision = this.toActionDecision(decision, decision.required);
     const state: InternalActionState = {
       rawInput,
       decisions: [],
@@ -49,6 +51,7 @@ export class ActionStateMachine {
       pendingDecision: firstDecision,
       distilledType: decision.distilledType,
       rollStat: decision.stat,
+      required: decision.required,
     };
 
     return { state, firstDecision };
@@ -118,7 +121,7 @@ export class ActionStateMachine {
         ...state,
         decisions: newDecisions,
         accumulatedDc: newDc,
-        pendingDecision: this.toActionDecision(decision),
+        pendingDecision: this.toActionDecision(decision, state.required),
       };
 
       return {
@@ -136,7 +139,7 @@ export class ActionStateMachine {
     }
 
     // Continue
-    const nextDecision = this.toActionDecision(decision);
+    const nextDecision = this.toActionDecision(decision, state.required);
     const nextState: InternalActionState = {
       ...state,
       decisions: newDecisions,
@@ -158,10 +161,23 @@ export class ActionStateMachine {
     };
   }
 
-  private toActionDecision(llm: LlmDecision): ActionDecision {
+  private toActionDecision(llm: LlmDecision, required = false): ActionDecision {
+    // Enforce required: strip bail options when action is reactive
+    let options = required
+      ? llm.decision.filter(o => o.dcModifier !== null)
+      : [...llm.decision];
+
+    // Validate dcModifier range on non-bail options, clamp out-of-range
+    options = options.map(o => {
+      if (o.dcModifier !== null && !validateDcModifier(o.dcModifier)) {
+        return { ...o, dcModifier: Math.max(-5, Math.min(5, o.dcModifier)) };
+      }
+      return o;
+    });
+
     return {
       prompt: llm.prompt ?? `${capitalize(llm.distilledType)} — choose your approach:`,
-      options: llm.decision,
+      options,
     };
   }
 

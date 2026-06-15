@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { MockLlmGateway } from '../../src/llm/MockLlmGateway.js';
 import { ActionStateMachine } from '../../src/engine/action/machine.js';
 import type {
-  ActionState,
   CharacterData,
   ItemData,
 } from '../../src/engine/WorldEngine.js';
+import type {
+  InternalActionState,
+} from '../../src/engine/action/machine.js';
 import type { LlmDecision } from '../../src/llm/LlmGateway.js';
 
 // RED: tests fail because src/engine/action/machine.ts doesn't exist yet
@@ -229,7 +231,7 @@ describe('ActionStateMachine — step', () => {
       baseDc: 12, // base DC stays the same; accumulation is in the state
     });
     const r2 = await machine.step(
-      (r1 as { resolved: false; state: ActionState }).state,
+      (r1 as { resolved: false; state: InternalActionState }).state,
       'Stalk quietly',
       testChar(),
       testItems,
@@ -315,7 +317,7 @@ describe('ActionStateMachine — resume', () => {
     const { state, firstDecision } = await machine.start(testChar(), 'go hunt a wolf', testItems);
 
     // Save the state as if persisted
-    const savedState: ActionState = {
+    const savedState: InternalActionState = {
       ...state,
       pendingDecision: firstDecision, // stored in JSON
     };
@@ -348,5 +350,94 @@ describe('ActionStateMachine — resume', () => {
       expect(resumed.state.accumulatedDc).toBe(14);
       expect(resumed.nextDecision.options).toHaveLength(3);
     }
+  });
+});
+
+describe('ActionStateMachine — required enforcement', () => {
+  it('strips bail options from decision when required is true', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      ...MockLlmGateway.defaultDecision(),
+      required: true,
+      decision: [
+        { label: 'Fight back', dcModifier: 0 },
+        { label: 'Dodge', dcModifier: -2 },
+        { label: 'Bail', dcModifier: null },
+      ],
+    });
+
+    const machine = new ActionStateMachine(llm);
+    const { firstDecision, state } = await machine.start(testChar(), 'defend', []);
+
+    // Bail option stripped
+    expect(firstDecision.options).toHaveLength(2);
+    expect(firstDecision.options.every(o => o.dcModifier !== null)).toBe(true);
+    expect(state.required).toBe(true);
+  });
+
+  it('does not strip bail when required is false', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      ...MockLlmGateway.defaultDecision(),
+      required: false,
+      decision: [
+        { label: 'Explore', dcModifier: 0 },
+        { label: 'Bail', dcModifier: null },
+      ],
+    });
+
+    const machine = new ActionStateMachine(llm);
+    const { firstDecision } = await machine.start(testChar(), 'explore', []);
+
+    expect(firstDecision.options).toHaveLength(2);
+    expect(firstDecision.options.some(o => o.dcModifier === null)).toBe(true);
+  });
+});
+
+describe('ActionStateMachine — dcModifier clamping', () => {
+  it('clamps dcModifier above +5 down to +5', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      ...MockLlmGateway.defaultDecision(),
+      decision: [
+        { label: 'Do something crazy', dcModifier: 15 },
+        { label: 'Bail', dcModifier: null },
+      ],
+    });
+
+    const machine = new ActionStateMachine(llm);
+    const { firstDecision } = await machine.start(testChar(), 'try', []);
+
+    expect(firstDecision.options[0].dcModifier).toBe(5);
+  });
+
+  it('clamps dcModifier below -5 up to -5', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      ...MockLlmGateway.defaultDecision(),
+      decision: [
+        { label: 'Cheat fate', dcModifier: -10 },
+      ],
+    });
+
+    const machine = new ActionStateMachine(llm);
+    const { firstDecision } = await machine.start(testChar(), 'try', []);
+
+    expect(firstDecision.options[0].dcModifier).toBe(-5);
+  });
+
+  it('leaves valid dcModifier unchanged', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      ...MockLlmGateway.defaultDecision(),
+      decision: [
+        { label: 'Normal action', dcModifier: 2 },
+      ],
+    });
+
+    const machine = new ActionStateMachine(llm);
+    const { firstDecision } = await machine.start(testChar(), 'try', []);
+
+    expect(firstDecision.options[0].dcModifier).toBe(2);
   });
 });

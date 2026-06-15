@@ -9,6 +9,7 @@ import { LocationRepository } from '../db/repositories/location.js';
 import { MetaRepository } from '../db/repositories/meta.js';
 import { ActionStateMachine, type InternalActionState } from './action/machine.js';
 import { validateMutations, applyMutations } from './action/mutations.js';
+import { computeStats, type ClassDef, type ModifierDef } from './StatComputer.js';
 import type {
   WorldEngine,
   CharCreateData,
@@ -33,6 +34,10 @@ interface WorldEngineConfig {
   actionRepo: ActionRepository;
   npcRepo: NpcRepository;
   rollD20?: () => number;
+  /** YAML asset data for stat computation. Injected so engine stays presentation-free. */
+  classDefs?: ClassDef[];
+  upbringingDefs?: ModifierDef[];
+  raceDefs?: ModifierDef[];
 }
 
 export class WorldEngineImpl implements WorldEngine {
@@ -45,6 +50,9 @@ export class WorldEngineImpl implements WorldEngine {
   private locationRepo: LocationRepository;
   private metaRepo: MetaRepository;
   private machine: ActionStateMachine;
+  private classDefs: ClassDef[];
+  private upbringingDefs: ModifierDef[];
+  private raceDefs: ModifierDef[];
 
   constructor(config: WorldEngineConfig) {
     this.db = config.db;
@@ -55,6 +63,9 @@ export class WorldEngineImpl implements WorldEngine {
     this.npcRepo = config.npcRepo;
     this.locationRepo = new LocationRepository(config.db);
     this.metaRepo = new MetaRepository(config.db);
+    this.classDefs = config.classDefs ?? [];
+    this.upbringingDefs = config.upbringingDefs ?? [];
+    this.raceDefs = config.raceDefs ?? [];
     this.machine = new ActionStateMachine(config.llm, config.rollD20);
   }
 
@@ -64,6 +75,10 @@ export class WorldEngineImpl implements WorldEngine {
     const user = this.userRepo.findByDiscordId(discordUserId)
       ?? this.userRepo.create(discordUserId);
 
+    const stats = this.classDefs.length > 0
+      ? computeStats(data.class, data.upbringing, data.race, this.classDefs, this.upbringingDefs, this.raceDefs)
+      : { physical: 0, wisdom: 0, intelligence: 0, charisma: 0 };
+
     const row = this.charRepo.create(user.id, {
       name: data.name,
       class: data.class,
@@ -71,7 +86,7 @@ export class WorldEngineImpl implements WorldEngine {
       race: data.race,
       alignment: data.alignment,
       day_job: data.dayJob,
-      stats: JSON.stringify({ physical: 0, wisdom: 0, intelligence: 0, charisma: 0 }),
+      stats: JSON.stringify(stats),
       health: 10,
       max_health: 10,
       stamina: 10,
@@ -109,13 +124,13 @@ export class WorldEngineImpl implements WorldEngine {
 
     const { state: internalState, firstDecision } = await this.machine.start(char, rawInput, items);
 
-    // Drain a roll
-    this.charRepo.update(characterId, {
-      rolls_remaining: Math.max(0, row.rolls_remaining - 1),
-    });
-
-    // Persist mid-action state
-    this.persistState(characterId, internalState);
+    // Drain a roll + persist state atomically
+    this.db.transaction(() => {
+      this.charRepo.update(characterId, {
+        rolls_remaining: Math.max(0, row.rolls_remaining - 1),
+      });
+      this.persistState(characterId, internalState);
+    })();
 
     return {
       state: this.toPublicState(internalState),
