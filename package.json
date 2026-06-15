@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^12.10.1",
     "discord.js": "^14.18.0",
     "js-yaml": "^4.1.0"
   },
