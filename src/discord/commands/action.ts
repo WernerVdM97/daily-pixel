@@ -340,7 +340,15 @@ async function applyActionResult(
       wealth: character?.wealth ?? 0,
     };
 
+    // Show the destination scene when the character moved
+    const scene = _sceneLookup?.(i.user.id);
     const trail: string[] = [];
+    if (scene) {
+      trail.push('```');
+      trail.push(scene);
+      trail.push('```');
+      trail.push('');
+    }
     trail.push(`**You:** ${result.state.rawInput}`);
     for (const d of result.state.decisions) {
       trail.push(`**Decision:** ${d.prompt}`);
@@ -393,8 +401,10 @@ export function buildDecisionMessage(
   if (state) {
     const trail: string[] = [];
 
-    // Scene block at the very top
-    if (sceneBody) {
+    // Scene block at the very top — but skip it when the LLM already resolved
+    // (only bail option), because the scene shows the OLD location, not the destination.
+    const isPreResolved = decision.options.length === 1 && decision.options[0]?.dcModifier === null;
+    if (sceneBody && !isPreResolved) {
       trail.push('```');
       trail.push(sceneBody);
       trail.push('```');
