@@ -16,7 +16,7 @@ import process from 'node:process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { Client, Events, GatewayIntentBits, REST, Routes } from 'discord.js';
+import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 
 import { initDb, closeDb } from './db/connection.js';
@@ -49,9 +49,9 @@ import { makeJournalCommand } from './discord/commands/journal.js';
 import { makeFeedbackCommand } from './discord/commands/feedback.js';
 import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
-import { makeHiCommand, type DayJobDef } from './discord/commands/hi.js';
+import { makeHiCommand, getDayJobActions, type DayJobDef } from './discord/commands/hi.js';
 import { makeJoinCommand, handleInteraction as handleJoinInteraction } from './discord/commands/join.js';
-import { makeActionCommand, handleActionChoice } from './discord/commands/action.js';
+import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage } from './discord/commands/action.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
@@ -353,6 +353,41 @@ async function main() {
             ephemeral: true,
           }).catch(() => {});
         }
+      }
+      return;
+    }
+
+    // ── Day-job quick action buttons ──
+    if (customId && customId.startsWith('action:dayjob:')) {
+      if (!interaction.isButton()) return;
+      const idx = parseInt(customId.slice('action:dayjob:'.length), 10);
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (!char) {
+          await interaction.reply({ content: "You don't have a character. Type `/join` first.", ephemeral: true });
+          return;
+        }
+        const jobActions = getDayJobActions(char.dayJob, dayJobs);
+        const hook = jobActions[idx]?.hook;
+        if (!hook) {
+          await interaction.reply({ content: 'Invalid job action.', ephemeral: true });
+          return;
+        }
+        await interaction.deferReply({ ephemeral: true });
+        const result = await engine.startAction(char.id, hook);
+        if (result.firstDecision.options.length === 0) {
+          await interaction.editReply({
+            embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
+            components: [],
+          });
+        } else {
+          setPendingDecision(interaction.user.id, result.firstDecision);
+          await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, getCurrentScene(interaction.user.id)));
+        }
+      } catch (err) {
+        console.error(c.red('[action:dayjob] Error:'), err);
+        const msg = err instanceof Error ? err.message : String(err);
+        await interaction.editReply({ content: `❌ **Could not act.**\n${msg}` }).catch(() => {});
       }
       return;
     }

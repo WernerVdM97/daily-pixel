@@ -27,6 +27,7 @@ import { getDayJobActions, type DayJobDef } from './hi.js';
 
 const CID_PREFIX = 'action:choice:';
 const CID_BAIL = 'action:bail';
+const CID_DAYJOB = 'action:dayjob:';
 
 function choiceCid(decisionIdx: number, optionIdx: number): string {
   return `${CID_PREFIX}${decisionIdx}:${optionIdx}`;
@@ -39,7 +40,7 @@ const pendingDecisions = new Map<string, ActionDecision>();
 // Scene lookup — set by makeActionCommand, used by button handlers.
 let _sceneLookup: ((userId: string) => string) | null = null;
 
-function setPendingDecision(userId: string, decision: ActionDecision): void {
+export function setPendingDecision(userId: string, decision: ActionDecision): void {
   // If the LLM returned no options, use a fallback so the stored
   // decision matches what buildDecisionMessage renders.
   const options = decision.options.length > 0
@@ -116,18 +117,38 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
     }
 
-    // No description provided and not mid-action — show daily work list
+    // No description provided and not mid-action — show daily work list as buttons
     if (!description) {
-      const jobActions = getDayJobActions(character.dayJob, dayJobs);
-      const lines = [
-        `🔨 **${character.dayJob} — Daily Work**`,
-        '',
-        ...jobActions.map((a, i) => `  ${['①', '②', '③'][i]} **${a.label}** — ${a.hook}`),
-        '',
-        'Use `/action <what you do>` to carry out your choice.',
-      ];
-      await interaction.reply({ content: lines.join('\n'), ephemeral: true });
-      return 'action_no_description';
+      try {
+        const jobActions = getDayJobActions(character.dayJob, dayJobs);
+        const embed = new EmbedBuilder()
+          .setTitle(`🔨 ${character.dayJob} — Daily Work`)
+          .setDescription('Pick a task to start:')
+          .setColor(0xdaa520);
+
+        const row = new ActionRowBuilder<ButtonBuilder>();
+        for (let i = 0; i < jobActions.length; i++) {
+          row.addComponents(
+            new ButtonBuilder()
+              .setCustomId(CID_DAYJOB + i)
+              .setLabel(jobActions[i].label)
+              .setStyle(ButtonStyle.Secondary),
+          );
+        }
+
+        await interaction.reply({
+          embeds: [embed.toJSON()],
+          components: [row.toJSON()],
+          ephemeral: true,
+        });
+        return 'action_dayjob_menu';
+      } catch {
+        await interaction.reply({
+          content: `🔨 **${character.dayJob}**\n\nUse \`/action <what you do>\` to start an action.`,
+          ephemeral: true,
+        });
+        return 'action_no_description';
+      }
     }
 
     // Defer first — LLM call can take >3 seconds
@@ -292,7 +313,7 @@ async function applyActionResult(
 
 // ── Helpers ──
 
-function buildDecisionMessage(
+export function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
   decisionIdx: number,
   state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }> },
@@ -350,7 +371,7 @@ function buildDecisionMessage(
         new ButtonBuilder()
           .setCustomId(isBail ? CID_BAIL : choiceCid(decisionIdx, i + options.indexOf(opt)))
           .setLabel(shortLabel(opt.label, 80))
-          .setStyle(isBail ? ButtonStyle.Danger : ButtonStyle.Primary),
+          .setStyle(isBail ? ButtonStyle.Danger : ButtonStyle.Secondary),
       );
     }
     components.push(row);
