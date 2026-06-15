@@ -110,8 +110,8 @@ export class ActionStateMachine {
     const newDecisions = [...state.decisions, record];
     const newDc = accumulateDc(state.accumulatedDc, [option.dcModifier]);
 
-    // Force-resolve after 3 decisions — don't call LLM again
-    if (state.decisions.length >= 2) { // 2 previous + this one = third decision
+    // Force-resolve after 2 decisions — don't call LLM again
+    if (state.decisions.length >= 1) { // 1 previous + this one = second decision
       const d20 = this.rollD20();
       const bonus = computeItemBonus(items, state.rollStat);
       const outcome = resolveRoll(d20, bonus, newDc);
