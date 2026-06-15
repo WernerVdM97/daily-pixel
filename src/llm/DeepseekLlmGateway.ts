@@ -4,6 +4,7 @@
 
 import type { LlmGateway, LlmContext, LlmDecision } from './LlmGateway.js';
 import { buildSystemPrompt, buildUserMessage } from './prompt-builder.js';
+import { c } from '../util/colors.js';
 
 export interface DeepseekConfig {
   apiKey: string;
@@ -47,7 +48,7 @@ export class DeepseekLlmGateway implements LlmGateway {
     };
 
     if (this.verbose) {
-      console.log('[llm:request]', JSON.stringify(requestBody, null, 2));
+      console.log(c.cyan('[llm:request]'), JSON.stringify(requestBody, null, 2));
     }
 
     const controller = new AbortController();
@@ -65,7 +66,7 @@ export class DeepseekLlmGateway implements LlmGateway {
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      console.error('[llm:error]', response.status, errText);
+      console.error(c.red('[llm:error]'), response.status, errText);
       throw new Error(`DeepSeek API error ${response.status}: ${errText}`);
     }
 
@@ -81,21 +82,21 @@ export class DeepseekLlmGateway implements LlmGateway {
 
     if (this.verbose) {
       if (msg?.reasoning_content) {
-        console.log('[llm:thoughts]', msg.reasoning_content);
+        console.log(c.magenta('[llm:thoughts]'), msg.reasoning_content);
       }
-      console.log('[llm:response:raw]', content);
+      console.log(c.cyan('[llm:response:raw]'), content);
     }
 
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(content);
     } catch {
-      console.error('[llm:parse-error]', content.slice(0, 500));
+      console.error(c.red('[llm:parse-error]'), content.slice(0, 500));
       throw new Error(`Failed to parse DeepSeek response: ${content.slice(0, 200)}`);
     }
 
     if (this.verbose) {
-      console.log('[llm:parsed]', JSON.stringify(parsed, null, 2));
+      console.log(c.green('[llm:parsed]'), JSON.stringify(parsed, null, 2));
     }
 
     return this.parseDecision(parsed);
@@ -157,13 +158,13 @@ export class DeepseekLlmGateway implements LlmGateway {
     }
 
     if (warnings.length > 0) {
-      console.warn('[llm:validate]', warnings.join('; '));
-      console.warn('[llm:validate] raw response:', JSON.stringify(raw).slice(0, 500));
+      console.warn(c.yellow('[llm:validate]'), warnings.join('; '));
+      console.warn(c.yellow('[llm:validate] raw response:'), JSON.stringify(raw).slice(0, 500));
     }
 
     // Check mutations is an array when present
     if (raw.mutations !== undefined && !Array.isArray(raw.mutations)) {
-      console.warn('[llm:validate] mutations is not an array:', typeof raw.mutations, JSON.stringify(raw.mutations).slice(0, 200));
+      console.warn(c.yellow('[llm:validate] mutations is not an array:'), typeof raw.mutations, JSON.stringify(raw.mutations).slice(0, 200));
     }
   }
 

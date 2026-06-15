@@ -184,8 +184,17 @@ export async function handleActionChoice(
   const charId = character.id;
 
   // Defer the button click — stepAction calls LLM which can take >3 seconds.
-  // Discord shows a spinner on the clicked button and greys out the others.
+  // Then immediately blank buttons to show "Thinking..." loading state.
   await i.deferUpdate();
+  await i.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setDescription('⏳ **Thinking…**')
+        .setColor(0x95a5a6)
+        .toJSON(),
+    ],
+    components: [],
+  });
 
   // Bail — look up the actual bail option label from the pending decision
   if (i.customId === CID_BAIL) {
@@ -196,7 +205,7 @@ export async function handleActionChoice(
       const result = await engine.stepAction(charId, bailLabel);
       await applyActionResult(i, result, engine);
     } catch (err) {
-      await i.message.edit({
+      await i.webhook.editMessage(i.message.id, {
         content: `❌ ${(err as Error).message}`,
         components: [],
         embeds: [],
@@ -211,7 +220,7 @@ export async function handleActionChoice(
 
   const label = getChoiceLabel(i.user.id, parsed.optionIdx);
   if (!label) {
-    await i.message.edit({
+    await i.webhook.editMessage(i.message.id, {
       content: '❌ Your action session expired. Try `/action` again.',
       components: [],
       embeds: [],
@@ -224,7 +233,7 @@ export async function handleActionChoice(
     await applyActionResult(i, result, engine);
   } catch (err) {
     console.error('[action] stepAction error:', err);
-    await i.message.edit({
+    await i.webhook.editMessage(i.message.id, {
       embeds: [
         new EmbedBuilder()
           .setTitle('⚔️ Action Failed')
@@ -263,7 +272,7 @@ async function applyActionResult(
     trail.push('');
     trail.push(formatOutcome(outcome, ctx));
 
-    await i.editReply({
+    await i.webhook.editMessage(i.message.id, {
       embeds: [
         new EmbedBuilder()
           .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
@@ -277,7 +286,7 @@ async function applyActionResult(
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
     const scene = _sceneLookup?.(i.user.id);
-    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx, result.state, scene));
+    await i.webhook.editMessage(i.message.id, buildDecisionMessage(result.nextDecision, decisionIdx, result.state, scene));
   }
 }
 

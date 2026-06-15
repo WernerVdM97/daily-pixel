@@ -33,6 +33,7 @@ import type { ClassDef, ModifierDef } from './engine/StatComputer.js';
 import type { LlmDecision, LlmContext } from './llm/LlmGateway.js';
 import { DeepseekLlmGateway } from './llm/DeepseekLlmGateway.js';
 import { FallbackLlmGateway, DIVINE_MESSAGE } from './llm/FallbackLlmGateway.js';
+import { c } from './util/colors.js';
 
 import { loadYamlFile } from './assets/yaml-loader.js';
 import { SceneLoader } from './scenes/SceneLoader.js';
@@ -116,20 +117,18 @@ async function main() {
 
   // 1. DB
   migrate(initDb());
-  console.log('[db] SQLite initialized + migrated');
+  console.log(c.green('[db] SQLite initialized + migrated'));
 
   // 2. YAML assets (fail-fast before any runtime code)
   const assets = loadCharCreationAssets();
-  console.log(
-    `[assets] Loaded ${assets.classes.length} classes, ` +
-    `${assets.backgrounds.length} backgrounds, ${assets.races.length} races`,
-  );
+  console.log(c.green(`[assets] Loaded ${assets.classes.length} classes, ` +
+    `${assets.backgrounds.length} backgrounds, ${assets.races.length} races`));
 
   // 3. Scene files
   const sceneLoader = new SceneLoader(SCENES_DIR);
   const scenes = sceneLoader.loadAll();
   const tagResolver = new TagResolver(scenes);
-  console.log(`[scenes] Loaded ${scenes.size} ASCII scene files`);
+  console.log(c.green(`[scenes] Loaded ${scenes.size} ASCII scene files`));
 
   // 4. LLM gateway
   let llm: FallbackLlmGateway;
@@ -145,7 +144,7 @@ async function main() {
         metaRepo.set('llm_fallback_count', String(Number(count ?? '0') + 1));
       },
     });
-    console.log('[llm] DeepSeek gateway initialized with fallback chain');
+    console.log(c.cyan('[llm] DeepSeek gateway initialized with fallback chain'));
   } else {
     llm = new FallbackLlmGateway({
       decide: async (_ctx: LlmContext): Promise<LlmDecision> => ({
@@ -158,7 +157,7 @@ async function main() {
         outcomeText: DIVINE_MESSAGE,
       }),
     });
-    console.warn('[llm] No DEEPSEEK_API_KEY — using divine-intervention mock. `/action` will auto-succeed.');
+    console.warn(c.yellow('[llm] No DEEPSEEK_API_KEY — using divine-intervention mock. `/action` will auto-succeed.'));
   }
 
   // 5. Repositories
@@ -183,7 +182,7 @@ async function main() {
     raceDefs: assets.races as ModifierDef[],
     dayJobIncome: buildDayJobIncomeMap(assets.dayJobs as DayJobDef[]),
   });
-  console.log('[engine] WorldEngine initialized');
+  console.log(c.green('[engine] WorldEngine initialized'));
 
   // 7. Command handlers
   const dayJobs = assets.dayJobs as DayJobDef[];
@@ -230,7 +229,7 @@ async function main() {
 
   // Register slash commands with Discord API on ready
   client.once(Events.ClientReady, async (readyClient) => {
-    console.log(`[discord] Logged in as ${readyClient.user.tag}`);
+    console.log(c.blue(`[discord] Logged in as ${readyClient.user.tag}`));
 
     const commands = [
       { name: 'ping', description: 'Check if the bot is alive' },
@@ -284,9 +283,9 @@ async function main() {
 
     try {
       await rest.put(Routes.applicationCommands(readyClient.user.id), { body: commands });
-      console.log(`[discord] Registered ${commands.length} slash commands`);
+      console.log(c.blue(`[discord] Registered ${commands.length} slash commands`));
     } catch (err) {
-      console.error('[discord] Failed to register slash commands:', err);
+      console.error(c.red(`[discord] Failed to register slash commands:`) , err);
     }
   });
 
@@ -299,7 +298,7 @@ async function main() {
       if (VERBOSE) {
         const user = interaction.user.tag;
         const options = interaction.options.data.map(o => `${o.name}=${o.value}`).join(', ');
-        console.log(`[verbose] /${commandName} from ${user} options: ${options || '(none)'}`);
+        console.log(c.grey(`[verbose] /${commandName} from ${user} options: ${options || '(none)'}`));
       }
 
       const handler = registry.get(commandName);
@@ -322,10 +321,10 @@ async function main() {
           ephemeral: ephemeralCommands.includes(commandName),
         });
         if (VERBOSE) {
-          console.log(`[verbose] /${commandName} → ${result.slice(0, 200)}`);
+          console.log(c.grey(`[verbose] /${commandName} → ${result.slice(0, 200)}`));
         }
       } catch (err) {
-        console.error(`[discord] Error handling /${commandName}:`, err);
+        console.error(c.red(`[discord] Error handling /${commandName}:`), err);
         const msg = err instanceof Error ? err.message : String(err);
         await interaction.reply({
           content: `⚠️ **Something went wrong.**\n\`\`\`${msg}\`\`\``,
@@ -342,12 +341,12 @@ async function main() {
 
     if (customId && customId.startsWith('join:')) {
       if (!interaction.isButton() && !interaction.isModalSubmit()) return;
-      if (VERBOSE) console.log(`[verbose] join:${interaction.isButton() ? 'button' : 'modal'} from ${interaction.user.tag} cid=${customId}`);
+      if (VERBOSE) console.log(c.grey(`[verbose] join:${interaction.isButton() ? 'button' : 'modal'} from ${interaction.user.tag} cid=${customId}`));
       try {
         await handleJoinInteraction(interaction, engine, joinWizards);
-        if (VERBOSE) console.log(`[verbose] join: done`);
+        if (VERBOSE) console.log(c.grey('[verbose] join: done'));
       } catch (err) {
-        console.error('[join] Error handling interaction:', err);
+        console.error(c.red('[join] Error handling interaction:'), err);
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong. Try `/join` again.',
@@ -361,12 +360,12 @@ async function main() {
     // ── Action choices ──
     if (customId && customId.startsWith('action:')) {
       if (!interaction.isButton()) return;
-      if (VERBOSE) console.log(`[verbose] action:button from ${interaction.user.tag} cid=${customId}`);
+      if (VERBOSE) console.log(c.grey(`[verbose] action:button from ${interaction.user.tag} cid=${customId}`));
       try {
         await handleActionChoice(interaction, engine);
-        if (VERBOSE) console.log(`[verbose] action: done`);
+        if (VERBOSE) console.log(c.grey('[verbose] action: done'));
       } catch (err) {
-        console.error('[action] Error handling choice:', err);
+        console.error(c.red('[action] Error handling choice:'), err);
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong with your action. Try `/action` again.',
@@ -380,7 +379,7 @@ async function main() {
 
   // 9. Login
   await client.login(DISCORD_TOKEN);
-  console.log('[discord] Bot is online');
+  console.log(c.blue('[discord] Bot is online'));
 }
 
 main().catch((err) => {

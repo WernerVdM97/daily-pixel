@@ -5,6 +5,7 @@
 //   Tier 2: Divine intervention — canned outcome, increment counter
 
 import type { LlmGateway, LlmContext, LlmDecision } from './LlmGateway.js';
+import { c } from '../util/colors.js';
 
 /** Sentinel distilledType value for divine intervention outcomes. */
 export const DIVINE_INTERVENTION_TYPE = '__divine__';
@@ -43,14 +44,14 @@ export class FallbackLlmGateway implements LlmGateway {
     try {
       return await this.inner.decide(context);
     } catch (firstErr) {
-      console.error('[llm:fallback:tier1]', firstErr instanceof Error ? firstErr.message : String(firstErr));
+      console.error(c.red('[llm:fallback:tier1]'), firstErr instanceof Error ? firstErr.message : String(firstErr));
 
       // Tier 1: retry with stripped context
       try {
         const stripped = this.stripContext(context);
         return await this.inner.decide(stripped);
       } catch (secondErr) {
-        console.error('[llm:fallback:tier2]', secondErr instanceof Error ? secondErr.message : String(secondErr));
+        console.error(c.red('[llm:fallback:tier2]'), secondErr instanceof Error ? secondErr.message : String(secondErr));
 
         // Tier 2: divine intervention
         this.options.onTier2Fallback?.();
