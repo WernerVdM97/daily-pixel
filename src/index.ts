@@ -51,7 +51,7 @@ import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
 import { makeHiCommand, getDayJobActions, type DayJobDef } from './discord/commands/hi.js';
 import { makeJoinCommand, handleInteraction as handleJoinInteraction } from './discord/commands/join.js';
-import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage } from './discord/commands/action.js';
+import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage, consumeMenuMessage } from './discord/commands/action.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
@@ -383,6 +383,15 @@ async function main() {
       if (!interaction.isModalSubmit()) return;
       const description = interaction.fields.getTextInputValue('action:custom:input');
       await interaction.deferReply({ ephemeral: true });
+
+      // Delete the stale day-job menu message so only the action scene shows
+      const menuInfo = consumeMenuMessage(interaction.user.id);
+      if (menuInfo) {
+        const { WebhookClient } = await import('discord.js');
+        const wh = new WebhookClient({ id: menuInfo.applicationId, token: menuInfo.token });
+        await wh.deleteMessage(menuInfo.messageId).catch(() => {});
+      }
+
       try {
         const char = engine.getCharacter(interaction.user.id);
         if (!char) {

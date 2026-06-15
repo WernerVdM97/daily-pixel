@@ -40,6 +40,20 @@ function choiceCid(decisionIdx: number, optionIdx: number): string {
 // can look up the option label from the option index.
 const pendingDecisions = new Map<string, ActionDecision>();
 
+// Track day-job menu ephemeral messages so the custom modal submit can delete them.
+// Keyed by userId → { interaction token info needed for webhook delete }
+const _menuMessages = new Map<string, { applicationId: string; token: string; messageId: string }>();
+
+export function stashMenuMessage(userId: string, info: { applicationId: string; token: string; messageId: string }): void {
+  _menuMessages.set(userId, info);
+}
+
+export function consumeMenuMessage(userId: string): { applicationId: string; token: string; messageId: string } | undefined {
+  const entry = _menuMessages.get(userId);
+  _menuMessages.delete(userId);
+  return entry;
+}
+
 // Scene lookup — set by makeActionCommand, used by button handlers.
 let _sceneLookup: ((userId: string) => string) | null = null;
 
@@ -166,6 +180,12 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
           embeds: [embed.toJSON()],
           components: [row.toJSON()],
           ephemeral: true,
+        });
+        const menuMsg = await interaction.fetchReply();
+        stashMenuMessage(interaction.user.id, {
+          applicationId: interaction.applicationId,
+          token: interaction.token,
+          messageId: menuMsg.id,
         });
         return 'action_dayjob_menu';
       } catch {

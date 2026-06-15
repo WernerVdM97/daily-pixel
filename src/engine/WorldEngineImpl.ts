@@ -129,6 +129,9 @@ export class WorldEngineImpl implements WorldEngine {
   private dayJobIncome: Record<string, number>;
   private itemSets: Array<{ name: string; for_classes: string[]; items: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity?: number }> }>;
 
+  /** Guards against concurrent action starts for the same character. */
+  private processingActions = new Set<number>();
+
   constructor(config: WorldEngineConfig) {
     this.db = config.db;
     this.userRepo = config.userRepo;
@@ -219,49 +222,68 @@ export class WorldEngineImpl implements WorldEngine {
   // ── Action state machine (S3) ──
 
   async startAction(characterId: number, rawInput: string): Promise<ActionStartResult> {
+    // Guard: prevent concurrent or duplicate action starts
+    if (this.processingActions.has(characterId)) {
+      throw new Error('An action is already being processed. Finish your current action first.');
+    }
+    this.processingActions.add(characterId);
+
     const row = this.charRepo.findById(characterId);
-    if (!row) throw new Error('Character not found');
-
-    const char = this.rowToCharacterData(row);
-    const items = this.getItems(characterId);
-
-    const { state: internalState, firstDecision } = await this.machine.start(char, rawInput, items);
-
-    // Divine intervention during start: drain roll, persist divine state, return single Resolve option
-    if (internalState.distilledType === DIVINE_INTERVENTION_TYPE) {
-      // Drain roll (per spec: not refunded)
-      this.charRepo.update(characterId, {
-        rolls_remaining: Math.max(0, row.rolls_remaining - 1),
-      });
-
-      // Persist divine marker so stepAction can resolve it
-      this.charRepo.update(characterId, {
-        last_action_state: JSON.stringify(internalState),
-      });
-
-      const divineDecision = {
-        prompt: DIVINE_MESSAGE,
-        options: [{ label: 'Resolve', dcModifier: 0 } as const],
-      };
-
-      return {
-        state: { rawInput, decisions: [], accumulatedDc: 10 },
-        firstDecision: divineDecision,
-      };
+    if (!row) {
+      this.processingActions.delete(characterId);
+      throw new Error('Character not found');
     }
 
-    // Normal path: drain a roll + persist state atomically
-    this.db.transaction(() => {
-      this.charRepo.update(characterId, {
-        rolls_remaining: Math.max(0, row.rolls_remaining - 1),
-      });
-      this.persistState(characterId, internalState);
-    })();
+    // Guard: character already mid-action (stale state in DB)
+    if (row.last_action_state) {
+      this.processingActions.delete(characterId);
+      throw new Error('You are already mid-action. Finish your current action first.');
+    }
 
-    return {
-      state: this.toPublicState(internalState),
-      firstDecision,
-    };
+    try {
+      const char = this.rowToCharacterData(row);
+      const items = this.getItems(characterId);
+
+      const { state: internalState, firstDecision } = await this.machine.start(char, rawInput, items);
+
+      // Divine intervention during start: drain roll, persist divine state, return single Resolve option
+      if (internalState.distilledType === DIVINE_INTERVENTION_TYPE) {
+        // Drain roll (per spec: not refunded)
+        this.charRepo.update(characterId, {
+          rolls_remaining: Math.max(0, row.rolls_remaining - 1),
+        });
+
+        // Persist divine marker so stepAction can resolve it
+        this.charRepo.update(characterId, {
+          last_action_state: JSON.stringify(internalState),
+        });
+
+        const divineDecision = {
+          prompt: DIVINE_MESSAGE,
+          options: [{ label: 'Resolve', dcModifier: 0 } as const],
+        };
+
+        return {
+          state: { rawInput, decisions: [], accumulatedDc: 10 },
+          firstDecision: divineDecision,
+        };
+      }
+
+      // Normal path: drain a roll + persist state atomically
+      this.db.transaction(() => {
+        this.charRepo.update(characterId, {
+          rolls_remaining: Math.max(0, row.rolls_remaining - 1),
+        });
+        this.persistState(characterId, internalState);
+      })();
+
+      return {
+        state: this.toPublicState(internalState),
+        firstDecision,
+      };
+    } finally {
+      this.processingActions.delete(characterId);
+    }
   }
 
   async stepAction(characterId: number, choice: string): Promise<ActionStepResult> {
