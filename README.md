@@ -6,6 +6,14 @@
 
 A daily Discord RPG where strangers become a fellowship — decisions, dice rolls, one tree at a crossroads, and trouble waking in the east.
 
+---
+
+## What is this?
+
+The Warden's Oak is a slow-burn narrative game played over a real calendar year. Each day, players get two d20 rolls — more on weekends — to travel, rest, or act, and the world advances around them. Miss a day? Your character rests by the fire. Miss too many? The world moves on without you.
+
+It draws from **Frieren** (time as tension), **D&D** (visible dice), **Lord of the Rings** (fellowship of many), **Castlevania** (gothic threat on the horizon), **anime** (friendship as mechanic), **MapleStory** (the social grind as ritual), and **Fable** (NPCs who live their own lives).
+
 ## Visual Guides
 
  - [gameplay loop](./docs/assets/core-loop.png)
@@ -15,22 +23,20 @@ A daily Discord RPG where strangers become a fellowship — decisions, dice roll
 
 ## Roadmap
 
-See [Docs-Readme](docs/README.md) for current progress.
+| Phase    .            | What                                                                         | Status  |
+| --------------------- | ---------------------------------------------------------------------------- | ------- |
+| **Phase 1<br>Design** | Explore mechanics, engine, UX, and world.                                    | Ongoing |
+| **Phase 2<br>POC**    | A bot that rolls dice and shows an ASCII tree.                               | Next    |
+| **Phase 3<br>MVP**    | Daily decision leading up to rolls, co-op, NPC basics, weekly rhythm.        | Planned |
+| **Phase 4<br>MVP+**   | Year-long campaign. NPC economy, moral drift, LLM narratives, finall climax. | Distant |
 
-| Phase                   | What                                                                                            | Status  |
-| ----------------------- | ----------------------------------------------------------------------------------------------- | ------- |
-| **Phase 1 — Design**    | Explore mechanics, engine, UX, and world.<br>All docs live in [`docs/sparks/`](./docs/sparks/). | Ongoing |
-| **Phase 2 — POC**       | A bot that rolls dice and shows an ASCII tree.<br>See [[the-poc]].                              | Next    |
-| **Phase 3 — MVP**       | Daily decision leading up to rolls, co-op, NPC basics, weekly rhythm.                           | Planned |
-| **Phase 4 — Full Game** | Year-long campaign. NPC economy, moral drift, LLM narratives, finall climax.                    | Distant |
+## Design docs
 
----
+The full design vault lives in `docs/` — every idea, mechanic, and decision.
 
-## What is this?
-
-The Warden's Oak is a slow-burn narrative game played over a real calendar year. Each day, players get two d20 rolls — more on weekends — to travel, rest, or act, and the world advances around them. Miss a day? Your character rests by the fire. Miss too many? The world moves on without you.
-
-It draws from **Frieren** (time as tension), **D&D** (visible dice), **Lord of the Rings** (fellowship of many), **Castlevania** (gothic threat on the horizon), **anime** (friendship as mechanic), **MapleStory** (the social grind as ritual), and **Fable** (NPCs who live their own lives).
+Start with 
+- [`docs/README.md`](./docs/README.md) (the map of content), and
+- [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) (how docs are organised).
 
 ---
 
@@ -40,12 +46,6 @@ It draws from **Frieren** (time as tension), **D&D** (visible dice), **Lord of t
 - **Lazy evaluation.** NPCs aren't alive until met. Locations are procedural until visited.
 - **Mobile-first Discord.** ~30 char wide ASCII scenes. One message per daily roll batch.
 - **Optimised for 8 players.** Thematic choice (a fellowship), not a technical limit.
-
----
-
-## Design docs
-
-The full design vault lives in [`docs/sparks/`](./docs/sparks/) — every idea, mechanic, and decision. Start with [`docs/README.md`](./docs/README.md) (the map of content) and [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) (how docs are organised).
 
 ## Planned architecture
 

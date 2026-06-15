@@ -20,6 +20,9 @@ properties:
 views:
   - type: table
     name: By Domain
+    filters:
+      and:
+        - '!domain.containsAny("spark", "archived")'
     groupBy:
       property: domain
       direction: ASC
