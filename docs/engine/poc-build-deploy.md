@@ -239,6 +239,15 @@ Bot starts immediately. Timer checks every hour (±2 min jitter) and restarts if
 
 ---
 
+## S7 Handover
+
+- [x] **Shipped:** CI workflow `.github/workflows/ci.yml` targeting `poc` branch with concurrency group, quality gates (typecheck + test + audit). `Containerfile` at repo root for Podman dev. `scripts/provision-lxc.sh` (LXC provisioning), `scripts/deploy-check.sh` (auto-update on `poc` branch commits), systemd unit files (`scripts/daily-pixel.service`, `.deploy.service`, `.deploy.timer`). **30-min timeout auto-fail runtime hook:** `InternalActionState.lastActionAt` stamped on every persist; `isStateStale()` helper clears state + inserts `timed_out` action row when >30 min stale; checked on `resumeAction()` and `stepAction()`; pattern added to `ErrorMapper`.
+- [!] **Frozen:** `InternalActionState.lastActionAt` added to the state machine interface — stored in the JSON column alongside existing fields. `isStateStale()` is a module-level function in `WorldEngineImpl.ts`, not on the `WorldEngine` interface. `ACTION_TIMEOUT_MS = 30 * 60 * 1000` in `WorldEngineImpl.ts`. No changes to `WorldEngine.ts` or `LlmGateway.ts` (seam still clean).
+- [x] **Tests:** 377 passing (7 new), 33 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New file: `tests/engine/action-timeout.test.ts` (6 tests: stale resume, stale step, non-stale resume, non-stale step, backward compat without lastActionAt, just-under-30min edge). Updated: `tests/engine/error-mapper.test.ts` (added `timed out after 30 minutes` pattern).
+- [>] **Next (human-deferred):** Manual typos pass on all text output, mobile full-flow test on phone Discord, deploy to LXC (run `scripts/provision-lxc.sh`, place `.env`, enable systemd units), invite 8 testers with the pin message, monitor against §6 success criteria.
+
+---
+
 ## 6. Observe
 
 Track against these success criteria — **green light for MVP if the first two pass**:

@@ -20,6 +20,7 @@ const ERROR_MAP: Array<[string, string]> = [
 
   // Choice / expired
   ['Invalid choice:', 'That option is no longer available. Try again.'],
+  ['timed out after 30 minutes', 'Your action has expired. The moment has passed. Try `/hi` to start fresh.'],
 
   // LLM
   ['DeepSeek API error', 'The warden\'s vision is clouded. Try again shortly.'],

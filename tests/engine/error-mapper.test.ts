@@ -41,6 +41,11 @@ describe('ErrorMapper — known errors', () => {
     expect(result).toBe('That option is no longer available. Try again.');
   });
 
+  it('maps action timeout errors', () => {
+    const result = mapError(new Error('Action timed out after 30 minutes'));
+    expect(result).toBe('Your action has expired. The moment has passed. Try `/hi` to start fresh.');
+  });
+
   it('maps DeepSeek API errors', () => {
     const result = mapError(new Error('DeepSeek API error 401: Unauthorized'));
     expect(result).toBe('The warden\'s vision is clouded. Try again shortly.');

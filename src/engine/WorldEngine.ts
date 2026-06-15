@@ -164,6 +164,9 @@ export interface WorldEngine {
   submitFeedback(characterId: number, text: string): void;
   submitBug(characterId: number, text: string): void;
 
+  // Rest & recovery
+  restAtOak(discordUserId: string): CharacterData | null;
+
   // World tick (S5)
   tick(isAdmin: boolean): TickResult;
 

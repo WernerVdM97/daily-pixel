@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly check for Daily Pixel updates
+After=network-online.target
+Wants=network-online.target
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
