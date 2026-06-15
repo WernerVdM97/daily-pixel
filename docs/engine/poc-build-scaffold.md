@@ -290,3 +290,12 @@ Free-text → INSERT into `feedback`. Reply: "Thanks. The warden listens."
 ### `/bug`
 
 Free-text → INSERT into `bug_reports`. Reply: "Bug noted. The warden will investigate."
+
+---
+
+## S0 Handover
+
+- [x] **Shipped:** project init (package.json, tsconfig ES2022 strict, deps, `.env` gitignored), 9-table SQLite schema with seed data, idempotent migration runner, User + Character repository CRUD, `WorldEngine` + `LlmGateway` seam interfaces (plain serializable data only), `MockWorldEngine` + `MockLlmGateway` test fixtures with call tracking, YAML + `.ascii` asset loaders with fail-fast validation, command registry skeleton + `/ping` → "pong" smoke test.
+- [!] **Frozen:** `src/engine/WorldEngine.ts` (the seam — 14 methods, one cohesive interface), `src/llm/LlmGateway.ts` (single `decide(context) → Decision`), `src/db/schema.sql` (9 tables), `src/db/repositories/types.ts` (row types). Changing any requires raising it as a decision record.
+- [x] **Tests:** 47 passing, 8 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. Working dir is `~/projects/daily-pixel/` (local — NFS at `/mnt/nas/stuff/repos/` blocks native addons).
+- [>] **Next (S1):** `/join` 6-step wizard → character in DB; `/stats`, `/backpack`. Start from `src/discord/CommandRegistry.ts` — register new commands, test handlers against `MockWorldEngine`, then wire up real `WorldEngine` implementation in `src/engine/` using User + Character repos. See `docs/engine/poc-build-poa.md` §5 for S1 scope and test requirements.
