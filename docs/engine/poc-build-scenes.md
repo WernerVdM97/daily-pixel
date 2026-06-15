@@ -158,7 +158,7 @@ Always shows `oak.ascii`. Hardcoded — the Oak is the game's anchor, not locati
 
 ```
 ╔══════════════════════════╗
-║  [scene ascii art]      ║
+║  [scene ascii art]       ║
 ╚══════════════════════════╝
 
 {decision prompt / description}
