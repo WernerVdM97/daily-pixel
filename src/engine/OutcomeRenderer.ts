@@ -11,6 +11,8 @@ export interface OutcomeRenderContext {
   wealth: number;
   /** Only true when health actually changed. */
   healthChanged?: boolean;
+  /** Only true when wealth actually changed. */
+  wealthChanged?: boolean;
   itemsGained?: Array<{ emoji: string; name: string }>;
   itemsLost?: string[];
   newLocation?: string;
@@ -81,10 +83,9 @@ export function formatOutcome(
   statParts.push(`Stamina: ${ctx.stamina}/10`);
   statParts.push(`Rolls: ${ctx.rollsRemaining}/2`);
 
-  // Wealth (only if changed — derive from context; always shown if non-default)
-  // We show wealth when it changed. Since we can't know "changed" without previous value,
-  // we show it when the caller chooses to pass healthChanged=true pattern.
-  // For simplicity, wealth is not auto-shown — the caller decides.
+  if (ctx.wealthChanged) {
+    statParts.push(`Wealth: ${ctx.wealth}`);
+  }
 
   const summaryLine = [...summaryParts, ...statParts].join(' ┃ ');
   lines.push(summaryLine);

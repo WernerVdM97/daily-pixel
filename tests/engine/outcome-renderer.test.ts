@@ -301,3 +301,52 @@ describe('OutcomeRenderer — natural 1 / natural 20', () => {
     expect(result).toContain('Success');
   });
 });
+
+describe('OutcomeRenderer — wealth', () => {
+  const outcome: ActionOutcome = {
+    distilledType: 'hunt',
+    finalDc: 14,
+    playerRolled: 16,
+    outcome: 'success',
+    outcomeText: 'You find a coin purse.',
+    mutations: [],
+  };
+
+  it('shows wealth when wealthChanged is true', () => {
+    const result = formatOutcome(outcome, {
+      stamina: 8,
+      rollsRemaining: 1,
+      health: 10,
+      maxHealth: 12,
+      wealth: 15,
+      wealthChanged: true,
+    });
+
+    expect(result).toContain('Wealth: 15');
+  });
+
+  it('does not show wealth when wealthChanged is false', () => {
+    const result = formatOutcome(outcome, {
+      stamina: 8,
+      rollsRemaining: 1,
+      health: 10,
+      maxHealth: 12,
+      wealth: 5,
+      wealthChanged: false,
+    });
+
+    expect(result).not.toContain('Wealth');
+  });
+
+  it('does not show wealth when wealthChanged is undefined', () => {
+    const result = formatOutcome(outcome, {
+      stamina: 8,
+      rollsRemaining: 1,
+      health: 10,
+      maxHealth: 12,
+      wealth: 5,
+    });
+
+    expect(result).not.toContain('Wealth');
+  });
+});
