@@ -7,6 +7,7 @@ export interface CharCreateData {
   race: string;
   alignment: string;
   dayJob: string;
+  itemSetName?: string;
 }
 
 export interface CharacterData {

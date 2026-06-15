@@ -26,6 +26,9 @@ function choiceCid(step: number, value: string): string {
   return `${CID_PREFIX}${step}:${value}`;
 }
 
+// Item sets loaded from YAML — used to build dynamic step 7 options
+let _joinItemSets: Array<{ name: string; description: string; for_classes: string[] }> = [];
+
 function parseChoiceCid(
   customId: string,
 ): { step: number; value: string } | null {
@@ -41,7 +44,9 @@ function parseChoiceCid(
 
 // ── Factory ──
 
-export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession) {
+export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, itemSets: Array<{ name: string; description: string; for_classes: string[] }>) {
+  // Store for use in dynamic step 7 (item sets filtered by class)
+  _joinItemSets = itemSets;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
     // Guard: already has a character?
     if (engine.characterExists(interaction.user.id)) {
@@ -114,24 +119,27 @@ export async function handleInteraction(
   if (parsed) {
     const fieldMap: Record<
       number,
-      "class" | "upbringing" | "race" | "alignment" | "dayJob"
+      "class" | "upbringing" | "race" | "alignment" | "dayJob" | "itemSet"
     > = {
       2: "class",
       3: "upbringing",
       4: "race",
       5: "alignment",
       6: "dayJob",
+      7: "itemSet",
     };
     const field = fieldMap[parsed.step];
     if (field) {
       try {
+        await i.deferUpdate();
         const state = wizards.choose(userId, parsed.step, field, parsed.value);
-        await i.update(buildStepMessage(state));
+        await i.editReply(buildStepMessage(state));
       } catch (e) {
-        await i.reply({
-          content: `❌ ${(e as Error).message}`,
-          ephemeral: true,
-        });
+        if (i.deferred) {
+          await i.editReply({ content: `❌ ${(e as Error).message}` });
+        } else {
+          await i.reply({ content: `❌ ${(e as Error).message}`, ephemeral: true });
+        }
       }
     }
     return;
@@ -140,10 +148,11 @@ export async function handleInteraction(
   // Button: confirm
   if (i.customId === CID_CONFIRM) {
     try {
+      await i.deferUpdate();
       const data = wizards.confirm(userId);
       engine.createCharacter(userId, data);
 
-      await i.update({
+      await i.editReply({
         embeds: [
           new EmbedBuilder()
             .setTitle("✨ Character Created!")
@@ -159,16 +168,21 @@ export async function handleInteraction(
         components: [],
       });
     } catch (e) {
-      await i.reply({ content: `❌ ${(e as Error).message}`, ephemeral: true });
+      if (i.deferred) {
+        await i.editReply({ content: `❌ ${(e as Error).message}` });
+      } else {
+        await i.reply({ content: `❌ ${(e as Error).message}`, ephemeral: true });
+      }
     }
     return;
   }
 
   // Button: start over
   if (i.customId === CID_START_OVER) {
+    await i.deferUpdate();
     wizards.reset(userId);
     const state = wizards.start(userId);
-    await i.update(buildStepMessage(state));
+    await i.editReply(buildStepMessage(state));
     return;
   }
 }
@@ -193,6 +207,7 @@ function buildStepMessage(state: WizardState): {
   description += `${stepLabel(4, "Race")}${state.race ? ` — ${state.race}` : ""}\n`;
   description += `${stepLabel(5, "Alignment")}${state.alignment ? ` — ${state.alignment}` : ""}\n`;
   description += `${stepLabel(6, "Day Job")}${state.dayJob ? ` — ${state.dayJob}` : ""}\n`;
+  description += `${stepLabel(7, "Item Set")}${state.itemSet ? ` — ${state.itemSet}` : ""}\n`;
 
   embed.setDescription(description + "\n───────────────");
 
@@ -200,7 +215,7 @@ function buildStepMessage(state: WizardState): {
 
   if (state.step === 1) {
     embed.setFooter({
-      text: "Step 1 of 6 — Choose a name (2-30 characters, no @ or #)",
+      text: "Step 1 of 7 — Choose a name (2-30 characters, no @ or #)",
     });
     components.push(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -212,27 +227,38 @@ function buildStepMessage(state: WizardState): {
     );
   }
 
-  if (state.step >= 2 && state.step <= 6) {
-    const stepData = STEP_DEFS[state.step];
-    if (stepData) {
-      embed.setFooter({ text: `Step ${state.step} of 6 — ${stepData.label}` });
-      // Discord allows max 5 buttons per action row — chunk into multiple rows
-      for (let i = 0; i < stepData.options.length; i += 5) {
-        const row = new ActionRowBuilder<ButtonBuilder>();
-        for (const opt of stepData.options.slice(i, i + 5)) {
-          row.addComponents(
-            new ButtonBuilder()
-              .setCustomId(choiceCid(state.step, opt.value))
-              .setLabel(opt.label)
-              .setStyle(ButtonStyle.Secondary),
-          );
-        }
-        components.push(row);
+  if (state.step >= 2 && state.step <= 7) {
+    const totalSteps = 7;
+    let stepOptions: Array<{ label: string; value: string }>;
+
+    if (state.step === 7) {
+      // Dynamic: item sets filtered by the chosen class
+      stepOptions = _joinItemSets
+        .filter(kit => kit.for_classes.includes(state.class ?? ''))
+        .map(kit => ({ label: `${kit.name} — ${kit.description}`, value: kit.name }));
+      embed.setFooter({ text: `Step 7 of ${totalSteps} — Choose your starting kit` });
+    } else {
+      const stepData = STEP_DEFS[state.step];
+      stepOptions = stepData?.options ?? [];
+      embed.setFooter({ text: `Step ${state.step} of ${totalSteps} — ${stepData?.label ?? ''}` });
+    }
+
+    // Discord allows max 5 buttons per action row — chunk into multiple rows
+    for (let i = 0; i < stepOptions.length; i += 5) {
+      const row = new ActionRowBuilder<ButtonBuilder>();
+      for (const opt of stepOptions.slice(i, i + 5)) {
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(choiceCid(state.step, opt.value))
+            .setLabel(opt.label)
+            .setStyle(ButtonStyle.Secondary),
+        );
       }
+      components.push(row);
     }
   }
 
-  if (state.step === 7) {
+  if (state.step === 8) {
     embed.setFooter({ text: "Review your choices and confirm" });
     components.push(
       new ActionRowBuilder<ButtonBuilder>().addComponents(

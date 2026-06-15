@@ -181,6 +181,7 @@ async function main() {
     upbringingDefs: assets.backgrounds as ModifierDef[],
     raceDefs: assets.races as ModifierDef[],
     dayJobIncome: buildDayJobIncomeMap(assets.dayJobs as DayJobDef[]),
+    itemSets: assets.itemSets as Array<{ name: string; for_classes: string[]; items: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity?: number }> }>,
   });
   console.log(c.green('[engine] WorldEngine initialized'));
 
@@ -220,7 +221,7 @@ async function main() {
   registry.register('sleep', asHandler(makeSleepCommand(engine)));
   registry.register('hi', asHandler(makeHiCommand(engine, dayJobs, oakScene)));
   const joinWizards = new WizardSession();
-  registry.register('join', asHandler(makeJoinCommand(engine, joinWizards)));
+  registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, assets.itemSets as Array<{ name: string; description: string; for_classes: string[] }>)));
 
   registry.register('action', asHandler(makeActionCommand(engine, getCurrentScene, dayJobs)));
 
@@ -234,7 +235,7 @@ async function main() {
     const commands = [
       { name: 'ping', description: 'Check if the bot is alive' },
       { name: 'help', description: 'Command list and roll economy' },
-      { name: 'join', description: 'Create your character (6-step wizard)' },
+      { name: 'join', description: 'Create your character (7-step wizard)' },
       { name: 'hi', description: 'Begin your day at the Oak' },
       { name: 'stats', description: 'Full character sheet' },
       { name: 'backpack', description: 'Inventory emoji grid' },

@@ -7,13 +7,14 @@ import type { CharCreateData } from "../engine/WorldEngine.js";
 
 export interface WizardState {
   discordUserId: string;
-  step: number; // 1=name, 2=class, 3=upbringing, 4=race, 5=alignment, 6=dayJob, 7=confirm
+  step: number; // 1=name, 2=class, 3=upbringing, 4=race, 5=alignment, 6=dayJob, 7=itemSet, 8=confirm
   name?: string;
   class?: string;
   upbringing?: string;
   race?: string;
   alignment?: string;
   dayJob?: string;
+  itemSet?: string;
   startedAt: Date;
 }
 
@@ -28,6 +29,7 @@ const STEP_LABELS: Record<number, string> = {
   4: "race",
   5: "alignment",
   6: "dayJob",
+  7: "itemSet",
 };
 
 export class WizardSession {
@@ -84,7 +86,7 @@ export class WizardSession {
     expectedStep: number,
     field: keyof Pick<
       WizardState,
-      "class" | "upbringing" | "race" | "alignment" | "dayJob"
+      "class" | "upbringing" | "race" | "alignment" | "dayJob" | "itemSet"
     >,
     choice: string,
   ): WizardState {
@@ -104,9 +106,9 @@ export class WizardSession {
    */
   confirm(discordUserId: string): CharCreateData {
     const state = this.getOrThrow(discordUserId);
-    if (state.step !== 7) {
+    if (state.step !== 8) {
       throw new Error(
-        `Cannot confirm: expected step 7, got step ${state.step}`,
+        `Cannot confirm: expected step 8, got step ${state.step}`,
       );
     }
 
@@ -117,6 +119,7 @@ export class WizardSession {
       race: state.race!,
       alignment: state.alignment!,
       dayJob: state.dayJob!,
+      itemSetName: state.itemSet,
     };
 
     this.sessions.delete(discordUserId);

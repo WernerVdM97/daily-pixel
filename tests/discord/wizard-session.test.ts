@@ -130,7 +130,7 @@ describe("WizardSession", () => {
     expect(state.alignment).toBe("lawful good");
   });
 
-  it("advances day-job choice (step 6 → 7 confirm)", () => {
+  it("advances day-job choice (step 6 → 7)", () => {
     session.start("user-1");
     session.setName("user-1", "Aldric");
     session.choose("user-1", 2, "class", "Warrior");
@@ -140,6 +140,19 @@ describe("WizardSession", () => {
     const state = session.choose("user-1", 6, "dayJob", "Blacksmith");
     expect(state.step).toBe(7);
     expect(state.dayJob).toBe("Blacksmith");
+  });
+
+  it("advances itemSet choice (step 7 → 8 confirm)", () => {
+    session.start("user-1");
+    session.setName("user-1", "Aldric");
+    session.choose("user-1", 2, "class", "Warrior");
+    session.choose("user-1", 3, "upbringing", "Soldier");
+    session.choose("user-1", 4, "race", "Human");
+    session.choose("user-1", 5, "alignment", "lawful good");
+    session.choose("user-1", 6, "dayJob", "Blacksmith");
+    const state = session.choose("user-1", 7, "itemSet", "Soldier's Kit");
+    expect(state.step).toBe(8);
+    expect(state.itemSet).toBe("Soldier's Kit");
   });
 
   it("throws when choosing at wrong step", () => {
@@ -165,6 +178,7 @@ describe("WizardSession", () => {
     session.choose("user-1", 4, "race", "Human");
     session.choose("user-1", 5, "alignment", "lawful good");
     session.choose("user-1", 6, "dayJob", "Blacksmith");
+    session.choose("user-1", 7, "itemSet", "Soldier's Kit");
 
     const data = session.confirm("user-1");
     expect(data).toEqual({
@@ -174,15 +188,16 @@ describe("WizardSession", () => {
       race: "Human",
       alignment: "lawful good",
       dayJob: "Blacksmith",
+      itemSetName: "Soldier's Kit",
     });
 
     // session cleared
     expect(session.getSession("user-1")).toBeUndefined();
   });
 
-  it("confirm throws if not at step 7", () => {
+  it("confirm throws if not at step 8", () => {
     session.start("user-1");
-    expect(() => session.confirm("user-1")).toThrow(/step 7/i);
+    expect(() => session.confirm("user-1")).toThrow(/step 8/i);
   });
 
   it("reset clears the session", () => {

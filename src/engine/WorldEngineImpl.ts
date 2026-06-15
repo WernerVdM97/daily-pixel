@@ -109,6 +109,8 @@ interface WorldEngineConfig {
   raceDefs?: ModifierDef[];
   /** Day-job name → base_income for daily tick. Injected from parsed day-jobs.yml. */
   dayJobIncome?: Record<string, number>;
+  /** Item sets from item-sets.yml — matched by name to assign starting items. */
+  itemSets?: Array<{ name: string; for_classes: string[]; items: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity?: number }> }>;
 }
 
 export class WorldEngineImpl implements WorldEngine {
@@ -125,6 +127,7 @@ export class WorldEngineImpl implements WorldEngine {
   private upbringingDefs: ModifierDef[];
   private raceDefs: ModifierDef[];
   private dayJobIncome: Record<string, number>;
+  private itemSets: Array<{ name: string; for_classes: string[]; items: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity?: number }> }>;
 
   constructor(config: WorldEngineConfig) {
     this.db = config.db;
@@ -139,6 +142,7 @@ export class WorldEngineImpl implements WorldEngine {
     this.upbringingDefs = config.upbringingDefs ?? [];
     this.raceDefs = config.raceDefs ?? [];
     this.dayJobIncome = config.dayJobIncome ?? {};
+    this.itemSets = config.itemSets ?? [];
 
     // Wrap LLM in fallback decorator (S4: two-tier retry → divine intervention)
     const fallbackLlm = new FallbackLlmGateway(config.llm, {
@@ -178,6 +182,22 @@ export class WorldEngineImpl implements WorldEngine {
       wealth: 0,
       last_action_state: null,
     });
+
+    // Assign starting items from the chosen item set
+    if (data.itemSetName) {
+      const kit = this.itemSets.find(s => s.name === data.itemSetName);
+      if (kit) {
+        for (const item of kit.items) {
+          this.itemRepo.create(row.id, {
+            name: item.name,
+            emoji: item.emoji,
+            stat: item.stat,
+            modifier: item.modifier,
+            quantity: item.quantity ?? 1,
+          });
+        }
+      }
+    }
 
     return this.rowToCharacterData(row);
   }

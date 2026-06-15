@@ -27,9 +27,13 @@ describe("/join", () => {
     wizard = new WizardSession();
   });
 
+  function makeHandler() {
+    return makeJoinCommand(engine, wizard, []);
+  }
+
   it("returns error when user already has a character", async () => {
     engine.setCharacterExists(true);
-    const handler = makeJoinCommand(engine, wizard);
+    const handler = makeHandler();
     const intr = mockInteraction("existing-user");
     const result = await handler(intr as never);
     expect(result).toContain("join_guard_has_character");
@@ -41,7 +45,7 @@ describe("/join", () => {
   });
 
   it("starts a wizard session when user has no character", async () => {
-    const handler = makeJoinCommand(engine, wizard);
+    const handler = makeHandler();
     const intr = mockInteraction("new-user");
     const result = await handler(intr as never);
 
@@ -54,7 +58,7 @@ describe("/join", () => {
   });
 
   it("resumes existing wizard session if user re-joins", async () => {
-    const handler = makeJoinCommand(engine, wizard);
+    const handler = makeHandler();
     const intr1 = mockInteraction("user-1");
     const intr2 = mockInteraction("user-1");
 
@@ -77,6 +81,7 @@ describe("/join", () => {
     wizard.choose("user-final", 4, "race", "Human");
     wizard.choose("user-final", 5, "alignment", "lawful good");
     wizard.choose("user-final", 6, "dayJob", "Blacksmith");
+    wizard.choose("user-final", 7, "itemSet", "Soldier's Kit");
 
     const data = wizard.confirm("user-final");
     const char = engine.createCharacter("user-final", data);
@@ -90,7 +95,7 @@ describe("/join", () => {
 
   it("does not allow joining when character already exists", async () => {
     engine.setCharacterExists(true);
-    const handler = makeJoinCommand(engine, wizard);
+    const handler = makeHandler();
     const intr = mockInteraction("existing-user");
     const result = await handler(intr as never);
     expect(result).toBe("join_guard_has_character");
