@@ -223,7 +223,7 @@ async function main() {
   const joinWizards = new WizardSession();
   registry.register('join', asHandler(makeJoinCommand(engine, joinWizards)));
 
-  registry.register('action', asHandler(makeActionCommand(engine, getCurrentScene)));
+  registry.register('action', asHandler(makeActionCommand(engine, getCurrentScene, dayJobs)));
 
   // 8. Discord client
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });

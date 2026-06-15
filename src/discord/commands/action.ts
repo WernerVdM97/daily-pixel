@@ -21,6 +21,7 @@ import {
 import type { WorldEngine, ActionDecision } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
+import { getDayJobActions, type DayJobDef } from './hi.js';
 
 // ── Custom IDs ──
 
@@ -67,7 +68,7 @@ export function getChoiceLabel(userId: string, optionIdx: number): string | null
 
 // ── Factory ──
 
-export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId: string) => string) {
+export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId: string) => string, dayJobs: DayJobDef[]) {
   _sceneLookup = getCurrentScene;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
     const description = interaction.options.getString('description');
@@ -115,12 +116,17 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
     }
 
-    // No description provided and not mid-action
+    // No description provided and not mid-action — show daily work list
     if (!description) {
-      await interaction.reply({
-        content: '⚔️ **Take an action**\nDescribe what you want to do, e.g. `/action hunt a deer`.',
-        ephemeral: true,
-      });
+      const jobActions = getDayJobActions(character.dayJob, dayJobs);
+      const lines = [
+        `🔨 **${character.dayJob} — Daily Work**`,
+        '',
+        ...jobActions.map((a, i) => `  ${['①', '②', '③'][i]} **${a.label}** — ${a.hook}`),
+        '',
+        'Use `/action <what you do>` to carry out your choice.',
+      ];
+      await interaction.reply({ content: lines.join('\n'), ephemeral: true });
       return 'action_no_description';
     }
 
