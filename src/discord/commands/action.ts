@@ -174,6 +174,17 @@ export async function handleActionChoice(
   // Defer the button click — stepAction calls LLM which can take >3 seconds
   await i.deferUpdate();
 
+  // Blank out buttons immediately to show loading state
+  await i.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setDescription('⏳ **Thinking…**')
+        .setColor(0x95a5a6)
+        .toJSON(),
+    ],
+    components: [],
+  });
+
   // Bail — look up the actual bail option label from the pending decision
   if (i.customId === CID_BAIL) {
     try {
@@ -181,9 +192,9 @@ export async function handleActionChoice(
       const bailOption = decision?.options.find(o => o.dcModifier === null);
       const bailLabel = bailOption?.label ?? 'Bail';
       const result = await engine.stepAction(charId, bailLabel);
-      await handleActionResult(i, result, engine);
+      await applyActionResult(i, result, engine);
     } catch (err) {
-      await i.editReply({
+      await i.message.edit({
         content: `❌ ${(err as Error).message}`,
         components: [],
         embeds: [],
@@ -198,7 +209,7 @@ export async function handleActionChoice(
 
   const label = getChoiceLabel(i.user.id, parsed.optionIdx);
   if (!label) {
-    await i.editReply({
+    await i.message.edit({
       content: '❌ Your action session expired. Try `/action` again.',
       components: [],
       embeds: [],
@@ -208,10 +219,10 @@ export async function handleActionChoice(
 
   try {
     const result = await engine.stepAction(charId, label);
-    await handleActionResult(i, result, engine);
+    await applyActionResult(i, result, engine);
   } catch (err) {
     console.error('[action] stepAction error:', err);
-    await i.editReply({
+    await i.message.edit({
       embeds: [
         new EmbedBuilder()
           .setTitle('⚔️ Action Failed')
@@ -224,13 +235,12 @@ export async function handleActionChoice(
   }
 }
 
-async function handleActionResult(
+async function applyActionResult(
   i: MessageComponentInteraction,
   result: ActionStepResult,
   engine: WorldEngine,
 ): Promise<void> {
   if (result.resolved) {
-    // Show the outcome with the action trail
     const character = engine.getCharacter(i.user.id);
     const outcome = result.outcome;
 
@@ -242,7 +252,6 @@ async function handleActionResult(
       wealth: character?.wealth ?? 0,
     };
 
-    // Build action trail: original input → decisions → outcome
     const trail: string[] = [];
     trail.push(`**You:** ${result.state.rawInput}`);
     for (const d of result.state.decisions) {
@@ -252,7 +261,7 @@ async function handleActionResult(
     trail.push('');
     trail.push(formatOutcome(outcome, ctx));
 
-    await i.editReply({
+    await i.message.edit({
       embeds: [
         new EmbedBuilder()
           .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
@@ -263,10 +272,9 @@ async function handleActionResult(
       components: [],
     });
   } else {
-    // Show the next decision
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
-    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
+    await i.message.edit(buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
   }
 }
 
