@@ -210,13 +210,18 @@ function buildDecisionMessage(
   const components: ActionRowBuilder<ButtonBuilder>[] = [];
 
   // Options as buttons (max 5 per row)
-  for (let i = 0; i < decision.options.length; i += 5) {
+  // If LLM returned no options, fall back to a single Continue button
+  const options = decision.options.length > 0 ? decision.options : [
+    { label: 'Continue', dcModifier: 0 },
+  ];
+
+  for (let i = 0; i < options.length; i += 5) {
     const row = new ActionRowBuilder<ButtonBuilder>();
-    for (const opt of decision.options.slice(i, i + 5)) {
+    for (const opt of options.slice(i, i + 5)) {
       const isBail = opt.dcModifier === null;
       row.addComponents(
         new ButtonBuilder()
-          .setCustomId(isBail ? CID_BAIL : choiceCid(decisionIdx, i + decision.options.indexOf(opt)))
+          .setCustomId(isBail ? CID_BAIL : choiceCid(decisionIdx, i + options.indexOf(opt)))
           .setLabel(shortLabel(opt.label, 80))
           .setStyle(isBail ? ButtonStyle.Danger : ButtonStyle.Primary),
       );

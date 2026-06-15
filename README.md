@@ -109,6 +109,11 @@ podman run -d --name daily-pixel \
 podman logs -f daily-pixel
 ```
 
+**Rebuild & restart (one-liner):**
+```bash
+podman stop daily-pixel 2>/dev/null; podman rm daily-pixel 2>/dev/null; podman build -t daily-pixel-dev . && podman run -d --name daily-pixel -v $(pwd)/data:/app/data --env-file .env daily-pixel-dev && podman logs -f daily-pixel
+```
+
 **Stop and remove detached container:**
 ```bash
 podman stop daily-pixel && podman rm daily-pixel
