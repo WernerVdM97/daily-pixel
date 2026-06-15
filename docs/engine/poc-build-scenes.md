@@ -180,3 +180,12 @@ All 21 scenes tested on phone Discord client before ship.
 | Code block renders correctly | Must-pass — some fonts break ASCII |
 | Light + dark theme | Must-pass — both readable |
 | Full `/action` flow with scene | Must-pass — scene persists through decision edits |
+
+---
+
+## S2 Handover
+
+- [x] **Shipped:** Scene subsystem — `SceneLoader` (load + validate all `.ascii` files, fail-fast on missing/width>30/malformed, real 21 scenes all pass at ≤26 width), `TagResolver` (deterministic overlap-score matching, tie→first, zero→`unknown.ascii`).
+- [!] **Frozen:** `SceneLoader` (public API: `loadAll() → Map<string, SceneFile>`, validates body width ≤30), `TagResolver` (`resolve(locationTags[]) → sceneName`), `SceneLookupFn` type (`(tags: string[]) => { sceneName, ascii }` — injected into `/look` for decoupling).
+- [x] **Tests:** `tests/scenes/scene-loader.test.ts` (8), `tests/scenes/tag-resolver.test.ts` (8). Run full suite: `cd ~/projects/daily-pixel && npx vitest run`.
+- [>] **Next (S4):** Action polish — two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering. See `docs/engine/poc-build-poa.md` §5 for S4 scope.

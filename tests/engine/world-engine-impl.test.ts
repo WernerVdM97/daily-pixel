@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
 import { MockLlmGateway } from '../../src/llm/MockLlmGateway.js';
 import { initDb, closeDb, getDb } from '../../src/db/connection.js';
@@ -291,6 +291,69 @@ describe('WorldEngineImpl — action state machine integration', () => {
       await expect(
         engine.stepAction(characterId, 'Attack!'),
       ).rejects.toThrow('No action in progress');
+    });
+  });
+
+  describe('divine intervention', () => {
+    it('startAction returns a Resolve option on divine intervention', async () => {
+      // Both LLM calls fail — triggers divine
+      vi.spyOn(llm, 'decide').mockRejectedValue(new Error('API error'));
+
+      const result = await engine.startAction(characterId, 'go hunt');
+
+      // Should still get a result with one option
+      expect(result.firstDecision.options).toHaveLength(1);
+      expect(result.firstDecision.options[0].label).toBe('Resolve');
+      expect(result.firstDecision.prompt).toContain("The warden's hand");
+    });
+
+    it('startAction drains a roll on divine', async () => {
+      vi.spyOn(llm, 'decide').mockRejectedValue(new Error('API error'));
+
+      await engine.startAction(characterId, 'go hunt');
+
+      const char = charRepo.findById(characterId);
+      expect(char?.rolls_remaining).toBe(1); // drained from 2
+    });
+
+    it('stepAction resolves divine state without LLM call', async () => {
+      const spy = vi.spyOn(llm, 'decide').mockRejectedValue(new Error('API error'));
+
+      const { firstDecision } = await engine.startAction(characterId, 'go hunt');
+      spy.mockClear(); // reset call count
+
+      const result = await engine.stepAction(characterId, firstDecision.options[0].label);
+
+      expect(result.resolved).toBe(true);
+      if (result.resolved) {
+        expect(result.outcome.distilledType).toBe('__divine__');
+        expect(result.outcome.playerRolled).toBeNull();
+        expect(result.outcome.mutations).toEqual([]);
+      }
+      // No LLM calls were made during step
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('stepAction clears last_action_state on divine', async () => {
+      vi.spyOn(llm, 'decide').mockRejectedValue(new Error('API error'));
+
+      const { firstDecision } = await engine.startAction(characterId, 'go hunt');
+
+      await engine.stepAction(characterId, firstDecision.options[0].label);
+
+      const char = charRepo.findById(characterId);
+      expect(char?.last_action_state).toBeNull();
+    });
+
+    it('no action row is inserted on divine', async () => {
+      vi.spyOn(llm, 'decide').mockRejectedValue(new Error('API error'));
+
+      const { firstDecision } = await engine.startAction(characterId, 'go hunt');
+
+      await engine.stepAction(characterId, firstDecision.options[0].label);
+
+      const recent = actionRepo.findRecentByCharacterId(characterId, 1);
+      expect(recent).toHaveLength(0);
     });
   });
 

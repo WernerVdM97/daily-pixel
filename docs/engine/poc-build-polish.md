@@ -177,3 +177,12 @@ Run the full flow end-to-end before shipping:
 - [ ] Mobile: full `/action` flow on phone Discord
 - [ ] Check all text for typos
 - [ ] Verify SQLite file persists across bot restart
+
+---
+
+## S4 Handover
+
+- [x] **Shipped:** `FallbackLlmGateway` (decorator: inner LLM → tier-1 stripped-context retry → tier-2 divine intervention, with `onTier2Fallback` callback), `ErrorMapper` (`mapError(e) → string`, covers all known error patterns + generic fallback), `OutcomeRenderer` (`formatOutcome(outcome, ctx) → string`, success/failure/skip/timeout with items/location/stats summary footer), `IdleMessageSelector` (`randomIdleMessage(rng?) → string`, 5 atmospheric messages, injectable RNG), wire-up in `WorldEngineImpl` (wraps LLM in `FallbackLlmGateway` at construction, checks `DIVINE_INTERVENTION_TYPE` to skip action-row insert, increments `meta.llm_fallback_count` on tier-2), `meta.llm_fallback_count` now live (seeded in schema, incremented on divine intervention).
+- [!] **Frozen:** `FallbackLlmGateway` (public API: `constructor(inner, options?)` with `onTier2Fallback` callback — used by engine construction), `DIVINE_INTERVENTION_TYPE` (`'__divine__'` — checked in `WorldEngineImpl.stepAction()` to skip action row), `mapError(e)`, `formatOutcome(outcome, ctx)`, `randomIdleMessage(rng?)`. No changes to `WorldEngine.ts` or `LlmGateway.ts` interfaces (frozen seam per S0).
+- [x] **Tests:** 313 passing (58 new), 28 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New files: `tests/engine/outcome-renderer.test.ts` (20), `tests/engine/error-mapper.test.ts` (14), `tests/engine/idle-messages.test.ts` (3), `tests/llm/fallback-gateway.test.ts` (16).
+- [>] **Next (S5):** World tick — `/sleep` (admin tick + non-admin rest), idempotent cron (`last_cron_date`), `meta` (day_number read/write), player effects (stamina/health recovery in safe zones, roll reset, wealth income), seeded NPC movement (NPCs by `class` + `day_number`), scaling hints. Start from `src/engine/WorldEngineImpl.ts` `tick()` stub — see `docs/engine/poc-build-world-tick.md` and `docs/engine/poc-build-poa.md` §5 for S5 scope.

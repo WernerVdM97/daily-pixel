@@ -7,6 +7,7 @@ import type { ActionRepository } from '../db/repositories/action.js';
 import type { NpcRepository } from '../db/repositories/npc.js';
 import { LocationRepository } from '../db/repositories/location.js';
 import { MetaRepository } from '../db/repositories/meta.js';
+import { FallbackLlmGateway, DIVINE_INTERVENTION_TYPE, DIVINE_MESSAGE } from '../llm/FallbackLlmGateway.js';
 import { ActionStateMachine, type InternalActionState } from './action/machine.js';
 import { validateMutations, applyMutations } from './action/mutations.js';
 import { computeStats, type ClassDef, type ModifierDef } from './StatComputer.js';
@@ -66,7 +67,17 @@ export class WorldEngineImpl implements WorldEngine {
     this.classDefs = config.classDefs ?? [];
     this.upbringingDefs = config.upbringingDefs ?? [];
     this.raceDefs = config.raceDefs ?? [];
-    this.machine = new ActionStateMachine(config.llm, config.rollD20);
+
+    // Wrap LLM in fallback decorator (S4: two-tier retry → divine intervention)
+    const fallbackLlm = new FallbackLlmGateway(config.llm, {
+      onTier2Fallback: () => {
+        const current = this.metaRepo.get('llm_fallback_count');
+        const next = current ? String(Number(current) + 1) : '1';
+        this.metaRepo.set('llm_fallback_count', next);
+      },
+    });
+
+    this.machine = new ActionStateMachine(fallbackLlm, config.rollD20);
   }
 
   // ── Character lifecycle ──
@@ -124,7 +135,30 @@ export class WorldEngineImpl implements WorldEngine {
 
     const { state: internalState, firstDecision } = await this.machine.start(char, rawInput, items);
 
-    // Drain a roll + persist state atomically
+    // Divine intervention during start: drain roll, persist divine state, return single Resolve option
+    if (internalState.distilledType === DIVINE_INTERVENTION_TYPE) {
+      // Drain roll (per spec: not refunded)
+      this.charRepo.update(characterId, {
+        rolls_remaining: Math.max(0, row.rolls_remaining - 1),
+      });
+
+      // Persist divine marker so stepAction can resolve it
+      this.charRepo.update(characterId, {
+        last_action_state: JSON.stringify(internalState),
+      });
+
+      const divineDecision = {
+        prompt: DIVINE_MESSAGE,
+        options: [{ label: 'Resolve', dcModifier: 0 } as const],
+      };
+
+      return {
+        state: { rawInput, decisions: [], accumulatedDc: 10 },
+        firstDecision: divineDecision,
+      };
+    }
+
+    // Normal path: drain a roll + persist state atomically
     this.db.transaction(() => {
       this.charRepo.update(characterId, {
         rolls_remaining: Math.max(0, row.rolls_remaining - 1),
@@ -146,6 +180,24 @@ export class WorldEngineImpl implements WorldEngine {
     const internalState = JSON.parse(row.last_action_state) as InternalActionState;
     const char = this.rowToCharacterData(row);
     const items = this.getItems(characterId);
+
+    // Divine intervention from startAction — resolve directly, no LLM call
+    if (internalState.distilledType === DIVINE_INTERVENTION_TYPE) {
+      this.charRepo.update(characterId, { last_action_state: null });
+
+      return {
+        resolved: true,
+        state: this.toPublicState(internalState),
+        outcome: {
+          distilledType: DIVINE_INTERVENTION_TYPE,
+          finalDc: 10,
+          playerRolled: null,
+          outcome: 'failure',
+          mutations: [],
+          outcomeText: DIVINE_MESSAGE,
+        },
+      };
+    }
 
     const result = await this.machine.step(internalState, choice, char, items);
 
@@ -215,6 +267,18 @@ export class WorldEngineImpl implements WorldEngine {
           });
         }
       });
+
+      // Divine intervention (S4 tier-2): clear state but skip action row insert
+      if (result.outcome.distilledType === DIVINE_INTERVENTION_TYPE) {
+        // Clear mid-action state (no action row inserted, no mutations applied)
+        this.charRepo.update(characterId, { last_action_state: null });
+
+        return {
+          resolved: true,
+          state: this.toPublicState(result.state),
+          outcome: result.outcome,
+        };
+      }
 
       applyResolution();
 
