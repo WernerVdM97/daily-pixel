@@ -1,43 +1,125 @@
 # Day jobs — loaded by /join wizard
 # Performance depends on the listed stats (higher stats = better income / outcomes).
-# Player picks one during character creation. Can be abandoned for risky actions.
+# Player picks one during character creation.
+# actions: exactly 3. Only one selectable per day. Income is stat-scaled via depends_on.
+# base_income: daily tick income (automatic). action income: bonus for clicking.
 
 - name: Town Guard
   depends_on: [physical]
   base_income: 10
   description: Patrol the walls. Break up tavern brawls. The town sleeps safer.
+  actions:
+    - label: Patrol the walls
+      income: 5
+      hook: You walk the perimeter. The east gate hinges shriek in the wind — someone should tell the smith.
+    - label: Check the east gate
+      income: 3
+      hook: The gate holds firm, but fresh wolf tracks press into the mud just outside. Something's been pacing.
+    - label: Train at barracks
+      income: 2
+      hook: You spar with the dummies until your arms burn. A merchant stops to watch — "Not bad," she says, "for someone who still has all their fingers."
 
 - name: Blacksmith
   depends_on: [physical]
   base_income: 10
   description: Hammer and anvil. Every town needs one. Every blade remembers your name.
+  actions:
+    - label: Forge blade
+      income: 6
+      hook: The steel sings under your hammer. A farmer waits at the door — his grandfather's sword needs the same treatment. Hasn't been drawn in forty years, he says, but he wants it ready.
+    - label: Repair armour
+      income: 4
+      hook: A guardsman brings in a breastplate with a dent the size of a fist. "Tree branch," he mutters. You've seen tree branches. That wasn't one.
+    - label: Shoe horses
+      income: 3
+      hook: The chestnut mare stamps and snorts. Her rider, a trader from Stonebridge, talks too fast about the eastern road — as if he's trying not to say something.
 
 - name: Hunter
   depends_on: [physical, wisdom]
   base_income: 8
   description: Track game in the eastern woods. The Oak's larder depends on you.
+  actions:
+    - label: Track game
+      income: 5
+      hook: Deer sign everywhere — but something else moved through first. Bigger. The tracks overlay the deer, don't follow them.
+    - label: Set traps
+      income: 4
+      hook: The old trap line is disturbed. Bait gone, jaws still set. Whatever took it knew how to spring the catch without getting caught.
+    - label: Check snares
+      income: 3
+      hook: One snare holds a rabbit — good. The other holds nothing but a tuft of grey fur that doesn't match any animal you know.
 
 - name: Scribe
   depends_on: [intelligence]
   base_income: 12
   description: Copy manuscripts. Translate old tongues. The warden's library is yours.
+  actions:
+    - label: Copy manuscript
+      income: 6
+      hook: The old text describes a ritual for "speaking with the roots." Most of it is nonsense. One paragraph isn't.
+    - label: Translate fragment
+      income: 5
+      hook: A trader brought in a scrap of vellum — dialect you've seen once before, in a book the warden keeps locked. You translate it anyway.
+    - label: Research archive
+      income: 3
+      hook: You meant to look up crop rotations. Instead you find a map reference — "the hollow hill, two days east of the Oak" — in a volume no one's opened in decades.
 
 - name: Herbalist
   depends_on: [wisdom]
   base_income: 8
   description: Gather roots and remedies. The sick come to you before the priest.
+  actions:
+    - label: Gather herbs
+      income: 4
+      hook: Feverfew is plentiful near the stream, but something trampled a wide path through the patch. Not deer. Not human, either.
+    - label: Brew remedy
+      income: 5
+      hook: A farmer's wife needs something for sleep. You mix valerian and chamomile, but your hands hesitate over the mortar — something about her symptoms doesn't sit right.
+    - label: Treat patient
+      income: 3
+      hook: The woodcutter's wound should have healed a week ago. It hasn't. Clean edges, no rot — it just won't close. He says it doesn't hurt.
 
 - name: Minstrel
   depends_on: [charisma]
   base_income: 9
   description: Play the taverns. Carry news between towns. Every song is a secret.
+  actions:
+    - label: Play the tavern
+      income: 5
+      hook: Scattered applause, and one man who doesn't clap at all. He waits until the room empties, then asks if you know "the song about the tree."
+    - label: Carry news
+      income: 4
+      hook: Stonebridge is quiet. Too quiet, the traders say. No one's seen the eastern patrol in four days. You tuck that away.
+    - label: Compose ballad
+      income: 2
+      hook: You're working on a ballad about the Oak when you realise — the third verse you've been humming isn't yours. You've never heard it, but you know every word.
 
 - name: Merchant
   depends_on: [charisma, intelligence]
   base_income: 14
   description: Buy low in Stonebridge, sell high at the Oak. Coin before creed.
+  actions:
+    - label: Buy goods
+      income: 7
+      hook: A crate of dried fish, priced like it's fresh. The seller won't meet your eyes. "Just want it gone," he says. The crate bears a mark you don't recognise.
+    - label: Sell wares
+      income: 6
+      hook: A hooded figure buys three iron nails and a spool of thread. Pays in old copper — coins you haven't seen since your grandfather's purse. No haggling.
+    - label: Negotiate deal
+      income: 5
+      hook: A caravan master wants to offload half her cargo before heading east. "Don't need the weight," she says, but her hands shake when she says "east."
 
 - name: Acolyte
   depends_on: [wisdom, charisma]
   base_income: 7
   description: Tend the shrine. Bless the harvest. The people need someone to believe in.
+  actions:
+    - label: Tend the shrine
+      income: 3
+      hook: One candle refuses to go out. You've snuffed it three times. Each time, it's burning again when you turn back. The flame is green at the tip.
+    - label: Bless the harvest
+      income: 4
+      hook: The eastern field is blighted — grey rot on the wheat, black spots on the stalks. The farmer says it started the night the smoke appeared. Your prayer doesn't cure it, but the rot stops spreading.
+    - label: Counsel a villager
+      income: 2
+      hook: She dreams of the Oak every night — same dream, same hour. The tree is burning from the roots up. She asks if that means something. You don't know how to answer.
