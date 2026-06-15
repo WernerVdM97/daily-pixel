@@ -17,6 +17,7 @@ export interface LlmContext {
 }
 
 export interface LlmDecision {
+  prompt?: string;
   distilledType: string;
   stat: 'physical' | 'wisdom' | 'intelligence' | 'charisma';
   baseDc: number;

@@ -23,6 +23,7 @@ export class MockLlmGateway implements LlmGateway {
 
   static defaultDecision(overrides?: Partial<LlmDecision>): LlmDecision {
     return {
+      prompt: 'You venture into the wilds, seeking prey.',
       distilledType: 'scout',
       stat: 'wisdom',
       baseDc: 12,
