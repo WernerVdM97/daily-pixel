@@ -23,6 +23,8 @@ export interface InternalActionState extends ActionState {
   rollStat: string;
   /** Whether this is a reactive action — bail is not allowed. */
   required: boolean;
+  /** Epoch ms when this state was last persisted. Used by the 30-min timeout hook. */
+  lastActionAt: number;
 }
 
 export class ActionStateMachine {
@@ -52,6 +54,7 @@ export class ActionStateMachine {
       distilledType: decision.distilledType,
       rollStat: decision.stat,
       required: decision.required,
+      lastActionAt: Date.now(),
     };
 
     return { state, firstDecision };

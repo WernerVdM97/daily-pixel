@@ -69,6 +69,47 @@ Discord Bot (TypeScript)
 
 ---
 
+## Running
+
+### Local dev (quick)
+
+```bash
+cp .env.example .env      # then fill in DISCORD_TOKEN, DEEPSEEK_API_KEY, ADMIN_USER_ID, TICK_CHANNEL_ID
+npm install
+npx tsx src/index.ts
+```
+
+SQLite lives at `./data/daily-pixel.db` (auto-created). No build step — `tsx` runs TypeScript directly.
+
+### Podman (dev container)
+
+```bash
+podman build -t daily-pixel-dev .
+podman run --rm -it \
+  -v $(pwd)/data:/home/bot/app/data \
+  --env-file .env \
+  daily-pixel-dev
+```
+
+SQLite persists in `./data/`. `.env` is mounted at runtime, never baked into the image. See [`Containerfile`](./Containerfile) and [`docs/engine/poc-build-deploy.md`](./docs/engine/poc-build-deploy.md) §2.
+
+### Production (LXC Debian)
+
+Run the provisioning script once on a Debian 12 host, then place `.env` and enable systemd:
+
+```bash
+sudo bash scripts/provision-lxc.sh
+# then manually:
+#   lxc-attach -n daily-pixel
+#   place .env at /home/bot/app/.env
+#   systemctl enable --now daily-pixel
+#   systemctl enable --now daily-pixel-deploy.timer
+```
+
+The timer checks for new commits on the `poc` branch every hour and restarts the bot. See [`scripts/provision-lxc.sh`](./scripts/provision-lxc.sh) and [`docs/engine/poc-build-deploy.md`](./docs/engine/poc-build-deploy.md) §3–4.
+
+---
+
 ## License
 
 MIT — see [LICENSE](./LICENSE)

@@ -45,6 +45,7 @@ export class MockWorldEngine implements WorldEngine {
     submitFeedback: { characterId: number; text: string }[];
     submitBug: { characterId: number; text: string }[];
     tick: boolean[];
+    restAtOak: string[];
     getMeta: string[];
   } = {
     createCharacter: [],
@@ -58,6 +59,7 @@ export class MockWorldEngine implements WorldEngine {
     getJournal: [],
     submitFeedback: [],
     submitBug: [],
+    restAtOak: [],
     tick: [],
     getMeta: [],
   };
@@ -126,6 +128,15 @@ export class MockWorldEngine implements WorldEngine {
   }
 
   // ── Interface methods ──
+
+  restAtOak(discordUserId: string): CharacterData | null {
+    this.calls.restAtOak.push(discordUserId);
+    if (!this._character) return null;
+    return {
+      ...this._character,
+      location: "The Warden's Oak",
+    };
+  }
 
   createCharacter(discordUserId: string, data: CharCreateData): CharacterData {
     this.calls.createCharacter.push({ discordUserId, data });

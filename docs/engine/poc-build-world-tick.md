@@ -128,18 +128,34 @@ Available to everyone. No arguments. Behaviour branches on whether the caller is
 
 **Non-admin:**
 
-Returns a valid in-world response — the camp-by-the-Oak rest scene + flavor — and does **not** trigger the tick. No day advance, no roll reset, no stamina change. The day only turns at nightfall (cron) or when the warden turns the hourglass.
+Moves the player's character to **The Warden's Oak** (the safe starting location) and returns an in-world rest scene. Does **not** trigger the tick — no day advance, no roll reset, no stamina change. The day only turns at nightfall (cron) or when the warden turns the hourglass.
 
-> *"You bank the fire and bed down beneath the Oak. The day turns when the world wills it — not when you do."*
+The response branches on whether the player was already at the Oak:
+
+| Condition | Flavour |
+|---|---|
+| Already at the Oak | *"The Oak's familiar boughs cradle you once more."* |
+| Returning from elsewhere | *"You bank the fire and bed down beneath the Oak."* |
+
+> *"The day turns when the world wills it — not when you do."*
+
+**Gates** — `/sleep` is blocked if:
+1. **Mid-action** (`last_action_state` is set) → *"You are mid-action — finish what you started before bedding down."*
+2. **Rolls remaining** (`rolls_remaining > 0`) → *"The day is still young — you have actions left to take. Spend your remaining rolls before bedding down beneath the Oak."*
+
+This prevents the optimal-play exploit of adventuring in the wilds then sleeping to dodge tick decay and collect safe-location recovery. To use `/sleep` as retreat the player must have spent all their rolls — they've already paid the risk by the time they're eligible.
 
 - [x] `tick(isAdmin)` wired: admin=true always advances, admin=false checks cron idempotency.
-- [ ] Non-admin `/sleep` response — frontend-side rest scene (not engine scope).
+- [x] `restAtOak(discordUserId)` — `WorldEngine` seam method: looks up user, sets location to `"The Warden's Oak"`, returns updated `CharacterData`.
+- [x] Non-admin `/sleep` → `getCharacter()` + guards (mid-action, rolls) + `restAtOak()`.
+  - If no character exists: "You don't have a character yet".
 
 ---
 
 ## S5 Handover
 
 - [x] **Shipped:** `WorldEngineImpl.tick(isAdmin)` fully implemented — admin = always advance (no cooldown), cron = idempotent check against `last_cron_date`. Player effects: stamina recovery (+5 safe, cap 10), health recovery (+3 safe, cap max_health), wilds stamina decay (-1, floor 0), roll reset to 2, day-job wealth income. NPC movement: 80% seeded chance via `mulberry32(NPC.id + day_number)`, class-based destination filtering (Blacksmith stays, Hunter→forest/wild, Merchant→town/market, Herbalist→forest/river, Acolyte→shrine/temple, other→random), current location excluded from candidates. Blacksmith gains +5 wealth, Merchant gains 5-15 on both move and no-move. `TickResult` reports day number, players affected count, and per-NPC movement records. New helpers: `CharacterRepository.findAll()`, `NpcRepository.findAll()`, `NpcRepository.update()`, `NpcRepository.findById()`. Engine config gains `dayJobIncome: Record<string, number>` for income lookup.
-- [!] **Frozen:** `WorldEngine.tick(isAdmin): TickResult` interface unchanged. `TickResult` shape (`dayNumber`, `playersAffected`, `npcmovements`) unchanged. `WorldEngineImpl` constructor signature extended with optional `dayJobIncome` field (backwards-compatible via `?? {}` default).
-- [x] **Tests:** 345 passing (32 new), 29 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New file: `tests/engine/world-tick.test.ts` (32 tests covering idempotency, player effects, NPC movement seeded determinism, day advancement, last_cron_date tracking, merchant wealth, blacksmith staying).
+- [!] **Frozen (S5):** `WorldEngine.tick(isAdmin): TickResult` interface unchanged. `TickResult` shape (`dayNumber`, `playersAffected`, `npcmovements`) unchanged. `WorldEngineImpl` constructor signature extended with optional `dayJobIncome` field (backwards-compatible via `?? {}` default).
+- [+] **Post-S5 addition:** `WorldEngine.restAtOak(discordUserId): CharacterData | null` added to the seam for non-admin `/sleep` location movement. Implemented in `WorldEngineImpl` (user → character lookup, location update, idempotent if already at Oak). Mock counterpart in `MockWorldEngine` with call tracking.
+- [x] **Tests:** 379 passing (34 new), 33 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New file: `tests/engine/world-tick.test.ts` (32 tests covering idempotency, player effects, NPC movement seeded determinism, day advancement, last_cron_date tracking, merchant wealth, blacksmith staying).
 - [>] **Next (S6):** Polish pass + pre-deploy — help content, flavor, end-to-end checklist, mobile pass, restart persistence. See `docs/engine/poc-build-polish.md` §5-6.
