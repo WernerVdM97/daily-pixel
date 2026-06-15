@@ -215,7 +215,6 @@ async function main() {
   registry.register('backpack', asHandler(makeBackpackCommand(engine)));
 
   // Scene helpers
-  const oakScene = scenes.get('oak')?.body ?? '';
   const getCurrentScene = (discordUserId: string): string => {
     const char = engine.getCharacter(discordUserId);
     if (!char) return '';
@@ -234,7 +233,7 @@ async function main() {
   registry.register('feedback', withTextOption(makeFeedbackCommand(engine)));
   registry.register('bug', withTextOption(makeBugCommand(engine)));
   registry.register('sleep', asHandler(makeSleepCommand(engine)));
-  registry.register('hi', asHandler(makeHiCommand(engine, dayJobs, oakScene)));
+  registry.register('hi', asHandler(makeHiCommand(engine, dayJobs, getCurrentScene)));
   const joinWizards = new WizardSession();
   registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, assets.itemSets as Array<{ name: string; description: string; for_classes: string[] }>)));
 

@@ -66,7 +66,11 @@ export function isWeekend(): boolean {
 
 // ── Command factory ──
 
-export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[], oakScene: string) {
+export function makeHiCommand(
+  engine: WorldEngine,
+  dayJobs: DayJobDef[],
+  getScene: (discordUserId: string) => string = () => '',
+) {
 	return async (interaction: { user: { id: string } }): Promise<string> => {
 		const character = engine.getCharacter(interaction.user.id);
 		if (!character) {
@@ -126,7 +130,8 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[], oakScen
 			].join('\n');
 		}
 
-		const sceneBlock = oakScene ? ['```', oakScene, '```', ''] : [];
+		const currentScene = getScene(interaction.user.id);
+		const sceneBlock = currentScene ? ['```', currentScene, '```', ''] : [];
 		return [...sceneBlock, header, "", "─".repeat(30), ...actionLines].join("\n");
 	};
 }
