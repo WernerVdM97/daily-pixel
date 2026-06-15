@@ -23,8 +23,34 @@ import type {
   ItemData,
   JournalData,
   TickResult,
+  NpcMovement,
   StatBlock,
 } from './WorldEngine.js';
+
+// ── Seeded RNG helpers (no external deps) ──
+
+/** mulberry32 PRNG — deterministic, seedable. */
+function mulberry32(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), s | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Deterministic random integer in [min, max] using a distinct seed. */
+function seededRandomRange(seed: number, min: number, max: number): number {
+  const rng = mulberry32(seed);
+  return Math.floor(rng() * (max - min + 1)) + min;
+}
+
+/** Check if a comma-separated tags string contains the given tag. */
+function locationTagsContain(tags: string | null, tag: string): boolean {
+  if (!tags) return false;
+  return tags.split(',').map(t => t.trim()).includes(tag);
+}
 
 interface WorldEngineConfig {
   db: Database.Database;
@@ -39,6 +65,8 @@ interface WorldEngineConfig {
   classDefs?: ClassDef[];
   upbringingDefs?: ModifierDef[];
   raceDefs?: ModifierDef[];
+  /** Day-job name → base_income for daily tick. Injected from parsed day-jobs.yml. */
+  dayJobIncome?: Record<string, number>;
 }
 
 export class WorldEngineImpl implements WorldEngine {
@@ -54,6 +82,7 @@ export class WorldEngineImpl implements WorldEngine {
   private classDefs: ClassDef[];
   private upbringingDefs: ModifierDef[];
   private raceDefs: ModifierDef[];
+  private dayJobIncome: Record<string, number>;
 
   constructor(config: WorldEngineConfig) {
     this.db = config.db;
@@ -67,6 +96,7 @@ export class WorldEngineImpl implements WorldEngine {
     this.classDefs = config.classDefs ?? [];
     this.upbringingDefs = config.upbringingDefs ?? [];
     this.raceDefs = config.raceDefs ?? [];
+    this.dayJobIncome = config.dayJobIncome ?? {};
 
     // Wrap LLM in fallback decorator (S4: two-tier retry → divine intervention)
     const fallbackLlm = new FallbackLlmGateway(config.llm, {
@@ -380,13 +410,146 @@ export class WorldEngineImpl implements WorldEngine {
       .run(characterId, text);
   }
 
-  // ── World tick (S5 — stub) ──
+  // ── World tick (S5) ──
 
-  tick(_isAdmin: boolean): TickResult {
+  tick(isAdmin: boolean): TickResult {
+    const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+
+    // Cron idempotency: skip if last_cron_date is already today
+    if (!isAdmin) {
+      const lastCron = this.metaRepo.get('last_cron_date');
+      if (lastCron === today) {
+        const dayNum = Number(this.metaRepo.get('day_number') ?? '1');
+        return { dayNumber: dayNum, playersAffected: 0, npcMovements: [] };
+      }
+    }
+
+    // ── Advance day number ──
+    const currentDayStr = this.metaRepo.get('day_number') ?? '1';
+    const newDay = Number(currentDayStr) + 1;
+    this.metaRepo.set('day_number', String(newDay));
+    this.metaRepo.set('last_cron_date', today);
+
+    // ── Player effects ──
+    const allChars = this.charRepo.findAll();
+    for (const charRow of allChars) {
+      const loc = this.locationRepo.findByName(charRow.location);
+      const isSafe = loc?.is_safe === 1;
+
+      // Safe: recover stamina +5 (cap 10), health +3 (cap max_health)
+      // Wilds: decay stamina -1 (floor 0)
+      let newStamina: number;
+      let newHealth: number | undefined;
+
+      if (isSafe) {
+        newStamina = Math.min(charRow.stamina + 5, 10);
+        newHealth = Math.min(charRow.health + 3, charRow.max_health);
+      } else {
+        newStamina = Math.max(charRow.stamina - 1, 0);
+        // No health change in wilds
+      }
+
+      // Day-job income
+      const income = this.dayJobIncome[charRow.day_job] ?? 0;
+
+      const updates: Record<string, unknown> = {
+        rolls_remaining: 2,
+        stamina: newStamina,
+        wealth: charRow.wealth + income,
+      };
+      if (newHealth !== undefined) {
+        updates.health = newHealth;
+      }
+
+      this.charRepo.update(charRow.id, updates);
+    }
+
+    // ── NPC effects ──
+    const allLocations = this.locationRepo.findAll();
+    const npcMovements: NpcMovement[] = [];
+    const allNpcs = this.npcRepo.findAll();
+
+    for (const npc of allNpcs) {
+      const cls = npc.class ?? '';
+
+      if (cls === 'Blacksmith') {
+        // Stays at current location, works the forge
+        this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + 5 });
+        continue;
+      }
+
+      // 80% chance to move, seeded by NPC.id + newDay
+      const seed = npc.id + newDay;
+      const rng = mulberry32(seed);
+      const shouldMove = rng() < 0.8;
+
+      if (!shouldMove) {
+        // Merchant still earns even if not moving
+        if (cls === 'Merchant') {
+          this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + seededRandomRange(seed + 1, 5, 15) });
+        }
+        continue;
+      }
+
+      // Determine destination by class
+      let candidates: string[] = [];
+
+      if (cls === 'Hunter') {
+        candidates = allLocations
+          .filter(l => locationTagsContain(l.tags, 'wilderness') || locationTagsContain(l.tags, 'forest'))
+          .map(l => l.name);
+      } else if (cls === 'Merchant') {
+        candidates = allLocations
+          .filter(l => locationTagsContain(l.tags, 'town') || locationTagsContain(l.tags, 'market') || locationTagsContain(l.tags, 'square'))
+          .map(l => l.name);
+      } else if (cls === 'Herbalist') {
+        candidates = allLocations
+          .filter(l => locationTagsContain(l.tags, 'forest') || locationTagsContain(l.tags, 'river'))
+          .map(l => l.name);
+      } else if (cls === 'Acolyte') {
+        candidates = allLocations
+          .filter(l => locationTagsContain(l.tags, 'shrine') || locationTagsContain(l.tags, 'temple'))
+          .map(l => l.name);
+      } else {
+        // Unknown class: move to a random location (excluding current? No, random from all)
+        candidates = allLocations.map(l => l.name);
+      }
+
+      // Fallback: if no candidates match, use all locations
+      if (candidates.length === 0) {
+        candidates = allLocations.map(l => l.name);
+      }
+
+      // Exclude current location so the NPC truly "moves"
+      const filteredCandidates = candidates.filter(c => c !== npc.location);
+      if (filteredCandidates.length === 0) {
+        continue; // nowhere to go
+      }
+
+      // Pick destination with seeded rng
+      const destIndex = Math.floor(rng() * filteredCandidates.length);
+      const dest = filteredCandidates[destIndex];
+
+      const fromLocation = npc.location ?? '(unknown)';
+      this.npcRepo.updateLocation(npc.id, dest);
+
+      // Merchant gains wealth 5-15 on movement
+      if (cls === 'Merchant') {
+        this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + seededRandomRange(seed + 1, 5, 15) });
+      }
+
+      npcMovements.push({
+        npcId: npc.id,
+        npcName: npc.name,
+        fromLocation,
+        toLocation: dest,
+      });
+    }
+
     return {
-      dayNumber: 1,
-      playersAffected: 0,
-      npcMovements: [],
+      dayNumber: newDay,
+      playersAffected: allChars.length,
+      npcMovements,
     };
   }
 

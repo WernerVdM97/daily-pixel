@@ -67,6 +67,12 @@ export class CharacterRepository {
       .get(userId) as CharacterRow | undefined;
   }
 
+  findAll(): CharacterRow[] {
+    return this.db
+      .prepare('SELECT * FROM player_characters ORDER BY id')
+      .all() as CharacterRow[];
+  }
+
   findById(id: number): CharacterRow | undefined {
     return this.db
       .prepare('SELECT * FROM player_characters WHERE id = ?')
