@@ -316,7 +316,7 @@ async function main() {
         // If the handler already replied (join/hi manage their own flow), skip
         if (interaction.replied || interaction.deferred) return;
 
-        const ephemeralCommands = ['stats', 'backpack', 'journal', 'bug', 'feedback', 'help', 'hi'];
+        const ephemeralCommands = ['stats', 'backpack', 'journal', 'bug', 'feedback', 'help', 'hi', 'look'];
         await interaction.reply({
           content: result,
           ephemeral: ephemeralCommands.includes(commandName),
