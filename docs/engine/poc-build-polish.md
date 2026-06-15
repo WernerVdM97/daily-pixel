@@ -14,7 +14,7 @@ related:
 
 # POC Build — Polish
 
-> *Part of [[poc-build-plan]]. Error handling, LLM fallback, outcome rendering, idle messages, help content, and pre-deploy final pass. `/sleep` tick moved to [[world-tick]].*
+> *Part of [[poc-build-plan]]. Error handling, LLM fallback, outcome rendering, idle messages, help content, and pre-deploy final pass. `/sleep` tick moved to [[poc-world-tick]].*
 
 ---
 
