@@ -415,6 +415,8 @@ export class WorldEngineImpl implements WorldEngine {
           playerRolled: result.outcome.playerRolled,
           outcome: result.outcome.outcome,
           promptVersion: PROMPT_VERSION,
+          llmRequest: result.outcome.llmRequest ?? null,
+          llmResponse: result.outcome.llmResponse ?? null,
         });
 
         // Spawn NPCs

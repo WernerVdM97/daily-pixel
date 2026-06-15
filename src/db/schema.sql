@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS actions (
   final_dc        INTEGER NOT NULL,
   player_rolled   INTEGER,           -- NULL if skipped/timed out
   outcome         TEXT    NOT NULL,  -- success|failure|skipped|timed_out
+  prompt_version  TEXT    NOT NULL DEFAULT 'v1',
+  llm_request     TEXT,             -- full user prompt sent to LLM (for audit)
+  llm_response    TEXT,             -- raw JSON response from LLM (for audit)
   created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -61,7 +64,7 @@ CREATE TABLE IF NOT EXISTS npcs (
   wealth                INTEGER DEFAULT 0,
   location              TEXT,
   description           TEXT,
-  created_by_action_id  INTEGER NOT NULL REFERENCES actions(id)
+  created_by_action_id  INTEGER REFERENCES actions(id)
 );
 
 CREATE TABLE IF NOT EXISTS locations (

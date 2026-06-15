@@ -14,10 +14,13 @@ export class ActionRepository {
     finalDc: number;
     playerRolled: number | null;
     outcome: string;
+    promptVersion?: string;
+    llmRequest?: string | null;
+    llmResponse?: string | null;
   }): ActionRow {
     const stmt = this.db.prepare(`
-      INSERT INTO actions (character_id, raw_input, type, decisions_json, final_dc, player_rolled, outcome)
-      VALUES (@character_id, @raw_input, @type, @decisions_json, @final_dc, @player_rolled, @outcome)
+      INSERT INTO actions (character_id, raw_input, type, decisions_json, final_dc, player_rolled, outcome, prompt_version, llm_request, llm_response)
+      VALUES (@character_id, @raw_input, @type, @decisions_json, @final_dc, @player_rolled, @outcome, @prompt_version, @llm_request, @llm_response)
     `);
     const result = stmt.run({
       character_id: data.characterId,
@@ -27,6 +30,9 @@ export class ActionRepository {
       final_dc: data.finalDc,
       player_rolled: data.playerRolled,
       outcome: data.outcome,
+      prompt_version: data.promptVersion ?? 'v1',
+      llm_request: data.llmRequest ?? null,
+      llm_response: data.llmResponse ?? null,
     });
     const row = this.db
       .prepare('SELECT * FROM actions WHERE id = ?')

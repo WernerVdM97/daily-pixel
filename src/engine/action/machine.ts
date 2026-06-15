@@ -42,6 +42,9 @@ export interface InternalActionState extends ActionState {
    *  Used so bail on a pre-resolved action applies the LLM's mutations instead of empty arrays. */
   preResolvedMutations?: WorldMutation[];
   preResolvedOutcomeText?: string;
+  /** Full user prompt / raw response from the LLM that produced the pre-resolved mutations. */
+  preResolvedLlmRequest?: string;
+  preResolvedLlmResponse?: string;
 }
 
 export class ActionStateMachine {
@@ -70,12 +73,14 @@ export class ActionStateMachine {
 
     const firstDecision = this.toActionDecision(decision, decision.required);
 
-    // When the LLM resolves immediately (done: true), stash the mutations so the
-    // bail path can apply them instead of returning empty arrays.
+    // When the LLM resolves immediately (done: true), stash the mutations and
+    // raw LLM data so the bail path can apply them instead of returning empty arrays.
     const preResolvedMutations = decision.done && Array.isArray(decision.mutations)
       ? decision.mutations as WorldMutation[]
       : undefined;
     const preResolvedOutcomeText = decision.done ? (decision.outcomeText ?? undefined) : undefined;
+    const preResolvedLlmRequest = decision.done ? decision._rawRequest : undefined;
+    const preResolvedLlmResponse = decision.done ? decision._rawResponse : undefined;
 
     const state: InternalActionState = {
       rawInput,
@@ -88,6 +93,8 @@ export class ActionStateMachine {
       lastActionAt: Date.now(),
       ...(preResolvedMutations ? { preResolvedMutations } : {}),
       ...(preResolvedOutcomeText ? { preResolvedOutcomeText } : {}),
+      ...(preResolvedLlmRequest ? { preResolvedLlmRequest } : {}),
+      ...(preResolvedLlmResponse ? { preResolvedLlmResponse } : {}),
     };
 
     return { state, firstDecision };
@@ -136,6 +143,8 @@ export class ActionStateMachine {
           outcome: outcomeType,
           mutations: outcomeMutations,
           outcomeText,
+          llmRequest: state.preResolvedLlmRequest,
+          llmResponse: state.preResolvedLlmResponse,
         },
       };
     }
@@ -181,6 +190,8 @@ export class ActionStateMachine {
           outcomeText: decision.outcomeText ?? (outcome === 'success'
             ? `Your ${state.distilledType} succeeds.`
             : `Your ${state.distilledType} fails.`),
+          llmRequest: decision._rawRequest,
+          llmResponse: decision._rawResponse,
         },
       };
     }
@@ -208,6 +219,8 @@ export class ActionStateMachine {
           outcome,
           mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
           outcomeText: decision.outcomeText ?? 'The action resolves.',
+          llmRequest: decision._rawRequest,
+          llmResponse: decision._rawResponse,
         },
       };
     }

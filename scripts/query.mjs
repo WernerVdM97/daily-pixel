@@ -18,7 +18,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = path.join(__dirname, '..', 'data', 'warden.db');
 
 const SHORTHANDS = {
-  last_actions: `SELECT a.id, pc.name, a.type, a.outcome, a.final_dc, a.player_rolled, a.prompt_version, a.created_at
+  last_actions: `SELECT a.id, pc.name, a.type, a.outcome, a.final_dc, a.player_rolled, a.prompt_version,
+  CASE WHEN a.llm_request IS NOT NULL THEN 'stored' ELSE NULL END as llm_req,
+  CASE WHEN a.llm_response IS NOT NULL THEN 'stored' ELSE NULL END as llm_res,
+  a.created_at
 FROM actions a JOIN player_characters pc ON a.character_id = pc.id
 ORDER BY a.id DESC LIMIT 10`,
   char: `SELECT id, name, class, location, stamina, health, max_health, wealth, rolls_remaining, day_job, last_action_state
@@ -28,6 +31,10 @@ FROM player_characters`,
   items: `SELECT i.id, pc.name, i.name AS item, i.emoji, i.stat, i.modifier, i.quantity
 FROM items i JOIN player_characters pc ON i.character_id = pc.id`,
   meta: 'SELECT * FROM meta',
+  llm_dump: `SELECT a.id, pc.name, a.type, a.outcome,
+  a.llm_request, a.llm_response, a.created_at
+FROM actions a JOIN player_characters pc ON a.character_id = pc.id
+ORDER BY a.id DESC LIMIT 5`,
 };
 
 const input = process.argv[2];
