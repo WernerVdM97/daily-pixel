@@ -43,6 +43,8 @@ That's the whole template. No required body sections — write the body in whate
 
 Use Obsidian task markers to signal the *kind* of item in a list — not just its completion state. Grouped by when you'd reach for them.
 
+NEVER USE PLAIN BULLET STYLE LISTS, always add flavour. Mix different flavours in a single list. When in doubt, default to  `[I]`.
+
 **Decision-making (use in any doc):**
 
 | Marker | Meaning | Example |
@@ -66,7 +68,6 @@ Use Obsidian task markers to signal the *kind* of item in a list — not just it
 
 **Example — a real doc body using these:**
 
-```markdown
 ## Open questions
 
 - [?] Should /hi show the opening scene every day or only on first join?
@@ -86,7 +87,7 @@ Use Obsidian task markers to signal the *kind* of item in a list — not just it
 - [-] ascii-image-converter — punted to MVP
 - [<] Daily cron tick — manual /sleep for POC
 - [>] Hosting details → [[poc-tech-stack]]
-```
+
 
 **When to NOT use these:** If a list has only one kind of item (all to-dos, all questions), plain `- [ ]` is cleaner. The flavours earn their keep when a single list mixes different kinds — decisions, progress, and deferred items living side by side.
 
