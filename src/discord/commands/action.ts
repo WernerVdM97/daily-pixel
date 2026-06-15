@@ -68,16 +68,18 @@ export function makeActionCommand(engine: WorldEngine) {
       return 'action_guard_mid_action';
     }
 
+    // Defer first — LLM call can take >3 seconds
+    await interaction.deferReply();
+
     // Start the action
     try {
       const result = await engine.startAction(character.id, description);
-      await interaction.reply(buildDecisionMessage(result.firstDecision, 0));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await interaction.reply({
+      await interaction.editReply({
         content: `❌ **Could not act.**\n${msg}`,
-        ephemeral: true,
       });
       return 'action_error';
     }
@@ -101,15 +103,19 @@ export async function handleActionChoice(
   }
   const charId = character.id;
 
+  // Defer the button click — stepAction calls LLM which can take >3 seconds
+  await i.deferUpdate();
+
   // Bail
   if (i.customId === CID_BAIL) {
     try {
       const result = await engine.stepAction(charId, '__bail__');
       await handleActionResult(i, result, engine);
     } catch (err) {
-      await i.reply({
+      await i.editReply({
         content: `❌ ${(err as Error).message}`,
-        ephemeral: true,
+        components: [],
+        embeds: [],
       });
     }
     return;
@@ -124,7 +130,7 @@ export async function handleActionChoice(
     await handleActionResult(i, result, engine);
   } catch (err) {
     console.error('[action] stepAction error:', err);
-    await i.update({
+    await i.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle('⚔️ Action Failed')
@@ -155,7 +161,7 @@ async function handleActionResult(
       wealth: character?.wealth ?? 0,
     };
 
-    await i.update({
+    await i.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
@@ -168,7 +174,7 @@ async function handleActionResult(
   } else {
     // Show the next decision
     const decisionIdx = result.state.decisions.length;
-    await i.update(buildDecisionMessage(result.nextDecision, decisionIdx));
+    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx));
   }
 }
 
