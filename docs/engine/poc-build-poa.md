@@ -115,7 +115,7 @@ Single-threaded. Each session is a fresh context that starts from the prior hand
 - [x] **S3:** DC accumulation + item bonus; skip wisdom check; mutation validation (bounds, max counts, atomic with `actions` insert); state-machine transitions; resumption round-trip. Mock `LlmGateway`.
 - [x] **S4:** fallback tier transitions (tier-1 retry → tier-2 divine); `meta.llm_fallback_count` increments; template fallback selection; error mapping.
 - [x] **S5:** idempotent cron (no double-tick same UTC day); seeded NPC movement reproducibility; player effects (recovery/decay/income/roll reset); admin vs non-admin `/sleep` branch.
-- [ ] **S6:** scripted end-to-end happy path; the [[poc-build-polish]] pre-deploy checklist.
+- [x] **S6:** 368 passing, 32 files. Help + /sleep + E2E test + restart persistence. Handover in [[poc-build-polish]].
 - [ ] **S7:** CI runs `tsc --noEmit` + the test suite; smoke deploy comes online.
 
 ---
