@@ -10,7 +10,7 @@ import type {
   JournalData,
   TickResult,
   StatBlock,
-} from './WorldEngine.js';
+} from "./WorldEngine.js";
 
 /**
  * MockWorldEngine — test fixture.
@@ -24,6 +24,7 @@ export class MockWorldEngine implements WorldEngine {
   private _startActionResult: ActionStartResult | null = null;
   private _stepActionResult: ActionStepResult | null = null;
   private _location: LocationInfo | null = null;
+  private _locationSet = false;
   private _items: ItemData[] = [];
   private _journal: JournalData | null = null;
   private _tickResult: TickResult | null = null;
@@ -63,30 +64,54 @@ export class MockWorldEngine implements WorldEngine {
 
   // ── Setters for canned responses ──
 
-  setCharacter(char: CharacterData | null): void { this._character = char; }
-  setCharacterExists(exists: boolean): void { this._characterExists = exists; }
-  setStartActionResult(result: ActionStartResult): void { this._startActionResult = result; }
-  setStepActionResult(result: ActionStepResult): void { this._stepActionResult = result; }
-  setLocation(loc: LocationInfo | null): void { this._location = loc; }
-  setItems(items: ItemData[]): void { this._items = items; }
-  setJournal(journal: JournalData): void { this._journal = journal; }
-  setTickResult(result: TickResult): void { this._tickResult = result; }
-  setMeta(key: string, value: string): void { this._meta.set(key, value); }
+  setCharacter(char: CharacterData | null): void {
+    this._character = char;
+  }
+  setCharacterExists(exists: boolean): void {
+    this._characterExists = exists;
+  }
+  setStartActionResult(result: ActionStartResult): void {
+    this._startActionResult = result;
+  }
+  setStepActionResult(result: ActionStepResult): void {
+    this._stepActionResult = result;
+  }
+  setLocation(loc: LocationInfo | null): void {
+    this._location = loc;
+    this._locationSet = true;
+  }
+  setItems(items: ItemData[]): void {
+    this._items = items;
+  }
+  setJournal(journal: JournalData): void {
+    this._journal = journal;
+  }
+  setTickResult(result: TickResult): void {
+    this._tickResult = result;
+  }
+  setMeta(key: string, value: string): void {
+    this._meta.set(key, value);
+  }
 
   // ── Default character factory for test convenience ──
 
   static defaultCharacter(overrides?: Partial<CharacterData>): CharacterData {
-    const stats: StatBlock = { physical: 3, wisdom: -1, intelligence: 0, charisma: 0 };
+    const stats: StatBlock = {
+      physical: 3,
+      wisdom: -1,
+      intelligence: 0,
+      charisma: 0,
+    };
     const { stats: overStats, ...restOverrides } = overrides ?? {};
     return {
       id: 1,
       userId: 1,
-      name: 'Aldric',
-      class: 'Warrior',
-      upbringing: 'Village',
-      race: 'Human',
-      alignment: 'lawful good',
-      dayJob: 'Blacksmith',
+      name: "Aldric",
+      class: "Warrior",
+      upbringing: "Village",
+      race: "Human",
+      alignment: "lawful good",
+      dayJob: "Blacksmith",
       stats: { ...stats, ...overStats },
       health: 12,
       maxHealth: 12,
@@ -95,7 +120,7 @@ export class MockWorldEngine implements WorldEngine {
       location: "The Warden's Oak",
       wealth: 5,
       lastActionState: null,
-      createdAt: '2026-01-01T00:00:00Z',
+      createdAt: "2026-01-01T00:00:00Z",
       ...restOverrides,
     };
   }
@@ -104,7 +129,10 @@ export class MockWorldEngine implements WorldEngine {
 
   createCharacter(discordUserId: string, data: CharCreateData): CharacterData {
     this.calls.createCharacter.push({ discordUserId, data });
-    return this._character ?? MockWorldEngine.defaultCharacter({ name: data.name, class: data.class });
+    return (
+      this._character ??
+      MockWorldEngine.defaultCharacter({ name: data.name, class: data.class })
+    );
   }
 
   getCharacter(discordUserId: string): CharacterData | null {
@@ -117,35 +145,44 @@ export class MockWorldEngine implements WorldEngine {
     return this._characterExists;
   }
 
-  async startAction(characterId: number, rawInput: string): Promise<ActionStartResult> {
+  async startAction(
+    characterId: number,
+    rawInput: string,
+  ): Promise<ActionStartResult> {
     this.calls.startAction.push({ characterId, rawInput });
     if (!this._startActionResult) {
-      throw new Error('MockWorldEngine.startAction: no canned result set');
+      throw new Error("MockWorldEngine.startAction: no canned result set");
     }
     return this._startActionResult;
   }
 
-  async stepAction(characterId: number, choice: string): Promise<ActionStepResult> {
+  async stepAction(
+    characterId: number,
+    choice: string,
+  ): Promise<ActionStepResult> {
     this.calls.stepAction.push({ characterId, choice });
     if (!this._stepActionResult) {
-      throw new Error('MockWorldEngine.stepAction: no canned result set');
+      throw new Error("MockWorldEngine.stepAction: no canned result set");
     }
     return this._stepActionResult;
   }
 
   resumeAction(characterId: number): ActionResumeResult {
     this.calls.resumeAction.push(characterId);
-    throw new Error('MockWorldEngine.resumeAction: no canned result set');
+    throw new Error("MockWorldEngine.resumeAction: no canned result set");
   }
 
   getLocation(name: string): LocationInfo | null {
     this.calls.getLocation.push(name);
-    return this._location ?? {
-      name,
-      description: 'A mock location.',
-      tags: ['mock'],
-      isSafe: true,
-    };
+    if (!this._locationSet) {
+      return {
+        name,
+        description: "A mock location.",
+        tags: ["mock"],
+        isSafe: true,
+      };
+    }
+    return this._location;
   }
 
   getItems(characterId: number): ItemData[] {
@@ -155,12 +192,14 @@ export class MockWorldEngine implements WorldEngine {
 
   getJournal(characterId: number): JournalData {
     this.calls.getJournal.push(characterId);
-    return this._journal ?? {
-      knownLocations: [],
-      currentLocation: "The Warden's Oak",
-      npcsEncountered: [],
-      recentActions: [],
-    };
+    return (
+      this._journal ?? {
+        knownLocations: [],
+        currentLocation: "The Warden's Oak",
+        npcsEncountered: [],
+        recentActions: [],
+      }
+    );
   }
 
   submitFeedback(characterId: number, text: string): void {
@@ -173,11 +212,13 @@ export class MockWorldEngine implements WorldEngine {
 
   tick(isAdmin: boolean): TickResult {
     this.calls.tick.push(isAdmin);
-    return this._tickResult ?? {
-      dayNumber: 1,
-      playersAffected: 0,
-      npcMovements: [],
-    };
+    return (
+      this._tickResult ?? {
+        dayNumber: 1,
+        playersAffected: 0,
+        npcMovements: [],
+      }
+    );
   }
 
   getMeta(key: string): string | null {
