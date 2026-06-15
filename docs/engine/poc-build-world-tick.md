@@ -139,12 +139,16 @@ The response branches on whether the player was already at the Oak:
 
 > *"The day turns when the world wills it — not when you do."*
 
-Mechanically this is a retreat: a non-admin `/sleep` is always available and always returns the player to the Oak, but the world isn't advanced. If the player was in the wilds, they lose the next tick's wilderness decay (since the Oak is safe).
+**Gates** — `/sleep` is blocked if:
+1. **Mid-action** (`last_action_state` is set) → *"You are mid-action — finish what you started before bedding down."*
+2. **Rolls remaining** (`rolls_remaining > 0`) → *"The day is still young — you have actions left to take. Spend your remaining rolls before bedding down beneath the Oak."*
+
+This prevents the optimal-play exploit of adventuring in the wilds then sleeping to dodge tick decay and collect safe-location recovery. To use `/sleep` as retreat the player must have spent all their rolls — they've already paid the risk by the time they're eligible.
 
 - [x] `tick(isAdmin)` wired: admin=true always advances, admin=false checks cron idempotency.
 - [x] `restAtOak(discordUserId)` — `WorldEngine` seam method: looks up user, sets location to `"The Warden's Oak"`, returns updated `CharacterData`.
-- [x] Non-admin `/sleep` → `getCharacter()` + `restAtOak()` — response includes Oak location and flavour text.
-  - If no character exists: ephemeral "You don't have a character yet".
+- [x] Non-admin `/sleep` → `getCharacter()` + guards (mid-action, rolls) + `restAtOak()`.
+  - If no character exists: "You don't have a character yet".
 
 ---
 

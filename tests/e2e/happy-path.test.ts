@@ -409,6 +409,9 @@ describe('E2E — full happy path', () => {
     });
     ctx.characterId = char.id;
 
+    // Drain rolls so the /sleep guard passes
+    ctx.charRepo.update(char.id, { rolls_remaining: 0 });
+
     const sleepCommand = makeSleepCommand(ctx.engine);
     const result = await sleepCommand({ user: { id: NON_ADMIN_SLEEP_USER } });
 
@@ -416,6 +419,10 @@ describe('E2E — full happy path', () => {
     expect(result).toContain('The Warden\'s Oak');
     expect(result).toContain('familiar boughs');
     expect(result).toContain('day turns when the world wills it');
+
+    // Verify the player was moved to the Oak (no-op since already there)
+    const updated = ctx.engine.getCharacter(NON_ADMIN_SLEEP_USER);
+    expect(updated?.location).toBe("The Warden's Oak");
 
     // Verify no tick happened (day_number unchanged from seed)
     const dayNum = ctx.engine.getMeta('day_number');

@@ -54,6 +54,29 @@ export function makeSleepCommand(engine: WorldEngine) {
       return "You don't have a character yet. Type `/join` to create one.";
     }
 
+    // Guard: can't sleep mid-action
+    if (character.lastActionState !== null) {
+      return [
+        '⛔ **Cannot rest now**',
+        '═'.repeat(30),
+        '',
+        'You are mid-action — finish what you started before bedding down.',
+        '',
+        'Use `/action continue` to resume, or let it time out after 30 minutes.',
+      ].join('\n');
+    }
+
+    // Guard: must spend all actions before resting
+    if (character.rollsRemaining > 0) {
+      return [
+        '⛔ **Cannot rest now**',
+        '═'.repeat(30),
+        '',
+        'The day is still young — you have actions left to take.',
+        'Spend your remaining rolls before bedding down beneath the Oak.',
+      ].join('\n');
+    }
+
     const alreadyThere = character.location === "The Warden's Oak";
     engine.restAtOak(interaction.user.id);
     const locationLine = alreadyThere
