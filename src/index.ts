@@ -49,8 +49,8 @@ import { makeFeedbackCommand } from './discord/commands/feedback.js';
 import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
 import { makeHiCommand, type DayJobDef } from './discord/commands/hi.js';
-import { makeJoinCommand } from './discord/commands/join.js';
-import { makeActionCommand } from './discord/commands/action.js';
+import { makeJoinCommand, handleInteraction as handleJoinInteraction } from './discord/commands/join.js';
+import { makeActionCommand, handleActionChoice } from './discord/commands/action.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
@@ -327,8 +327,7 @@ async function main() {
       if (!interaction.isButton() && !interaction.isModalSubmit()) return;
       if (VERBOSE) console.log(`[verbose] join:${interaction.isButton() ? 'button' : 'modal'} from ${interaction.user.tag} cid=${customId}`);
       try {
-        const { handleInteraction } = await import('./discord/commands/join.js');
-        await handleInteraction(interaction, engine, joinWizards);
+        await handleJoinInteraction(interaction, engine, joinWizards);
         if (VERBOSE) console.log(`[verbose] join: done`);
       } catch (err) {
         console.error('[join] Error handling interaction:', err);
@@ -347,7 +346,6 @@ async function main() {
       if (!interaction.isButton()) return;
       if (VERBOSE) console.log(`[verbose] action:button from ${interaction.user.tag} cid=${customId}`);
       try {
-        const { handleActionChoice } = await import('./discord/commands/action.js');
         await handleActionChoice(interaction, engine);
         if (VERBOSE) console.log(`[verbose] action: done`);
       } catch (err) {
