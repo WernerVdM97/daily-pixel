@@ -216,16 +216,19 @@ function buildStepMessage(state: WizardState): {
     const stepData = STEP_DEFS[state.step];
     if (stepData) {
       embed.setFooter({ text: `Step ${state.step} of 6 — ${stepData.label}` });
-      const row = new ActionRowBuilder<ButtonBuilder>();
-      for (const opt of stepData.options) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId(choiceCid(state.step, opt.value))
-            .setLabel(opt.label)
-            .setStyle(ButtonStyle.Secondary),
-        );
+      // Discord allows max 5 buttons per action row — chunk into multiple rows
+      for (let i = 0; i < stepData.options.length; i += 5) {
+        const row = new ActionRowBuilder<ButtonBuilder>();
+        for (const opt of stepData.options.slice(i, i + 5)) {
+          row.addComponents(
+            new ButtonBuilder()
+              .setCustomId(choiceCid(state.step, opt.value))
+              .setLabel(opt.label)
+              .setStyle(ButtonStyle.Secondary),
+          );
+        }
+        components.push(row);
       }
-      components.push(row);
     }
   }
 
