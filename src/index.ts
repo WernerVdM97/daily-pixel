@@ -16,7 +16,7 @@ import process from 'node:process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes } from 'discord.js';
+import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 
 import { initDb, closeDb } from './db/connection.js';
@@ -353,6 +353,62 @@ async function main() {
             ephemeral: true,
           }).catch(() => {});
         }
+      }
+      return;
+    }
+
+    // ── Custom action button ── opens a modal for free-text input
+    if (customId && customId === 'action:dayjob:custom') {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId('action:custom:modal')
+        .setTitle('Custom Action')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('action:custom:input')
+              .setLabel('What do you want to do?')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setPlaceholder('e.g. scout the northern ridge'),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Custom action modal submission ── starts the action with typed text
+    if (customId && customId === 'action:custom:modal') {
+      if (!interaction.isModalSubmit()) return;
+      const description = interaction.fields.getTextInputValue('action:custom:input');
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (!char) {
+          await interaction.editReply({ content: "You don't have a character. Type `/join` first." });
+          return;
+        }
+        if (char.lastActionState !== null) {
+          const resumeResult = engine.resumeAction(char.id);
+          setPendingDecision(interaction.user.id, resumeResult.nextDecision);
+          const decisionIdx = resumeResult.state.decisions.length;
+          await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state, getCurrentScene(interaction.user.id)));
+          return;
+        }
+        const result = await engine.startAction(char.id, description);
+        if (result.firstDecision.options.length === 0) {
+          await interaction.editReply({
+            embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
+            components: [],
+          });
+        } else {
+          setPendingDecision(interaction.user.id, result.firstDecision);
+          await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, getCurrentScene(interaction.user.id)));
+        }
+      } catch (err) {
+        console.error(c.red('[action:custom] Error:'), err);
+        const msg = err instanceof Error ? err.message : String(err);
+        await interaction.editReply({ content: `❌ **Could not act.**\n${msg}` }).catch(() => {});
       }
       return;
     }

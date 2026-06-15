@@ -28,6 +28,9 @@ import { getDayJobActions, type DayJobDef } from './hi.js';
 const CID_PREFIX = 'action:choice:';
 const CID_BAIL = 'action:bail';
 const CID_DAYJOB = 'action:dayjob:';
+export const CID_DAYJOB_CUSTOM = 'action:dayjob:custom';
+export const CID_CUSTOM_MODAL = 'action:custom:modal';
+export const CID_CUSTOM_INPUT = 'action:custom:input';
 
 function choiceCid(decisionIdx: number, optionIdx: number): string {
   return `${CID_PREFIX}${decisionIdx}:${optionIdx}`;
@@ -135,6 +138,12 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
               .setStyle(ButtonStyle.Secondary),
           );
         }
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(CID_DAYJOB_CUSTOM)
+            .setLabel('Custom…')
+            .setStyle(ButtonStyle.Primary),
+        );
 
         await interaction.reply({
           embeds: [embed.toJSON()],
