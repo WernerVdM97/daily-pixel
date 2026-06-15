@@ -101,7 +101,7 @@ export function makeActionCommand(engine: WorldEngine) {
 
         setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
-        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx));
+        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state));
         return 'action_resumed';
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -142,7 +142,7 @@ export function makeActionCommand(engine: WorldEngine) {
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -266,7 +266,7 @@ async function handleActionResult(
     // Show the next decision
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
-    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx));
+    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
   }
 }
 
@@ -275,14 +275,28 @@ async function handleActionResult(
 function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
   decisionIdx: number,
+  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }> },
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
 } {
   // Discord embed descriptions are capped at 4096 characters
-  const truncated = decision.prompt.length > 4000
-    ? decision.prompt.slice(0, 3997) + '...'
-    : decision.prompt;
+  let description = decision.prompt;
+
+  // Show action trail above the current decision
+  if (state) {
+    const trail: string[] = [];
+    trail.push(`**You:** ${state.rawInput}`);
+    for (const d of state.decisions) {
+      trail.push(`→ *${d.chosen}* (DC ${d.dcModifier >= 0 ? '+' : ''}${d.dcModifier})`);
+    }
+    trail.push('');
+    description = [...trail, decision.prompt].join('\n');
+  }
+
+  const truncated = description.length > 4000
+    ? description.slice(0, 3997) + '...'
+    : description;
 
   const embed = new EmbedBuilder()
     .setTitle('🤔 Decision')
