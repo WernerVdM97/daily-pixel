@@ -277,7 +277,7 @@ describe('DeepseekLlmGateway', () => {
     expect(body.response_format).toEqual({ type: 'json_object' });
   });
 
-  it('disables thinking mode', async () => {
+  it('enables thinking mode', async () => {
     const fetchFn = mockFetch(validApiResponse);
     const gateway = new DeepseekLlmGateway({
       apiKey: 'test-key',
@@ -287,7 +287,7 @@ describe('DeepseekLlmGateway', () => {
     await gateway.decide(minimalContext);
 
     const body = JSON.parse(fetchFn.mock.calls[0][1]!.body as string);
-    expect(body.thinking).toEqual({ type: 'disabled' });
+    expect(body.thinking).toEqual({ type: 'enabled' });
   });
 
   it('sets the Authorization header', async () => {

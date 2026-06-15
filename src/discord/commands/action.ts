@@ -242,7 +242,7 @@ async function handleActionResult(
       wealth: character?.wealth ?? 0,
     };
 
-    await i.editReply({
+    await i.message.edit({
       embeds: [
         new EmbedBuilder()
           .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
@@ -256,7 +256,7 @@ async function handleActionResult(
     // Show the next decision
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
-    await i.editReply(buildDecisionMessage(result.nextDecision, decisionIdx));
+    await i.message.edit(buildDecisionMessage(result.nextDecision, decisionIdx));
   }
 }
 

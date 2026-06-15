@@ -41,7 +41,7 @@ export class DeepseekLlmGateway implements LlmGateway {
         { role: 'user' as const, content: userMessage },
       ],
       response_format: { type: 'json_object' as const },
-      thinking: { type: 'disabled' as const },
+      thinking: { type: 'enabled' as const },
       temperature: this.temperature,
       stream: false,
     };
