@@ -83,6 +83,22 @@ export function makeActionCommand(engine: WorldEngine) {
       await interaction.deferReply();
       try {
         const resumeResult = engine.resumeAction(character.id);
+
+        // If the pending decision has no options (stale/broken state), show prompt + warn
+        if (resumeResult.nextDecision.options.length === 0) {
+          await interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle('⏳ Stale Action')
+                .setDescription(resumeResult.nextDecision.prompt || 'Your previous action could not be recovered.')
+                .setColor(0x95a5a6)
+                .toJSON(),
+            ],
+            components: [],
+          });
+          return 'action_resume_empty';
+        }
+
         setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
         await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx));
