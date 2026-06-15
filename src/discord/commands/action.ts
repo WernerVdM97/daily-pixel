@@ -35,8 +35,13 @@ function choiceCid(decisionIdx: number, optionIdx: number): string {
 // can look up the option label from the option index.
 const pendingDecisions = new Map<string, ActionDecision>();
 
-export function setPendingDecision(userId: string, decision: ActionDecision): void {
-  pendingDecisions.set(userId, decision);
+function setPendingDecision(userId: string, decision: ActionDecision): void {
+  // If the LLM returned no options, use a fallback so the stored
+  // decision matches what buildDecisionMessage renders.
+  const options = decision.options.length > 0
+    ? decision.options
+    : [{ label: 'Continue', dcModifier: 0 }];
+  pendingDecisions.set(userId, { ...decision, options });
 }
 
 export function parseActionCid(customId: string): { decisionIdx: number; optionIdx: number } | null {
@@ -50,7 +55,7 @@ export function parseActionCid(customId: string): { decisionIdx: number; optionI
   };
 }
 
-function getChoiceLabel(userId: string, optionIdx: number): string | null {
+export function getChoiceLabel(userId: string, optionIdx: number): string | null {
   const decision = pendingDecisions.get(userId);
   if (!decision) return null;
   const opt = decision.options[optionIdx];
