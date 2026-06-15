@@ -14,6 +14,7 @@
 
 import process from 'node:process';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
@@ -39,6 +40,7 @@ import { loadYamlFile } from './assets/yaml-loader.js';
 import { SceneLoader } from './scenes/SceneLoader.js';
 import { TagResolver } from './scenes/TagResolver.js';
 
+import { randomIdleMessage } from './engine/IdleMessageSelector.js';
 import { CommandRegistry, type CommandHandler } from './discord/CommandRegistry.js';
 import { WizardSession } from './discord/WizardSession.js';
 import { makeStatsCommand } from './discord/commands/stats.js';
@@ -74,6 +76,10 @@ if (!ADMIN_USER_ID) {
 }
 
 const VERBOSE = process.env.VERBOSE === 'true';
+
+// ── Version ──
+
+const VERSION = readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf-8').trim();
 
 // ── YAML asset loading (fail-fast) ──
 
@@ -111,6 +117,15 @@ function withTextOption(
 }
 
 // ── Startup ──
+
+// ── Timestamp all console output ──
+const _origLog = console.log.bind(console);
+const _origWarn = console.warn.bind(console);
+const _origError = console.error.bind(console);
+const _ts = () => new Date().toISOString().replace('T', ' ').slice(0, 23);
+console.log = (...args: unknown[]) => _origLog(`[${_ts()}]`, ...args);
+console.warn = (...args: unknown[]) => _origWarn(`[${_ts()}]`, ...args);
+console.error = (...args: unknown[]) => _origError(`[${_ts()}]`, ...args);
 
 async function main() {
   console.log('The Warden\'s Oak — starting up...');
@@ -285,6 +300,7 @@ async function main() {
     try {
       await rest.put(Routes.applicationCommands(readyClient.user.id), { body: commands });
       console.log(c.blue(`[discord] Registered ${commands.length} slash commands`));
+      console.log(c.yellow(`[version] ${VERSION}`));
     } catch (err) {
       console.error(c.red(`[discord] Failed to register slash commands:`) , err);
     }
@@ -440,9 +456,11 @@ async function main() {
           return;
         }
         // Defer + immediately blank buttons to show loading
+        const idleMsg = randomIdleMessage();
         await interaction.deferUpdate();
         await interaction.editReply({
-          embeds: [new EmbedBuilder().setDescription('⏳ **Starting…**').setColor(0x95a5a6).toJSON()],
+          embeds: [new EmbedBuilder().setDescription(`⏳ **Starting…**
+_${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           components: [],
         });
 
