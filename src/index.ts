@@ -417,7 +417,7 @@ async function main() {
           const resumeResult = engine.resumeAction(char.id);
           setPendingDecision(interaction.user.id, resumeResult.nextDecision);
           const decisionIdx = resumeResult.state.decisions.length;
-          await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state, getCurrentScene(interaction.user.id)));
+          await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state));
           return;
         }
         const result = await engine.startAction(char.id, description);
@@ -428,7 +428,7 @@ async function main() {
           });
         } else {
           setPendingDecision(interaction.user.id, result.firstDecision);
-          await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, getCurrentScene(interaction.user.id)));
+          await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state));
         }
       } catch (err) {
         console.error(c.red('[action:custom] Error:'), err);
@@ -471,7 +471,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           });
         } else {
           setPendingDecision(interaction.user.id, result.firstDecision);
-          await interaction.webhook.editMessage(interaction.message.id, buildDecisionMessage(result.firstDecision, 0, result.state, getCurrentScene(interaction.user.id)));
+          await interaction.webhook.editMessage(interaction.message.id, buildDecisionMessage(result.firstDecision, 0, result.state));
         }
       } catch (err) {
         console.error(c.red('[action:dayjob] Error:'), err);

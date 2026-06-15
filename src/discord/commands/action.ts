@@ -134,8 +134,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
 
         setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
-        const scene = _sceneLookup?.(interaction.user.id);
-        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state, scene));
+        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state));
         return 'action_resumed';
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -230,8 +229,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);
-      const scene = _sceneLookup?.(interaction.user.id);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, scene));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -378,8 +376,7 @@ async function applyActionResult(
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
-    const scene = _sceneLookup?.(i.user.id);
-    await i.webhook.editMessage(i.message.id, buildDecisionMessage(result.nextDecision, decisionIdx, result.state, scene));
+    await i.webhook.editMessage(i.message.id, buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
   }
 }
 
@@ -389,7 +386,6 @@ export function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
   decisionIdx: number,
   state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }> },
-  sceneBody?: string,
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -397,19 +393,11 @@ export function buildDecisionMessage(
   // Discord embed descriptions are capped at 4096 characters
   let description = decision.prompt;
 
-  // Show action trail above the current decision
+  // Show action trail above the current decision.
+  // Scene is deliberately NOT shown here — it's displayed in /hi (current
+  // location) and in the outcome embed (destination, when it changed).
   if (state) {
     const trail: string[] = [];
-
-    // Scene block at the very top — but skip it when the LLM already resolved
-    // (only bail option), because the scene shows the OLD location, not the destination.
-    const isPreResolved = decision.options.length === 1 && decision.options[0]?.dcModifier === null;
-    if (sceneBody && !isPreResolved) {
-      trail.push('```');
-      trail.push(sceneBody);
-      trail.push('```');
-      trail.push('');
-    }
 
     trail.push(`**You:** ${state.rawInput}`);
     for (const d of state.decisions) {
