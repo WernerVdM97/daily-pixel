@@ -68,6 +68,7 @@ function isStateStale(
   actionRepo: ActionRepository,
   charRepo: CharacterRepository,
   characterId: number,
+  db: Database.Database,
 ): boolean {
   // If the state predates lastActionAt (pre-S7 state), treat as not stale
   if (!state.lastActionAt) return false;
@@ -75,17 +76,20 @@ function isStateStale(
   const elapsed = Date.now() - state.lastActionAt;
   if (elapsed < ACTION_TIMEOUT_MS) return false;
 
-  // Atomically clear the mid-action state and record the timeout
-  actionRepo.create({
-    characterId,
-    rawInput: state.rawInput,
-    type: state.distilledType,
-    decisionsJson: JSON.stringify(state.decisions),
-    finalDc: state.accumulatedDc,
-    playerRolled: null,
-    outcome: 'timed_out',
-  });
-  charRepo.update(characterId, { last_action_state: null });
+  // Wrap both writes in a transaction so a partial failure doesn't leave
+  // a timed_out row orphaned while last_action_state survives.
+  db.transaction(() => {
+    actionRepo.create({
+      characterId,
+      rawInput: state.rawInput,
+      type: state.distilledType,
+      decisionsJson: JSON.stringify(state.decisions),
+      finalDc: state.accumulatedDc,
+      playerRolled: null,
+      outcome: 'timed_out',
+    });
+    charRepo.update(characterId, { last_action_state: null });
+  })();
 
   return true;
 }
@@ -248,7 +252,7 @@ export class WorldEngineImpl implements WorldEngine {
     const internalState = JSON.parse(row.last_action_state) as InternalActionState;
 
     // 30-min timeout auto-fail: if the state has been sitting untouched, auto-fail it
-    if (isStateStale(internalState, row, this.actionRepo, this.charRepo, characterId)) {
+    if (isStateStale(internalState, row, this.actionRepo, this.charRepo, characterId, this.db)) {
       throw new Error('Action timed out after 30 minutes');
     }
 
@@ -381,7 +385,7 @@ export class WorldEngineImpl implements WorldEngine {
     const internalState = JSON.parse(row.last_action_state) as InternalActionState;
 
     // 30-min timeout auto-fail: if the state has been sitting untouched, auto-fail it
-    if (isStateStale(internalState, row, this.actionRepo, this.charRepo, characterId)) {
+    if (isStateStale(internalState, row, this.actionRepo, this.charRepo, characterId, this.db)) {
       throw new Error('Action timed out after 30 minutes');
     }
 

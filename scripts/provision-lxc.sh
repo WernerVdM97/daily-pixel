@@ -10,10 +10,12 @@ echo "[provision] Creating Debian 12 LXC container: $CONTAINER"
 lxc-create -n "$CONTAINER" -t debian -- -r bookworm
 lxc-start -n "$CONTAINER"
 
-echo "[provision] Installing dependencies"
+echo "[provision] Installing dependencies (Node.js 22 via NodeSource)"
 
 lxc-attach -n "$CONTAINER" -- bash -c "
-  apt update && apt install -y nodejs npm git curl
+  apt update && apt install -y curl git ca-certificates
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt install -y nodejs
   useradd -m -s /bin/bash bot
 "
 
@@ -21,7 +23,7 @@ echo "[provision] Cloning repo (poc branch)"
 
 lxc-attach -n "$CONTAINER" -- bash -c "
   su - bot -c 'git clone -b poc $REPO_URL /home/bot/app'
-  su - bot -c 'cd /home/bot/app && npm install'
+  su - bot -c 'cd /home/bot/app && npm ci'
 "
 
 echo "[provision] ─────────────────────────────────────────────"
