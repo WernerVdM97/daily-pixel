@@ -429,7 +429,9 @@ async function main() {
           await interaction.reply({ content: 'Invalid job action.', ephemeral: true });
           return;
         }
-        await interaction.deferReply({ ephemeral: true });
+        // Defer the button click — greys out all buttons, shows spinner on clicked one
+        await interaction.deferUpdate();
+
         const result = await engine.startAction(char.id, hook);
         if (result.firstDecision.options.length === 0) {
           await interaction.editReply({
@@ -443,7 +445,7 @@ async function main() {
       } catch (err) {
         console.error(c.red('[action:dayjob] Error:'), err);
         const msg = err instanceof Error ? err.message : String(err);
-        await interaction.editReply({ content: `❌ **Could not act.**\n${msg}` }).catch(() => {});
+        await interaction.followUp({ content: `❌ **Could not act.**\n${msg}`, ephemeral: true }).catch(() => {});
       }
       return;
     }
