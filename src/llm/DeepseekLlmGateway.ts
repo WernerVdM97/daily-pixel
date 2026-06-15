@@ -70,15 +70,19 @@ export class DeepseekLlmGateway implements LlmGateway {
     }
 
     const data = await response.json() as {
-      choices: Array<{ message: { content: string } }>;
+      choices: Array<{ message: { content: string; reasoning_content?: string } }>;
     };
 
-    const content = data.choices?.[0]?.message?.content;
+    const msg = data.choices?.[0]?.message;
+    const content = msg?.content;
     if (!content) {
       throw new Error('DeepSeek returned empty response');
     }
 
     if (this.verbose) {
+      if (msg?.reasoning_content) {
+        console.log('[llm:thoughts]', msg.reasoning_content);
+      }
       console.log('[llm:response:raw]', content);
     }
 
