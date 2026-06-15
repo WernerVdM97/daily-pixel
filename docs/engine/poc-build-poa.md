@@ -113,8 +113,8 @@ Single-threaded. Each session is a fresh context that starts from the prior hand
 - [x] **S1:** wizard state transitions; guards (already-has-character, 10-min timeout, name validation); stat computation from YAML modifiers.
 - [x] **S2:** tag-resolver units (overlap score, tie→first, zero→`unknown.ascii`); scene validation failures (width >30, bad frontmatter); command output snapshots.
 - [x] **S3:** DC accumulation + item bonus; skip wisdom check; mutation validation (bounds, max counts, atomic with `actions` insert); state-machine transitions; resumption round-trip. Mock `LlmGateway`.
-- [ ] **S4:** fallback tier transitions (tier-1 retry → tier-2 divine); `meta.llm_fallback_count` increments; template fallback selection; error mapping.
-- [ ] **S5:** idempotent cron (no double-tick same UTC day); seeded NPC movement reproducibility; player effects (recovery/decay/income/roll reset); admin vs non-admin `/sleep` branch.
+- [x] **S4:** fallback tier transitions (tier-1 retry → tier-2 divine); `meta.llm_fallback_count` increments; template fallback selection; error mapping.
+- [x] **S5:** idempotent cron (no double-tick same UTC day); seeded NPC movement reproducibility; player effects (recovery/decay/income/roll reset); admin vs non-admin `/sleep` branch.
 - [ ] **S6:** scripted end-to-end happy path; the [[poc-build-polish]] pre-deploy checklist.
 - [ ] **S7:** CI runs `tsc --noEmit` + the test suite; smoke deploy comes online.
 

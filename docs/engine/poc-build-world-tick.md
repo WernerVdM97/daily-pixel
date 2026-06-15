@@ -31,6 +31,9 @@ Cooldown tracking: store `last_cron_date` in the `meta` table ([[poc-build-scaff
 
 Only these two advance the world. A **non-admin `/sleep`** is *not* a tick trigger — it returns a rest scene and changes nothing (see §6).
 
+- [x] `tick(isAdmin)` implements both paths: `true` = always advance, `false` = cron idempotent check.
+- [x] `last_cron_date` written to `meta` on every tick (admin + cron).
+
 ---
 
 ## 2. Player Effects
@@ -45,6 +48,9 @@ For every player in `player_characters`:
 | **Day-job income** | `wealth += base_income` from `day-jobs.yml` matching the player's `day_job`. Always applies regardless of location. |
 | **Roll reset** | `rolls_remaining = 2`. |
 | **Day counter** | Increment `meta.day_number`. |
+
+- [x] All player effects implemented: stamina recovery/decay, health recovery (safe only), wealth income, roll reset, day_number increment.
+- [x] Engine accepts `dayJobIncome: Record<string, number>` in config (parsed from day-jobs.yml at boot on frontend side).
 
 ### Consolation for unused rolls
 
@@ -69,6 +75,12 @@ For every NPC in `npcs`:
 
 Movement is deterministic: seed the random pick with `NPC.id + day_number` so the same NPC on the same day always moves to the same place. No stored RNG state needed.
 
+- [x] Seeded determinism via `mulberry32(NPC.id + newDay)`.
+- [x] Class-based destination filtering with fallback to all locations.
+- [x] Current location excluded from candidates so NPCs truly "move".
+- [x] Merchant wealth gain (5-15) on both move and no-move paths.
+- [x] Blacksmith stays put and gains +5 wealth.
+
 ---
 
 ## 4. World Scaling
@@ -81,6 +93,8 @@ Minimal for POC — the LLM prompt gains a scaling hint.
 | Day 4-7 | "The smoke is closer now." DC range: 9-17. Threat flavor escalates. |
 
 The bot passes `day_number` and the scaling hint in the LLM system prompt. The LLM uses it to generate more tense scenarios as days progress.
+
+- [x] `TickResult.dayNumber` reports current day for frontend to apply scaling hints.
 
 ---
 
@@ -117,3 +131,15 @@ Available to everyone. No arguments. Behaviour branches on whether the caller is
 Returns a valid in-world response — the camp-by-the-Oak rest scene + flavor — and does **not** trigger the tick. No day advance, no roll reset, no stamina change. The day only turns at nightfall (cron) or when the warden turns the hourglass.
 
 > *"You bank the fire and bed down beneath the Oak. The day turns when the world wills it — not when you do."*
+
+- [x] `tick(isAdmin)` wired: admin=true always advances, admin=false checks cron idempotency.
+- [ ] Non-admin `/sleep` response — frontend-side rest scene (not engine scope).
+
+---
+
+## S5 Handover
+
+- [x] **Shipped:** `WorldEngineImpl.tick(isAdmin)` fully implemented — admin = always advance (no cooldown), cron = idempotent check against `last_cron_date`. Player effects: stamina recovery (+5 safe, cap 10), health recovery (+3 safe, cap max_health), wilds stamina decay (-1, floor 0), roll reset to 2, day-job wealth income. NPC movement: 80% seeded chance via `mulberry32(NPC.id + day_number)`, class-based destination filtering (Blacksmith stays, Hunter→forest/wild, Merchant→town/market, Herbalist→forest/river, Acolyte→shrine/temple, other→random), current location excluded from candidates. Blacksmith gains +5 wealth, Merchant gains 5-15 on both move and no-move. `TickResult` reports day number, players affected count, and per-NPC movement records. New helpers: `CharacterRepository.findAll()`, `NpcRepository.findAll()`, `NpcRepository.update()`, `NpcRepository.findById()`. Engine config gains `dayJobIncome: Record<string, number>` for income lookup.
+- [!] **Frozen:** `WorldEngine.tick(isAdmin): TickResult` interface unchanged. `TickResult` shape (`dayNumber`, `playersAffected`, `npcmovements`) unchanged. `WorldEngineImpl` constructor signature extended with optional `dayJobIncome` field (backwards-compatible via `?? {}` default).
+- [x] **Tests:** 345 passing (32 new), 29 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New file: `tests/engine/world-tick.test.ts` (32 tests covering idempotency, player effects, NPC movement seeded determinism, day advancement, last_cron_date tracking, merchant wealth, blacksmith staying).
+- [>] **Next (S6):** Polish pass + pre-deploy — help content, flavor, end-to-end checklist, mobile pass, restart persistence. See `docs/engine/poc-build-polish.md` §5-6.

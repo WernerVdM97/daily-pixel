@@ -3,6 +3,9 @@ import type { NpcRow } from './types.js';
 
 export type { NpcRow };
 
+/** Fields that can be updated on an NPC — excludes id and created_by_action_id. */
+export type NpcUpdate = Partial<Omit<NpcRow, 'id' | 'created_by_action_id'>>;
+
 export class NpcRepository {
   constructor(private db: Database.Database) {}
 
@@ -50,6 +53,40 @@ export class NpcRepository {
         ORDER BY npcs.id DESC
       `)
       .all(characterId) as NpcRow[];
+  }
+
+  findAll(): NpcRow[] {
+    return this.db
+      .prepare('SELECT * FROM npcs ORDER BY id')
+      .all() as NpcRow[];
+  }
+
+  findById(id: number): NpcRow | undefined {
+    return this.db
+      .prepare('SELECT * FROM npcs WHERE id = ?')
+      .get(id) as NpcRow | undefined;
+  }
+
+  update(id: number, fields: NpcUpdate): void {
+    const allowed = [
+      'name', 'class', 'race', 'day_job', 'stats', 'health', 'stamina',
+      'wealth', 'location', 'description',
+    ];
+    const setClauses: string[] = [];
+    const values: Record<string, unknown> = { id };
+
+    for (const key of allowed) {
+      if (key in fields) {
+        setClauses.push(`${key} = @${key}`);
+        values[key] = (fields as Record<string, unknown>)[key];
+      }
+    }
+
+    if (setClauses.length === 0) return;
+
+    this.db
+      .prepare(`UPDATE npcs SET ${setClauses.join(', ')} WHERE id = @id`)
+      .run(values);
   }
 
   findByLocation(location: string): NpcRow[] {

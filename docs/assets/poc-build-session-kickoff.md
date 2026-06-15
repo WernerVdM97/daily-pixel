@@ -48,11 +48,13 @@ WorldEngine interface — never a discord.js object, never an ASCII string,
 never a raw SQLite row. The replaceability test: swapping the in-process
 WorldEngine for an HTTP client must change zero frontend code.
 
-Coding style for this session: {CODING_STYLE}. Every session runs on deepseek-v4-pro.
+Coding style for this session: {CODING_STYLE}.
 
-START NOW: read the docs (handover first, then the load order above).
+START NOW BY LOADING THE SKILLS. Thenread the docs (handover first, then the load order above).
 Your first task: implement the `[>] Next...` from the handover.
 Stop when the exit gate tests are green — then POST FOR APPROVAL.
+
+Checkout a new feature branch and push a PR through GH CLI when finished.
 ```
 
 | Placeholder | S0 | S1 | S2 | S3 | S4 | S5 | S6 | S7 |
