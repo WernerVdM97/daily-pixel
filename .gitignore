@@ -18,6 +18,9 @@ dist/
 *.db
 *.db-journal
 
+# Runtime database directory (volume mount for dev)
+data/
+
 # OS cruft
 Thumbs.db
 .DS_Store
