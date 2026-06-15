@@ -209,8 +209,13 @@ export class ActionStateMachine {
       return o;
     });
 
+    // When resolved immediately (done: true) with no options, show the outcome text
+    const prompt = llm.done && llm.outcomeText
+      ? llm.outcomeText
+      : (llm.prompt ?? `${capitalize(llm.distilledType)} — choose your approach:`);
+
     return {
-      prompt: llm.prompt ?? `${capitalize(llm.distilledType)} — choose your approach:`,
+      prompt,
       options: ensureBail(options, required),
     };
   }
