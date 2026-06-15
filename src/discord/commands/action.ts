@@ -230,7 +230,7 @@ async function handleActionResult(
   engine: WorldEngine,
 ): Promise<void> {
   if (result.resolved) {
-    // Show the outcome
+    // Show the outcome with the action trail
     const character = engine.getCharacter(i.user.id);
     const outcome = result.outcome;
 
@@ -242,11 +242,21 @@ async function handleActionResult(
       wealth: character?.wealth ?? 0,
     };
 
+    // Build action trail: original input → decisions → outcome
+    const trail: string[] = [];
+    trail.push(`**You:** ${result.state.rawInput}`);
+    for (const d of result.state.decisions) {
+      trail.push(`**Decision:** ${d.prompt}`);
+      trail.push(`→ *${d.chosen}* (DC ${d.dcModifier >= 0 ? '+' : ''}${d.dcModifier})`);
+    }
+    trail.push('');
+    trail.push(formatOutcome(outcome, ctx));
+
     await i.editReply({
       embeds: [
         new EmbedBuilder()
           .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
-          .setDescription(formatOutcome(outcome, ctx))
+          .setDescription(trail.join('\n'))
           .setColor(outcomeColor(outcome.outcome))
           .toJSON(),
       ],
