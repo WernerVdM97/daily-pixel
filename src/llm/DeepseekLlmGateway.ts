@@ -99,7 +99,7 @@ export class DeepseekLlmGateway implements LlmGateway {
 
   private parseDecision(raw: Record<string, unknown>): LlmDecision {
     return {
-      ...(raw.prompt !== undefined ? { prompt: String(raw.prompt) } : {}),
+      ...(raw.prompt === undefined ? {} : { prompt: String(raw.prompt) }),
       distilledType: String(raw.distilled_type ?? ''),
       stat: this.parseStat(raw.stat),
       baseDc: Number(raw.base_dc ?? 10),
@@ -107,12 +107,12 @@ export class DeepseekLlmGateway implements LlmGateway {
       done: Boolean(raw.done),
       decision: Array.isArray(raw.decision)
         ? raw.decision.map((opt: Record<string, unknown>) => ({
-            label: String(opt.label ?? ''),
+            label: String(opt.label || opt.text || ''),
             dcModifier: opt.dc_modifier === null ? null : Number(opt.dc_modifier ?? 0),
           }))
         : [],
-      ...(raw.mutations !== undefined ? { mutations: raw.mutations as unknown[] } : {}),
-      ...(raw.outcome_text !== undefined ? { outcomeText: String(raw.outcome_text) } : {}),
+      ...(raw.mutations === undefined ? {} : { mutations: raw.mutations as unknown[] }),
+      ...(raw.outcome_text === undefined ? {} : { outcomeText: String(raw.outcome_text) }),
     };
   }
 
