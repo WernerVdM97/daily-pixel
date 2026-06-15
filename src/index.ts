@@ -429,23 +429,27 @@ async function main() {
           await interaction.reply({ content: 'Invalid job action.', ephemeral: true });
           return;
         }
-        // Defer the button click — greys out all buttons, shows spinner on clicked one
+        // Defer + immediately blank buttons to show loading
         await interaction.deferUpdate();
+        await interaction.editReply({
+          embeds: [new EmbedBuilder().setDescription('⏳ **Starting…**').setColor(0x95a5a6).toJSON()],
+          components: [],
+        });
 
         const result = await engine.startAction(char.id, hook);
         if (result.firstDecision.options.length === 0) {
-          await interaction.editReply({
+          await interaction.webhook.editMessage(interaction.message.id, {
             embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
             components: [],
           });
         } else {
           setPendingDecision(interaction.user.id, result.firstDecision);
-          await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, getCurrentScene(interaction.user.id)));
+          await interaction.webhook.editMessage(interaction.message.id, buildDecisionMessage(result.firstDecision, 0, result.state, getCurrentScene(interaction.user.id)));
         }
       } catch (err) {
         console.error(c.red('[action:dayjob] Error:'), err);
         const msg = err instanceof Error ? err.message : String(err);
-        await interaction.followUp({ content: `❌ **Could not act.**\n${msg}`, ephemeral: true }).catch(() => {});
+        await interaction.webhook.editMessage(interaction.message.id, { content: `❌ **Could not act.**\n${msg}`, components: [], embeds: [] }).catch(() => {});
       }
       return;
     }
