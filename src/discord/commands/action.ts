@@ -87,6 +87,15 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       return 'action_guard_no_character';
     }
 
+    // Guard: no rolls left (except for resume)
+    if (character.rollsRemaining <= 0 && !character.lastActionState) {
+      await interaction.reply({
+        content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
+        ephemeral: true,
+      });
+      return 'action_no_rolls';
+    }
+
     // If mid-action, resume regardless of description
     if (character.lastActionState !== null) {
       await interaction.deferReply({ ephemeral: true });
@@ -122,6 +131,14 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
 
     // No description provided and not mid-action — show daily work list as buttons
     if (!description) {
+      if (character.rollsRemaining <= 0) {
+        await interaction.reply({
+          content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
+          ephemeral: true,
+        });
+        return 'action_no_rolls';
+      }
+
       try {
         const jobActions = getDayJobActions(character.dayJob, dayJobs);
         const embed = new EmbedBuilder()
