@@ -121,6 +121,21 @@ podman stop daily-pixel && podman rm daily-pixel
 
 SQLite persists in `./data/`. `.env` is mounted at runtime, never baked into the image. See [`Containerfile`](./Containerfile) and [`docs/engine/poc-build-deploy.md`](./docs/engine/poc-build-deploy.md) §2.
 
+### Inspecting the database
+
+Query SQLite directly with the built-in script:
+
+```bash
+node scripts/query.mjs last_actions    # recent actions with outcomes
+node scripts/query.mjs char            # player_characters (location, stamina, etc.)
+node scripts/query.mjs locs            # all known locations
+node scripts/query.mjs items           # character inventories
+node scripts/query.mjs npcs            # spawned NPCs
+node scripts/query.mjs meta            # day_number, fallback_count, etc.
+node scripts/query.mjs ".tables"       # list all tables
+node scripts/query.mjs "SELECT * FROM actions WHERE outcome = 'failure'"
+```
+
 ### Production (LXC Debian)
 
 Run the provisioning script once on a Debian 12 host, then place `.env` and enable systemd:
