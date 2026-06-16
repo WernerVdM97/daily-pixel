@@ -14,13 +14,14 @@ export class ActionRepository {
     finalDc: number;
     playerRolled: number | null;
     outcome: string;
+    appVersion?: string | null;
     promptVersion?: string;
-    llmRequest?: string | null;
-    llmResponse?: string | null;
   }): ActionRow {
+    // Per-call LLM audit now lives in the llm_calls table (linked via action_id);
+    // the legacy llm_request/llm_response columns are left NULL.
     const stmt = this.db.prepare(`
-      INSERT INTO actions (character_id, raw_input, type, decisions_json, final_dc, player_rolled, outcome, prompt_version, llm_request, llm_response)
-      VALUES (@character_id, @raw_input, @type, @decisions_json, @final_dc, @player_rolled, @outcome, @prompt_version, @llm_request, @llm_response)
+      INSERT INTO actions (character_id, raw_input, type, decisions_json, final_dc, player_rolled, outcome, app_version, prompt_version)
+      VALUES (@character_id, @raw_input, @type, @decisions_json, @final_dc, @player_rolled, @outcome, @app_version, @prompt_version)
     `);
     const result = stmt.run({
       character_id: data.characterId,
@@ -30,9 +31,8 @@ export class ActionRepository {
       final_dc: data.finalDc,
       player_rolled: data.playerRolled,
       outcome: data.outcome,
+      app_version: data.appVersion ?? null,
       prompt_version: data.promptVersion ?? 'v1',
-      llm_request: data.llmRequest ?? null,
-      llm_response: data.llmResponse ?? null,
     });
     const row = this.db
       .prepare('SELECT * FROM actions WHERE id = ?')

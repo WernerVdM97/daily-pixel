@@ -14,7 +14,7 @@ afterAll(() => {
 });
 
 describe('migrate', () => {
-  it('creates all 9 tables in an empty database', () => {
+  it('creates all 10 tables in an empty database', () => {
     migrate(db);
 
     const tables = db
@@ -27,6 +27,7 @@ describe('migrate', () => {
       'bug_reports',
       'feedback',
       'items',
+      'llm_calls',
       'locations',
       'meta',
       'npcs',

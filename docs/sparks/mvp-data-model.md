@@ -227,3 +227,12 @@ RETURN target nodes + edge values
 - **Graph DB is the source of truth.** Write here.
 - **Vault markdown is a projection.** Read-only, regenerated each tick.
 - **Never parse markdown back into state** during normal operation. (Frontmatter is ingestible as a cold recovery path, but that's a migration tool, not the live loop.)
+
+---
+
+## POC field notes — coherency gaps
+
+Surfaced in POC play; both want world-state the POC doesn't track.
+
+- [I] **Area hostility / faction attributes.** Locations need first-class state: hostile or not, *how* hostile, and what faction / encounter types to expect there. Drives encounter generation and travel risk instead of the LLM re-inventing tone each visit. New attributes on the Location node.
+- [!] **Exploration coherency — prefer existing locations.** The LLM invents new locations instead of reusing the ~30 known ones, fragmenting the map. MVP fix is structural (set_location resolves against existing Location nodes; new places are deliberate, not accidental). A light POC guard was considered and deferred — see TODO.

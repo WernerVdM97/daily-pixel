@@ -35,9 +35,38 @@ export interface ActionRow {
   final_dc: number;
   player_rolled: number | null;
   outcome: string;
+  app_version: string | null;
   prompt_version: string;
+  /** @deprecated superseded by the llm_calls table; unwritten since v4. */
   llm_request: string | null;
+  /** @deprecated superseded by the llm_calls table; unwritten since v4. */
   llm_response: string | null;
+  created_at: string;
+}
+
+export interface LlmCallRow {
+  id: number;
+  action_id: number | null;
+  app_version: string | null;
+  prompt_version: string;
+  model: string;
+  temperature: number | null;
+  tier: number;
+  player_input: string | null;
+  context_digest: string | null;     // JSON
+  raw_prompt: string | null;         // diagnostic calls only
+  reasoning: string | null;          // diagnostic calls only
+  response_json: string | null;
+  parse_ok: number;                   // 0|1
+  validation_warnings: string | null; // JSON array
+  error: string | null;
+  http_status: number | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  reasoning_chars: number | null;
+  latency_ms: number | null;
+  finish_reason: string | null;
   created_at: string;
 }
 

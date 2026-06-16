@@ -7,7 +7,7 @@ export interface DayJobDef {
 	depends_on: string[];
 	base_income: number;
 	description: string;
-	/** Exactly 3 actions per day job — enforced by getDayJobActions at runtime. */
+	/** The job's action pool. `getDayJobActions` surfaces 3 at random (job pool + COMMON_ACTIONS). */
 	actions: DayJobAction[];
 }
 
@@ -15,6 +15,32 @@ export interface DayJobAction {
 	label: string;
 	income: number;
 	hook: string;
+}
+
+/**
+ * Generic, cross-job "hybrid" actions mixed into every day-job's pool so the 3
+ * surfaced each day vary and don't read as a fixed, over-specific rota.
+ */
+export const COMMON_ACTIONS: DayJobAction[] = [
+	{ label: 'Help at the market', income: 3, hook: 'A stall-keeper could use an extra pair of hands through the morning rush.' },
+	{ label: 'Lend a neighbour a hand', income: 2, hook: 'Someone nearby is wrestling with a task too big for one person.' },
+	{ label: 'Run an errand', income: 3, hook: 'A message needs carrying across town before midday.' },
+	{ label: 'Share a meal at the inn', income: 0, hook: 'The common room is warm and loud — a good place to take the measure of the town.' },
+	{ label: 'See to chores', income: 2, hook: 'There is always work to be done: wood to split, water to haul, a fence to mend.' },
+	{ label: 'Listen for news', income: 1, hook: 'Travellers pass through with rumours from the road. Some of it might even be true.' },
+	{ label: 'Haul and load', income: 3, hook: 'Crates and sacks need moving before the carts leave. Honest sweat for honest coin.' },
+	{ label: 'Mind a child', income: 2, hook: 'A harried parent presses a coin into your hand and a restless toddler into your care.' },
+];
+
+/** Deterministic PRNG (mulberry32) so a given seed always yields the same picks. */
+function mulberry32(seed: number): () => number {
+	let s = seed >>> 0;
+	return () => {
+		s = (s + 0x6d2b79f5) | 0;
+		let t = Math.imul(s ^ (s >>> 15), 1 | s);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
 }
 
 // ── Pure formatters (tested in isolation) ──
@@ -45,18 +71,34 @@ export function formatCharacterHeader(char: CharacterData): string {
 	return lines.join("\n");
 }
 
+/**
+ * Surface 3 daily-work actions, sampled from the job's pool + COMMON_ACTIONS.
+ * The pick is seeded by (characterId, dayNumber) so /hi, the /action buttons, and
+ * the button-click handler all agree within a day, and refresh each game day.
+ * With no opts the seed is 0 (deterministic) — handy for tests.
+ */
 export function getDayJobActions(
 	dayJobName: string,
 	dayJobs: DayJobDef[],
+	opts: { characterId?: number; dayNumber?: number } = {},
 ): DayJobAction[] {
 	const job = dayJobs.find((j) => j.name === dayJobName);
 	if (!job) {
 		throw new Error(`Unknown day job "${dayJobName}"`);
 	}
-	if (job.actions.length !== 3) {
-		throw new Error(`Day job "${dayJobName}" must have exactly 3 actions`);
+
+	const pool = [...job.actions, ...COMMON_ACTIONS];
+	const seed = (opts.characterId ?? 0) * 1000 + (opts.dayNumber ?? 0);
+	const rng = mulberry32(seed);
+
+	// Sample up to 3 distinct actions (Fisher-Yates partial draw).
+	const remaining = [...pool];
+	const picked: DayJobAction[] = [];
+	while (picked.length < 3 && remaining.length > 0) {
+		const idx = Math.floor(rng() * remaining.length);
+		picked.push(remaining.splice(idx, 1)[0]);
 	}
-	return job.actions;
+	return picked;
 }
 
 export function isWeekend(): boolean {
@@ -96,7 +138,8 @@ export function makeHiCommand(
 			];
 		} else {
 			try {
-				const actions = getDayJobActions(character.dayJob, dayJobs);
+				const dayNumber = Number(engine.getMeta('day_number') ?? '1');
+				const actions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
 				actionLines = [
 					`🔨 **${character.dayJob} — Daily Work**`,
 					"",
@@ -104,14 +147,14 @@ export function makeHiCommand(
 						(a, i) => `  ${["①", "②", "③"][i]} **${a.label}** — ${a.hook}`,
 					),
 					"",
-					"📦 Use `/action <what you do>` to carry out your choice,",
-					"   or type `/action something else…` to go rogue.",
+					"📦 Use `/action` to carry out your choice,",
+					"   or type `/action <description>` to go adventure.",
 				];
 			} catch {
 				actionLines = [
 					`🔨 **${character.dayJob}**`,
 					"",
-					"  Use `/action <what you do>` to start an action.",
+					"  Use `/action <description>` to start an action.",
 				];
 			}
 		}

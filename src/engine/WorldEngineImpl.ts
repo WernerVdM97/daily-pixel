@@ -4,14 +4,16 @@ const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 import type Database from 'better-sqlite3';
 import type { LlmGateway } from '../llm/LlmGateway.js';
 import type { UserRepository } from '../db/repositories/user.js';
-import type { CharacterRepository } from '../db/repositories/character.js';
+import type { CharacterRepository, CharacterRow } from '../db/repositories/character.js';
 import type { ItemRepository } from '../db/repositories/item.js';
 import type { ActionRepository } from '../db/repositories/action.js';
 import type { NpcRepository } from '../db/repositories/npc.js';
 import { LocationRepository } from '../db/repositories/location.js';
 import { MetaRepository } from '../db/repositories/meta.js';
+import { LlmCallRepository } from '../db/repositories/llm-call.js';
 import { FallbackLlmGateway, DIVINE_INTERVENTION_TYPE, DIVINE_MESSAGE } from '../llm/FallbackLlmGateway.js';
 import { PROMPT_VERSION } from '../llm/prompt-builder.js';
+import { APP_VERSION } from '../version.js';
 import { ActionStateMachine, type InternalActionState, type WorldContextResolver } from './action/machine.js';
 import { validateMutations, applyMutations } from './action/mutations.js';
 import { computeStats, type ClassDef, type ModifierDef } from './StatComputer.js';
@@ -22,6 +24,7 @@ import type {
   ActionStartResult,
   ActionStepResult,
   ActionResumeResult,
+  ActionOutcome,
   ActionDecisionRecord,
   LocationInfo,
   ItemData,
@@ -88,6 +91,7 @@ function isStateStale(
       finalDc: state.accumulatedDc,
       playerRolled: null,
       outcome: 'timed_out',
+      appVersion: APP_VERSION,
       promptVersion: PROMPT_VERSION,
     });
     charRepo.update(characterId, { last_action_state: null });
@@ -124,6 +128,7 @@ export class WorldEngineImpl implements WorldEngine {
   private npcRepo: NpcRepository;
   private locationRepo: LocationRepository;
   private metaRepo: MetaRepository;
+  private llmCallRepo: LlmCallRepository;
   private machine: ActionStateMachine;
   private classDefs: ClassDef[];
   private upbringingDefs: ModifierDef[];
@@ -143,6 +148,7 @@ export class WorldEngineImpl implements WorldEngine {
     this.npcRepo = config.npcRepo;
     this.locationRepo = new LocationRepository(config.db);
     this.metaRepo = new MetaRepository(config.db);
+    this.llmCallRepo = new LlmCallRepository(config.db);
     this.classDefs = config.classDefs ?? [];
     this.upbringingDefs = config.upbringingDefs ?? [];
     this.raceDefs = config.raceDefs ?? [];
@@ -244,6 +250,96 @@ export class WorldEngineImpl implements WorldEngine {
 
   // ── Action state machine (S3) ──
 
+  /**
+   * Apply a resolved outcome: drop invalid mutations, apply char/item changes,
+   * write the action row (+ link the LLM audit row), spawn NPCs, and clear any
+   * mid-action state. Shared by stepAction and the startAction auto-finish path.
+   * Caller wraps this in a transaction. Mutates `outcome.mutations` to drop
+   * invalid entries so the renderer sees only what was applied (per spec).
+   */
+  private applyResolution(
+    characterId: number,
+    row: CharacterRow,
+    outcome: ActionOutcome,
+    rawInput: string,
+    decisions: ActionDecisionRecord[],
+  ): void {
+    // Clear mid-action state (no-op for auto-finish, which never persisted)
+    this.charRepo.update(characterId, { last_action_state: null });
+
+    const ctx = {
+      currentHealth: row.health,
+      maxHealth: row.max_health,
+      stamina: row.stamina,
+      wealth: row.wealth,
+      rollsRemaining: row.rolls_remaining,
+      location: row.location,
+    };
+
+    // Per spec: malformed mutations are silently dropped, valid ones applied.
+    const validation = validateMutations(outcome.mutations, ctx);
+    if (!validation.valid) {
+      console.warn(
+        '[engine] Dropping invalid mutations:',
+        validation.errors.map(e => `[${e.index}] ${e.message}`).join('; '),
+      );
+      const invalidIndices = new Set(validation.errors.map(e => e.index));
+      outcome.mutations = outcome.mutations.filter((_, i) => !invalidIndices.has(i));
+    }
+
+    const applied = applyMutations(outcome.mutations, ctx);
+
+    // Apply character state changes
+    const updates: Record<string, unknown> = {};
+    if (applied.currentHealth !== row.health) updates.health = applied.currentHealth;
+    if (applied.stamina !== row.stamina) updates.stamina = applied.stamina;
+    if (applied.wealth !== row.wealth) updates.wealth = applied.wealth;
+    if (applied.rollsRemaining !== row.rolls_remaining) updates.rolls_remaining = applied.rollsRemaining;
+    if (applied.location !== row.location) updates.location = applied.location;
+    if (Object.keys(updates).length > 0) {
+      this.charRepo.update(characterId, updates);
+    }
+
+    // Add items
+    for (const item of applied.itemsToAdd) {
+      this.itemRepo.create(characterId, item);
+    }
+
+    // Remove items — decrement the stack so trading 1 of N leaves the rest
+    for (const { name, quantity } of applied.itemsToRemove) {
+      this.itemRepo.decrementByName(characterId, name, quantity);
+    }
+
+    // Insert action record
+    const actionRow = this.actionRepo.create({
+      characterId,
+      rawInput,
+      type: outcome.distilledType,
+      decisionsJson: JSON.stringify(decisions),
+      finalDc: outcome.finalDc,
+      playerRolled: outcome.playerRolled,
+      outcome: outcome.outcome,
+      appVersion: APP_VERSION,
+      promptVersion: PROMPT_VERSION,
+    });
+
+    // Link the audit row to the action it produced (best-effort)
+    if (outcome.llmCallId !== undefined) {
+      this.llmCallRepo.linkAction(outcome.llmCallId, actionRow.id);
+    }
+
+    // Spawn NPCs
+    for (const npc of applied.npcsToSpawn) {
+      this.npcRepo.create({
+        name: npc.name,
+        class: npc.class,
+        race: npc.race,
+        description: npc.description,
+        createdByActionId: actionRow.id,
+      });
+    }
+  }
+
   async startAction(characterId: number, rawInput: string): Promise<ActionStartResult> {
     // Guard: prevent concurrent or duplicate action starts
     if (this.processingActions.has(characterId)) {
@@ -267,7 +363,8 @@ export class WorldEngineImpl implements WorldEngine {
       const char = this.rowToCharacterData(row);
       const items = this.getItems(characterId);
 
-      const { state: internalState, firstDecision } = await this.machine.start(char, rawInput, items);
+      const startResult = await this.machine.start(char, rawInput, items);
+      const internalState = startResult.state;
 
       // Divine intervention during start: drain roll, persist divine state, return single Resolve option
       if (internalState.distilledType === DIVINE_INTERVENTION_TYPE) {
@@ -292,6 +389,23 @@ export class WorldEngineImpl implements WorldEngine {
         };
       }
 
+      // Auto-finish: the LLM resolved the action outright (e.g. travel/rest).
+      // Drain a roll, apply the resolution (writes an action row), return the outcome.
+      if (startResult.resolved) {
+        this.db.transaction(() => {
+          this.charRepo.update(characterId, {
+            rolls_remaining: Math.max(0, row.rolls_remaining - 1),
+          });
+          this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
+        })();
+
+        return {
+          state: this.toPublicState(internalState),
+          firstDecision: internalState.pendingDecision,
+          outcome: startResult.outcome,
+        };
+      }
+
       // Normal path: drain a roll + persist state atomically
       this.db.transaction(() => {
         this.charRepo.update(characterId, {
@@ -302,7 +416,7 @@ export class WorldEngineImpl implements WorldEngine {
 
       return {
         state: this.toPublicState(internalState),
-        firstDecision,
+        firstDecision: startResult.firstDecision,
       };
     } finally {
       this.processingActions.delete(characterId);
@@ -345,90 +459,9 @@ export class WorldEngineImpl implements WorldEngine {
     const result = await this.machine.step(internalState, choice, char, items);
 
     if (result.resolved) {
-      // Wrap all resolution side-effects in a transaction for atomicity
-      const applyResolution = this.db.transaction(() => {
-        // Clear mid-action state
-        this.charRepo.update(characterId, { last_action_state: null });
-
-        // Validate and apply mutations
-        const ctx = {
-          currentHealth: row.health,
-          maxHealth: row.max_health,
-          stamina: row.stamina,
-          wealth: row.wealth,
-          rollsRemaining: row.rolls_remaining,
-          location: row.location,
-          knownLocations: this.locationRepo.findAll().map(l => l.name),
-        };
-
-        // Per spec: malformed mutations are silently dropped, valid ones applied.
-        // Mutate the outcome so the renderer sees only the mutations that were actually applied.
-        const validation = validateMutations(result.outcome.mutations, ctx);
-        if (!validation.valid) {
-          console.warn(
-            '[engine] Dropping invalid mutations:',
-            validation.errors.map(e => `[${e.index}] ${e.message}`).join('; '),
-          );
-          const invalidIndices = new Set(validation.errors.map(e => e.index));
-          result.outcome.mutations = result.outcome.mutations.filter(
-            (_, i) => !invalidIndices.has(i),
-          );
-        }
-
-        const applied = applyMutations(result.outcome.mutations, ctx);
-
-        // Apply character state changes
-        const updates: Record<string, unknown> = {};
-        if (applied.currentHealth !== row.health) updates.health = applied.currentHealth;
-        if (applied.stamina !== row.stamina) updates.stamina = applied.stamina;
-        if (applied.wealth !== row.wealth) updates.wealth = applied.wealth;
-        if (applied.rollsRemaining !== row.rolls_remaining) updates.rolls_remaining = applied.rollsRemaining;
-        if (applied.location !== row.location) updates.location = applied.location;
-        if (Object.keys(updates).length > 0) {
-          this.charRepo.update(characterId, updates);
-        }
-
-        // Add items
-        for (const item of applied.itemsToAdd) {
-          this.itemRepo.create(characterId, item);
-        }
-
-        // Remove items
-        for (const name of applied.itemsToRemove) {
-          this.itemRepo.deleteByName(characterId, name);
-        }
-
-        // Insert action record
-        const actionRow = this.actionRepo.create({
-          characterId,
-          rawInput: result.state.rawInput,
-          type: result.outcome.distilledType,
-          decisionsJson: JSON.stringify(result.state.decisions),
-          finalDc: result.outcome.finalDc,
-          playerRolled: result.outcome.playerRolled,
-          outcome: result.outcome.outcome,
-          promptVersion: PROMPT_VERSION,
-          llmRequest: result.outcome.llmRequest ?? null,
-          llmResponse: result.outcome.llmResponse ?? null,
-        });
-
-        // Spawn NPCs
-        for (const npc of applied.npcsToSpawn) {
-          this.npcRepo.create({
-            name: npc.name,
-            class: npc.class,
-            race: npc.race,
-            description: npc.description,
-            createdByActionId: actionRow.id,
-          });
-        }
-      });
-
-      // Divine intervention (S4 tier-2): clear state but skip action row insert
+      // Divine intervention (S4 tier-2): clear state but skip the action row + mutations
       if (result.outcome.distilledType === DIVINE_INTERVENTION_TYPE) {
-        // Clear mid-action state (no action row inserted, no mutations applied)
         this.charRepo.update(characterId, { last_action_state: null });
-
         return {
           resolved: true,
           state: this.toPublicState(result.state),
@@ -436,7 +469,9 @@ export class WorldEngineImpl implements WorldEngine {
         };
       }
 
-      applyResolution();
+      this.db.transaction(() => {
+        this.applyResolution(characterId, row, result.outcome, result.state.rawInput, result.state.decisions);
+      })();
 
       return {
         resolved: true,

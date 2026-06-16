@@ -132,6 +132,37 @@ describe('WorldEngineImpl — action state machine integration', () => {
       expect(result.firstDecision.options).toHaveLength(3);
     });
 
+    it('auto-finishes a done, choice-less action: logs an action row and applies mutations', async () => {
+      llm.setDecision({
+        distilledType: 'travel', stat: 'physical', baseDc: 10,
+        required: false, done: true, decision: [],
+        mutations: [
+          { type: 'set_location', name: 'The Forest Edge' },
+          { type: 'modify_stamina', amount: 2 },
+        ],
+        outcomeText: 'You arrive at the forest edge.',
+      });
+
+      const result = await engine.startAction(characterId, 'walk to the forest edge');
+
+      // Outcome returned for direct rendering (no buttons), and no mid-action state left
+      expect(result.outcome).toBeDefined();
+      expect(result.outcome?.outcome).toBe('done');
+      expect(charRepo.findById(characterId)?.last_action_state).toBeNull();
+
+      // Logged to the DB as a normal action row
+      const actions = actionRepo.findRecentByCharacterId(characterId, 5);
+      expect(actions).toHaveLength(1);
+      expect(actions[0].outcome).toBe('done');
+      expect(actions[0].type).toBe('travel');
+
+      // Mutations applied (stamina clamped at 10) + a roll drained
+      const char = charRepo.findById(characterId);
+      expect(char?.location).toBe('The Forest Edge');
+      expect(char?.stamina).toBe(10);
+      expect(char?.rolls_remaining).toBe(1);
+    });
+
     it('persists mid-action state in last_action_state', async () => {
       llm.setDecision(huntFirstDecision());
 
@@ -202,7 +233,7 @@ describe('WorldEngineImpl — action state machine integration', () => {
       expect(saved.decisions).toHaveLength(1);
     });
 
-    it('resolves as skipped on bail', async () => {
+    it('resolves as bailed on bail', async () => {
       llm.setDecision(huntFirstDecision());
       await engine.startAction(characterId, 'go hunt a wolf');
 
@@ -210,7 +241,7 @@ describe('WorldEngineImpl — action state machine integration', () => {
 
       expect(result.resolved).toBe(true);
       if (result.resolved) {
-        expect(result.outcome.outcome).toBe('skipped');
+        expect(result.outcome.outcome).toBe('bailed');
         expect(result.outcome.playerRolled).toBeNull();
       }
     });

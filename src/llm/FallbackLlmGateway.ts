@@ -80,6 +80,7 @@ export class FallbackLlmGateway implements LlmGateway {
       recentActions: [],
       rawInput: ctx.rawInput,
       scalingHint: '',
+      attemptTier: 1,
     };
   }
 

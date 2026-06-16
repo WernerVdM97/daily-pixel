@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { buildSystemPrompt, buildUserMessage } from '../../src/llm/prompt-builder.js';
 import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
 import type { LlmContext, LlmDecision } from '../../src/llm/LlmGateway.js';
+import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
 
 
 
@@ -236,6 +237,33 @@ describe('DeepseekLlmGateway', () => {
     expect(result.decision[2]).toEqual({ label: 'Bail', dcModifier: null });
   });
 
+  it('strips carriage returns from LLM prose (prompt, outcome_text, labels)', async () => {
+    const response = {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            distilled_type: 'travel',
+            stat: 'physical',
+            base_dc: 10,
+            required: false,
+            done: true,
+            prompt: 'You set out.\r\nThe road is long.\r',
+            decision: [{ label: 'Press on\r', dc_modifier: 0 }],
+            outcome_text: 'You arrive.\r\nThe gate creaks.\r',
+          }),
+        },
+      }],
+    };
+    const gateway = new DeepseekLlmGateway({ apiKey: 'test-key', fetch: mockFetch(response) });
+
+    const result = await gateway.decide(minimalContext);
+
+    expect(result.prompt).not.toContain('\r');
+    expect(result.outcomeText).not.toContain('\r');
+    expect(result.decision[0].label).not.toContain('\r');
+    expect(result.outcomeText).toBe('You arrive.\nThe gate creaks.');
+  });
+
   it('uses the deepseek-v4-flash model', async () => {
     const fetchFn = mockFetch(validApiResponse);
     const gateway = new DeepseekLlmGateway({
@@ -356,5 +384,78 @@ describe('DeepseekLlmGateway', () => {
     });
 
     await expect(gateway.decide(minimalContext)).rejects.toThrow('ECONNREFUSED');
+  });
+});
+
+describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
+  const goodDecision = {
+    distilled_type: 'travel', stat: 'physical', base_dc: 10,
+    required: false, done: true, decision: [], mutations: [],
+  };
+
+  function responseWithThinking(): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content: JSON.stringify(goodDecision), reasoning_content: 'deep thoughts here' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  function capture() {
+    const records: LlmCallRecord[] = [];
+    const recorder = { record: (r: LlmCallRecord) => { records.push(r); return records.length; } };
+    return { records, recorder };
+  }
+
+  /** Malformed (unparseable) content — the LLM "failed" to return valid format. */
+  function malformedResponse(): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content: 'not json {', reasoning_content: 'deep thoughts here' },
+          finish_reason: 'stop',
+        }],
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  it('does NOT save full reasoning on a clean, well-formed call, but keeps the char count', async () => {
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder });
+    await gw.decide(minimalContext);
+    expect(records[0].reasoning).toBeNull();
+    expect(records[0].reasoningChars).toBe('deep thoughts here'.length);
+  });
+
+  it('saves full reasoning when the LLM returns malformed format (diagnostic, hardcoded)', async () => {
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: malformedResponse(), recorder });
+    await gw.decide(minimalContext).catch(() => { /* parse error expected */ });
+    expect(records[0].parseOk).toBe(false);
+    expect(records[0].reasoning).toBe('deep thoughts here');
+  });
+
+  it('a failed dice verdict alone does NOT trigger reasoning capture', async () => {
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder });
+    await gw.decide({ ...minimalContext, rollOutcome: 'failure' });
+    expect(records[0].reasoning).toBeNull();
+  });
+
+  it('saves full reasoning on every well-formed call when logThinkingAll is set', async () => {
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder, logThinkingAll: true });
+    await gw.decide(minimalContext);
+    expect(records[0].reasoning).toBe('deep thoughts here');
   });
 });

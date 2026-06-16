@@ -48,6 +48,7 @@ how it runs
 | ✅      | [Build — Probabilistic](./engine/poc-build-probabilistic.md) | `/action` flow, reactive LLM decisions, roll/skip, mutations     |
 | ✅      | [Build — Scenes](./engine/poc-build-scenes.md) | ASCII fragment catalog, tag matching, integration, mobile testing     |
 | ✅      | [Build — Polish](./engine/poc-build-polish.md) | Error handling, LLM fallback, outcome rendering, help content, final pass     |
+| ✅     | [Build — Action UX (Spec)](./engine/poc-build-action-ux.md) | Action-UX refinements + §7 bug fixes (implemented): A/B/C buttons, Bail/Skip/Finish, footer, daily actions |
 | ✅      | [World Tick](./engine/poc-build-world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
 | ✅      | [Build — Deploy](./engine/poc-build-deploy.md) | CI/CD, LXC provisioning, systemd, auto-update, tester invite, observation     |
 
@@ -67,6 +68,7 @@ resolved cross-cutting trade-offs (ADRs)
 | Status | Doc | Summary |
 |---|---|---|
 | ✅ | [POC Spec Reconciliation](./decisions/poc-spec-reconciliation.md) | Resolves POC contradictions: outcome narration, cron tick, ASCII scenes, DC sign, supporting fixes |
+| ✅ | [POC Action UX Refinements](./decisions/poc-action-ux-refinements.md) | Buttons A/B/C, Bail/Skip/Finish terminal states, footer standardisation, generic daily actions |
 
 ---
 
@@ -83,6 +85,8 @@ core game loop
 | Status | Doc | Summary |
 |---|---|---|
 | 🌱 | [Core Loop](./sparks/mvp-core-loop.md) | Daily/weekly rolls, co-op bonuses, auto-sim, stamina |
+| 🌱 | [LLM Prompt & Resolution](./sparks/mvp-llm-prompt-architecture.md) | Roll-before-flavour, markdown prompts, agent chaining, sim harness, captured-call mocks |
+| 🌱 | [Combat](./sparks/mvp-combat.md) | Roll-resolution combat as a first-class mode (no twitch) |
 | 🌱 | [Architecture](./sparks/mvp-architecture.md) | High-level system diagram (target, not POC) |
 | 🌱 | [Convergence & Climax](./sparks/mvp-progression.md) | Fellowship formation, December climax, player lifecycle |
 | 🌱 | [Data Model](./sparks/mvp-data-model.md) | Node types, edge types, query patterns, data/prose split |

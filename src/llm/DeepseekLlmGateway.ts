@@ -3,7 +3,9 @@
 // JSON mode: response_format: { type: "json_object" } — https://api-docs.deepseek.com/guides/json_mode
 
 import type { LlmGateway, LlmContext, LlmDecision } from './LlmGateway.js';
-import { buildSystemPrompt, buildUserMessage } from './prompt-builder.js';
+import type { LlmCallRecorder } from './LlmCallRecorder.js';
+import { buildSystemPrompt, buildUserMessage, buildContextDigest, PROMPT_VERSION } from './prompt-builder.js';
+import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
 
 export interface DeepseekConfig {
@@ -14,6 +16,13 @@ export interface DeepseekConfig {
   fetch?: typeof fetch;
   /** If true, log all LLM request/response data to console. */
   verbose?: boolean;
+  /** Optional audit sink — records every call attempt (success, failure, retry). */
+  recorder?: LlmCallRecorder;
+  /**
+   * If true, persist the full LLM reasoning (thinking) on EVERY call, not just
+   * diagnostic/failed ones. POC toggle via LOG_LLM_THINKING_ALL — costs DB space.
+   */
+  logThinkingAll?: boolean;
 }
 
 export class DeepseekLlmGateway implements LlmGateway {
@@ -22,6 +31,8 @@ export class DeepseekLlmGateway implements LlmGateway {
   private temperature: number;
   private fetchFn: typeof fetch;
   private verbose: boolean;
+  private recorder?: LlmCallRecorder;
+  private logThinkingAll: boolean;
 
   constructor(config: DeepseekConfig) {
     this.apiKey = config.apiKey;
@@ -29,11 +40,101 @@ export class DeepseekLlmGateway implements LlmGateway {
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.verbose = config.verbose ?? false;
+    this.recorder = config.recorder;
+    this.logThinkingAll = config.logThinkingAll ?? false;
   }
 
   async decide(context: LlmContext): Promise<LlmDecision> {
+    // Audit fields, populated as the call progresses; recorded in `finally` so
+    // failures and retries are captured, not just the happy path.
+    const startedAt = Date.now();
+    let httpStatus: number | null = null;
+    let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
+    let finishReason: string | null = null;
+    let reasoningChars: number | null = null;
+    let responseJson: string | null = null;
+    let parseOk = false;
+    let warnings: string[] = [];
+    let errorMsg: string | null = null;
+    let rawPrompt: string | null = null;
+    let reasoning: string | null = null;
+    let decision: LlmDecision | undefined;
+
+    try {
+      decision = await this.runDecision(context, (fields) => {
+        httpStatus = fields.httpStatus ?? httpStatus;
+        usage = fields.usage ?? usage;
+        finishReason = fields.finishReason ?? finishReason;
+        reasoningChars = fields.reasoningChars ?? reasoningChars;
+        responseJson = fields.responseJson ?? responseJson;
+        parseOk = fields.parseOk ?? parseOk;
+        warnings = fields.warnings ?? warnings;
+        rawPrompt = fields.rawPrompt ?? rawPrompt;
+        reasoning = fields.reasoning ?? reasoning;
+      });
+      return decision;
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : String(err);
+      throw err;
+    } finally {
+      if (this.recorder) {
+        try {
+          // "Diagnostic" = the LLM call itself went wrong: a transport error, an
+          // empty/unparseable (malformed-format) response, or a fallback retry.
+          // Raw prompt + thinking are always captured for these.
+          const isDiagnostic = (context.attemptTier ?? 0) > 0 || errorMsg !== null || !parseOk;
+          // Thinking on every OTHER (well-formed) call is opt-in via the env toggle.
+          const captureReasoning = isDiagnostic || this.logThinkingAll;
+          const callId = this.recorder.record({
+            appVersion: APP_VERSION,
+            promptVersion: PROMPT_VERSION,
+            model: this.model,
+            temperature: this.temperature,
+            tier: context.attemptTier ?? 0,
+            playerInput: context.rawInput,
+            contextDigest: buildContextDigest(context),
+            rawPrompt: isDiagnostic ? rawPrompt : null,
+            reasoning: captureReasoning ? reasoning : null,
+            responseJson,
+            parseOk,
+            validationWarnings: warnings,
+            error: errorMsg,
+            httpStatus,
+            promptTokens: usage?.prompt_tokens ?? null,
+            completionTokens: usage?.completion_tokens ?? null,
+            totalTokens: usage?.total_tokens ?? null,
+            reasoningChars,
+            latencyMs: Date.now() - startedAt,
+            finishReason,
+          });
+          if (decision) decision._llmCallId = callId;
+        } catch (recErr) {
+          // Audit must never break gameplay.
+          console.error(c.red('[llm:audit] failed to record call'), recErr);
+        }
+      }
+    }
+  }
+
+  /** Performs the actual request/parse; reports audit fields via `onProgress`. */
+  private async runDecision(
+    context: LlmContext,
+    onProgress: (fields: {
+      httpStatus?: number;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      finishReason?: string | null;
+      reasoningChars?: number | null;
+      responseJson?: string | null;
+      parseOk?: boolean;
+      warnings?: string[];
+      rawPrompt?: string | null;
+      reasoning?: string | null;
+    }) => void,
+  ): Promise<LlmDecision> {
     const systemPrompt = buildSystemPrompt();
     const userMessage = buildUserMessage(context);
+    // Report the prompt up front so it's captured even if the request throws.
+    onProgress({ rawPrompt: userMessage });
 
     const requestBody = {
       model: this.model,
@@ -64,6 +165,8 @@ export class DeepseekLlmGateway implements LlmGateway {
       signal: controller.signal,
     }).finally(() => clearTimeout(timeout));
 
+    onProgress({ httpStatus: response.status });
+
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
       console.error(c.red('[llm:error]'), response.status, errText);
@@ -71,8 +174,17 @@ export class DeepseekLlmGateway implements LlmGateway {
     }
 
     const data = await response.json() as {
-      choices: Array<{ message: { content: string; reasoning_content?: string } }>;
+      choices: Array<{ message: { content: string; reasoning_content?: string }; finish_reason?: string }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
+
+    const reasoningContent = data.choices?.[0]?.message?.reasoning_content ?? null;
+    onProgress({
+      usage: data.usage,
+      finishReason: data.choices?.[0]?.finish_reason ?? null,
+      reasoningChars: reasoningContent?.length ?? null,
+      reasoning: reasoningContent,
+    });
 
     const msg = data.choices?.[0]?.message;
     const content = msg?.content;
@@ -94,20 +206,20 @@ export class DeepseekLlmGateway implements LlmGateway {
       console.error(c.red('[llm:parse-error]'), content.slice(0, 500));
       throw new Error(`Failed to parse DeepSeek response: ${content.slice(0, 200)}`);
     }
+    onProgress({ responseJson: content, parseOk: true });
 
     if (this.verbose) {
       console.log(c.green('[llm:parsed]'), JSON.stringify(parsed, null, 2));
     }
 
     const decision = this.parseDecision(parsed);
-    decision._rawRequest = userMessage;
-    decision._rawResponse = content;
+    onProgress({ warnings: this.validateDecision(parsed, decision) });
     return decision;
   }
 
   private parseDecision(raw: Record<string, unknown>): LlmDecision {
     const decision: LlmDecision = {
-      ...(raw.prompt === undefined ? {} : { prompt: String(raw.prompt) }),
+      ...(raw.prompt === undefined ? {} : { prompt: stripCR(String(raw.prompt)) }),
       distilledType: String(raw.distilled_type ?? ''),
       stat: this.parseStat(raw.stat),
       baseDc: Number(raw.base_dc ?? 10),
@@ -115,19 +227,19 @@ export class DeepseekLlmGateway implements LlmGateway {
       done: Boolean(raw.done),
       decision: Array.isArray(raw.decision)
         ? raw.decision.map((opt: Record<string, unknown>) => ({
-            label: String(opt.label ?? ''),
+            label: stripCR(String(opt.label ?? '')),
             dcModifier: opt.dc_modifier === null ? null : Number(opt.dc_modifier ?? 0),
           }))
         : [],
       ...(raw.mutations === undefined ? {} : { mutations: raw.mutations as unknown[] }),
-      ...(raw.outcome_text === undefined ? {} : { outcomeText: String(raw.outcome_text) }),
+      ...(raw.outcome_text === undefined ? {} : { outcomeText: stripCR(String(raw.outcome_text)) }),
     };
 
-    this.validateDecision(raw, decision);
     return decision;
   }
 
-  private validateDecision(raw: Record<string, unknown>, d: LlmDecision): void {
+  /** Returns human-readable warnings about the decision; also logs them. */
+  private validateDecision(raw: Record<string, unknown>, d: LlmDecision): string[] {
     const warnings: string[] = [];
 
     if (!d.distilledType) warnings.push('distilled_type is empty');
@@ -167,8 +279,11 @@ export class DeepseekLlmGateway implements LlmGateway {
 
     // Check mutations is an array when present
     if (raw.mutations !== undefined && !Array.isArray(raw.mutations)) {
+      warnings.push(`mutations is not an array (${typeof raw.mutations})`);
       console.warn(c.yellow('[llm:validate] mutations is not an array:'), typeof raw.mutations, JSON.stringify(raw.mutations).slice(0, 200));
     }
+
+    return warnings;
   }
 
   private parseStat(raw: unknown): 'physical' | 'wisdom' | 'intelligence' | 'charisma' {
@@ -178,4 +293,9 @@ export class DeepseekLlmGateway implements LlmGateway {
     }
     return 'physical';
   }
+}
+
+/** Strip carriage returns from LLM-authored prose so they don't render as `␍` in Discord. */
+function stripCR(s: string): string {
+  return s.replace(/\r/g, '');
 }

@@ -274,6 +274,14 @@ describe('Mutation application', () => {
     expect(state.stamina).toBe(7);
   });
 
+  it('clamps modify_stamina to the max ceiling (no 11/10)', () => {
+    const state = applyMutations(
+      [{ type: 'modify_stamina', amount: 5 }],
+      ctx({ stamina: 9 }),
+    );
+    expect(state.stamina).toBe(10);
+  });
+
   it('applies modify_wealth (gain)', () => {
     const state = applyMutations(
       [{ type: 'modify_wealth', amount: 15 }],
@@ -325,7 +333,7 @@ describe('Mutation application', () => {
     expect(state.itemsToAdd[0].name).toBe('Wolf Pelt');
   });
 
-  it('returns items to remove from remove_item mutations', () => {
+  it('returns items to remove from remove_item mutations (default qty 1)', () => {
     const state = applyMutations(
       [
         { type: 'remove_item', name: 'Rusty Sword' },
@@ -333,7 +341,17 @@ describe('Mutation application', () => {
       ctx(),
     );
     expect(state.itemsToRemove).toHaveLength(1);
-    expect(state.itemsToRemove[0]).toBe('Rusty Sword');
+    expect(state.itemsToRemove[0]).toEqual({ name: 'Rusty Sword', quantity: 1 });
+  });
+
+  it('carries an explicit remove_item quantity', () => {
+    const state = applyMutations(
+      [
+        { type: 'remove_item', name: 'Steel Ingot', quantity: 1 },
+      ],
+      ctx(),
+    );
+    expect(state.itemsToRemove[0]).toEqual({ name: 'Steel Ingot', quantity: 1 });
   });
 
   it('returns npcs to spawn from spawn_npc mutations', () => {

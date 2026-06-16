@@ -168,19 +168,20 @@ describe('ActionStateMachine — step', () => {
     }
   });
 
-  it('resolves when LLM says done', async () => {
+  it('resolves when LLM says done (success keeps the LLM mutations)', async () => {
     const llm = new MockLlmGateway();
     llm.setDecision(huntFinalDecision()); // done: true
 
-    const machine = new ActionStateMachine(llm);
-    const { state: s0 } = await machine.start(testChar(), 'go hunt a wolf', testItems);
+    const machine = new ActionStateMachine(llm, () => 20); // high roll → success
+    const start = await machine.start(testChar(), 'go hunt a wolf', testItems);
+    if (start.resolved) return;
 
-    const result = await machine.step(s0, 'Attack!', testChar(), testItems);
+    const result = await machine.step(start.state, 'Attack!', testChar(), testItems);
 
     expect(result.resolved).toBe(true);
     if (result.resolved) {
       expect(result.outcome.distilledType).toBe('hunt');
-      expect(result.outcome.outcome).toBeDefined(); // success or failure
+      expect(result.outcome.outcome).toBe('success');
       expect(result.outcome.finalDc).toBe(12); // base DC, no modifiers accumulated
       expect(result.outcome.mutations).toEqual([
         { type: 'modify_health', amount: -3 },
@@ -191,22 +192,141 @@ describe('ActionStateMachine — step', () => {
     }
   });
 
-  it('resolves as skipped when player bails', async () => {
+  it('roll-first: the dice decide the verdict and a narration call carries it', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      distilledType: 'errand', stat: 'physical', baseDc: 12,
+      required: false, done: true,
+      decision: [{ label: 'Deliver it', dcModifier: 0 }],
+      mutations: [{ type: 'modify_stamina', amount: -1 }],
+      outcomeText: 'You weave through the crowd.',
+    });
+
+    const machine = new ActionStateMachine(llm, () => 1); // natural 1 → failure
+    const start = await machine.start(testChar(), 'carry a message', testItems);
+    if (start.resolved) return;
+
+    const before = llm.calls.length;
+    const result = await machine.step(start.state, 'Deliver it', testChar(), testItems);
+
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) return;
+    // The dice decided failure, independent of the LLM's content.
+    expect(result.outcome.outcome).toBe('failure');
+    // Resolution made a second (narration) call carrying the verdict.
+    expect(llm.calls.length).toBe(before + 2);
+    expect(llm.calls[llm.calls.length - 1].context.rollOutcome).toBe('failure');
+  });
+
+  it('on failure, strips rewards and adds a stamina penalty', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      distilledType: 'errand', stat: 'physical', baseDc: 12,
+      required: false, done: true,
+      decision: [{ label: 'Push on', dcModifier: 0 }],
+      mutations: [
+        { type: 'modify_wealth', amount: 5 },   // reward — should be dropped
+        { type: 'add_item', name: 'Trinket', emoji: '💍', stat: 'charisma', modifier: 1, quantity: 1 }, // dropped
+        { type: 'modify_stamina', amount: -1 },  // cost — kept
+        { type: 'set_location', name: 'The East Road' }, // world change — kept
+      ],
+    });
+
+    const machine = new ActionStateMachine(llm, () => 1); // low roll → failure
+    const start = await machine.start(testChar(), 'run an errand', testItems);
+    if (start.resolved) return;
+
+    const result = await machine.step(start.state, 'Push on', testChar(), testItems);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.outcome).toBe('failure');
+      const m = result.outcome.mutations;
+      // no reward
+      expect(m.find(x => x.type === 'modify_wealth')).toBeUndefined();
+      expect(m.find(x => x.type === 'add_item')).toBeUndefined();
+      // costs + world change kept
+      expect(m).toContainEqual({ type: 'modify_stamina', amount: -1 });
+      expect(m).toContainEqual({ type: 'set_location', name: 'The East Road' });
+      // flat failure penalty added
+      expect(m).toContainEqual({ type: 'modify_stamina', amount: -2 });
+    }
+  });
+
+  it('resolves as bailed (−1 stamina) when player bails a real decision', async () => {
     const llm = new MockLlmGateway();
     llm.setDecision(huntFirstDecision());
 
     const machine = new ActionStateMachine(llm);
-    const { state: s0 } = await machine.start(testChar(), 'go hunt a wolf', testItems);
+    const start = await machine.start(testChar(), 'go hunt a wolf', testItems);
+    expect(start.resolved).toBe(false);
+    if (start.resolved) return;
 
-    const result = await machine.step(s0, 'Bail', testChar(), testItems);
+    const result = await machine.step(start.state, 'Bail', testChar(), testItems);
 
     expect(result.resolved).toBe(true);
     if (result.resolved) {
-      expect(result.outcome.outcome).toBe('skipped');
+      expect(result.outcome.outcome).toBe('bailed');
       expect(result.outcome.distilledType).toBe('hunt');
       expect(result.outcome.finalDc).toBe(12); // unchanged
       expect(result.outcome.playerRolled).toBeNull(); // no roll on bail
+      expect(result.outcome.mutations).toEqual([{ type: 'modify_stamina', amount: -1 }]);
     }
+  });
+
+  it('auto-finishes a done, non-required, choice-less decision (travel/rest)', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      distilledType: 'travel',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      done: true,
+      decision: [],
+      mutations: [
+        { type: 'set_location', name: 'The Forest Edge' },
+        { type: 'modify_stamina', amount: 2 },
+      ],
+      outcomeText: 'You wake an hour later, steadier.',
+    });
+
+    const machine = new ActionStateMachine(llm);
+    const start = await machine.start(testChar(), 'go nap in the woods', testItems);
+
+    expect(start.resolved).toBe(true);
+    if (start.resolved) {
+      expect(start.outcome.outcome).toBe('done');
+      expect(start.outcome.playerRolled).toBeNull();
+      expect(start.outcome.outcomeText).toBe('You wake an hour later, steadier.');
+      expect(start.outcome.mutations).toContainEqual({ type: 'set_location', name: 'The Forest Edge' });
+    }
+  });
+
+  it('does NOT auto-finish a required, choice-less done decision', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      distilledType: 'ambush', stat: 'physical', baseDc: 12,
+      required: true, done: true, decision: [],
+    });
+
+    const machine = new ActionStateMachine(llm);
+    const start = await machine.start(testChar(), 'react', testItems);
+
+    expect(start.resolved).toBe(false);
+  });
+
+  it('stamps the distilled type on each decision record (breadcrumb trail)', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision(huntFirstDecision()); // distilled_type 'hunt', done: false
+    const machine = new ActionStateMachine(llm, () => 10);
+
+    const start = await machine.start(testChar(), 'go hunt', testItems);
+    if (start.resolved) return;
+    const step1 = await machine.step(start.state, 'Follow deer tracks', testChar(), testItems);
+
+    expect(step1.resolved).toBe(false);
+    if (step1.resolved) return;
+    expect(step1.state.decisions[0].distilledType).toBe('hunt');
   });
 
   it('accumulates DC across multiple steps', async () => {

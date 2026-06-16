@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS actions (
   final_dc        INTEGER NOT NULL,
   player_rolled   INTEGER,           -- NULL if skipped/timed out
   outcome         TEXT    NOT NULL,  -- success|failure|skipped|timed_out
+  app_version     TEXT,              -- app build (VERSION file) that produced this row
   prompt_version  TEXT    NOT NULL DEFAULT 'v1',
   llm_request     TEXT,             -- full user prompt sent to LLM (for audit)
   llm_response    TEXT,             -- raw JSON response from LLM (for audit)
@@ -65,6 +66,35 @@ CREATE TABLE IF NOT EXISTS npcs (
   location              TEXT,
   description           TEXT,
   created_by_action_id  INTEGER REFERENCES actions(id)
+);
+
+-- Per-attempt LLM audit log (POC instrumentation). One row per call to the
+-- gateway, including failed/retry attempts — captures what's volatile and
+-- diagnostic, not the reconstructable prompt boilerplate.
+CREATE TABLE IF NOT EXISTS llm_calls (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  action_id            INTEGER REFERENCES actions(id),  -- linked after resolution (NULL for failures/retries)
+  app_version          TEXT,                             -- app build (VERSION) that produced this row
+  prompt_version       TEXT    NOT NULL,
+  model                TEXT    NOT NULL,
+  temperature          REAL,
+  tier                 INTEGER NOT NULL DEFAULT 0,       -- 0 = primary, 1 = stripped retry
+  player_input         TEXT,                             -- the volatile signal, verbatim
+  context_digest       TEXT,                             -- compact JSON snapshot (deduped, no boilerplate)
+  raw_prompt           TEXT,                             -- full user message; diagnostic calls only (error/parse-fail/retry)
+  reasoning            TEXT,                             -- full LLM thinking; diagnostic calls only
+  response_json        TEXT,                             -- raw LLM content (success only)
+  parse_ok             INTEGER NOT NULL DEFAULT 0,       -- 0|1
+  validation_warnings  TEXT,                             -- JSON array; '[]' when clean
+  error                TEXT,                             -- error message on failure, else NULL
+  http_status          INTEGER,                          -- HTTP status when known
+  prompt_tokens        INTEGER,                          -- token-waste ground truth
+  completion_tokens    INTEGER,
+  total_tokens         INTEGER,
+  reasoning_chars      INTEGER,                          -- length of reasoning_content (gauge, not stored noise)
+  latency_ms           INTEGER,
+  finish_reason        TEXT,
+  created_at           TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS locations (
@@ -101,6 +131,12 @@ CREATE INDEX IF NOT EXISTS idx_actions_character_id       ON actions(character_i
 CREATE INDEX IF NOT EXISTS idx_items_character_id         ON items(character_id);
 CREATE INDEX IF NOT EXISTS idx_npcs_location              ON npcs(location);
 CREATE INDEX IF NOT EXISTS idx_npcs_created_by_action     ON npcs(created_by_action_id);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_action_id        ON llm_calls(action_id);
+
+-- Seed NPCs are unique by name; makes the INSERT OR IGNORE re-seed idempotent
+-- (without this, every startup re-inserted all seed NPCs — see migrate.ts dedup).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_npcs_seed_name_unique
+  ON npcs(name) WHERE created_by_action_id IS NULL;
 
 -- Seed data
 

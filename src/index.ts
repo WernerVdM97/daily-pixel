@@ -14,12 +14,12 @@
 
 import process from 'node:process';
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 
+import { APP_VERSION } from './version.js';
 import { initDb, closeDb } from './db/connection.js';
 import { migrate } from './db/migrate.js';
 import { UserRepository } from './db/repositories/user.js';
@@ -28,6 +28,7 @@ import { ItemRepository } from './db/repositories/item.js';
 import { ActionRepository } from './db/repositories/action.js';
 import { NpcRepository } from './db/repositories/npc.js';
 import { MetaRepository } from './db/repositories/meta.js';
+import { LlmCallRepository } from './db/repositories/llm-call.js';
 
 import { WorldEngineImpl } from './engine/WorldEngineImpl.js';
 import type { ClassDef, ModifierDef } from './engine/StatComputer.js';
@@ -53,7 +54,7 @@ import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
 import { makeHiCommand, getDayJobActions, type DayJobDef } from './discord/commands/hi.js';
 import { makeJoinCommand, handleInteraction as handleJoinInteraction } from './discord/commands/join.js';
-import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage, consumeMenuMessage } from './discord/commands/action.js';
+import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage, buildOutcomeEmbed, consumeMenuMessage } from './discord/commands/action.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
@@ -79,7 +80,7 @@ const VERBOSE = process.env.VERBOSE === 'true';
 
 // ── Version ──
 
-const VERSION = readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf-8').trim();
+const VERSION = APP_VERSION;
 
 // ── YAML asset loading (fail-fast) ──
 
@@ -151,6 +152,9 @@ async function main() {
     const deepseek = new DeepseekLlmGateway({
       apiKey: DEEPSEEK_API_KEY,
       verbose: process.env.VERBOSE_LLM === 'true',
+      recorder: new LlmCallRepository(initDb()),
+      // POC: failures always log thinking; set this to also log it on every call.
+      logThinkingAll: process.env.LOG_LLM_THINKING_ALL === 'true',
     });
     llm = new FallbackLlmGateway(deepseek, {
       onTier2Fallback: () => {
@@ -421,7 +425,11 @@ async function main() {
           return;
         }
         const result = await engine.startAction(char.id, description);
-        if (result.firstDecision.options.length === 0) {
+        if (result.outcome) {
+          const embed = buildOutcomeEmbed(result.outcome, char, getCurrentScene(interaction.user.id), result.state);
+          await interaction.editReply({ embeds: [embed], components: [] });
+          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed] });
+        } else if (result.firstDecision.options.length === 0) {
           await interaction.editReply({
             embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
             components: [],
@@ -448,7 +456,8 @@ async function main() {
           await interaction.reply({ content: "You don't have a character. Type `/join` first.", ephemeral: true });
           return;
         }
-        const jobActions = getDayJobActions(char.dayJob, dayJobs);
+        const dayNumber = Number(engine.getMeta('day_number') ?? '1');
+        const jobActions = getDayJobActions(char.dayJob, dayJobs, { characterId: char.id, dayNumber });
         const hook = jobActions[idx]?.hook;
         if (!hook) {
           await interaction.reply({ content: 'Invalid job action.', ephemeral: true });
@@ -464,7 +473,11 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         });
 
         const result = await engine.startAction(char.id, hook);
-        if (result.firstDecision.options.length === 0) {
+        if (result.outcome) {
+          const embed = buildOutcomeEmbed(result.outcome, char, getCurrentScene(interaction.user.id), result.state);
+          await interaction.webhook.editMessage(interaction.message.id, { embeds: [embed], components: [] });
+          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed] });
+        } else if (result.firstDecision.options.length === 0) {
           await interaction.webhook.editMessage(interaction.message.id, {
             embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
             components: [],

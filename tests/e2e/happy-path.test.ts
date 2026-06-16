@@ -185,11 +185,12 @@ describe('E2E — full happy path', () => {
     expect(result).toContain('Warrior');
     expect(result).toContain('Stamina');
 
-    // Day-job actions
+    // Day-job actions — 3 surfaced at random from the job + common pool
     expect(result).toContain('Blacksmith');
-    expect(result).toContain('Forge blade');
-    expect(result).toContain('Repair armour');
-    expect(result).toContain('Shoe horses');
+    expect(result).toContain('Daily Work');
+    expect(result).toContain('①');
+    expect(result).toContain('②');
+    expect(result).toContain('③');
 
     // Resumption hint — no action yet
     expect(result).not.toContain('unfinished');
