@@ -58,6 +58,7 @@ import { buildComponentPayload, getNavButtons } from './discord/format.js';
 import { BANNER_IMAGE, imageFiles } from './discord/images.js';
 import { makeJoinCommand, handleInteraction as handleJoinInteraction, type CharDefs } from './discord/commands/join.js';
 import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage, buildOutcomeEmbed, consumeMenuMessage, CID_DAYJOB, CID_DAYJOB_CUSTOM } from './discord/commands/action.js';
+import { checkProfanity } from './discord/profanity.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
@@ -517,6 +518,17 @@ ${headInfo}`);
     if (customId && customId === 'action:custom:modal') {
       if (!interaction.isModalSubmit()) return;
       const description = interaction.fields.getTextInputValue('action:custom:input');
+
+      // Profanity filter check — blocks matching custom actions before they reach the engine.
+      const blocked = checkProfanity(description);
+      if (blocked !== null) {
+        await interaction.reply({
+          content: '❌ That action contains language the warden won\'t tolerate. Try something else.',
+          ephemeral: true,
+        });
+        return;
+      }
+
       await interaction.deferReply({ ephemeral: true });
 
       // Delete the stale day-job menu message so only the action scene shows

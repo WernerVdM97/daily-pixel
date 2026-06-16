@@ -63,6 +63,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **ISO timestamps on all console logs** — `console.log`/`warn`/`error` are monkey-patched at startup to prefix `[YYYY-MM-DD HH:mm:ss.SSS]` timestamps
 - **decision-v4 prompt** — evolved from v3: roll-first resolution blocks (`ROLL RESULT: SUCCESS/FAILURE`), honour-player-intent rule (no silent type conversion), decisions must advance (consequences on call 2+, never re-present), item breakage/loss recipe, expanded mutation examples, refined JSON contract
 - **`SLEEP_ADMIN_TICK` env var** — controls whether admin `/sleep` advances the world. Set to `true` to restore the old test-mode tick behavior. Defaults to `false` (admin sleeps like a normal player).
+- **`PROFANITY_FILTER` env var** — comma-separated regex patterns that block matching custom action text input. Players see a generic rejection message instead of the action reaching the engine. Patterns are case-insensitive and support unicode.
 
 ### Changed
 - **Action decision screen restyled** — the player's intent + prior choices now render as a quoted "🧭 Quest" path, visually separated from the current scene below. Raw DCs stay hidden while deciding; instead, **passive insight** (`10 + WIS`) occasionally tints a single option green (🟢) — only when one route is clearly safer than the rest *and* the character is perceptive enough to sense it, so the hint is earned rather than an always-on readout.
