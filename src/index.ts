@@ -16,7 +16,7 @@ import process from 'node:process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 
 import { APP_VERSION } from './version.js';
@@ -462,7 +462,7 @@ async function main() {
         if (result.outcome) {
           const embed = buildOutcomeEmbed(result.outcome, char, getCurrentScene(interaction.user.id), result.state);
           await interaction.editReply({ embeds: [embed], components: [] });
-          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed] });
+          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed], components: getNavButtons(char) });
         } else if (result.firstDecision.options.length === 0) {
           await interaction.editReply({
             embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
@@ -510,7 +510,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         if (result.outcome) {
           const embed = buildOutcomeEmbed(result.outcome, char, getCurrentScene(interaction.user.id), result.state);
           await interaction.webhook.editMessage(interaction.message.id, { embeds: [embed], components: [] });
-          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed] });
+          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed], components: getNavButtons(char) });
         } else if (result.firstDecision.options.length === 0) {
           await interaction.webhook.editMessage(interaction.message.id, {
             embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
@@ -649,10 +649,17 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         // otherwise exclude the current command's own button
         const noNav = navTarget === 'action' || navTarget === 'sleep';
         const navButtons = noNav || !char ? undefined : getNavButtons(char, navTarget);
+        const payload = buildComponentPayload(result, { ephemeral: true, navButtons });
 
-        await interaction.update(
-          buildComponentPayload(result, { ephemeral: true, navButtons }),
-        );
+        // Nav buttons live on both ephemeral views and the public /action outcome.
+        // From an ephemeral message we edit in place; from a public message we must
+        // NOT overwrite it — spawn a fresh ephemeral screen for the clicker instead.
+        const fromEphemeral = interaction.message?.flags?.has(MessageFlags.Ephemeral) ?? false;
+        if (fromEphemeral) {
+          await interaction.update(payload);
+        } else {
+          await interaction.reply(payload);
+        }
       } catch (err) {
         console.error(c.red(`[nav] Error handling nav:${navTarget}:`), err);
         if ('reply' in interaction) {

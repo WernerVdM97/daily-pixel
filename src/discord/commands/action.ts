@@ -23,6 +23,7 @@ import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
+import { getNavButtons } from '../format.js';
 
 // ── Custom IDs ──
 
@@ -224,6 +225,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         await interaction.followUp({
           content: `**${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
           embeds: [embed],
+          ...(resolvedChar ? { components: getNavButtons(resolvedChar) } : {}),
         });
         return 'action_autofinished';
       }
@@ -355,11 +357,13 @@ async function applyActionResult(
       components: [],
     });
 
-    // Post a public copy to the channel
+    // Post a public copy to the channel — with nav buttons that spawn a fresh
+    // ephemeral screen for whoever clicks (handled in the nav: dispatcher).
     const charName = character?.name ?? 'Unknown';
     await i.followUp({
       content: `**${charName}** — ${outcome.distilledType}`,
       embeds: [outcomeEmbed],
+      ...(character ? { components: getNavButtons(character) } : {}),
     });
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
