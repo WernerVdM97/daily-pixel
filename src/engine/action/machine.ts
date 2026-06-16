@@ -125,6 +125,11 @@ export class ActionStateMachine {
 
       // When the LLM resolved immediately (done: true), apply its mutations
       // instead of discarding them. Otherwise return empty bail outcome.
+      //
+      // A pre-resolved action is non-contested — it resolved on the first LLM
+      // call with no roll (playerRolled stays null), so there is no pass/fail to
+      // report. We label it 'success' to mean "the action completed and its
+      // mutations applied" (vs 'skipped', which renders as a no-op retreat).
       const outcomeMutations = state.preResolvedMutations ?? [];
       const outcomeText = state.preResolvedOutcomeText ?? 'You retreat from the situation.';
       const outcomeType = state.preResolvedMutations ? 'success' as const : 'skipped' as const;
@@ -295,7 +300,7 @@ export class ActionStateMachine {
 
     // Known locations — the LLM MUST use exact names from this list for set_location
     const locations = this.resolver.getKnownLocations();
-    if (locations.length > 1) {
+    if (locations.length > 0) {
       hintParts.push(`locations: ${locations.join(', ')}`);
     }
 

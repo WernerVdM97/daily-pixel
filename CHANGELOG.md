@@ -17,6 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Idle messages now show during all three loading states (previously only day-job quick action showed them)
 - `add_item` mutations from LLM with `stat: null` no longer crash — prompt now explicitly requires stat value, and engine drops malformed entries
 - Location scenes now resolve properly — LLM knows the exact names of all 9 seeded locations
+- `set_location` to an unknown location is now rejected by the engine (matched case-insensitively against known locations, then snapped to the canonical casing) — prevents the player being moved to a phantom location with no scene
+- Removed per-action debug logging from the resolution path
 
 ## [0.1.5] — 2026-06-15
 

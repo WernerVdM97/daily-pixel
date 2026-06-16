@@ -7,6 +7,10 @@ export interface MutationContext {
   wealth: number;
   rollsRemaining: number;
   location: string;
+  /** Known location names. When provided and non-empty, set_location is
+   *  rejected unless its name matches one of these exactly (case-insensitive).
+   *  Omit to skip the check (e.g. in unit tests with synthetic locations). */
+  knownLocations?: string[];
 }
 
 export interface MutationError {
@@ -65,6 +69,15 @@ function validateOne(
       const name = m.name;
       if (typeof name !== 'string' || name.trim() === '') {
         return { index, message: 'set_location requires a non-empty "name" string' };
+      }
+      // Reject locations the world doesn't know about — moving the player to a
+      // phantom location leaves /hi and scene lookup with nothing to render.
+      if (ctx.knownLocations && ctx.knownLocations.length > 0) {
+        const target = name.trim().toLowerCase();
+        const match = ctx.knownLocations.some(l => l.trim().toLowerCase() === target);
+        if (!match) {
+          return { index, message: `set_location names an unknown location: "${name}"` };
+        }
       }
       return null;
     }
@@ -153,9 +166,16 @@ export function applyMutations(
 
   for (const m of mutations) {
     switch (m.type) {
-      case 'set_location':
-        state.location = String(m.name ?? ctx.location);
+      case 'set_location': {
+        const requested = String(m.name ?? ctx.location);
+        // Snap to the canonical casing of a known location so the (case-sensitive)
+        // DB lookup in getLocation resolves. Falls back to the requested string.
+        const canonical = ctx.knownLocations?.find(
+          l => l.trim().toLowerCase() === requested.trim().toLowerCase(),
+        );
+        state.location = canonical ?? requested;
         break;
+      }
       case 'modify_health':
         state.currentHealth = Math.max(0, Math.min(state.maxHealth,
           state.currentHealth + Number(m.amount ?? 0)));
