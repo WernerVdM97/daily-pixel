@@ -48,7 +48,7 @@
         emoji: "👛",
         stat: charisma,
         modifier: 0,
-        quantity: 5,
+        quantity: 2,
       }
 
 - name: Berserker's Kit
@@ -62,7 +62,7 @@
         emoji: "🦴",
         stat: charisma,
         modifier: 0,
-        quantity: 1,
+        quantity: 2,
       }
 
 - name: Devout's Kit

@@ -53,10 +53,11 @@ describe('buildDecisionMessage — A/B/C buttons', () => {
   });
 });
 
-describe('buildDecisionMessage — DC display & passive-insight colouring', () => {
+describe('buildDecisionMessage — hidden DCs & earned passive-insight hint', () => {
   const SUCCESS = 3; // ButtonStyle.Success
   const SECONDARY = 2; // ButtonStyle.Secondary
 
+  // Easy path DC 10, hard path DC 16 (running 12 ± modifier) — a clear gap.
   const decision = {
     prompt: 'A fork in the road.',
     options: [
@@ -67,31 +68,48 @@ describe('buildDecisionMessage — DC display & passive-insight colouring', () =
   };
   const state = { rawInput: 'go east', decisions: [], accumulatedDc: 12 };
 
-  it('shows the effective DC (running DC + modifier) per option when state is present', () => {
-    const msg = buildDecisionMessage(decision, 0, state);
-    const desc = (msg.embeds[0] as any).description as string;
-    expect(desc).toContain('DC 10'); // 12 - 2
-    expect(desc).toContain('DC 16'); // 12 + 4
+  it('never shows raw DC numbers while deciding', () => {
+    const wise = { stats: { physical: 0, wisdom: 4, intelligence: 0, charisma: 0 } };
+    const desc = (buildDecisionMessage(decision, 0, state, wise).embeds[0] as any).description as string;
+    expect(desc).not.toMatch(/DC\s*\d/);
   });
 
-  it('tints achievable options green when passive insight (10 + WIS) meets the DC', () => {
-    // WIS 2 → passive insight 12. Easy path DC 10 ≤ 12 (favourable); hard path DC 16 > 12.
+  it('lights exactly one option green when insight warrants it (clear safest path, within reach)', () => {
+    // WIS 2 → passive insight 12 ≥ best DC 10, and 16 − 10 = 6 ≥ margin.
     const char = { stats: { physical: 0, wisdom: 2, intelligence: 0, charisma: 0 } };
-    const msg = buildDecisionMessage(decision, 0, state, char);
-    const btns = buttons(msg);
-    expect(btns[0].style).toBe(SUCCESS);   // Easy path — within reach
-    expect(btns[1].style).toBe(SECONDARY); // Hard path — not sensed as favourable
-    const desc = (msg.embeds[0] as any).description as string;
+    const btns = buttons(buildDecisionMessage(decision, 0, state, char));
+    expect(btns.filter(b => b.style === SUCCESS)).toHaveLength(1);
+    expect(btns[0].style).toBe(SUCCESS);   // Easy path
+    expect(btns[1].style).toBe(SECONDARY); // Hard path
+    const desc = (buildDecisionMessage(decision, 0, state, char).embeds[0] as any).description as string;
     expect(desc).toContain('🟢');
   });
 
-  it('gives no green hints to a character with low wisdom', () => {
-    // WIS -1 → passive insight 9, below both DCs.
+  it('gives no hint to a character whose insight cannot reach the easiest option', () => {
+    // WIS -1 → passive insight 9 < best DC 10.
     const char = { stats: { physical: 0, wisdom: -1, intelligence: 0, charisma: 0 } };
-    const msg = buildDecisionMessage(decision, 0, state, char);
-    const btns = buttons(msg);
-    expect(btns[0].style).toBe(SECONDARY);
-    expect(btns[1].style).toBe(SECONDARY);
+    const btns = buttons(buildDecisionMessage(decision, 0, state, char));
+    expect(btns.every(b => b.style !== SUCCESS)).toBe(true);
+  });
+
+  it('gives no hint when no option is clearly safer than the rest (not warranted)', () => {
+    // Both within reach of a very wise character, but DCs are tied — nothing stands out.
+    const flat = {
+      prompt: 'Two even paths.',
+      options: [
+        { label: 'Left', dcModifier: 0 },
+        { label: 'Right', dcModifier: 0 },
+        { label: 'Step back', dcModifier: null },
+      ],
+    };
+    const wise = { stats: { physical: 0, wisdom: 5, intelligence: 0, charisma: 0 } };
+    const btns = buttons(buildDecisionMessage(flat, 0, state, wise));
+    expect(btns.every(b => b.style !== SUCCESS)).toBe(true);
+  });
+
+  it('shows no hint and no DCs when the character is unknown', () => {
+    const btns = buttons(buildDecisionMessage(decision, 0, state));
+    expect(btns.every(b => b.style !== SUCCESS)).toBe(true);
   });
 
   it('renders the quoted quest path separate from the current scene', () => {
