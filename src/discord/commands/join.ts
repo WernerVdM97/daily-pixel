@@ -103,10 +103,19 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
 
 // ── Interaction handler ──
 
+/**
+ * Builds the ephemeral `/hi` first-day screen for a freshly created character.
+ * Injected from index.ts (where the command registry + payload builder live) so
+ * `join` can show the player their opening view without importing those.
+ * Returns a ready-to-send reply payload (Components V2, ephemeral).
+ */
+export type RenderHiScreen = (userId: string) => unknown | Promise<unknown>;
+
 export async function handleInteraction(
   i: MessageComponentInteraction | ModalSubmitInteraction,
   engine: WorldEngine,
   wizards: WizardSession,
+  renderHiScreen?: RenderHiScreen,
 ): Promise<void> {
   const userId = i.user.id;
 
@@ -175,22 +184,35 @@ export async function handleInteraction(
       const data = wizards.confirm(userId);
       engine.createCharacter(userId, data);
 
+      // Public announcement — posted to the whole channel even though the wizard
+      // ran in an ephemeral message, so the table sees a new hero arrive.
       const createdEmbed = new EmbedBuilder()
-        .setTitle("✨ Character Created!")
+        .setTitle("✨ A new hero joins the Oak")
         .setDescription(
           `**${data.name}** the ${data.race} ${data.class}\n` +
-            `${titleCase(data.alignment)} • ${data.upbringing} upbringing • ${data.dayJob}\n\n` +
-            `Type \`/stats\` to see your character sheet.\n` +
-            `Type \`/hi\` to begin your adventure.`,
+            `${titleCase(data.alignment)} • ${data.upbringing} upbringing • ${data.dayJob}`,
         )
         .setColor(0x2ecc71);
       if (hasImage(OAK_IMAGE)) createdEmbed.setImage(`attachment://${OAK_IMAGE}`);
 
-      await i.editReply({
-        embeds: [createdEmbed.toJSON()],
-        components: [],
-        files: imageFiles(OAK_IMAGE),
-      });
+      // Send the celebration to the channel (non-ephemeral followUp).
+      await i.followUp({ embeds: [createdEmbed.toJSON()], files: imageFiles(OAK_IMAGE) }).catch(() => {});
+
+      // Then replace the finished wizard with the player's own ephemeral /hi screen.
+      const hiPayload = renderHiScreen ? await renderHiScreen(userId) : undefined;
+      if (hiPayload) {
+        // The wizard message is a classic embed; the /hi screen is Components V2,
+        // which can't be swapped in via edit — so drop the wizard and follow up.
+        await i.deleteReply().catch(() => {});
+        await i.followUp(hiPayload as Parameters<typeof i.followUp>[0]).catch(() => {});
+      } else {
+        // No /hi renderer available — collapse the wizard to a short pointer.
+        await i.editReply({
+          content: `✨ **${data.name}** steps into the world. Type \`/hi\` to begin.`,
+          embeds: [],
+          components: [],
+        }).catch(() => {});
+      }
     } catch (e) {
       if (i.deferred) {
         await i.editReply({ content: `❌ ${(e as Error).message}` });

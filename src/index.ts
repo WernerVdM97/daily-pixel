@@ -388,7 +388,16 @@ async function main() {
       if (!interaction.isButton() && !interaction.isModalSubmit()) return;
       if (VERBOSE) console.log(c.grey(`[verbose] join:${interaction.isButton() ? 'button' : 'modal'} from ${interaction.user.tag} cid=${customId}`));
       try {
-        await handleJoinInteraction(interaction, engine, joinWizards);
+        // After confirm, join shows the player their first-day /hi view. Build it
+        // here where the registry + payload builder live, then hand it back.
+        const renderHiScreen = async (userId: string) => {
+          const hiHandler = registry.get('hi');
+          const result = hiHandler ? await hiHandler({ user: { id: userId } } as never) : 'Welcome to the Oak. Type `/hi` to begin.';
+          const char = engine.getCharacter(userId);
+          const navButtons = char ? getNavButtons(char, 'hi') : undefined;
+          return buildComponentPayload(result, { ephemeral: true, navButtons });
+        };
+        await handleJoinInteraction(interaction, engine, joinWizards, renderHiScreen);
         if (VERBOSE) console.log(c.grey('[verbose] join: done'));
       } catch (err) {
         console.error(c.red('[join] Error handling interaction:'), err);
