@@ -66,6 +66,9 @@ export function migrate(db: Database.Database): void {
 
   // v6: same stamp on llm_calls (failed/retry calls have no action row to inherit it)
   try { db.exec('ALTER TABLE llm_calls ADD COLUMN app_version TEXT'); } catch { /* already exists */ }
+
+  // v7: per-character max stamina ceiling (for training/endurance mutations)
+  try { db.exec('ALTER TABLE player_characters ADD COLUMN max_stamina INTEGER NOT NULL DEFAULT 10'); } catch { /* already exists */ }
 }
 
 /**

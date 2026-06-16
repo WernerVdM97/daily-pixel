@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS player_characters (
   health            INTEGER NOT NULL DEFAULT 10,
   max_health        INTEGER NOT NULL DEFAULT 10,
   stamina           INTEGER NOT NULL DEFAULT 10,
+  max_stamina       INTEGER NOT NULL DEFAULT 10,
   rolls_remaining   INTEGER NOT NULL DEFAULT 2,
   location          TEXT    NOT NULL DEFAULT "The Warden's Oak",
   wealth            INTEGER NOT NULL DEFAULT 0,

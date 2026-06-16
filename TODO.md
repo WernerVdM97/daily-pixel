@@ -36,36 +36,6 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 - [ ] [2026-06-16 12:20:29.829] (node:30) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
 (Use `node --trace-warnings ...` to show where the warning was created)
 - [ ] how do we handle death or 0 HP?
-- [ ] for /action decisions do not always make sense after each other almost as if your previous one didnt make a difference, the second one is just a repitition.
-  - like sometimes I just want to shoot my bow but it wont let me... here is an example of a frustrating action:
-    ```
-    You: go practise duel in the camp with one of the other players
-    Decision: You stand at the edge of the forest, the mist-laden Shadow Stag watching from a distance. There is no camp here, no fellow travelers to duel. The stag lowers its antlers, and you feel an ancient presence watching you.
-    → Draw your bow, ready for a hunt (DC +2)
-    Decision: You search the forest edge for any trace of a camp or fellow travelers, but there is only the silent glade and the Shadow Stag. The creature stands like a statue, its antlers wreathed in cold mist, watching you with eyes that hold no fear. A low, resonant hum seems to emanate from its chest, vibrating through the earth. There is no one here to duel—only the stag, and the wild.
-    → Nock an arrow and issue a challenge—prove your skill against this ancient beast. (DC +2)
-
-    🎲 10 vs 18 ✗ Failure
-
-    Your investigate fails.
-
-    Stamina: 10/10 ┃ Rolls: 1/2
-    ```
-  I just want to fight, but my action get deduced as a simple investigation...
-  see full example [[raw-llm-action-frustration.md]]
-- [ ] evaluate action flow on bail. example of a weird interaction:
-    ```
-    You: look around for something to hunt
-    Decision: The Oak's roots creak above you. A flicker of movement catches your eye — a deer? Or just the wind. Oom is crouched nearby, scanning the treeline. 'There's game to the east,' he murmurs, 'but the tracks are old. Might be worth following, or we could try calling them in.'
-    → Step back and let Oom lead (DC +0)
-
-    ↩ Bailed
-
-    You step back from the situation, catching your breath.
-
-    Stamina: 5/10 (-1) ┃ Rolls: 0/2
-    ```
-
 
 ## POC — polish (next day or two)
 

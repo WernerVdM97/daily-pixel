@@ -63,6 +63,11 @@ When `done: true`, you MUST include mutations. Use these recipes as a guide:
 - `modify_wealth` ± N (bribe, payment, reward, theft)
 - Possible: `add_item` (gift received), `remove_item` (item traded away), `spawn_npc` (new contact)
 
+**Training / practice / study:**
+- Always: `modify_stamina` -1 (exertion)
+- On success: `modify_rolls_remaining` +1 OR `modify_max_stamina` +1 (the lesson paid off — you act more capably today)
+- On failure: only stamina cost (wasted effort, no benefit), no reward
+
 **Scavenge / search / loot:**
 - `add_item` 1-2 items — always include emoji, stat, modifier
 - Possible: `modify_stamina` -1 (digging, climbing)
@@ -93,7 +98,14 @@ For items that are expendale, ammunition or have quantities like arrows, remove 
 When the input context contains a **`ROLL RESULT: SUCCESS`** or **`ROLL RESULT: FAILURE`** line, the dice have **already** decided the outcome. Do **not** re-roll, re-judge, or contradict it. Your only job is to narrate *that* result and emit mutations that match it:
 
 - Return `done: true` with an **empty `decision` array** (no options — the action is over).
-- **`ROLL RESULT: SUCCESS`** → the attempt worked. Use the *Success* / *Success with cost* recipe: the reward lands (item, coin, location reached, info learned); a small cost is fine.
+- **`ROLL RESULT: SUCCESS`** → the attempt worked. **You MUST include at least one positive mutation.** Choose from:
+  - `add_item` — loot, payment, a gift, a found object
+  - `modify_wealth` — coin earned
+  - `set_location` — you arrive somewhere new
+  - `spawn_npc` — someone enters the scene
+  - `modify_rolls_remaining` — training, rest, or divine favour restores an action roll
+  - `modify_max_stamina` — training or endurance conditioning raises your stamina ceiling
+  Also add `modify_stamina` -1 to -3 as the cost of effort. **A SUCCESS with only stamina loss is a failure reward — never do this.**
 - **`ROLL RESULT: FAILURE`** → the attempt failed. Use the *Failure / bad outcome* recipe: **no rewards** — no coin gained, no items found, no healing. Only costs and setbacks (`modify_stamina`/`modify_health` down, `remove_item`, lost coin). The player may still have *moved* (`set_location`) — a failed errand still ends somewhere — but they gain nothing good.
 - `outcome_text` must read as that verdict. A SUCCESS narration must not describe a failure, and a FAILURE narration must not hand the player a reward.
 
@@ -148,6 +160,7 @@ Return ONLY valid JSON. No markdown fences, no commentary outside the JSON objec
 { "type": "spawn_npc", "name": "Grey Wolf", "class": "Beast", "race": null, "description": "Wounded, limping east into the dark pines" }
 { "type": "set_location", "name": "The Dark Pines" }
 { "type": "modify_rolls_remaining", "amount": 1 }
+{ "type": "modify_max_stamina", "amount": 1 }
 ```
 
 **`add_item` rules:**

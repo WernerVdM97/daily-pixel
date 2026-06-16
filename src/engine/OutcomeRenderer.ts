@@ -9,6 +9,7 @@ import type { ActionOutcome, WorldMutation } from './WorldEngine.js';
 
 export interface OutcomeRenderContext {
   stamina: number;
+  maxStamina: number;
   rollsRemaining: number;
   health: number;
   maxHealth: number;
@@ -174,7 +175,7 @@ export function formatOutcome(
     stats.push(`❤️ ${ctx.health}/${ctx.maxHealth}${formatDelta(d.healthDelta)}`);
   }
   // Stamina — always
-  stats.push(`⚡ ${ctx.stamina}/10${formatDelta(d.staminaDelta)}`);
+  stats.push(`⚡ ${ctx.stamina}/${ctx.maxStamina}${formatDelta(d.staminaDelta)}`);
   // Rolls — always
   stats.push(`🎲 ${ctx.rollsRemaining}/2${formatDelta(d.rollsDelta)}`);
   // Wealth — only when it changed

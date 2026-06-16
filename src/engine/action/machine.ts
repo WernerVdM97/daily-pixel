@@ -388,7 +388,7 @@ const FAILURE_STAMINA_PENALTY = 2;
  * the narration may read as a partial success — the deeper fix is rolling before
  * the flavour is generated (see [[mvp-llm-prompt-architecture]]).
  */
-function applyOutcomeToMutations(outcome: string, mutations: WorldMutation[]): WorldMutation[] {
+export function applyOutcomeToMutations(outcome: string, mutations: WorldMutation[]): WorldMutation[] {
   if (outcome !== 'failure') return mutations;
   const kept = mutations.filter((m) => {
     switch (m.type) {
@@ -396,6 +396,7 @@ function applyOutcomeToMutations(outcome: string, mutations: WorldMutation[]): W
       case 'modify_stamina':
       case 'modify_health':
       case 'modify_rolls_remaining':
+      case 'modify_max_stamina':
         return Number(m.amount ?? 0) < 0; // keep only costs, drop gains
       case 'add_item':
         return false; // no rewards on a failed action

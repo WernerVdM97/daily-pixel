@@ -6,12 +6,14 @@ import { formatOutcome, distilledActionEmoji } from '../../src/engine/OutcomeRen
 
 function ctx(overrides?: Partial<{
   stamina: number;
+  maxStamina: number;
   rollsRemaining: number;
   health: number;
   maxHealth: number;
   wealth: number;
 }>): {
   stamina: number;
+  maxStamina: number;
   rollsRemaining: number;
   health: number;
   maxHealth: number;
@@ -19,6 +21,7 @@ function ctx(overrides?: Partial<{
 } {
   return {
     stamina: 8,
+    maxStamina: 10,
     rollsRemaining: 1,
     health: 10,
     maxHealth: 12,

@@ -3,9 +3,9 @@ import {
   validateMutations,
   applyMutations,
   type MutationContext,
-  type MutationError,
 } from '../../src/engine/action/mutations.js';
 import type { WorldMutation } from '../../src/engine/WorldEngine.js';
+import { applyOutcomeToMutations } from '../../src/engine/action/machine.js';
 
 // RED: tests fail because src/engine/action/mutations.ts doesn't exist yet
 
@@ -14,6 +14,7 @@ function ctx(overrides?: Partial<MutationContext>): MutationContext {
     currentHealth: 12,
     maxHealth: 12,
     stamina: 10,
+    maxStamina: 10,
     wealth: 5,
     rollsRemaining: 2,
     location: 'The Warden\'s Oak',
@@ -364,5 +365,59 @@ describe('Mutation application', () => {
     expect(state.npcsToSpawn).toHaveLength(1);
     expect(state.npcsToSpawn[0].name).toBe('Greta');
     expect(state.npcsToSpawn[0].class).toBe('Blacksmith');
+  });
+});
+
+describe('Mutation — modify_max_stamina', () => {
+  it('increases max stamina and clamps current stamina to the new ceiling', () => {
+    const state = applyMutations(
+      [{ type: 'modify_max_stamina', amount: 2 }],
+      ctx({ stamina: 9, maxStamina: 10 }),
+    );
+    expect(state.maxStamina).toBe(12);
+    expect(state.stamina).toBe(9); // unchanged when below new ceiling
+  });
+
+  it('clamps current stamina when new ceiling is lower', () => {
+    const state = applyMutations(
+      [{ type: 'modify_max_stamina', amount: -2 }],
+      ctx({ stamina: 10, maxStamina: 10 }),
+    );
+    expect(state.maxStamina).toBe(8);
+    expect(state.stamina).toBe(8); // clamped to new ceiling
+  });
+
+  it('rejects modify_max_stamina that would reduce max stamina below 1', () => {
+    const result = validateMutations(
+      [{ type: 'modify_max_stamina', amount: -15 }],
+      ctx({ stamina: 10, maxStamina: 10 }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('below 1');
+  });
+
+  it('rejects unknown mutation type', () => {
+    const result = validateMutations(
+      [{ type: 'modify_max_stamina', amount: 'not-a-number' } as unknown as WorldMutation],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('numeric');
+  });
+
+  it('is dropped by applyOutcomeToMutations on failure when positive (no reward)', () => {
+    const result = applyOutcomeToMutations('failure', [
+      { type: 'modify_max_stamina', amount: 1 },
+      { type: 'modify_stamina', amount: -1 },
+    ]);
+    expect(result).not.toContainEqual(expect.objectContaining({ type: 'modify_max_stamina', amount: 1 }));
+    expect(result).toContainEqual(expect.objectContaining({ type: 'modify_stamina', amount: -1 }));
+  });
+
+  it('is kept by applyOutcomeToMutations on failure when negative (cost)', () => {
+    const result = applyOutcomeToMutations('failure', [
+      { type: 'modify_max_stamina', amount: -1 },
+    ]);
+    expect(result).toContainEqual(expect.objectContaining({ type: 'modify_max_stamina', amount: -1 }));
   });
 });

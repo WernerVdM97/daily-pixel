@@ -471,6 +471,7 @@ export function buildOutcomeEmbed(
 ): ReturnType<EmbedBuilder['toJSON']> {
   const ctx: OutcomeRenderContext = {
     stamina: character?.stamina ?? 10,
+    maxStamina: character?.maxStamina ?? 10,
     rollsRemaining: character?.rollsRemaining ?? 2,
     health: character?.health ?? 10,
     maxHealth: character?.maxHealth ?? 10,

@@ -118,6 +118,7 @@ export class MockWorldEngine implements WorldEngine {
       health: 12,
       maxHealth: 12,
       stamina: 10,
+      maxStamina: 10,
       rollsRemaining: 2,
       location: "The Warden's Oak",
       wealth: 5,

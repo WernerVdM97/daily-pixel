@@ -23,6 +23,7 @@ export interface CharacterData {
   health: number;
   maxHealth: number;
   stamina: number;
+  maxStamina: number;
   rollsRemaining: number;
   location: string;
   wealth: number;
@@ -65,6 +66,7 @@ export interface ActionState {
 export interface WorldMutation {
   type: 'set_location' | 'modify_health' | 'modify_stamina'
       | 'modify_wealth' | 'modify_rolls_remaining'
+      | 'modify_max_stamina'
       | 'add_item' | 'remove_item' | 'spawn_npc';
   [key: string]: unknown;
 }

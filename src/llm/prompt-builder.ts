@@ -5,7 +5,7 @@
 //
 // To cut a new version: copy assets/prompts/decision-<old>.md → decision-<new>.md,
 // edit the body, then change the string below. Keep old files for history.
-export const PROMPT_VERSION = 'v4';
+export const PROMPT_VERSION = 'v5';
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

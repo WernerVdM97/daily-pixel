@@ -66,7 +66,7 @@ export function formatCharacterHeader(char: CharacterData): string {
 	const hpWarn = hpPct < 0.34 ? " ⚠️ **low health!**" : "";
 	lines.push(`❤️ HP: ${char.health}/${char.maxHealth}${hpWarn}`);
 	lines.push(
-		`⚡ Stamina: ${char.stamina}  |  🎲 Rolls: ${char.rollsRemaining} remaining`,
+		`⚡ Stamina: ${char.stamina}/${char.maxStamina}  |  🎲 Rolls: ${char.rollsRemaining} remaining`,
 	);
 
 	return lines.join("\n");
