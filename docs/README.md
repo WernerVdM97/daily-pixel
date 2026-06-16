@@ -62,6 +62,7 @@ resolved cross-cutting trade-offs (ADRs)
 | Status | Doc | Summary |
 |---|---|---|
 | ✅ | [POC Action UX Refinements](./decisions/poc-action-ux-refinements.md) | Buttons A/B/C, Bail/Skip/Finish terminal states, footer standardisation, generic daily actions |
+| ✅ | [Per-Option Stat & Ability-Check Rolls](./decisions/per-option-stat-and-ability-checks.md) | Roll = d20 + char ability + item bonus; per-option stat so approach choice selects the stat tested |
 
 ---
 
