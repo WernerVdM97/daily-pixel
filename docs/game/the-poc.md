@@ -9,7 +9,7 @@ tags:
 related:
 - '[[pitch-and-pillars]]'
 - '[[hazard-map]]'
-- '[[poc-build-poa]]'
+- '[[archived/poc/poc-build-poa|poc-build-poa]]'
 - '[[poc-tech-stack]]'
 - '[[poc-discord-ux]]'
 - '[[mvp-core-loop]]'

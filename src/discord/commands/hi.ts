@@ -1,4 +1,5 @@
 import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
+import { formatStatLabel } from "../../engine/stat-format.js";
 
 // ── Day job types (from day-jobs.yml shape) ──
 
@@ -51,13 +52,13 @@ export function formatCharacterHeader(char: CharacterData): string {
 	lines.push("═".repeat(30));
 
 	// Stats line
-	const stat = (label: string, val: number): string => {
+	const stat = (abbr: string, val: number): string => {
 		const sign = val >= 0 ? "+" : "";
-		return `${label}: ${sign}${val}`;
+		return `${abbr} ${sign}${val}`;
 	};
 	lines.push(
-		`${stat("Physical", char.stats.physical)}  ${stat("Wisdom", char.stats.wisdom)}  ` +
-			`${stat("Intelligence", char.stats.intelligence)}  ${stat("Charisma", char.stats.charisma)}`,
+		`${stat(formatStatLabel('physical'), char.stats.physical)}  ${stat(formatStatLabel('wisdom'), char.stats.wisdom)}  ` +
+			`${stat(formatStatLabel('intelligence'), char.stats.intelligence)}  ${stat(formatStatLabel('charisma'), char.stats.charisma)}`,
 	);
 
 	// Vitals

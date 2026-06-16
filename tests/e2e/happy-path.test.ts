@@ -308,8 +308,8 @@ describe('E2E — full happy path', () => {
     expect(result).toContain('Human');
     expect(result).toContain('lawful good');
     expect(result).toContain('Blacksmith');
-    expect(result).toContain('Physical');
-    expect(result).toContain('Wisdom');
+    expect(result).toContain('💪 PHY');
+    expect(result).toContain('🧠 WIS');
     expect(result).toContain('Health');
     expect(result).toContain('Stamina');
     expect(result).toContain('copper');

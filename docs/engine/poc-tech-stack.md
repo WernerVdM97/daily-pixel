@@ -8,8 +8,8 @@ tags:
 - engine
 related:
 - '[[the-poc]]'
-- '[[poc-build-poa]]'
-- '[[poc-spec-reconciliation]]'
+- '[[archived/poc/poc-build-poa|poc-build-poa]]'
+- '[[archived/poc/poc-spec-reconciliation|poc-spec-reconciliation]]'
 ---
 ,
 # POC Tech Stack

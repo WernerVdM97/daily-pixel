@@ -70,9 +70,9 @@ describe("/stats", () => {
 
     expect(result).toContain("Aldric");
     expect(result).toContain("Warrior");
-    expect(result).toContain("Physical:");
-    expect(result).toContain("4");
-    expect(result).toContain("Wisdom:");
+    expect(result).toContain("💪 PHY");
+    expect(result).toContain("+4");
+    expect(result).toContain("🧠 WIS");
     expect(result).toContain("-1");
   });
 

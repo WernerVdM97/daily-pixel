@@ -1,7 +1,8 @@
 ---
 title: POC Build — Plan of Attack
-status: decided
-domain: engine
+status: shipped
+domain: archived
+superseded_by: "implemented in code"
 phase: poc
 tags:
 - poc
