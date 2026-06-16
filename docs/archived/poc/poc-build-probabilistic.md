@@ -1,7 +1,8 @@
 ---
 title: POC Build — Probabilistic Actions
-status: decided
-domain: engine
+status: shipped
+domain: archived
+superseded_by: "implemented in code"
 phase: poc
 tags:
 - poc
@@ -312,4 +313,4 @@ After outcome the message is final. Next `/action` creates a new message.
 - [x] **Shipped:** Action state machine end-to-end — `ActionStateMachine` (start/step/resume with `LlmGateway` injection, reactive decision loop, bail=skip, roll resolution with nat1/nat20), `DeepseekLlmGateway` (OpenAI-compatible client for DeepSeek V4 Flash, JSON mode, injectable fetch, error handling — source: api-docs.deepseek.com), DC math (`accumulateDc` clamped [0,30], `computeItemBonus` per-stat with quantity, `resolveRoll` d20+b vs DC), mutation validator (8 types, bounds checks, multi-error return) + applier (health/stamina/wealth/rolls/location/items/npcs), `WorldEngineImpl` (real engine: startAction drains roll → persists state, stepAction validates→continues or resolves with transaction-wrapped mutations+action insert, resumeAction sync from `last_action_state` JSON), 5 new repos (Item, Action, Npc, Location, Meta).
 - [!] **Frozen:** `ActionStateMachine` (public API: `start(char, rawInput, items) → {state, firstDecision}`, `step(state, choice, char, items) → StepResult`, `resume(state) → {state, nextDecision}` — injectable `LlmGateway` + `rollD20`), `InternalActionState` (extends `ActionState` with `pendingDecision`, `distilledType`, `rollStat` — stored in `last_action_state` JSON), `DeepseekLlmGateway` (constructor takes `DeepseekConfig: {apiKey, model?, temperature?, fetch?}`), `validateMutations(mutations, ctx) → ValidationResult`, `applyMutations(mutations, ctx) → AppliedState`. `LlmDecision.prompt?` (optional string, added to frozen interface — backward compatible).
 - [x] **Tests:** 250 passing (110 new), 24 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New files: `tests/llm/deepseek-gateway.test.ts` (26), `tests/engine/action-dc.test.ts` (20), `tests/engine/action-machine.test.ts` (13), `tests/engine/action-mutations.test.ts` (34), `tests/engine/world-engine-impl.test.ts` (17).
-- [>] **Next (S4):** Action polish — two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering. Start from `src/llm/DeepseekLlmGateway.ts` → build the fallback chain (primary → retry → simpler prompt → template/divine fallback), then wire into `WorldEngineImpl.stepAction()` error paths. See `docs/engine/poc-build-poa.md` §5 for S4 scope — inject failing mocks to test degradation tiers.
+- [>] **Next (S4):** Action polish — two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering. Start from `src/llm/DeepseekLlmGateway.ts` → build the fallback chain (primary → retry → simpler prompt → template/divine fallback), then wire into `WorldEngineImpl.stepAction()` error paths. See `docs/archived/poc/poc-build-poa.md` §5 for S4 scope — inject failing mocks to test degradation tiers.

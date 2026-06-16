@@ -1,4 +1,6 @@
 import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
+import { formatStatLabel } from "../../engine/stat-format.js";
+import { SEPARATOR } from "../format.js";
 
 export function makeStatsCommand(engine: WorldEngine) {
   return async (interaction: { user: { id: string } }) => {
@@ -15,7 +17,7 @@ export function formatStats(char: CharacterData): string {
 
   // Header
   lines.push(`⚔️  **${char.name}** — ${char.class}`);
-  lines.push("═".repeat(30));
+  lines.push(SEPARATOR);
   lines.push(`**Upbringing:** ${char.upbringing}  |  **Race:** ${char.race}`);
   lines.push(`**Alignment:** ${char.alignment}`);
   lines.push(`**Day Job:** ${char.dayJob}`);
@@ -23,10 +25,10 @@ export function formatStats(char: CharacterData): string {
 
   // Stats
   lines.push("**Stats:**");
-  lines.push(`  Physical:     ${formatStat(char.stats.physical)}`);
-  lines.push(`  Wisdom:       ${formatStat(char.stats.wisdom)}`);
-  lines.push(`  Intelligence: ${formatStat(char.stats.intelligence)}`);
-  lines.push(`  Charisma:     ${formatStat(char.stats.charisma)}`);
+  lines.push(`  ${formatStatLabel('physical')}  ${formatStat(char.stats.physical)}`);
+  lines.push(`  ${formatStatLabel('wisdom')}       ${formatStat(char.stats.wisdom)}`);
+  lines.push(`  ${formatStatLabel('intelligence')}  ${formatStat(char.stats.intelligence)}`);
+  lines.push(`  ${formatStatLabel('charisma')}     ${formatStat(char.stats.charisma)}`);
   lines.push("");
 
   // Vitals

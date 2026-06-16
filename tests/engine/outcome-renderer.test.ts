@@ -6,12 +6,14 @@ import { formatOutcome, distilledActionEmoji } from '../../src/engine/OutcomeRen
 
 function ctx(overrides?: Partial<{
   stamina: number;
+  maxStamina: number;
   rollsRemaining: number;
   health: number;
   maxHealth: number;
   wealth: number;
 }>): {
   stamina: number;
+  maxStamina: number;
   rollsRemaining: number;
   health: number;
   maxHealth: number;
@@ -19,6 +21,7 @@ function ctx(overrides?: Partial<{
 } {
   return {
     stamina: 8,
+    maxStamina: 10,
     rollsRemaining: 1,
     health: 10,
     maxHealth: 12,
@@ -39,12 +42,12 @@ describe('OutcomeRenderer — success', () => {
     mutations: [],
   };
 
-  it('shows roll vs DC with checkmark', () => {
+  it('shows roll vs DC with success emoji', () => {
     const result = formatOutcome(successOutcome, ctx());
     expect(result).toContain('🎲');
-    expect(result).toContain('16 vs 14');
-    expect(result).toContain('✓');
-    expect(result).toContain('Success');
+    expect(result).toContain('16  vs  14');
+    expect(result).toContain('✅');
+    expect(result).toContain('SUCCESS');
   });
 
   it('includes the outcome text from the LLM', () => {
@@ -186,9 +189,9 @@ describe('OutcomeRenderer — failure', () => {
   it('shows roll vs DC with cross', () => {
     const result = formatOutcome(failureOutcome, ctx({ stamina: 7 }));
     expect(result).toContain('🎲');
-    expect(result).toContain('3 vs 14');
-    expect(result).toContain('✗');
-    expect(result).toContain('Failure');
+    expect(result).toContain('3  vs  14');
+    expect(result).toContain('❌');
+    expect(result).toContain('FAILURE');
   });
 
   it('lists items lost from remove_item mutations', () => {
@@ -224,8 +227,8 @@ describe('OutcomeRenderer — skipped', () => {
 
   it('shows skip symbol and text', () => {
     const result = formatOutcome(skipOutcome, ctx({ stamina: 9 }));
-    expect(result).toContain('↩');
-    expect(result).toContain('Skipped');
+    expect(result).toContain('⏭️');
+    expect(result).toContain('SKIPPED');
     expect(result).toContain('You retreat from the situation.');
   });
 
@@ -250,7 +253,7 @@ describe('OutcomeRenderer — timed out', () => {
   it('shows timeout symbol and text', () => {
     const result = formatOutcome(timeoutOutcome, ctx());
     expect(result).toContain('⏰');
-    expect(result).toContain('Timed out');
+    expect(result).toContain('TIMED OUT');
     expect(result).toContain('The moment passes.');
   });
 });
@@ -278,16 +281,18 @@ describe('OutcomeRenderer — natural 1 / natural 20', () => {
 
   it('marks nat1 as failure regardless of DC', () => {
     const result = formatOutcome(nat1Outcome, ctx());
-    expect(result).toContain('1 vs 5');
-    expect(result).toContain('✗');
-    expect(result).toContain('Failure');
+    expect(result).toContain('💥');
+    expect(result).toContain('**1**  vs  5');
+    expect(result).toContain('❌');
+    expect(result).toContain('FAILURE');
   });
 
   it('marks nat20 as success regardless of DC', () => {
     const result = formatOutcome(nat20Outcome, ctx());
-    expect(result).toContain('20 vs 30');
-    expect(result).toContain('✓');
-    expect(result).toContain('Success');
+    expect(result).toContain('🌟');
+    expect(result).toContain('**20**  vs  30');
+    expect(result).toContain('✅');
+    expect(result).toContain('SUCCESS');
   });
 });
 
@@ -436,7 +441,9 @@ describe('OutcomeRenderer — roll bonus', () => {
       outcome: 'success', outcomeText: 'You manage it.', mutations: [],
     };
     const result = formatOutcome(outcome, ctx());
-    expect(result).toContain('🎲 8 + 7 vs 11 ✓ Success');
+    expect(result).toContain('🎲 8 + 7 = **15**  vs  11');
+    expect(result).toContain('✅');
+    expect(result).toContain('SUCCESS');
   });
 
   it('omits the bonus expression when bonus is zero', () => {
@@ -445,7 +452,9 @@ describe('OutcomeRenderer — roll bonus', () => {
       outcome: 'success', outcomeText: 'Clean.', mutations: [],
     };
     const result = formatOutcome(outcome, ctx());
-    expect(result).toContain('🎲 16 vs 14 ✓');
+    expect(result).toContain('🎲 16  vs  14');
+    expect(result).toContain('✅');
+    expect(result).toContain('SUCCESS');
     expect(result).not.toContain('16 +');
   });
 });

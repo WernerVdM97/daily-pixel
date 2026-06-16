@@ -107,7 +107,7 @@ describe("/look", () => {
 		expect(result).toContain("safe");
 	});
 
-	it("does not show safe indicator for unsafe locations", async () => {
+	it("shows unsafe indicator for unsafe locations", async () => {
 		engine.setCharacter(
 			MockWorldEngine.defaultCharacter({ location: "Dark Forest" }),
 		);
@@ -121,6 +121,60 @@ describe("/look", () => {
 		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 
-		expect(result).not.toContain("safe");
+		expect(result).toContain("⚠️");
+		expect(result).toContain("unsafe");
+		expect(result).not.toContain("🛡️");
+	});
+
+	describe("nearby entities", () => {
+		it("shows nearby PCs and NPCs", async () => {
+			engine.setCharacter(
+				MockWorldEngine.defaultCharacter({ location: "The Warden's Oak", id: 1 }),
+			);
+			engine.setLocation({
+				name: "The Warden's Oak",
+				description: "Safe haven.",
+				tags: ["oak", "sanctuary"],
+				isSafe: true,
+			});
+			engine.setNearbyEntities([
+				{ name: "Petrus", classOrType: "Priest", description: null, isPlayer: true },
+				{ name: "Oom", classOrType: "Ranger", description: null, isPlayer: true },
+				{ name: "Elder Bram", classOrType: "Herbalist", description: "A bent old man.", isPlayer: false },
+				{ name: "Grey Wolf", classOrType: "Beast", description: "A massive she-wolf.", isPlayer: false },
+			]);
+
+			const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+			const result = await handler({ user: { id: "user-1" } } as never);
+
+			// PCs highlighted
+			expect(result).toContain("**Petrus** — Priest");
+			expect(result).toContain("**Oom** — Ranger");
+			// NPCs with emoji and description
+			expect(result).toContain("**Elder Bram**");
+			expect(result).toContain("_A bent old man._");
+			expect(result).toContain("**Grey Wolf**");
+			expect(result).toContain("_A massive she-wolf._");
+		});
+
+		it("shows nothing when no entities nearby", async () => {
+			engine.setCharacter(
+				MockWorldEngine.defaultCharacter({ location: "The Void", id: 1 }),
+			);
+			engine.setLocation({
+				name: "The Void",
+				description: "Nothingness.",
+				tags: ["void"],
+				isSafe: false,
+			});
+			engine.setNearbyEntities([]);
+
+			const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+			const result = await handler({ user: { id: "user-1" } } as never);
+
+			expect(result).not.toContain("Nearby");
+			expect(result).not.toContain("Adventurers");
+			expect(result).not.toContain("Figures");
+		});
 	});
 });

@@ -9,8 +9,8 @@ tags:
 - poc
 related:
 - '[[the-poc]]'
-- '[[poc-build-scaffold]]'
-- '[[poc-build-probabilistic]]'
+- '[[archived/poc/poc-build-scaffold|poc-build-scaffold]]'
+- '[[archived/poc/poc-build-probabilistic|poc-build-probabilistic]]'
 ---
 
 # Example Scenes — POC

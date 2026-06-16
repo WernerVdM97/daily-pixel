@@ -1,7 +1,8 @@
 ---
 title: POC Build — Polish
-status: decided
-domain: engine
+status: shipped
+domain: archived
+superseded_by: "implemented in code"
 phase: poc
 tags:
 - poc
@@ -202,11 +203,11 @@ the POC week is collecting.
 - [x] **Shipped:** Help content fully updated per §5 (/sleep, /action, economy breakdown, rest section). `/sleep` command handler (frontend side): admin → tick + day transition message with scaling flavor; non-admin → camp-by-the-Oak rest scene, no tick. End-to-end happy-path test (`tests/e2e/happy-path.test.ts`) covering all 13 checklist flows. Restart persistence test (`tests/db/restart-persistence.test.ts`) verifying SQLite data survives close-reopen cycle. Code simplification: unused `channelId` removed from sleep command handler; flavor-let replaced with const ternary. **Review-driven fixes:** startup warning when ADMIN_USER_ID is unset; tick() wrapped in try/catch with mapError fallback.
 - [!] **Frozen:** `makeSleepCommand(engine)` added to frontend command API — consumes `WorldEngine.tick(isAdmin)` with no interface changes. `makeHelpCommand()` behavior unchanged (returns static string). No changes to `WorldEngine.ts` or `LlmGateway.ts` (seam still clean).
 - [x] **Tests:** 368 passing (23 new), 32 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New files: `tests/e2e/happy-path.test.ts` (13 tests), `tests/discord/sleep.test.ts` (6 tests), `tests/db/restart-persistence.test.ts` (2 tests). Updated: `tests/discord/help.test.ts` (6 tests, added /sleep assertions).
-- [>] **Next (S7):** Deploy — CI, Containerfile (Podman dev), LXC provision, systemd, deploy-check, invite testers. See `docs/engine/poc-build-deploy.md`. Also: manual typos pass, mobile test, and the 30-min timeout auto-fail runtime hook.
+- [>] **Next (S7):** Deploy — CI, Containerfile (Podman dev), LXC provision, systemd, deploy-check, invite testers. See `docs/archived/poc/poc-build-deploy.md`. Also: manual typos pass, mobile test, and the 30-min timeout auto-fail runtime hook.
 
 ## S4 Handover
 
 - [x] **Shipped:** `FallbackLlmGateway` (decorator: inner LLM → tier-1 stripped-context retry → tier-2 divine intervention, with `onTier2Fallback` callback), `ErrorMapper` (`mapError(e) → string`, covers all known error patterns + generic fallback), `OutcomeRenderer` (`formatOutcome(outcome, ctx) → string`, success/failure/skip/timeout with items/location/stats summary footer), `IdleMessageSelector` (`randomIdleMessage(rng?) → string`, 5 atmospheric messages, injectable RNG), wire-up in `WorldEngineImpl` (wraps LLM in `FallbackLlmGateway` at construction, checks `DIVINE_INTERVENTION_TYPE` to skip action-row insert, increments `meta.llm_fallback_count` on tier-2), `meta.llm_fallback_count` now live (seeded in schema, incremented on divine intervention).
 - [!] **Frozen:** `FallbackLlmGateway` (public API: `constructor(inner, options?)` with `onTier2Fallback` callback — used by engine construction), `DIVINE_INTERVENTION_TYPE` (`'__divine__'` — checked in `WorldEngineImpl.stepAction()` to skip action row), `mapError(e)`, `formatOutcome(outcome, ctx)`, `randomIdleMessage(rng?)`. No changes to `WorldEngine.ts` or `LlmGateway.ts` interfaces (frozen seam per S0).
 - [x] **Tests:** 313 passing (58 new), 28 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New files: `tests/engine/outcome-renderer.test.ts` (20), `tests/engine/error-mapper.test.ts` (14), `tests/engine/idle-messages.test.ts` (3), `tests/llm/fallback-gateway.test.ts` (16).
-- [>] **Next (S5):** World tick — `/sleep` (admin tick + non-admin rest), idempotent cron (`last_cron_date`), `meta` (day_number read/write), player effects (stamina/health recovery in safe zones, roll reset, wealth income), seeded NPC movement (NPCs by `class` + `day_number`), scaling hints. Start from `src/engine/WorldEngineImpl.ts` `tick()` stub — see `docs/engine/poc-build-world-tick.md` and `docs/engine/poc-build-poa.md` §5 for S5 scope.
+- [>] **Next (S5):** World tick — `/sleep` (admin tick + non-admin rest), idempotent cron (`last_cron_date`), `meta` (day_number read/write), player effects (stamina/health recovery in safe zones, roll reset, wealth income), seeded NPC movement (NPCs by `class` + `day_number`), scaling hints. Start from `src/engine/WorldEngineImpl.ts` `tick()` stub — see `docs/archived/poc/poc-build-world-tick.md` and `docs/archived/poc/poc-build-poa.md` §5 for S5 scope.

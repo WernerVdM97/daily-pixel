@@ -1,4 +1,6 @@
 import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
+import { formatStatLabel } from "../../engine/stat-format.js";
+import { SEPARATOR } from "../format.js";
 
 // ── Day job types (from day-jobs.yml shape) ──
 
@@ -46,18 +48,18 @@ function mulberry32(seed: number): () => number {
 // ── Pure formatters (tested in isolation) ──
 
 export function formatCharacterHeader(char: CharacterData): string {
-	const lines: string[] = [];
-	lines.push(`⚔️  **${char.name}** — ${char.class}`);
-	lines.push("═".repeat(30));
+const lines: string[] = [];
+lines.push(`⚔️  **${char.name}** — ${char.class}`);
+lines.push(SEPARATOR);
 
 	// Stats line
-	const stat = (label: string, val: number): string => {
+	const stat = (abbr: string, val: number): string => {
 		const sign = val >= 0 ? "+" : "";
-		return `${label}: ${sign}${val}`;
+		return `${abbr} ${sign}${val}`;
 	};
 	lines.push(
-		`${stat("Physical", char.stats.physical)}  ${stat("Wisdom", char.stats.wisdom)}  ` +
-			`${stat("Intelligence", char.stats.intelligence)}  ${stat("Charisma", char.stats.charisma)}`,
+		`${stat(formatStatLabel('physical'), char.stats.physical)}  ${stat(formatStatLabel('wisdom'), char.stats.wisdom)}  ` +
+			`${stat(formatStatLabel('intelligence'), char.stats.intelligence)}  ${stat(formatStatLabel('charisma'), char.stats.charisma)}`,
 	);
 
 	// Vitals
@@ -65,7 +67,7 @@ export function formatCharacterHeader(char: CharacterData): string {
 	const hpWarn = hpPct < 0.34 ? " ⚠️ **low health!**" : "";
 	lines.push(`❤️ HP: ${char.health}/${char.maxHealth}${hpWarn}`);
 	lines.push(
-		`⚡ Stamina: ${char.stamina}  |  🎲 Rolls: ${char.rollsRemaining} remaining`,
+		`⚡ Stamina: ${char.stamina}/${char.maxStamina}  |  🎲 Rolls: ${char.rollsRemaining} remaining`,
 	);
 
 	return lines.join("\n");
@@ -111,7 +113,7 @@ export function isWeekend(): boolean {
 export function makeHiCommand(
   engine: WorldEngine,
   dayJobs: DayJobDef[],
-  getScene: (discordUserId: string) => string = () => '',
+  _getScene?: (discordUserId: string) => string,
 ) {
 	return async (interaction: { user: { id: string } }): Promise<string> => {
 		const character = engine.getCharacter(interaction.user.id);
@@ -119,8 +121,12 @@ export function makeHiCommand(
 			return "You don't have a character yet. Type `/join` to create one.";
 		}
 
-		// Build Message 1 content (atmosphere)
+		// Character + location header
 		const header = formatCharacterHeader(character);
+		const location = engine.getLocation(character.location);
+		const locationLine = location
+		  ? `🏠 **${location.name}** ${location.isSafe ? '🛡️ Safe' : '⚠️ Unsafe'} — Use \`look\` for the full scene.`
+		  : `🏠 **${character.location}** — Use \`look\` for the full scene.`;
 
 		// Determine day-job actions or weekend hooks
 		const weekend = isWeekend();
@@ -144,17 +150,16 @@ export function makeHiCommand(
 					`🔨 **${character.dayJob} — Daily Work**`,
 					"",
 					...actions.map(
-						(a, i) => `  ${["①", "②", "③"][i]} **${a.label}** — ${a.hook}`,
+						(a, i) => `  ${["🎯", "🔧", "📋"][i]} **${a.label}** — ${a.hook}`,
 					),
 					"",
-					"📦 Use `/action` to carry out your choice,",
-					"   or type `/action <description>` to go adventure.",
+					"📦 Press the **Action** button or type `action <what you do>` to start.",
 				];
 			} catch {
 				actionLines = [
 					`🔨 **${character.dayJob}**`,
 					"",
-					"  Use `/action <description>` to start an action.",
+					"📦 Press the **Action** button or type `action <what you do>` to start.",
 				];
 			}
 		}
@@ -165,30 +170,14 @@ export function makeHiCommand(
 			const prompt = resumeResult.nextDecision.prompt;
 			return [
 				'⏳ **Unfinished Action**',
-				'═'.repeat(30),
+				SEPARATOR,
 				'',
 				prompt,
 				'',
-				'Use `/action` to continue.',
+				'Press the **Action** button or type `action <what you do>` to continue.',
 			].join('\n');
 		}
 
-		const currentScene = getScene(interaction.user.id);
-		const sceneBlock = currentScene ? ['```', currentScene, '```', ''] : [];
-
-		// Location info
-		const location = engine.getLocation(character.location);
-		const locationLines: string[] = [];
-		if (location) {
-			locationLines.push(`🏠 **${location.name}**`);
-			locationLines.push(`_${location.description}_`);
-			locationLines.push(location.isSafe ? '🛡️ Safe' : '⚠️ Unsafe');
-			locationLines.push('');
-		} else {
-			locationLines.push(`🏠 **${character.location}**`);
-			locationLines.push('');
-		}
-
-		return [...sceneBlock, ...locationLines, header, "", "─".repeat(30), ...actionLines].join("\n");
+		return [locationLine, '', header, '', SEPARATOR, ...actionLines].join('\n');
 	};
 }

@@ -226,10 +226,16 @@ export class DeepseekLlmGateway implements LlmGateway {
       required: Boolean(raw.required),
       done: Boolean(raw.done),
       decision: Array.isArray(raw.decision)
-        ? raw.decision.map((opt: Record<string, unknown>) => ({
-            label: stripCR(String(opt.label ?? '')),
-            dcModifier: opt.dc_modifier === null ? null : Number(opt.dc_modifier ?? 0),
-          }))
+        ? raw.decision.map((opt: Record<string, unknown>) => {
+            const optStat = this.parseOptionStat(opt.stat);
+            return {
+              label: stripCR(String(opt.label ?? '')),
+              dcModifier: opt.dc_modifier === null ? null : Number(opt.dc_modifier ?? 0),
+              // Only attach when the LLM supplied a valid stat — keeps the common
+              // (no-override) option shape exactly { label, dcModifier }.
+              ...(optStat ? { stat: optStat } : {}),
+            };
+          })
         : [],
       ...(raw.mutations === undefined ? {} : { mutations: raw.mutations as unknown[] }),
       ...(raw.outcome_text === undefined ? {} : { outcomeText: stripCR(String(raw.outcome_text)) }),
@@ -249,8 +255,8 @@ export class DeepseekLlmGateway implements LlmGateway {
       warnings.push(`stat "${d.stat}" is not one of ${validStats.join('/')} (raw: ${JSON.stringify(raw.stat)})`);
     }
 
-    if (d.baseDc < 8 || d.baseDc > 18) {
-      warnings.push(`base_dc ${d.baseDc} is outside expected range 8-18`);
+    if (d.baseDc < 10 || d.baseDc > 18) {
+      warnings.push(`base_dc ${d.baseDc} is outside expected range 10-18`);
     }
 
     if (!Array.isArray(raw.decision)) {
@@ -269,12 +275,37 @@ export class DeepseekLlmGateway implements LlmGateway {
         if (opt.dcModifier !== null && (opt.dcModifier < -5 || opt.dcModifier > 5)) {
           warnings.push(`option[${i}] dc_modifier ${opt.dcModifier} is outside range -5 to +5`);
         }
+        const rawOptStat = (raw.decision as Array<Record<string, unknown>>)[i]?.stat;
+        if (rawOptStat != null && !validStats.includes(String(rawOptStat))) {
+          warnings.push(`option[${i}] stat "${String(rawOptStat)}" is not one of ${validStats.join('/')} — ignored, inheriting action stat`);
+        }
       }
     }
 
     if (warnings.length > 0) {
       console.warn(c.yellow('[llm:validate]'), warnings.join('; '));
       console.warn(c.yellow('[llm:validate] raw response:'), JSON.stringify(raw).slice(0, 500));
+    }
+
+    // Rule 4b: done:true with only negative stamina/health mutations and no reward
+    if (d.done && Array.isArray(raw.mutations)) {
+      const hasReward = (raw.mutations as Array<Record<string, unknown>>).some(m => {
+        if (!m || typeof m !== 'object') return false;
+        const type = String(m.type ?? '');
+        if (['add_item', 'spawn_npc', 'set_location'].includes(type)) return true;
+        if (['modify_wealth', 'modify_rolls_remaining'].includes(type)) return Number(m.amount ?? 0) > 0;
+        return false;
+      });
+      if (!hasReward) {
+        const allNegative = (raw.mutations as Array<Record<string, unknown>>).every(m => {
+          if (!m || typeof m !== 'object') return false;
+          const type = String(m.type ?? '');
+          return ['modify_stamina', 'modify_health'].includes(type) && Number(m.amount ?? 0) < 0;
+        });
+        if (allNegative) {
+          warnings.push('done:true with only negative stamina/health mutations — SUCCESS must include a reward (prompt rule 4b)');
+        }
+      }
     }
 
     // Check mutations is an array when present
@@ -292,6 +323,15 @@ export class DeepseekLlmGateway implements LlmGateway {
       return s as 'physical' | 'wisdom' | 'intelligence' | 'charisma';
     }
     return 'physical';
+  }
+
+  /** Per-option stat override: a valid stat string, or undefined when absent/invalid. */
+  private parseOptionStat(raw: unknown): 'physical' | 'wisdom' | 'intelligence' | 'charisma' | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    const s = String(raw);
+    return ['physical', 'wisdom', 'intelligence', 'charisma'].includes(s)
+      ? (s as 'physical' | 'wisdom' | 'intelligence' | 'charisma')
+      : undefined;
   }
 }
 

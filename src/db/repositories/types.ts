@@ -19,6 +19,7 @@ export interface CharacterRow {
   health: number;
   max_health: number;
   stamina: number;
+  max_stamina: number;
   rolls_remaining: number;
   location: string;
   wealth: number;

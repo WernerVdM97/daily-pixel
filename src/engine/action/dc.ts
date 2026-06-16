@@ -1,4 +1,4 @@
-import type { ItemData } from '../WorldEngine.js';
+import type { ItemData, StatBlock } from '../WorldEngine.js';
 
 const MIN_DC = 0;
 const MAX_DC = 30;
@@ -23,12 +23,30 @@ export function validateDcModifier(mod: number): boolean {
 }
 
 /**
- * Sum item modifiers for a given stat, accounting for quantity.
+ * Sum item modifiers for a given stat.
+ *
+ * Quantity does NOT multiply the modifier — modifier represents the item's
+ * quality, quantity is just how many you have left (for tracking consumption
+ * of ammunition/consumables).  Having 10 arrows makes you no better at
+ * shooting than having 1; each is used one at a time.
  */
 export function computeItemBonus(items: ItemData[], stat: string): number {
   return items
     .filter(item => item.stat === stat)
-    .reduce((sum, item) => sum + item.modifier * item.quantity, 0);
+    .reduce((sum, item) => sum + item.modifier, 0);
+}
+
+/**
+ * Total roll bonus for an ability check: the character's own stat plus the summed
+ * modifiers of items keyed to that stat. This is what's added to the d20.
+ *
+ * The stat is chosen per-decision (the approach the player took), so picking the
+ * "haggle" option taps charisma while "inspect" taps wisdom — your build and gear
+ * decide which approach is strongest for you. Returns 0 for an unknown stat key.
+ */
+export function computeRollBonus(stats: StatBlock, items: ItemData[], stat: string): number {
+  const abilityScore = (stats as unknown as Record<string, number>)[stat] ?? 0;
+  return abilityScore + computeItemBonus(items, stat);
 }
 
 /**

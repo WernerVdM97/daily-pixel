@@ -1,7 +1,8 @@
 ---
 title: POC Build — ASCII Scenes
-status: decided
-domain: engine
+status: shipped
+domain: archived
+superseded_by: "implemented in code"
 phase: poc
 tags:
 - poc
@@ -188,4 +189,4 @@ All 21 scenes tested on phone Discord client before ship.
 - [x] **Shipped:** Scene subsystem — `SceneLoader` (load + validate all `.ascii` files, fail-fast on missing/width>30/malformed, real 21 scenes all pass at ≤26 width), `TagResolver` (deterministic overlap-score matching, tie→first, zero→`unknown.ascii`).
 - [!] **Frozen:** `SceneLoader` (public API: `loadAll() → Map<string, SceneFile>`, validates body width ≤30), `TagResolver` (`resolve(locationTags[]) → sceneName`), `SceneLookupFn` type (`(tags: string[]) => { sceneName, ascii }` — injected into `/look` for decoupling).
 - [x] **Tests:** `tests/scenes/scene-loader.test.ts` (8), `tests/scenes/tag-resolver.test.ts` (8). Run full suite: `cd ~/projects/daily-pixel && npx vitest run`.
-- [>] **Next (S4):** Action polish — two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering. See `docs/engine/poc-build-poa.md` §5 for S4 scope.
+- [>] **Next (S4):** Action polish — two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering. See `docs/archived/poc/poc-build-poa.md` §5 for S4 scope.

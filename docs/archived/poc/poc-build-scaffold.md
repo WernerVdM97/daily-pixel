@@ -1,7 +1,8 @@
 ---
 title: POC Build — Scaffold
-status: decided
-domain: engine
+status: shipped
+domain: archived
+superseded_by: "implemented in code"
 phase: poc
 tags:
 - poc
@@ -298,7 +299,7 @@ Free-text → INSERT into `bug_reports`. Reply: "Bug noted. The warden will inve
 - [x] **Shipped:** project init (package.json, tsconfig ES2022 strict, deps, `.env` gitignored), 9-table SQLite schema with seed data, idempotent migration runner, User + Character repository CRUD, `WorldEngine` + `LlmGateway` seam interfaces (plain serializable data only), `MockWorldEngine` + `MockLlmGateway` test fixtures with call tracking, YAML + `.ascii` asset loaders with fail-fast validation, command registry skeleton + `/ping` → "pong" smoke test.
 - [!] **Frozen:** `src/engine/WorldEngine.ts` (the seam — 14 methods, one cohesive interface), `src/llm/LlmGateway.ts` (single `decide(context) → Decision`), `src/db/schema.sql` (9 tables), `src/db/repositories/types.ts` (row types). Changing any requires raising it as a decision record.
 - [x] **Tests:** 47 passing, 8 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. Working dir is `~/projects/daily-pixel/` (local — NFS at `/mnt/nas/stuff/repos/` blocks native addons).
-- [>] **Next (S1):** `/join` 6-step wizard → character in DB; `/stats`, `/backpack`. Start from `src/discord/CommandRegistry.ts` — register new commands, test handlers against `MockWorldEngine`, then wire up real `WorldEngine` implementation in `src/engine/` using User + Character repos. See `docs/engine/poc-build-poa.md` §5 for S1 scope and test requirements.
+- [>] **Next (S1):** `/join` 6-step wizard → character in DB; `/stats`, `/backpack`. Start from `src/discord/CommandRegistry.ts` — register new commands, test handlers against `MockWorldEngine`, then wire up real `WorldEngine` implementation in `src/engine/` using User + Character repos. See `docs/archived/poc/poc-build-poa.md` §5 for S1 scope and test requirements.
 
 ---
 
@@ -307,7 +308,7 @@ Free-text → INSERT into `bug_reports`. Reply: "Bug noted. The warden will inve
 - [x] **Shipped:** `/join` 6-step wizard (in-memory `WizardSession` state machine with 10-min TTL, Discord modal+button flow editing message in place, guards: already-has-character, name validation 2-30 chars no @/#, step 1→6 progression, confirm → `engine.createCharacter`), `/stats` (full character sheet formatter), `/backpack` (emoji grid with legend, empty-pack message), `StatComputer` (pure function summing class+upbringing+race modifiers, throws on unknown names).
 - [!] **Frozen:** `WizardSession` (public API: `start`, `setName`, `choose`, `confirm`, `reset`, `getSession`, `isExpired` — used by join handler and testable in isolation), `computeStats(className, upbringingName, raceName, classes, upbringings, races) → StatBlock`.
 - [x] **Tests:** 95 passing (48 new), 12 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New files: `tests/engine/stat-computer.test.ts` (7), `tests/discord/wizard-session.test.ts` (27), `tests/discord/stats-backpack.test.ts` (9), `tests/discord/join.test.ts` (5).
-- [>] **Next (S2):** Remaining deterministic commands (`/look`, `/journal`, `/help`, `/feedback`, `/bug`, `/hi`) + scenes (loader, validator, tag resolver, render template). See `docs/engine/poc-build-poa.md` §5 for S2 scope — pure resolver, no LLM, test tag matching units.
+- [>] **Next (S2):** Remaining deterministic commands (`/look`, `/journal`, `/help`, `/feedback`, `/bug`, `/hi`) + scenes (loader, validator, tag resolver, render template). See `docs/archived/poc/poc-build-poa.md` §5 for S2 scope — pure resolver, no LLM, test tag matching units.
 
 ---
 
@@ -316,7 +317,7 @@ Free-text → INSERT into `bug_reports`. Reply: "Bug noted. The warden will inve
 - [x] **Shipped:** All 6 remaining deterministic commands — `/help` (command list, action types, roll economy), `/feedback` (INSERT into feedback, `"Thanks. The warden listens."`), `/bug` (INSERT into bug_reports, `"Bug noted."`), `/look` (location ASCII + description + safe indicator, `SceneLookupFn` injection), `/journal` (known locations with `←` marker, NPCs, recent actions — plain text), `/hi` (pure formatters: `formatCharacterHeader` with low-HP warn, `getDayJobActions` 3-actions-per-job, `isWeekend` Sat/Sun detection, weekday actions + weekend hooks + resumption hint).
 - [!] **Frozen:** `/hi` pure exports (`formatCharacterHeader`, `getDayJobActions`, `isWeekend`, `DayJobDef`, `DayJobAction`). `MockWorldEngine.getLocation()` now uses an explicit `_locationSet` flag — setting null returns null, not a default mock.
 - [x] **Tests:** 140 passing (45 new), 19 files. Run: `cd ~/projects/daily-pixel && npx vitest run`. `tsc --noEmit` clean. New files: `tests/discord/help.test.ts` (4), `tests/discord/feedback-bug.test.ts` (4), `tests/discord/look.test.ts` (6), `tests/discord/journal.test.ts` (6), `tests/discord/hi.test.ts` (9).
-- [>] **Next (S4):** Action polish — two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering. Start from `src/llm/DeepseekLlmGateway.ts` → build the fallback chain (`LlmGateway` → retry → simpler prompt → template/divine), then wire into `WorldEngineImpl.stepAction()` error paths. See `docs/engine/poc-build-poa.md` §5 for S4 scope.
+- [>] **Next (S4):** Action polish — two-tier LLM fallback, template fallback for `outcome_text` (logged), error mapper, idle messages, outcome rendering. Start from `src/llm/DeepseekLlmGateway.ts` → build the fallback chain (`LlmGateway` → retry → simpler prompt → template/divine), then wire into `WorldEngineImpl.stepAction()` error paths. See `docs/archived/poc/poc-build-poa.md` §5 for S4 scope.
 
 ---
 

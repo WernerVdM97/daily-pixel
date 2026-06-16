@@ -41,6 +41,14 @@ export interface LlmDecision {
 export interface LlmDecisionOption {
   label: string;
   dcModifier: number | null; // null = bail
+  /**
+   * Optional per-option ability stat. When present, choosing this option makes it the
+   * stat the resolution roll tests (overriding the action's top-level `stat`). Lets a
+   * single decision offer genuinely different approaches — a clever (wisdom) option and a
+   * direct (physical) one — that test different attributes. See ADR
+   * [[per-option-stat-and-ability-checks]].
+   */
+  stat?: 'physical' | 'wisdom' | 'intelligence' | 'charisma';
 }
 
 export interface LlmGateway {

@@ -26,6 +26,7 @@ function testChar(overrides?: Partial<CharacterData>): CharacterData {
     health: 12,
     maxHealth: 12,
     stamina: 10,
+    maxStamina: 10,
     rollsRemaining: 2,
     location: 'The Warden\'s Oak',
     wealth: 5,
@@ -402,13 +403,55 @@ describe('ActionStateMachine — step', () => {
 
     expect(result.resolved).toBe(true);
     if (result.resolved) {
-      // d20=10 + item bonus(2) = 12 >= DC(12) → success
+      // d20=10 + physical ability(3) + Iron Sword(+2) = 15 >= DC(12) → success
       expect(result.outcome.playerRolled).toBe(10);
+      expect(result.outcome.rollBonus).toBe(5);
       expect(result.outcome.outcome).toBe('success');
     }
   });
 
-  it('roll below DC with no item bonus is failure', async () => {
+  it('uses the chosen option\'s stat for the resolution roll (per-option stat)', async () => {
+    // Action default stat is physical(0), but the player picks the charisma(5) approach.
+    // The roll must test charisma — proving the option stat overrode the action default.
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      distilledType: 'talk',
+      stat: 'physical', // action default — should be overridden by the chosen option
+      baseDc: 12,
+      required: false,
+      done: false,
+      decision: [
+        { label: 'Charm him', stat: 'charisma', dcModifier: 0 },
+        { label: 'Force it', stat: 'physical', dcModifier: 0 },
+        { label: 'Bail', dcModifier: null },
+      ],
+    });
+
+    const machine = new ActionStateMachine(llm, () => 10); // deterministic roll
+    const char = testChar({ stats: { physical: 0, wisdom: 0, intelligence: 0, charisma: 5 } });
+    const start = await machine.start(char, 'win him over', []);
+    if (start.resolved) return;
+
+    // The step call resolves the action.
+    llm.setDecision({
+      distilledType: 'talk', stat: 'physical', baseDc: 12, required: false, done: true,
+      decision: [],
+      mutations: [{ type: 'modify_wealth', amount: 5 }, { type: 'modify_stamina', amount: -1 }],
+      outcomeText: 'He laughs, claps your shoulder, and presses a few coins into your hand.',
+    });
+
+    const result = await machine.step(start.state, 'Charm him', char, []);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.rollStat).toBe('charisma');
+      expect(result.outcome.rollBonus).toBe(5); // charisma 5 + no items — NOT physical 0
+      // d20=10 + 5 = 15 >= DC 12 → success (would have failed on physical 0)
+      expect(result.outcome.outcome).toBe('success');
+    }
+  });
+
+  it('roll below DC (ability + no items) is failure', async () => {
     const llm = new MockLlmGateway();
     llm.setDecision({
       ...huntFinalDecision(),

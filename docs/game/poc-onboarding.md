@@ -7,7 +7,7 @@ tags:
 - characters
 - game-design
 related:
-- '[[poc-build-scaffold]]'
+- '[[archived/poc/poc-build-scaffold|poc-build-scaffold]]'
 - '[[the-poc]]'
 ---
 

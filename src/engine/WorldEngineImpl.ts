@@ -26,6 +26,7 @@ import type {
   ActionResumeResult,
   ActionOutcome,
   ActionDecisionRecord,
+  NearbyEntity,
   LocationInfo,
   ItemData,
   JournalData,
@@ -209,6 +210,7 @@ export class WorldEngineImpl implements WorldEngine {
       health: 10,
       max_health: 10,
       stamina: 10,
+      max_stamina: 10,
       rolls_remaining: 2,
       location: "The Warden's Oak",
       wealth: 0,
@@ -271,6 +273,7 @@ export class WorldEngineImpl implements WorldEngine {
       currentHealth: row.health,
       maxHealth: row.max_health,
       stamina: row.stamina,
+      maxStamina: row.max_stamina,
       wealth: row.wealth,
       rollsRemaining: row.rolls_remaining,
       location: row.location,
@@ -293,6 +296,7 @@ export class WorldEngineImpl implements WorldEngine {
     const updates: Record<string, unknown> = {};
     if (applied.currentHealth !== row.health) updates.health = applied.currentHealth;
     if (applied.stamina !== row.stamina) updates.stamina = applied.stamina;
+    if (applied.maxStamina !== row.max_stamina) updates.max_stamina = applied.maxStamina;
     if (applied.wealth !== row.wealth) updates.wealth = applied.wealth;
     if (applied.rollsRemaining !== row.rolls_remaining) updates.rolls_remaining = applied.rollsRemaining;
     if (applied.location !== row.location) updates.location = applied.location;
@@ -523,6 +527,41 @@ export class WorldEngineImpl implements WorldEngine {
     };
   }
 
+  // ── Nearby ──
+
+  getNearbyEntities(characterId: number): NearbyEntity[] {
+    const char = this.charRepo.findById(characterId);
+    if (!char) return [];
+
+    const entities: NearbyEntity[] = [];
+
+    // NPCs at this location
+    const npcs = this.npcRepo.findByLocation(char.location);
+    for (const npc of npcs) {
+      entities.push({
+        name: npc.name,
+        classOrType: npc.class ?? 'Unknown',
+        description: npc.description ?? null,
+        isPlayer: false,
+      });
+    }
+
+    // Other player characters at this location
+    const allChars = this.charRepo.findAll();
+    for (const pc of allChars) {
+      if (pc.id === characterId) continue;
+      if (pc.location !== char.location) continue;
+      entities.push({
+        name: pc.name,
+        classOrType: pc.class,
+        description: null,
+        isPlayer: true,
+      });
+    }
+
+    return entities;
+  }
+
   // ── Items ──
 
   getItems(characterId: number): ItemData[] {
@@ -631,7 +670,7 @@ export class WorldEngineImpl implements WorldEngine {
         let newHealth: number | undefined;
 
         if (isSafe) {
-          newStamina = Math.min(charRow.stamina + 5, 10);
+          newStamina = Math.min(charRow.stamina + 5, charRow.max_stamina);
           newHealth = Math.min(charRow.health + 3, charRow.max_health);
         } else {
           newStamina = Math.max(charRow.stamina - 1, 0);
@@ -750,7 +789,7 @@ export class WorldEngineImpl implements WorldEngine {
   private rowToCharacterData(row: {
     id: number; user_id: number; name: string; class: string;
     upbringing: string; race: string; alignment: string; day_job: string;
-    stats: string; health: number; max_health: number; stamina: number;
+    stats: string; health: number; max_health: number; stamina: number; max_stamina: number;
     rolls_remaining: number; location: string; wealth: number;
     last_action_state: string | null; created_at: string;
   }): CharacterData {
@@ -781,6 +820,7 @@ export class WorldEngineImpl implements WorldEngine {
       health: row.health,
       maxHealth: row.max_health,
       stamina: row.stamina,
+      maxStamina: row.max_stamina,
       rollsRemaining: row.rolls_remaining,
       location: row.location,
       wealth: row.wealth,

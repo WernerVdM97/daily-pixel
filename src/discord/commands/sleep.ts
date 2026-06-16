@@ -6,6 +6,7 @@
  */
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { mapError } from "../../engine/ErrorMapper.js";
+import { SEPARATOR } from "../format.js";
 
 export function makeSleepCommand(engine: WorldEngine) {
   /** Warn once at first call if ADMIN_USER_ID is unset (deploy-time safety net). */
@@ -58,7 +59,7 @@ export function makeSleepCommand(engine: WorldEngine) {
     if (character.lastActionState !== null) {
       return [
         '⛔ **Cannot rest now**',
-        '═'.repeat(30),
+        SEPARATOR,
         '',
         'You are mid-action — finish what you started before bedding down.',
         '',
@@ -70,7 +71,7 @@ export function makeSleepCommand(engine: WorldEngine) {
     if (character.rollsRemaining > 0) {
       return [
         '⛔ **Cannot rest now**',
-        '═'.repeat(30),
+        SEPARATOR,
         '',
         'The day is still young — you have actions left to take.',
         'Spend your remaining rolls before bedding down beneath the Oak.',
@@ -85,7 +86,7 @@ export function makeSleepCommand(engine: WorldEngine) {
 
     return [
       '🏕️ **The Warden\'s Oak**',
-      '═'.repeat(30),
+      SEPARATOR,
       '',
       locationLine,
       'The day turns when the world wills it — not when you do.',

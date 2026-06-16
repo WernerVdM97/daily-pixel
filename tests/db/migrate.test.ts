@@ -69,6 +69,7 @@ describe('migrate', () => {
       'last_action_state',
       'location',
       'max_health',
+      'max_stamina',
       'name',
       'race',
       'rolls_remaining',

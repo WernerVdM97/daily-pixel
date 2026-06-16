@@ -4,11 +4,13 @@
 // so the caller never has to pre-compute diffs.
 
 import type { ActionOutcome, WorldMutation } from './WorldEngine.js';
+import { STAT_LABELS } from './stat-format.js';
 
 // ── Public context — only current (post-mutation) values ──
 
 export interface OutcomeRenderContext {
   stamina: number;
+  maxStamina: number;
   rollsRemaining: number;
   health: number;
   maxHealth: number;
@@ -110,12 +112,12 @@ export function distilledActionEmoji(type: string): string {
 // ── Outcome label map ──
 
 const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {
-  success:   { icon: '✓', label: 'Success' },
-  failure:   { icon: '✗', label: 'Failure' },
-  skipped:   { icon: '↩', label: 'Skipped' },
-  bailed:    { icon: '↩', label: 'Bailed' },
-  done:      { icon: '✓', label: 'Done' },
-  timed_out: { icon: '⏰', label: 'Timed out' },
+  success:   { icon: '✅', label: 'SUCCESS' },
+  failure:   { icon: '❌', label: 'FAILURE' },
+  skipped:   { icon: '⏭️', label: 'SKIPPED' },
+  bailed:    { icon: '🚪', label: 'BAILED' },
+  done:      { icon: '✅', label: 'DONE' },
+  timed_out: { icon: '⏰', label: 'TIMED OUT' },
 };
 
 // ── Public renderer ──
@@ -136,15 +138,39 @@ export function formatOutcome(
 
   // ── Header — roll vs DC ──
   if (outcome.playerRolled !== null) {
-    const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '?', label: outcome.outcome };
-    // Show the item/stat bonus separately so the math is legible, e.g. `8 + 7 vs 11`.
+    const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '❓', label: outcome.outcome.toUpperCase() };
     const bonus = outcome.rollBonus ?? 0;
-    const rollExpr = bonus === 0
-      ? `${outcome.playerRolled}`
-      : `${outcome.playerRolled} ${bonus > 0 ? '+' : '−'} ${Math.abs(bonus)}`;
-    lines.push(`🎲 ${rollExpr} vs ${outcome.finalDc} ${meta.icon} ${meta.label}`);
+    const total = outcome.playerRolled + bonus;
+
+    // Stat emoji prefix
+    const statEmoji = outcome.rollStat
+      ? (STAT_LABELS[outcome.rollStat]?.emoji ?? '🎲') + ' '
+      : '';
+
+    // Roll expression: 20 + 7 = 27
+    const isCrit = outcome.playerRolled === 20 || outcome.playerRolled === 1;
+    let rollExpr: string;
+    if (bonus === 0) {
+      rollExpr = `${outcome.playerRolled}`;
+    } else {
+      const sign = bonus > 0 ? '+' : '−';
+      // Only bold the total when it won't be double-wrapped by crit bold
+      const totalExpr = isCrit ? `${total}` : `**${total}**`;
+      rollExpr = `${outcome.playerRolled} ${sign} ${Math.abs(bonus)} = ${totalExpr}`;
+    }
+
+    // Critical highlight
+    const prefix = outcome.playerRolled === 20
+      ? '🌟'
+      : outcome.playerRolled === 1
+        ? '💥'
+        : '';
+    const rollPart = isCrit ? `**${rollExpr}**` : rollExpr;
+    const critPrefix = prefix ? `${prefix} ` : '';
+
+    lines.push(`${critPrefix}${statEmoji}🎲 ${rollPart}  vs  ${outcome.finalDc}  →  ${meta.icon} **${meta.label}**`);
   } else {
-    const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '?', label: outcome.outcome };
+    const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '❓', label: outcome.outcome.toUpperCase() };
     lines.push(`${meta.icon} ${meta.label}`);
   }
 
@@ -174,7 +200,7 @@ export function formatOutcome(
     stats.push(`❤️ ${ctx.health}/${ctx.maxHealth}${formatDelta(d.healthDelta)}`);
   }
   // Stamina — always
-  stats.push(`⚡ ${ctx.stamina}/10${formatDelta(d.staminaDelta)}`);
+  stats.push(`⚡ ${ctx.stamina}/${ctx.maxStamina}${formatDelta(d.staminaDelta)}`);
   // Rolls — always
   stats.push(`🎲 ${ctx.rollsRemaining}/2${formatDelta(d.rollsDelta)}`);
   // Wealth — only when it changed
@@ -182,12 +208,11 @@ export function formatOutcome(
     stats.push(`💰 ${ctx.wealth}${formatDelta(d.wealthDelta)}`);
   }
 
-  // Separator between narrative and footer for scan-ability
-  lines.push('───');
   if (changes.length > 0) {
     lines.push(changes.join('  '));
   }
-  lines.push(stats.join('  ┃  '));
+  // Stats footer in monospace — clean visual break without a manual separator
+  lines.push('`' + stats.join('  ┃  ') + '`');
 
   return lines.join('\n');
 }

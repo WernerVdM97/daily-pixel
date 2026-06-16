@@ -33,8 +33,9 @@ mechanics, loop, actions
 
 | Status | Doc | Summary |
 |---|---|---|
-| ✅ | [The POC — Intent](./game/the-poc.md) | The one question, the daily ritual, what ships, what's deliberately out |
-| ✅ | [Onboarding](./game/poc-onboarding.md) | Deterministic `/join` wizard. Data in `assets/char-creation/` |
+| ✅| [The POC — Intent](./game/the-poc.md) | The one question, the daily ritual, what ships, what's deliberately out |
+| 🪦| [POC Build — Plan of Attack](./archived/poc/poc-build-poa.md) | POC build root plan — superseded by implementation. Kept for history |
+| ✅| [POC Build — Deploy](./archived/poc/poc-build-deploy.md) | CI/CD, provisioning — implemented. Kept for history |
 
 ## ⚙️ engine
 
@@ -43,14 +44,7 @@ how it runs
 | Status | Doc                                          | Summary                                                             |
 | ------ | -------------------------------------------- | ------------------------------------------------------------------- |
 | ✅      | [POC Tech Stack](./engine/poc-tech-stack.md) | Tech choices, architecture diagrams, hosting, no-gos for POC vs MVP |
-| ✅      | [Build — Plan of Attack](./engine/poc-build-poa.md) | Build root: patterns per slice, light portable-backend seam, sequential session plan (deepseek-v4-pro) |
-| ✅      | [Build — Scaffold](./engine/poc-build-scaffold.md) | Project init, DB, character creation, deterministic commands     |
-| ✅      | [Build — Probabilistic](./engine/poc-build-probabilistic.md) | `/action` flow, reactive LLM decisions, roll/skip, mutations     |
-| ✅      | [Build — Scenes](./engine/poc-build-scenes.md) | ASCII fragment catalog, tag matching, integration, mobile testing     |
-| ✅      | [Build — Polish](./engine/poc-build-polish.md) | Error handling, LLM fallback, outcome rendering, help content, final pass     |
 | ✅     | [Build — Action UX (Spec)](./engine/poc-build-action-ux.md) | Action-UX refinements + §7 bug fixes (implemented): A/B/C buttons, Bail/Skip/Finish, footer, daily actions |
-| ✅      | [World Tick](./engine/poc-build-world-tick.md) | `/sleep` daily tick: admin command + cron, player updates, NPC movement, world scaling |
-| ✅      | [Build — Deploy](./engine/poc-build-deploy.md) | CI/CD, LXC provisioning, systemd, auto-update, tester invite, observation     |
 
 ## 🖥️ ui
 
@@ -67,14 +61,12 @@ resolved cross-cutting trade-offs (ADRs)
 
 | Status | Doc | Summary |
 |---|---|---|
-| ✅ | [POC Spec Reconciliation](./decisions/poc-spec-reconciliation.md) | Resolves POC contradictions: outcome narration, cron tick, ASCII scenes, DC sign, supporting fixes |
 | ✅ | [POC Action UX Refinements](./decisions/poc-action-ux-refinements.md) | Buttons A/B/C, Bail/Skip/Finish terminal states, footer standardisation, generic daily actions |
+| ✅ | [Per-Option Stat & Ability-Check Rolls](./decisions/per-option-stat-and-ability-checks.md) | Roll = d20 + char ability + item bonus; per-option stat so approach choice selects the stat tested |
 
 ---
 
 ## 🎯 POC 
-
-ongoing sparks
 
 _No open POC sparks — all promoted to domain folders._
 
@@ -109,11 +101,18 @@ deferred depth & polish
 
 ---
 
-## 🚫 Archived
+## 🚫 No-gos
 
 explored & rejected (`nogo`) or replaced (`superseded`) — kept so we don't re-litigate
 
 | Status | Doc                                        | Summary                                                        |
 | ------ | ------------------------------------------ | -------------------------------------------------------------- |
 | 🚫     | [Obsidian CLI](./archived/obsidian-cli.md) | Vault automation via CLI — rejected in favor of Python scripts |
-| 🪦     | [POC Build Plan](./archived/poc-build-plan.md) | Old root/sections index — superseded by [[poc-build-poa]]; criteria moved to deploy §6 |
+| 🪦     | [POC Build Plan](./archived/poc-build-plan.md) | Old root/sections index — superseded by build specs in `docs/archived/poc/` |
+| 🪦     | [POC Build — Scaffold](./archived/poc/poc-build-scaffold.md) | Project init, DB, character creation — implemented. Kept for history |
+| 🪦     | [POC Build — Probabilistic](./archived/poc/poc-build-probabilistic.md) | Action flow, LLM decisions — implemented. Kept for history |
+| 🪦     | [POC Build — Scenes](./archived/poc/poc-build-scenes.md) | ASCII scenes — implemented. Kept for history |
+| 🪦     | [POC Build — Polish](./archived/poc/poc-build-polish.md) | Error handling, LLM fallback — implemented. Kept for history |
+| 🪦     | [Onboarding](./game/poc-onboarding.md) | Deterministic `/join` wizard. Data in `assets/char-creation/` |
+| 🪦     | [World Tick](./archived/poc/poc-build-world-tick.md) | Daily tick — implemented. Kept for history |
+| 🪦     | [POC Spec Reconciliation](./archived/poc/poc-spec-reconciliation.md) | POC contradictions resolution — superseded by `poc-action-ux-refinements.md`. Kept for history |

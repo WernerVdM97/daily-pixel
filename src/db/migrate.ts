@@ -66,6 +66,9 @@ export function migrate(db: Database.Database): void {
 
   // v6: same stamp on llm_calls (failed/retry calls have no action row to inherit it)
   try { db.exec('ALTER TABLE llm_calls ADD COLUMN app_version TEXT'); } catch { /* already exists */ }
+
+  // v7: per-character max stamina ceiling (for training/endurance mutations)
+  try { db.exec('ALTER TABLE player_characters ADD COLUMN max_stamina INTEGER NOT NULL DEFAULT 10'); } catch { /* already exists */ }
 }
 
 /**
@@ -100,6 +103,7 @@ function dedupeSeedNpcs(db: Database.Database): void {
 
 function seedLocations(db: Database.Database): void {
   const locations = [
+    { name: "The Warden's Oak", description: 'A massive ancient oak tree that serves as the heart of the territory. Its branches stretch wide, offering shelter to all who gather beneath.', tags: 'oak,interior,fire,sanctuary', is_safe: 1 },
     { name: 'The Forest Edge', description: 'Where the farmland yields to the treeline. The Oak is still visible behind you, but the canopy ahead swallows the light.', tags: 'forest,edge,trees,field,boundary,wilderness', is_safe: 0 },
     { name: 'The Dark Pines', description: 'Dense ancient forest where the canopy blocks the sky. Roots twist like old bones. Something moves between the trunks — too large for a deer.', tags: 'forest,trees,wilderness,dark,canopy', is_safe: 0 },
     { name: 'The River Crossing', description: 'A broad, shallow ford where the Stonebrook runs clear over worn pebbles. Tracks of every creature that drinks here press into the soft bank.', tags: 'river,water,stream,crossing,bank,wilderness', is_safe: 0 },

@@ -79,10 +79,10 @@ describe("formatCharacterHeader", () => {
         stats: { physical: 4, wisdom: -1, intelligence: 0, charisma: 1 },
       }),
     );
-    expect(result).toContain("Physical:");
-    expect(result).toContain("Wisdom:");
-    expect(result).toContain("Intelligence:");
-    expect(result).toContain("Charisma:");
+    expect(result).toContain("💪 PHY");
+    expect(result).toContain("🧠 WIS");
+    expect(result).toContain("📖 INT");
+    expect(result).toContain("💬 CHA");
   });
 
   it("shows low health warning", () => {

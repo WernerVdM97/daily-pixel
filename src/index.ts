@@ -16,7 +16,7 @@ import process from 'node:process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 
 import { APP_VERSION } from './version.js';
@@ -53,8 +53,10 @@ import { makeFeedbackCommand } from './discord/commands/feedback.js';
 import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
 import { makeHiCommand, getDayJobActions, type DayJobDef } from './discord/commands/hi.js';
-import { makeJoinCommand, handleInteraction as handleJoinInteraction } from './discord/commands/join.js';
-import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage, buildOutcomeEmbed, consumeMenuMessage } from './discord/commands/action.js';
+import { buildComponentPayload, getNavButtons } from './discord/format.js';
+import { BANNER_IMAGE, imageFiles } from './discord/images.js';
+import { makeJoinCommand, handleInteraction as handleJoinInteraction, type CharDefs } from './discord/commands/join.js';
+import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage, buildOutcomeEmbed, consumeMenuMessage, CID_DAYJOB, CID_DAYJOB_CUSTOM } from './discord/commands/action.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
@@ -239,7 +241,14 @@ async function main() {
   registry.register('sleep', asHandler(makeSleepCommand(engine)));
   registry.register('hi', asHandler(makeHiCommand(engine, dayJobs, getCurrentScene)));
   const joinWizards = new WizardSession();
-  registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, assets.itemSets as Array<{ name: string; description: string; for_classes: string[] }>)));
+  registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, {
+    classes: assets.classes as CharDefs['classes'],
+    backgrounds: assets.backgrounds as CharDefs['backgrounds'],
+    races: assets.races as CharDefs['races'],
+    alignments: assets.alignments as CharDefs['alignments'],
+    dayJobs: assets.dayJobs as CharDefs['dayJobs'],
+    itemSets: assets.itemSets as CharDefs['itemSets'],
+  })));
 
   registry.register('action', asHandler(makeActionCommand(engine, getCurrentScene, dayJobs)));
 
@@ -336,10 +345,26 @@ async function main() {
         if (interaction.replied || interaction.deferred) return;
 
         const ephemeralCommands = ['stats', 'backpack', 'journal', 'bug', 'feedback', 'help', 'hi', 'look'];
-        await interaction.reply({
-          content: result,
-          ephemeral: ephemeralCommands.includes(commandName),
+        const isEphemeral = ephemeralCommands.includes(commandName);
+
+        // Nav buttons on all commands except /action (own buttons) and /sleep (global message)
+        let navButtons: ReturnType<typeof getNavButtons> | undefined;
+        if (commandName !== 'action' && commandName !== 'sleep') {
+          const char = engine.getCharacter(interaction.user.id);
+          if (char) navButtons = getNavButtons(char, commandName);
+        }
+
+        // Admin /sleep is always the world tick — top it with the wide banner.
+        const isAdminTick = commandName === 'sleep' && interaction.user.id === ADMIN_USER_ID;
+        const bannerFiles = isAdminTick ? imageFiles(BANNER_IMAGE) : [];
+        const payload = buildComponentPayload(result, {
+          ephemeral: isEphemeral,
+          navButtons,
+          ...(isAdminTick && bannerFiles.length > 0 ? { image: BANNER_IMAGE } : {}),
         });
+        await interaction.reply(
+          bannerFiles.length > 0 ? { ...payload, files: bannerFiles } : payload,
+        );
         if (VERBOSE) {
           console.log(c.grey(`[verbose] /${commandName} → ${result.slice(0, 200)}`));
         }
@@ -363,7 +388,16 @@ async function main() {
       if (!interaction.isButton() && !interaction.isModalSubmit()) return;
       if (VERBOSE) console.log(c.grey(`[verbose] join:${interaction.isButton() ? 'button' : 'modal'} from ${interaction.user.tag} cid=${customId}`));
       try {
-        await handleJoinInteraction(interaction, engine, joinWizards);
+        // After confirm, join shows the player their first-day /hi view. Build it
+        // here where the registry + payload builder live, then hand it back.
+        const renderHiScreen = async (userId: string) => {
+          const hiHandler = registry.get('hi');
+          const result = hiHandler ? await hiHandler({ user: { id: userId } } as never) : 'Welcome to the Oak. Type `/hi` to begin.';
+          const char = engine.getCharacter(userId);
+          const navButtons = char ? getNavButtons(char, 'hi') : undefined;
+          return buildComponentPayload(result, { ephemeral: true, navButtons });
+        };
+        await handleJoinInteraction(interaction, engine, joinWizards, renderHiScreen);
         if (VERBOSE) console.log(c.grey('[verbose] join: done'));
       } catch (err) {
         console.error(c.red('[join] Error handling interaction:'), err);
@@ -421,14 +455,14 @@ async function main() {
           const resumeResult = engine.resumeAction(char.id);
           setPendingDecision(interaction.user.id, resumeResult.nextDecision);
           const decisionIdx = resumeResult.state.decisions.length;
-          await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state));
+          await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state, char));
           return;
         }
         const result = await engine.startAction(char.id, description);
         if (result.outcome) {
           const embed = buildOutcomeEmbed(result.outcome, char, getCurrentScene(interaction.user.id), result.state);
           await interaction.editReply({ embeds: [embed], components: [] });
-          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed] });
+          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed], components: getNavButtons(char) });
         } else if (result.firstDecision.options.length === 0) {
           await interaction.editReply({
             embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
@@ -436,7 +470,7 @@ async function main() {
           });
         } else {
           setPendingDecision(interaction.user.id, result.firstDecision);
-          await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state));
+          await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, char));
         }
       } catch (err) {
         console.error(c.red('[action:custom] Error:'), err);
@@ -476,7 +510,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         if (result.outcome) {
           const embed = buildOutcomeEmbed(result.outcome, char, getCurrentScene(interaction.user.id), result.state);
           await interaction.webhook.editMessage(interaction.message.id, { embeds: [embed], components: [] });
-          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed] });
+          await interaction.followUp({ content: `**${char.name}** — ${result.outcome.distilledType}`, embeds: [embed], components: getNavButtons(char) });
         } else if (result.firstDecision.options.length === 0) {
           await interaction.webhook.editMessage(interaction.message.id, {
             embeds: [new EmbedBuilder().setTitle('⚔️ Action').setDescription(result.firstDecision.prompt).setColor(0x95a5a6).toJSON()],
@@ -484,7 +518,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           });
         } else {
           setPendingDecision(interaction.user.id, result.firstDecision);
-          await interaction.webhook.editMessage(interaction.message.id, buildDecisionMessage(result.firstDecision, 0, result.state));
+          await interaction.webhook.editMessage(interaction.message.id, buildDecisionMessage(result.firstDecision, 0, result.state, char));
         }
       } catch (err) {
         console.error(c.red('[action:dayjob] Error:'), err);
@@ -506,6 +540,131 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong with your action. Try `/action` again.',
+            ephemeral: true,
+          }).catch(() => {});
+        }
+      }
+      return;
+    }
+
+    // ── Navigation buttons ──
+    if (customId && customId.startsWith('nav:')) {
+      if (!interaction.isButton()) return;
+
+      const navTarget = customId.slice(4); // 'hi', 'look', etc.
+
+      // /action shows the day-job menu instead — can't route through the registry
+      // because the handler expects a ChatInputCommandInteraction with options.
+      if (navTarget === 'action') {
+        try {
+          const char = engine.getCharacter(interaction.user.id);
+          if (!char) {
+            await interaction.reply({
+              content: "You don't have a character yet. Type `/join` to create one.",
+              ephemeral: true,
+            });
+            return;
+          }
+          if (char.rollsRemaining <= 0 && !char.lastActionState) {
+            await interaction.reply({
+              content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
+              ephemeral: true,
+            });
+            return;
+          }
+
+          // Resume if mid-action — send a new ephemeral message (the old one
+          // was sent with Components V2 flags, so editing it can't use embeds).
+          if (char.lastActionState) {
+            try {
+              const resumeResult = engine.resumeAction(char.id);
+              if (resumeResult.nextDecision.options.length === 0) {
+                await interaction.reply({
+                  embeds: [new EmbedBuilder().setTitle('⏳ Stale Action').setDescription(resumeResult.nextDecision.prompt || 'Could not recover.').setColor(0x95a5a6).toJSON()],
+                  components: [],
+                  ephemeral: true,
+                });
+              } else {
+                setPendingDecision(interaction.user.id, resumeResult.nextDecision);
+                const decisionMsg = buildDecisionMessage(resumeResult.nextDecision, resumeResult.state.decisions.length, resumeResult.state, char);
+                await interaction.reply({
+                  embeds: decisionMsg.embeds,
+                  components: decisionMsg.components,
+                  ephemeral: true,
+                });
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              await interaction.reply({
+                content: `❌ **Could not resume.**\n${msg}`,
+                ephemeral: true,
+              });
+            }
+            return;
+          }
+
+          // Show day-job menu — new ephemeral message (same reason: V2 flags)
+          const dayNumber = Number(engine.getMeta('day_number') ?? '1');
+          const jobActions = getDayJobActions(char.dayJob, dayJobs, { characterId: char.id, dayNumber });
+          const embed = new EmbedBuilder()
+            .setTitle(`🔨 ${char.dayJob} — Daily Work`)
+            .setDescription('Pick a task to start:')
+            .setColor(0xdaa520);
+
+          const row = new ActionRowBuilder<ButtonBuilder>();
+          for (let i = 0; i < jobActions.length; i++) {
+            row.addComponents(
+              new ButtonBuilder()
+                .setCustomId(CID_DAYJOB + i)
+                .setLabel(jobActions[i].label)
+                .setStyle(ButtonStyle.Secondary),
+            );
+          }
+          row.addComponents(
+            new ButtonBuilder()
+              .setCustomId(CID_DAYJOB_CUSTOM)
+              .setLabel('Custom…')
+              .setStyle(ButtonStyle.Primary),
+          );
+
+          await interaction.reply({
+            embeds: [embed.toJSON()],
+            components: [row.toJSON()],
+            ephemeral: true,
+          });
+        } catch (err) {
+          console.error(c.red('[nav] Error handling nav:action:'), err);
+        }
+        return;
+      }
+
+      const navHandler = registry.get(navTarget);
+      if (!navHandler) return;
+
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        const result = await navHandler({ user: { id: interaction.user.id } } as never);
+
+        // No nav bar on /action (own buttons) or /sleep (global message);
+        // otherwise exclude the current command's own button
+        const noNav = navTarget === 'action' || navTarget === 'sleep';
+        const navButtons = noNav || !char ? undefined : getNavButtons(char, navTarget);
+        const payload = buildComponentPayload(result, { ephemeral: true, navButtons });
+
+        // Nav buttons live on both ephemeral views and the public /action outcome.
+        // From an ephemeral message we edit in place; from a public message we must
+        // NOT overwrite it — spawn a fresh ephemeral screen for the clicker instead.
+        const fromEphemeral = interaction.message?.flags?.has(MessageFlags.Ephemeral) ?? false;
+        if (fromEphemeral) {
+          await interaction.update(payload);
+        } else {
+          await interaction.reply(payload);
+        }
+      } catch (err) {
+        console.error(c.red(`[nav] Error handling nav:${navTarget}:`), err);
+        if ('reply' in interaction) {
+          await (interaction as { reply: Function }).reply({
+            content: 'Something went wrong.',
             ephemeral: true,
           }).catch(() => {});
         }

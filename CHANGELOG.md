@@ -7,6 +7,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Onboarding artwork** — `/join` shows `theoak.png` as the wizard thumbnail and as the hero image on the "Character Created" screen; the admin `/sleep` day-tick announcement is topped with the wide `daily-pixel-banner.png`. Images load via a cached, fail-soft `src/discord/images.ts` helper (a missing asset degrades to no image, never an error). `buildComponentPayload` gained an optional `image` (Components V2 MediaGallery).
+- **Backpack capacity & empty slots** — `/backpack` now shows a `(used/10)` header and pads the emoji grid with ⬜ empty-slot markers up to a 10-slot capacity, so carry space is visible at a glance (an empty pack shows ten ⬜).
+- **Start Over on `/join` steps** — a red "Start Over" button now appears on every wizard step after the name (2–7), not just the final review, so players can restart without abandoning the flow.
+- **Choice descriptions in `/join`** — each class, upbringing, race, alignment, day-job, and starting kit now shows its one-line lore in the embed body, not just its name, so players know what they're picking. Options and descriptions are read straight from `assets/char-creation/*.yml` (single source of truth) rather than a hardcoded subset, so the wizard now offers **all** of them — restoring 6 upbringings (Artisan, Farmstead, Temple-Raised, Urchin, Entertainer, Scout), 3 races (Half-Elf, Half-Orc, Dúnedain), and the Wanderer day-job that the old hardcoded list silently dropped.
+- **Navigation buttons on command responses** — most text-based commands now show a nav bar with `🌅 Hi`, `👁️ Look`, `📊 Stats`, `🎒 Backpack`, `📖 Journal`, `⚔️ Action`, and `😴 Sleep` (Sleep only when rolls=0 and no pending action). Clicking navigates to that command's view. `/action` and `/sleep` don't show the nav bar. The current view's own button is excluded.
+- **Native Discord Separator components** — all text-based command views now use the native Separator component (type 14) instead of text `━━━━` lines, rendered via a shared `buildComponentPayload()` helper in `src/discord/format.ts`
+- **Stat emoji on action roll lines** — the outcome header now shows which ability stat was used (`💪`, `🧠`, `📖`, `💬`) alongside the roll expression
+- **Full roll math display** — action outcomes now show the complete `d20 + bonus = total` expression (e.g. `🎲 8 + 7 = **15**`), making the roll resolution transparent
+- **`rollStat` on `ActionOutcome`** — the ability stat tested by a roll is now stamped on the outcome so the renderer can display it
+- **`The Warden's Oak` as a seeded safe location** — added to the location seed list so the daily tick properly restores stamina for players resting there
+- **`scripts/clear-admin.sh` now handles `llm_calls` and `npcs`** — FK-aware delete order prevents foreign key constraint failures
+- **Stat name abbreviation with emojis** — all rendered stat lines now show compact emoji+abbrev (`💪 PHY`, `🧠 WIS`, `📖 INT`, `💬 CHA`) instead of full names, improving mobile readability
+- **Backpack stat breakdown** — `/backpack` now groups items by stat with per-stat total bonus (`💪 Physical (+3)`) and a separate Utility section for zero-modifier items
+- **`shipped` status** to docs conventions — `status: shipped` marks implemented-and-archived specs; finished POC build docs moved from `engine/` and `decisions/` to `docs/archived/poc/`
 - **Decision breadcrumb trail** — the action outcome embed now shows a concise emoji breadcrumb (e.g. 🔍 → 🗣️ → ⚔️) above the scene, tracing the distilled action types the player moved through. Backed by a `distilledActionEmoji()` keyword↔emoji map (28+ keywords, case-insensitive, substring-matched, fallback ✴️) and a `distilledType` field stamped on each `ActionDecisionRecord` by the state machine.
 - **Action terminal states `bailed` and `done`** — bailing a real decision now resolves as a neutral `↩ Bailed` (costs −1 stamina), and an LLM `done`/no-choices outcome (travel/rest) **auto-finishes** as a neutral `✓ Done` instead of presenting a red "Step back". Auto-finished actions are logged to `actions` like any other (with `llm_call` link + `app_version`).
 - `/hi` now shows the current location's name, description, and safety status
@@ -18,6 +32,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **decision-v4 prompt** — evolved from v3: roll-first resolution blocks (`ROLL RESULT: SUCCESS/FAILURE`), honour-player-intent rule (no silent type conversion), decisions must advance (consequences on call 2+, never re-present), item breakage/loss recipe, expanded mutation examples, refined JSON contract
 
 ### Changed
+- **Action decision screen restyled** — the player's intent + prior choices now render as a quoted "🧭 Quest" path, visually separated from the current scene below; each option shows its **effective DC** (running DC + modifier); and options the character can sense are achievable are tinted green and flagged 🟢, gated by **passive insight** (`10 + WIS`) so wiser characters read the odds better.
+- **README production section** — rewritten from LXC-provisioning docs to a 5-step clone-and-install workflow for existing containers, ready for later deploy
+- **Nav buttons on the public `/action` outcome** — the channel-wide outcome post now carries the navigation bar. Because it's a public message, clicking a button **spawns a fresh ephemeral screen** for the clicker (a new reply) instead of overwriting the public message in place; ephemeral views still edit in place as before. Works for any player who clicks, each getting their own ephemeral view.
+- **Character creation announces publicly, then shows your first day** — confirming `/join` (run in an ephemeral wizard) now posts the "A new hero joins the Oak" card to the whole channel, then replaces the wizard with the player's own ephemeral `/hi` screen so they can act immediately.
+- **`/join` wizard restyled** — emoji + short labels on every choice button (fixes the wrapping on long upbringing/alignment captions), starting-kit buttons no longer cram the description into the caption (it moved to the body), a clearer "Forge Your Hero" title, and a progress ledger that strikes through completed steps and marks the current one. Alignment now renders title-cased everywhere.
+- **Rolls are now ability checks** — the resolution roll is `d20 + character ability score + matching item bonuses` vs DC. Previously the character's own stat was ignored and only item bonuses applied. New `computeRollBonus()` helper composes the two. (See decision `per-option-stat-and-ability-checks`.)
+- **Decision options carry a per-option `stat`** — the approach the player picks now decides which ability the roll tests (a `charisma` "haggle" vs a `physical` "force it"). The state machine derives the roll stat from the chosen option (last choice wins on multi-step actions); the top-level `stat` remains the default for options that omit one and for auto-finish resolutions. `decision[].stat` added to the response contract, `LlmDecisionOption`, and `ActionOption`.
+- **`decision-v6` prompt** — evolved from v5: explicit `PHASE:` marker (`NEW_ACTION`/`CONTINUE`/`RESOLVE_ROLL`) so the model stops inferring game state from prose, per-option stat + ability-check rules, a pre-flight checklist, and **`base_dc` minimum raised 8 → 10** (with matching validator range) to offset the added ability bonus.
+- **Scaling hint surfaces per-stat item bonuses** for all four stats (was a single stat), so the LLM can author per-option stats against the player's actual gear.
+- **Action outcome labels use emojis** — `✅ SUCCESS`, `❌ FAILURE`, `⏭️ SKIPPED`, `🚪 BAILED`, `✅ DONE`, `⏰ TIMED OUT` (were text-only `✓ Success`, `✗ Failure`, etc.)
+- **Outcome embed title uses action-type emoji** — the embed title now reflects the action (🏹 Hunt, 🗣️ Talk, 😴 Rest) instead of always showing ⚔️
+- **Outcome stats footer in code block** — the stats line is now wrapped in inline code backticks for visual separation, replacing the `━━━━━` separator line
+- **Daily work action indicators** — `① ② ③` replaced with `🎯 🔧 📋`
+- **`/hi` simplified** — dropped ASCII scene rendering and location description (now shows just location name + safe/unsafe badge with a hint to use `look`); nav button click starts an action directly via the day-job menu
+- **`/look` now shows unsafe indicator** — unsafe locations display `⚠️ This location is **unsafe**. Danger may be near.`
+- **`/help` formatting cleaned up** — removed manual space-prefixed line wrapping; added native Separator components between logical sections
+- All command references in UI text no longer include the leading `/` (e.g. `` `look` `` instead of `` `/look` ``)
+- **Map of content pruned** — shipped POC docs removed from `docs/README.md` active tables, catalogued under a new Archived section
+- Cross-references in 5 active docs updated to point to `archived/poc/` paths
+- TODO.md reorganized — addressed scratchpad items marked `[x]` with links to shipped docs; POC polish vs MVP fuel separated
 - **Roll-first resolution** — the bot now rolls the d20 (+ stat bonus) vs the DC *before* the LLM narrates, then makes a second "narration" call telling the LLM the verdict, so the outcome text and mutations match the dice. Previously the LLM authored the outcome blind to the roll, so a "Success" could carry a failure narration (and vice-versa). Adds one LLM call per resolution. (Implements the "roll before flavour" idea from `mvp-llm-prompt-architecture`.)
 - **Roll line shows the stat bonus separately** — e.g. `🎲 8 + 7 vs 11 ✓ Success`, so it's clear why a low die still passed (the item/stat bonus was previously hidden)
 - **Standardised outcome footer** — emoji stat glyphs (`❤️ HP ┃ ⚡ stamina ┃ 🎲 rolls ┃ 💰 wealth`) with a separator above it, and items/location on their own line, so outcomes scan cleanly on mobile
@@ -27,6 +61,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Validation warnings (bad stat, out-of-range DC, empty labels, non-array mutations) are now persisted as data, not just logged
 
 ### Fixed
+- **Nat20/nat1 bold markdown broken** — double-wrapped `**` in the roll expression (e.g. `**20 + 2 = **22****`) produced broken Discord bold formatting. Inner bold on the total is now suppressed when the whole expression is bolded for crits.
+- **`/look` didn't show unsafe indicator** — unsafe locations had no emoji or warning text (only safe locations showed their status)
+- **Stamina drained when sleeping at the Oak** — `The Warden's Oak` wasn't in the seeded locations table, so the daily tick treated it as unsafe and subtracted stamina instead of restoring it
+- **Action nav button crashed** — clicking Action from a Components V2 message tried to route through the registry's slash-command handler, which called `interaction.options.getString()` on a non-slash interaction. Fixed by showing the day-job menu or resume flow directly.
+- **`interaction.editReply()` with content/embeds on Components V2 messages** — Discord rejects `content` and `embeds` on messages sent with `IS_COMPONENTS_V2`. The nav:action resume and day-job paths now send new ephemeral replies instead.
+- `/stats`, `/hi` header, and `/backpack` all consistently use abbreviated stat labels with emojis
+- Backpack layout no longer a flat emoji grid — stat groupings make item bonuses scannable at a glance
+- Carriage returns, stamina ceiling, bail→neutral, item stack loss, auto-finish, A/B/C buttons, standardised footer all confirmed shipped in the POC build archive
 - **Failed actions no longer reward the player** — on a failed roll, beneficial mutations (wealth/stamina/health gains, gained items) are dropped and a flat −2 stamina penalty is added so a loss carries weight; costs and world changes (e.g. `set_location`) are kept. With roll-first resolution the narration now also matches the verdict, so failures read as failures.
 - **Auto-finish coverage** — the day-job button and custom-modal action paths now render an auto-finished outcome too (previously only the typed `/action <description>` path did)
 - **Bail rendered as green Success** — bailing a non-required action showed a green success banner; now neutral `↩ Bailed`. (Root cause: the pre-resolved `done` case was conflated with bail; split into auto-finish vs genuine bail.)
@@ -48,7 +90,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Idle messages now show during all three loading states (previously only day-job quick action showed them)
 - `add_item` mutations from LLM with `stat: null` no longer crash — prompt now explicitly requires stat value, and engine drops malformed entries
 - Location scenes now resolve properly — LLM knows the exact names of all 9 seeded locations
-- `set_location` to an unknown location is now rejected by the engine (matched case-insensitively against known locations, then snapped to canonical casing) — prevents the player being moved to a phantom location with no scene
+- `set_location` to an unknown location is now rejected by the engine (matched case-insensitively against known locations, then snapped to the canonical casing) — prevents the player being moved to a phantom location with no scene
 - Removed per-action debug logging from the resolution path
 
 ## [0.1.5] — 2026-06-15

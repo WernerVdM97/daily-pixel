@@ -23,6 +23,7 @@ export interface CharacterData {
   health: number;
   maxHealth: number;
   stamina: number;
+  maxStamina: number;
   rollsRemaining: number;
   location: string;
   wealth: number;
@@ -45,6 +46,13 @@ export interface ActionDecision {
 export interface ActionOption {
   label: string;
   dcModifier: number | null; // signed -5..+5; null = bail
+  /**
+   * The ability stat this approach tests (physical/wisdom/intelligence/charisma).
+   * Optional override: when present, choosing this option makes it the action's roll
+   * stat; when absent, the option inherits the action's top-level stat. See ADR
+   * [[per-option-stat-and-ability-checks]].
+   */
+  stat?: string;
 }
 
 export interface ActionDecisionRecord {
@@ -65,6 +73,7 @@ export interface ActionState {
 export interface WorldMutation {
   type: 'set_location' | 'modify_health' | 'modify_stamina'
       | 'modify_wealth' | 'modify_rolls_remaining'
+      | 'modify_max_stamina'
       | 'add_item' | 'remove_item' | 'spawn_npc';
   [key: string]: unknown;
 }
@@ -91,6 +100,8 @@ export interface ActionOutcome {
   outcome: 'success' | 'failure' | 'skipped' | 'bailed' | 'done' | 'timed_out';
   /** Item/stat bonus added to the d20 for this roll. Shown in the footer (e.g. `8 + 7 vs 11`). */
   rollBonus?: number;
+  /** The ability stat this action tested (physical/wisdom/intelligence/charisma). */
+  rollStat?: string;
   mutations: WorldMutation[];
   outcomeText: string;
   /** Id of the llm_calls audit row this outcome came from. Linked to the action after insert. */
@@ -151,6 +162,13 @@ export interface TickResult {
   npcMovements: NpcMovement[];
 }
 
+export interface NearbyEntity {
+  name: string;
+  classOrType: string;
+  description: string | null;
+  isPlayer: boolean;
+}
+
 // ── The one cohesive interface ──
 
 export interface WorldEngine {
@@ -166,6 +184,9 @@ export interface WorldEngine {
 
   // Location
   getLocation(name: string): LocationInfo | null;
+
+  /** Entities at the character's current location (NPCs + other players). */
+  getNearbyEntities(characterId: number): NearbyEntity[];
 
   // Items
   getItems(characterId: number): ItemData[];

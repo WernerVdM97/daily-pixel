@@ -1,12 +1,10 @@
 import type { WorldMutation } from '../WorldEngine.js';
 
-/** Hard ceiling for stamina. Single source of truth for the clamp + the `/10` display. */
-export const STAMINA_MAX = 10;
-
 export interface MutationContext {
   currentHealth: number;
   maxHealth: number;
   stamina: number;
+  maxStamina: number;
   wealth: number;
   rollsRemaining: number;
   location: string;
@@ -36,6 +34,7 @@ const MUTATION_TYPES = new Set([
   'set_location',
   'modify_health',
   'modify_stamina',
+  'modify_max_stamina',
   'modify_wealth',
   'modify_rolls_remaining',
   'add_item',
@@ -103,6 +102,15 @@ function validateOne(
       }
       if (ctx.stamina + m.amount < 0) {
         return { index, message: `modify_stamina would reduce stamina below 0` };
+      }
+      return null;
+    }
+    case 'modify_max_stamina': {
+      if (typeof m.amount !== 'number' || Number.isNaN(m.amount)) {
+        return { index, message: 'modify_max_stamina requires a numeric "amount"' };
+      }
+      if (ctx.maxStamina + m.amount < 1) {
+        return { index, message: `modify_max_stamina would reduce max stamina to ${ctx.maxStamina + m.amount} (below 1)` };
       }
       return null;
     }
@@ -186,8 +194,13 @@ export function applyMutations(
         state.currentHealth = Math.max(0, Math.min(state.maxHealth,
           state.currentHealth + Number(m.amount ?? 0)));
         break;
+      case 'modify_max_stamina':
+        state.maxStamina = Math.max(1, state.maxStamina + Number(m.amount ?? 0));
+        // Clamp current stamina to the new ceiling
+        state.stamina = Math.min(state.stamina, state.maxStamina);
+        break;
       case 'modify_stamina':
-        state.stamina = Math.max(0, Math.min(STAMINA_MAX, state.stamina + Number(m.amount ?? 0)));
+        state.stamina = Math.max(0, Math.min(state.maxStamina, state.stamina + Number(m.amount ?? 0)));
         break;
       case 'modify_wealth':
         state.wealth = Math.max(0, state.wealth + Number(m.amount ?? 0));

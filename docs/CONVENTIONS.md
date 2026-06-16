@@ -25,7 +25,7 @@ superseded_by: "[[new-doc]]"
 ---
 ```
 
-`title`, `status`, `domain` are **required**. `tags`, `phase`, and `related` are strongly encouraged. The `supersedes` / `superseded_by` pair appears only on docs involved in a replacement.
+`title`, `status`, `domain` are **required**. `tags`, `phase`, and `related` are strongly encouraged. The `supersedes` / `superseded_by` pair appears only on docs involved in a replacement. Shipped docs may use `superseded_by: "implemented in code"` to signal the spec was built.
 
 ### `phase` — the implementation target
 
@@ -102,10 +102,11 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 | `spark` | Raw idea. May be half-baked, wrong, or contradict another spark. | …capture a thought. Don't build on it. |
 | `exploring` | A real candidate direction, actively being fleshed out. Not locked. | …discuss and prototype against, knowing it may change. |
 | `decided` | This **is** the direction. Build against it. | …implement. Changing it requires a decision record. |
+| `shipped` | Implemented and archived. The code is the living artifact. | …read for history. The spec has been built. |
 | `superseded` | Kept for history. Points to what replaced it via `superseded_by`. | …understand why we moved on. Nothing else. |
 | `nogo` | Explored and rejected. Won't pursue — at least not in current form. | …remember why we said no. Don't resurrect without new information. |
 
-**Rule:** to overturn a `decided` doc, write a `decisions/` record and flip the old doc to `superseded` — don't silently edit it into something new, and don't open a competing third doc.
+**Rule:** to overturn a `decided` or `shipped` doc, write a `decisions/` record and flip the old doc to `superseded` — don't silently edit it into something new, and don't open a competing third doc.
 
 **When to use `nogo`:** a spark was explored (prototyped, researched, or discussed) and the conclusion was "not now, maybe never." Unlike `superseded`, there's no replacement — just a door we chose not to walk through. Kept so we don't re-litigate the same idea next month.
 
@@ -121,7 +122,7 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 | `ui/`        | `ui`     | Discord UX, command flows, ASCII presentation, and `ui/mockups/`.                                                                                    |
 | `decisions/` | —        | Decision records (ADRs): cross-cutting trade-offs that have been resolved.                                                                           |
 | `sparks/`    | `spark`    | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
-| `archived/`  | `archived` | Rejected ideas (`status: nogo`). Kept for history so we don't re-litigate. |
+| `archived/`  | `archived` | Done deals: shipped specs (`status: shipped`), rejected ideas (`status: nogo`), replaced directions (`status: superseded`). Kept for history. |
 
 `domain` in frontmatter always matches the folder the file sits in.
 
@@ -132,6 +133,7 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 1. New idea → drop it in `sparks/` with `status: spark`, `domain: spark`.
 2. When it earns a clear domain and firm direction, **`git mv`** it into that folder and bump `status` to `exploring` (or `decided`).
 3. When it becomes the direction → `status: decided`.
+4. When it's been implemented and the code is the living artifact → **`git mv`** into `archived/`, flip `status` to `shipped`, set `superseded_by: "implemented in code"`. Shipped docs don't appear in the map of content — they're history, not active reference. Active docs that link to shipped docs should note the reference in their `related:` frontmatter so readers know where to look.
 
 **During Phase 1 (design), all docs live in `sparks/`.** The domain folders (`vision/`, `game/`, `engine/`, `ui/`) are empty — reserved for Phase 2 when design crystallizes into implementation. This keeps the repo honest: we're designing, not pretending to have a codebase.
 

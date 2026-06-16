@@ -1,11 +1,12 @@
 // Prompt version — the single source of truth. Bump this ONE constant when the
 // system prompt changes; the prompt file is derived from it
-// (assets/prompts/decision-<PROMPT_VERSION>.md). It's stamped on every
+// (assets/prompts/decision-prompts/decision-<PROMPT_VERSION>.md). It's stamped on every
 // actions/llm_calls row so outcomes trace back to the prompt that produced them.
 //
-// To cut a new version: copy assets/prompts/decision-<old>.md → decision-<new>.md,
+// To cut a new version: copy assets/prompts/decision-prompts/decision-<old>.md → decision-<new>.md,
 // edit the body, then change the string below. Keep old files for history.
-export const PROMPT_VERSION = 'v4';
+// After cutting, also copy the new file's content into current_source.md.
+export const PROMPT_VERSION = 'v6';
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -16,17 +17,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Active system prompt, loaded once at boot from the file matching PROMPT_VERSION. */
 const _systemPrompt = readFileSync(
-  path.join(__dirname, '..', '..', 'assets', 'prompts', `decision-${PROMPT_VERSION}.md`),
+  path.join(__dirname, '..', '..', 'assets', 'prompts', 'decision-prompts', `decision-${PROMPT_VERSION}.md`),
   'utf-8',
 ).trim();
 
-/** The active system prompt (assets/prompts/decision-<PROMPT_VERSION>.md). */
+/** The active system prompt (assets/prompts/decision-prompts/decision-<PROMPT_VERSION>.md). */
 export function buildSystemPrompt(): string {
   return _systemPrompt;
 }
 
 export function buildUserMessage(ctx: LlmContext): string {
   const lines: string[] = [];
+
+  // Explicit loop phase so the model never has to infer game state from prose.
+  //   NEW_ACTION  — first beat; open a decision or resolve outright.
+  //   CONTINUE    — a prior choice exists but no verdict yet; produce the NEXT beat.
+  //   RESOLVE_ROLL — the dice have decided; narrate the attached ROLL RESULT only.
+  const phase = ctx.rollOutcome
+    ? 'RESOLVE_ROLL'
+    : (ctx.previousDecisions && ctx.previousDecisions.length > 0 ? 'CONTINUE' : 'NEW_ACTION');
+  lines.push(`PHASE: ${phase}`);
 
   lines.push(`CHARACTER: class=${ctx.character.class}, stats=${JSON.stringify(ctx.character.stats)}, health=${ctx.character.health}, stamina=${ctx.character.stamina}, alignment=${ctx.character.alignment}, dayJob=${ctx.character.dayJob}`);
   lines.push(`LOCATION: ${ctx.location.name}`);

@@ -188,9 +188,9 @@ describe('E2E — full happy path', () => {
     // Day-job actions — 3 surfaced at random from the job + common pool
     expect(result).toContain('Blacksmith');
     expect(result).toContain('Daily Work');
-    expect(result).toContain('①');
-    expect(result).toContain('②');
-    expect(result).toContain('③');
+    expect(result).toContain('🎯');
+    expect(result).toContain('🔧');
+    expect(result).toContain('📋');
 
     // Resumption hint — no action yet
     expect(result).not.toContain('unfinished');
@@ -308,8 +308,8 @@ describe('E2E — full happy path', () => {
     expect(result).toContain('Human');
     expect(result).toContain('lawful good');
     expect(result).toContain('Blacksmith');
-    expect(result).toContain('Physical');
-    expect(result).toContain('Wisdom');
+    expect(result).toContain('💪 PHY');
+    expect(result).toContain('🧠 WIS');
     expect(result).toContain('Health');
     expect(result).toContain('Stamina');
     expect(result).toContain('copper');
@@ -338,7 +338,7 @@ describe('E2E — full happy path', () => {
 
     // Should show unfinished action prompt
     expect(result).toContain('Unfinished');
-    expect(result).toContain('/action');
+    expect(result).toContain('**Action**');
   });
 
   // ── 8. /sleep (admin) → day advanced, rolls reset ──
@@ -477,17 +477,17 @@ describe('E2E — full happy path', () => {
       },
       {
         stamina: 7,
+        maxStamina: 10,
         rollsRemaining: 1,
         health: 9,
         maxHealth: 10,
         wealth: 15,
-        itemsGained: [{ emoji: '🦊', name: 'Wolf Pelt' }],
       },
     );
 
-    expect(result).toContain('16 vs 14');
-    expect(result).toContain('✓');
-    expect(result).toContain('Success');
+    expect(result).toContain('16  vs  14');
+    expect(result).toContain('✅');
+    expect(result).toContain('SUCCESS');
     expect(result).toContain('Wolf Pelt');
   });
 });
