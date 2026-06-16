@@ -68,7 +68,9 @@ resolved cross-cutting trade-offs (ADRs)
 
 ## 🎯 POC 
 
-_No open POC sparks — all promoted to domain folders._
+| Status | Doc | Summary |
+|---|---|---|
+| 🌱 | [Code Review — Post PR #14](./sparks/handover-code-review-post-pr14.md) | 5-axis review of 22 commits (3299 lines). Critical: split into smaller PRs. Required renames, indentation fix, dead param. |
 
 ## 🔥 MVP 
 
