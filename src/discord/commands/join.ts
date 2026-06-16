@@ -314,6 +314,12 @@ function buildStepMessage(state: WizardState): {
     }
   }
 
+  // Steps 1-7 get a Start Over button at the bottom (step 8 has its own, next to
+  // Confirm). Option steps use at most 3 rows, so +1 stays within Discord's 5.
+  if (state.step >= 1 && state.step <= 7) {
+    components.push(buildStartOverRow());
+  }
+
   if (state.step === 8) {
     blocks.push("__**Ready**__\nYour hero stands ready. Confirm to step into the world — or start over.");
     embed.setFooter({ text: "Review your choices and confirm" });
@@ -340,6 +346,17 @@ function buildStepMessage(state: WizardState): {
     components: components.map((r) => r.toJSON()),
     files: imageFiles(OAK_IMAGE),
   };
+}
+
+/** A red "Start Over" button row, shown on every wizard step before the review. */
+function buildStartOverRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(CID_START_OVER)
+      .setLabel("Start Over")
+      .setEmoji("🔄")
+      .setStyle(ButtonStyle.Danger),
+  );
 }
 
 /** Title-case an alignment like "lawful good" → "Lawful Good" (passthrough for undefined). */

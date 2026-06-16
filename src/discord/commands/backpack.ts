@@ -2,29 +2,40 @@ import type { WorldEngine, ItemData } from "../../engine/WorldEngine.js";
 import { STAT_LABELS } from "../../engine/stat-format.js";
 import { SEPARATOR } from "../format.js";
 
+/** How many item slots a character can carry. */
+export const BACKPACK_CAPACITY = 10;
+/** Emoji shown for an unused slot in the grid. */
+const EMPTY_SLOT = "⬜";
+
 export function makeBackpackCommand(engine: WorldEngine) {
   return async (interaction: { user: { id: string } }) => {
     const character = engine.getCharacter(interaction.user.id);
     if (!character) {
       return "You don't have a character yet. Type `/join` to create one.";
     }
-    const items = engine.getItems(character.id);
-    if (items.length === 0) {
-      return `🎒 **Backpack**\n${SEPARATOR}\nYour pack is empty.`;
-    }
-    return formatBackpack(items);
+    return formatBackpack(engine.getItems(character.id));
   };
 }
 
 export function formatBackpack(items: ItemData[]): string {
   const lines: string[] = [];
-  lines.push("🎒 **Backpack**");
+
+  // Slots used = total quantity carried; the grid shows used + empty slots up to capacity.
+  const used = items.reduce((sum, i) => sum + i.quantity, 0);
+  lines.push(`🎒 **Backpack** (${used}/${BACKPACK_CAPACITY})`);
   lines.push(SEPARATOR);
   lines.push("");
 
-  // Emoji grid: repeat emoji for each quantity
-  const emojis = items.flatMap((item) => Array(item.quantity).fill(item.emoji));
-  lines.push(emojis.join(" "));
+  // Emoji grid: one emoji per carried unit, then ⬜ for each free slot.
+  const filled = items.flatMap((item) => Array(item.quantity).fill(item.emoji));
+  const empties = Array(Math.max(0, BACKPACK_CAPACITY - used)).fill(EMPTY_SLOT);
+  lines.push([...filled, ...empties].join(" "));
+
+  if (items.length === 0) {
+    lines.push("");
+    lines.push("Your pack is empty.");
+    return lines.join("\n");
+  }
 
   // Group by stat
   const groups: Record<string, ItemData[]> = {};

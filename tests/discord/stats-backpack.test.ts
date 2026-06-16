@@ -169,4 +169,33 @@ describe("/backpack", () => {
     const gridMatches = (gridLine!.match(/🍞/g) ?? []).length;
     expect(gridMatches).toBe(3);
   });
+
+  it("fills the rest of the 10 slots with empty-slot emojis", async () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(makeChar());
+    engine.setItems([
+      makeItem({ name: "Iron Sword", emoji: "⚔️" }),
+      makeItem({ name: "Travel Rations", emoji: "🍞", quantity: 3 }),
+    ]);
+    const handler = makeBackpackCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+
+    // 4 used → header shows 4/10 and the grid has 6 empty slots.
+    expect(result).toContain("(4/10)");
+    const gridLine = result.split("\n").find((l) => l.includes("⬜"))!;
+    expect((gridLine.match(/⬜/g) ?? []).length).toBe(6);
+  });
+
+  it("shows a full row of empty slots when the pack is empty", async () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(makeChar());
+    engine.setItems([]);
+    const handler = makeBackpackCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+
+    expect(result).toContain("(0/10)");
+    expect(result).toContain("empty");
+    const gridLine = result.split("\n").find((l) => l.includes("⬜"))!;
+    expect((gridLine.match(/⬜/g) ?? []).length).toBe(10);
+  });
 });
