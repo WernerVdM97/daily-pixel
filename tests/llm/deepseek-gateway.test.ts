@@ -387,6 +387,13 @@ describe('DeepseekLlmGateway', () => {
   });
 });
 
+/** Shared test helper: return a recorder that collects records in an array. */
+function capture() {
+  const records: LlmCallRecord[] = [];
+  const recorder = { record: (r: LlmCallRecord) => { records.push(r); return records.length; } };
+  return { records, recorder };
+}
+
 describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
   const goodDecision = {
     distilled_type: 'travel', stat: 'physical', base_dc: 10,
@@ -406,12 +413,6 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
       }),
       text: () => Promise.resolve(''),
     }) as unknown as typeof fetch;
-  }
-
-  function capture() {
-    const records: LlmCallRecord[] = [];
-    const recorder = { record: (r: LlmCallRecord) => { records.push(r); return records.length; } };
-    return { records, recorder };
   }
 
   /** Malformed (unparseable) content — the LLM "failed" to return valid format. */
@@ -457,5 +458,113 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder, logThinkingAll: true });
     await gw.decide(minimalContext);
     expect(records[0].reasoning).toBe('deep thoughts here');
+  });
+});
+
+describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
+  function rewardlessFetch(): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content: JSON.stringify({
+            distilled_type: 'train', stat: 'physical', base_dc: 10,
+            required: false, done: true, decision: [],
+            mutations: [{ type: 'modify_stamina', amount: -1 }],
+            outcome_text: 'You train hard.',
+          }), reasoning_content: '' },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  function rewardingFetch(): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content: JSON.stringify({
+            distilled_type: 'train', stat: 'physical', base_dc: 10,
+            required: false, done: true, decision: [],
+            mutations: [
+              { type: 'modify_stamina', amount: -1 },
+              { type: 'modify_rolls_remaining', amount: 1 },
+            ],
+            outcome_text: 'You train hard and feel sharper.',
+          }), reasoning_content: '' },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  it('warns when done:true has only negative stamina/health mutations and no reward', async () => {
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: rewardlessFetch(), recorder });
+    await gw.decide(minimalContext);
+    const joined = records[0].validationWarnings.join(' ');
+    expect(joined).toContain('done:true with only negative stamina/health mutations');
+  });
+
+  it('does NOT warn when done:true includes a reward mutation (modify_rolls_remaining)', async () => {
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: rewardingFetch(), recorder });
+    await gw.decide(minimalContext);
+    const joined = records[0].validationWarnings.join(' ');
+    expect(joined).not.toContain('done:true with only negative stamina/health mutations');
+  });
+
+  it('does NOT warn when done:true mutations include add_item', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content: JSON.stringify({
+            distilled_type: 'hunt', stat: 'physical', base_dc: 10,
+            required: false, done: true, decision: [],
+            mutations: [
+              { type: 'modify_stamina', amount: -2 },
+              { type: 'add_item', name: 'Wolf Pelt', emoji: '🐺', stat: 'physical', modifier: 1 },
+            ],
+            outcome_text: 'You bring down the wolf.',
+          }), reasoning_content: '' },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
+    await gw.decide(minimalContext);
+    const joined = records[0].validationWarnings.join(' ');
+    expect(joined).not.toContain('done:true with only negative stamina/health mutations');
+  });
+
+  it('does NOT warn when done:false (mid-decision, no reward expected)', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content: JSON.stringify({
+            distilled_type: 'talk', stat: 'charisma', base_dc: 10,
+            required: false, done: false,
+            decision: [{ label: 'Greet them warmly', dc_modifier: 0 }],
+          }), reasoning_content: '' },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
+    await gw.decide(minimalContext);
+    expect(records[0].validationWarnings).toEqual([]);
   });
 });

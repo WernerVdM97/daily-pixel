@@ -277,6 +277,27 @@ export class DeepseekLlmGateway implements LlmGateway {
       console.warn(c.yellow('[llm:validate] raw response:'), JSON.stringify(raw).slice(0, 500));
     }
 
+    // Rule 4b: done:true with only negative stamina/health mutations and no reward
+    if (d.done && Array.isArray(raw.mutations)) {
+      const hasReward = (raw.mutations as Array<Record<string, unknown>>).some(m => {
+        if (!m || typeof m !== 'object') return false;
+        const type = String(m.type ?? '');
+        if (['add_item', 'spawn_npc', 'set_location'].includes(type)) return true;
+        if (['modify_wealth', 'modify_rolls_remaining'].includes(type)) return Number(m.amount ?? 0) > 0;
+        return false;
+      });
+      if (!hasReward) {
+        const allNegative = (raw.mutations as Array<Record<string, unknown>>).every(m => {
+          if (!m || typeof m !== 'object') return false;
+          const type = String(m.type ?? '');
+          return ['modify_stamina', 'modify_health'].includes(type) && Number(m.amount ?? 0) < 0;
+        });
+        if (allNegative) {
+          warnings.push('done:true with only negative stamina/health mutations — SUCCESS must include a reward (prompt rule 4b)');
+        }
+      }
+    }
+
     // Check mutations is an array when present
     if (raw.mutations !== undefined && !Array.isArray(raw.mutations)) {
       warnings.push(`mutations is not an array (${typeof raw.mutations})`);
