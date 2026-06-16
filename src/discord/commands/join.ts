@@ -314,9 +314,10 @@ function buildStepMessage(state: WizardState): {
     }
   }
 
-  // Steps 1-7 get a Start Over button at the bottom (step 8 has its own, next to
-  // Confirm). Option steps use at most 3 rows, so +1 stays within Discord's 5.
-  if (state.step >= 1 && state.step <= 7) {
+  // Steps 2-7 get a Start Over button at the bottom (nothing to reset on step 1;
+  // step 8 has its own, next to Confirm). Option steps use at most 3 rows, so +1
+  // stays within Discord's 5.
+  if (state.step >= 2 && state.step <= 7) {
     components.push(buildStartOverRow());
   }
 
