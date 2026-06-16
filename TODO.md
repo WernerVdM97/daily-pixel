@@ -6,50 +6,30 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 `docs/engine/poc-build-polish.md` §7, and the MVP sparks.
 
 ## scratchpad (humans start here)
-- [ ] players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
+
+- [ ] implement layered db migration framework
+- [ ] how to make wealth spendable or meaning full (same for stamina and health)?
+  - how do we handle death or 0 HP?
 - [ ] stealth or following mechanics?
 - [ ] evaluate the /action flow and prompt and determine how much of it we can pull into the bot to do probalistically instead of having the LLM do calculation or cross dependant choices.
   - like bail, the LLM does not have to return the bail option as a decision, we can just infer it from `required: false`?
   - or drop the `done: true` and just infer it if there arent decision options.
   - MVP: start capping rolls per action type... add short rest option
-- [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
-- [ ] pacing should not be done by the llm but by the bot before hand. If every fourth encounter should be dangerous, that must be tracked in the bot
+  - players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
+  - pacing should not be done by the llm but by the bot before hand. If every fourth encounter should be dangerous, that must be tracked in the bot
   this links to refacotring the prompting. the pacing outcome can be injected into the prompt.
-- [ ] A/B test with pro for actions and flash for narration? Token usage seems very low right now... could get away with more expensive models
-- [ ] how to make wealth spendable?
+- [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
+- [ ] A/B test with pro vs flash (high vs xhigh thinking) for different stages? Token usage seems very low right now... could get away with more expensive models
 - [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other. globals messages on nat 1 or 20
 - [ ] use reactions as a way of buffering input before a button is pressed (expend items or use certain abilities to amplify actions, also works for trades) 
   `this is cool!!!`
   (but does it work with ephemeral..?)
 - [ ] use the "thinking" or loading interval in actions to display the user choice or action better and any possible response that is already known?
-- [ ] distingiush between bail (loose stamina) and skip (ignore the interaction, unless it is associated with traveling?)
-- [ ] using a daily_action should immeadiately teleport the person (if they are nearby, safe, or at camp) to the place of their work (associate jobs with locations).
-- [ ] add a weight to time, the world should evolve
-- [ ] implement layered db migration framework
-- [ ] where ever a full stat is described, 'Wisdom', shorten it 'WIS'. or replace with emoji?
+- [ ] add a weight to time, the world should evolve with progression. DC should become higher, new threats appear
 - [ ] [2026-06-16 12:20:29.829] (node:30) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
 (Use `node --trace-warnings ...` to show where the warning was created)
-- [ ] how do we handle death or 0 HP?
-
-## POC — polish (next day or two)
-
 - [ ] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty.
-  The LLM can be prompted if a random encounter is injected.
-- [>] `[[poc-action-ux-refinements]]` §1 — the /action decision options button captions are too long and cut off, perhaps print them in text on the message (and limit them both in the prompt and bot) and only show button caption A B C?
-- [>] `[[poc-action-ux-refinements]]` §2 + `[[poc-build-polish]]` §7 — when clicking the bail option on a non-required action, the next message shows a green banner and a success text. dit should be a neutral yellow.
-  - we should probably opt to differentiate between skips, bail, or just finish. 
-  - a hunt is bailed (at the cost of stamina), but a dialogue or interaction can be skipped (just opted out of and nothing happens)
-  - a travel to town is just finished (a weird interaction often happens where if you say "go to the shrine and pray" the LLM gives no choices back 
-    and just gives you a new set location and non required response, meaning all you can do is press "step back" but that looks negative with the red button)
-    the response then also doesnt line up the same sentiment
-- [>] `[[poc-action-ux-refinements]]` §3 — work on discord presentation. Seperator emojis, formatting, etc
-      clearer distinctions on longer messages, beter visibility on item or decision stats
-      standardise outcome footer with emoji
-- [>] `[[poc-action-ux-refinements]]` §4 — we should add a lot more premade actions for daily work and select three of them randomly (or those the player hasnot recently done yet)
-  - they should also be a bit more generic, the are too specific or detailed now so when they repeat it looks weird.
-- [>] `[[poc-build-polish]]` §7 — wasted tokens: there are attributes sent and received by the LLM that does not seem to get shown to the user?
-      Double check the views/messages shown on discord and the info that the llm usually generates
-- [>] `[[poc-build-polish]]` §7 — check item trading, i had two ingots and traded one for a goat, but lost both.
+- [ ] using a daily_action should immeadiately teleport the person (if they are nearby(?), safe, or at camp) to the place of their work (associate jobs with locations).
 
 ## MVP — deferred
 
