@@ -55,7 +55,7 @@ import { makeSleepCommand } from './discord/commands/sleep.js';
 import { makeHiCommand, getDayJobActions, type DayJobDef } from './discord/commands/hi.js';
 import { buildComponentPayload, getNavButtons } from './discord/format.js';
 import { BANNER_IMAGE, imageFiles } from './discord/images.js';
-import { makeJoinCommand, handleInteraction as handleJoinInteraction } from './discord/commands/join.js';
+import { makeJoinCommand, handleInteraction as handleJoinInteraction, type CharDefs } from './discord/commands/join.js';
 import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage, buildOutcomeEmbed, consumeMenuMessage, CID_DAYJOB, CID_DAYJOB_CUSTOM } from './discord/commands/action.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -241,7 +241,14 @@ async function main() {
   registry.register('sleep', asHandler(makeSleepCommand(engine)));
   registry.register('hi', asHandler(makeHiCommand(engine, dayJobs, getCurrentScene)));
   const joinWizards = new WizardSession();
-  registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, assets.itemSets as Array<{ name: string; description: string; for_classes: string[] }>)));
+  registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, {
+    classes: assets.classes as CharDefs['classes'],
+    backgrounds: assets.backgrounds as CharDefs['backgrounds'],
+    races: assets.races as CharDefs['races'],
+    alignments: assets.alignments as CharDefs['alignments'],
+    dayJobs: assets.dayJobs as CharDefs['dayJobs'],
+    itemSets: assets.itemSets as CharDefs['itemSets'],
+  })));
 
   registry.register('action', asHandler(makeActionCommand(engine, getCurrentScene, dayJobs)));
 

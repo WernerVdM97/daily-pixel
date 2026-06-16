@@ -28,7 +28,9 @@ describe("/join", () => {
   });
 
   function makeHandler() {
-    return makeJoinCommand(engine, wizard, []);
+    return makeJoinCommand(engine, wizard, {
+      classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [],
+    });
   }
 
   it("returns error when user already has a character", async () => {

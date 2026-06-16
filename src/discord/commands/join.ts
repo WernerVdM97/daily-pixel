@@ -27,8 +27,30 @@ function choiceCid(step: number, value: string): string {
   return `${CID_PREFIX}${step}:${value}`;
 }
 
-// Item sets loaded from YAML — used to build dynamic step 7 options
-let _joinItemSets: Array<{ name: string; description: string; for_classes: string[] }> = [];
+/** A YAML char-creation entry — only the fields the wizard renders. */
+export interface NamedDef {
+  name: string;
+  description?: string;
+}
+/** A starting-kit entry from item-sets.yml. */
+export interface ItemSetDef {
+  name: string;
+  description: string;
+  for_classes: string[];
+}
+/** All char-creation option data, loaded from assets/char-creation/*.yml. */
+export interface CharDefs {
+  classes: NamedDef[];
+  backgrounds: NamedDef[];
+  races: NamedDef[];
+  alignments: NamedDef[];
+  dayJobs: NamedDef[];
+  itemSets: ItemSetDef[];
+}
+
+// Char-creation data (from YAML) — the single source of truth for which options
+// exist. Set by makeJoinCommand; read when building each step's options.
+let _defs: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
 
 function parseChoiceCid(
   customId: string,
@@ -45,9 +67,9 @@ function parseChoiceCid(
 
 // ── Factory ──
 
-export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, itemSets: Array<{ name: string; description: string; for_classes: string[] }>) {
-  // Store for use in dynamic step 7 (item sets filtered by class)
-  _joinItemSets = itemSets;
+export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, defs: CharDefs) {
+  // Store the YAML-loaded option data for use across all steps.
+  _defs = defs;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
     // Guard: already has a character?
     if (engine.characterExists(interaction.user.id)) {
@@ -244,20 +266,8 @@ function buildStepMessage(state: WizardState): {
   }
 
   if (state.step >= 2 && state.step <= 7) {
-    let opts: OptionDef[];
-    let heading: string;
-
-    if (state.step === 7) {
-      // Dynamic: starting kits filtered by the chosen class.
-      opts = _joinItemSets
-        .filter(kit => kit.for_classes.includes(state.class ?? ''))
-        .map(kit => ({ label: kit.name, value: kit.name, emoji: "🎒", description: kit.description }));
-      heading = "Starting Kit";
-    } else {
-      const stepData = STEP_DEFS[state.step];
-      opts = stepData?.options ?? [];
-      heading = stepData?.heading ?? "";
-    }
+    const opts = buildStepOptions(state.step, _defs, state.class);
+    const heading = STEP_HEADINGS[state.step] ?? "";
 
     // Options block: emoji + bold name + its description, one per line.
     const list = opts
@@ -333,83 +343,71 @@ function buildNameModal(): ModalBuilder {
     );
 }
 
-// ── Step definitions ──
-// Curated option set for the wizard. Emoji + short label drive the buttons;
-// the description (lore mirrored from assets/char-creation/*.yml) is shown in
-// the embed body so players see what each choice means, not just its name.
+// ── Step option building (data-driven from YAML) ──
+// The wizard renders whatever assets/char-creation/*.yml contains — add an option
+// there and it appears automatically. Emoji are presentation, mapped by name here
+// (per step, since the same name can recur across steps, e.g. "Merchant"); any
+// name without a mapping falls back to a neutral bullet.
 
 interface OptionDef {
-  /** Short, human-readable name — used as the button label and the bold body name. */
+  /** Short, human-readable name — the button label and the bold body name. */
   label: string;
-  /** The value persisted to the character (must match the YAML `name`). */
+  /** The value persisted to the character. */
   value: string;
   /** Emoji rendered on the button and beside the body description. */
   emoji: string;
-  /** One-line flavour shown in the embed body. */
+  /** One-line flavour shown in the embed body (from the YAML `description`). */
   description: string;
 }
 
-interface StepDef {
-  heading: string;
-  options: OptionDef[];
-}
-
-const STEP_DEFS: Record<number, StepDef> = {
-  2: {
-    heading: "Class",
-    options: [
-      { label: "Warrior", value: "Warrior", emoji: "⚔️", description: "Blade and shield. Front line. The first in and the last out." },
-      { label: "Ranger", value: "Ranger", emoji: "🏹", description: "Bow and beast. The wilds are home. You read tracks like others read letters." },
-      { label: "Wizard", value: "Wizard", emoji: "🔮", description: "Arcane and ancient. The old words still work — if you dare speak them." },
-      { label: "Bard", value: "Bard", emoji: "🎵", description: "Song and story. A well-told tale opens more doors than any key." },
-      { label: "Priest", value: "Priest", emoji: "✝️", description: "Faith and flame. The old gods are quiet — but not gone." },
-    ],
-  },
-  3: {
-    heading: "Upbringing",
-    options: [
-      { label: "Soldier", value: "Soldier", emoji: "🎖️", description: "Raised in a military family. Discipline was your first language." },
-      { label: "Merchant", value: "Merchant", emoji: "⚖️", description: "Grew up behind a counter. You read a ledger before you read a story." },
-      { label: "Scholar", value: "Scholar", emoji: "📚", description: "Books over breakfast. Your parents taught you the old tongues." },
-      { label: "Folk Hero", value: "Folk Hero", emoji: "🌟", description: "Common blood, uncommon courage. Your village still tells your story." },
-      { label: "Outcast", value: "Outcast", emoji: "🏚️", description: "You grew up on the edge of things. The forest taught you what people wouldn't." },
-      { label: "Noble", value: "Noble", emoji: "👑", description: "Manor-born. You learned poise, politics, and how to make a room listen." },
-    ],
-  },
-  4: {
-    heading: "Race",
-    options: [
-      { label: "Human", value: "Human", emoji: "🧑", description: "The most common folk. Adaptable, ambitious, everywhere." },
-      { label: "Dwarf", value: "Dwarf", emoji: "🪓", description: "Stone and steel. Stocky, stubborn, unshakeable." },
-      { label: "Elf", value: "Elf", emoji: "🧝", description: "Grace and age. The Oak was a sapling when you were young." },
-      { label: "Halfling", value: "Halfling", emoji: "🍀", description: "Small and lucky. You've learned to slip through the cracks." },
-    ],
-  },
-  5: {
-    heading: "Alignment",
-    options: [
-      { label: "Lawful Good", value: "lawful good", emoji: "😇", description: "Order and compassion. The code is the shield." },
-      { label: "Neutral Good", value: "neutral good", emoji: "🕊️", description: "Kindness above all. Rules are tools, not masters." },
-      { label: "Chaotic Good", value: "chaotic good", emoji: "🔥", description: "Freedom and mercy. Break the law to save the innocent." },
-      { label: "Lawful Neutral", value: "lawful neutral", emoji: "📏", description: "Order is its own virtue. The code, always." },
-      { label: "True Neutral", value: "true neutral", emoji: "⚖️", description: "Balance. You walk the middle road." },
-      { label: "Chaotic Neutral", value: "chaotic neutral", emoji: "🎲", description: "Impulse and instinct. No master, no chain." },
-      { label: "Lawful Evil", value: "lawful evil", emoji: "🗡️", description: "Cruelty within the rules. The system serves you." },
-      { label: "Neutral Evil", value: "neutral evil", emoji: "🐍", description: "Selfishness without restraint. You take what you want." },
-      { label: "Chaotic Evil", value: "chaotic evil", emoji: "💀", description: "Destruction for its own sake. The world burns." },
-    ],
-  },
-  6: {
-    heading: "Day Job",
-    options: [
-      { label: "Town Guard", value: "Town Guard", emoji: "🛡️", description: "Patrol the walls. Break up tavern brawls. The town sleeps safer." },
-      { label: "Blacksmith", value: "Blacksmith", emoji: "🔨", description: "Hammer and anvil. Every blade remembers your name." },
-      { label: "Hunter", value: "Hunter", emoji: "🏹", description: "Track game in the eastern woods. The Oak's larder depends on you." },
-      { label: "Scribe", value: "Scribe", emoji: "📜", description: "Copy manuscripts. Translate old tongues. The warden's library is yours." },
-      { label: "Herbalist", value: "Herbalist", emoji: "🌿", description: "Gather roots and remedies. The sick come to you before the priest." },
-      { label: "Minstrel", value: "Minstrel", emoji: "🎶", description: "Play the taverns. Carry news between towns. Every song is a secret." },
-      { label: "Merchant", value: "Merchant", emoji: "💰", description: "Buy low in Stonebridge, sell high at the Oak. Coin before creed." },
-      { label: "Acolyte", value: "Acolyte", emoji: "🕯️", description: "Tend the shrine. Bless the harvest. The people need someone to believe in." },
-    ],
-  },
+const STEP_HEADINGS: Record<number, string> = {
+  2: "Class", 3: "Upbringing", 4: "Race", 5: "Alignment", 6: "Day Job", 7: "Starting Kit",
 };
+
+const FALLBACK_EMOJI = "🔹";
+
+const CLASS_EMOJI: Record<string, string> = {
+  Warrior: "⚔️", Ranger: "🏹", Wizard: "🔮", Bard: "🎵", Priest: "✝️",
+};
+const UPBRINGING_EMOJI: Record<string, string> = {
+  Soldier: "🎖️", Merchant: "⚖️", Scholar: "📚", "Folk Hero": "🌟", Outcast: "🏚️", Noble: "👑",
+  Artisan: "🪚", Farmstead: "🌾", "Temple-Raised": "⛪", Urchin: "🗝️", Entertainer: "🎭", Scout: "🧭",
+};
+const RACE_EMOJI: Record<string, string> = {
+  Human: "🧑", Dwarf: "🪓", Elf: "🧝", Halfling: "🍀", "Half-Elf": "🌗", "Half-Orc": "💪", "Dúnedain": "🏔️",
+};
+const ALIGNMENT_EMOJI: Record<string, string> = {
+  "Lawful Good": "😇", "Neutral Good": "🕊️", "Chaotic Good": "🔥",
+  "Lawful Neutral": "📏", "True Neutral": "⚖️", "Chaotic Neutral": "🎲",
+  "Lawful Evil": "🗡️", "Neutral Evil": "🐍", "Chaotic Evil": "💀",
+};
+const DAYJOB_EMOJI: Record<string, string> = {
+  "Town Guard": "🛡️", Blacksmith: "🔨", Hunter: "🏹", Scribe: "📜", Herbalist: "🌿",
+  Minstrel: "🎶", Merchant: "💰", Acolyte: "🕯️", Wanderer: "🚶",
+};
+
+/**
+ * The options shown for a given step, built from the YAML defs. Names, descriptions,
+ * and ordering come from the data; only the emoji is mapped here. Exported for tests.
+ */
+export function buildStepOptions(step: number, defs: CharDefs, chosenClass?: string): OptionDef[] {
+  const toOption = (d: NamedDef, emoji: Record<string, string>, value?: string): OptionDef => ({
+    label: d.name,
+    value: value ?? d.name,
+    emoji: emoji[d.name] ?? FALLBACK_EMOJI,
+    description: d.description ?? "",
+  });
+
+  switch (step) {
+    case 2: return defs.classes.map(d => toOption(d, CLASS_EMOJI));
+    case 3: return defs.backgrounds.map(d => toOption(d, UPBRINGING_EMOJI));
+    case 4: return defs.races.map(d => toOption(d, RACE_EMOJI));
+    // Alignment value stays lowercase ("lawful good") — the format stored & sent to the LLM.
+    case 5: return defs.alignments.map(d => toOption(d, ALIGNMENT_EMOJI, d.name.toLowerCase()));
+    case 6: return defs.dayJobs.map(d => toOption(d, DAYJOB_EMOJI));
+    case 7: return defs.itemSets
+      .filter(kit => kit.for_classes.includes(chosenClass ?? ""))
+      .map(kit => ({ label: kit.name, value: kit.name, emoji: "🎒", description: kit.description }));
+    default: return [];
+  }
+}
