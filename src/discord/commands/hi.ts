@@ -66,7 +66,11 @@ export function isWeekend(): boolean {
 
 // ── Command factory ──
 
-export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[], oakScene: string) {
+export function makeHiCommand(
+  engine: WorldEngine,
+  dayJobs: DayJobDef[],
+  getScene: (discordUserId: string) => string = () => '',
+) {
 	return async (interaction: { user: { id: string } }): Promise<string> => {
 		const character = engine.getCharacter(interaction.user.id);
 		if (!character) {
@@ -126,7 +130,22 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[], oakScen
 			].join('\n');
 		}
 
-		const sceneBlock = oakScene ? ['```', oakScene, '```', ''] : [];
-		return [...sceneBlock, header, "", "─".repeat(30), ...actionLines].join("\n");
+		const currentScene = getScene(interaction.user.id);
+		const sceneBlock = currentScene ? ['```', currentScene, '```', ''] : [];
+
+		// Location info
+		const location = engine.getLocation(character.location);
+		const locationLines: string[] = [];
+		if (location) {
+			locationLines.push(`🏠 **${location.name}**`);
+			locationLines.push(`_${location.description}_`);
+			locationLines.push(location.isSafe ? '🛡️ Safe' : '⚠️ Unsafe');
+			locationLines.push('');
+		} else {
+			locationLines.push(`🏠 **${character.location}**`);
+			locationLines.push('');
+		}
+
+		return [...sceneBlock, ...locationLines, header, "", "─".repeat(30), ...actionLines].join("\n");
 	};
 }

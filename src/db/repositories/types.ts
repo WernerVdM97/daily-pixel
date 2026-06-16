@@ -35,6 +35,9 @@ export interface ActionRow {
   final_dc: number;
   player_rolled: number | null;
   outcome: string;
+  prompt_version: string;
+  llm_request: string | null;
+  llm_response: string | null;
   created_at: string;
 }
 
@@ -60,7 +63,7 @@ export interface NpcRow {
   wealth: number;
   location: string | null;
   description: string | null;
-  created_by_action_id: number;
+  created_by_action_id: number | null;
 }
 
 export interface LocationRow {

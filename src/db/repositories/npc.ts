@@ -20,7 +20,7 @@ export class NpcRepository {
     wealth?: number;
     location?: string;
     description?: string;
-    createdByActionId: number;
+    createdByActionId?: number;
   }): NpcRow {
     const stmt = this.db.prepare(`
       INSERT INTO npcs (name, class, race, day_job, stats, health, stamina, wealth, location, description, created_by_action_id)
@@ -37,7 +37,7 @@ export class NpcRepository {
       wealth: data.wealth ?? 0,
       location: data.location ?? null,
       description: data.description ?? null,
-      created_by_action_id: data.createdByActionId,
+      created_by_action_id: data.createdByActionId ?? null,
     });
     return this.db
       .prepare('SELECT * FROM npcs WHERE id = ?')

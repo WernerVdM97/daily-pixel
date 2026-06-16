@@ -6,11 +6,11 @@ import type { LlmContext, LlmDecision } from '../../src/llm/LlmGateway.js';
 
 
 describe('PromptBuilder — system prompt', () => {
-  it('includes the game master role and JSON-only instruction', () => {
+  it('includes the game master role and JSON output instruction', () => {
     const result = buildSystemPrompt();
 
     expect(result).toContain('The Warden\'s Oak');
-    expect(result).toContain('Return JSON only');
+    expect(result).toContain('valid JSON');
     expect(result).toContain('game master');
   });
 

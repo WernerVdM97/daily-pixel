@@ -26,6 +26,10 @@ export interface LlmDecision {
   decision: LlmDecisionOption[];
   mutations?: unknown[];
   outcomeText?: string;
+  /** Full user prompt sent to the LLM (for audit). */
+  _rawRequest?: string;
+  /** Raw JSON response from the LLM (for audit). */
+  _rawResponse?: string;
 }
 
 export interface LlmDecisionOption {

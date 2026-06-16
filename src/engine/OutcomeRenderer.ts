@@ -1,7 +1,11 @@
 // ── OutcomeRenderer ── pure function, no dependencies
 // Formats action outcomes for Discord display per S4 spec.
+// Change indicators are derived from outcome.mutations (not caller-provided flags)
+// so the caller never has to pre-compute diffs.
 
-import type { ActionOutcome } from './WorldEngine.js';
+import type { ActionOutcome, WorldMutation } from './WorldEngine.js';
+
+// ── Public context — only current (post-mutation) values ──
 
 export interface OutcomeRenderContext {
   stamina: number;
@@ -9,14 +13,73 @@ export interface OutcomeRenderContext {
   health: number;
   maxHealth: number;
   wealth: number;
-  /** Only true when health actually changed. */
-  healthChanged?: boolean;
-  /** Only true when wealth actually changed. */
-  wealthChanged?: boolean;
-  itemsGained?: Array<{ emoji: string; name: string }>;
-  itemsLost?: string[];
-  newLocation?: string;
 }
+
+// ── Internal: derived from mutations ──
+
+interface MutationDeltas {
+  healthDelta: number;
+  staminaDelta: number;
+  wealthDelta: number;
+  rollsDelta: number;
+  itemsGained: Array<{ emoji: string; name: string }>;
+  itemsLost: string[];
+  newLocation: string | null;
+}
+
+/** Aggregate all mutations into deltas and side-effect lists. */
+function deriveFromMutations(mutations: WorldMutation[]): MutationDeltas {
+  const d: MutationDeltas = {
+    healthDelta: 0,
+    staminaDelta: 0,
+    wealthDelta: 0,
+    rollsDelta: 0,
+    itemsGained: [],
+    itemsLost: [],
+    newLocation: null,
+  };
+
+  for (const m of mutations) {
+    switch (m.type) {
+      case 'modify_health':
+        d.healthDelta += Number(m.amount ?? 0);
+        break;
+      case 'modify_stamina':
+        d.staminaDelta += Number(m.amount ?? 0);
+        break;
+      case 'modify_wealth':
+        d.wealthDelta += Number(m.amount ?? 0);
+        break;
+      case 'modify_rolls_remaining':
+        d.rollsDelta += Number(m.amount ?? 0);
+        break;
+      case 'add_item':
+        d.itemsGained.push({
+          emoji: String(m.emoji ?? ''),
+          name: String(m.name ?? ''),
+        });
+        break;
+      case 'remove_item':
+        d.itemsLost.push(String(m.name ?? ''));
+        break;
+      case 'set_location':
+        d.newLocation = String(m.name ?? '');
+        break;
+      // spawn_npc is deliberately ignored — NPCs are narrated in outcome_text
+    }
+  }
+
+  return d;
+}
+
+/** Format a signed delta for display, e.g. " (−2)" or " (+3)". Returns empty string when zero. */
+function formatDelta(delta: number): string {
+  if (delta === 0) return '';
+  const sign = delta > 0 ? '+' : '';
+  return ` (${sign}${delta})`;
+}
+
+// ── Outcome label map ──
 
 const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {
   success:   { icon: '✓', label: 'Success' },
@@ -25,15 +88,20 @@ const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {
   timed_out: { icon: '⏰', label: 'Timed out' },
 };
 
+// ── Public renderer ──
+
 /**
  * Format an action outcome into a display string.
- * Handles success, failure, skipped, and timed_out outcomes with
- * deterministic summary lines per the S4 spec.
+ *
+ * Change detection (items gained/lost, location, stat deltas) is derived
+ * from `outcome.mutations` — the caller only provides current post-mutation
+ * values so the renderer can print the up-to-date totals.
  */
 export function formatOutcome(
   outcome: ActionOutcome,
   ctx: OutcomeRenderContext,
 ): string {
+  const d = deriveFromMutations(outcome.mutations);
   const lines: string[] = [];
 
   // ── Header — roll vs DC ──
@@ -41,7 +109,6 @@ export function formatOutcome(
     const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '?', label: outcome.outcome };
     lines.push(`🎲 ${outcome.playerRolled} vs ${outcome.finalDc} ${meta.icon} ${meta.label}`);
   } else {
-    // Skipped / timed out — no roll line, just the icon and label
     const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '?', label: outcome.outcome };
     lines.push(`${meta.icon} ${meta.label}`);
   }
@@ -54,41 +121,41 @@ export function formatOutcome(
   lines.push('');
 
   // ── Summary line ──
-  const summaryParts: string[] = [];
+  const parts: string[] = [];
 
   // Items gained
-  if (ctx.itemsGained && ctx.itemsGained.length > 0) {
-    for (const item of ctx.itemsGained) {
-      summaryParts.push(`+ ${item.emoji} ${item.name}`);
-    }
+  for (const item of d.itemsGained) {
+    parts.push(`+ ${item.emoji} ${item.name}`);
   }
 
   // Items lost
-  if (ctx.itemsLost && ctx.itemsLost.length > 0) {
-    for (const name of ctx.itemsLost) {
-      summaryParts.push(`- ${name}`);
-    }
+  for (const name of d.itemsLost) {
+    parts.push(`- ${name}`);
   }
 
   // Location change
-  if (ctx.newLocation) {
-    summaryParts.push(`→ ${ctx.newLocation}`);
+  if (d.newLocation) {
+    parts.push(`→ ${d.newLocation}`);
   }
 
   // Stats footer
-  const statParts: string[] = [];
-  if (ctx.healthChanged) {
-    statParts.push(`Health: ${ctx.health}/${ctx.maxHealth}`);
-  }
-  statParts.push(`Stamina: ${ctx.stamina}/10`);
-  statParts.push(`Rolls: ${ctx.rollsRemaining}/2`);
-
-  if (ctx.wealthChanged) {
-    statParts.push(`Wealth: ${ctx.wealth}`);
+  // Health — only shown when it changed
+  if (d.healthDelta !== 0) {
+    parts.push(`Health: ${ctx.health}/${ctx.maxHealth}${formatDelta(d.healthDelta)}`);
   }
 
-  const summaryLine = [...summaryParts, ...statParts].join(' ┃ ');
-  lines.push(summaryLine);
+  // Stamina — always shown, with delta when it changed
+  parts.push(`Stamina: ${ctx.stamina}/10${formatDelta(d.staminaDelta)}`);
+
+  // Rolls — always shown, with delta when it changed
+  parts.push(`Rolls: ${ctx.rollsRemaining}/2${formatDelta(d.rollsDelta)}`);
+
+  // Wealth — only shown when it changed
+  if (d.wealthDelta !== 0) {
+    parts.push(`Wealth: ${ctx.wealth}${formatDelta(d.wealthDelta)}`);
+  }
+
+  lines.push(parts.join(' ┃ '));
 
   return lines.join('\n');
 }

@@ -99,7 +99,10 @@ export class DeepseekLlmGateway implements LlmGateway {
       console.log(c.green('[llm:parsed]'), JSON.stringify(parsed, null, 2));
     }
 
-    return this.parseDecision(parsed);
+    const decision = this.parseDecision(parsed);
+    decision._rawRequest = userMessage;
+    decision._rawResponse = content;
+    return decision;
   }
 
   private parseDecision(raw: Record<string, unknown>): LlmDecision {

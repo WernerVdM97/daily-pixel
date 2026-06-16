@@ -11,6 +11,19 @@ import type {
 import { accumulateDc, computeItemBonus, resolveRoll, validateDcModifier } from './dc.js';
 
 /**
+ * Injectable resolver for world context — NPCs, other PCs, and recent actions.
+ * Passed to ActionStateMachine so it can populate the LLM context with live world state
+ * without coupling to specific repositories.
+ */
+export interface WorldContextResolver {
+  getNearbyNpcs(location: string): Array<{ name: string; description: string }>;
+  getNearbyPcs(location: string, excludeCharId: number): Array<{ name: string; class: string }>;
+  getRecentActions(characterId: number): Array<{ type: string; outcome: string }>;
+  /** All known location names — so the LLM can generate valid set_location mutations. */
+  getKnownLocations(): string[];
+}
+
+/**
  * Extends ActionState with internal fields stored in the JSON column
  * but not exposed on the public ActionState interface.
  */
@@ -25,12 +38,25 @@ export interface InternalActionState extends ActionState {
   required: boolean;
   /** Epoch ms when this state was last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
+  /** Mutations from the LLM when it resolved immediately (done: true).
+   *  Used so bail on a pre-resolved action applies the LLM's mutations instead of empty arrays. */
+  preResolvedMutations?: WorldMutation[];
+  preResolvedOutcomeText?: string;
+  /** Full user prompt / raw response from the LLM that produced the pre-resolved mutations. */
+  preResolvedLlmRequest?: string;
+  preResolvedLlmResponse?: string;
 }
 
 export class ActionStateMachine {
   constructor(
     private llm: LlmGateway,
     private rollD20: () => number = () => Math.floor(Math.random() * 20) + 1,
+    private resolver: WorldContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+    },
   ) {}
 
   async start(
@@ -46,6 +72,16 @@ export class ActionStateMachine {
     const decision = await this.llm.decide(context);
 
     const firstDecision = this.toActionDecision(decision, decision.required);
+
+    // When the LLM resolves immediately (done: true), stash the mutations and
+    // raw LLM data so the bail path can apply them instead of returning empty arrays.
+    const preResolvedMutations = decision.done && Array.isArray(decision.mutations)
+      ? decision.mutations as WorldMutation[]
+      : undefined;
+    const preResolvedOutcomeText = decision.done ? (decision.outcomeText ?? undefined) : undefined;
+    const preResolvedLlmRequest = decision.done ? decision._rawRequest : undefined;
+    const preResolvedLlmResponse = decision.done ? decision._rawResponse : undefined;
+
     const state: InternalActionState = {
       rawInput,
       decisions: [],
@@ -55,6 +91,10 @@ export class ActionStateMachine {
       rollStat: decision.stat,
       required: decision.required,
       lastActionAt: Date.now(),
+      ...(preResolvedMutations ? { preResolvedMutations } : {}),
+      ...(preResolvedOutcomeText ? { preResolvedOutcomeText } : {}),
+      ...(preResolvedLlmRequest ? { preResolvedLlmRequest } : {}),
+      ...(preResolvedLlmResponse ? { preResolvedLlmResponse } : {}),
     };
 
     return { state, firstDecision };
@@ -82,6 +122,18 @@ export class ActionStateMachine {
         chosen: choice,
         dcModifier: 0,
       };
+
+      // When the LLM resolved immediately (done: true), apply its mutations
+      // instead of discarding them. Otherwise return empty bail outcome.
+      //
+      // A pre-resolved action is non-contested — it resolved on the first LLM
+      // call with no roll (playerRolled stays null), so there is no pass/fail to
+      // report. We label it 'success' to mean "the action completed and its
+      // mutations applied" (vs 'skipped', which renders as a no-op retreat).
+      const outcomeMutations = state.preResolvedMutations ?? [];
+      const outcomeText = state.preResolvedOutcomeText ?? 'You retreat from the situation.';
+      const outcomeType = state.preResolvedMutations ? 'success' as const : 'skipped' as const;
+
       return {
         resolved: true,
         state: {
@@ -93,9 +145,11 @@ export class ActionStateMachine {
           distilledType: state.distilledType,
           finalDc: state.accumulatedDc,
           playerRolled: null,
-          outcome: 'skipped',
-          mutations: [],
-          outcomeText: 'You retreat from the situation.',
+          outcome: outcomeType,
+          mutations: outcomeMutations,
+          outcomeText,
+          llmRequest: state.preResolvedLlmRequest,
+          llmResponse: state.preResolvedLlmResponse,
         },
       };
     }
@@ -141,6 +195,8 @@ export class ActionStateMachine {
           outcomeText: decision.outcomeText ?? (outcome === 'success'
             ? `Your ${state.distilledType} succeeds.`
             : `Your ${state.distilledType} fails.`),
+          llmRequest: decision._rawRequest,
+          llmResponse: decision._rawResponse,
         },
       };
     }
@@ -168,6 +224,8 @@ export class ActionStateMachine {
           outcome,
           mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
           outcomeText: decision.outcomeText ?? 'The action resolves.',
+          llmRequest: decision._rawRequest,
+          llmResponse: decision._rawResponse,
         },
       };
     }
@@ -228,12 +286,24 @@ export class ActionStateMachine {
     stat?: string,
   ): LlmContext {
     const hintParts: string[] = [];
+
+    // Item bonus for the current stat
     if (stat) {
       const bonus = computeItemBonus(items, stat);
       hintParts.push(bonus !== 0 ? `${stat} item bonus: ${bonus >= 0 ? '+' : ''}${bonus}` : `no ${stat} items`);
     }
 
-    // Map character to LlmContext character (health/stamina are number, not undefined)
+    // Full inventory — lets the LLM decide remove_item targets and avoid duplicate add_item
+    if (items.length > 0) {
+      hintParts.push(`inventory: ${items.map(i => `${i.emoji} ${i.name} (${i.stat}+${i.modifier}, qty ${i.quantity})`).join(', ')}`);
+    }
+
+    // Known locations — the LLM MUST use exact names from this list for set_location
+    const locations = this.resolver.getKnownLocations();
+    if (locations.length > 0) {
+      hintParts.push(`locations: ${locations.join(', ')}`);
+    }
+
     return {
       character: {
         class: char.class,
@@ -244,9 +314,9 @@ export class ActionStateMachine {
         dayJob: char.dayJob,
       },
       location: { name: char.location },
-      nearbyNpcs: [],
-      nearbyPcs: [],
-      recentActions: [],
+      nearbyNpcs: this.resolver.getNearbyNpcs(char.location),
+      nearbyPcs: this.resolver.getNearbyPcs(char.location, char.id),
+      recentActions: this.resolver.getRecentActions(char.id),
       rawInput,
       ...(previous.length > 0 ? { previousDecisions: previous } : {}),
       scalingHint: hintParts.join(' | ') || 'No relevant items',

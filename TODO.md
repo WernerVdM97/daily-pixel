@@ -1,7 +1,13 @@
 
+- [ ] prompt builder. roll as DM and add certain promp elements. determine outcome sentiment before prompting.
+- [ ] work on discord presentation. Seperator emojis, formatting, etc
+- [ ] optimise prompt to llm as markdown not json. Response can remain json
 - [ ] optimise prompts with simulations
 - [ ] scrape ascii art
+- [ ] utilise multiple agent in short bursts for actions
 - [ ] graph db spark
+- [ ] fix exploration
+- [ ] introduce NPCs
 - [ ] improve sources
     - [ ] backgrounds
     - [ ] classes

@@ -21,6 +21,7 @@ import {
 import type { WorldEngine, ActionDecision } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
+import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
 
 // ── Custom IDs ──
@@ -133,8 +134,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
 
         setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
-        const scene = _sceneLookup?.(interaction.user.id);
-        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state, scene));
+        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state));
         return 'action_resumed';
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -197,8 +197,17 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
     }
 
-    // Defer first — LLM call can take >3 seconds
+    // Defer first — LLM call can take >3 seconds.
+    // Immediately edit with an idle message so the player isn't staring at a blank spinner.
     await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setDescription(`⏳ **Starting…**\n_${randomIdleMessage()}_`)
+          .setColor(0x95a5a6)
+          .toJSON(),
+      ],
+    });
 
     // Start the action
     try {
@@ -220,8 +229,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);
-      const scene = _sceneLookup?.(interaction.user.id);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, scene));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -251,12 +259,12 @@ export async function handleActionChoice(
   const charId = character.id;
 
   // Defer the button click — stepAction calls LLM which can take >3 seconds.
-  // Then immediately blank buttons to show "Thinking..." loading state.
+  // Then immediately blank buttons and show idle message during the wait.
   await i.deferUpdate();
   await i.editReply({
     embeds: [
       new EmbedBuilder()
-        .setDescription('⏳ **Thinking…**')
+        .setDescription(`⏳ **Thinking…**\n_${randomIdleMessage()}_`)
         .setColor(0x95a5a6)
         .toJSON(),
     ],
@@ -330,7 +338,15 @@ async function applyActionResult(
       wealth: character?.wealth ?? 0,
     };
 
+    // Show the destination scene when the character moved
+    const scene = _sceneLookup?.(i.user.id);
     const trail: string[] = [];
+    if (scene) {
+      trail.push('```');
+      trail.push(scene);
+      trail.push('```');
+      trail.push('');
+    }
     trail.push(`**You:** ${result.state.rawInput}`);
     for (const d of result.state.decisions) {
       trail.push(`**Decision:** ${d.prompt}`);
@@ -360,8 +376,7 @@ async function applyActionResult(
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
-    const scene = _sceneLookup?.(i.user.id);
-    await i.webhook.editMessage(i.message.id, buildDecisionMessage(result.nextDecision, decisionIdx, result.state, scene));
+    await i.webhook.editMessage(i.message.id, buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
   }
 }
 
@@ -371,7 +386,6 @@ export function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
   decisionIdx: number,
   state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }> },
-  sceneBody?: string,
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -379,17 +393,11 @@ export function buildDecisionMessage(
   // Discord embed descriptions are capped at 4096 characters
   let description = decision.prompt;
 
-  // Show action trail above the current decision
+  // Show action trail above the current decision.
+  // Scene is deliberately NOT shown here — it's displayed in /hi (current
+  // location) and in the outcome embed (destination, when it changed).
   if (state) {
     const trail: string[] = [];
-
-    // Scene block at the very top
-    if (sceneBody) {
-      trail.push('```');
-      trail.push(sceneBody);
-      trail.push('```');
-      trail.push('');
-    }
 
     trail.push(`**You:** ${state.rawInput}`);
     for (const d of state.decisions) {

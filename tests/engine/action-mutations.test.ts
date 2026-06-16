@@ -48,6 +48,31 @@ describe('Mutation validation', () => {
     expect(result.valid).toBe(false);
   });
 
+  it('rejects set_location naming an unknown location when knownLocations is provided', () => {
+    const result = validateMutations(
+      [{ type: 'set_location', name: 'Atlantis' }],
+      ctx({ knownLocations: ['The Warden\'s Oak', 'The Dark Pines'] }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('unknown location');
+  });
+
+  it('accepts set_location matching a known location case-insensitively', () => {
+    const result = validateMutations(
+      [{ type: 'set_location', name: 'the dark pines' }],
+      ctx({ knownLocations: ['The Warden\'s Oak', 'The Dark Pines'] }),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('snaps set_location to the canonical casing of a known location', () => {
+    const applied = applyMutations(
+      [{ type: 'set_location', name: 'the dark pines' }],
+      ctx({ knownLocations: ['The Warden\'s Oak', 'The Dark Pines'] }),
+    );
+    expect(applied.location).toBe('The Dark Pines');
+  });
+
   it('accepts valid modify_health within bounds', () => {
     const result = validateMutations(
       [{ type: 'modify_health', amount: -3 }],

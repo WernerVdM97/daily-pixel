@@ -83,6 +83,10 @@ export interface ActionOutcome {
   outcome: 'success' | 'failure' | 'skipped' | 'timed_out';
   mutations: WorldMutation[];
   outcomeText: string;
+  /** Full user prompt sent to LLM (for audit). Set by gateway. */
+  llmRequest?: string;
+  /** Raw JSON response from LLM (for audit). Set by gateway. */
+  llmResponse?: string;
 }
 
 export interface ActionResumeResult {
