@@ -7,6 +7,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Stat name abbreviation with emojis** — all rendered stat lines now show compact emoji+abbrev (`💪 PHY`, `🧠 WIS`, `📖 INT`, `💬 CHA`) instead of full names, improving mobile readability
+- **Backpack stat breakdown** — `/backpack` now groups items by stat with per-stat total bonus (`💪 Physical (+3)`) and a separate Utility section for zero-modifier items
+- **`shipped` status** to docs conventions — `status: shipped` marks implemented-and-archived specs; finished POC build docs moved from `engine/` and `decisions/` to `docs/archived/poc/`
 - **Decision breadcrumb trail** — the action outcome embed now shows a concise emoji breadcrumb (e.g. 🔍 → 🗣️ → ⚔️) above the scene, tracing the distilled action types the player moved through. Backed by a `distilledActionEmoji()` keyword↔emoji map (28+ keywords, case-insensitive, substring-matched, fallback ✴️) and a `distilledType` field stamped on each `ActionDecisionRecord` by the state machine.
 - **Action terminal states `bailed` and `done`** — bailing a real decision now resolves as a neutral `↩ Bailed` (costs −1 stamina), and an LLM `done`/no-choices outcome (travel/rest) **auto-finishes** as a neutral `✓ Done` instead of presenting a red "Step back". Auto-finished actions are logged to `actions` like any other (with `llm_call` link + `app_version`).
 - `/hi` now shows the current location's name, description, and safety status
@@ -18,6 +21,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **decision-v4 prompt** — evolved from v3: roll-first resolution blocks (`ROLL RESULT: SUCCESS/FAILURE`), honour-player-intent rule (no silent type conversion), decisions must advance (consequences on call 2+, never re-present), item breakage/loss recipe, expanded mutation examples, refined JSON contract
 
 ### Changed
+- Map of content pruned — shipped POC docs removed from `docs/README.md` active tables, catalogued under a new Archived section
+- Cross-references in 5 active docs updated to point to `archived/poc/` paths
+- TODO.md reorganized — addressed scratchpad items marked `[x]` with links to shipped docs; POC polish vs MVP fuel separated
 - **Roll-first resolution** — the bot now rolls the d20 (+ stat bonus) vs the DC *before* the LLM narrates, then makes a second "narration" call telling the LLM the verdict, so the outcome text and mutations match the dice. Previously the LLM authored the outcome blind to the roll, so a "Success" could carry a failure narration (and vice-versa). Adds one LLM call per resolution. (Implements the "roll before flavour" idea from `mvp-llm-prompt-architecture`.)
 - **Roll line shows the stat bonus separately** — e.g. `🎲 8 + 7 vs 11 ✓ Success`, so it's clear why a low die still passed (the item/stat bonus was previously hidden)
 - **Standardised outcome footer** — emoji stat glyphs (`❤️ HP ┃ ⚡ stamina ┃ 🎲 rolls ┃ 💰 wealth`) with a separator above it, and items/location on their own line, so outcomes scan cleanly on mobile
@@ -27,6 +33,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Validation warnings (bad stat, out-of-range DC, empty labels, non-array mutations) are now persisted as data, not just logged
 
 ### Fixed
+- `/stats`, `/hi` header, and `/backpack` all consistently use abbreviated stat labels with emojis
+- Backpack layout no longer a flat emoji grid — stat groupings make item bonuses scannable at a glance
+- Carriage returns, stamina ceiling, bail→neutral, item stack loss, auto-finish, A/B/C buttons, standardised footer all confirmed shipped in the POC build archive
 - **Failed actions no longer reward the player** — on a failed roll, beneficial mutations (wealth/stamina/health gains, gained items) are dropped and a flat −2 stamina penalty is added so a loss carries weight; costs and world changes (e.g. `set_location`) are kept. With roll-first resolution the narration now also matches the verdict, so failures read as failures.
 - **Auto-finish coverage** — the day-job button and custom-modal action paths now render an auto-finished outcome too (previously only the typed `/action <description>` path did)
 - **Bail rendered as green Success** — bailing a non-required action showed a green success banner; now neutral `↩ Bailed`. (Root cause: the pre-resolved `done` case was conflated with bail; split into auto-finish vs genuine bail.)
@@ -48,7 +57,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Idle messages now show during all three loading states (previously only day-job quick action showed them)
 - `add_item` mutations from LLM with `stat: null` no longer crash — prompt now explicitly requires stat value, and engine drops malformed entries
 - Location scenes now resolve properly — LLM knows the exact names of all 9 seeded locations
-- `set_location` to an unknown location is now rejected by the engine (matched case-insensitively against known locations, then snapped to canonical casing) — prevents the player being moved to a phantom location with no scene
+- `set_location` to an unknown location is now rejected by the engine (matched case-insensitively against known locations, then snapped to the canonical casing) — prevents the player being moved to a phantom location with no scene
 - Removed per-action debug logging from the resolution path
 
 ## [0.1.5] — 2026-06-15
