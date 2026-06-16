@@ -20,8 +20,9 @@ export function makeSleepCommand(engine: WorldEngine) {
 
   return async (interaction: { user: { id: string } }): Promise<string> => {
     const isAdmin = interaction.user.id === adminUserId;
+    const adminTick = isAdmin && process.env.SLEEP_ADMIN_TICK === 'true';
 
-    if (isAdmin) {
+    if (adminTick) {
       try {
         const result = engine.tick(true);
 
@@ -49,7 +50,7 @@ export function makeSleepCommand(engine: WorldEngine) {
       }
     }
 
-    // Non-admin: return to the Oak, move location
+    // Rest at the Oak (admin without tick, or non-admin)
     const character = engine.getCharacter(interaction.user.id);
     if (!character) {
       return "You don't have a character yet. Type `/join` to create one.";

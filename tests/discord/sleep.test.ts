@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { makeSleepCommand } from "../../src/discord/commands/sleep.js";
 
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
@@ -82,6 +82,9 @@ describe("/sleep", () => {
   });
 
   describe("admin — tick", () => {
+    beforeEach(() => { process.env.SLEEP_ADMIN_TICK = 'true'; });
+    afterEach(() => { delete process.env.SLEEP_ADMIN_TICK; });
+
     it("returns day transition message", async () => {
       const engine = new MockWorldEngine();
       engine.setTickResult({ dayNumber: 2, playersAffected: 1, npcMovements: [{ npcId: 5, npcName: 'Merchant', fromLocation: 'Oak', toLocation: 'Town' }] });

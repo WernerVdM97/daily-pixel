@@ -62,6 +62,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Query shorthands: `llm_calls`, `llm_issues`, `llm_dump` in `scripts/query.mjs`
 - **ISO timestamps on all console logs** — `console.log`/`warn`/`error` are monkey-patched at startup to prefix `[YYYY-MM-DD HH:mm:ss.SSS]` timestamps
 - **decision-v4 prompt** — evolved from v3: roll-first resolution blocks (`ROLL RESULT: SUCCESS/FAILURE`), honour-player-intent rule (no silent type conversion), decisions must advance (consequences on call 2+, never re-present), item breakage/loss recipe, expanded mutation examples, refined JSON contract
+- **`SLEEP_ADMIN_TICK` env var** — controls whether admin `/sleep` advances the world. Set to `true` to restore the old test-mode tick behavior. Defaults to `false` (admin sleeps like a normal player).
 
 ### Changed
 - **Action decision screen restyled** — the player's intent + prior choices now render as a quoted "🧭 Quest" path, visually separated from the current scene below. Raw DCs stay hidden while deciding; instead, **passive insight** (`10 + WIS`) occasionally tints a single option green (🟢) — only when one route is clearly safer than the rest *and* the character is perceptive enough to sense it, so the hint is earned rather than an always-on readout.
@@ -91,8 +92,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Decision options render as A/B/C buttons** — the option text now lists in the message body (lettered); buttons show just the letter (plus a worded bail button), so long captions no longer truncate on mobile
 - LLM request/response auditing moved off the `actions` table into the dedicated `llm_calls` table; the legacy `actions.llm_request`/`llm_response` columns are retained but no longer written
 - Validation warnings (bad stat, out-of-range DC, empty labels, non-array mutations) are now persisted as data, not just logged
+- **Admin `/sleep` no longer ticks by default** — admin now rests at the Oak instead of advancing the world day. Set `SLEEP_ADMIN_TICK=true` in `.env` to re-enable the tick. Useful for testing; the nightly cron still handles the daily transition in production.
 
 ### Fixed
+- **`/join` buttons throwing "Unknown interaction" (10062)** — the wizard's catch blocks called `reply()`/`editReply()` on interactions whose token had expired (e.g. a click during a restart, or a stale button), throwing 10062 back out of the handler. All join catches now route through a `safeNotify()` that picks `reply` vs `followUp` and swallows failures, and the Start Over path is wrapped too — a dead interaction can no longer escape the handler. A per-user in-flight lock additionally drops duplicate clicks before any Discord API call.
+- **Crash on "Interaction has already been acknowledged" (40060)** — the slash-command catch blindly called `interaction.reply()`, which throws 40060 on an already-acked interaction; with no `client.on('error')` listener that surfaced as a fatal unhandled Client `'error'` event and killed the bot. Error replies now go through `safeErrorReply()` (uses `followUp` when already acknowledged, swallows failures), and a Client `'error'`/`'shardError'` listener routes such events to the admin instead of crashing.
 - **DB directory auto-created** — `initDb()` now `mkdir -p`s the SQLite parent dir. A fresh clone/deploy has no `data/` (it's gitignored) and `better-sqlite3` won't create it, so the bot crashed on first boot with "Cannot open database because the directory does not exist". Matches the README's "auto-created" promise.
 - **Nat20/nat1 bold markdown broken** — double-wrapped `**` in the roll expression (e.g. `**20 + 2 = **22****`) produced broken Discord bold formatting. Inner bold on the total is now suppressed when the whole expression is bolded for crits.
 - **`/look` didn't show unsafe indicator** — unsafe locations had no emoji or warning text (only safe locations showed their status)

@@ -52,6 +52,10 @@ export interface CharDefs {
 // exist. Set by makeJoinCommand; read when building each step's options.
 let _defs: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
 
+/** Guards against double-clicks — a user ID is locked while one interaction is
+ *  being processed. Subsequent interactions for the same user return early. */
+const _userInFlight = new Set<string>();
+
 function parseChoiceCid(
   customId: string,
 ): { step: number; value: string } | null {
@@ -119,68 +123,71 @@ export async function handleInteraction(
 ): Promise<void> {
   const userId = i.user.id;
 
-  // Modal submission for name
-  if (i.isModalSubmit() && i.customId === CID_NAME_MODAL) {
-    const name = i.fields.getTextInputValue(CID_NAME_INPUT);
-    try {
-      const state = wizards.setName(userId, name);
-      await i.deferUpdate();
-      await i.editReply(buildStepMessage(state));
-    } catch (e) {
-      if (i.isRepliable() && !i.replied && !i.deferred) {
-        await i.reply({
-          content: `❌ ${(e as Error).message}`,
-          ephemeral: true,
-        });
-      }
-    }
-    return;
-  }
+  // Per-user in-flight guard — drop duplicate clicks silently.
+  if (_userInFlight.has(userId)) return;
+  _userInFlight.add(userId);
 
-  // Modal submission for other modals (none yet, but safe to ignore)
-  if (i.isModalSubmit()) return;
-
-  // Button: open name modal
-  if (i.customId === CID_NAME_BUTTON) {
-    await i.showModal(buildNameModal());
-    return;
-  }
-
-  // Button: choice (steps 2-6)
-  const parsed = parseChoiceCid(i.customId);
-  if (parsed) {
-    const fieldMap: Record<
-      number,
-      "class" | "upbringing" | "race" | "alignment" | "dayJob" | "itemSet"
-    > = {
-      2: "class",
-      3: "upbringing",
-      4: "race",
-      5: "alignment",
-      6: "dayJob",
-      7: "itemSet",
-    };
-    const field = fieldMap[parsed.step];
-    if (field) {
+  try {
+    // Modal submission for name
+    if (i.isModalSubmit() && i.customId === CID_NAME_MODAL) {
+      const name = i.fields.getTextInputValue(CID_NAME_INPUT);
       try {
+        const state = wizards.setName(userId, name);
         await i.deferUpdate();
-        const state = wizards.choose(userId, parsed.step, field, parsed.value);
         await i.editReply(buildStepMessage(state));
       } catch (e) {
-        if (i.deferred) {
-          await i.editReply({ content: `❌ ${(e as Error).message}` });
-        } else {
-          await i.reply({ content: `❌ ${(e as Error).message}`, ephemeral: true });
+        await safeNotify(i, `❌ ${(e as Error).message}`);
+      }
+      return;
+    }
+
+    // Modal submission for other modals (none yet, but safe to ignore)
+    if (i.isModalSubmit()) return;
+
+    // Button: open name modal
+    if (i.customId === CID_NAME_BUTTON) {
+      try {
+        await i.showModal(buildNameModal());
+      } catch {
+        /* stale interaction (10062) or already acked (40060) — silently ignored */
+      }
+      return;
+    }
+
+    // Button: choice (steps 2-6)
+    const parsed = parseChoiceCid(i.customId);
+    if (parsed) {
+      const fieldMap: Record<
+        number,
+        "class" | "upbringing" | "race" | "alignment" | "dayJob" | "itemSet"
+      > = {
+        2: "class",
+        3: "upbringing",
+        4: "race",
+        5: "alignment",
+        6: "dayJob",
+        7: "itemSet",
+      };
+      const field = fieldMap[parsed.step];
+      if (field) {
+        try {
+          await i.deferUpdate();
+          const state = wizards.choose(userId, parsed.step, field, parsed.value);
+          await i.editReply(buildStepMessage(state));
+        } catch (e) {
+          await safeNotify(i, `❌ ${(e as Error).message}`);
         }
       }
+      return;
     }
-    return;
-  }
 
-  // Button: confirm
-  if (i.customId === CID_CONFIRM) {
-    try {
-      await i.deferUpdate();
+    // Button: confirm
+    if (i.customId === CID_CONFIRM) {
+      // Release early once the interaction is acknowledged so follow-ups (public
+      // announcement, /hi render) don't block other clicks on the same wizard.
+      const release = () => { _userInFlight.delete(userId); };
+      try {
+        await i.deferUpdate();
       const data = wizards.confirm(userId);
       engine.createCharacter(userId, data);
 
@@ -194,6 +201,9 @@ export async function handleInteraction(
         )
         .setColor(0x2ecc71);
       if (hasImage(OAK_IMAGE)) createdEmbed.setImage(`attachment://${OAK_IMAGE}`);
+
+      // Release early — follow-ups can run concurrently with other interactions.
+      release();
 
       // Send the celebration to the channel (non-ephemeral followUp).
       await i.followUp({ embeds: [createdEmbed.toJSON()], files: imageFiles(OAK_IMAGE) }).catch(() => {});
@@ -214,22 +224,45 @@ export async function handleInteraction(
         }).catch(() => {});
       }
     } catch (e) {
-      if (i.deferred) {
-        await i.editReply({ content: `❌ ${(e as Error).message}` });
-      } else {
-        await i.reply({ content: `❌ ${(e as Error).message}`, ephemeral: true });
-      }
+      await safeNotify(i, `❌ ${(e as Error).message}`);
     }
     return;
   }
 
-  // Button: start over
-  if (i.customId === CID_START_OVER) {
-    await i.deferUpdate();
-    wizards.reset(userId);
-    const state = wizards.start(userId);
-    await i.editReply(buildStepMessage(state));
-    return;
+    // Button: start over
+    if (i.customId === CID_START_OVER) {
+      try {
+        await i.deferUpdate();
+        wizards.reset(userId);
+        const state = wizards.start(userId);
+        await i.editReply(buildStepMessage(state));
+      } catch (e) {
+        await safeNotify(i, `❌ ${(e as Error).message}`);
+      }
+      return;
+    }
+  } finally {
+    _userInFlight.delete(userId);
+  }
+}
+
+/**
+ * Tell the user about an error without ever throwing. The interaction may be dead
+ * — token expired (10062) or already acknowledged (40060) — in which case there's
+ * nothing to do but swallow it; a wizard button must never crash the handler.
+ */
+async function safeNotify(
+  i: MessageComponentInteraction | ModalSubmitInteraction,
+  message: string,
+): Promise<void> {
+  try {
+    if (i.deferred || i.replied) {
+      await i.followUp({ content: message, ephemeral: true });
+    } else {
+      await i.reply({ content: message, ephemeral: true });
+    }
+  } catch {
+    /* interaction is gone (expired/acked) — nothing more we can do */
   }
 }
 

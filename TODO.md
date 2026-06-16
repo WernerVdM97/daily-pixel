@@ -7,6 +7,8 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 
 ## scratchpad (humans start here)
 
+- [ ] bug: got an extra throw on the second action and then autocompleted the last one ended with me not getting a sleep button but instead another action button. Luckily that blocked me.
+- [ ] delay sleep tick message and setup daily messages, with a button to start playing
 - [ ] implement layered db migration framework
 - [ ] how to make wealth spendable or meaning full (same for stamina and health)?
   - how do we handle death or 0 HP?

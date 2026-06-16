@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import type { ChatInputCommandInteraction } from 'discord.js';
+import type { ChatInputCommandInteraction, RepliableInteraction } from 'discord.js';
 
 import { APP_VERSION } from './version.js';
 import { initDb, closeDb } from './db/connection.js';
@@ -150,6 +150,25 @@ async function notifyAdmin(label: string, err: unknown): Promise<void> {
     await admin.send(body);
   } catch (e) {
     console.warn(c.yellow('[error] could not DM admin the error:'), e);
+  }
+}
+
+/**
+ * Surface an error message to the user without ever throwing. Respects the
+ * interaction's acknowledged state — `reply()` on an already-replied/deferred
+ * interaction throws DiscordAPIError 40060 ("already acknowledged"), which is
+ * exactly what crashed the bot, so we `followUp()` in that case and swallow any
+ * failure (a dead interaction must not take the process down).
+ */
+async function safeErrorReply(interaction: RepliableInteraction, content: string): Promise<void> {
+  try {
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content, ephemeral: true });
+    } else {
+      await interaction.reply({ content, ephemeral: true });
+    }
+  } catch (e) {
+    console.warn(c.yellow('[error] could not surface error to user:'), e);
   }
 }
 
@@ -294,6 +313,11 @@ async function main() {
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   _client = client; // expose for the process-level error handlers (admin DMs)
 
+  // An 'error' event with no listener makes EventEmitter throw → process crash.
+  // Listen so client/REST errors are reported, not fatal.
+  client.on('error', (err) => { void notifyAdmin('Discord client error', err); });
+  client.on('shardError', (err) => { void notifyAdmin('Discord shard error', err); });
+
   // Register slash commands with Discord API on ready
   client.once(Events.ClientReady, async (readyClient) => {
     console.log(c.blue(`[discord] Logged in as ${readyClient.user.tag}`));
@@ -319,7 +343,7 @@ async function main() {
           },
         ],
       },
-      { name: 'sleep', description: 'Rest by the Oak (admin: advance the world)' },
+      { name: 'sleep', description: 'Rest by the Oak (admin: advance the world with SLEEP_ADMIN_TICK=true)' },
       {
         name: 'feedback',
         description: 'Share your thoughts with the warden',
@@ -412,8 +436,8 @@ ${headInfo}`);
           if (char) navButtons = getNavButtons(char, commandName);
         }
 
-        // Admin /sleep is always the world tick — top it with the wide banner.
-        const isAdminTick = commandName === 'sleep' && interaction.user.id === ADMIN_USER_ID;
+        // Admin /sleep shows the world-tick banner only when ticking.
+        const isAdminTick = commandName === 'sleep' && interaction.user.id === ADMIN_USER_ID && process.env.SLEEP_ADMIN_TICK === 'true';
         const bannerFiles = isAdminTick ? imageFiles(BANNER_IMAGE) : [];
         const payload = buildComponentPayload(result, {
           ephemeral: isEphemeral,
@@ -429,10 +453,7 @@ ${headInfo}`);
       } catch (err) {
         void notifyAdmin(`/${commandName} failed (user ${interaction.user.tag})`, err);
         const msg = err instanceof Error ? err.message : String(err);
-        await interaction.reply({
-          content: `⚠️ **Something went wrong.**\n\`\`\`${msg}\`\`\``,
-          ephemeral: true,
-        });
+        await safeErrorReply(interaction, `⚠️ **Something went wrong.**\n\`\`\`${msg}\`\`\``);
       }
       return;
     }
@@ -458,7 +479,10 @@ ${headInfo}`);
         await handleJoinInteraction(interaction, engine, joinWizards, renderHiScreen);
         if (VERBOSE) console.log(c.grey('[verbose] join: done'));
       } catch (err) {
-        void notifyAdmin('Join interaction failed', err);
+        // 10062 (Unknown interaction) happens on double-clicks — not a real failure.
+        if ((err as Record<string, unknown>)?.code !== 10062) {
+          void notifyAdmin('Join interaction failed', err);
+        }
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong. Try `/join` again.',
