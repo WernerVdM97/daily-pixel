@@ -11,10 +11,10 @@ A fresh session has no prior context. Load the **stable framing first**, the **t
 
 | Order | Load | Why here |
 |---|---|---|
-| 1 | `docs/engine/poc-build-poa.md` | The map: the seam, the session plan, where the session starts/stops, the handover habit. Frame before detail. |
+| 1 | `docs/archived/poc/poc-build-poa.md` | The map: the seam, the session plan, where the session starts/stops, the handover habit. Frame before detail. |
 | 2 | `docs/engine/poc-tech-stack.md` | Hard constraints (TS + tsx, better-sqlite3, discord.js, monolith, LXC). Bounds the solution space early. |
 | 3 | The session's build doc (e.g. `poc-build-scaffold.md`) | The detailed spec for *this* session. |
-| 4 | `docs/decisions/poc-spec-reconciliation.md` | The resolved decisions it must honor (the `meta` table, fail-fast, DC sign, etc.). |
+| 4 | `docs/archived/poc/poc-spec-reconciliation.md` | The resolved decisions it must honor (the `meta` table, fail-fast, DC sign, etc.). |
 | 5 | `docs/CONVENTIONS.md` + `AGENTS.md` | Only needed at session end, for the handover block + repo rules (2-space indent). Load last so it doesn't crowd build context. |
 
 **Point it at last:** not "go build everything." The seam is the load-bearing, expensive-to-retrofit decision, so the final instruction makes the session produce the *interfaces + schema for sign-off before any implementation*. That is the POA's "doubt-driven on the seam" cashed out.
@@ -35,10 +35,10 @@ That one block tells you what shipped, what's frozen, and where to start.
 {END_IF}
 
 Read these docs in this order before doing anything:
-  1. docs/engine/poc-build-poa.md              — the session plan, the seam, handover
+  1. docs/archived/poc/poc-build-poa.md              — the session plan, the seam, handover
   2. docs/engine/poc-tech-stack.md             — stack + constraints
   3. docs/engine/{BUILD_DOC}                   — the spec for this session
-  4. docs/decisions/poc-spec-reconciliation.md  — resolved decisions to honour
+  4. docs/archived/poc/poc-spec-reconciliation.md  — resolved decisions to honour
   5. docs/CONVENTIONS.md + AGENTS.md            — only when you write the handover at end
 
 THE ONE RULE THAT MATTERS MOST (the seam): the codebase has a hard boundary

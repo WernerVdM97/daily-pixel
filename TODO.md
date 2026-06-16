@@ -9,8 +9,6 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 - [ ] place decision prompts in a folder and add a current_source.md that always mirrors the latest version. Easier to then diff changes between versions.
 - [ ] players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
 - [ ] stealth or following mechanics?
-- [ ] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty.
-  The LLM can be prompted if a random encounter is injected.
 - [ ] evaluate the /action flow and prompt and determine how much of it we can pull into the bot to do probalistically instead of having the LLM do calculation or cross dependant choices.
   - like bail, the LLM does not have to return the bail option as a decision, we can just infer it from `required: false`?
   - or drop the `done: true` and just infer it if there arent decision options.
@@ -36,6 +34,8 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 
 ## POC — polish (next day or two)
 
+- [ ] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty.
+  The LLM can be prompted if a random encounter is injected.
 - [>] `[[poc-action-ux-refinements]]` §1 — the /action decision options button captions are too long and cut off, perhaps print them in text on the message (and limit them both in the prompt and bot) and only show button caption A B C?
 - [>] `[[poc-action-ux-refinements]]` §2 + `[[poc-build-polish]]` §7 — when clicking the bail option on a non-required action, the next message shows a green banner and a success text. dit should be a neutral yellow.
   - we should probably opt to differentiate between skips, bail, or just finish. 
@@ -43,35 +43,6 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
   - a travel to town is just finished (a weird interaction often happens where if you say "go to the shrine and pray" the LLM gives no choices back 
     and just gives you a new set location and non required response, meaning all you can do is press "step back" but that looks negative with the red button)
     the response then also doesnt line up the same sentiment
-    example:
-    ```
-    Decision
-    You: go take a nap in the woods to recover stamina
-
-    You curl into the hollow, breathing the scent of damp earth and moss.
-    Sleep comes quickly, dreamless, and you wake an hour later feeling steadier.
-    A distant howl reminds you that this peace is borrowed — the woods are not safe.
-
-    Choose your approach
-
-    "Step back"
-    ```
-    followed by
-    ```
-    You: go take a nap in the woods to recover stamina␍
-    Decision: You curl into the hollow, breathing the scent of damp earth and moss.
-    Sleep comes quickly, dreamless, and you wake an hour later feeling steadier.
-    A distant howl reminds you that this peace is borrowed — the woods are not safe.␍
-    → Step back (DC +0)␍
-    ␍
-    ✓ Success␍
-    ␍
-    You curl into the hollow, breathing the scent of damp earth and moss. Sleep comes quickly, dreamless, and you wake an hour later feeling steadier. A distant howl reminds you that this peace is borrowed — the woods are not safe.␍
-    ␍
-    → The Forest Edge ┃ Stamina: 11/10 (+2) ┃ Rolls: 0/2
-    ```
-    (also what up with the carriage returns? and stamina going over max)
-    step back should just be a finish button, or even better just auto finish.
 - [>] `[[poc-action-ux-refinements]]` §3 — work on discord presentation. Seperator emojis, formatting, etc
       clearer distinctions on longer messages, beter visibility on item or decision stats
       standardise outcome footer with emoji
