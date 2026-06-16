@@ -2,13 +2,14 @@ import type { LlmGateway, LlmContext, LlmDecision } from '../../llm/LlmGateway.j
 import type {
   ActionState,
   ActionDecision,
+  ActionOption,
   ActionDecisionRecord,
   ActionOutcome,
   WorldMutation,
   CharacterData,
   ItemData,
 } from '../WorldEngine.js';
-import { accumulateDc, computeItemBonus, resolveRoll, validateDcModifier } from './dc.js';
+import { accumulateDc, computeItemBonus, computeRollBonus, resolveRoll, validateDcModifier } from './dc.js';
 import { DIVINE_INTERVENTION_TYPE } from '../../llm/FallbackLlmGateway.js';
 
 /**
@@ -210,23 +211,29 @@ export class ActionStateMachine {
     const newDecisions = [...state.decisions, record];
     const newDc = accumulateDc(state.accumulatedDc, [option.dcModifier]);
 
+    // The chosen approach selects which stat the roll tests. A per-option `stat`
+    // overrides the action default; the last choice wins on a multi-step action.
+    // See ADR per-option-stat-and-ability-checks.
+    const chosenStat = option.stat ?? state.rollStat;
+    const stateWithStat: InternalActionState = { ...state, rollStat: chosenStat };
+
     const isLastDecision = state.decisions.length >= 1; // third+ decision capped
 
     // Call LLM to determine next step
-    const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items, state.rollStat);
+    const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items);
     const decision = await this.llm.decide(context);
 
     // Resolve — at the decision cap, or when the LLM says the action is done.
     // Roll FIRST, then make a narration call so the LLM's prose + mutations match
     // the dice (the first `decision` above only told us whether to resolve).
     if (isLastDecision || decision.done) {
-      return this.resolveWithRoll(state, char, items, newDc, newDecisions);
+      return this.resolveWithRoll(stateWithStat, char, items, newDc, newDecisions);
     }
 
     // Continue — advance the current beat's distilled type to the new decision's.
     const nextDecision = this.toActionDecision(decision, state.required);
     const nextState: InternalActionState = {
-      ...state,
+      ...stateWithStat,
       decisions: newDecisions,
       accumulatedDc: newDc,
       pendingDecision: nextDecision,
@@ -254,11 +261,12 @@ export class ActionStateMachine {
     newDecisions: ActionDecisionRecord[],
   ): Promise<{ resolved: true; state: InternalActionState; outcome: ActionOutcome }> {
     const d20 = this.rollD20();
-    const bonus = computeItemBonus(items, state.rollStat);
+    // Ability check: d20 + character's own stat + item bonus for that stat.
+    const bonus = computeRollBonus(char.stats, items, state.rollStat);
     const outcome = resolveRoll(d20, bonus, newDc);
 
     // Narration call — same gateway, with the verdict attached to the context.
-    const narrationCtx = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items, state.rollStat);
+    const narrationCtx = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items);
     narrationCtx.rollOutcome = outcome === 'success' ? 'success' : 'failure';
     const narration = await this.llm.decide(narrationCtx);
 
@@ -330,15 +338,17 @@ export class ActionStateMachine {
     rawInput: string,
     previous: { prompt: string; chosen: string; dcModifier: number }[],
     items: ItemData[],
-    stat?: string,
   ): LlmContext {
     const hintParts: string[] = [];
 
-    // Item bonus for the current stat
-    if (stat) {
-      const bonus = computeItemBonus(items, stat);
-      hintParts.push(bonus !== 0 ? `${stat} item bonus: ${bonus >= 0 ? '+' : ''}${bonus}` : `no ${stat} items`);
-    }
+    // Item bonuses for every stat — the LLM authors per-option stats and needs to
+    // see which approaches the player's gear favours. Character ability scores are
+    // already in the CHARACTER line. See ADR per-option-stat-and-ability-checks.
+    const itemBonuses = ALL_STATS
+      .map(s => ({ s, b: computeItemBonus(items, s) }))
+      .filter(x => x.b !== 0)
+      .map(x => `${x.s} ${x.b >= 0 ? '+' : ''}${x.b}`);
+    hintParts.push(itemBonuses.length > 0 ? `item bonuses: ${itemBonuses.join(', ')}` : 'no item stat bonuses');
 
     // Full inventory — lets the LLM decide remove_item targets and avoid duplicate add_item
     if (items.length > 0) {
@@ -414,13 +424,16 @@ function capitalize(s: string): string {
 }
 
 function ensureBail(
-  options: Array<{ label: string; dcModifier: number | null }>,
+  options: ActionOption[],
   required: boolean,
-): Array<{ label: string; dcModifier: number | null }> {
+): ActionOption[] {
   if (required) return options;
   if (options.some(o => o.dcModifier === null)) return options;
   return [...options, { label: 'Step back', dcModifier: null }];
 }
+
+/** The four ability stats, in display order. */
+const ALL_STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
 
 function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen: string; dcModifier: number }[] {
   return records.map(r => ({

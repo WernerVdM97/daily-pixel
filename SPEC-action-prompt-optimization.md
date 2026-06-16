@@ -83,12 +83,21 @@ never per option). Verbatim from call ID 58:
   in context alongside `ROLL RESULT`. The model should never reach a state requiring it
   to choose success/failure or invent a DC.
 
-### Lever 3 — Resolve the per-option-stat tension *(cheap, immediate)*
-`decision-v6.md`, Rule 5: add one sentence —
-> "All options test the single `stat` field. Vary the fiction and the `dc_modifier`,
-> never the stat. Do not assign different stats per option."
-- (Stretch / separate decision: add per-option `stat` to the schema, since the model
-  clearly wants stat variety the contract forbids. Record as a `decisions/` ADR if pursued.)
+### Lever 3 — Per-option stat + ability-check roll *(DECIDED: Option B + Q2)*
+See ADR [[per-option-stat-and-ability-checks]]. We rejected the cheap "forbid stat-mixing"
+patch (it narrows the game) in favour of making approach choice mechanically real:
+
+- **Per-option `stat`.** Add `decision[].stat` to the contract and `ActionOption`. The
+  engine derives the action's roll stat from the **chosen** option (last choice wins on a
+  multi-step action). Top-level `stat` stays required as the default / auto-finish stat;
+  a per-option stat overrides it for that branch.
+- **Ability-check roll (Q2).** Roll bonus becomes `char.stats[stat] + computeItemBonus(items, stat)`
+  via a new `computeRollBonus` helper. Today the character's own ability score is absent
+  from the roll — per-option stat is cosmetic without this.
+- **Context hint** surfaces item bonuses for all four stats so the model can balance options
+  against actual gear.
+- **Caveat:** ability scores are mostly ≥ 0, so the roll gets easier; `base_dc` may need a
+  small upward re-tune once observed in play (open question in the ADR).
 
 ### Lever 4 — Front-load a pre-flight checklist
 `decision-v6.md`, immediately above the JSON CONTRACT, a 4-line ordered check:

@@ -28,6 +28,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **decision-v4 prompt** — evolved from v3: roll-first resolution blocks (`ROLL RESULT: SUCCESS/FAILURE`), honour-player-intent rule (no silent type conversion), decisions must advance (consequences on call 2+, never re-present), item breakage/loss recipe, expanded mutation examples, refined JSON contract
 
 ### Changed
+- **Rolls are now ability checks** — the resolution roll is `d20 + character ability score + matching item bonuses` vs DC. Previously the character's own stat was ignored and only item bonuses applied. New `computeRollBonus()` helper composes the two. (See decision `per-option-stat-and-ability-checks`.)
+- **Decision options carry a per-option `stat`** — the approach the player picks now decides which ability the roll tests (a `charisma` "haggle" vs a `physical` "force it"). The state machine derives the roll stat from the chosen option (last choice wins on multi-step actions); the top-level `stat` remains the default for options that omit one and for auto-finish resolutions. `decision[].stat` added to the response contract, `LlmDecisionOption`, and `ActionOption`.
+- **`decision-v6` prompt** — evolved from v5: explicit `PHASE:` marker (`NEW_ACTION`/`CONTINUE`/`RESOLVE_ROLL`) so the model stops inferring game state from prose, per-option stat + ability-check rules, a pre-flight checklist, and **`base_dc` minimum raised 8 → 10** (with matching validator range) to offset the added ability bonus.
+- **Scaling hint surfaces per-stat item bonuses** for all four stats (was a single stat), so the LLM can author per-option stats against the player's actual gear.
 - **Action outcome labels use emojis** — `✅ SUCCESS`, `❌ FAILURE`, `⏭️ SKIPPED`, `🚪 BAILED`, `✅ DONE`, `⏰ TIMED OUT` (were text-only `✓ Success`, `✗ Failure`, etc.)
 - **Outcome embed title uses action-type emoji** — the embed title now reflects the action (🏹 Hunt, 🗣️ Talk, 😴 Rest) instead of always showing ⚔️
 - **Outcome stats footer in code block** — the stats line is now wrapped in inline code backticks for visual separation, replacing the `━━━━━` separator line

@@ -46,6 +46,13 @@ export interface ActionDecision {
 export interface ActionOption {
   label: string;
   dcModifier: number | null; // signed -5..+5; null = bail
+  /**
+   * The ability stat this approach tests (physical/wisdom/intelligence/charisma).
+   * Optional override: when present, choosing this option makes it the action's roll
+   * stat; when absent, the option inherits the action's top-level stat. See ADR
+   * [[per-option-stat-and-ability-checks]].
+   */
+  stat?: string;
 }
 
 export interface ActionDecisionRecord {

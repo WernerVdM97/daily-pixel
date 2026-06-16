@@ -185,6 +185,29 @@ describe('PromptBuilder — user message', () => {
 
     expect(result).not.toContain('PREVIOUS DECISIONS');
   });
+
+  it('marks PHASE NEW_ACTION when there is no history or roll', () => {
+    expect(buildUserMessage(minimalContext)).toContain('PHASE: NEW_ACTION');
+  });
+
+  it('marks PHASE CONTINUE when prior decisions exist but no roll', () => {
+    const ctx: LlmContext = {
+      ...minimalContext,
+      previousDecisions: [{ prompt: 'You spot tracks…', chosen: 'Follow', dcModifier: 0 }],
+    };
+    expect(buildUserMessage(ctx)).toContain('PHASE: CONTINUE');
+  });
+
+  it('marks PHASE RESOLVE_ROLL when a roll verdict is attached', () => {
+    const ctx: LlmContext = {
+      ...minimalContext,
+      previousDecisions: [{ prompt: 'You spot tracks…', chosen: 'Follow', dcModifier: 0 }],
+      rollOutcome: 'success',
+    };
+    const result = buildUserMessage(ctx);
+    expect(result).toContain('PHASE: RESOLVE_ROLL');
+    expect(result).toContain('ROLL RESULT: SUCCESS');
+  });
 });
 
 // ── DeepseekLlmGateway — response parsing & error handling ──
@@ -235,6 +258,35 @@ describe('DeepseekLlmGateway', () => {
     expect(result.decision[0]).toEqual({ label: 'Track the wolf', dcModifier: -2 });
     expect(result.decision[1]).toEqual({ label: 'Charge ahead', dcModifier: 2 });
     expect(result.decision[2]).toEqual({ label: 'Bail', dcModifier: null });
+  });
+
+  it('parses a valid per-option stat and omits invalid/absent ones', async () => {
+    const response = {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            distilled_type: 'talk',
+            stat: 'physical',
+            base_dc: 12,
+            required: false,
+            done: false,
+            decision: [
+              { label: 'Charm him', stat: 'charisma', dc_modifier: 0 },   // valid override
+              { label: 'Reason with him', stat: 'mind', dc_modifier: -1 }, // invalid → omitted
+              { label: 'Force it', dc_modifier: 2 },                       // absent → omitted
+            ],
+          }),
+        },
+      }],
+    };
+    const gateway = new DeepseekLlmGateway({ apiKey: 'test-key', fetch: mockFetch(response) });
+
+    const result = await gateway.decide(minimalContext);
+
+    expect(result.decision[0]).toEqual({ label: 'Charm him', dcModifier: 0, stat: 'charisma' });
+    // Invalid and absent stats are dropped — the option inherits the action default downstream.
+    expect(result.decision[1]).toEqual({ label: 'Reason with him', dcModifier: -1 });
+    expect(result.decision[2]).toEqual({ label: 'Force it', dcModifier: 2 });
   });
 
   it('strips carriage returns from LLM prose (prompt, outcome_text, labels)', async () => {

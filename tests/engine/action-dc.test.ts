@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   accumulateDc,
   computeItemBonus,
+  computeRollBonus,
   resolveRoll,
   validateDcModifier,
 } from '../../src/engine/action/dc.js';
-import type { ItemData } from '../../src/engine/WorldEngine.js';
+import type { ItemData, StatBlock } from '../../src/engine/WorldEngine.js';
 
 // RED: tests fail because src/engine/action/dc.ts doesn't exist yet
 
@@ -101,6 +102,33 @@ describe('Item bonus computation', () => {
       { id: 2, characterId: 1, name: 'Rusty Blade', emoji: '🗡️', stat: 'physical', modifier: -1, quantity: 1 },
     ];
     expect(computeItemBonus(mixed, 'physical')).toBe(0);
+  });
+});
+
+describe('Roll bonus (ability check = character stat + item bonus)', () => {
+  const stats: StatBlock = { physical: 3, wisdom: -1, intelligence: 0, charisma: 2 };
+  const items: ItemData[] = [
+    { id: 1, characterId: 1, name: 'Iron Sword', emoji: '⚔️', stat: 'physical', modifier: 2, quantity: 1 },
+    { id: 2, characterId: 1, name: 'Lucky Charm', emoji: '🍀', stat: 'wisdom', modifier: 1, quantity: 1 },
+  ];
+
+  it('adds the character ability score to the item bonus', () => {
+    // physical: stat 3 + Iron Sword (+2) = 5
+    expect(computeRollBonus(stats, items, 'physical')).toBe(5);
+  });
+
+  it('includes a negative ability score', () => {
+    // wisdom: stat -1 + Lucky Charm (+1) = 0
+    expect(computeRollBonus(stats, items, 'wisdom')).toBe(0);
+  });
+
+  it('uses the ability score even with no matching items', () => {
+    // charisma: stat 2 + no charisma items = 2
+    expect(computeRollBonus(stats, items, 'charisma')).toBe(2);
+  });
+
+  it('returns 0 for an unknown stat key', () => {
+    expect(computeRollBonus(stats, items, 'luck')).toBe(0);
   });
 });
 
