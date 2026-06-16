@@ -7,6 +7,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Navigation buttons on command responses** — most text-based commands now show a nav bar with `🌅 Hi`, `👁️ Look`, `📊 Stats`, `🎒 Backpack`, `📖 Journal`, `⚔️ Action`, and `😴 Sleep` (Sleep only when rolls=0 and no pending action). Clicking navigates to that command's view. `/action` and `/sleep` don't show the nav bar. The current view's own button is excluded.
+- **Native Discord Separator components** — all text-based command views now use the native Separator component (type 14) instead of text `━━━━` lines, rendered via a shared `buildComponentPayload()` helper in `src/discord/format.ts`
+- **Stat emoji on action roll lines** — the outcome header now shows which ability stat was used (`💪`, `🧠`, `📖`, `💬`) alongside the roll expression
+- **Full roll math display** — action outcomes now show the complete `d20 + bonus = total` expression (e.g. `🎲 8 + 7 = **15**`), making the roll resolution transparent
+- **`rollStat` on `ActionOutcome`** — the ability stat tested by a roll is now stamped on the outcome so the renderer can display it
+- **`The Warden's Oak` as a seeded safe location** — added to the location seed list so the daily tick properly restores stamina for players resting there
+- **`scripts/clear-admin.sh` now handles `llm_calls` and `npcs`** — FK-aware delete order prevents foreign key constraint failures
 - **Stat name abbreviation with emojis** — all rendered stat lines now show compact emoji+abbrev (`💪 PHY`, `🧠 WIS`, `📖 INT`, `💬 CHA`) instead of full names, improving mobile readability
 - **Backpack stat breakdown** — `/backpack` now groups items by stat with per-stat total bonus (`💪 Physical (+3)`) and a separate Utility section for zero-modifier items
 - **`shipped` status** to docs conventions — `status: shipped` marks implemented-and-archived specs; finished POC build docs moved from `engine/` and `decisions/` to `docs/archived/poc/`
@@ -21,7 +28,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **decision-v4 prompt** — evolved from v3: roll-first resolution blocks (`ROLL RESULT: SUCCESS/FAILURE`), honour-player-intent rule (no silent type conversion), decisions must advance (consequences on call 2+, never re-present), item breakage/loss recipe, expanded mutation examples, refined JSON contract
 
 ### Changed
-- Map of content pruned — shipped POC docs removed from `docs/README.md` active tables, catalogued under a new Archived section
+- **Action outcome labels use emojis** — `✅ SUCCESS`, `❌ FAILURE`, `⏭️ SKIPPED`, `🚪 BAILED`, `✅ DONE`, `⏰ TIMED OUT` (were text-only `✓ Success`, `✗ Failure`, etc.)
+- **Outcome embed title uses action-type emoji** — the embed title now reflects the action (🏹 Hunt, 🗣️ Talk, 😴 Rest) instead of always showing ⚔️
+- **Outcome stats footer in code block** — the stats line is now wrapped in inline code backticks for visual separation, replacing the `━━━━━` separator line
+- **Daily work action indicators** — `① ② ③` replaced with `🎯 🔧 📋`
+- **`/hi` simplified** — dropped ASCII scene rendering and location description (now shows just location name + safe/unsafe badge with a hint to use `look`); nav button click starts an action directly via the day-job menu
+- **`/look` now shows unsafe indicator** — unsafe locations display `⚠️ This location is **unsafe**. Danger may be near.`
+- **`/help` formatting cleaned up** — removed manual space-prefixed line wrapping; added native Separator components between logical sections
+- All command references in UI text no longer include the leading `/` (e.g. `` `look` `` instead of `` `/look` ``)
+- **Map of content pruned** — shipped POC docs removed from `docs/README.md` active tables, catalogued under a new Archived section
 - Cross-references in 5 active docs updated to point to `archived/poc/` paths
 - TODO.md reorganized — addressed scratchpad items marked `[x]` with links to shipped docs; POC polish vs MVP fuel separated
 - **Roll-first resolution** — the bot now rolls the d20 (+ stat bonus) vs the DC *before* the LLM narrates, then makes a second "narration" call telling the LLM the verdict, so the outcome text and mutations match the dice. Previously the LLM authored the outcome blind to the roll, so a "Success" could carry a failure narration (and vice-versa). Adds one LLM call per resolution. (Implements the "roll before flavour" idea from `mvp-llm-prompt-architecture`.)
@@ -33,6 +48,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Validation warnings (bad stat, out-of-range DC, empty labels, non-array mutations) are now persisted as data, not just logged
 
 ### Fixed
+- **Nat20/nat1 bold markdown broken** — double-wrapped `**` in the roll expression (e.g. `**20 + 2 = **22****`) produced broken Discord bold formatting. Inner bold on the total is now suppressed when the whole expression is bolded for crits.
+- **`/look` didn't show unsafe indicator** — unsafe locations had no emoji or warning text (only safe locations showed their status)
+- **Stamina drained when sleeping at the Oak** — `The Warden's Oak` wasn't in the seeded locations table, so the daily tick treated it as unsafe and subtracted stamina instead of restoring it
+- **Action nav button crashed** — clicking Action from a Components V2 message tried to route through the registry's slash-command handler, which called `interaction.options.getString()` on a non-slash interaction. Fixed by showing the day-job menu or resume flow directly.
+- **`interaction.editReply()` with content/embeds on Components V2 messages** — Discord rejects `content` and `embeds` on messages sent with `IS_COMPONENTS_V2`. The nav:action resume and day-job paths now send new ephemeral replies instead.
 - `/stats`, `/hi` header, and `/backpack` all consistently use abbreviated stat labels with emojis
 - Backpack layout no longer a flat emoji grid — stat groupings make item bonuses scannable at a glance
 - Carriage returns, stamina ceiling, bail→neutral, item stack loss, auto-finish, A/B/C buttons, standardised footer all confirmed shipped in the POC build archive
