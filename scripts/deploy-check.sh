@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="/home/bot/app"
 SERVICE_NAME="daily-pixel"
-BRANCH="main"
+BRANCH="dev"
 
 # Run git/npm as the bot user, systemctl as root
 su - bot -c "cd '$PROJECT_DIR' && git checkout '$BRANCH' && git fetch origin"

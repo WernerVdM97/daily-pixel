@@ -19,10 +19,10 @@ lxc-attach -n "$CONTAINER" -- bash -c "
   useradd -m -s /bin/bash bot
 "
 
-echo "[provision] Cloning repo (poc branch)"
+echo "[provision] Cloning repo (dev branch)"
 
 lxc-attach -n "$CONTAINER" -- bash -c "
-  su - bot -c 'git clone -b POC $REPO_URL /home/bot/app'
+  su - bot -c 'git clone -b dev $REPO_URL /home/bot/app'
   su - bot -c 'cd /home/bot/app && npm ci'
 "
 
