@@ -32,6 +32,7 @@ import { MetaRepository } from './db/repositories/meta.js';
 import { LlmCallRepository } from './db/repositories/llm-call.js';
 
 import { WorldEngineImpl } from './engine/WorldEngineImpl.js';
+import type { WorldEngine } from './engine/WorldEngine.js';
 import type { ClassDef, ModifierDef } from './engine/StatComputer.js';
 import type { LlmDecision, LlmContext } from './llm/LlmGateway.js';
 import { DeepseekLlmGateway } from './llm/DeepseekLlmGateway.js';
@@ -81,6 +82,7 @@ if (!ADMIN_USER_ID) {
 }
 
 const VERBOSE = process.env.VERBOSE === 'true';
+const TICK_CHANNEL_ID = process.env.TICK_CHANNEL_ID ?? '';
 
 // ── Version ──
 
@@ -187,6 +189,62 @@ process.on('uncaughtException', (err) => {
     process.exit(1);
   });
 });
+
+// ── Nightly tick scheduler ──
+
+/**
+ * Schedule the world tick to fire at 3:30 UTC daily.
+ * On each tick it advances the game day, posts the day transition to the
+ * configured channel, then schedules the next tick.
+ */
+function scheduleNightlyTick(engine: WorldEngine, client: Client, channelId: string): void {
+  const now = Date.now();
+  const next = new Date();
+  next.setUTCHours(3, 30, 0, 0);
+  next.setUTCMinutes(30, 0, 0);
+  if (next.getTime() <= now) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  }
+
+  const delay = next.getTime() - now;
+  console.log(c.grey(`[cron] Next tick scheduled for ${next.toISOString()} (in ${Math.round(delay / 60000)} min)`));
+
+  setTimeout(async () => {
+    try {
+      const result = engine.tick(false);
+
+      const flavor = result.dayNumber <= 3
+        ? 'The warden watches the horizon. The fire crackles, steady and low.'
+        : 'The smoke on the eastern horizon has thickened. The warden hasn\'t spoken since yesterday.';
+
+      const lines: string[] = [
+        `🌅 **Day ${result.dayNumber} begins.**`,
+        '',
+        flavor,
+        '',
+        'The Oak awaits. `/hi` to begin.',
+      ];
+
+      if (result.playersAffected > 0 || result.npcMovements.length > 0) {
+        lines.push('');
+        lines.push(`─ ${result.playersAffected} soul(s) stirred, ${result.npcMovements.length} NPC(s) on the move.`);
+      }
+
+      const channel = await client.channels.fetch(channelId);
+      if (channel?.isTextBased() && 'send' in channel) {
+        await (channel as { send: (content: string) => Promise<unknown> }).send(lines.join('\n'));
+      } else {
+        console.error(c.red(`[cron] Channel ${channelId} is not a text channel or not found`));
+      }
+
+      console.log(c.green(`[cron] Day ${result.dayNumber} tick completed. ${result.playersAffected} players affected.`));
+    } catch (err) {
+      console.error(c.red('[cron] Tick failed:'), err);
+    }
+
+    scheduleNightlyTick(engine, client, channelId);
+  }, delay);
+}
 
 async function main() {
   console.log('The Warden\'s Oak — starting up...');
@@ -398,6 +456,13 @@ ${headInfo}`);
       }
     } catch (err) {
       console.error(c.red(`[discord] Failed to register slash commands:`) , err);
+    }
+
+    // ── Nightly tick scheduler (3:30 UTC) ──
+    if (TICK_CHANNEL_ID) {
+      scheduleNightlyTick(engine, readyClient, TICK_CHANNEL_ID);
+    } else {
+      console.warn(c.yellow('[cron] TICK_CHANNEL_ID not set — nightly tick will not post announcements. Use admin `/sleep` to advance the world.'));
     }
   });
 
