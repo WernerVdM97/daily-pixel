@@ -41,7 +41,7 @@ export function formatBackpack(items: ItemData[]): string {
     if (!groupItems) continue;
 
     const total = groupItems.reduce(
-      (sum, i) => sum + i.modifier * i.quantity,
+      (sum, i) => sum + i.modifier,
       0,
     );
     const totalStr = total >= 0 ? `+${total}` : `${total}`;

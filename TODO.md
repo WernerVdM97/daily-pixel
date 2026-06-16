@@ -6,7 +6,6 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 `docs/engine/poc-build-polish.md` §7, and the MVP sparks.
 
 ## scratchpad (humans start here)
-- [ ] place decision prompts in a folder and add a current_source.md that always mirrors the latest version. Easier to then diff changes between versions.
 - [ ] players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
 - [ ] stealth or following mechanics?
 - [ ] evaluate the /action flow and prompt and determine how much of it we can pull into the bot to do probalistically instead of having the LLM do calculation or cross dependant choices.

@@ -23,12 +23,17 @@ export function validateDcModifier(mod: number): boolean {
 }
 
 /**
- * Sum item modifiers for a given stat, accounting for quantity.
+ * Sum item modifiers for a given stat.
+ *
+ * Quantity does NOT multiply the modifier — modifier represents the item's
+ * quality, quantity is just how many you have left (for tracking consumption
+ * of ammunition/consumables).  Having 10 arrows makes you no better at
+ * shooting than having 1; each is used one at a time.
  */
 export function computeItemBonus(items: ItemData[], stat: string): number {
   return items
     .filter(item => item.stat === stat)
-    .reduce((sum, item) => sum + item.modifier * item.quantity, 0);
+    .reduce((sum, item) => sum + item.modifier, 0);
 }
 
 /**

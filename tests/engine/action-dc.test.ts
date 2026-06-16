@@ -89,9 +89,10 @@ describe('Item bonus computation', () => {
     expect(computeItemBonus([], 'physical')).toBe(0);
   });
 
-  it('includes quantity in computation', () => {
-    // intelligence: Old Map (+1) x2 = +2
-    expect(computeItemBonus(items, 'intelligence')).toBe(2);
+  it('does not multiply modifier by quantity (consumables don\'t stack)', () => {
+    // intelligence: Old Map (+1) x2 = +1, not +2 — quantity tracks consumption,
+    // it does not multiply the stat bonus.
+    expect(computeItemBonus(items, 'intelligence')).toBe(1);
   });
 
   it('handles mixed positive and negative for same stat', () => {

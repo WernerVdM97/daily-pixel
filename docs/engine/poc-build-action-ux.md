@@ -90,7 +90,7 @@ case 'modify_stamina':
 ## Boundaries
 
 - **Always:** `tsc --noEmit` + `vitest run` green before done; add a regression test per bug; keep `OutcomeRenderer` pure.
-- **Ask first:** changing the `ActionOutcome.outcome` union (ripples to renderer, colour map, persisted `actions.outcome` values); editing `assets/prompts/decision-v3.md` (bumps `PROMPT_VERSION`); changing `day-jobs.yml` schema.
+- **Ask first:** changing the `ActionOutcome.outcome` union (ripples to renderer, colour map, persisted `actions.outcome` values); editing `assets/prompts/decision-prompts/decision-v3.md` (bumps `PROMPT_VERSION`); changing `day-jobs.yml` schema.
 - **Never:** commit to main/develop; widen scope into the MVP prompt-refactor; remove tests to make them pass.
 
 ## Success criteria
