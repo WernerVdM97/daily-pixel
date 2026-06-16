@@ -136,20 +136,55 @@ node scripts/query.mjs ".tables"       # list all tables
 node scripts/query.mjs "SELECT * FROM actions WHERE outcome = 'failure'"
 ```
 
-### Production (LXC Debian)
+### Production (LXC Debian — prep for later deploy)
 
-Run the provisioning script once on a Debian 12 host, then place `.env` and enable systemd:
+These steps assume the Debian 12 LXC container already exists and you're setting up the bot inside it. Run each command via `lxc-attach -n <container> -- <cmd>` or from a root shell inside the container.
+
+**1. System dependencies**
 
 ```bash
-sudo bash scripts/provision-lxc.sh
-# then manually:
-#   lxc-attach -n daily-pixel
-#   place .env at /home/bot/app/.env
-#   systemctl enable --now daily-pixel
-#   systemctl enable --now daily-pixel-deploy.timer
+apt update && apt install -y curl git ca-certificates
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt install -y nodejs
+useradd -m -s /bin/bash bot
 ```
 
-The timer checks for new commits on the `poc` branch every hour and restarts the bot. See [`scripts/provision-lxc.sh`](./scripts/provision-lxc.sh) and [`docs/engine/poc-build-deploy.md`](./docs/engine/poc-build-deploy.md) §3–4.
+**2. Clone & install**
+
+```bash
+# First, ensure the bot user has SSH access to GitHub (add deploy key or forward ssh-agent)
+su - bot -c 'git clone git@github.com:WernerVdM97/daily-pixel.git /home/bot/app'
+su - bot -c 'cd /home/bot/app && npm ci'
+```
+
+**3. Place `.env`**
+
+Create `/home/bot/app/.env` with your secrets:
+
+```
+DISCORD_TOKEN=...
+DEEPSEEK_API_KEY=...
+ADMIN_USER_ID=...
+TICK_CHANNEL_ID=...
+```
+
+**4. Install systemd units**
+
+```bash
+cp /home/bot/app/scripts/daily-pixel.service /etc/systemd/system/
+cp /home/bot/app/scripts/daily-pixel-deploy.service /etc/systemd/system/
+cp /home/bot/app/scripts/daily-pixel-deploy.timer /etc/systemd/system/
+systemctl daemon-reload
+```
+
+**5. Enable & start**
+
+```bash
+systemctl enable --now daily-pixel
+systemctl enable --now daily-pixel-deploy.timer
+```
+
+The bot starts immediately. The timer checks for new commits on `poc` branch every hour and restarts the bot if there are updates. See [`scripts/deploy-check.sh`](./scripts/deploy-check.sh) for the update logic.
 
 ---
 

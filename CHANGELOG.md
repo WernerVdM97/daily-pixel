@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **README production section** — rewritten from LXC-provisioning docs to a 5-step clone-and-install workflow for existing containers, ready for later deploy
+
 ### Added
 - **Onboarding artwork** — `/join` shows `theoak.png` as the wizard thumbnail and as the hero image on the "Character Created" screen; the admin `/sleep` day-tick announcement is topped with the wide `daily-pixel-banner.png`. Images load via a cached, fail-soft `src/discord/images.ts` helper (a missing asset degrades to no image, never an error). `buildComponentPayload` gained an optional `image` (Components V2 MediaGallery).
 - **Backpack capacity & empty slots** — `/backpack` now shows a `(used/10)` header and pads the emoji grid with ⬜ empty-slot markers up to a 10-slot capacity, so carry space is visible at a glance (an empty pack shows ten ⬜).
