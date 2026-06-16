@@ -135,7 +135,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
 
         setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
-        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state));
+        await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state, character));
         return 'action_resumed';
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -246,7 +246,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -368,7 +368,8 @@ async function applyActionResult(
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;
-    await i.webhook.editMessage(i.message.id, buildDecisionMessage(result.nextDecision, decisionIdx, result.state));
+    const character = engine.getCharacter(i.user.id);
+    await i.webhook.editMessage(i.message.id, buildDecisionMessage(result.nextDecision, decisionIdx, result.state, character ?? undefined));
   }
 }
 
@@ -377,27 +378,30 @@ async function applyActionResult(
 export function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
   decisionIdx: number,
-  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }> },
+  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }>; accumulatedDc?: number },
+  char?: { stats: { physical: number; wisdom: number; intelligence: number; charisma: number } },
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
 } {
-  // Discord embed descriptions are capped at 4096 characters
-  let description = decision.prompt;
+  // The running DC (base + prior modifiers) lets us show each option's effective
+  // DC; passive insight (10 + WIS, a D&D-style passive check) lets a perceptive
+  // character "read" which options are within reach. Both degrade gracefully when
+  // the state/character aren't supplied (e.g. in unit tests).
+  const runningDc = state?.accumulatedDc;
+  const passiveInsight = char ? 10 + char.stats.wisdom : undefined;
 
-  // Show action trail above the current decision.
-  // Scene is deliberately NOT shown here — it's displayed in /hi (current
-  // location) and in the outcome embed (destination, when it changed).
+  // ── Path so far (quoted) — visually separates the player's intent + prior
+  // choices ("decisions") from the current scene below ("response"). ──
+  const blocks: string[] = [];
   if (state) {
-    const trail: string[] = [];
-
-    trail.push(`**You:** ${state.rawInput}`);
+    const path: string[] = [`> 🧭 **Quest:** ${state.rawInput}`];
     for (const d of state.decisions) {
-      trail.push(`→ *${d.chosen}* (DC ${d.dcModifier >= 0 ? '+' : ''}${d.dcModifier})`);
+      path.push(`> ↳ *${d.chosen}*`);
     }
-    trail.push('');
-    description = [...trail, decision.prompt].join('\n');
+    blocks.push(path.join('\n'));
   }
+  blocks.push(decision.prompt);
 
   // List the real (non-bail) options in the body as A. / B. / C. so button
   // captions can be just the letter — nothing truncates on mobile.
@@ -410,6 +414,7 @@ export function buildDecisionMessage(
   const optionLines: string[] = [];
   const buttons: ButtonBuilder[] = [];
   let letterIdx = 0;
+  let anyFavourable = false;
 
   // Preserve each option's original index for the customId — handleActionChoice
   // looks the label up by index against the stored pending decision.
@@ -424,28 +429,39 @@ export function buildDecisionMessage(
       );
     } else {
       const letter = LETTERS[letterIdx++] ?? String(origIdx + 1);
-      optionLines.push(`**${letter}.** ${opt.label}`);
+      const effectiveDc = runningDc != null ? runningDc + opt.dcModifier : undefined;
+      const favourable = passiveInsight != null && effectiveDc != null && passiveInsight >= effectiveDc;
+      if (favourable) anyFavourable = true;
+
+      const dcStr = effectiveDc != null ? `  \`DC ${effectiveDc}\`` : '';
+      const hint = favourable ? ' 🟢' : '';
+      optionLines.push(`**${letter}.** ${opt.label}${dcStr}${hint}`);
       buttons.push(
         new ButtonBuilder()
           .setCustomId(choiceCid(decisionIdx, origIdx))
           .setLabel(letter)
-          .setStyle(ButtonStyle.Secondary),
+          // Passive insight tints buttons the character senses are achievable.
+          .setStyle(favourable ? ButtonStyle.Success : ButtonStyle.Secondary),
       );
     }
   });
 
   const withOptions = optionLines.length > 0
-    ? `${description}\n\n${optionLines.join('\n')}`
-    : description;
+    ? `${blocks.join('\n\n')}\n\n${optionLines.join('\n')}`
+    : blocks.join('\n\n');
   const truncated = withOptions.length > 4000
     ? withOptions.slice(0, 3997) + '...'
     : withOptions;
+
+  const footerText = anyFavourable
+    ? '🟢 within reach — your insight reads the odds'
+    : (decisionIdx === 0 ? 'Choose your approach' : `Decision ${decisionIdx + 1}`);
 
   const embed = new EmbedBuilder()
     .setTitle('🤔 Decision')
     .setDescription(truncated)
     .setColor(0xdaa520)
-    .setFooter({ text: decisionIdx === 0 ? 'Choose your approach' : `Decision ${decisionIdx + 1}` });
+    .setFooter({ text: footerText });
 
   // Buttons — max 5 per row.
   const components: ActionRowBuilder<ButtonBuilder>[] = [];

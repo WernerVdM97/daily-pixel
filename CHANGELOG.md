@@ -6,9 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
-- **README production section** — rewritten from LXC-provisioning docs to a 5-step clone-and-install workflow for existing containers, ready for later deploy
-
 ### Added
 - **Onboarding artwork** — `/join` shows `theoak.png` as the wizard thumbnail and as the hero image on the "Character Created" screen; the admin `/sleep` day-tick announcement is topped with the wide `daily-pixel-banner.png`. Images load via a cached, fail-soft `src/discord/images.ts` helper (a missing asset degrades to no image, never an error). `buildComponentPayload` gained an optional `image` (Components V2 MediaGallery).
 - **Backpack capacity & empty slots** — `/backpack` now shows a `(used/10)` header and pads the emoji grid with ⬜ empty-slot markers up to a 10-slot capacity, so carry space is visible at a glance (an empty pack shows ten ⬜).
@@ -35,6 +32,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **decision-v4 prompt** — evolved from v3: roll-first resolution blocks (`ROLL RESULT: SUCCESS/FAILURE`), honour-player-intent rule (no silent type conversion), decisions must advance (consequences on call 2+, never re-present), item breakage/loss recipe, expanded mutation examples, refined JSON contract
 
 ### Changed
+- **Action decision screen restyled** — the player's intent + prior choices now render as a quoted "🧭 Quest" path, visually separated from the current scene below; each option shows its **effective DC** (running DC + modifier); and options the character can sense are achievable are tinted green and flagged 🟢, gated by **passive insight** (`10 + WIS`) so wiser characters read the odds better.
+- **README production section** — rewritten from LXC-provisioning docs to a 5-step clone-and-install workflow for existing containers, ready for later deploy
 - **Nav buttons on the public `/action` outcome** — the channel-wide outcome post now carries the navigation bar. Because it's a public message, clicking a button **spawns a fresh ephemeral screen** for the clicker (a new reply) instead of overwriting the public message in place; ephemeral views still edit in place as before. Works for any player who clicks, each getting their own ephemeral view.
 - **Character creation announces publicly, then shows your first day** — confirming `/join` (run in an ephemeral wizard) now posts the "A new hero joins the Oak" card to the whole channel, then replaces the wizard with the player's own ephemeral `/hi` screen so they can act immediately.
 - **`/join` wizard restyled** — emoji + short labels on every choice button (fixes the wrapping on long upbringing/alignment captions), starting-kit buttons no longer cram the description into the caption (it moved to the body), a clearer "Forge Your Hero" title, and a progress ledger that strikes through completed steps and marks the current one. Alignment now renders title-cased everywhere.
