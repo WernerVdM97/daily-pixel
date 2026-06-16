@@ -7,6 +7,7 @@ import type {
   ActionResumeResult,
   LocationInfo,
   ItemData,
+  NearbyEntity,
   JournalData,
   TickResult,
   StatBlock,
@@ -26,6 +27,7 @@ export class MockWorldEngine implements WorldEngine {
   private _location: LocationInfo | null = null;
   private _locationSet = false;
   private _items: ItemData[] = [];
+  private _nearbyEntities: NearbyEntity[] = [];
   private _journal: JournalData | null = null;
   private _tickResult: TickResult | null = null;
   private _meta: Map<string, string> = new Map();
@@ -41,6 +43,7 @@ export class MockWorldEngine implements WorldEngine {
     resumeAction: number[];
     getLocation: string[];
     getItems: number[];
+    getNearbyEntities: number[];
     getJournal: number[];
     submitFeedback: { characterId: number; text: string }[];
     submitBug: { characterId: number; text: string }[];
@@ -56,6 +59,7 @@ export class MockWorldEngine implements WorldEngine {
     resumeAction: [],
     getLocation: [],
     getItems: [],
+    getNearbyEntities: [],
     getJournal: [],
     submitFeedback: [],
     submitBug: [],
@@ -81,6 +85,9 @@ export class MockWorldEngine implements WorldEngine {
   setLocation(loc: LocationInfo | null): void {
     this._location = loc;
     this._locationSet = true;
+  }
+  setNearbyEntities(entities: NearbyEntity[]): void {
+    this._nearbyEntities = entities;
   }
   setItems(items: ItemData[]): void {
     this._items = items;
@@ -182,6 +189,11 @@ export class MockWorldEngine implements WorldEngine {
   resumeAction(characterId: number): ActionResumeResult {
     this.calls.resumeAction.push(characterId);
     throw new Error("MockWorldEngine.resumeAction: no canned result set");
+  }
+
+  getNearbyEntities(characterId: number): NearbyEntity[] {
+    this.calls.getNearbyEntities.push(characterId);
+    return this._nearbyEntities;
   }
 
   getLocation(name: string): LocationInfo | null {

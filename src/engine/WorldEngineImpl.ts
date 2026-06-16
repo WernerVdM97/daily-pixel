@@ -26,6 +26,7 @@ import type {
   ActionResumeResult,
   ActionOutcome,
   ActionDecisionRecord,
+  NearbyEntity,
   LocationInfo,
   ItemData,
   JournalData,
@@ -524,6 +525,41 @@ export class WorldEngineImpl implements WorldEngine {
       tags: row.tags ? row.tags.split(',').map(t => t.trim()) : [],
       isSafe: row.is_safe === 1,
     };
+  }
+
+  // ── Nearby ──
+
+  getNearbyEntities(characterId: number): NearbyEntity[] {
+    const char = this.charRepo.findById(characterId);
+    if (!char) return [];
+
+    const entities: NearbyEntity[] = [];
+
+    // NPCs at this location
+    const npcs = this.npcRepo.findByLocation(char.location);
+    for (const npc of npcs) {
+      entities.push({
+        name: npc.name,
+        classOrType: npc.class ?? 'Unknown',
+        description: npc.description ?? null,
+        isPlayer: false,
+      });
+    }
+
+    // Other player characters at this location
+    const allChars = this.charRepo.findAll();
+    for (const pc of allChars) {
+      if (pc.id === characterId) continue;
+      if (pc.location !== char.location) continue;
+      entities.push({
+        name: pc.name,
+        classOrType: pc.class,
+        description: null,
+        isPlayer: true,
+      });
+    }
+
+    return entities;
   }
 
   // ── Items ──

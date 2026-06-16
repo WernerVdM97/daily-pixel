@@ -6,13 +6,12 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 `docs/engine/poc-build-polish.md` §7, and the MVP sparks.
 
 ## scratchpad (humans start here)
+- [ ] place decision prompts in a folder and add a current_source.md that always mirrors the latest version. Easier to then diff changes between versions.
 - [ ] players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
-- [ ] /look should also show surrounding NPCs (if your passive perception beats their passive stealth? but not all NPC are actively hiding)
-  - stealth or following mechanics?
+- [ ] stealth or following mechanics?
 - [ ] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty.
   The LLM can be prompted if a random encounter is injected.
-- [ ] skipping or opting out should give you one extra roll.
-  - MVP: start capping rolls per action type... add short rest option
+- [ ] MVP: start capping rolls per action type... add short rest option
 - [ ] evaluate the /action flow and prompt and determine how much of it we can pull into the bot to do probalistically instead of having the LLM do calculation or cross dependant choices.
   - like bail, the LLM does not have to return the bail option as a decision, we can just infer it from `required: false`?
   - or drop the `done: true` and just infer it if there arent decision options.
@@ -22,7 +21,6 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
   this links to refacotring the prompting. the pacing outcome can be injected into the prompt.
 - [ ] A/B test with pro for actions and flash for narration? Token usage seems very low right now... could get away with more expensive models
 - [ ] how to make wealth spendable?
-- [ ] nat 20 and 1 bonuses and global announcements.
 - [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other.
 - [ ] use reactions as a way of buffering input before a button is pressed (expend items or use certain abilities to amplify actions, also works for trades) 
   `this is cool!!!`

@@ -153,6 +153,13 @@ export interface TickResult {
   npcMovements: NpcMovement[];
 }
 
+export interface NearbyEntity {
+  name: string;
+  classOrType: string;
+  description: string | null;
+  isPlayer: boolean;
+}
+
 // ── The one cohesive interface ──
 
 export interface WorldEngine {
@@ -168,6 +175,9 @@ export interface WorldEngine {
 
   // Location
   getLocation(name: string): LocationInfo | null;
+
+  /** Entities at the character's current location (NPCs + other players). */
+  getNearbyEntities(characterId: number): NearbyEntity[];
 
   // Items
   getItems(characterId: number): ItemData[];
