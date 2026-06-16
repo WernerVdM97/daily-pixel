@@ -143,7 +143,17 @@ export function formatOutcome(
     const rollExpr = bonus === 0
       ? `${outcome.playerRolled}`
       : `${outcome.playerRolled} ${bonus > 0 ? '+' : '−'} ${Math.abs(bonus)}`;
-    lines.push(`🎲 ${rollExpr} vs ${outcome.finalDc} ${meta.icon} ${meta.label}`);
+    // Highlight natural 20 and natural 1
+    const prefix = outcome.playerRolled === 20
+      ? '🌟'
+      : outcome.playerRolled === 1
+        ? '💥'
+        : '';
+    const boldRoll = outcome.playerRolled === 20 || outcome.playerRolled === 1
+      ? `**${rollExpr}**`
+      : rollExpr;
+    const highlight = prefix ? `${prefix} 🎲 ${boldRoll}` : `🎲 ${boldRoll}`;
+    lines.push(`${highlight} vs ${outcome.finalDc} ${meta.icon} ${meta.label}`);
   } else {
     const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '?', label: outcome.outcome };
     lines.push(`${meta.icon} ${meta.label}`);

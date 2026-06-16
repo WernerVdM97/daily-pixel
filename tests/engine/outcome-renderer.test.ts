@@ -281,14 +281,16 @@ describe('OutcomeRenderer — natural 1 / natural 20', () => {
 
   it('marks nat1 as failure regardless of DC', () => {
     const result = formatOutcome(nat1Outcome, ctx());
-    expect(result).toContain('1 vs 5');
+    expect(result).toContain('💥');
+    expect(result).toContain('**1** vs 5');
     expect(result).toContain('✗');
     expect(result).toContain('Failure');
   });
 
   it('marks nat20 as success regardless of DC', () => {
     const result = formatOutcome(nat20Outcome, ctx());
-    expect(result).toContain('20 vs 30');
+    expect(result).toContain('🌟');
+    expect(result).toContain('**20** vs 30');
     expect(result).toContain('✓');
     expect(result).toContain('Success');
   });

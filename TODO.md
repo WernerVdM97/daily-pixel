@@ -11,17 +11,16 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 - [ ] stealth or following mechanics?
 - [ ] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty.
   The LLM can be prompted if a random encounter is injected.
-- [ ] MVP: start capping rolls per action type... add short rest option
 - [ ] evaluate the /action flow and prompt and determine how much of it we can pull into the bot to do probalistically instead of having the LLM do calculation or cross dependant choices.
   - like bail, the LLM does not have to return the bail option as a decision, we can just infer it from `required: false`?
   - or drop the `done: true` and just infer it if there arent decision options.
-- [ ] backpack should show a breakdown of how items boost your stats
+  - MVP: start capping rolls per action type... add short rest option
 - [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
 - [ ] pacing should not be done by the llm but by the bot before hand. If every fourth encounter should be dangerous, that must be tracked in the bot
   this links to refacotring the prompting. the pacing outcome can be injected into the prompt.
 - [ ] A/B test with pro for actions and flash for narration? Token usage seems very low right now... could get away with more expensive models
 - [ ] how to make wealth spendable?
-- [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other.
+- [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other. globals messages on nat 1 or 20
 - [ ] use reactions as a way of buffering input before a button is pressed (expend items or use certain abilities to amplify actions, also works for trades) 
   `this is cool!!!`
   (but does it work with ephemeral..?)
