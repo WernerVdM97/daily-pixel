@@ -37,83 +37,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-06-16
+
 ### Added
-- **Admin error DMs** — the bot now DMs `ADMIN_USER_ID` whenever something throws: a global `unhandledRejection`/`uncaughtException` handler (the latter exits so systemd restarts), the fatal startup catch, and every interaction catch (slash command, join, action, day-job, nav) routes through `notifyAdmin()` instead of a silent `console.error`. Best-effort and self-guarding — no client / no admin / failed DM just logs.
-- **Onboarding artwork** — `/join` shows `theoak.png` as the wizard thumbnail and as the hero image on the "Character Created" screen; the admin `/sleep` day-tick announcement is topped with the wide `daily-pixel-banner.png`. Images load via a cached, fail-soft `src/discord/images.ts` helper (a missing asset degrades to no image, never an error). `buildComponentPayload` gained an optional `image` (Components V2 MediaGallery).
-- **Backpack capacity & empty slots** — `/backpack` now shows a `(used/10)` header and pads the emoji grid with ⬜ empty-slot markers up to a 10-slot capacity, so carry space is visible at a glance (an empty pack shows ten ⬜).
-- **Start Over on `/join` steps** — a red "Start Over" button now appears on every wizard step after the name (2–7), not just the final review, so players can restart without abandoning the flow.
-- **Choice descriptions in `/join`** — each class, upbringing, race, alignment, day-job, and starting kit now shows its one-line lore in the embed body, not just its name, so players know what they're picking. Options and descriptions are read straight from `assets/char-creation/*.yml` (single source of truth) rather than a hardcoded subset, so the wizard now offers **all** of them — restoring 6 upbringings (Artisan, Farmstead, Temple-Raised, Urchin, Entertainer, Scout), 3 races (Half-Elf, Half-Orc, Dúnedain), and the Wanderer day-job that the old hardcoded list silently dropped.
-- **Navigation buttons on command responses** — most text-based commands now show a nav bar with `🌅 Hi`, `👁️ Look`, `📊 Stats`, `🎒 Backpack`, `📖 Journal`, `⚔️ Action`, and `😴 Sleep` (Sleep only when rolls=0 and no pending action). Clicking navigates to that command's view. `/action` and `/sleep` don't show the nav bar. The current view's own button is excluded.
-- **Native Discord Separator components** — all text-based command views now use the native Separator component (type 14) instead of text `━━━━` lines, rendered via a shared `buildComponentPayload()` helper in `src/discord/format.ts`
-- **Stat emoji on action roll lines** — the outcome header now shows which ability stat was used (`💪`, `🧠`, `📖`, `💬`) alongside the roll expression
-- **Full roll math display** — action outcomes now show the complete `d20 + bonus = total` expression (e.g. `🎲 8 + 7 = **15**`), making the roll resolution transparent
-- **`rollStat` on `ActionOutcome`** — the ability stat tested by a roll is now stamped on the outcome so the renderer can display it
-- **`The Warden's Oak` as a seeded safe location** — added to the location seed list so the daily tick properly restores stamina for players resting there
-- **`scripts/clear-admin.sh` now handles `llm_calls` and `npcs`** — FK-aware delete order prevents foreign key constraint failures
-- **Stat name abbreviation with emojis** — all rendered stat lines now show compact emoji+abbrev (`💪 PHY`, `🧠 WIS`, `📖 INT`, `💬 CHA`) instead of full names, improving mobile readability
-- **Backpack stat breakdown** — `/backpack` now groups items by stat with per-stat total bonus (`💪 Physical (+3)`) and a separate Utility section for zero-modifier items
-- **`shipped` status** to docs conventions — `status: shipped` marks implemented-and-archived specs; finished POC build docs moved from `engine/` and `decisions/` to `docs/archived/poc/`
-- **Decision breadcrumb trail** — the action outcome embed now shows a concise emoji breadcrumb (e.g. 🔍 → 🗣️ → ⚔️) above the scene, tracing the distilled action types the player moved through. Backed by a `distilledActionEmoji()` keyword↔emoji map (28+ keywords, case-insensitive, substring-matched, fallback ✴️) and a `distilledType` field stamped on each `ActionDecisionRecord` by the state machine.
-- **Action terminal states `bailed` and `done`** — bailing a real decision now resolves as a neutral `↩ Bailed` (costs −1 stamina), and an LLM `done`/no-choices outcome (travel/rest) **auto-finishes** as a neutral `✓ Done` instead of presenting a red "Step back". Auto-finished actions are logged to `actions` like any other (with `llm_call` link + `app_version`).
-- `/hi` now shows the current location's name, description, and safety status
-- **LLM audit: `llm_calls` table** — one row per gateway call (including failed and retry attempts) for POC behavioural analysis. Captures the player input, a compact deduped `context_digest`, raw response, token usage, latency, finish reason, `parse_ok`, validation warnings, error, HTTP status, and retry tier. Linked to the action it produced via `action_id`.
-- LLM thinking capture: `raw_prompt` and full `reasoning` (thinking) are stored on diagnostic calls — a transport error, a malformed/unparseable response, or a fallback retry (hardcoded); `reasoning` is additionally stored on **all** well-formed calls when `LOG_LLM_THINKING_ALL=true`; every call keeps the cheap `reasoning_chars` gauge regardless
-- **`app_version` on `actions` and `llm_calls`** — each row is stamped with the app build (`VERSION`) that produced it, for historic data mining (the `llm_calls` stamp covers failed/retry calls that never produce an action row); shared `src/version.ts` (`APP_VERSION`) replaces the inline read in `index.ts`
-- Query shorthands: `llm_calls`, `llm_issues`, `llm_dump` in `scripts/query.mjs`
-- **ISO timestamps on all console logs** — `console.log`/`warn`/`error` are monkey-patched at startup to prefix `[YYYY-MM-DD HH:mm:ss.SSS]` timestamps
-- **decision-v4 prompt** — evolved from v3: roll-first resolution blocks (`ROLL RESULT: SUCCESS/FAILURE`), honour-player-intent rule (no silent type conversion), decisions must advance (consequences on call 2+, never re-present), item breakage/loss recipe, expanded mutation examples, refined JSON contract
-- **`SLEEP_ADMIN_TICK` env var** — controls whether admin `/sleep` advances the world. Set to `true` to restore the old test-mode tick behavior. Defaults to `false` (admin sleeps like a normal player).
-- **`PROFANITY_FILTER` env var** — comma-separated regex patterns that block matching custom action text input. Players see a generic rejection message instead of the action reaching the engine. Patterns are case-insensitive and support unicode.
+- **Admin error DMs** — `notifyAdmin()` now routes all interaction catches, startup fatalities, `unhandledRejection`, and `uncaughtException` to the admin via DM instead of a silent `console.error`. The `uncaughtException` handler exits so systemd restarts; the DM is best-effort and self-guarding (no client / no admin / failed DM degrades to log).
+- **Profanity filter** — `PROFANITY_FILTER` env var accepts comma-separated regex patterns (case-insensitive, unicode). Matching custom action text is blocked before reaching the engine with a generic rejection message. Full unit test coverage including unset/empty, multiple patterns, word boundaries, and unicode.
+- **Double-click guard on `/join` wizard** — a per-user in-flight lock drops duplicate button clicks before any Discord API call, preventing duplicate character creation or stale interaction errors.
+- **Startup admin DM** — on boot, the bot DMs `ADMIN_USER_ID` with the deployed version + git commit hash + subject line.
+- **`SLEEP_ADMIN_TICK` env var** — controls whether admin `/sleep` advances the world. Defaults to `false` (admin rests at the Oak like everyone else). Set to `true` to restore the old test-mode tick behaviour.
+- **`client.on('error')` and `client.on('shardError')` listeners** — prevent fatal crashes on Discord API errors; routed to `notifyAdmin()` instead.
+- **`safeErrorReply()` helper** — picks `followUp` when the interaction has already been acknowledged, swallows any failure so a dead interaction never takes the process down.
 
 ### Changed
-- **Action decision screen restyled** — the player's intent + prior choices now render as a quoted "🧭 Quest" path, visually separated from the current scene below. Raw DCs stay hidden while deciding; instead, **passive insight** (`10 + WIS`) occasionally tints a single option green (🟢) — only when one route is clearly safer than the rest *and* the character is perceptive enough to sense it, so the hint is earned rather than an always-on readout.
-- **README production section** — rewritten from LXC-provisioning docs to a 5-step clone-and-install workflow for existing containers, ready for later deploy
-- **Nav buttons on the public `/action` outcome** — the channel-wide outcome post now carries the navigation bar. Because it's a public message, clicking a button **spawns a fresh ephemeral screen** for the clicker (a new reply) instead of overwriting the public message in place; ephemeral views still edit in place as before. Works for any player who clicks, each getting their own ephemeral view.
-- **Character creation announces publicly, then shows your first day** — confirming `/join` (run in an ephemeral wizard) now posts the "A new hero joins the Oak" card to the whole channel, then replaces the wizard with the player's own ephemeral `/hi` screen so they can act immediately.
-- **`/join` wizard restyled** — emoji + short labels on every choice button (fixes the wrapping on long upbringing/alignment captions), starting-kit buttons no longer cram the description into the caption (it moved to the body), a clearer "Forge Your Hero" title, and a progress ledger that strikes through completed steps and marks the current one. Alignment now renders title-cased everywhere.
-- **Rolls are now ability checks** — the resolution roll is `d20 + character ability score + matching item bonuses` vs DC. Previously the character's own stat was ignored and only item bonuses applied. New `computeRollBonus()` helper composes the two. (See decision `per-option-stat-and-ability-checks`.)
-- **Decision options carry a per-option `stat`** — the approach the player picks now decides which ability the roll tests (a `charisma` "haggle" vs a `physical` "force it"). The state machine derives the roll stat from the chosen option (last choice wins on multi-step actions); the top-level `stat` remains the default for options that omit one and for auto-finish resolutions. `decision[].stat` added to the response contract, `LlmDecisionOption`, and `ActionOption`.
-- **`decision-v6` prompt** — evolved from v5: explicit `PHASE:` marker (`NEW_ACTION`/`CONTINUE`/`RESOLVE_ROLL`) so the model stops inferring game state from prose, per-option stat + ability-check rules, a pre-flight checklist, and **`base_dc` minimum raised 8 → 10** (with matching validator range) to offset the added ability bonus.
-- **Scaling hint surfaces per-stat item bonuses** for all four stats (was a single stat), so the LLM can author per-option stats against the player's actual gear.
-- **Action outcome labels use emojis** — `✅ SUCCESS`, `❌ FAILURE`, `⏭️ SKIPPED`, `🚪 BAILED`, `✅ DONE`, `⏰ TIMED OUT` (were text-only `✓ Success`, `✗ Failure`, etc.)
-- **Outcome embed title uses action-type emoji** — the embed title now reflects the action (🏹 Hunt, 🗣️ Talk, 😴 Rest) instead of always showing ⚔️
-- **Outcome stats footer in code block** — the stats line is now wrapped in inline code backticks for visual separation, replacing the `━━━━━` separator line
-- **Daily work action indicators** — `① ② ③` replaced with `🎯 🔧 📋`
-- **`/hi` simplified** — dropped ASCII scene rendering and location description (now shows just location name + safe/unsafe badge with a hint to use `look`); nav button click starts an action directly via the day-job menu
-- **`/look` now shows unsafe indicator** — unsafe locations display `⚠️ This location is **unsafe**. Danger may be near.`
-- **`/help` formatting cleaned up** — removed manual space-prefixed line wrapping; added native Separator components between logical sections
-- All command references in UI text no longer include the leading `/` (e.g. `` `look` `` instead of `` `/look` ``)
-- **Map of content pruned** — shipped POC docs removed from `docs/README.md` active tables, catalogued under a new Archived section
-- Cross-references in 5 active docs updated to point to `archived/poc/` paths
-- TODO.md reorganized — addressed scratchpad items marked `[x]` with links to shipped docs; POC polish vs MVP fuel separated
-- **Roll-first resolution** — the bot now rolls the d20 (+ stat bonus) vs the DC *before* the LLM narrates, then makes a second "narration" call telling the LLM the verdict, so the outcome text and mutations match the dice. Previously the LLM authored the outcome blind to the roll, so a "Success" could carry a failure narration (and vice-versa). Adds one LLM call per resolution. (Implements the "roll before flavour" idea from `mvp-llm-prompt-architecture`.)
-- **Roll line shows the stat bonus separately** — e.g. `🎲 8 + 7 vs 11 ✓ Success`, so it's clear why a low die still passed (the item/stat bonus was previously hidden)
-- **Standardised outcome footer** — emoji stat glyphs (`❤️ HP ┃ ⚡ stamina ┃ 🎲 rolls ┃ 💰 wealth`) with a separator above it, and items/location on their own line, so outcomes scan cleanly on mobile
-- **Daily work actions: 3 surfaced at random** from a larger pool — each day-job now has ~8 actions (rewritten tighter/more generic) plus a shared `COMMON_ACTIONS` (hybrid) pool of 8, so each job draws 3 of ~16. The pick is seeded per character per day, so `/hi`, the `/action` buttons, and the click handler agree within a day and refresh each game day.
-- **Decision options render as A/B/C buttons** — the option text now lists in the message body (lettered); buttons show just the letter (plus a worded bail button), so long captions no longer truncate on mobile
-- LLM request/response auditing moved off the `actions` table into the dedicated `llm_calls` table; the legacy `actions.llm_request`/`llm_response` columns are retained but no longer written
-- Validation warnings (bad stat, out-of-range DC, empty labels, non-array mutations) are now persisted as data, not just logged
-- **Admin `/sleep` no longer ticks by default** — admin now rests at the Oak instead of advancing the world day. Set `SLEEP_ADMIN_TICK=true` in `.env` to re-enable the tick. Useful for testing; the nightly cron still handles the daily transition in production.
+- **Error handling hardening** — all slash command and button catches route through `notifyAdmin()` + `safeErrorReply()` instead of bare `console.error` + `interaction.reply()`.
+- **`scripts/clear-channel.sh` rewritten** — replaced fragile grep-based JSON field extraction with Python `json.load()`. No longer depends on Discord field ordering. Bot ID resolution and pagination also use Python now.
+- **`scripts/deploy-check.sh` tracks `main`** — was watching the stale `POC` branch. Now auto-deploys from `main` on hourly timer.
+- **`initDb()` auto-creates `data/` directory** — a fresh clone no longer crashes on first boot because `better-sqlite3` can't create parent directories.
 
 ### Fixed
-- **`/join` buttons throwing "Unknown interaction" (10062)** — the wizard's catch blocks called `reply()`/`editReply()` on interactions whose token had expired (e.g. a click during a restart, or a stale button), throwing 10062 back out of the handler. All join catches now route through a `safeNotify()` that picks `reply` vs `followUp` and swallows failures, and the Start Over path is wrapped too — a dead interaction can no longer escape the handler. A per-user in-flight lock additionally drops duplicate clicks before any Discord API call.
-- **Crash on "Interaction has already been acknowledged" (40060)** — the slash-command catch blindly called `interaction.reply()`, which throws 40060 on an already-acked interaction; with no `client.on('error')` listener that surfaced as a fatal unhandled Client `'error'` event and killed the bot. Error replies now go through `safeErrorReply()` (uses `followUp` when already acknowledged, swallows failures), and a Client `'error'`/`'shardError'` listener routes such events to the admin instead of crashing.
-- **DB directory auto-created** — `initDb()` now `mkdir -p`s the SQLite parent dir. A fresh clone/deploy has no `data/` (it's gitignored) and `better-sqlite3` won't create it, so the bot crashed on first boot with "Cannot open database because the directory does not exist". Matches the README's "auto-created" promise.
-- **Nat20/nat1 bold markdown broken** — double-wrapped `**` in the roll expression (e.g. `**20 + 2 = **22****`) produced broken Discord bold formatting. Inner bold on the total is now suppressed when the whole expression is bolded for crits.
-- **`/look` didn't show unsafe indicator** — unsafe locations had no emoji or warning text (only safe locations showed their status)
-- **Stamina drained when sleeping at the Oak** — `The Warden's Oak` wasn't in the seeded locations table, so the daily tick treated it as unsafe and subtracted stamina instead of restoring it
-- **Action nav button crashed** — clicking Action from a Components V2 message tried to route through the registry's slash-command handler, which called `interaction.options.getString()` on a non-slash interaction. Fixed by showing the day-job menu or resume flow directly.
-- **`interaction.editReply()` with content/embeds on Components V2 messages** — Discord rejects `content` and `embeds` on messages sent with `IS_COMPONENTS_V2`. The nav:action resume and day-job paths now send new ephemeral replies instead.
-- `/stats`, `/hi` header, and `/backpack` all consistently use abbreviated stat labels with emojis
-- Backpack layout no longer a flat emoji grid — stat groupings make item bonuses scannable at a glance
-- Carriage returns, stamina ceiling, bail→neutral, item stack loss, auto-finish, A/B/C buttons, standardised footer all confirmed shipped in the POC build archive
-- **Failed actions no longer reward the player** — on a failed roll, beneficial mutations (wealth/stamina/health gains, gained items) are dropped and a flat −2 stamina penalty is added so a loss carries weight; costs and world changes (e.g. `set_location`) are kept. With roll-first resolution the narration now also matches the verdict, so failures read as failures.
-- **Auto-finish coverage** — the day-job button and custom-modal action paths now render an auto-finished outcome too (previously only the typed `/action <description>` path did)
-- **Bail rendered as green Success** — bailing a non-required action showed a green success banner; now neutral `↩ Bailed`. (Root cause: the pre-resolved `done` case was conflated with bail; split into auto-finish vs genuine bail.)
-- **Stamina could exceed max** (`11/10`) — `modify_stamina` now clamps to `STAMINA_MAX` (10), like `modify_health`
-- **Carriage returns** (`␍`) leaking into rendered messages — stripped from LLM prose at the gateway
-- **Item trade deleted the whole stack** — `remove_item` carries a quantity; `ItemRepository.decrementByName` decrements and deletes only at 0 (trading 1 of 2 leaves 1)
-- **Seed NPC duplication**: `seedNpcs()` re-inserted all 8 NPCs on every startup (no UNIQUE constraint), bloating the table to 100+ rows and leaking dozens of duplicate NPCs into every LLM prompt. Migration dedupes existing rows and a partial unique index makes re-seeding idempotent
+- **Crash on "Interaction has already been acknowledged" (40060)** — the slash-command catch blindly called `interaction.reply()`, which throws 40060 on already-acked interactions; with no `client.on('error')` listener this crashed the bot. Now uses `safeErrorReply()` and routes the event to admin via the new client error listener.
+- **`/join` buttons throwing "Unknown interaction" (10062)** — stale button clicks or double-clicks on expired wizard tokens no longer escape the handler. All join catches use `safeNotify()` (chooses `reply` vs `followUp` and swallows failures).
+- **Crash on missing `data/` directory** — `initDb()` now `mkdir -p`s the SQLite parent dir before opening the database.
+- **`clear-channel.sh` pagination truncation** — `head -1` on each page limited deletion to 1 message per batch. Now processes the full `messages` array.
+
+### Chore
+- Bumped to 0.2.1 — crash hardening & profanity filter
 
 ## [0.1.6] — 2026-06-15
 
