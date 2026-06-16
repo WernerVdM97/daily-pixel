@@ -47,24 +47,73 @@ Start with
 - **Mobile-first Discord.** ~30 char wide ASCII scenes. One message per daily roll batch.
 - **Optimised for 8 players.** Thematic choice (a fellowship), not a technical limit.
 
-## Planned architecture
+## Codebase structure
 
 ```
-Discord Bot (TypeScript)
-  ├── Command router
-  ├── Daily roll engine
-  ├── ASCII art renderer
-  ├── Auto-sim engine (PC + NPC)
-  ├── NPC routine simulation
-  ├── Daily economy tick
-  ├── Weekly scheduler (cron)
-  │
-  ├── Graph DB (SQLite + custom edge model)
-  │   └── Nodes: Characters, Locations, NPCs, Items, Quests
-  │   └── Edges: trust, rivalry, owns, at_location, on_quest…
-  │
-  └── LLM Gateway (token-optimized, lazy evaluation)
-      └── Narrative generation, NPC dialogue, quest creation
+daily-pixel/
+├── src/
+│   ├── index.ts                # Entry point — startup, Discord client, interaction router
+│   ├── version.ts              # APP_VERSION constant
+│   ├── db/
+│   │   ├── schema.sql          # 9 tables + indexes + seed data
+│   │   ├── connection.ts       # SQLite init (auto-creates data/ dir)
+│   │   ├── migrate.ts          # Idempotent migrations
+│   │   └── repositories/       # Row-level data access
+│   ├── engine/
+│   │   ├── WorldEngineImpl.ts  # Core engine — characters, action flow, tick, items, NPCs
+│   │   ├── WorldEngine.ts      # Public interfaces
+│   │   ├── StatComputer.ts     # Stat derivation from class/upbringing/race
+│   │   ├── OutcomeRenderer.ts  # Action outcome formatting
+│   │   ├── ErrorMapper.ts      # Error → user-friendly messages
+│   │   ├── IdleMessageSelector.ts
+│   │   └── action/
+│   │       ├── machine.ts      # Action state machine (start → decide → roll → resolve)
+│   │       ├── dc.ts           # DC accumulation, roll bonus, resolution
+│   │       └── mutations.ts    # Apply/validate LLM world mutations
+│   ├── llm/
+│   │   ├── LlmGateway.ts       # Gateway interface & types
+│   │   ├── DeepseekLlmGateway.ts
+│   │   ├── FallbackLlmGateway.ts  # Retry chain + divine intervention mock
+│   │   ├── MockLlmGateway.ts
+│   │   ├── LlmCallRecorder.ts  # Audit logging interface
+│   │   └── prompt-builder.ts   # System prompt + user message construction (v6)
+│   ├── discord/
+│   │   ├── CommandRegistry.ts
+│   │   ├── WizardSession.ts    # Multi-step join wizard state
+│   │   ├── format.ts           # Components V2 helpers, nav buttons
+│   │   ├── images.ts           # Cached asset image loader
+│   │   ├── profanity.ts        # Configurable profanity filter
+│   │   └── commands/           # One file per command (action, hi, join, look, …)
+│   ├── scenes/
+│   │   ├── SceneLoader.ts      # Loads ASCII art from assets/scenes/
+│   │   └── TagResolver.ts      # Location tags → scene name
+│   ├── assets/
+│   │   ├── ascii-loader.ts
+│   │   └── yaml-loader.ts      # Fail-fast YAML config loading
+│   └── util/
+│       └── colors.ts           # ANSI colour helpers
+├── assets/
+│   ├── char-creation/          # YAML: classes, races, backgrounds, alignments, day-jobs, item-sets
+│   ├── prompts/decision-prompts/  # System prompt versions (v6 active)
+│   ├── scenes/                 # 20 ASCII scene files
+│   └── ui/                     # Banner images (theoak.png, banner, loading.gif)
+├── docs/                       # Design vault — vision, game, engine, UI, decisions, sparks
+├── tests/
+│   ├── e2e/                    # Full happy-path integration test
+│   ├── engine/                 # Action state machine, DC, mutations, stat computer, tick
+│   ├── discord/                # Per-command unit tests, format, profanity, wizard
+│   ├── db/                     # Repository tests, migration, restart persistence
+│   ├── llm/                    # Gateway tests
+│   └── scenes/                 # Scene loader, tag resolver
+├── scripts/
+│   ├── query.mjs               # SQLite inspection with shorthands
+│   ├── clear-admin.sh          # Bulk-delete character from DB
+│   ├── clear-channel.sh        # Bulk-delete bot messages from a Discord channel
+│   ├── deploy-check.sh         # Git pull + restart on new commits
+│   ├── daily-pixel.service     # systemd unit
+│   ├── daily-pixel-deploy.service
+│   └── daily-pixel-deploy.timer  # Hourly deploy check
+└── data/                       # SQLite database (gitignored, auto-created)
 ```
 
 ---
