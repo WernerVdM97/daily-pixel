@@ -54,6 +54,7 @@ import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
 import { makeHiCommand, getDayJobActions, type DayJobDef } from './discord/commands/hi.js';
 import { buildComponentPayload, getNavButtons } from './discord/format.js';
+import { BANNER_IMAGE, imageFiles } from './discord/images.js';
 import { makeJoinCommand, handleInteraction as handleJoinInteraction } from './discord/commands/join.js';
 import { makeActionCommand, handleActionChoice, setPendingDecision, buildDecisionMessage, buildOutcomeEmbed, consumeMenuMessage, CID_DAYJOB, CID_DAYJOB_CUSTOM } from './discord/commands/action.js';
 
@@ -346,8 +347,16 @@ async function main() {
           if (char) navButtons = getNavButtons(char, commandName);
         }
 
+        // Admin /sleep is always the world tick — top it with the wide banner.
+        const isAdminTick = commandName === 'sleep' && interaction.user.id === ADMIN_USER_ID;
+        const bannerFiles = isAdminTick ? imageFiles(BANNER_IMAGE) : [];
+        const payload = buildComponentPayload(result, {
+          ephemeral: isEphemeral,
+          navButtons,
+          ...(isAdminTick && bannerFiles.length > 0 ? { image: BANNER_IMAGE } : {}),
+        });
         await interaction.reply(
-          buildComponentPayload(result, { ephemeral: isEphemeral, navButtons }),
+          bannerFiles.length > 0 ? { ...payload, files: bannerFiles } : payload,
         );
         if (VERBOSE) {
           console.log(c.grey(`[verbose] /${commandName} → ${result.slice(0, 200)}`));

@@ -24,6 +24,7 @@ const CT = {
   ACTION_ROW: 1,
   BUTTON: 2,
   TEXT_DISPLAY: 10,
+  MEDIA_GALLERY: 12,
   SEPARATOR: 14,
   CONTAINER: 17,
 } as const;
@@ -128,6 +129,13 @@ export function buildComponentPayload(
       type: number;
       components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }>;
     }>;
+    /**
+     * Filename of an image to show at the top of the container as a MediaGallery.
+     * The caller MUST also pass the matching attachment in the reply's `files`
+     * (see `imageFiles` / `imageAttachment` in ./images). Referenced as
+     * `attachment://<image>`.
+     */
+    image?: string;
   },
 ): {
   flags: number;
@@ -143,7 +151,15 @@ export function buildComponentPayload(
     .map(s => s.trim())
     .filter(Boolean);
 
-  const contentComponents: Array<{ type: number; content?: string }> = [];
+  const contentComponents: Array<{ type: number; content?: string; items?: Array<{ media: { url: string } }> }> = [];
+
+  // Optional banner image at the top of the container.
+  if (opts?.image) {
+    contentComponents.push({
+      type: CT.MEDIA_GALLERY,
+      items: [{ media: { url: `attachment://${opts.image}` } }],
+    });
+  }
 
   if (sections.length === 0) {
     // Single section — wrap as one TextDisplay.
