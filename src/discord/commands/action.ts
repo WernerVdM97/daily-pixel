@@ -28,7 +28,7 @@ import { getDayJobActions, type DayJobDef } from './hi.js';
 
 const CID_PREFIX = 'action:choice:';
 const CID_BAIL = 'action:bail';
-const CID_DAYJOB = 'action:dayjob:';
+export const CID_DAYJOB = 'action:dayjob:';
 export const CID_DAYJOB_CUSTOM = 'action:dayjob:custom';
 export const CID_CUSTOM_MODAL = 'action:custom:modal';
 export const CID_CUSTOM_INPUT = 'action:custom:input';
@@ -504,7 +504,7 @@ export function buildOutcomeEmbed(
   trail.push(formatOutcome(outcome, ctx));
 
   return new EmbedBuilder()
-    .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
+    .setTitle(`${distilledActionEmoji(outcome.distilledType)} ${capitalize(outcome.distilledType)}`)
     .setDescription(trail.join('\n'))
     .setColor(outcomeColor(outcome.outcome))
     .toJSON();

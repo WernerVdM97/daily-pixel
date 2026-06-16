@@ -1,4 +1,5 @@
 import type { WorldEngine } from "../../engine/WorldEngine.js";
+import { SEPARATOR } from "../format.js";
 
 export function makeJournalCommand(engine: WorldEngine) {
   return (interaction: { user: { id: string } }): string => {
@@ -11,7 +12,7 @@ export function makeJournalCommand(engine: WorldEngine) {
     const lines: string[] = [];
 
     lines.push("📖 **Journal**");
-    lines.push("═".repeat(30));
+    lines.push(SEPARATOR);
 
     // Known locations
     lines.push("");

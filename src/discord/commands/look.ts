@@ -1,4 +1,5 @@
 import type { WorldEngine, NearbyEntity } from "../../engine/WorldEngine.js";
+import { SEPARATOR } from "../format.js";
 
 export type SceneLookupFn = (tags: string[]) => {
   sceneName: string;
@@ -24,7 +25,7 @@ function formatEntities(entities: NearbyEntity[]): string {
 
   const lines: string[] = [];
   lines.push('');
-  lines.push('─'.repeat(30));
+  lines.push(SEPARATOR);
 
   const pcs = entities.filter(e => e.isPlayer);
   const npcs = entities.filter(e => !e.isPlayer);
@@ -73,12 +74,15 @@ export function makeLookCommand(
     lines.push('```');
     lines.push("");
     lines.push(`🏠 **${location.name}**`);
-    lines.push("─".repeat(30));
+    lines.push(SEPARATOR);
     lines.push(location.description);
 
     if (location.isSafe) {
       lines.push("");
       lines.push("🛡️ This is a **safe** location. Rest and recover.");
+    } else {
+      lines.push("");
+      lines.push("⚠️ This location is **unsafe**. Danger may be near.");
     }
 
     // Nearby entities

@@ -93,6 +93,8 @@ export interface ActionOutcome {
   outcome: 'success' | 'failure' | 'skipped' | 'bailed' | 'done' | 'timed_out';
   /** Item/stat bonus added to the d20 for this roll. Shown in the footer (e.g. `8 + 7 vs 11`). */
   rollBonus?: number;
+  /** The ability stat this action tested (physical/wisdom/intelligence/charisma). */
+  rollStat?: string;
   mutations: WorldMutation[];
   outcomeText: string;
   /** Id of the llm_calls audit row this outcome came from. Linked to the action after insert. */

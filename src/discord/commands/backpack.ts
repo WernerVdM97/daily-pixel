@@ -1,5 +1,6 @@
 import type { WorldEngine, ItemData } from "../../engine/WorldEngine.js";
 import { STAT_LABELS } from "../../engine/stat-format.js";
+import { SEPARATOR } from "../format.js";
 
 export function makeBackpackCommand(engine: WorldEngine) {
   return async (interaction: { user: { id: string } }) => {
@@ -9,7 +10,7 @@ export function makeBackpackCommand(engine: WorldEngine) {
     }
     const items = engine.getItems(character.id);
     if (items.length === 0) {
-      return "🎒 **Backpack**\n" + "═".repeat(20) + "\nYour pack is empty.";
+      return `🎒 **Backpack**\n${SEPARATOR}\nYour pack is empty.`;
     }
     return formatBackpack(items);
   };
@@ -18,7 +19,7 @@ export function makeBackpackCommand(engine: WorldEngine) {
 export function formatBackpack(items: ItemData[]): string {
   const lines: string[] = [];
   lines.push("🎒 **Backpack**");
-  lines.push("═".repeat(20));
+  lines.push(SEPARATOR);
   lines.push("");
 
   // Emoji grid: repeat emoji for each quantity

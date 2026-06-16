@@ -282,6 +282,7 @@ export class ActionStateMachine {
         finalDc: newDc,
         playerRolled: d20,
         rollBonus: bonus,
+        rollStat: state.rollStat,
         outcome,
         mutations,
         outcomeText: narration.outcomeText ?? (outcome === 'success'

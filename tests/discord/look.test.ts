@@ -107,7 +107,7 @@ describe("/look", () => {
 		expect(result).toContain("safe");
 	});
 
-	it("does not show safe indicator for unsafe locations", async () => {
+	it("shows unsafe indicator for unsafe locations", async () => {
 		engine.setCharacter(
 			MockWorldEngine.defaultCharacter({ location: "Dark Forest" }),
 		);
@@ -121,7 +121,9 @@ describe("/look", () => {
 		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 
-		expect(result).not.toContain("safe");
+		expect(result).toContain("⚠️");
+		expect(result).toContain("unsafe");
+		expect(result).not.toContain("🛡️");
 	});
 
 	describe("nearby entities", () => {
