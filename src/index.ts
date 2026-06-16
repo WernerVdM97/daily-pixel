@@ -12,6 +12,7 @@
  *   8. Login to Discord, attach interaction listener
  */
 
+import { execSync } from 'node:child_process';
 import process from 'node:process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -313,6 +314,25 @@ async function main() {
       await rest.put(Routes.applicationCommands(readyClient.user.id), { body: commands });
       console.log(c.blue(`[discord] Registered ${commands.length} slash commands`));
       console.log(c.yellow(`[version] ${VERSION}`));
+
+      // DM admin on startup with the deployed commit
+      if (ADMIN_USER_ID) {
+        let headInfo: string;
+        try {
+          const hash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+          const msg = execSync('git log -1 --pretty=format:%s', { encoding: 'utf-8' }).trim();
+          headInfo = `\`${hash}\` — ${msg}`;
+        } catch {
+          headInfo = 'unknown (no git repo)';
+        }
+        try {
+          const admin = await readyClient.users.fetch(ADMIN_USER_ID);
+          await admin.send(`🌳 **The Warden's Oak** is online  |  v${VERSION}
+${headInfo}`);
+        } catch {
+          console.warn(c.yellow('[startup] Could not DM admin — cannot fetch user or DMs disabled'));
+        }
+      }
     } catch (err) {
       console.error(c.red(`[discord] Failed to register slash commands:`) , err);
     }
