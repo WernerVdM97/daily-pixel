@@ -131,6 +131,43 @@ console.log = (...args: unknown[]) => _origLog(`[${_ts()}]`, ...args);
 console.warn = (...args: unknown[]) => _origWarn(`[${_ts()}]`, ...args);
 console.error = (...args: unknown[]) => _origError(`[${_ts()}]`, ...args);
 
+// ── Admin error reporting ──
+// Set once the client exists so the process-level handlers below can DM the admin.
+let _client: Client | null = null;
+
+/**
+ * Log an error and best-effort DM it to the admin. Always safe to call — no client,
+ * no ADMIN_USER_ID, or a failed DM just degrades to a console log.
+ */
+async function notifyAdmin(label: string, err: unknown): Promise<void> {
+  console.error(c.red(`[error] ${label}:`), err);
+  if (!_client || !ADMIN_USER_ID) return;
+  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  // Discord messages cap at 2000 chars; leave room for the code fence + label.
+  const body = `⚠️ **${label}**  ·  v${VERSION}\n\`\`\`\n${detail.slice(0, 1800)}\n\`\`\``;
+  try {
+    const admin = await _client.users.fetch(ADMIN_USER_ID);
+    await admin.send(body);
+  } catch (e) {
+    console.warn(c.yellow('[error] could not DM admin the error:'), e);
+  }
+}
+
+// Catch what the per-handler try/catches miss. A rejected promise in an async
+// interaction listener lands here; an uncaught exception is fatal (systemd
+// restarts us), so DM first, then exit.
+process.on('unhandledRejection', (reason) => {
+  void notifyAdmin('Unhandled promise rejection', reason);
+});
+process.on('uncaughtException', (err) => {
+  // Hard backstop in case the DM hangs on the network.
+  setTimeout(() => process.exit(1), 4000).unref();
+  void notifyAdmin('Uncaught exception — restarting', err).finally(() => {
+    closeDb();
+    process.exit(1);
+  });
+});
+
 async function main() {
   console.log('The Warden\'s Oak — starting up...');
 
@@ -255,6 +292,7 @@ async function main() {
 
   // 8. Discord client
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  _client = client; // expose for the process-level error handlers (admin DMs)
 
   // Register slash commands with Discord API on ready
   client.once(Events.ClientReady, async (readyClient) => {
@@ -389,7 +427,7 @@ ${headInfo}`);
           console.log(c.grey(`[verbose] /${commandName} → ${result.slice(0, 200)}`));
         }
       } catch (err) {
-        console.error(c.red(`[discord] Error handling /${commandName}:`), err);
+        void notifyAdmin(`/${commandName} failed (user ${interaction.user.tag})`, err);
         const msg = err instanceof Error ? err.message : String(err);
         await interaction.reply({
           content: `⚠️ **Something went wrong.**\n\`\`\`${msg}\`\`\``,
@@ -420,7 +458,7 @@ ${headInfo}`);
         await handleJoinInteraction(interaction, engine, joinWizards, renderHiScreen);
         if (VERBOSE) console.log(c.grey('[verbose] join: done'));
       } catch (err) {
-        console.error(c.red('[join] Error handling interaction:'), err);
+        void notifyAdmin('Join interaction failed', err);
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong. Try `/join` again.',
@@ -493,7 +531,7 @@ ${headInfo}`);
           await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, char));
         }
       } catch (err) {
-        console.error(c.red('[action:custom] Error:'), err);
+        void notifyAdmin('Action (custom modal) failed', err);
         const msg = err instanceof Error ? err.message : String(err);
         await interaction.editReply({ content: `❌ **Could not act.**\n${msg}` }).catch(() => {});
       }
@@ -541,7 +579,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           await interaction.webhook.editMessage(interaction.message.id, buildDecisionMessage(result.firstDecision, 0, result.state, char));
         }
       } catch (err) {
-        console.error(c.red('[action:dayjob] Error:'), err);
+        void notifyAdmin('Action (day-job) failed', err);
         const msg = err instanceof Error ? err.message : String(err);
         await interaction.webhook.editMessage(interaction.message.id, { content: `❌ **Could not act.**\n${msg}`, components: [], embeds: [] }).catch(() => {});
       }
@@ -556,7 +594,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         await handleActionChoice(interaction, engine);
         if (VERBOSE) console.log(c.grey('[verbose] action: done'));
       } catch (err) {
-        console.error(c.red('[action] Error handling choice:'), err);
+        void notifyAdmin('Action choice failed', err);
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong with your action. Try `/action` again.',
@@ -653,7 +691,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
             ephemeral: true,
           });
         } catch (err) {
-          console.error(c.red('[nav] Error handling nav:action:'), err);
+          void notifyAdmin('Nav (action) failed', err);
         }
         return;
       }
@@ -681,7 +719,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           await interaction.reply(payload);
         }
       } catch (err) {
-        console.error(c.red(`[nav] Error handling nav:${navTarget}:`), err);
+        void notifyAdmin(`Nav (${navTarget}) failed`, err);
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong.',
@@ -699,7 +737,10 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
 }
 
 main().catch((err) => {
-  console.error('FATAL startup error:', err);
-  closeDb();
-  process.exit(1);
+  // Best-effort DM (only lands if the client got far enough to log in), then exit.
+  setTimeout(() => process.exit(1), 4000).unref();
+  void notifyAdmin('FATAL startup error', err).finally(() => {
+    closeDb();
+    process.exit(1);
+  });
 });

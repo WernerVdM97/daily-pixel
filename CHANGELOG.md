@@ -38,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Admin error DMs** — the bot now DMs `ADMIN_USER_ID` whenever something throws: a global `unhandledRejection`/`uncaughtException` handler (the latter exits so systemd restarts), the fatal startup catch, and every interaction catch (slash command, join, action, day-job, nav) routes through `notifyAdmin()` instead of a silent `console.error`. Best-effort and self-guarding — no client / no admin / failed DM just logs.
 - **Onboarding artwork** — `/join` shows `theoak.png` as the wizard thumbnail and as the hero image on the "Character Created" screen; the admin `/sleep` day-tick announcement is topped with the wide `daily-pixel-banner.png`. Images load via a cached, fail-soft `src/discord/images.ts` helper (a missing asset degrades to no image, never an error). `buildComponentPayload` gained an optional `image` (Components V2 MediaGallery).
 - **Backpack capacity & empty slots** — `/backpack` now shows a `(used/10)` header and pads the emoji grid with ⬜ empty-slot markers up to a 10-slot capacity, so carry space is visible at a glance (an empty pack shows ten ⬜).
 - **Start Over on `/join` steps** — a red "Start Over" button now appears on every wizard step after the name (2–7), not just the final review, so players can restart without abandoning the flow.
