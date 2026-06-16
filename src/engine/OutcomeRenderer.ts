@@ -79,12 +79,42 @@ function formatDelta(delta: number): string {
   return ` (${sign}${delta})`;
 }
 
+// ── Distilled-action → emoji (for the decision breadcrumb) ──
+
+// Matched by keyword-substring so variants (combat/fight/duel) share an emoji.
+// distilled_type is a free-form lowercase word, so unknowns fall back to ✴️.
+const DISTILLED_EMOJI: Array<[string, string]> = [
+  ['combat', '⚔️'], ['fight', '⚔️'], ['duel', '⚔️'], ['attack', '⚔️'], ['ambush', '⚔️'],
+  ['hunt', '🏹'], ['shoot', '🏹'],
+  ['travel', '🥾'], ['journey', '🥾'],
+  ['explore', '🧭'], ['scout', '🧭'],
+  ['talk', '🗣️'], ['negotiate', '🗣️'], ['persuade', '🗣️'], ['social', '🗣️'], ['counsel', '🗣️'],
+  ['trade', '🤝'], ['barter', '🤝'], ['buy', '🤝'], ['sell', '🤝'],
+  ['investigate', '🔍'], ['search', '🔍'], ['inspect', '🔍'], ['study', '🔍'],
+  ['flee', '🏃'], ['retreat', '🏃'], ['escape', '🏃'],
+  ['rest', '😴'], ['sleep', '😴'], ['camp', '🏕️'],
+  ['craft', '🔨'], ['forge', '🔨'], ['build', '🔨'], ['repair', '🔨'], ['mend', '🔨'],
+  ['heal', '✨'], ['pray', '🙏'], ['bless', '🙏'],
+  ['steal', '🗝️'], ['sneak', '🥷'], ['gather', '🌿'], ['fish', '🎣'],
+];
+
+/** Emoji for a distilled action type, for the decision breadcrumb. Unknown → ✴️. */
+export function distilledActionEmoji(type: string): string {
+  const t = (type ?? '').toLowerCase();
+  for (const [keyword, emoji] of DISTILLED_EMOJI) {
+    if (t.includes(keyword)) return emoji;
+  }
+  return '✴️';
+}
+
 // ── Outcome label map ──
 
 const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {
   success:   { icon: '✓', label: 'Success' },
   failure:   { icon: '✗', label: 'Failure' },
   skipped:   { icon: '↩', label: 'Skipped' },
+  bailed:    { icon: '↩', label: 'Bailed' },
+  done:      { icon: '✓', label: 'Done' },
   timed_out: { icon: '⏰', label: 'Timed out' },
 };
 
@@ -107,7 +137,12 @@ export function formatOutcome(
   // ── Header — roll vs DC ──
   if (outcome.playerRolled !== null) {
     const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '?', label: outcome.outcome };
-    lines.push(`🎲 ${outcome.playerRolled} vs ${outcome.finalDc} ${meta.icon} ${meta.label}`);
+    // Show the item/stat bonus separately so the math is legible, e.g. `8 + 7 vs 11`.
+    const bonus = outcome.rollBonus ?? 0;
+    const rollExpr = bonus === 0
+      ? `${outcome.playerRolled}`
+      : `${outcome.playerRolled} ${bonus > 0 ? '+' : '−'} ${Math.abs(bonus)}`;
+    lines.push(`🎲 ${rollExpr} vs ${outcome.finalDc} ${meta.icon} ${meta.label}`);
   } else {
     const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '?', label: outcome.outcome };
     lines.push(`${meta.icon} ${meta.label}`);
@@ -120,42 +155,39 @@ export function formatOutcome(
 
   lines.push('');
 
-  // ── Summary line ──
-  const parts: string[] = [];
-
-  // Items gained
+  // ── Changes line — items gained/lost and location ──
+  const changes: string[] = [];
   for (const item of d.itemsGained) {
-    parts.push(`+ ${item.emoji} ${item.name}`);
+    changes.push(`+ ${item.emoji} ${item.name}`);
   }
-
-  // Items lost
   for (const name of d.itemsLost) {
-    parts.push(`- ${name}`);
+    changes.push(`- ${name}`);
   }
-
-  // Location change
   if (d.newLocation) {
-    parts.push(`→ ${d.newLocation}`);
+    changes.push(`→ ${d.newLocation}`);
   }
 
-  // Stats footer
-  // Health — only shown when it changed
+  // ── Stat footer — standardised emoji glyphs ──
+  const stats: string[] = [];
+  // Health — only when it changed
   if (d.healthDelta !== 0) {
-    parts.push(`Health: ${ctx.health}/${ctx.maxHealth}${formatDelta(d.healthDelta)}`);
+    stats.push(`❤️ ${ctx.health}/${ctx.maxHealth}${formatDelta(d.healthDelta)}`);
   }
-
-  // Stamina — always shown, with delta when it changed
-  parts.push(`Stamina: ${ctx.stamina}/10${formatDelta(d.staminaDelta)}`);
-
-  // Rolls — always shown, with delta when it changed
-  parts.push(`Rolls: ${ctx.rollsRemaining}/2${formatDelta(d.rollsDelta)}`);
-
-  // Wealth — only shown when it changed
+  // Stamina — always
+  stats.push(`⚡ ${ctx.stamina}/10${formatDelta(d.staminaDelta)}`);
+  // Rolls — always
+  stats.push(`🎲 ${ctx.rollsRemaining}/2${formatDelta(d.rollsDelta)}`);
+  // Wealth — only when it changed
   if (d.wealthDelta !== 0) {
-    parts.push(`Wealth: ${ctx.wealth}${formatDelta(d.wealthDelta)}`);
+    stats.push(`💰 ${ctx.wealth}${formatDelta(d.wealthDelta)}`);
   }
 
-  lines.push(parts.join(' ┃ '));
+  // Separator between narrative and footer for scan-ability
+  lines.push('───');
+  if (changes.length > 0) {
+    lines.push(changes.join('  '));
+  }
+  lines.push(stats.join('  ┃  '));
 
   return lines.join('\n');
 }

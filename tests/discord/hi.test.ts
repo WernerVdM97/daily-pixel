@@ -3,6 +3,7 @@ import {
   formatCharacterHeader,
   getDayJobActions,
   isWeekend,
+  COMMON_ACTIONS,
 } from "../../src/discord/commands/hi.js";
 import type { CharacterData, StatBlock } from "../../src/engine/WorldEngine.js";
 
@@ -100,12 +101,36 @@ describe("formatCharacterHeader", () => {
 });
 
 describe("getDayJobActions", () => {
-  it("returns the 3 actions for a known day job", () => {
-    const actions = getDayJobActions("Blacksmith", mockDayJobs);
+  const labelsOf = (jobName: string) => {
+    const job = mockDayJobs.find((j) => j.name === jobName)!;
+    return new Set([...job.actions, ...COMMON_ACTIONS].map((a) => a.label));
+  };
+
+  it("surfaces 3 actions drawn from the job pool + common pool", () => {
+    const actions = getDayJobActions("Blacksmith", mockDayJobs, { characterId: 1, dayNumber: 1 });
     expect(actions).toHaveLength(3);
-    expect(actions[0].label).toBe("Forge blade");
-    expect(actions[1].label).toBe("Repair armour");
-    expect(actions[2].label).toBe("Shoe horses");
+    const pool = labelsOf("Blacksmith");
+    for (const a of actions) {
+      expect(pool.has(a.label)).toBe(true);
+    }
+    // distinct
+    expect(new Set(actions.map((a) => a.label)).size).toBe(3);
+  });
+
+  it("is deterministic for the same (characterId, dayNumber) seed", () => {
+    const a = getDayJobActions("Hunter", mockDayJobs, { characterId: 7, dayNumber: 3 });
+    const b = getDayJobActions("Hunter", mockDayJobs, { characterId: 7, dayNumber: 3 });
+    expect(a.map((x) => x.label)).toEqual(b.map((x) => x.label));
+  });
+
+  it("varies across days (different seed → likely different picks)", () => {
+    // Across several days the same character should not see an identical set every time.
+    const sets = [1, 2, 3, 4, 5].map((d) =>
+      getDayJobActions("Hunter", mockDayJobs, { characterId: 7, dayNumber: d })
+        .map((a) => a.label)
+        .join(","),
+    );
+    expect(new Set(sets).size).toBeGreaterThan(1);
   });
 
   it("throws for unknown day job", () => {
@@ -113,12 +138,12 @@ describe("getDayJobActions", () => {
   });
 
   it("returns actions with income and hook", () => {
-    const actions = getDayJobActions("Hunter", mockDayJobs);
-    expect(actions[0]).toEqual({
-      label: "Track game",
-      income: 5,
-      hook: "Deer sign everywhere.",
-    });
+    const actions = getDayJobActions("Hunter", mockDayJobs, { characterId: 1, dayNumber: 1 });
+    for (const a of actions) {
+      expect(typeof a.label).toBe("string");
+      expect(typeof a.income).toBe("number");
+      expect(typeof a.hook).toBe("string");
+    }
   });
 });
 

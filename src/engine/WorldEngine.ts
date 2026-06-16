@@ -52,6 +52,8 @@ export interface ActionDecisionRecord {
   options: ActionOption[];
   chosen: string;
   dcModifier: number;
+  /** The LLM's distilled_type for the beat this choice was made on — the breadcrumb trail. */
+  distilledType?: string;
 }
 
 export interface ActionState {
@@ -70,6 +72,12 @@ export interface WorldMutation {
 export interface ActionStartResult {
   state: ActionState;
   firstDecision: ActionDecision;
+  /**
+   * Present when the LLM resolved the action immediately (done, non-required, no
+   * options) — an auto-finish. The mutations are already applied and an action
+   * row written; the caller renders the outcome instead of showing buttons.
+   */
+  outcome?: ActionOutcome;
 }
 
 export type ActionStepResult =
@@ -80,13 +88,13 @@ export interface ActionOutcome {
   distilledType: string;
   finalDc: number;
   playerRolled: number | null;
-  outcome: 'success' | 'failure' | 'skipped' | 'timed_out';
+  outcome: 'success' | 'failure' | 'skipped' | 'bailed' | 'done' | 'timed_out';
+  /** Item/stat bonus added to the d20 for this roll. Shown in the footer (e.g. `8 + 7 vs 11`). */
+  rollBonus?: number;
   mutations: WorldMutation[];
   outcomeText: string;
-  /** Full user prompt sent to LLM (for audit). Set by gateway. */
-  llmRequest?: string;
-  /** Raw JSON response from LLM (for audit). Set by gateway. */
-  llmResponse?: string;
+  /** Id of the llm_calls audit row this outcome came from. Linked to the action after insert. */
+  llmCallId?: number;
 }
 
 export interface ActionResumeResult {

@@ -59,6 +59,8 @@ If retry also fails:
 
 ## 3. Outcome Rendering
 
+> *Amended by [[poc-action-ux-refinements]]: adds `↩ Bailed` and `✓ Done` (auto-finish) as neutral terminal variants alongside `↩ Skipped`, and standardises the footer glyphs. Skip/Bail/Finish are all neutral — the green Success banner is roll-only.*
+
 The final LLM response includes `outcome_text` — the LLM narrates the result in one sentence (see [[poc-spec-reconciliation]] D1). If that call fails, malforms, or times out, fall back to a template variant (3-5 per `distilled_type`, defined in [[poc-build-probabilistic]] §4) and log the fallback. The bot renders deterministic consequences below either way.
 
 ### Success example
@@ -178,6 +180,20 @@ Run the full flow end-to-end before shipping:
 - [ ] Check all text for typos (manual pass before deploy)
 - [ ] Verify `ADMIN_USER_ID` is set in production `.env` (startup warns otherwise)
 - [x] Verify SQLite file persists across bot restart
+
+---
+
+## 7. Mid-POC Fix Pass
+
+Bugs surfaced during live POC play. Pure fixes (not design) — the UX *changes* they sit
+beside are in [[poc-action-ux-refinements]]. Fix these first; several corrupt the data
+the POC week is collecting.
+
+- [ ] **Bail renders green Success** — bailing a non-required action shows a green success banner + success text. Should render the neutral `↩ Bailed` variant per §3. Divergence from the decided spec.
+- [ ] **Stamina exceeds max** — observed `Stamina: 11/10`. `modify_stamina` (and tick recovery) must clamp to max.
+- [ ] **Carriage returns in output** — stray `␍` / `\r` leaking into rendered outcome text; strip on render.
+- [ ] **Item trade loses both items** — traded 1 of 2 Steel Ingots for a goat, lost both. Investigate `remove_item` quantity handling / double-apply.
+- [ ] **Wasted-token audit** — fields the LLM generates that never reach the player. Diff the response schema against what Discord renders (now measurable via the `llm_calls` table) and cut the dead ones from the prompt + response contract.
 
 ---
 

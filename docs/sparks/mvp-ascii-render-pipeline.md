@@ -73,6 +73,10 @@ ascii-image-converter <image> -W 30 -g --map " .:-=+*#@" 2>&1 | sed 's/\x1b\[[0-
 
 **Node.js integration:** `child_process.execFile` — spawn CLI, capture stdout, strip ANSI, return string.
 
+## POC field notes
+
+- [<] **Source art** — scrape/curate prettier ASCII art and source images to feed the converter; pre-existing good ASCII can be used directly (no conversion). Asset-gathering, deferred from POC alongside the pipeline itself.
+
 ## Hand-off
 
 Downstream skill: `spec-driven-development` or `planning-and-task-breakdown` to formalize the pipeline contract and implementation order.

@@ -1,7 +1,9 @@
 # Day jobs — loaded by /join wizard
 # Performance depends on the listed stats (higher stats = better income / outcomes).
 # Player picks one during character creation.
-# actions: exactly 3. Only one selectable per day. Income is stat-scaled via depends_on.
+# actions: the job's pool (~8 each). /action surfaces 3 at random (job pool + COMMON_ACTIONS
+#   in hi.ts — 6 shared "hybrid" actions), seeded per character per day. Keep hooks short and
+#   reusable so daily repeats read well.
 # base_income: daily tick income (automatic). action income: bonus for clicking.
 
 - name: Town Guard
@@ -9,30 +11,60 @@
   base_income: 10
   description: Patrol the walls. Break up tavern brawls. The town sleeps safer.
   actions:
-    - label: Patrol the walls
+    - label: Walk the rounds
       income: 5
-      hook: You walk the perimeter. The east gate hinges shriek in the wind — someone should tell the smith.
-    - label: Check the east gate
+      hook: You pace the streets and the wall. The town is quiet — the kind of quiet that wants watching.
+    - label: Stand the gate
       income: 3
-      hook: The gate holds firm, but fresh wolf tracks press into the mud just outside. Something's been pacing.
-    - label: Train at barracks
+      hook: You hold the gate, marking who comes and goes. A few faces you don't know, and one you wish you didn't.
+    - label: Drill with the watch
       income: 2
-      hook: You spar with the dummies until your arms burn. A merchant stops to watch — "Not bad," she says, "for someone who still has all their fingers."
+      hook: You put your back into the training yard until your arms burn. Steady hands keep the watch alive.
+    - label: Settle a dispute
+      income: 4
+      hook: Raised voices spill from the tavern. Best to cool it down before it turns to fists.
+    - label: Escort a traveller
+      income: 5
+      hook: A merchant wants company to the edge of town. The road's been uneasy of late.
+    - label: Inspect the lockup
+      income: 3
+      hook: You check the cells. One door's hinge has been worked loose — from the inside.
+    - label: Question a stranger
+      income: 4
+      hook: A newcomer lingers by the well, asking the wrong sort of questions about the wrong sort of things.
+    - label: Guard the market
+      income: 3
+      hook: Pickpockets work the crowd on busy days. You keep your eyes moving and your purse closer.
 
 - name: Blacksmith
   depends_on: [physical]
   base_income: 10
   description: Hammer and anvil. Every town needs one. Every blade remembers your name.
   actions:
-    - label: Forge blade
+    - label: Work the forge
       income: 6
-      hook: The steel sings under your hammer. A farmer waits at the door — his grandfather's sword needs the same treatment. Hasn't been drawn in forty years, he says, but he wants it ready.
-    - label: Repair armour
+      hook: The steel glows and sings under your hammer. There's always a blade or a hinge that needs you.
+    - label: Repair gear
       income: 4
-      hook: A guardsman brings in a breastplate with a dent the size of a fist. "Tree branch," he mutters. You've seen tree branches. That wasn't one.
-    - label: Shoe horses
+      hook: A length of dented armour waits on the bench, the dent deeper than any honest accident.
+    - label: Shoe a horse
       income: 3
-      hook: The chestnut mare stamps and snorts. Her rider, a trader from Stonebridge, talks too fast about the eastern road — as if he's trying not to say something.
+      hook: A traveller's mount needs new shoes before the road. The rider talks too fast about the way east.
+    - label: Mend tools
+      income: 3
+      hook: The farmers bring in worn ploughshares and cracked scythes, and the season won't wait.
+    - label: Sharpen blades
+      income: 4
+      hook: A stack of dull edges waits by the trough — guardsmen, mostly, and all of them in a hurry.
+    - label: Forge nails and fittings
+      income: 3
+      hook: Unglamorous work, but the carpenters pay steady coin for a good batch.
+    - label: Take a commission
+      income: 6
+      hook: Someone wants a piece made to an unusual pattern, and won't quite say what it's for.
+    - label: Bank the fire
+      income: 2
+      hook: Tend the coals and work the bellows. A forge is only ever as good as its heat.
 
 - name: Hunter
   depends_on: [physical, wisdom]
@@ -41,28 +73,58 @@
   actions:
     - label: Track game
       income: 5
-      hook: Deer sign everywhere — but something else moved through first. Bigger. The tracks overlay the deer, don't follow them.
-    - label: Set traps
+      hook: You read the sign and follow it into the trees. Something bigger crossed the same trail first.
+    - label: Set the trap line
       income: 4
-      hook: The old trap line is disturbed. Bait gone, jaws still set. Whatever took it knew how to spring the catch without getting caught.
-    - label: Check snares
+      hook: You lay your lines where the trails cross. The old sets were sprung — bait gone, jaws clean.
+    - label: Check the snares
       income: 3
-      hook: One snare holds a rabbit — good. The other holds nothing but a tuft of grey fur that doesn't match any animal you know.
+      hook: Time to walk the line. One snare holds supper; another holds only a tuft of grey fur.
+    - label: Dress the catch
+      income: 3
+      hook: Good meat for the larder and a hide for the trade — if your hands are steady and quick.
+    - label: Scout the treeline
+      income: 4
+      hook: You read the wood's edge for what's moving in and what's moving out. Lately, more of the former.
+    - label: Fish the ford
+      income: 3
+      hook: The crossing runs clear and cold. The silverfin are biting if you've the patience for it.
+    - label: Forage the undergrowth
+      income: 2
+      hook: Mushrooms, berries, fallen nuts — the forest feeds those who know where to look.
+    - label: Follow a blood trail
+      income: 5
+      hook: Something wounded passed this way. Not your arrow — but worth knowing where it went, and what stopped it.
 
 - name: Scribe
   depends_on: [intelligence]
   base_income: 12
   description: Copy manuscripts. Translate old tongues. The warden's library is yours.
   actions:
-    - label: Copy manuscript
+    - label: Copy a manuscript
       income: 6
-      hook: The old text describes a ritual for "speaking with the roots." Most of it is nonsense. One paragraph isn't.
-    - label: Translate fragment
+      hook: Careful work by lamplight; every line must match. One passage isn't the nonsense it seems.
+    - label: Translate a fragment
       income: 5
-      hook: A trader brought in a scrap of vellum — dialect you've seen once before, in a book the warden keeps locked. You translate it anyway.
-    - label: Research archive
+      hook: An old dialect, half-remembered. You puzzle it out word by word, and wish you hadn't.
+    - label: Search the archive
       income: 3
-      hook: You meant to look up crop rotations. Instead you find a map reference — "the hollow hill, two days east of the Oak" — in a volume no one's opened in decades.
+      hook: Somewhere in these shelves is the answer someone's paying for — and a few they aren't.
+    - label: Draft a letter
+      income: 3
+      hook: A villager needs words they cannot write themselves, and trusts you with the saying of them.
+    - label: Catalogue the shelves
+      income: 4
+      hook: The collection's a mess. Order it, and you'll learn what's here — and what's gone missing.
+    - label: Take dictation
+      income: 4
+      hook: A merchant needs his accounts set down, and talks a good deal faster than you can write.
+    - label: Repair a binding
+      income: 3
+      hook: An old volume is shedding pages. The glue and thread are yours; the secrets are not.
+    - label: Tutor a child
+      income: 2
+      hook: A farmer's daughter wants her letters. She learns quick, and asks harder questions than her age should allow.
 
 - name: Herbalist
   depends_on: [wisdom]
@@ -71,13 +133,28 @@
   actions:
     - label: Gather herbs
       income: 4
-      hook: Feverfew is plentiful near the stream, but something trampled a wide path through the patch. Not deer. Not human, either.
-    - label: Brew remedy
+      hook: You walk the stream-banks for what's in season. Something trampled a wide path through the best of it.
+    - label: Brew a remedy
       income: 5
-      hook: A farmer's wife needs something for sleep. You mix valerian and chamomile, but your hands hesitate over the mortar — something about her symptoms doesn't sit right.
-    - label: Treat patient
+      hook: Mortar and pestle, patience and care. Your hands hesitate — the symptoms don't quite sit right.
+    - label: Tend a patient
       income: 3
-      hook: The woodcutter's wound should have healed a week ago. It hasn't. Clean edges, no rot — it just won't close. He says it doesn't hurt.
+      hook: Someone's ailing and the priest is busy. The wound is clean, but it simply won't close.
+    - label: Dry and store stock
+      income: 2
+      hook: The drying racks need turning and the shelves restocking. Winter is always coming.
+    - label: Mix a poultice
+      income: 3
+      hook: A field hand's burn needs dressing before it festers into something worse.
+    - label: Walk the sick rounds
+      income: 4
+      hook: Several households are ailing this week. You make the circuit, door to door.
+    - label: Prepare a tincture
+      income: 5
+      hook: Slow work, steeping and straining — but the apothecary in Stonebridge pays well for a clean batch.
+    - label: Identify a cutting
+      income: 4
+      hook: Someone brings you a plant you don't recognise. It weeps a pale sap and wilts nothing nearby.
 
 - name: Minstrel
   depends_on: [charisma]
@@ -86,28 +163,58 @@
   actions:
     - label: Play the tavern
       income: 5
-      hook: Scattered applause, and one man who doesn't clap at all. He waits until the room empties, then asks if you know "the song about the tree."
-    - label: Carry news
+      hook: A few coins and a warm room for a good set. One man waits for the room to empty before he speaks.
+    - label: Carry the news
       income: 4
-      hook: Stonebridge is quiet. Too quiet, the traders say. No one's seen the eastern patrol in four days. You tuck that away.
-    - label: Compose ballad
+      hook: Songs and stories travel faster than any rider. The word from the east has gone strangely thin.
+    - label: Work on a tune
       income: 2
-      hook: You're working on a ballad about the Oak when you realise — the third verse you've been humming isn't yours. You've never heard it, but you know every word.
+      hook: A melody's been turning in your head all morning — and you're not sure you're the one who wrote it.
+    - label: Trade in rumours
+      income: 3
+      hook: Loose tongues in a loud room. You listen between the verses and keep the useful bits.
+    - label: Busk in the square
+      income: 4
+      hook: A bright morning and a good corner. Coins for anyone who can hold a crowd until the song ends.
+    - label: Perform at a gathering
+      income: 5
+      hook: A name-day feast wants music. The wine is free and the talk is looser than usual.
+    - label: Teach a song
+      income: 2
+      hook: A child hums your tune back at you, half-right. Worth a coin to set it straight.
+    - label: Collect a ballad
+      income: 3
+      hook: An old woman knows verses no one's written down. You trade her a meal for the words.
 
 - name: Merchant
   depends_on: [charisma, intelligence]
   base_income: 14
   description: Buy low in Stonebridge, sell high at the Oak. Coin before creed.
   actions:
-    - label: Buy goods
+    - label: Buy stock
       income: 7
-      hook: A crate of dried fish, priced like it's fresh. The seller won't meet your eyes. "Just want it gone," he says. The crate bears a mark you don't recognise.
+      hook: There's profit in what others undervalue. This seller won't meet your eye — he just wants it gone.
     - label: Sell wares
       income: 6
-      hook: A hooded figure buys three iron nails and a spool of thread. Pays in old copper — coins you haven't seen since your grandfather's purse. No haggling.
-    - label: Negotiate deal
+      hook: Spread the goods and talk up the quality. A hooded buyer pays in old copper, no haggling.
+    - label: Strike a deal
       income: 5
-      hook: A caravan master wants to offload half her cargo before heading east. "Don't need the weight," she says, but her hands shake when she says "east."
+      hook: A trader wants to move cargo before heading east. You want a fair cut; she wants to be gone.
+    - label: Take inventory
+      income: 3
+      hook: Count the stock, tally the ledger. The numbers almost add up — almost.
+    - label: Run the stall
+      income: 5
+      hook: Open early, call your wares, keep the till honest and the cutpurses nervous.
+    - label: Appraise goods
+      income: 4
+      hook: A farmer wants to know what an heirloom's worth. Your guess is worth coin either way.
+    - label: Arrange a shipment
+      income: 6
+      hook: Crates to move east before the roads worsen. You haggle the carter down and hope he keeps to it.
+    - label: Extend credit
+      income: 3
+      hook: A regular's short this week. Lend wisely and you buy loyalty; lend poorly and you buy trouble.
 
 - name: Acolyte
   depends_on: [wisdom, charisma]
@@ -116,25 +223,55 @@
   actions:
     - label: Tend the shrine
       income: 3
-      hook: One candle refuses to go out. You've snuffed it three times. Each time, it's burning again when you turn back. The flame is green at the tip.
-    - label: Bless the harvest
+      hook: Sweep the stone, trim the candles, keep the quiet. One flame will not stay snuffed.
+    - label: Bless the work
       income: 4
-      hook: The eastern field is blighted — grey rot on the wheat, black spots on the stalks. The farmer says it started the night the smoke appeared. Your prayer doesn't cure it, but the rot stops spreading.
+      hook: A farmer asks a few words over the seed before sowing. The eastern field is greyer than it should be.
     - label: Counsel a villager
       income: 2
-      hook: She dreams of the Oak every night — same dream, same hour. The tree is burning from the roots up. She asks if that means something. You don't know how to answer.
+      hook: Someone carries a worry too heavy to hold alone, and a dream they keep having of the Oak.
+    - label: Copy the rites
+      income: 3
+      hook: The old prayers must be kept legible for the next hands. Some pages are missing.
+    - label: Lead a small prayer
+      income: 3
+      hook: A handful gather at dusk. They look to you to give the silence shape.
+    - label: Visit the sick
+      income: 2
+      hook: The bedridden ask less for cures than for company. You give what you can.
+    - label: Keep the alms
+      income: 3
+      hook: Sort the offerings — bread, coin, a child's carved token. Decide who needs them most.
+    - label: Read the omens
+      income: 4
+      hook: The candle gutters east three nights running. The old book has thoughts on that.
 
 - name: Wanderer
   depends_on: [charisma]
   base_income: 2
   description: No roof, no boss, no routine. You sleep under the Oak and eat what luck brings.
   actions:
-    - label: Panhandle at the market
+    - label: Ask for coin
       income: 3
-      hook: You find a spot by the fountain. Most walk past. A woman drops a coin — then leans close. "You were at the Oak last night, weren't you? Did you see the smoke?" You didn't. But now you're wondering.
+      hook: A spot by the fountain and an honest face. A passer-by leans close with a question instead of a coin.
     - label: Sing for supper
       income: 5
-      hook: You hum an old tune by the tavern fire. A traveller buys you stew in exchange for the next verse. Halfway through, he stops eating. "Where did you learn that song?" he asks, too quietly.
+      hook: A song traded for stew and a place by the fire. The traveller stops eating when you reach the chorus.
     - label: Scavenge the roadside
       income: 2
-      hook: The ditch beyond the east gate yields nothing but broken pottery — until you spot a glint under a rusted cart wheel. A silver earring, bent but real. The engraving on the back is in a script you don't recognise.
+      hook: The ditches and hedges hold what others drop — broken pottery, and a glint of bent silver.
+    - label: Do odd jobs
+      income: 3
+      hook: There's always someone needing a quick pair of hands and no questions asked.
+    - label: Watch the crowd
+      income: 3
+      hook: A market day is a feast for a sharp eye. You note who carries coin and who carries worry.
+    - label: Trade a favour
+      income: 4
+      hook: Someone needs a thing done quietly. You don't ask why; you ask what it pays.
+    - label: Forage outside the walls
+      income: 2
+      hook: Beyond the gate, the hedges and ditches hold what the careless leave behind.
+    - label: Tell a fortune
+      income: 4
+      hook: A copper and a credulous traveller. You read their face far more than any palm.

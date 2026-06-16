@@ -9,6 +9,7 @@ import type {
   ItemData,
 } from '../WorldEngine.js';
 import { accumulateDc, computeItemBonus, resolveRoll, validateDcModifier } from './dc.js';
+import { DIVINE_INTERVENTION_TYPE } from '../../llm/FallbackLlmGateway.js';
 
 /**
  * Injectable resolver for world context — NPCs, other PCs, and recent actions.
@@ -42,9 +43,8 @@ export interface InternalActionState extends ActionState {
    *  Used so bail on a pre-resolved action applies the LLM's mutations instead of empty arrays. */
   preResolvedMutations?: WorldMutation[];
   preResolvedOutcomeText?: string;
-  /** Full user prompt / raw response from the LLM that produced the pre-resolved mutations. */
-  preResolvedLlmRequest?: string;
-  preResolvedLlmResponse?: string;
+  /** Id of the llm_calls audit row that produced the pre-resolved mutations. */
+  preResolvedLlmCallId?: number;
 }
 
 export class ActionStateMachine {
@@ -63,7 +63,10 @@ export class ActionStateMachine {
     char: CharacterData,
     rawInput: string,
     items: ItemData[],
-  ): Promise<{ state: InternalActionState; firstDecision: ActionDecision }> {
+  ): Promise<
+    | { resolved: false; state: InternalActionState; firstDecision: ActionDecision }
+    | { resolved: true; state: InternalActionState; outcome: ActionOutcome }
+  > {
     if (char.rollsRemaining <= 0) {
       throw new Error('No rolls remaining');
     }
@@ -71,16 +74,51 @@ export class ActionStateMachine {
     const context = this.buildContext(char, rawInput, [], items);
     const decision = await this.llm.decide(context);
 
+    // Auto-finish: the LLM resolved the action outright (e.g. travel/rest) with no
+    // real choices and not as a forced reaction. Resolve immediately as a neutral
+    // `done` instead of presenting a lone red "Step back". Divine intervention is
+    // excluded — it has its own handling in the engine (no action row).
+    const realOptions = decision.decision.filter(o => o.dcModifier !== null);
+    if (
+      decision.done &&
+      !decision.required &&
+      realOptions.length === 0 &&
+      decision.distilledType !== DIVINE_INTERVENTION_TYPE
+    ) {
+      const state: InternalActionState = {
+        rawInput,
+        decisions: [],
+        accumulatedDc: decision.baseDc,
+        pendingDecision: this.toActionDecision(decision, decision.required),
+        distilledType: decision.distilledType,
+        rollStat: decision.stat,
+        required: decision.required,
+        lastActionAt: Date.now(),
+      };
+      return {
+        resolved: true,
+        state,
+        outcome: {
+          distilledType: decision.distilledType,
+          finalDc: decision.baseDc,
+          playerRolled: null,
+          outcome: 'done',
+          mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
+          outcomeText: decision.outcomeText ?? 'The moment passes.',
+          ...(decision._llmCallId !== undefined ? { llmCallId: decision._llmCallId } : {}),
+        },
+      };
+    }
+
     const firstDecision = this.toActionDecision(decision, decision.required);
 
     // When the LLM resolves immediately (done: true), stash the mutations and
-    // raw LLM data so the bail path can apply them instead of returning empty arrays.
+    // audit call id so the bail path can apply them instead of returning empty arrays.
     const preResolvedMutations = decision.done && Array.isArray(decision.mutations)
       ? decision.mutations as WorldMutation[]
       : undefined;
     const preResolvedOutcomeText = decision.done ? (decision.outcomeText ?? undefined) : undefined;
-    const preResolvedLlmRequest = decision.done ? decision._rawRequest : undefined;
-    const preResolvedLlmResponse = decision.done ? decision._rawResponse : undefined;
+    const preResolvedLlmCallId = decision.done ? decision._llmCallId : undefined;
 
     const state: InternalActionState = {
       rawInput,
@@ -93,11 +131,10 @@ export class ActionStateMachine {
       lastActionAt: Date.now(),
       ...(preResolvedMutations ? { preResolvedMutations } : {}),
       ...(preResolvedOutcomeText ? { preResolvedOutcomeText } : {}),
-      ...(preResolvedLlmRequest ? { preResolvedLlmRequest } : {}),
-      ...(preResolvedLlmResponse ? { preResolvedLlmResponse } : {}),
+      ...(preResolvedLlmCallId !== undefined ? { preResolvedLlmCallId } : {}),
     };
 
-    return { state, firstDecision };
+    return { resolved: false, state, firstDecision };
   }
 
   async step(
@@ -114,42 +151,50 @@ export class ActionStateMachine {
       throw new Error(`Invalid choice: "${choice}"`);
     }
 
-    // Bail
+    // Bail / Finish
     if (option.dcModifier === null) {
       const record: ActionDecisionRecord = {
         prompt: state.pendingDecision.prompt,
         options: state.pendingDecision.options,
         chosen: choice,
         dcModifier: 0,
+        distilledType: state.distilledType,
+      };
+      const nextState: InternalActionState = {
+        ...state,
+        decisions: [...state.decisions, record],
+        pendingDecision: state.pendingDecision,
       };
 
-      // When the LLM resolved immediately (done: true), apply its mutations
-      // instead of discarding them. Otherwise return empty bail outcome.
-      //
-      // A pre-resolved action is non-contested — it resolved on the first LLM
-      // call with no roll (playerRolled stays null), so there is no pass/fail to
-      // report. We label it 'success' to mean "the action completed and its
-      // mutations applied" (vs 'skipped', which renders as a no-op retreat).
-      const outcomeMutations = state.preResolvedMutations ?? [];
-      const outcomeText = state.preResolvedOutcomeText ?? 'You retreat from the situation.';
-      const outcomeType = state.preResolvedMutations ? 'success' as const : 'skipped' as const;
+      // Pre-resolved (done) action that still surfaced options — finish it,
+      // applying the LLM's mutations. Neutral `done`, no bail cost.
+      if (state.preResolvedMutations) {
+        return {
+          resolved: true,
+          state: nextState,
+          outcome: {
+            distilledType: state.distilledType,
+            finalDc: state.accumulatedDc,
+            playerRolled: null,
+            outcome: 'done',
+            mutations: state.preResolvedMutations,
+            outcomeText: state.preResolvedOutcomeText ?? 'The moment passes.',
+            ...(state.preResolvedLlmCallId !== undefined ? { llmCallId: state.preResolvedLlmCallId } : {}),
+          },
+        };
+      }
 
+      // Genuine bail — the player retreats from a real decision. Costs stamina.
       return {
         resolved: true,
-        state: {
-          ...state,
-          decisions: [...state.decisions, record],
-          pendingDecision: state.pendingDecision,
-        },
+        state: nextState,
         outcome: {
           distilledType: state.distilledType,
           finalDc: state.accumulatedDc,
           playerRolled: null,
-          outcome: outcomeType,
-          mutations: outcomeMutations,
-          outcomeText,
-          llmRequest: state.preResolvedLlmRequest,
-          llmResponse: state.preResolvedLlmResponse,
+          outcome: 'bailed',
+          mutations: [{ type: 'modify_stamina', amount: -BAIL_STAMINA_COST }],
+          outcomeText: 'You step back from the situation, catching your breath.',
         },
       };
     }
@@ -160,6 +205,7 @@ export class ActionStateMachine {
       options: state.pendingDecision.options,
       chosen: choice,
       dcModifier: option.dcModifier,
+      distilledType: state.distilledType,
     };
     const newDecisions = [...state.decisions, record];
     const newDc = accumulateDc(state.accumulatedDc, [option.dcModifier]);
@@ -170,79 +216,79 @@ export class ActionStateMachine {
     const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items, state.rollStat);
     const decision = await this.llm.decide(context);
 
-    // Force-resolve if this is the last allowed decision
-    if (isLastDecision) {
-      const d20 = this.rollD20();
-      const bonus = computeItemBonus(items, state.rollStat);
-      const outcome = resolveRoll(d20, bonus, newDc);
-
-      const finalState: InternalActionState = {
-        ...state,
-        decisions: newDecisions,
-        accumulatedDc: newDc,
-        pendingDecision: this.toActionDecision(decision, state.required),
-      };
-
-      return {
-        resolved: true,
-        state: finalState,
-        outcome: {
-          distilledType: state.distilledType,
-          finalDc: newDc,
-          playerRolled: d20,
-          outcome,
-          mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
-          outcomeText: decision.outcomeText ?? (outcome === 'success'
-            ? `Your ${state.distilledType} succeeds.`
-            : `Your ${state.distilledType} fails.`),
-          llmRequest: decision._rawRequest,
-          llmResponse: decision._rawResponse,
-        },
-      };
+    // Resolve — at the decision cap, or when the LLM says the action is done.
+    // Roll FIRST, then make a narration call so the LLM's prose + mutations match
+    // the dice (the first `decision` above only told us whether to resolve).
+    if (isLastDecision || decision.done) {
+      return this.resolveWithRoll(state, char, items, newDc, newDecisions);
     }
 
-    if (decision.done) {
-      // Resolve: roll + outcome
-      const d20 = this.rollD20();
-      const bonus = computeItemBonus(items, state.rollStat);
-      const outcome = resolveRoll(d20, bonus, newDc);
-
-      const finalState: InternalActionState = {
-        ...state,
-        decisions: newDecisions,
-        accumulatedDc: newDc,
-        pendingDecision: this.toActionDecision(decision, state.required),
-      };
-
-      return {
-        resolved: true,
-        state: finalState,
-        outcome: {
-          distilledType: state.distilledType,
-          finalDc: newDc,
-          playerRolled: d20,
-          outcome,
-          mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
-          outcomeText: decision.outcomeText ?? 'The action resolves.',
-          llmRequest: decision._rawRequest,
-          llmResponse: decision._rawResponse,
-        },
-      };
-    }
-
-    // Continue
+    // Continue — advance the current beat's distilled type to the new decision's.
     const nextDecision = this.toActionDecision(decision, state.required);
     const nextState: InternalActionState = {
       ...state,
       decisions: newDecisions,
       accumulatedDc: newDc,
       pendingDecision: nextDecision,
+      distilledType: decision.distilledType || state.distilledType,
     };
 
     return {
       resolved: false,
       state: nextState,
       nextDecision,
+    };
+  }
+
+  /**
+   * Roll-first resolution: roll d20 + item bonus vs the accumulated DC to decide
+   * the verdict, THEN make a second LLM call telling it that verdict so the
+   * narration and mutations match the dice. `applyOutcomeToMutations` still guards
+   * the failure case (strips any stray rewards, adds the stamina penalty).
+   */
+  private async resolveWithRoll(
+    state: InternalActionState,
+    char: CharacterData,
+    items: ItemData[],
+    newDc: number,
+    newDecisions: ActionDecisionRecord[],
+  ): Promise<{ resolved: true; state: InternalActionState; outcome: ActionOutcome }> {
+    const d20 = this.rollD20();
+    const bonus = computeItemBonus(items, state.rollStat);
+    const outcome = resolveRoll(d20, bonus, newDc);
+
+    // Narration call — same gateway, with the verdict attached to the context.
+    const narrationCtx = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items, state.rollStat);
+    narrationCtx.rollOutcome = outcome === 'success' ? 'success' : 'failure';
+    const narration = await this.llm.decide(narrationCtx);
+
+    const mutations = applyOutcomeToMutations(
+      outcome,
+      Array.isArray(narration.mutations) ? narration.mutations as WorldMutation[] : [],
+    );
+
+    const finalState: InternalActionState = {
+      ...state,
+      decisions: newDecisions,
+      accumulatedDc: newDc,
+      pendingDecision: this.toActionDecision(narration, state.required),
+    };
+
+    return {
+      resolved: true,
+      state: finalState,
+      outcome: {
+        distilledType: state.distilledType,
+        finalDc: newDc,
+        playerRolled: d20,
+        rollBonus: bonus,
+        outcome,
+        mutations,
+        outcomeText: narration.outcomeText ?? (outcome === 'success'
+          ? `Your ${state.distilledType} succeeds.`
+          : `Your ${state.distilledType} fails.`),
+        ...(narration._llmCallId !== undefined ? { llmCallId: narration._llmCallId } : {}),
+      },
     };
   }
 
@@ -300,7 +346,7 @@ export class ActionStateMachine {
 
     // Known locations — the LLM MUST use exact names from this list for set_location
     const locations = this.resolver.getKnownLocations();
-    if (locations.length > 0) {
+    if (locations.length > 1) {
       hintParts.push(`locations: ${locations.join(', ')}`);
     }
 
@@ -325,6 +371,41 @@ export class ActionStateMachine {
 }
 
 // ── Module-level helpers ──
+
+/** Stamina cost for bailing out of a real (consequential) decision. Skip/Finish cost nothing. */
+const BAIL_STAMINA_COST = 1;
+
+/** Flat extra stamina cost on a failed roll, so a loss carries real weight. */
+const FAILURE_STAMINA_PENALTY = 2;
+
+/**
+ * Shape an outcome's mutations to its roll result. A failed action yields no
+ * reward: beneficial mutations (positive stat/wealth/roll deltas, gained items)
+ * are dropped, costs and world changes (set_location, remove_item, spawn_npc)
+ * are kept, and a flat stamina penalty is added. Success passes through unchanged.
+ *
+ * NOTE: the LLM's outcome_text is still written before the roll, so on a failure
+ * the narration may read as a partial success — the deeper fix is rolling before
+ * the flavour is generated (see [[mvp-llm-prompt-architecture]]).
+ */
+function applyOutcomeToMutations(outcome: string, mutations: WorldMutation[]): WorldMutation[] {
+  if (outcome !== 'failure') return mutations;
+  const kept = mutations.filter((m) => {
+    switch (m.type) {
+      case 'modify_wealth':
+      case 'modify_stamina':
+      case 'modify_health':
+      case 'modify_rolls_remaining':
+        return Number(m.amount ?? 0) < 0; // keep only costs, drop gains
+      case 'add_item':
+        return false; // no rewards on a failed action
+      default:
+        return true; // set_location, remove_item, spawn_npc stay
+    }
+  });
+  kept.push({ type: 'modify_stamina', amount: -FAILURE_STAMINA_PENALTY });
+  return kept;
+}
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);

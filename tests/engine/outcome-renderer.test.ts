@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
-import { formatOutcome } from '../../src/engine/OutcomeRenderer.js';
+import { formatOutcome, distilledActionEmoji } from '../../src/engine/OutcomeRenderer.js';
 
 // ── Helpers ──
 
@@ -54,16 +54,16 @@ describe('OutcomeRenderer — success', () => {
 
   it('shows stamina and rolls in footer (always, no delta when unchanged)', () => {
     const result = formatOutcome(successOutcome, ctx());
-    expect(result).toContain('Stamina: 8/10');
-    expect(result).toContain('Rolls: 1/2');
+    expect(result).toContain('⚡ 8/10');
+    expect(result).toContain('🎲 1/2');
     // No delta suffix when mutations don't touch them
-    expect(result).not.toContain('Stamina: 8/10 (');
-    expect(result).not.toContain('Rolls: 1/2 (');
+    expect(result).not.toContain('⚡ 8/10 (');
+    expect(result).not.toContain('🎲 1/2 (');
   });
 
   it('does not show health when unchanged', () => {
     const result = formatOutcome(successOutcome, ctx());
-    expect(result).not.toContain('Health');
+    expect(result).not.toContain('❤️');
   });
 
   it('shows health with delta when modified via mutation', () => {
@@ -72,7 +72,7 @@ describe('OutcomeRenderer — success', () => {
       mutations: [{ type: 'modify_health', amount: -2 }],
     };
     const result = formatOutcome(outcome, ctx({ health: 8 }));
-    expect(result).toContain('Health: 8/12 (-2)');
+    expect(result).toContain('❤️ 8/12 (-2)');
   });
 
   it('shows positive health delta', () => {
@@ -81,12 +81,12 @@ describe('OutcomeRenderer — success', () => {
       mutations: [{ type: 'modify_health', amount: 3 }],
     };
     const result = formatOutcome(outcome, ctx({ health: 13 }));
-    expect(result).toContain('Health: 13/12 (+3)');
+    expect(result).toContain('❤️ 13/12 (+3)');
   });
 
   it('does not show wealth when unchanged', () => {
     const result = formatOutcome(successOutcome, ctx());
-    expect(result).not.toContain('Wealth');
+    expect(result).not.toContain('💰');
   });
 
   it('lists items gained from add_item mutations', () => {
@@ -123,8 +123,8 @@ describe('OutcomeRenderer — success', () => {
     const result = formatOutcome(outcome, ctx({ stamina: 6 }));
     expect(result).toContain('+ 🦊 Wolf Pelt');
     expect(result).toContain('→ Deep Forest');
-    expect(result).toContain('Stamina: 6/10 (-2)');
-    expect(result).toContain('Rolls: 1/2');
+    expect(result).toContain('⚡ 6/10 (-2)');
+    expect(result).toContain('🎲 1/2');
   });
 });
 
@@ -146,7 +146,7 @@ describe('OutcomeRenderer — stamina delta', () => {
       mutations: [{ type: 'modify_stamina', amount: -3 }],
     };
     const result = formatOutcome(outcome, ctx({ stamina: 5 }));
-    expect(result).toContain('Stamina: 5/10 (-3)');
+    expect(result).toContain('⚡ 5/10 (-3)');
   });
 
   it('shows positive stamina delta', () => {
@@ -155,7 +155,7 @@ describe('OutcomeRenderer — stamina delta', () => {
       mutations: [{ type: 'modify_stamina', amount: 2 }],
     };
     const result = formatOutcome(outcome, ctx({ stamina: 10 }));
-    expect(result).toContain('Stamina: 10/10 (+2)');
+    expect(result).toContain('⚡ 10/10 (+2)');
   });
 
   it('aggregates multiple stamina mutations', () => {
@@ -167,7 +167,7 @@ describe('OutcomeRenderer — stamina delta', () => {
       ],
     };
     const result = formatOutcome(outcome, ctx({ stamina: 5 }));
-    expect(result).toContain('Stamina: 5/10 (-3)');
+    expect(result).toContain('⚡ 5/10 (-3)');
   });
 });
 
@@ -206,7 +206,7 @@ describe('OutcomeRenderer — failure', () => {
       mutations: [{ type: 'modify_health', amount: -2 }],
     };
     const result = formatOutcome(outcome, ctx({ stamina: 6, health: 8 }));
-    expect(result).toContain('Health: 8/12 (-2)');
+    expect(result).toContain('❤️ 8/12 (-2)');
   });
 });
 
@@ -231,7 +231,7 @@ describe('OutcomeRenderer — skipped', () => {
 
   it('does not show a roll line for skipped', () => {
     const result = formatOutcome(skipOutcome, ctx({ stamina: 9 }));
-    expect(result).not.toContain('🎲');
+    expect(result).not.toContain(' vs ');
   });
 });
 
@@ -309,7 +309,7 @@ describe('OutcomeRenderer — wealth', () => {
       mutations: [{ type: 'modify_wealth', amount: 10 }],
     };
     const result = formatOutcome(outcome, ctx({ wealth: 15 }));
-    expect(result).toContain('Wealth: 15 (+10)');
+    expect(result).toContain('💰 15 (+10)');
   });
 
   it('shows negative wealth delta', () => {
@@ -318,12 +318,12 @@ describe('OutcomeRenderer — wealth', () => {
       mutations: [{ type: 'modify_wealth', amount: -3 }],
     };
     const result = formatOutcome(outcome, ctx({ wealth: 2 }));
-    expect(result).toContain('Wealth: 2 (-3)');
+    expect(result).toContain('💰 2 (-3)');
   });
 
   it('does not show wealth when no modify_wealth mutation', () => {
     const result = formatOutcome(base, ctx({ wealth: 5 }));
-    expect(result).not.toContain('Wealth');
+    expect(result).not.toContain('💰');
   });
 
   it('does not show wealth when modify_wealth amount is zero', () => {
@@ -332,7 +332,7 @@ describe('OutcomeRenderer — wealth', () => {
       mutations: [{ type: 'modify_wealth', amount: 0 }],
     };
     const result = formatOutcome(outcome, ctx({ wealth: 5 }));
-    expect(result).not.toContain('Wealth');
+    expect(result).not.toContain('💰');
   });
 });
 
@@ -354,7 +354,7 @@ describe('OutcomeRenderer — rolls delta', () => {
       mutations: [{ type: 'modify_rolls_remaining', amount: -1 }],
     };
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 0 }));
-    expect(result).toContain('Rolls: 0/2 (-1)');
+    expect(result).toContain('🎲 0/2 (-1)');
   });
 
   it('shows positive rolls delta', () => {
@@ -363,7 +363,7 @@ describe('OutcomeRenderer — rolls delta', () => {
       mutations: [{ type: 'modify_rolls_remaining', amount: 1 }],
     };
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 1 }));
-    expect(result).toContain('Rolls: 1/2 (+1)');
+    expect(result).toContain('🎲 1/2 (+1)');
   });
 });
 
@@ -384,8 +384,8 @@ describe('OutcomeRenderer — spawn_npc ignored', () => {
   it('does not mention NPC spawn in summary line', () => {
     const result = formatOutcome(outcome, ctx());
     expect(result).not.toContain('Elena');
-    expect(result).toContain('Stamina: 8/10');
-    expect(result).toContain('Rolls: 1/2');
+    expect(result).toContain('⚡ 8/10');
+    expect(result).toContain('🎲 1/2');
   });
 });
 
@@ -420,9 +420,54 @@ describe('OutcomeRenderer — complex outcome', () => {
     expect(result).toContain('+ 🦊 Wolf Pelt');
     expect(result).toContain('- Torch');
     expect(result).toContain('→ Wolf Den');
-    expect(result).toContain('Health: 7/12 (-3)');
-    expect(result).toContain('Stamina: 6/10 (-2)');
-    expect(result).toContain('Rolls: 0/2 (-1)');
-    expect(result).toContain('Wealth: 20 (+15)');
+    expect(result).toContain('❤️ 7/12 (-3)');
+    expect(result).toContain('⚡ 6/10 (-2)');
+    expect(result).toContain('🎲 0/2 (-1)');
+    expect(result).toContain('💰 20 (+15)');
+  });
+});
+
+// ── Roll bonus display ──
+
+describe('OutcomeRenderer — roll bonus', () => {
+  it('shows the item/stat bonus separately in the roll line', () => {
+    const outcome: ActionOutcome = {
+      distilledType: 'hunt', finalDc: 11, playerRolled: 8, rollBonus: 7,
+      outcome: 'success', outcomeText: 'You manage it.', mutations: [],
+    };
+    const result = formatOutcome(outcome, ctx());
+    expect(result).toContain('🎲 8 + 7 vs 11 ✓ Success');
+  });
+
+  it('omits the bonus expression when bonus is zero', () => {
+    const outcome: ActionOutcome = {
+      distilledType: 'hunt', finalDc: 14, playerRolled: 16, rollBonus: 0,
+      outcome: 'success', outcomeText: 'Clean.', mutations: [],
+    };
+    const result = formatOutcome(outcome, ctx());
+    expect(result).toContain('🎲 16 vs 14 ✓');
+    expect(result).not.toContain('16 +');
+  });
+});
+
+// ── Distilled-action emoji (decision breadcrumb) ──
+
+describe('distilledActionEmoji', () => {
+  it('maps known action keywords (incl. variants) to an emoji', () => {
+    expect(distilledActionEmoji('combat')).toBe('⚔️');
+    expect(distilledActionEmoji('duel')).toBe('⚔️');
+    expect(distilledActionEmoji('hunt')).toBe('🏹');
+    expect(distilledActionEmoji('investigate')).toBe('🔍');
+    expect(distilledActionEmoji('talk')).toBe('🗣️');
+    expect(distilledActionEmoji('travel')).toBe('🥾');
+  });
+
+  it('is case-insensitive and matches substrings', () => {
+    expect(distilledActionEmoji('Negotiate')).toBe('🗣️');
+  });
+
+  it('falls back to ✴️ for an unknown type', () => {
+    expect(distilledActionEmoji('flibbertigibbet')).toBe('✴️');
+    expect(distilledActionEmoji('')).toBe('✴️');
   });
 });

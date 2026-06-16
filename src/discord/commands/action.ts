@@ -18,9 +18,9 @@ import {
   type ChatInputCommandInteraction,
   type MessageComponentInteraction,
 } from 'discord.js';
-import type { WorldEngine, ActionDecision } from '../../engine/WorldEngine.js';
+import type { WorldEngine, ActionDecision, ActionOutcome, CharacterData } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
-import { formatOutcome, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
+import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
 
@@ -154,7 +154,8 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
 
       try {
-        const jobActions = getDayJobActions(character.dayJob, dayJobs);
+        const dayNumber = Number(engine.getMeta('day_number') ?? '1');
+        const jobActions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
         const embed = new EmbedBuilder()
           .setTitle(`🔨 ${character.dayJob} — Daily Work`)
           .setDescription('Pick a task to start:')
@@ -212,6 +213,20 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     // Start the action
     try {
       const result = await engine.startAction(character.id, description);
+
+      // Auto-finish: the LLM resolved the action outright (travel/rest). Render the
+      // outcome directly — no buttons, no red "Step back".
+      if (result.outcome) {
+        const resolvedChar = engine.getCharacter(interaction.user.id);
+        const scene = getCurrentScene(interaction.user.id);
+        const embed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
+        await interaction.editReply({ embeds: [embed], components: [] });
+        await interaction.followUp({
+          content: `**${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
+          embeds: [embed],
+        });
+        return 'action_autofinished';
+      }
 
       // If the LLM returned done: true immediately (divine intervention), show the prompt as a grey embed
       if (result.firstDecision.options.length === 0) {
@@ -330,36 +345,9 @@ async function applyActionResult(
     const character = engine.getCharacter(i.user.id);
     const outcome = result.outcome;
 
-    const ctx: OutcomeRenderContext = {
-      stamina: character?.stamina ?? 10,
-      rollsRemaining: character?.rollsRemaining ?? 2,
-      health: character?.health ?? 10,
-      maxHealth: character?.maxHealth ?? 10,
-      wealth: character?.wealth ?? 0,
-    };
-
     // Show the destination scene when the character moved
     const scene = _sceneLookup?.(i.user.id);
-    const trail: string[] = [];
-    if (scene) {
-      trail.push('```');
-      trail.push(scene);
-      trail.push('```');
-      trail.push('');
-    }
-    trail.push(`**You:** ${result.state.rawInput}`);
-    for (const d of result.state.decisions) {
-      trail.push(`**Decision:** ${d.prompt}`);
-      trail.push(`→ *${d.chosen}* (DC ${d.dcModifier >= 0 ? '+' : ''}${d.dcModifier})`);
-    }
-    trail.push('');
-    trail.push(formatOutcome(outcome, ctx));
-
-    const outcomeEmbed = new EmbedBuilder()
-          .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
-          .setDescription(trail.join('\n'))
-          .setColor(outcomeColor(outcome.outcome))
-          .toJSON();
+    const outcomeEmbed = buildOutcomeEmbed(outcome, character, scene, result.state);
 
     // Update the private message
     await i.webhook.editMessage(i.message.id, {
@@ -407,9 +395,47 @@ export function buildDecisionMessage(
     description = [...trail, decision.prompt].join('\n');
   }
 
-  const truncated = description.length > 4000
-    ? description.slice(0, 3997) + '...'
+  // List the real (non-bail) options in the body as A. / B. / C. so button
+  // captions can be just the letter — nothing truncates on mobile.
+  // If the LLM returned no options, fall back to a single Continue option.
+  const options = decision.options.length > 0
+    ? decision.options
+    : [{ label: 'Continue', dcModifier: 0 }];
+
+  const LETTERS = ['A', 'B', 'C', 'D', 'E'];
+  const optionLines: string[] = [];
+  const buttons: ButtonBuilder[] = [];
+  let letterIdx = 0;
+
+  // Preserve each option's original index for the customId — handleActionChoice
+  // looks the label up by index against the stored pending decision.
+  options.forEach((opt, origIdx) => {
+    if (opt.dcModifier === null) {
+      // Terminal (bail) — keeps a worded button, not lettered in the body.
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(CID_BAIL)
+          .setLabel(shortLabel(opt.label, 80))
+          .setStyle(ButtonStyle.Danger),
+      );
+    } else {
+      const letter = LETTERS[letterIdx++] ?? String(origIdx + 1);
+      optionLines.push(`**${letter}.** ${opt.label}`);
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(choiceCid(decisionIdx, origIdx))
+          .setLabel(letter)
+          .setStyle(ButtonStyle.Secondary),
+      );
+    }
+  });
+
+  const withOptions = optionLines.length > 0
+    ? `${description}\n\n${optionLines.join('\n')}`
     : description;
+  const truncated = withOptions.length > 4000
+    ? withOptions.slice(0, 3997) + '...'
+    : withOptions;
 
   const embed = new EmbedBuilder()
     .setTitle('🤔 Decision')
@@ -417,26 +443,12 @@ export function buildDecisionMessage(
     .setColor(0xdaa520)
     .setFooter({ text: decisionIdx === 0 ? 'Choose your approach' : `Decision ${decisionIdx + 1}` });
 
+  // Buttons — max 5 per row.
   const components: ActionRowBuilder<ButtonBuilder>[] = [];
-
-  // Options as buttons (max 5 per row)
-  // If LLM returned no options, fall back to a single Continue button
-  const options = decision.options.length > 0 ? decision.options : [
-    { label: 'Continue', dcModifier: 0 },
-  ];
-
-  for (let i = 0; i < options.length; i += 5) {
-    const row = new ActionRowBuilder<ButtonBuilder>();
-    for (const opt of options.slice(i, i + 5)) {
-      const isBail = opt.dcModifier === null;
-      row.addComponents(
-        new ButtonBuilder()
-          .setCustomId(isBail ? CID_BAIL : choiceCid(decisionIdx, i + options.indexOf(opt)))
-          .setLabel(shortLabel(opt.label, 80))
-          .setStyle(isBail ? ButtonStyle.Danger : ButtonStyle.Secondary),
-      );
-    }
-    components.push(row);
+  for (let i = 0; i < buttons.length; i += 5) {
+    components.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(i, i + 5)),
+    );
   }
 
   return {
@@ -449,11 +461,61 @@ function shortLabel(label: string, maxLen: number): string {
   return label.length > maxLen ? label.slice(0, maxLen - 1) + '…' : label;
 }
 
+/** Build the outcome embed (trail + formatted outcome). Shared by the button
+ *  resolution path and the start-time auto-finish path. */
+export function buildOutcomeEmbed(
+  outcome: ActionOutcome,
+  character: CharacterData | null | undefined,
+  scene: string | null | undefined,
+  state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string }> },
+): ReturnType<EmbedBuilder['toJSON']> {
+  const ctx: OutcomeRenderContext = {
+    stamina: character?.stamina ?? 10,
+    rollsRemaining: character?.rollsRemaining ?? 2,
+    health: character?.health ?? 10,
+    maxHealth: character?.maxHealth ?? 10,
+    wealth: character?.wealth ?? 0,
+  };
+
+  // Breadcrumb of the distilled actions the player moved through, e.g. 🔍 → 🗣️ → ⚔️.
+  const types = state.decisions.length > 0
+    ? state.decisions.map(d => d.distilledType).filter((t): t is string => !!t)
+    : [outcome.distilledType];
+  const breadcrumb = types.map(distilledActionEmoji).join(' → ');
+
+  const trail: string[] = [];
+  if (breadcrumb) {
+    trail.push(breadcrumb);
+    trail.push('');
+  }
+  if (scene) {
+    trail.push('```');
+    trail.push(scene);
+    trail.push('```');
+    trail.push('');
+  }
+  trail.push(`**You:** ${state.rawInput}`);
+  for (const d of state.decisions) {
+    trail.push(`**Decision:** ${d.prompt}`);
+    trail.push(`→ *${d.chosen}* (DC ${d.dcModifier >= 0 ? '+' : ''}${d.dcModifier})`);
+  }
+  trail.push('');
+  trail.push(formatOutcome(outcome, ctx));
+
+  return new EmbedBuilder()
+    .setTitle(`⚔️ ${capitalize(outcome.distilledType)}`)
+    .setDescription(trail.join('\n'))
+    .setColor(outcomeColor(outcome.outcome))
+    .toJSON();
+}
+
 function outcomeColor(outcome: string): number {
   switch (outcome) {
-    case 'success': return 0x2ecc71;
-    case 'failure': return 0xe74c3c;
-    case 'skipped': return 0xf39c12;
+    case 'success': return 0x2ecc71; // green
+    case 'failure': return 0xe74c3c; // red
+    case 'skipped': return 0xf39c12; // amber
+    case 'bailed': return 0xf39c12;  // amber — neutral retreat, not a failure
+    case 'done': return 0x95a5a6;    // grey — neutral finish (travel/rest resolved)
     case 'timed_out': return 0x95a5a6;
     default: return 0x3498db;
   }

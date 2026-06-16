@@ -1,5 +1,8 @@
 import type { WorldMutation } from '../WorldEngine.js';
 
+/** Hard ceiling for stamina. Single source of truth for the clamp + the `/10` display. */
+export const STAMINA_MAX = 10;
+
 export interface MutationContext {
   currentHealth: number;
   maxHealth: number;
@@ -25,7 +28,7 @@ export interface ValidationResult {
 
 interface AppliedState extends MutationContext {
   itemsToAdd: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity: number }>;
-  itemsToRemove: string[];
+  itemsToRemove: Array<{ name: string; quantity: number }>;
   npcsToSpawn: Array<{ name: string; class?: string; description?: string; race?: string }>;
 }
 
@@ -140,6 +143,9 @@ function validateOne(
       if (typeof m.name !== 'string' || m.name.trim() === '') {
         return { index, message: 'remove_item requires a non-empty "name" string' };
       }
+      if (m.quantity !== undefined && (typeof m.quantity !== 'number' || m.quantity < 1)) {
+        return { index, message: 'remove_item "quantity" must be a number >= 1 when present' };
+      }
       return null;
     }
     case 'spawn_npc': {
@@ -181,7 +187,7 @@ export function applyMutations(
           state.currentHealth + Number(m.amount ?? 0)));
         break;
       case 'modify_stamina':
-        state.stamina = Math.max(0, state.stamina + Number(m.amount ?? 0));
+        state.stamina = Math.max(0, Math.min(STAMINA_MAX, state.stamina + Number(m.amount ?? 0)));
         break;
       case 'modify_wealth':
         state.wealth = Math.max(0, state.wealth + Number(m.amount ?? 0));
@@ -199,7 +205,10 @@ export function applyMutations(
         });
         break;
       case 'remove_item':
-        state.itemsToRemove.push(String(m.name ?? ''));
+        state.itemsToRemove.push({
+          name: String(m.name ?? ''),
+          quantity: Math.max(1, Number(m.quantity ?? 1)),
+        });
         break;
       case 'spawn_npc':
         state.npcsToSpawn.push({

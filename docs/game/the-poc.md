@@ -67,7 +67,6 @@ Full criteria + how they're measured live in [[poc-build-deploy]] §6.
 
 ## Deliberately NOT in the POC
 
-- [-] **Multiplayer / co-op** — one player at a time; the fellowship is the MVP.
 - [-] **Graph DB / moral drift / December climax** — flat SQLite and the core loop are enough to answer the question.
 - [-] **Free-form ASCII pipeline (`ascii-image-converter`), PNG/MP4** — deferred; fragments are faster.
 - [-] **Deep stamina / weekly rhythm / death track** — one stamina integer is enough to test engagement.

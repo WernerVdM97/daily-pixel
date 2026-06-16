@@ -132,3 +132,9 @@ WEEKLY LLM UPDATE:
 - **Quest generation?** Economic pressure generates natural quests. Failing crops → clear the field of monsters. Trade route blocked → escort the merchant.
 - **Convergence?** Wealthy towns attract more travelers. Players naturally converge toward prosperous settlements, which become organic hubs.
 - **The December climax?** If towns are struggling economically all year, the final battle is harder — fewer supplies, weaker allies, thinner defenses. A prosperous kingdom puts up a better fight.
+
+---
+
+## POC field notes
+
+- [I] **Surface NPCs more often, and reuse them.** In POC play NPCs rarely appear in interactions, and new ones get invented rather than drawing on the existing cast. The daily simulation above is the long-term answer; the near-term intent is: weave known NPCs into `/action` outcomes more frequently, and persist + reuse any the LLM introduces (save to the NPC table, don't spawn-and-forget).
