@@ -233,7 +233,7 @@ systemctl enable --now daily-pixel
 systemctl enable --now daily-pixel-deploy.timer
 ```
 
-The bot starts immediately. The timer checks for new commits on the `dev` branch every hour and restarts the bot if there are updates. See [`scripts/deploy-check.sh`](./scripts/deploy-check.sh) for the update logic.
+The bot starts immediately. The timer checks for new commits on the `main` branch every hour and restarts the bot if there are updates. See [`scripts/deploy-check.sh`](./scripts/deploy-check.sh) for the update logic.
 
 > ⚠️ **Auto-deploy gotchas:**
 > - The deploy timer must be explicitly enabled: `systemctl enable --now daily-pixel-deploy.timer`. It does not start automatically after copying the unit files.
