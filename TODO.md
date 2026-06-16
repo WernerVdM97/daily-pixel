@@ -7,6 +7,8 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 
 ## scratchpad (humans start here)
 
+- [ ] add player class emoji to global action outcome messages 
+  - still improve formatting of final response
 - [ ] bug: got an extra throw on the second action and then autocompleted the last one ended with me not getting a sleep button but instead another action button. Luckily that blocked me.
 - [ ] delay sleep tick message and setup daily messages, with a button to start playing
 - [ ] implement layered db migration framework
