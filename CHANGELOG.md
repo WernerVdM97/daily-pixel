@@ -4,6 +4,37 @@ All notable changes to The Warden's Oak are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] — 2026-06-16 — POC BETA
+
+### Added
+- **Components V2 infrastructure** — native Separator components, `buildComponentPayload()` for command output, shared `getNavButtons()` navigation bar across all commands
+- **Per-option stat system** — each decision option can specify which ability the roll tests (`stat`); `computeRollBonus()` composes character ability + item modifiers
+- **`modify_max_stamina` mutation** — LLM can raise/lower the stamina ceiling; current stamina clamps to new max
+- **Passive-insight hints** — `10 + WIS` determines which DCs the character senses as achievable; options shown in green with 🟢 flag
+- **Nearby entities in `/look`** — shows other player characters (highlighted) and NPCs at the current location with class-based emoji
+- **`decision-v5` and `decision-v6` prompts** — evolved decision framework with SUCCESS reward rules, per-option stats, ability checks
+- **LLM validation: Rule 4b** — blocks `done:true` with only negative stamina/health and no reward mutation
+- **`scripts/clear-channel.sh`** — admin script to bulk-delete bot messages from a Discord channel via REST API
+
+### Changed
+- **Rolls are now ability checks** — d20 + character ability score + item bonuses vs DC (was d20 + item bonuses only)
+- **Decision screen restyled** — quoted 🧭 Quest path trail, effective DC per option, passive-insight colouring, `base_dc` minimum raised 8 → 10
+- **Join wizard data-driven** — all options loaded from `assets/char-creation/*.yml`; emoji + descriptions on buttons, progress ledger with strike-through, Start Over on every step
+- **Backpack shows capacity** — `(used/10)` with ⬜ empty slots grid; items grouped by stat with total modifier
+- **Outcome renderer overhaul** — critical highlights (🌟 nat 20 / 💥 nat 1), stat emoji prefix, bold roll calculus, emoji action-type labels (✅ SUCCESS, ❌ FAILURE, etc.)
+- **Navigation buttons on public outcomes** — clicking spawns a fresh ephemeral screen per player
+- **Join announcement simplified** — public "A new hero joins the Oak" embed shows title + Oak image only (no hero description)
+
+### Fixed
+- Item quantity no longer multiplies modifier in bonus calculation
+- `formatCharacterHeader` indentation consistency
+- Alignment title-casing throughout ("lawful good" → "Lawful Good")
+
+### Chore
+- Bumped to 0.2.0 — POC BETA release
+- Prompt files reorganized into `assets/prompts/decision-prompts/`
+- POC build docs archived under `docs/archived/poc/
+
 ## [Unreleased]
 
 ### Added
