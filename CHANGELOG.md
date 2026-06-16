@@ -92,6 +92,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Validation warnings (bad stat, out-of-range DC, empty labels, non-array mutations) are now persisted as data, not just logged
 
 ### Fixed
+- **DB directory auto-created** — `initDb()` now `mkdir -p`s the SQLite parent dir. A fresh clone/deploy has no `data/` (it's gitignored) and `better-sqlite3` won't create it, so the bot crashed on first boot with "Cannot open database because the directory does not exist". Matches the README's "auto-created" promise.
 - **Nat20/nat1 bold markdown broken** — double-wrapped `**` in the roll expression (e.g. `**20 + 2 = **22****`) produced broken Discord bold formatting. Inner bold on the total is now suppressed when the whole expression is bolded for crits.
 - **`/look` didn't show unsafe indicator** — unsafe locations had no emoji or warning text (only safe locations showed their status)
 - **Stamina drained when sleeping at the Oak** — `The Warden's Oak` wasn't in the seeded locations table, so the daily tick treated it as unsafe and subtracted stamina instead of restoring it
