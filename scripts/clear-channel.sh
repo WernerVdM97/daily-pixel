@@ -38,7 +38,7 @@ fi
 
 # ── Resolve bot user ID ──
 BOT_INFO=$(curl -sf -H "Authorization: Bot $TOKEN" https://discord.com/api/v10/users/@me)
-BOT_ID=$(echo "$BOT_INFO" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+BOT_ID=$(echo "$BOT_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
 if [ -z "$BOT_ID" ]; then
   echo "FATAL: could not resolve bot user ID" >&2
   exit 1
@@ -52,8 +52,9 @@ echo "🔍 Scanning channel $CHANNEL_ID for bot messages..."
 MESSAGE_IDS=()
 LAST_ID=""
 PAGE=0
+MAX_PAGES=50
 
-while true; do
+while [ "$PAGE" -lt "$MAX_PAGES" ]; do
   URL="$API/channels/$CHANNEL_ID/messages?limit=100"
   [ -n "$LAST_ID" ] && URL="$URL&before=$LAST_ID"
 
@@ -62,34 +63,39 @@ while true; do
     break
   fi
 
-  # Extract bot message IDs from this page
-  while IFS= read -r id; do
-    MESSAGE_IDS+=("$id")
-  done < <(echo "$RESP" | grep -o '"id":"[0-9]*","channel_id":"[0-9]*","author":{"id":"'"$BOT_ID"'"' | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4 || true)
-
-  # Also capture by checking author.id more reliably with a small awk/sed
-  while IFS= read -r id; do
-    # Avoid duplicates from the simpler grep above
-    skip=false
-    for e in "${MESSAGE_IDS[@]}"; do [ "$e" = "$id" ] && skip=true && break; done
-    $skip && continue
-    MESSAGE_IDS+=("$id")
-  done < <(echo "$RESP" | python3 -c "
-import json,sys
+  # Extract bot message IDs using Python (reliable JSON parsing, field-order independent)
+  NEW_IDS=$(echo "$RESP" | python3 -c "
+import json, sys
 try:
-    msgs=json.load(sys.stdin)
+    msgs = json.load(sys.stdin)
+    bot_id = '$BOT_ID'
     for m in msgs:
-        if m.get('author',{}).get('id')=='$BOT_ID':
+        if m.get('author', {}).get('id') == bot_id:
             print(m['id'])
-except: pass
+except Exception:
+    pass
 " 2>/dev/null || true)
 
-  LAST_ID=$(echo "$RESP" | grep -o '"id":"[0-9]*"' | head -1 | cut -d'"' -f4)
+  while IFS= read -r id; do
+    [ -n "$id" ] && MESSAGE_IDS+=("$id")
+  done <<< "$NEW_IDS"
+
+  # Get the oldest message ID on this page for pagination
+  LAST_ID=$(echo "$RESP" | python3 -c "
+import json, sys
+try:
+    msgs = json.load(sys.stdin)
+    if msgs:
+        print(msgs[-1]['id'])
+except: pass
+" 2>/dev/null || echo "")
+
   PAGE=$((PAGE + 1))
   echo "  Page $PAGE: ${#MESSAGE_IDS[@]} bot messages found so far..."
-  # Discord pagination: if we got <100, we're done
-  COUNT=$(echo "$RESP" | grep -c '"id":"' || true)
-  [ "$COUNT" -lt 100 ] && break
+
+  # If we got fewer than 100 messages, no more pages
+  MSG_COUNT=$(echo "$RESP" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+  [ "$MSG_COUNT" -lt 100 ] && break
 done
 
 TOTAL=${#MESSAGE_IDS[@]}
@@ -100,23 +106,15 @@ if [ "$TOTAL" -eq 0 ]; then
   exit 0
 fi
 
-# Reverse so we delete oldest-first (bulk-delete doesn't care about order,
-# but single-delete is cleaner chronological).
-# We want newest-first for the 14-day check though, so keep as-is (newest-first).
-
 # ── Delete ──
 DELETED=0
 FAILED=0
 BATCH=()
 
-# Discord's bulk-delete endpoint only accepts messages <14 days old.
-# Compute the cutoff timestamp (14 days ago in Discord snowflake time).
-# Discord snowflake epoch: 2015-01-01T00:00:00Z = 1420070400000 ms
-# We'll check message age by snowflake ID.
+# Discord snowflake epoch: 2015-01-01T00:00:00Z
 SNOWFLAKE_EPOCH=1420070400000
-NOW_MS=$(date +%s)000
-CUTOFF_MS=$((NOW_MS - 14*24*60*60*1000))
-CUTOFF_SNOWFLAKE=$(((CUTOFF_MS - SNOWFLAKE_EPOCH) << 22))
+NOW_MS=$(($(date +%s) * 1000))
+CUTOFF_MS=$((NOW_MS - 14 * 24 * 60 * 60 * 1000))
 
 echo "🗑️  Deleting..."
 
@@ -132,12 +130,10 @@ delete_batch() {
   json_ids="$json_ids]"
 
   if [ ${#ids[@]} -eq 1 ]; then
-    # Single delete
     CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
       -H "Authorization: Bot $TOKEN" \
       "$API/channels/$CHANNEL_ID/messages/${ids[0]}")
   else
-    # Bulk delete
     CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
       -H "Authorization: Bot $TOKEN" \
       -H "Content-Type: application/json" \
@@ -148,7 +144,6 @@ delete_batch() {
   if [ "$CODE" = "204" ] || [ "$CODE" = "200" ]; then
     DELETED=$((DELETED + ${#ids[@]}))
   else
-    # If bulk-delete fails (e.g. mix of old/new), fall back to individual
     if [ ${#ids[@]} -gt 1 ]; then
       echo "  ⚠️  Bulk delete returned $CODE, falling back to individual..."
       for sid in "${ids[@]}"; do
@@ -161,7 +156,6 @@ delete_batch() {
           FAILED=$((FAILED + 1))
           echo "  ⚠️  Failed to delete $sid (HTTP $SCODE)"
         fi
-        # Rate-limit courtesy
         sleep 0.05
       done
     else
@@ -172,28 +166,24 @@ delete_batch() {
 }
 
 for msg_id in "${MESSAGE_IDS[@]}"; do
-  # Check age
+  # Snowflake timestamp: (id >> 22) + epoch
   TIMESTAMP_MS=$(((msg_id >> 22) + SNOWFLAKE_EPOCH))
   if [ "$TIMESTAMP_MS" -lt "$CUTOFF_MS" ]; then
-    # Message is older than 14 days — can't bulk-delete
     if [ "$MODE" != "old" ]; then
-      echo "  ⏭️  Skipping $msg_id (older than 14 days, use '$0 $CHANNEL_ID old' to force individual delete)"
+      echo "  ⏭️  Skipping $msg_id (older than 14 days — use '$0 $CHANNEL_ID old' to force)"
       continue
     fi
-    # Individual delete
     delete_batch "$msg_id"
   else
     BATCH+=("$msg_id")
     if [ ${#BATCH[@]} -eq 100 ]; then
       delete_batch "${BATCH[@]}"
       BATCH=()
-      # Rate-limit courtesy: 1s between bulk calls
       sleep 1
     fi
   fi
 done
 
-# Flush remaining batch
 if [ ${#BATCH[@]} -gt 0 ]; then
   delete_batch "${BATCH[@]}"
 fi
