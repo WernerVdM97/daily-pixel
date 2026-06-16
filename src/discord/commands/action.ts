@@ -375,6 +375,10 @@ async function applyActionResult(
 
 // ── Helpers ──
 
+/** How much easier the safest option must be than the next-best before passive
+ *  insight will flag it — keeps the green hint a rare, earned tell. */
+const INSIGHT_MARGIN = 2;
+
 export function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
   decisionIdx: number,
@@ -384,10 +388,10 @@ export function buildDecisionMessage(
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
 } {
-  // The running DC (base + prior modifiers) lets us show each option's effective
-  // DC; passive insight (10 + WIS, a D&D-style passive check) lets a perceptive
-  // character "read" which options are within reach. Both degrade gracefully when
-  // the state/character aren't supplied (e.g. in unit tests).
+  // Raw DCs stay hidden — the player shouldn't read the dice while deciding.
+  // Instead, passive insight (10 + WIS, a D&D-style passive check) occasionally
+  // lets a perceptive character spot the single safest route. The hint must be
+  // earned (see INSIGHT_MARGIN below), not a constant readout.
   const runningDc = state?.accumulatedDc;
   const passiveInsight = char ? 10 + char.stats.wisdom : undefined;
 
@@ -410,11 +414,29 @@ export function buildDecisionMessage(
     ? decision.options
     : [{ label: 'Continue', dcModifier: 0 }];
 
+  // Decide whether insight warrants a hint, and on which single option. It only
+  // fires when ALL hold: we know the DCs, the character is perceptive enough to
+  // reach the easiest option (passive insight ≥ its DC), and that option is
+  // clearly safer than the next-best (≥ INSIGHT_MARGIN). Otherwise no hint — so
+  // it's a rare, earned tell, never an always-on DC reveal.
+  let favouredIdx = -1;
+  if (passiveInsight != null && runningDc != null) {
+    const real = options
+      .map((opt, i) => ({ i, effDc: runningDc + (opt.dcModifier ?? 0), bail: opt.dcModifier === null }))
+      .filter(o => !o.bail)
+      .sort((a, b) => a.effDc - b.effDc);
+    if (real.length >= 2) {
+      const [best, second] = real;
+      if (passiveInsight >= best.effDc && second.effDc - best.effDc >= INSIGHT_MARGIN) {
+        favouredIdx = best.i;
+      }
+    }
+  }
+
   const LETTERS = ['A', 'B', 'C', 'D', 'E'];
   const optionLines: string[] = [];
   const buttons: ButtonBuilder[] = [];
   let letterIdx = 0;
-  let anyFavourable = false;
 
   // Preserve each option's original index for the customId — handleActionChoice
   // looks the label up by index against the stored pending decision.
@@ -429,19 +451,14 @@ export function buildDecisionMessage(
       );
     } else {
       const letter = LETTERS[letterIdx++] ?? String(origIdx + 1);
-      const effectiveDc = runningDc != null ? runningDc + opt.dcModifier : undefined;
-      const favourable = passiveInsight != null && effectiveDc != null && passiveInsight >= effectiveDc;
-      if (favourable) anyFavourable = true;
-
-      const dcStr = effectiveDc != null ? `  \`DC ${effectiveDc}\`` : '';
-      const hint = favourable ? ' 🟢' : '';
-      optionLines.push(`**${letter}.** ${opt.label}${dcStr}${hint}`);
+      const favoured = origIdx === favouredIdx;
+      optionLines.push(`**${letter}.** ${opt.label}${favoured ? ' 🟢' : ''}`);
       buttons.push(
         new ButtonBuilder()
           .setCustomId(choiceCid(decisionIdx, origIdx))
           .setLabel(letter)
-          // Passive insight tints buttons the character senses are achievable.
-          .setStyle(favourable ? ButtonStyle.Success : ButtonStyle.Secondary),
+          // Passive insight tints the one route it senses is clearly safest.
+          .setStyle(favoured ? ButtonStyle.Success : ButtonStyle.Secondary),
       );
     }
   });
@@ -453,8 +470,8 @@ export function buildDecisionMessage(
     ? withOptions.slice(0, 3997) + '...'
     : withOptions;
 
-  const footerText = anyFavourable
-    ? '🟢 within reach — your insight reads the odds'
+  const footerText = favouredIdx >= 0
+    ? '🟢 a safer path catches your eye'
     : (decisionIdx === 0 ? 'Choose your approach' : `Decision ${decisionIdx + 1}`);
 
   const embed = new EmbedBuilder()
