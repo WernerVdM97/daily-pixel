@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 ### Added
+- **DB migration framework** — `src/db/migrations/` holds dated `YYYYMMDDHHMM_<description>.ts` files, each exporting `up(db)`. A runner applies any whose id isn't yet in the new `schema_migrations` ledger table, in chronological order. The `…_baseline` migration wraps the prior `schema.sql` + v2–v7 idempotent ALTERs, so existing production DBs run it as a no-op and are simply stamped; fresh DBs build from scratch. Replaces the single growing `migrate()` function.
+- **Applied-mutation insight logging** — every resolved action now persists the mutations *actually applied* (post-validation, post-failure-strip) as JSON in the new `actions.applied_mutations` column, and emits a concise always-on `[mutations]` log line with the net before→after state change (e.g. `rolls 1→0`). Makes anomalies like a roll handed back via `modify_rolls_remaining` greppable from the live log and queryable after the fact.
 - **Admin notification on tick failure** — `notifyAdmin()` called when the nightly cron tick or morning announcement fails, so silent errors like `DiscordAPIError 50001 (Missing Access)` are no longer invisible.
 - **Hi button on morning announcement** — the daily welcome message now includes a 🌅 Hi button. Clicking it spawns an ephemeral `/hi` screen for the player, reusing the existing nav-button handler.
 - **`setMeta()` on `WorldEngine` interface** — allows the morning announcement to write `last_announcement_date` for idempotency.
@@ -15,6 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Tick decoupled from announcement** — the nightly world tick (DB reset at 3:30 UTC) and the morning announcement (7:30 UTC) are now separate `setTimeout` schedulers. The tick writes `last_tick_players_affected` and `last_tick_npc_movement_count` to meta; the announcement reads them 4 hours later.
 
 ### Fixed
+- **Out of rolls now offers Sleep, not a dead Action button** — the `Action` nav button is hidden exactly when `Sleep` appears (out of rolls and not mid-action), instead of always rendering and dead-ending on the "out of actions for today" guard. The two buttons are now mutually exclusive; `Action` still shows mid-action so a player can resume.
+- **`ephemeral` reply-option deprecation** — replaced all deprecated `{ ephemeral: true }` interaction options with `flags: MessageFlags.Ephemeral` across `action.ts`, `join.ts`, and `index.ts`. `buildComponentPayload` now folds the ephemeral bit into its Components V2 `flags` bitfield rather than emitting a separate (and illegal-with-V2) `ephemeral` field.
 
 ### Chore
 - **`biome.json`** — formatter config enforcing `indentStyle: space, indentWidth: 2` to prevent whitespace churn.

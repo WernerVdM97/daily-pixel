@@ -42,6 +42,9 @@ export interface ActionRow {
   llm_request: string | null;
   /** @deprecated superseded by the llm_calls table; unwritten since v4. */
   llm_response: string | null;
+  /** JSON array of the world mutations actually applied (post-validation,
+   *  post-failure-strip). NULL for rows written before this column existed. */
+  applied_mutations: string | null;
   created_at: string;
 }
 

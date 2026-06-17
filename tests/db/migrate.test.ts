@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
-import { migrate } from '../../src/db/migrate.js';
+import { migrate, runMigrations, MigrationError } from '../../src/db/migrate.js';
 
 let db: Database.Database;
 
@@ -14,7 +14,7 @@ afterAll(() => {
 });
 
 describe('migrate', () => {
-  it('creates all 10 tables in an empty database', () => {
+  it('creates all tables in an empty database', () => {
     migrate(db);
 
     const tables = db
@@ -32,12 +32,31 @@ describe('migrate', () => {
       'meta',
       'npcs',
       'player_characters',
+      'schema_migrations',
       'users',
     ]);
   });
 
   it('is idempotent — running a second time does not error', () => {
     expect(() => migrate(db)).not.toThrow();
+  });
+
+  it('records every migration once in schema_migrations (no duplicates on re-run)', () => {
+    migrate(db); // third run — must not re-insert ledger rows
+    const ids = db
+      .prepare('SELECT id FROM schema_migrations ORDER BY id')
+      .all() as { id: string }[];
+    const names = ids.map((r) => r.id);
+    // Each id is unique and the baseline sorts first.
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toContain('202606170000_baseline');
+    expect(names).toContain('202606171200_action_applied_mutations');
+    expect(names[0]).toBe('202606170000_baseline');
+  });
+
+  it('adds the applied_mutations column to actions', () => {
+    const cols = db.prepare("PRAGMA table_info('actions')").all() as { name: string }[];
+    expect(cols.map((c) => c.name)).toContain('applied_mutations');
   });
 
   it("seeds the default location (The Warden's Oak)", () => {
@@ -79,5 +98,42 @@ describe('migrate', () => {
       'user_id',
       'wealth',
     ]);
+  });
+});
+
+describe('runMigrations — atomic batch', () => {
+  it('rolls the whole batch back when any migration throws', () => {
+    const fresh = new Database(':memory:');
+    const good = { id: 'test_good', up: (d: Database.Database) => d.exec('CREATE TABLE canary (id INTEGER)') };
+    const bad = { id: 'test_bad', up: () => { throw new Error('boom'); } };
+
+    expect(() => runMigrations(fresh, [good, bad])).toThrow(MigrationError);
+
+    // The good migration's table must NOT survive — it rolled back with the batch.
+    const table = fresh
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='canary'")
+      .get();
+    expect(table).toBeUndefined();
+
+    // And no ledger rows were committed.
+    expect(fresh.prepare('SELECT id FROM schema_migrations').all()).toEqual([]);
+
+    fresh.close();
+  });
+
+  it('commits and records a clean batch', () => {
+    const fresh = new Database(':memory:');
+    const m = { id: 'test_ok', up: (d: Database.Database) => d.exec('CREATE TABLE canary (id INTEGER)') };
+
+    runMigrations(fresh, [m]);
+
+    const table = fresh
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='canary'")
+      .get() as { name: string } | undefined;
+    expect(table?.name).toBe('canary');
+    const ids = (fresh.prepare('SELECT id FROM schema_migrations').all() as { id: string }[]).map(r => r.id);
+    expect(ids).toEqual(['test_ok']);
+
+    fresh.close();
   });
 });

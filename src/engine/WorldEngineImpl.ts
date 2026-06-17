@@ -26,6 +26,7 @@ import type {
   ActionResumeResult,
   ActionOutcome,
   ActionDecisionRecord,
+  WorldMutation,
   NearbyEntity,
   LocationInfo,
   ItemData,
@@ -58,6 +59,70 @@ function seededRandomRange(seed: number, min: number, max: number): number {
 function locationTagsContain(tags: string | null, tag: string): boolean {
   if (!tags) return false;
   return tags.split(',').map(t => t.trim()).includes(tag);
+}
+
+// ── Mutation insight logging ──
+
+/** Net character-state change after `after` (mutated) is applied to a CharacterRow.
+ *  Subset of CharacterRow we read for the before→after diff. */
+type AppliedStateView = {
+  currentHealth: number;
+  stamina: number;
+  maxStamina: number;
+  wealth: number;
+  rollsRemaining: number;
+  location: string;
+};
+
+/** Compact, human-readable summary of one applied mutation, e.g. `wealth+5`,
+ *  `→Town Square`, `+item:Rabbit Pelt`. */
+function summariseMutation(m: WorldMutation): string {
+  switch (m.type) {
+    case 'set_location': return `→${String(m.name ?? '?')}`;
+    case 'add_item': return `+item:${String(m.name ?? '?')}`;
+    case 'remove_item': return `-item:${String(m.name ?? '?')}`;
+    case 'spawn_npc': return `npc:${String(m.name ?? '?')}`;
+    default: {
+      // modify_* — show the signed amount against the trimmed stat name.
+      const stat = m.type.replace(/^modify_/, '');
+      const amt = Number(m.amount ?? 0);
+      return `${stat}${amt >= 0 ? '+' : ''}${amt}`;
+    }
+  }
+}
+
+/** Only the character fields that changed, as `before→after` pairs. */
+function stateDeltas(before: CharacterRow, after: AppliedStateView): string {
+  const parts: string[] = [];
+  if (after.currentHealth !== before.health) parts.push(`hp ${before.health}→${after.currentHealth}`);
+  if (after.stamina !== before.stamina) parts.push(`sta ${before.stamina}→${after.stamina}`);
+  if (after.maxStamina !== before.max_stamina) parts.push(`maxSta ${before.max_stamina}→${after.maxStamina}`);
+  if (after.wealth !== before.wealth) parts.push(`wealth ${before.wealth}→${after.wealth}`);
+  if (after.rollsRemaining !== before.rolls_remaining) parts.push(`rolls ${before.rolls_remaining}→${after.rollsRemaining}`);
+  if (after.location !== before.location) parts.push(`loc ${before.location}→${after.location}`);
+  return parts.join(', ') || 'no state change';
+}
+
+/** One concise, always-on line per resolved action: the mutations actually
+ *  applied plus the net before→after state change. Makes anomalies (e.g. a roll
+ *  handed back via modify_rolls_remaining) greppable from the live log. */
+function logAppliedMutations(
+  characterId: number,
+  outcome: ActionOutcome,
+  before: CharacterRow,
+  after: AppliedStateView,
+): void {
+  const roll = outcome.playerRolled != null
+    ? `roll=${outcome.playerRolled}${outcome.rollBonus ? `+${outcome.rollBonus}` : ''} vs DC${outcome.finalDc}`
+    : 'no-roll';
+  const muts = outcome.mutations.length > 0
+    ? outcome.mutations.map(summariseMutation).join(', ')
+    : 'none';
+  const call = outcome.llmCallId !== undefined ? ` call=${outcome.llmCallId}` : '';
+  console.log(
+    `[mutations] char=${characterId} ${outcome.distilledType}/${outcome.outcome} ${roll}${call} | ` +
+    `applied: ${muts} | net: ${stateDeltas(before, after)}`,
+  );
 }
 
 /**
@@ -314,6 +379,10 @@ export class WorldEngineImpl implements WorldEngine {
       this.itemRepo.decrementByName(characterId, name, quantity);
     }
 
+    // Insight log + audit: record the mutations actually applied (post-validation,
+    // post-failure-strip) and a one-line before→after summary of the net effect.
+    logAppliedMutations(characterId, outcome, row, applied);
+
     // Insert action record
     const actionRow = this.actionRepo.create({
       characterId,
@@ -325,6 +394,7 @@ export class WorldEngineImpl implements WorldEngine {
       outcome: outcome.outcome,
       appVersion: APP_VERSION,
       promptVersion: PROMPT_VERSION,
+      appliedMutations: outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
     });
 
     // Link the audit row to the action it produced (best-effort)

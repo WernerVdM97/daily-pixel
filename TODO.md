@@ -9,9 +9,12 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 
 - [ ] add player class emoji to global action outcome messages 
   - still improve formatting of final response
-- [ ] bug: got an extra throw on the second action and then autocompleted the last one ended with me not getting a sleep button but instead another action button. Luckily that blocked me.
+- [~] bug: got an extra throw on the second action and then autocompleted the last one ended with me not getting a sleep button but instead another action button. Luckily that blocked me.
+  - [x] FIXED (sleep/action button): the Action nav button now hides when out of rolls & idle, so Sleep takes its place (was always rendered, dead-ending on the out-of-rolls guard). See format.ts getNavButtons + tests.
+  - [ ] STILL OPEN ("extra throw"): no deterministic double-decrement exists in the bot — a roll is spent exactly once per action in startAction. An extra roll can only come from an LLM `modify_rolls_remaining: +N` reward. Belongs to the prompt/roll-economy work in [[mvp-llm-prompt-architecture]] (or add a POC guard blocking positive modify_rolls_remaining).
 - [ ] delay sleep tick message and setup daily messages, with a button to start playing
-- [ ] implement layered db migration framework
+- [x] implement layered db migration framework
+  - DONE: `src/db/migrations/` — dated `YYYYMMDDHHMM_*.ts` files exporting `up(db)`, applied in order by a runner that tracks ids in `schema_migrations`. `0000_baseline` wraps the old schema+v2–v7 alters (idempotent, no behaviour change). ⚠️ needs a run where better-sqlite3 builds to exercise the DB tests.
 - [ ] how to make wealth spendable or meaning full (same for stamina and health)?
   - how do we handle death or 0 HP?
 - [ ] stealth or following mechanics?
@@ -30,8 +33,8 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
   (but does it work with ephemeral..?)
 - [ ] use the "thinking" or loading interval in actions to display the user choice or action better and any possible response that is already known?
 - [ ] add a weight to time, the world should evolve with progression. DC should become higher, new threats appear
-- [ ] [2026-06-16 12:20:29.829] (node:30) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
-(Use `node --trace-warnings ...` to show where the warning was created)
+- [x] [2026-06-16 12:20:29.829] (node:30) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
+  - FIXED: all `{ ephemeral: true }` opts → `flags: MessageFlags.Ephemeral`; buildComponentPayload folds the bit into its V2 flags.
 - [ ] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty.
 - [ ] using a daily_action should immeadiately teleport the person (if they are nearby(?), safe, or at camp) to the place of their work (associate jobs with locations).
 

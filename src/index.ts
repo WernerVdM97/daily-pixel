@@ -144,15 +144,31 @@ let _client: Client | null = null;
  */
 async function notifyAdmin(label: string, err: unknown): Promise<void> {
   console.error(c.red(`[error] ${label}:`), err);
-  if (!_client || !ADMIN_USER_ID) return;
+  if (!ADMIN_USER_ID) return;
   const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
   // Discord messages cap at 2000 chars; leave room for the code fence + label.
   const body = `⚠️ **${label}**  ·  v${VERSION}\n\`\`\`\n${detail.slice(0, 1800)}\n\`\`\``;
+
+  // Prefer the live gateway client. Fall back to a REST DM when it isn't ready —
+  // boot-time failures (e.g. a rolled-back migration) happen before login, so the
+  // gateway path would silently degrade to a log and the admin would never hear.
+  if (_client) {
+    try {
+      const admin = await _client.users.fetch(ADMIN_USER_ID);
+      await admin.send(body);
+      return;
+    } catch (e) {
+      console.warn(c.yellow('[error] gateway DM failed, trying REST:'), e);
+    }
+  }
+
+  if (!DISCORD_TOKEN) return;
   try {
-    const admin = await _client.users.fetch(ADMIN_USER_ID);
-    await admin.send(body);
+    const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+    const dm = await rest.post(Routes.userChannels(), { body: { recipient_id: ADMIN_USER_ID } }) as { id: string };
+    await rest.post(Routes.channelMessages(dm.id), { body: { content: body } });
   } catch (e) {
-    console.warn(c.yellow('[error] could not DM admin the error:'), e);
+    console.warn(c.yellow('[error] could not DM admin (REST fallback):'), e);
   }
 }
 
@@ -166,9 +182,9 @@ async function notifyAdmin(label: string, err: unknown): Promise<void> {
 async function safeErrorReply(interaction: RepliableInteraction, content: string): Promise<void> {
   try {
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content, ephemeral: true });
+      await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
     } else {
-      await interaction.reply({ content, ephemeral: true });
+      await interaction.reply({ content, flags: MessageFlags.Ephemeral });
     }
   } catch (e) {
     console.warn(c.yellow('[error] could not surface error to user:'), e);
@@ -538,7 +554,7 @@ ${headInfo}`);
       if (!handler) {
         await interaction.reply({
           content: `Unknown command \`/${commandName}\`. Try \`/help\`.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -608,7 +624,7 @@ ${headInfo}`);
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong. Try `/join` again.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           }).catch(() => {});
         }
       }
@@ -645,12 +661,12 @@ ${headInfo}`);
       if (blocked !== null) {
         await interaction.reply({
           content: '❌ That action contains language the warden won\'t tolerate. Try something else.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       // Delete the stale day-job menu message so only the action scene shows
       const menuInfo = consumeMenuMessage(interaction.user.id);
@@ -702,14 +718,14 @@ ${headInfo}`);
       try {
         const char = engine.getCharacter(interaction.user.id);
         if (!char) {
-          await interaction.reply({ content: "You don't have a character. Type `/join` first.", ephemeral: true });
+          await interaction.reply({ content: "You don't have a character. Type `/join` first.", flags: MessageFlags.Ephemeral });
           return;
         }
         const dayNumber = Number(engine.getMeta('day_number') ?? '1');
         const jobActions = getDayJobActions(char.dayJob, dayJobs, { characterId: char.id, dayNumber });
         const hook = jobActions[idx]?.hook;
         if (!hook) {
-          await interaction.reply({ content: 'Invalid job action.', ephemeral: true });
+          await interaction.reply({ content: 'Invalid job action.', flags: MessageFlags.Ephemeral });
           return;
         }
         // Defer + immediately blank buttons to show loading
@@ -755,7 +771,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong with your action. Try `/action` again.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           }).catch(() => {});
         }
       }
@@ -776,14 +792,14 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           if (!char) {
             await interaction.reply({
               content: "You don't have a character yet. Type `/join` to create one.",
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
             });
             return;
           }
           if (char.rollsRemaining <= 0 && !char.lastActionState) {
             await interaction.reply({
               content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
             });
             return;
           }
@@ -797,7 +813,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
                 await interaction.reply({
                   embeds: [new EmbedBuilder().setTitle('⏳ Stale Action').setDescription(resumeResult.nextDecision.prompt || 'Could not recover.').setColor(0x95a5a6).toJSON()],
                   components: [],
-                  ephemeral: true,
+                  flags: MessageFlags.Ephemeral,
                 });
               } else {
                 setPendingDecision(interaction.user.id, resumeResult.nextDecision);
@@ -805,14 +821,14 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
                 await interaction.reply({
                   embeds: decisionMsg.embeds,
                   components: decisionMsg.components,
-                  ephemeral: true,
+                  flags: MessageFlags.Ephemeral,
                 });
               }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               await interaction.reply({
                 content: `❌ **Could not resume.**\n${msg}`,
-                ephemeral: true,
+                flags: MessageFlags.Ephemeral,
               });
             }
             return;
@@ -845,7 +861,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           await interaction.reply({
             embeds: [embed.toJSON()],
             components: [row.toJSON()],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         } catch (err) {
           void notifyAdmin('Nav (action) failed', err);
@@ -880,7 +896,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           }).catch(() => {});
         }
       }
