@@ -193,11 +193,11 @@ process.on('uncaughtException', (err) => {
 // ── Nightly tick scheduler ──
 
 /**
- * Schedule the world tick to fire at 3:30 UTC daily.
- * On each tick it advances the game day, posts the day transition to the
- * configured channel, then schedules the next tick.
+ * Schedule the world tick (DB-only) to fire at 3:30 UTC daily.
+ * Advances the game day — rolls, stamina, health, wealth, NPC movement.
+ * The morning announcement is handled separately by scheduleMorningAnnouncement.
  */
-function scheduleNightlyTick(engine: WorldEngine, client: Client, channelId: string): void {
+function scheduleTick(engine: WorldEngine): void {
   const now = Date.now();
   const next = new Date();
   next.setUTCHours(3, 30, 0, 0);
@@ -212,37 +212,92 @@ function scheduleNightlyTick(engine: WorldEngine, client: Client, channelId: str
   setTimeout(async () => {
     try {
       const result = engine.tick(false);
+      console.log(c.green(`[cron] Day ${result.dayNumber} tick completed. ${result.playersAffected} players affected.`));
+    } catch (err) {
+      console.error(c.red('[cron] Tick failed:'), err);
+      void notifyAdmin('Nightly tick failed', err);
+    }
 
-      const flavor = result.dayNumber <= 3
+    scheduleTick(engine);
+  }, delay);
+}
+
+/**
+ * Schedule the morning announcement to fire at 7:30 UTC daily.
+ * Reads post-tick state from the engine and posts the day-transition message
+ * with a "/hi" button to the configured Discord channel.
+ */
+function scheduleMorningAnnouncement(engine: WorldEngine, client: Client, channelId: string): void {
+  const now = Date.now();
+  const next = new Date();
+  next.setUTCHours(7, 30, 0, 0);
+  next.setUTCMinutes(30, 0, 0);
+  if (next.getTime() <= now) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  }
+
+  const delay = next.getTime() - now;
+  console.log(c.grey(`[cron] Next morning announcement scheduled for ${next.toISOString()} (in ${Math.round(delay / 60000)} min)`));
+
+  setTimeout(async () => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Idempotency: skip if already announced today
+      const lastAnnouncement = engine.getMeta('last_announcement_date');
+      if (lastAnnouncement === today) {
+        console.log(c.grey('[cron] Announcement already sent today — skipping.'));
+        scheduleMorningAnnouncement(engine, client, channelId);
+        return;
+      }
+
+      const dayNumber = engine.getMeta('day_number') ?? '1';
+      const playersAffected = Number(engine.getMeta('last_tick_players_affected') ?? '0');
+      const npcMovementCount = Number(engine.getMeta('last_tick_npc_movement_count') ?? '0');
+
+      const flavor = Number(dayNumber) <= 3
         ? 'The warden watches the horizon. The fire crackles, steady and low.'
         : 'The smoke on the eastern horizon has thickened. The warden hasn\'t spoken since yesterday.';
 
       const lines: string[] = [
-        `🌅 **Day ${result.dayNumber} begins.**`,
+        `🌅 **Day ${dayNumber} begins.**`,
         '',
         flavor,
         '',
         'The Oak awaits. `/hi` to begin.',
       ];
 
-      if (result.playersAffected > 0 || result.npcMovements.length > 0) {
+      if (playersAffected > 0 || npcMovementCount > 0) {
         lines.push('');
-        lines.push(`─ ${result.playersAffected} soul(s) stirred, ${result.npcMovements.length} NPC(s) on the move.`);
+        lines.push(`─ ${playersAffected} soul(s) stirred, ${npcMovementCount} NPC(s) on the move.`);
       }
 
       const channel = await client.channels.fetch(channelId);
       if (channel?.isTextBased() && 'send' in channel) {
-        await (channel as { send: (content: string) => Promise<unknown> }).send(lines.join('\n'));
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId('nav:hi')
+            .setLabel('Hi')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🌅'),
+        );
+
+        await (channel as { send: (opts: { content: string; components: unknown[] }) => Promise<unknown> }).send({
+          content: lines.join('\n'),
+          components: [row],
+        });
+
+        engine.setMeta('last_announcement_date', today);
+        console.log(c.green(`[cron] Day ${dayNumber} announcement posted.`));
       } else {
         console.error(c.red(`[cron] Channel ${channelId} is not a text channel or not found`));
       }
-
-      console.log(c.green(`[cron] Day ${result.dayNumber} tick completed. ${result.playersAffected} players affected.`));
     } catch (err) {
-      console.error(c.red('[cron] Tick failed:'), err);
+      console.error(c.red('[cron] Morning announcement failed:'), err);
+      void notifyAdmin('Morning announcement failed', err);
     }
 
-    scheduleNightlyTick(engine, client, channelId);
+    scheduleMorningAnnouncement(engine, client, channelId);
   }, delay);
 }
 
@@ -460,9 +515,10 @@ ${headInfo}`);
 
     // ── Nightly tick scheduler (3:30 UTC) ──
     if (TICK_CHANNEL_ID) {
-      scheduleNightlyTick(engine, readyClient, TICK_CHANNEL_ID);
+      scheduleTick(engine);
+      scheduleMorningAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
     } else {
-      console.warn(c.yellow('[cron] TICK_CHANNEL_ID not set — nightly tick will not post announcements. Use admin `/sleep` to advance the world.'));
+      console.warn(c.yellow('[cron] TICK_CHANNEL_ID not set — tick and morning announcements are disabled. Use admin `/sleep` to advance the world.'));
     }
   });
 
