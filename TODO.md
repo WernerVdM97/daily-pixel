@@ -3,6 +3,12 @@
 
 ## scratchpad (humans start here)
 
+### NB
+- [ ] add more narrative to the recent action journal entry
+- [ ] too many buttons missing
+- [ ] review 0.2.2
+
+### Other
 - [ ] the /join options should be loaded from the yaml, not injected in code. merge the hard coded options into the yamls in assets/
 - [ ] how to make wealth spendable or meaning full (same for stamina and health)?
   - how do we handle death or 0 HP?
@@ -13,7 +19,6 @@
 - [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
 - [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other. globals messages on nat 1 or 20
 - [ ] add a weight to time, the world should evolve with progression. DC should become higher, new threats appear
-- [ ] add more narrative to the recent action journal entry
 
 ## MVP — deferred
 
