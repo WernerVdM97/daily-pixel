@@ -123,8 +123,9 @@ export function makeHiCommand(
     // Character + location header
     const header = formatCharacterHeader(character);
     const location = engine.getLocation(character.location);
+    const locEmoji = location?.isSafe ? '🛡️' : '⚠️';
     const locationLine = location
-      ? `🏠 **${location.name}** ${location.isSafe ? '🛡️ Safe' : '⚠️ Unsafe'} — Use \`look\` for the full scene.`
+      ? `🏠 ${locEmoji} **${location.name}** — Use \`look\` for the full scene.`
       : `🏠 **${character.location}** — Use \`look\` for the full scene.`;
 
     // Determine day-job actions or weekend hooks

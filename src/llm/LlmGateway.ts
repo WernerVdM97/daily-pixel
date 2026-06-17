@@ -10,7 +10,7 @@ export interface LlmContext {
   location: { name: string };
   nearbyNpcs: { name: string; description: string }[];
   nearbyPcs: { name: string; class: string }[];
-  recentActions: { type: string; outcome: string }[];
+  recentActions: { type: string; outcome: string; narrative?: string | null }[];
   rawInput: string;
   previousDecisions?: { prompt: string; chosen: string; dcModifier: number }[];
   scalingHint: string;

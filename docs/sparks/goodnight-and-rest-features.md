@@ -95,9 +95,9 @@ When the feedback button is pressed:
 - [x] Migration: `ALTER TABLE actions ADD COLUMN narrative TEXT`
 - [x] Update `WorldEngine` calls to stamp `last_played_at`
 
-### Phase 2: Tick Penalty `[ ]`
+### Phase 2: Tick Penalty `[x]`
 
-- [ ] In `tick()`, check `last_played_at` for 3+ days, apply -3 health
+- [x] In `tick()`, check `last_played_at` for 3+ days, apply -3 health
 
 ### Phase 3: Nav + Location Emoji `[ ]`
 
@@ -109,15 +109,17 @@ When the feedback button is pressed:
 - [ ] Stamp `outcome.outcomeText` as `narrative` on action rows
 - [ ] Render narrative in `/journal`
 
-### Phase 5: Good Night Embed `[ ]`
+### Phase 5: Good Night Embed `[x]`
 
-- [ ] `/sleep` returns Components V2 payload with buttons
-- [ ] Handle button interactions (modal for feedback, nav to action)
+- [x] `/sleep` adds Action + Feedback buttons to the good night message
+- [x] Unsafe sleep penalty: -1 HP if bedding down outside a safe area
+- [x] Feedback button opens a modal, routes to engine.submitFeedback()
+- [x] Action button navigates to the day-job /action screen
 
-### Phase 6: Outcome Buttons `[ ]`
+### Phase 6: Outcome Buttons `[x]`
 
-- [ ] Append feedback/bug buttons to action outcome follow-ups
-- [ ] Handle modal submissions
+- [x] Append feedback/bug buttons to action outcome follow-ups
+- [x] Handle modal submissions
 
 ### Phase 7: Feedback Enhancement `[ ]`
 
@@ -127,12 +129,19 @@ When the feedback button is pressed:
 
 ---
 
+### Extra — soul count + alone indicator `[x]`
+
+- [x] Good night reports how many souls did not make it home (`countSoulsInUnsafe()`)
+- [x] `/look` shows "_Silence. You are alone here._" when no entities
+
+---
+
 ### Checkpoints
 
 1. Schema + migration tests pass → `[x]`
-2. Tick tests pass (absence penalty)
-3. Nav, location emoji render correctly
-4. Journal shows narrative
-5. Sleep command produces embed with working buttons
-6. Outcome message has working feedback/bug buttons
-7. Feedback captures screen + sentiment
+2. Tick tests pass (absence penalty) → `[x]`
+3. Nav, location emoji render correctly → `[x]`
+4. Journal shows narrative → `[x]`
+5. Sleep command produces embed with working buttons → `[x]`
+6. Outcome message has working feedback/bug buttons → `[x]`
+7. Feedback captures screen + sentiment → `[ ]`

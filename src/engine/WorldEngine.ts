@@ -147,6 +147,7 @@ export interface JournalAction {
   type: string;
   outcome: string;
   createdAt: string;
+  narrative?: string | null;
 }
 
 export interface NpcMovement {
@@ -194,6 +195,9 @@ export interface WorldEngine {
   /** Stamp the current time as the player's last interaction. */
   updateLastPlayed(characterId: number): void;
 
+  /** Count player characters currently at unsafe (non-safe) locations. */
+  countSoulsInUnsafe(): number;
+
   // Journal
   getJournal(characterId: number): JournalData;
 
@@ -203,6 +207,9 @@ export interface WorldEngine {
 
   // Rest & recovery
   restAtOak(discordUserId: string): CharacterData | null;
+
+  /** Apply a flat health delta (signed, clamped 0..max). Returns updated char or null. */
+  modifyHealth(discordUserId: string, amount: number): CharacterData | null;
 
   // World tick (S5)
   tick(isAdmin: boolean): TickResult;

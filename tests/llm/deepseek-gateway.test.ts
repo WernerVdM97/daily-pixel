@@ -143,6 +143,25 @@ describe('PromptBuilder — user message', () => {
     expect(result).toContain('success');
   });
 
+  it('weaves each recent action narrative into the thread when present', () => {
+    const ctx: LlmContext = {
+      ...minimalContext,
+      // Production order is newest-first (created_at DESC): hunt is the most recent.
+      recentActions: [
+        { type: 'hunt', outcome: 'failure', narrative: 'The stag bolted into the pines.' },
+        { type: 'travel', outcome: 'success', narrative: 'You crossed the river ford by dusk.' },
+      ],
+    };
+
+    const result = buildUserMessage(ctx);
+
+    expect(result).toContain('RECENT ACTIONS');
+    expect(result).toContain('You crossed the river ford by dusk.');
+    expect(result).toContain('The stag bolted into the pines.');
+    // Rendered oldest-first, so the older 'travel' beat precedes the newer 'hunt'.
+    expect(result.indexOf('crossed the river')).toBeLessThan(result.indexOf('stag bolted'));
+  });
+
   it('shows "none" when no recent actions', () => {
     const result = buildUserMessage(minimalContext);
 

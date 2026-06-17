@@ -54,7 +54,13 @@ export function buildUserMessage(ctx: LlmContext): string {
   }
 
   if (ctx.recentActions.length > 0) {
-    lines.push(`RECENT ACTIONS (last ${ctx.recentActions.length}): ${ctx.recentActions.map(a => `${a.type} (${a.outcome})`).join(', ')}`);
+    // Oldest→newest so the LLM reads the story forward. Each beat carries its
+    // narrative (the prior DM outcome text) when we have it, for continuity.
+    lines.push(`RECENT ACTIONS (last ${ctx.recentActions.length}, oldest first):`);
+    for (const a of [...ctx.recentActions].reverse()) {
+      const thread = a.narrative ? `: ${a.narrative}` : '';
+      lines.push(`- ${a.type} (${a.outcome})${thread}`);
+    }
   } else {
     lines.push('RECENT ACTIONS: none');
   }

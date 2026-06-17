@@ -72,16 +72,12 @@ interface NavButtonDef {
 
 const NAV_BUTTONS: NavButtonDef[] = [
   { id: 'hi',        label: 'Hi',        emoji: '🌅' },
-  { id: 'look',      label: 'Look',      emoji: '👁️' },
-  { id: 'stats',     label: 'Stats',     emoji: '📊' },
-  { id: 'backpack',  label: 'Backpack',  emoji: '🎒' },
   { id: 'journal',   label: 'Journal',   emoji: '📖' },
   {
     id: 'action',
     label: 'Action',
     emoji: '⚔️',
     // Hidden exactly when Sleep takes its place — out of rolls and not mid-action.
-    // Otherwise the button just dead-ends on the "out of actions for today" guard.
     showIf: (ctx) => ctx.rollsRemaining > 0 || ctx.hasPendingAction,
   },
   {
@@ -139,6 +135,20 @@ export function getNavButtons(
     });
   }
   return rows;
+}
+
+/** Service buttons for action outcomes: feedback + bug report. */
+export function getOutcomeServiceButtons(): Array<{
+  type: number;
+  components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }>;
+}> {
+  return [{
+    type: CT.ACTION_ROW,
+    components: [
+      { type: CT.BUTTON, custom_id: 'outcome:feedback', label: 'Feedback', emoji: { name: '💬' }, style: BS.SECONDARY },
+      { type: CT.BUTTON, custom_id: 'outcome:bug', label: 'Bug Report', emoji: { name: '🐛' }, style: BS.SECONDARY },
+    ],
+  }];
 }
 
 /**

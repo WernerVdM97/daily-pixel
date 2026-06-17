@@ -577,15 +577,31 @@ ${headInfo}`);
         const ephemeralCommands = ['stats', 'backpack', 'journal', 'bug', 'feedback', 'help', 'hi', 'look'];
         const isEphemeral = ephemeralCommands.includes(commandName);
 
-        // Nav buttons on all commands except /action (own buttons) and /sleep (global message)
+        let isAdminTick = false;
         let navButtons: ReturnType<typeof getNavButtons> | undefined;
-        if (commandName !== 'action' && commandName !== 'sleep') {
+
+        if (commandName === 'action') {
+          // /action manages its own buttons
+        } else if (commandName === 'sleep') {
+          isAdminTick = interaction.user.id === ADMIN_USER_ID && process.env.SLEEP_ADMIN_TICK === 'true';
+          if (!isAdminTick) {
+            // Good night message: Action + Feedback buttons
+            const char = engine.getCharacter(interaction.user.id);
+            if (char) {
+              navButtons = [{
+                type: 1, // ACTION_ROW
+                components: [
+                  { type: 2, custom_id: 'nav:action', label: 'Action', emoji: { name: '⚔️' }, style: 2 },
+                  { type: 2, custom_id: 'sleep:feedback', label: 'Feedback', emoji: { name: '💬' }, style: 2 },
+                ],
+              }];
+            }
+          }
+        } else {
           const char = engine.getCharacter(interaction.user.id);
           if (char) navButtons = getNavButtons(char, commandName);
         }
 
-        // Admin /sleep shows the world-tick banner only when ticking.
-        const isAdminTick = commandName === 'sleep' && interaction.user.id === ADMIN_USER_ID && process.env.SLEEP_ADMIN_TICK === 'true';
         const bannerFiles = isAdminTick ? imageFiles(BANNER_IMAGE) : [];
         const payload = buildComponentPayload(result, {
           ephemeral: isEphemeral,
@@ -717,6 +733,111 @@ ${headInfo}`);
         void notifyAdmin('Action (custom modal) failed', err);
         const msg = err instanceof Error ? err.message : String(err);
         await interaction.editReply({ content: `❌ **Could not act.**\n${msg}` }).catch(() => {});
+      }
+      return;
+    }
+
+    // ── Sleep feedback button ── opens a modal for feedback text
+    if (customId && customId === 'sleep:feedback') {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId('sleep:feedback:modal')
+        .setTitle('Share Feedback')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('sleep:feedback:input')
+              .setLabel('Your thoughts for the warden')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setPlaceholder('What did you enjoy? What could be better?'),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Sleep feedback modal submission ──
+    if (customId && customId === 'sleep:feedback:modal') {
+      if (!interaction.isModalSubmit()) return;
+      const text = interaction.fields.getTextInputValue('sleep:feedback:input');
+      await interaction.reply({ content: '🙏 Thanks. The warden listens.', flags: MessageFlags.Ephemeral });
+
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (char) {
+          engine.submitFeedback(char.id, text);
+        }
+      } catch (err) {
+        void notifyAdmin('Sleep feedback submission failed', err);
+      }
+      return;
+    }
+
+    // ── Outcome feedback button ── opens a modal
+    if (customId && customId === 'outcome:feedback') {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId('outcome:feedback:modal')
+        .setTitle('Share Feedback')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('outcome:feedback:input')
+              .setLabel('Your thoughts for the warden')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setPlaceholder('What did you enjoy? What could be better?'),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Outcome feedback modal submission ──
+    if (customId && customId === 'outcome:feedback:modal') {
+      if (!interaction.isModalSubmit()) return;
+      const text = interaction.fields.getTextInputValue('outcome:feedback:input');
+      await interaction.reply({ content: '🙏 Thanks. The warden listens.', flags: MessageFlags.Ephemeral });
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (char) engine.submitFeedback(char.id, text);
+      } catch (err) {
+        void notifyAdmin('Outcome feedback failed', err);
+      }
+      return;
+    }
+
+    // ── Outcome bug-report button ── opens a modal
+    if (customId && customId === 'outcome:bug') {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId('outcome:bug:modal')
+        .setTitle('Report a Bug')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('outcome:bug:input')
+              .setLabel('Describe the bug')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setPlaceholder('What went wrong?'),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Outcome bug-report modal submission ──
+    if (customId && customId === 'outcome:bug:modal') {
+      if (!interaction.isModalSubmit()) return;
+      const text = interaction.fields.getTextInputValue('outcome:bug:input');
+      await interaction.reply({ content: '🐛 Bug noted. The warden will investigate.', flags: MessageFlags.Ephemeral });
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (char) engine.submitBug(char.id, text);
+      } catch (err) {
+        void notifyAdmin('Outcome bug report failed', err);
       }
       return;
     }

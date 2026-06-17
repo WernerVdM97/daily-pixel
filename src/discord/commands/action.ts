@@ -24,7 +24,7 @@ import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
-import { getNavButtons, classEmoji } from '../format.js';
+import { getNavButtons, getOutcomeServiceButtons, classEmoji } from '../format.js';
 
 // ── Custom IDs ──
 
@@ -226,7 +226,9 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         await interaction.followUp({
           content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
           embeds: [embed],
-          ...(resolvedChar ? { components: getNavButtons(resolvedChar) } : {}),
+          ...(resolvedChar
+            ? { components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()] }
+            : { components: getOutcomeServiceButtons() }),
         });
         return 'action_autofinished';
       }
@@ -355,7 +357,9 @@ async function applyActionResult(
     await i.followUp({
       content: `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}`,
       embeds: [outcomeEmbed],
-      ...(character ? { components: getNavButtons(character) } : {}),
+      ...(character
+        ? { components: [...getNavButtons(character), ...getOutcomeServiceButtons()] }
+        : { components: getOutcomeServiceButtons() }),
     });
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
@@ -370,6 +374,61 @@ async function applyActionResult(
 /** How much easier the safest option must be than the next-best before passive
  *  insight will flag it — keeps the green hint a rare, earned tell. */
 const INSIGHT_MARGIN = 2;
+
+/** Discord caps an embed description at 4096 chars. */
+const MAX_EMBED_DESC = 4096;
+
+/** Quote every line of `text` as a Discord blockquote (blank lines keep the bar). */
+function quoteLines(text: string): string {
+  return text
+    .split('\n')
+    .map(line => (line.length > 0 ? `> ${line}` : '>'))
+    .join('\n');
+}
+
+/** Clip to `max` chars with a trailing ellipsis. */
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)).trimEnd() + '…';
+}
+
+/**
+ * Qualitative difficulty arrow for a choice's DC modifier — no raw numbers.
+ * A negative modifier lowered the DC (easier → green down); a positive one
+ * raised it (harder → red up); zero shows nothing. (Flip the two glyphs here to
+ * reverse the convention.)
+ */
+function dcArrow(mod: number | null | undefined): string {
+  if (mod == null || mod === 0) return '';
+  return mod < 0 ? '🟢⬇️' : '🔴⬆️';
+}
+
+/**
+ * Render the encounter "story so far" as a gamebook thread: the quest line,
+ * then each prior beat as the DM's prompt (quoted) followed by the player's
+ * choice (bold). `collapse` drops the prompt bodies down to a choice-only
+ * breadcrumb — the graceful-degradation form used when the full thread would
+ * overflow the embed description cap.
+ */
+function buildStoryThread(
+  rawInput: string,
+  decisions: Array<{ prompt: string; chosen: string; dcModifier?: number }>,
+  collapse = false,
+): string {
+  const out = [`> 🧭 **Quest:** ${rawInput}`];
+  for (const d of decisions) {
+    // A green/red arrow flags whether the choice was easier or harder (no raw DC).
+    const arrow = dcArrow(d.dcModifier);
+    const choice = `${d.chosen}${arrow ? ` ${arrow}` : ''}`;
+    if (collapse) {
+      out.push(`> ↳ *${choice}*`);
+    } else {
+      out.push('');
+      out.push(quoteLines(d.prompt));
+      out.push(`↪ **${choice}**`);
+    }
+  }
+  return out.join('\n');
+}
 
 export function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
@@ -387,17 +446,16 @@ export function buildDecisionMessage(
   const runningDc = state?.accumulatedDc;
   const passiveInsight = char ? 10 + char.stats.wisdom : undefined;
 
-  // ── Path so far (quoted) — visually separates the player's intent + prior
-  // choices ("decisions") from the current scene below ("response"). ──
+  // ── Gamebook layout — the story so far (quest + prior beats, DM prompts
+  // quoted, player choices bold) above the current scene, also quoted as DM
+  // narration. The lettered options below are the only unquoted, actionable
+  // text. Mirrors the outcome recap so the whole /action flow reads as one
+  // continuous gamebook page. ──
   const blocks: string[] = [];
   if (state) {
-    const path: string[] = [`> 🧭 **Quest:** ${state.rawInput}`];
-    for (const d of state.decisions) {
-      path.push(`> ↳ *${d.chosen}*`);
-    }
-    blocks.push(path.join('\n'));
+    blocks.push(buildStoryThread(state.rawInput, state.decisions));
   }
-  blocks.push(decision.prompt);
+  blocks.push(quoteLines(decision.prompt));
 
   // List the real (non-bail) options in the body as A. / B. / C. so button
   // captions can be just the letter — nothing truncates on mobile.
@@ -455,12 +513,17 @@ export function buildDecisionMessage(
     }
   });
 
-  const withOptions = optionLines.length > 0
-    ? `${blocks.join('\n\n')}\n\n${optionLines.join('\n')}`
-    : blocks.join('\n\n');
-  const truncated = withOptions.length > 4000
-    ? withOptions.slice(0, 3997) + '...'
-    : withOptions;
+  // Fit the embed description cap, degrading gracefully: full gamebook →
+  // collapse the history to a choice breadcrumb → hard clip. The clickable
+  // buttons live in `components` (always present), so even a hard clip of the
+  // option text below never disables the choices.
+  const optionsTail = optionLines.length > 0 ? `\n\n${optionLines.join('\n')}` : '';
+  let truncated = blocks.join('\n\n') + optionsTail;
+  if (truncated.length > MAX_EMBED_DESC && state) {
+    truncated = [buildStoryThread(state.rawInput, state.decisions, true), quoteLines(decision.prompt)]
+      .join('\n\n') + optionsTail;
+  }
+  if (truncated.length > MAX_EMBED_DESC) truncated = clip(truncated, MAX_EMBED_DESC);
 
   const footerText = favouredIdx >= 0
     ? '🟢 a safer path catches your eye'
@@ -513,28 +576,31 @@ export function buildOutcomeEmbed(
     : [outcome.distilledType];
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
-  const trail: string[] = [];
-  if (breadcrumb) {
-    trail.push(breadcrumb);
-    trail.push('');
-  }
-  if (scene) {
-    trail.push('```');
-    trail.push(scene);
-    trail.push('```');
-    trail.push('');
-  }
-  trail.push(`**You:** ${state.rawInput}`);
-  for (const d of state.decisions) {
-    trail.push(`**Decision:** ${d.prompt}`);
-    trail.push(`→ *${d.chosen}* (DC ${d.dcModifier >= 0 ? '+' : ''}${d.dcModifier})`);
-  }
-  trail.push('');
-  trail.push(formatOutcome(outcome, ctx));
+  const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
+  const outcomeBlock = formatOutcome(outcome, ctx);
+
+  // Full gamebook recap: the action-type breadcrumb, the destination scene, then
+  // the story thread (quest + each beat's DM prompt quoted, player choice bold),
+  // and finally the resolution as the focal unquoted text. Degrade gracefully to
+  // fit the 4096-char embed cap: full → collapse history to a choice breadcrumb →
+  // drop the decorative scene → hard clip.
+  const assemble = (collapseHistory: boolean, includeScene: boolean): string => {
+    const parts: string[] = [];
+    if (breadcrumb) parts.push(breadcrumb);
+    if (includeScene && sceneBlock) parts.push(sceneBlock);
+    parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory));
+    parts.push(outcomeBlock);
+    return parts.join('\n\n');
+  };
+
+  let description = assemble(false, true);
+  if (description.length > MAX_EMBED_DESC) description = assemble(true, true);
+  if (description.length > MAX_EMBED_DESC) description = assemble(true, false);
+  if (description.length > MAX_EMBED_DESC) description = clip(description, MAX_EMBED_DESC);
 
   return new EmbedBuilder()
     .setTitle(`${distilledActionEmoji(outcome.distilledType)} ${capitalize(outcome.distilledType)}`)
-    .setDescription(trail.join('\n'))
+    .setDescription(description)
     .setColor(outcomeColor(outcome.outcome))
     .toJSON();
 }

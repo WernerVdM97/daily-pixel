@@ -20,7 +20,7 @@ import { DIVINE_INTERVENTION_TYPE } from '../../llm/FallbackLlmGateway.js';
 export interface WorldContextResolver {
   getNearbyNpcs(location: string): Array<{ name: string; description: string }>;
   getNearbyPcs(location: string, excludeCharId: number): Array<{ name: string; class: string }>;
-  getRecentActions(characterId: number): Array<{ type: string; outcome: string }>;
+  getRecentActions(characterId: number): Array<{ type: string; outcome: string; narrative?: string | null }>;
   /** All known location names — so the LLM can generate valid set_location mutations. */
   getKnownLocations(): string[];
 }

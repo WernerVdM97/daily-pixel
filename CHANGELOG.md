@@ -6,7 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.3.0] — 2026-06-17
+### Added
+- **Good night message with Action/Feedback buttons** — `/sleep` now shows a Components V2 good-night embed with an ⚔️ Action button (opens day-job menu) and a 💬 Feedback button (opens a modal). The message reports how many souls did not make it home.
+- **Unsafe sleep penalty** — sleeping in an unsafe location costs -1 HP. Flavour text reflects the rough night.
+- **Feedback & Bug Report buttons on action outcomes** — public action outcome messages now include 💬 Feedback and 🐛 Bug Report buttons that open modals, routing to `engine.submitFeedback()` / `engine.submitBug()`.
+- **Three-day absence penalty** — players who haven't interacted in 3+ calendar days lose 3 health at world tick. Tracked via new `last_played_at` column on `player_characters`.
+- **Journal narrative** — LLM outcome text is saved as `narrative` on action rows and shown as quoted story beats in `/journal`. Requires the new `actions.narrative` column.
+- **Safety emojis on location names** — location names are prefixed with 🛡️ (safe) or ⚠️ (unsafe) in `/hi`, `/look`, and `/journal`.
+- **"You are alone here" indicator** — `/look` shows "_Silence. You are alone here._" when no NPCs or other players are present.
+- **`countSoulsInUnsafe()`** — new `WorldEngine` method that counts player characters at unsafe locations. Used by the good night message.
+- **`modifyHealth()`** — new `WorldEngine` method for flat health modification (clamped 0..max).
+- **`updateLastPlayed()`** — stamps the current time on a character's `last_played_at` field. Called on `/action`, `/hi`, `/look`, `/sleep`.
+
+### Changed
+- **`/action` gamebook layout** — both the live decision screen and the outcome recap now read as one continuous gamebook page: the DM's narration (quest, each scene prompt, the final resolution) is rendered as Discord blockquotes, and the player's choices stand out in bold (`↪ **Choice**`). Replaces the old mixed `**Decision:** … → *choice*` formatting that ran together in long multi-decision encounters. Each past choice now shows a qualitative difficulty arrow instead of a raw DC number — 🟢⬇️ when the choice lowered the DC (easier), 🔴⬆️ when it raised it (harder). Descriptions degrade gracefully to fit Discord's 4096-char embed cap (full thread → collapse history to a choice breadcrumb → drop the scene art → hard clip), so long encounters never fail to send.
+- **Recent-action narrative thread fed to the LLM** — the decision prompt's `RECENT ACTIONS` block now carries each prior action's stored `narrative` (the DM outcome text), rendered oldest→newest for story continuity, and the count fed to the LLM rose from 2 to 3. Previously only `type (outcome)` was passed.
+- **Nav button cleanup** — removed `look`, `stats`, and `backpack` from the global navigation bar. Remaining buttons: `hi`, `journal`, `action`, `sleep`.
+- **`/hi` location safety display** — moved the safety emoji onto the location name itself instead of a separate text badge.
+
+### Fixed
+- `MockWorldEngine` now implements all `WorldEngine` interface methods (`updateLastPlayed`, `modifyHealth`, `countSoulsInUnsafe`).
+
+## [0.2.2] — 2026-06-17
 ### Added
 - **DB migration framework** — `src/db/migrations/` holds dated `YYYYMMDDHHMM_<description>.ts` files, each exporting `up(db)`. A runner applies any whose id isn't yet in the new `schema_migrations` ledger table, in chronological order. The `…_baseline` migration wraps the prior `schema.sql` + v2–v7 idempotent ALTERs, so existing production DBs run it as a no-op and are simply stamped; fresh DBs build from scratch. Replaces the single growing `migrate()` function.
 - **Applied-mutation insight logging** — every resolved action now persists the mutations *actually applied* (post-validation, post-failure-strip) as JSON in the new `actions.applied_mutations` column, and emits a concise always-on `[mutations]` log line with the net before→after state change (e.g. `rolls 1→0`). Makes anomalies like a roll handed back via `modify_rolls_remaining` greppable from the live log and queryable after the fact.

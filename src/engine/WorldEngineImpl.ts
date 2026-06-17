@@ -243,8 +243,8 @@ export class WorldEngineImpl implements WorldEngine {
           .map(c => ({ name: c.name, class: c.class }));
       },
       getRecentActions: (characterId: number) => {
-        return this.actionRepo.findRecentByCharacterId(characterId, 2)
-          .map(a => ({ type: a.type, outcome: a.outcome }));
+        return this.actionRepo.findRecentByCharacterId(characterId, 3)
+          .map(a => ({ type: a.type, outcome: a.outcome, narrative: a.narrative }));
       },
       getKnownLocations: () => {
         return this.locationRepo.findAll().map(l => l.name);
@@ -395,6 +395,8 @@ export class WorldEngineImpl implements WorldEngine {
       appVersion: APP_VERSION,
       promptVersion: PROMPT_VERSION,
       appliedMutations: outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
+      // Save the LLM's outcome text as narrative for the journal
+      narrative: outcome.outcomeText.slice(0, 500) ?? null,
     });
 
     // Link the audit row to the action it produced (best-effort)
@@ -679,6 +681,7 @@ export class WorldEngineImpl implements WorldEngine {
         type: r.type,
         outcome: r.outcome,
         createdAt: r.created_at,
+        narrative: r.narrative,
       })),
     };
   }
@@ -720,6 +723,28 @@ export class WorldEngineImpl implements WorldEngine {
     });
   }
 
+  // ── Health modifier ──
+
+  countSoulsInUnsafe(): number {
+    const allChars = this.charRepo.findAll();
+    let count = 0;
+    for (const charRow of allChars) {
+      const loc = this.locationRepo.findByName(charRow.location);
+      if (!loc || loc.is_safe !== 1) count++;
+    }
+    return count;
+  }
+
+  modifyHealth(discordUserId: string, amount: number): CharacterData | null {
+    const user = this.userRepo.findByDiscordId(discordUserId);
+    if (!user) return null;
+    const row = this.charRepo.findByUserId(user.id);
+    if (!row) return null;
+    const newHealth = Math.max(0, Math.min(row.max_health, row.health + amount));
+    this.charRepo.update(row.id, { health: newHealth });
+    return this.rowToCharacterData({ ...row, health: newHealth });
+  }
+
   // ── World tick (S5) ──
 
   tick(isAdmin: boolean): TickResult {
@@ -757,6 +782,22 @@ export class WorldEngineImpl implements WorldEngine {
           newHealth = Math.min(charRow.health + 3, charRow.max_health);
         } else {
           newStamina = Math.max(charRow.stamina - 1, 0);
+        }
+
+        // Three-day absence penalty: if the player hasn't interacted
+        // in 3+ days (by calendar date), they lose 3 health.
+        if (charRow.last_played_at) {
+          const lastDate = charRow.last_played_at.slice(0, 10);
+          const diffMs = new Date(today + 'T00:00:00').getTime() - new Date(lastDate + 'T00:00:00').getTime();
+          const diffDays = Math.floor(diffMs / 86400000);
+          if (diffDays >= 3) {
+            const absentPenalty = Math.min(3, newHealth !== undefined ? newHealth : charRow.health);
+            if (newHealth !== undefined) {
+              newHealth = Math.max(0, newHealth - absentPenalty);
+            } else {
+              newHealth = Math.max(0, charRow.health - absentPenalty);
+            }
+          }
         }
 
         const income = this.dayJobIncome[charRow.day_job] ?? 0;
