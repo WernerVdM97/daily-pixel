@@ -179,7 +179,7 @@ Return ONLY valid JSON. No markdown fences, no commentary outside the JSON objec
 { "type": "modify_wealth", "amount": 5 }
 { "type": "add_item", "name": "Wolf Pelt", "emoji": "🐺", "stat": "physical", "modifier": 1, "quantity": 1 }
 { "type": "remove_item", "name": "Torch" }
-{ "type": "spawn_npc", "name": "Nikolai", "class": "Ranger", "race": "Elf", "description": "A hunter that services to the town butchery. He is old and quiet." }
+{ "type": "spawn_npc", "name": "Nikolai", "class": "Ranger", "race": "Elf", "description": "A hunter that offers services to the town butchery. He is old and quiet." }
 { "type": "set_location", "name": "The Dark Pines" }
 { "type": "modify_rolls_remaining", "amount": 1 }
 { "type": "modify_max_stamina", "amount": 1 }
