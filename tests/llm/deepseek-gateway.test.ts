@@ -15,13 +15,12 @@ describe('PromptBuilder — system prompt', () => {
     expect(result).toContain('game master');
   });
 
-  it('includes the decision rules (distilled_type, stat, base_dc, required, done)', () => {
+  it('includes the decision rules (distilled_type, stat, base_dc, required, dc_modifier)', () => {
     const result = buildSystemPrompt();
 
     expect(result).toContain('distilled_type');
     expect(result).toContain('base_dc');
     expect(result).toContain('required');
-    expect(result).toContain('done');
     expect(result).toContain('dc_modifier');
     expect(result).toContain('bail');
   });
@@ -141,6 +140,25 @@ describe('PromptBuilder — user message', () => {
     expect(result).toContain('failure');
     expect(result).toContain('travel');
     expect(result).toContain('success');
+  });
+
+  it('weaves each recent action narrative into the thread when present', () => {
+    const ctx: LlmContext = {
+      ...minimalContext,
+      // Production order is newest-first (created_at DESC): hunt is the most recent.
+      recentActions: [
+        { type: 'hunt', outcome: 'failure', narrative: 'The stag bolted into the pines.' },
+        { type: 'travel', outcome: 'success', narrative: 'You crossed the river ford by dusk.' },
+      ],
+    };
+
+    const result = buildUserMessage(ctx);
+
+    expect(result).toContain('RECENT ACTIONS');
+    expect(result).toContain('You crossed the river ford by dusk.');
+    expect(result).toContain('The stag bolted into the pines.');
+    // Rendered oldest-first, so the older 'travel' beat precedes the newer 'hunt'.
+    expect(result.indexOf('crossed the river')).toBeLessThan(result.indexOf('stag bolted'));
   });
 
   it('shows "none" when no recent actions', () => {

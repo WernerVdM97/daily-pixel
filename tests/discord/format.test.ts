@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildComponentPayload, getNavButtons, SEPARATOR, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
+import { buildComponentPayload, getNavButtons, classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
 
 const CONTAINER = 17;
 const TEXT_DISPLAY = 10;
@@ -50,5 +50,59 @@ describe("buildComponentPayload", () => {
     // The container is first; nav action rows follow.
     expect(payload.components[0].type).toBe(CONTAINER);
     expect(payload.components.length).toBeGreaterThan(1);
+  });
+
+  it("folds the ephemeral option into the flags bitfield (no deprecated `ephemeral` field)", () => {
+    const EPHEMERAL = 1 << 6;
+    const payload = buildComponentPayload("hi", { ephemeral: true });
+    expect("ephemeral" in payload).toBe(false);
+    expect(payload.flags & EPHEMERAL).toBe(EPHEMERAL);
+    expect(payload.flags & IS_COMPONENTS_V2).toBe(IS_COMPONENTS_V2);
+    // Non-ephemeral leaves the bit clear.
+    expect(buildComponentPayload("hi").flags & EPHEMERAL).toBe(0);
+  });
+});
+
+describe("classEmoji", () => {
+  it("maps known classes to their emoji", () => {
+    expect(classEmoji("Warrior")).toBe("⚔️");
+    expect(classEmoji("Ranger")).toBe("🏹");
+    expect(classEmoji("Wizard")).toBe("🔮");
+    expect(classEmoji("Bard")).toBe("🎵");
+    expect(classEmoji("Priest")).toBe("✝️");
+  });
+
+  it("falls back for unknown, null, or undefined classes", () => {
+    expect(classEmoji("Necromancer")).toBe(CLASS_EMOJI_FALLBACK);
+    expect(classEmoji(null)).toBe(CLASS_EMOJI_FALLBACK);
+    expect(classEmoji(undefined)).toBe(CLASS_EMOJI_FALLBACK);
+    expect(classEmoji("")).toBe(CLASS_EMOJI_FALLBACK);
+  });
+});
+
+// Helper: collect the nav button ids a context produces.
+function navIds(char: { rollsRemaining: number; lastActionState: unknown }, current?: string): string[] {
+  return getNavButtons(char, current).flatMap(row =>
+    row.components.map(b => b.custom_id.replace(/^nav:/, "")),
+  );
+}
+
+describe("getNavButtons — action/sleep are mutually exclusive", () => {
+  it("shows Action (not Sleep) while rolls remain", () => {
+    const ids = navIds({ rollsRemaining: 2, lastActionState: null });
+    expect(ids).toContain("action");
+    expect(ids).not.toContain("sleep");
+  });
+
+  it("shows Sleep (not Action) when out of rolls and idle", () => {
+    const ids = navIds({ rollsRemaining: 0, lastActionState: null });
+    expect(ids).toContain("sleep");
+    expect(ids).not.toContain("action");
+  });
+
+  it("shows Action (not Sleep) when out of rolls but mid-action — so you can resume", () => {
+    const ids = navIds({ rollsRemaining: 0, lastActionState: { foo: 1 } });
+    expect(ids).toContain("action");
+    expect(ids).not.toContain("sleep");
   });
 });

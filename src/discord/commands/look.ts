@@ -16,12 +16,15 @@ function npcEmoji(classOrType: string): string {
   if (t.includes('herbalist') || t.includes('alchemist')) return '🌿';
   if (t.includes('acolyte') || t.includes('priest')) return '🙏';
   if (t.includes('wanderer') || t.includes('vagrant')) return '🗝️';
+  if (t.includes('warden')) return '🔥';
   return '🗣️';
 }
 
 /** Format the entities section of the /look output. */
 function formatEntities(entities: NearbyEntity[]): string {
-  if (entities.length === 0) return '';
+  if (entities.length === 0) {
+    return ['', '_Silence. You are alone here._'].join('\n');
+  }
 
   const lines: string[] = [];
   lines.push('');
@@ -73,7 +76,8 @@ export function makeLookCommand(
     lines.push(ascii);
     lines.push('```');
     lines.push("");
-    lines.push(`🏠 **${location.name}**`);
+    const locEmoji = location.isSafe ? '🛡️' : '⚠️';
+    lines.push(`🏠 ${locEmoji} **${location.name}**`);
     lines.push(SEPARATOR);
     lines.push(location.description);
 

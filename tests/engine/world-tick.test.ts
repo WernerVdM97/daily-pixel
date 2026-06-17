@@ -25,6 +25,8 @@ function createTestChar(
     max_health?: number;
     wealth?: number;
     day_job?: string;
+    /** Set last_played_at after creation. Use raw date string 'YYYY-MM-DD HH:MM:SS'. */
+    last_played_at?: string;
   },
 ): { userId: number; characterId: number } {
   const user = userRepo.create('123456789');
@@ -44,6 +46,12 @@ function createTestChar(
     wealth: overrides?.wealth ?? 5,
     last_action_state: null,
   });
+
+  // Post-creation: stamp last_played_at if provided
+  if (overrides?.last_played_at !== undefined) {
+    charRepo.update(char.id, { last_played_at: overrides.last_played_at });
+  }
+
   return { userId: user.id, characterId: char.id };
 }
 
@@ -447,6 +455,106 @@ describe('world tick', () => {
 
       const result = engine.tick(true);
       expect(result.playersAffected).toBe(2);
+    });
+
+    describe('three-day absence penalty', () => {
+      beforeEach(() => {
+        vi.setSystemTime(new Date('2026-06-15T12:00:00Z'));
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+        vi.useFakeTimers();
+      });
+
+      it('skips penalty when last_played_at is null (new character)', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, { health: 10, max_health: 10 });
+
+        engine.tick(true);
+
+        const char = charRepo.findByUserId(1);
+        // Should get full safe recovery (health +3) since no absence penalty
+        expect(char!.health).toBe(10); // 10+3=13 capped at 10
+        expect(char!.stamina).toBe(10); // 10+5=15 capped at 10
+      });
+
+      it('applies -3 health when player has not played in 3+ days', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          health: 10,
+          max_health: 10,
+          last_played_at: '2026-06-10 12:00:00',
+        });
+
+        // Tick at 2026-06-15: diff = 5 days >= 3
+        engine.tick(true);
+
+        const char = charRepo.findByUserId(1);
+        // Safe location: +3 → 13 capped at 10, then absence penalty: -3 → 7
+        expect(char!.health).toBe(7);
+      });
+
+      it('applies -3 health to a wounded character (does not go below 0)', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          health: 4,
+          max_health: 10,
+          last_played_at: '2026-06-10 12:00:00',
+        });
+
+        engine.tick(true);
+
+        const char = charRepo.findByUserId(1);
+        // Safe recovery: +3 → 7 (capped at 10), then absence penalty: -3 → 4
+        expect(char!.health).toBe(4);
+      });
+
+      it('floors health at 0 when absence + low health', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          health: 2,
+          max_health: 10,
+          last_played_at: '2026-06-10 12:00:00',
+        });
+
+        engine.tick(true);
+
+        const char = charRepo.findByUserId(1);
+        // Safe recovery: +3 → 5, then absence penalty: -3 → 2
+        expect(char!.health).toBe(2);
+      });
+
+      it('does not penalize if last_played_at is less than 3 days ago', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          health: 8,
+          max_health: 10,
+          last_played_at: '2026-06-13 12:00:00',
+        });
+
+        engine.tick(true);
+
+        const char = charRepo.findByUserId(1);
+        // Safe recovery: +3 → 11 capped at 10, no penalty (2 days < 3)
+        expect(char!.health).toBe(10);
+      });
+
+      it('absence penalty also applies in unsafe locations', () => {
+        const { engine, charRepo, userRepo, locationRepo } = makeEngine();
+        locationRepo.create({ name: 'Dark Forest', tags: 'forest,wilderness', isSafe: 0 });
+        createTestChar(charRepo, userRepo, {
+          health: 10,
+          max_health: 10,
+          location: 'Dark Forest',
+          last_played_at: '2026-06-10 12:00:00',
+        });
+
+        engine.tick(true);
+
+        const char = charRepo.findByUserId(1);
+        // Unsafe: no health recovery, then -3 absence penalty
+        expect(char!.health).toBe(7);
+      });
     });
   });
 

@@ -9,7 +9,7 @@ import type {
   CharacterData,
   ItemData,
 } from '../WorldEngine.js';
-import { accumulateDc, computeItemBonus, computeRollBonus, resolveRoll, validateDcModifier } from './dc.js';
+import { accumulateDc, itemStatModifier, abilityCheckBonus, resolveRoll, validateDcModifier } from './dc.js';
 import { DIVINE_INTERVENTION_TYPE } from '../../llm/FallbackLlmGateway.js';
 
 /**
@@ -20,7 +20,7 @@ import { DIVINE_INTERVENTION_TYPE } from '../../llm/FallbackLlmGateway.js';
 export interface WorldContextResolver {
   getNearbyNpcs(location: string): Array<{ name: string; description: string }>;
   getNearbyPcs(location: string, excludeCharId: number): Array<{ name: string; class: string }>;
-  getRecentActions(characterId: number): Array<{ type: string; outcome: string }>;
+  getRecentActions(characterId: number): Array<{ type: string; outcome: string; narrative?: string | null }>;
   /** All known location names — so the LLM can generate valid set_location mutations. */
   getKnownLocations(): string[];
 }
@@ -75,17 +75,23 @@ export class ActionStateMachine {
     const context = this.buildContext(char, rawInput, [], items);
     const decision = await this.llm.decide(context);
 
-    // Auto-finish: the LLM resolved the action outright (e.g. travel/rest) with no
-    // real choices and not as a forced reaction. Resolve immediately as a neutral
-    // `done` instead of presenting a lone red "Step back". Divine intervention is
-    // excluded — it has its own handling in the engine (no action row).
+    // Auto-finish: the action has no real choices and isn't a forced reaction
+    // (e.g. travel/rest). We *infer* completion from the absence of real options
+    // rather than trusting the LLM's `done` flag — if it omits `done` but also
+    // gives nothing to choose, the only alternative is a lone red "Step back"
+    // dead-end, so resolve it immediately as a neutral `done`. Divine intervention
+    // is excluded — it has its own handling in the engine (no action row).
     const realOptions = decision.decision.filter(o => o.dcModifier !== null);
     if (
-      decision.done &&
       !decision.required &&
       realOptions.length === 0 &&
       decision.distilledType !== DIVINE_INTERVENTION_TYPE
     ) {
+      console.log(
+        `[action] auto-finished char=${char.id} ${decision.distilledType} — ` +
+        `LLM returned ${decision.decision.length} option(s), 0 real (only step-back)` +
+        `${decision.done ? '' : '; done:false → inferred from no options'} | input: "${rawInput}"`,
+      );
       const state: InternalActionState = {
         rawInput,
         decisions: [],
@@ -262,7 +268,7 @@ export class ActionStateMachine {
   ): Promise<{ resolved: true; state: InternalActionState; outcome: ActionOutcome }> {
     const d20 = this.rollD20();
     // Ability check: d20 + character's own stat + item bonus for that stat.
-    const bonus = computeRollBonus(char.stats, items, state.rollStat);
+    const bonus = abilityCheckBonus(char.stats, items, state.rollStat);
     const outcome = resolveRoll(d20, bonus, newDc);
 
     // Narration call — same gateway, with the verdict attached to the context.
@@ -345,7 +351,7 @@ export class ActionStateMachine {
     // see which approaches the player's gear favours. Character ability scores are
     // already in the CHARACTER line. See ADR per-option-stat-and-ability-checks.
     const itemBonuses = ALL_STATS
-      .map(s => ({ s, b: computeItemBonus(items, s) }))
+      .map(s => ({ s, b: itemStatModifier(items, s) }))
       .filter(x => x.b !== 0)
       .map(x => `${x.s} ${x.b >= 0 ? '+' : ''}${x.b}`);
     hintParts.push(itemBonuses.length > 0 ? `item bonuses: ${itemBonuses.join(', ')}` : 'no item stat bonuses');

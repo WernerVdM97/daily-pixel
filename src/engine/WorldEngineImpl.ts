@@ -26,6 +26,7 @@ import type {
   ActionResumeResult,
   ActionOutcome,
   ActionDecisionRecord,
+  WorldMutation,
   NearbyEntity,
   LocationInfo,
   ItemData,
@@ -58,6 +59,70 @@ function seededRandomRange(seed: number, min: number, max: number): number {
 function locationTagsContain(tags: string | null, tag: string): boolean {
   if (!tags) return false;
   return tags.split(',').map(t => t.trim()).includes(tag);
+}
+
+// ── Mutation insight logging ──
+
+/** Net character-state change after `after` (mutated) is applied to a CharacterRow.
+ *  Subset of CharacterRow we read for the before→after diff. */
+type AppliedStateView = {
+  currentHealth: number;
+  stamina: number;
+  maxStamina: number;
+  wealth: number;
+  rollsRemaining: number;
+  location: string;
+};
+
+/** Compact, human-readable summary of one applied mutation, e.g. `wealth+5`,
+ *  `→Town Square`, `+item:Rabbit Pelt`. */
+function summariseMutation(m: WorldMutation): string {
+  switch (m.type) {
+    case 'set_location': return `→${String(m.name ?? '?')}`;
+    case 'add_item': return `+item:${String(m.name ?? '?')}`;
+    case 'remove_item': return `-item:${String(m.name ?? '?')}`;
+    case 'spawn_npc': return `npc:${String(m.name ?? '?')}`;
+    default: {
+      // modify_* — show the signed amount against the trimmed stat name.
+      const stat = m.type.replace(/^modify_/, '');
+      const amt = Number(m.amount ?? 0);
+      return `${stat}${amt >= 0 ? '+' : ''}${amt}`;
+    }
+  }
+}
+
+/** Only the character fields that changed, as `before→after` pairs. */
+function stateDeltas(before: CharacterRow, after: AppliedStateView): string {
+  const parts: string[] = [];
+  if (after.currentHealth !== before.health) parts.push(`hp ${before.health}→${after.currentHealth}`);
+  if (after.stamina !== before.stamina) parts.push(`sta ${before.stamina}→${after.stamina}`);
+  if (after.maxStamina !== before.max_stamina) parts.push(`maxSta ${before.max_stamina}→${after.maxStamina}`);
+  if (after.wealth !== before.wealth) parts.push(`wealth ${before.wealth}→${after.wealth}`);
+  if (after.rollsRemaining !== before.rolls_remaining) parts.push(`rolls ${before.rolls_remaining}→${after.rollsRemaining}`);
+  if (after.location !== before.location) parts.push(`loc ${before.location}→${after.location}`);
+  return parts.join(', ') || 'no state change';
+}
+
+/** One concise, always-on line per resolved action: the mutations actually
+ *  applied plus the net before→after state change. Makes anomalies (e.g. a roll
+ *  handed back via modify_rolls_remaining) greppable from the live log. */
+function logAppliedMutations(
+  characterId: number,
+  outcome: ActionOutcome,
+  before: CharacterRow,
+  after: AppliedStateView,
+): void {
+  const roll = outcome.playerRolled != null
+    ? `roll=${outcome.playerRolled}${outcome.rollBonus ? `+${outcome.rollBonus}` : ''} vs DC${outcome.finalDc}`
+    : 'no-roll';
+  const muts = outcome.mutations.length > 0
+    ? outcome.mutations.map(summariseMutation).join(', ')
+    : 'none';
+  const call = outcome.llmCallId !== undefined ? ` call=${outcome.llmCallId}` : '';
+  console.log(
+    `[mutations] char=${characterId} ${outcome.distilledType}/${outcome.outcome} ${roll}${call} | ` +
+    `applied: ${muts} | net: ${stateDeltas(before, after)}`,
+  );
 }
 
 /**
@@ -178,8 +243,8 @@ export class WorldEngineImpl implements WorldEngine {
           .map(c => ({ name: c.name, class: c.class }));
       },
       getRecentActions: (characterId: number) => {
-        return this.actionRepo.findRecentByCharacterId(characterId, 2)
-          .map(a => ({ type: a.type, outcome: a.outcome }));
+        return this.actionRepo.findRecentByCharacterId(characterId, 3)
+          .map(a => ({ type: a.type, outcome: a.outcome, narrative: a.narrative }));
       },
       getKnownLocations: () => {
         return this.locationRepo.findAll().map(l => l.name);
@@ -314,6 +379,10 @@ export class WorldEngineImpl implements WorldEngine {
       this.itemRepo.decrementByName(characterId, name, quantity);
     }
 
+    // Insight log + audit: record the mutations actually applied (post-validation,
+    // post-failure-strip) and a one-line before→after summary of the net effect.
+    logAppliedMutations(characterId, outcome, row, applied);
+
     // Insert action record
     const actionRow = this.actionRepo.create({
       characterId,
@@ -325,6 +394,9 @@ export class WorldEngineImpl implements WorldEngine {
       outcome: outcome.outcome,
       appVersion: APP_VERSION,
       promptVersion: PROMPT_VERSION,
+      appliedMutations: outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
+      // Save the LLM's outcome text as narrative for the journal
+      narrative: outcome.outcomeText.slice(0, 500) ?? null,
     });
 
     // Link the audit row to the action it produced (best-effort)
@@ -362,6 +434,8 @@ export class WorldEngineImpl implements WorldEngine {
       this.processingActions.delete(characterId);
       throw new Error('You are already mid-action. Finish your current action first.');
     }
+
+    this.updateLastPlayed(characterId);
 
     try {
       const char = this.rowToCharacterData(row);
@@ -438,6 +512,8 @@ export class WorldEngineImpl implements WorldEngine {
     if (isStateStale(internalState, row, this.actionRepo, this.charRepo, characterId, this.db)) {
       throw new Error('Action timed out after 30 minutes');
     }
+
+    this.updateLastPlayed(characterId);
 
     const char = this.rowToCharacterData(row);
     const items = this.getItems(characterId);
@@ -562,6 +638,13 @@ export class WorldEngineImpl implements WorldEngine {
     return entities;
   }
 
+  // ── Last played ──
+
+  updateLastPlayed(characterId: number): void {
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    this.charRepo.update(characterId, { last_played_at: now });
+  }
+
   // ── Items ──
 
   getItems(characterId: number): ItemData[] {
@@ -598,6 +681,7 @@ export class WorldEngineImpl implements WorldEngine {
         type: r.type,
         outcome: r.outcome,
         createdAt: r.created_at,
+        narrative: r.narrative,
       })),
     };
   }
@@ -624,6 +708,8 @@ export class WorldEngineImpl implements WorldEngine {
     const row = this.charRepo.findByUserId(user.id);
     if (!row) return null;
 
+    this.updateLastPlayed(row.id);
+
     const oakName = "The Warden's Oak";
     if (row.location === oakName) {
       // Already at the Oak — still return the character so the command can flavour it
@@ -635,6 +721,28 @@ export class WorldEngineImpl implements WorldEngine {
       ...row,
       location: oakName,
     });
+  }
+
+  // ── Health modifier ──
+
+  countSoulsInUnsafe(): number {
+    const allChars = this.charRepo.findAll();
+    let count = 0;
+    for (const charRow of allChars) {
+      const loc = this.locationRepo.findByName(charRow.location);
+      if (!loc || loc.is_safe !== 1) count++;
+    }
+    return count;
+  }
+
+  modifyHealth(discordUserId: string, amount: number): CharacterData | null {
+    const user = this.userRepo.findByDiscordId(discordUserId);
+    if (!user) return null;
+    const row = this.charRepo.findByUserId(user.id);
+    if (!row) return null;
+    const newHealth = Math.max(0, Math.min(row.max_health, row.health + amount));
+    this.charRepo.update(row.id, { health: newHealth });
+    return this.rowToCharacterData({ ...row, health: newHealth });
   }
 
   // ── World tick (S5) ──
@@ -676,6 +784,22 @@ export class WorldEngineImpl implements WorldEngine {
           newStamina = Math.max(charRow.stamina - 1, 0);
         }
 
+        // Three-day absence penalty: if the player hasn't interacted
+        // in 3+ days (by calendar date), they lose 3 health.
+        if (charRow.last_played_at) {
+          const lastDate = charRow.last_played_at.slice(0, 10);
+          const diffMs = new Date(today + 'T00:00:00').getTime() - new Date(lastDate + 'T00:00:00').getTime();
+          const diffDays = Math.floor(diffMs / 86400000);
+          if (diffDays >= 3) {
+            const absentPenalty = Math.min(3, newHealth !== undefined ? newHealth : charRow.health);
+            if (newHealth !== undefined) {
+              newHealth = Math.max(0, newHealth - absentPenalty);
+            } else {
+              newHealth = Math.max(0, charRow.health - absentPenalty);
+            }
+          }
+        }
+
         const income = this.dayJobIncome[charRow.day_job] ?? 0;
 
         const updates: Record<string, unknown> = {
@@ -697,6 +821,9 @@ export class WorldEngineImpl implements WorldEngine {
 
       for (const npc of allNpcs) {
         const cls = npc.class ?? '';
+
+        // The Warden never leaves the Oak — frozen in place.
+        if (cls === 'Warden') continue;
 
         if (cls === 'Blacksmith') {
           this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + 5 });

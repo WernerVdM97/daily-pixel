@@ -9,6 +9,7 @@
 - name: Town Guard
   depends_on: [physical]
   base_income: 10
+  workplace_location: Town Square
   description: Patrol the walls. Break up tavern brawls. The town sleeps safer.
   actions:
     - label: Walk the rounds
@@ -39,6 +40,7 @@
 - name: Blacksmith
   depends_on: [physical]
   base_income: 10
+  workplace_location: The Town Forge
   description: Hammer and anvil. Every town needs one. Every blade remembers your name.
   actions:
     - label: Work the forge
@@ -69,6 +71,7 @@
 - name: Hunter
   depends_on: [physical, wisdom]
   base_income: 8
+  workplace_location: The Forest Edge
   description: Track game in the eastern woods. The Oak's larder depends on you.
   actions:
     - label: Track game
@@ -99,6 +102,7 @@
 - name: Scribe
   depends_on: [intelligence]
   base_income: 12
+  workplace_location: The Warden's Library
   description: Copy manuscripts. Translate old tongues. The warden's library is yours.
   actions:
     - label: Copy a manuscript
@@ -129,6 +133,7 @@
 - name: Herbalist
   depends_on: [wisdom]
   base_income: 8
+  workplace_location: The Forest Edge
   description: Gather roots and remedies. The sick come to you before the priest.
   actions:
     - label: Gather herbs
@@ -159,6 +164,7 @@
 - name: Minstrel
   depends_on: [charisma]
   base_income: 9
+  workplace_location: The Weary Lantern Inn
   description: Play the taverns. Carry news between towns. Every song is a secret.
   actions:
     - label: Play the tavern
@@ -189,6 +195,7 @@
 - name: Merchant
   depends_on: [charisma, intelligence]
   base_income: 14
+  workplace_location: Town Square
   description: Buy low in Stonebridge, sell high at the Oak. Coin before creed.
   actions:
     - label: Buy stock
@@ -219,6 +226,7 @@
 - name: Acolyte
   depends_on: [wisdom, charisma]
   base_income: 7
+  workplace_location: The Shrine of the First Flame
   description: Tend the shrine. Bless the harvest. The people need someone to believe in.
   actions:
     - label: Tend the shrine
@@ -249,6 +257,7 @@
 - name: Wanderer
   depends_on: [charisma]
   base_income: 2
+  workplace_location:
   description: No roof, no boss, no routine. You sleep under the Oak and eat what luck brings.
   actions:
     - label: Ask for coin

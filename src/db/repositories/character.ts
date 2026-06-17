@@ -3,7 +3,7 @@ import type { CharacterRow } from './types.js';
 
 export type { CharacterRow };
 
-type CreateInput = Omit<CharacterRow, 'id' | 'user_id' | 'created_at'> & {
+type CreateInput = Omit<CharacterRow, 'id' | 'user_id' | 'created_at' | 'last_played_at'> & {
   created_at?: string;
 };
 
@@ -57,6 +57,7 @@ export class CharacterRepository {
       location: params.location,
       wealth: params.wealth,
       last_action_state: params.last_action_state,
+      last_played_at: null,
       created_at: this.getCreatedAt(result.lastInsertRowid as number),
     };
   }
@@ -83,7 +84,7 @@ export class CharacterRepository {
     const allowed = [
       'name', 'class', 'upbringing', 'race', 'alignment', 'day_job',
       'stats', 'health', 'max_health', 'stamina', 'rolls_remaining',
-      'location', 'wealth', 'last_action_state',
+      'location', 'wealth', 'last_action_state', 'last_played_at',
     ];
     const setClauses: string[] = [];
     const values: Record<string, unknown> = { id };

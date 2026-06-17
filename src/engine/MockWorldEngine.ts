@@ -47,6 +47,9 @@ export class MockWorldEngine implements WorldEngine {
     getJournal: number[];
     submitFeedback: { characterId: number; text: string }[];
     submitBug: { characterId: number; text: string }[];
+    updateLastPlayed: number[];
+    modifyHealth: { discordUserId: string; amount: number }[];
+    countSoulsInUnsafe: void[];
     tick: boolean[];
     restAtOak: string[];
     getMeta: string[];
@@ -63,6 +66,9 @@ export class MockWorldEngine implements WorldEngine {
     getJournal: [],
     submitFeedback: [],
     submitBug: [],
+    updateLastPlayed: [],
+    modifyHealth: [],
+    countSoulsInUnsafe: [],
     restAtOak: [],
     tick: [],
     getMeta: [],
@@ -248,5 +254,21 @@ export class MockWorldEngine implements WorldEngine {
   getMeta(key: string): string | null {
     this.calls.getMeta.push(key);
     return this._meta.get(key) ?? null;
+  }
+
+  updateLastPlayed(characterId: number): void {
+    this.calls.updateLastPlayed.push(characterId);
+  }
+
+  modifyHealth(discordUserId: string, amount: number): CharacterData | null {
+    this.calls.modifyHealth.push({ discordUserId, amount });
+    if (!this._character) return null;
+    const newHealth = Math.max(0, Math.min(this._character.maxHealth, this._character.health + amount));
+    return { ...this._character, health: newHealth };
+  }
+
+  countSoulsInUnsafe(): number {
+    this.calls.countSoulsInUnsafe.push();
+    return 0;
   }
 }

@@ -80,20 +80,44 @@ export function makeSleepCommand(engine: WorldEngine) {
     }
 
     const alreadyThere = character.location === "The Warden's Oak";
+    const currentLoc = engine.getLocation(character.location);
+    const wasUnsafe = currentLoc !== null && !currentLoc.isSafe && !alreadyThere;
+
     engine.restAtOak(interaction.user.id);
+
+    let penaltyLine = '';
+    if (wasUnsafe) {
+      const updated = engine.modifyHealth(interaction.user.id, -1);
+      penaltyLine = `⚠️ The night was rough — you lost **1 HP**. ${updated ? `(${updated.health}/${updated.maxHealth} ❤️)` : ''}`;
+    }
+
     const locationLine = alreadyThere
       ? 'The Oak\'s familiar boughs cradle you once more.'
       : 'You bank the fire and bed down beneath the Oak.';
 
-    return [
+    const lines: string[] = [
       '🏕️ **The Warden\'s Oak**',
       SEPARATOR,
       '',
       locationLine,
-      'The day turns when the world wills it — not when you do.',
-      '',
-      '*The ember glows. The Oak stands watch. Rest, for now.*',
-    ].join('\n');
+    ];
+    if (penaltyLine) {
+      lines.push('');
+      lines.push(penaltyLine);
+    }
+
+    const soulsOut = engine.countSoulsInUnsafe();
+    if (soulsOut > 0) {
+      lines.push('');
+      lines.push(`🌙 ${soulsOut} soul(s) did not make it home tonight.`);
+    }
+
+    lines.push('');
+    lines.push('The day turns when the world wills it — not when you do.');
+    lines.push('');
+    lines.push('*The ember glows. The Oak stands watch. Rest, for now.*');
+
+    return lines.join('\n');
   };
 }
 
