@@ -206,4 +206,5 @@ export interface WorldEngine {
 
   // Meta
   getMeta(key: string): string | null;
+  setMeta(key: string, value: string): void;
 }

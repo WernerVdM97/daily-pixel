@@ -770,6 +770,9 @@ export class WorldEngineImpl implements WorldEngine {
         });
       }
 
+      this.metaRepo.set('last_tick_players_affected', String(allChars.length));
+      this.metaRepo.set('last_tick_npc_movement_count', String(npcMovements.length));
+
       return {
         dayNumber: newDay,
         playersAffected: allChars.length,
@@ -782,6 +785,10 @@ export class WorldEngineImpl implements WorldEngine {
 
   getMeta(key: string): string | null {
     return this.metaRepo.get(key);
+  }
+
+  setMeta(key: string, value: string): void {
+    this.metaRepo.set(key, value);
   }
 
   // ── Private helpers ──
