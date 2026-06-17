@@ -13,6 +13,7 @@
 - [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
 - [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other. globals messages on nat 1 or 20
 - [ ] add a weight to time, the world should evolve with progression. DC should become higher, new threats appear
+- [ ] add more narrative to the recent action journal entry
 
 ## MVP — deferred
 
