@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildDecisionMessage } from '../../src/discord/commands/action.js';
+import { buildDecisionMessage, buildOutcomeEmbed } from '../../src/discord/commands/action.js';
+import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function buttons(msg: ReturnType<typeof buildDecisionMessage>): any[] {
@@ -112,12 +113,67 @@ describe('buildDecisionMessage — hidden DCs & earned passive-insight hint', ()
     expect(btns.every(b => b.style !== SUCCESS)).toBe(true);
   });
 
-  it('renders the quoted quest path separate from the current scene', () => {
+  it('renders the gamebook story thread: quest, quoted prior prompt, bold choice', () => {
     const msg = buildDecisionMessage(decision, 1, {
-      rawInput: 'hunt the stag', decisions: [{ prompt: 'p', chosen: 'Track it', dcModifier: -1 }], accumulatedDc: 11,
+      rawInput: 'hunt the stag',
+      decisions: [{ prompt: 'The stag freezes at the treeline.', chosen: 'Track it', dcModifier: -1 }],
+      accumulatedDc: 11,
     });
     const desc = (msg.embeds[0] as any).description as string;
     expect(desc).toContain('> 🧭 **Quest:** hunt the stag');
-    expect(desc).toContain('> ↳ *Track it*');
+    // Prior beat: the DM prompt is quoted, the player's choice is bold, with a
+    // green/red difficulty arrow (−1 modifier → easier → green down).
+    expect(desc).toContain('> The stag freezes at the treeline.');
+    expect(desc).toContain('↪ **Track it 🟢⬇️**');
+    // The current scene is quoted DM narration too.
+    expect(desc).toContain('> A fork in the road.');
+  });
+});
+
+describe('buildOutcomeEmbed — quoted recap', () => {
+  const outcome: ActionOutcome = {
+    distilledType: 'hunt',
+    finalDc: 14,
+    playerRolled: 16,
+    outcome: 'success',
+    outcomeText: 'The stag falls. You field-dress it by the river.',
+    mutations: [],
+  };
+
+  it('recaps the encounter as a full gamebook thread: quoted prompts + bold choices + outcome', () => {
+    const desc = buildOutcomeEmbed(outcome, null, null, {
+      rawInput: 'hunt the stag',
+      decisions: [
+        { prompt: 'The mist thickens between the pines as distant hooves fade north.', chosen: 'Track it', dcModifier: -1, distilledType: 'hunt' },
+        { prompt: 'A twig snaps — the stag bolts toward the ford.', chosen: 'Cut it off at the river', dcModifier: 2, distilledType: 'hunt' },
+      ],
+    }).description as string;
+
+    expect(desc).toContain('> 🧭 **Quest:** hunt the stag');
+    // Each prior beat: DM prompt quoted, player choice bold, with a difficulty
+    // arrow instead of a raw DC number (negative → green down, positive → red up).
+    expect(desc).toContain('> The mist thickens between the pines as distant hooves fade north.');
+    expect(desc).toContain('↪ **Track it 🟢⬇️**');
+    expect(desc).toContain('> A twig snaps — the stag bolts toward the ford.');
+    expect(desc).toContain('↪ **Cut it off at the river 🔴⬆️**');
+    // No raw DC numbers leak into the recap.
+    expect(desc).not.toMatch(/DC\s*[+-]?\d/);
+    // The final outcome narration is the focal (unquoted) text.
+    expect(desc).toContain('The stag falls.');
+  });
+
+  it('stays within the 4096-char embed cap, degrading a huge thread gracefully', () => {
+    const longPrompt = 'X'.repeat(1500);
+    const desc = buildOutcomeEmbed(outcome, null, null, {
+      rawInput: 'epic quest',
+      decisions: Array.from({ length: 8 }, (_, i) => ({
+        prompt: longPrompt, chosen: `Choice ${i}`, dcModifier: 0, distilledType: 'hunt',
+      })),
+    }).description as string;
+
+    expect(desc.length).toBeLessThanOrEqual(4096);
+    // The quest line and the outcome survive the degradation.
+    expect(desc).toContain('> 🧭 **Quest:** epic quest');
+    expect(desc).toContain('The stag falls.');
   });
 });

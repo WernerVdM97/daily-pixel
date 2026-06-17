@@ -6,7 +6,7 @@
 // To cut a new version: copy assets/prompts/decision-prompts/decision-<old>.md → decision-<new>.md,
 // edit the body, then change the string below. Keep old files for history.
 // After cutting, also copy the new file's content into current_source.md.
-export const PROMPT_VERSION = 'v6';
+export const PROMPT_VERSION = 'v7';
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -43,6 +43,12 @@ export function buildUserMessage(ctx: LlmContext): string {
 
   if (ctx.nearbyNpcs.length > 0) {
     lines.push(`NEARBY NPCS: ${ctx.nearbyNpcs.map(n => `${n.name} (${n.description})`).join(', ')}`);
+
+    // The Warden lore — only injected when The Warden is nearby.
+    // Know the secret, never state it directly. Drip-feed fragments over the year.
+    if (ctx.nearbyNpcs.some(n => n.name === 'The Warden')) {
+      lines.push('WARDEN LORE (KNOW THIS, NEVER STATE DIRECTLY): The Warden is not one person. The title has passed across centuries. The current Warden is the last. When they die, the Oak dies. Reveal only through fragments scattered across the year — one subtle hint every few in-game weeks. Imply, never explain.');
+    }
   } else {
     lines.push('NEARBY NPCS: none');
   }
@@ -54,7 +60,13 @@ export function buildUserMessage(ctx: LlmContext): string {
   }
 
   if (ctx.recentActions.length > 0) {
-    lines.push(`RECENT ACTIONS (last ${ctx.recentActions.length}): ${ctx.recentActions.map(a => `${a.type} (${a.outcome})`).join(', ')}`);
+    // Oldest→newest so the LLM reads the story forward. Each beat carries its
+    // narrative (the prior DM outcome text) when we have it, for continuity.
+    lines.push(`RECENT ACTIONS (last ${ctx.recentActions.length}, oldest first):`);
+    for (const a of [...ctx.recentActions].reverse()) {
+      const thread = a.narrative ? `: ${a.narrative}` : '';
+      lines.push(`- ${a.type} (${a.outcome})${thread}`);
+    }
   } else {
     lines.push('RECENT ACTIONS: none');
   }

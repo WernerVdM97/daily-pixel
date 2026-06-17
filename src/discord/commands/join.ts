@@ -3,6 +3,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  MessageFlags,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -13,6 +14,7 @@ import {
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import type { WizardSession, WizardState } from "../WizardSession.js";
 import { OAK_IMAGE, imageFiles, hasImage } from "../images.js";
+import { CLASS_EMOJI } from "../format.js";
 
 // ── Custom IDs ──
 
@@ -79,7 +81,7 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
     if (engine.characterExists(interaction.user.id)) {
       await interaction.reply({
         content: "You already have a character. Type `/stats` to see it.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return "join_guard_has_character";
     }
@@ -100,7 +102,7 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
     }
 
     // Show current step
-    await interaction.reply({ ...buildStepMessage(state), ephemeral: true });
+    await interaction.reply({ ...buildStepMessage(state), flags: MessageFlags.Ephemeral });
     return "join_wizard_started";
   };
 }
@@ -257,9 +259,9 @@ async function safeNotify(
 ): Promise<void> {
   try {
     if (i.deferred || i.replied) {
-      await i.followUp({ content: message, ephemeral: true });
+      await i.followUp({ content: message, flags: MessageFlags.Ephemeral });
     } else {
-      await i.reply({ content: message, ephemeral: true });
+      await i.reply({ content: message, flags: MessageFlags.Ephemeral });
     }
   } catch {
     /* interaction is gone (expired/acked) — nothing more we can do */
@@ -439,9 +441,6 @@ const STEP_HEADINGS: Record<number, string> = {
 
 const FALLBACK_EMOJI = "🔹";
 
-const CLASS_EMOJI: Record<string, string> = {
-  Warrior: "⚔️", Ranger: "🏹", Wizard: "🔮", Bard: "🎵", Priest: "✝️",
-};
 const UPBRINGING_EMOJI: Record<string, string> = {
   Soldier: "🎖️", Merchant: "⚖️", Scholar: "📚", "Folk Hero": "🌟", Outcast: "🏚️", Noble: "👑",
   Artisan: "🪚", Farmstead: "🌾", "Temple-Raised": "⛪", Urchin: "🗝️", Entertainer: "🎭", Scout: "🧭",

@@ -21,8 +21,10 @@ export function makeJournalCommand(engine: WorldEngine) {
       lines.push("  *You know of no locations yet.*");
     } else {
       for (const loc of journal.knownLocations) {
+        const locInfo = engine.getLocation(loc);
+        const safetyEmoji = locInfo?.isSafe ? '🛡️' : '⚠️';
         const marker = loc === journal.currentLocation ? " ←" : "";
-        lines.push(`  • ${loc}${marker}`);
+        lines.push(`  • ${safetyEmoji} ${loc}${marker}`);
       }
     }
 
@@ -46,7 +48,13 @@ export function makeJournalCommand(engine: WorldEngine) {
       lines.push("  *No actions recorded yet.*");
     } else {
       for (const action of journal.recentActions) {
-        lines.push(`  • ${action.type} — ${action.outcome}`);
+        lines.push(`  • **${action.type}** — ${action.outcome}`);
+        if (action.narrative) {
+          const snippet = action.narrative.length > 150
+            ? action.narrative.slice(0, 147) + '...'
+            : action.narrative;
+          lines.push(`    > ${snippet}`);
+        }
       }
     }
 

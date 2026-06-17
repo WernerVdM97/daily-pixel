@@ -34,6 +34,7 @@ const DAY_JOBS = [
     name: 'Blacksmith',
     depends_on: ['physical'],
     base_income: 10,
+    workplace_location: 'The Town Forge',
     description: 'Hammer and anvil.',
     actions: [
       { label: 'Forge blade', income: 6, hook: 'The steel sings.' },
@@ -45,6 +46,7 @@ const DAY_JOBS = [
     name: 'Hunter',
     depends_on: ['physical', 'wisdom'],
     base_income: 8,
+    workplace_location: 'The Forest Edge',
     description: 'Track game.',
     actions: [
       { label: 'Track game', income: 5, hook: 'Deer sign everywhere.' },

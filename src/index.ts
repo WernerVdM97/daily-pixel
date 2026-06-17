@@ -54,7 +54,7 @@ import { makeJournalCommand } from './discord/commands/journal.js';
 import { makeFeedbackCommand } from './discord/commands/feedback.js';
 import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
-import { makeHiCommand, getDayJobActions, type DayJobDef } from './discord/commands/hi.js';
+import { makeHiCommand, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './discord/commands/hi.js';
 import { buildComponentPayload, getNavButtons } from './discord/format.js';
 import { BANNER_IMAGE, imageFiles } from './discord/images.js';
 import { makeJoinCommand, handleInteraction as handleJoinInteraction, type CharDefs } from './discord/commands/join.js';
@@ -71,6 +71,9 @@ const CHAR_CREATION_DIR = path.join(ASSETS_DIR, 'char-creation');
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN ?? '';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? '';
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID ?? '';
+// A/B testing: override the LLM model (e.g. a pro vs flash comparison) without a
+// code change. Empty → the gateway's built-in default.
+const LLM_MODEL = process.env.LLM_MODEL?.trim() || undefined;
 
 if (!DISCORD_TOKEN) {
   console.error('FATAL: DISCORD_TOKEN is not set. Set it in .env');
@@ -144,15 +147,31 @@ let _client: Client | null = null;
  */
 async function notifyAdmin(label: string, err: unknown): Promise<void> {
   console.error(c.red(`[error] ${label}:`), err);
-  if (!_client || !ADMIN_USER_ID) return;
+  if (!ADMIN_USER_ID) return;
   const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
   // Discord messages cap at 2000 chars; leave room for the code fence + label.
   const body = `⚠️ **${label}**  ·  v${VERSION}\n\`\`\`\n${detail.slice(0, 1800)}\n\`\`\``;
+
+  // Prefer the live gateway client. Fall back to a REST DM when it isn't ready —
+  // boot-time failures (e.g. a rolled-back migration) happen before login, so the
+  // gateway path would silently degrade to a log and the admin would never hear.
+  if (_client) {
+    try {
+      const admin = await _client.users.fetch(ADMIN_USER_ID);
+      await admin.send(body);
+      return;
+    } catch (e) {
+      console.warn(c.yellow('[error] gateway DM failed, trying REST:'), e);
+    }
+  }
+
+  if (!DISCORD_TOKEN) return;
   try {
-    const admin = await _client.users.fetch(ADMIN_USER_ID);
-    await admin.send(body);
+    const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+    const dm = await rest.post(Routes.userChannels(), { body: { recipient_id: ADMIN_USER_ID } }) as { id: string };
+    await rest.post(Routes.channelMessages(dm.id), { body: { content: body } });
   } catch (e) {
-    console.warn(c.yellow('[error] could not DM admin the error:'), e);
+    console.warn(c.yellow('[error] could not DM admin (REST fallback):'), e);
   }
 }
 
@@ -166,9 +185,9 @@ async function notifyAdmin(label: string, err: unknown): Promise<void> {
 async function safeErrorReply(interaction: RepliableInteraction, content: string): Promise<void> {
   try {
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content, ephemeral: true });
+      await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
     } else {
-      await interaction.reply({ content, ephemeral: true });
+      await interaction.reply({ content, flags: MessageFlags.Ephemeral });
     }
   } catch (e) {
     console.warn(c.yellow('[error] could not surface error to user:'), e);
@@ -324,6 +343,7 @@ async function main() {
   if (DEEPSEEK_API_KEY) {
     const deepseek = new DeepseekLlmGateway({
       apiKey: DEEPSEEK_API_KEY,
+      ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
       verbose: process.env.VERBOSE_LLM === 'true',
       recorder: new LlmCallRepository(initDb()),
       // POC: failures always log thinking; set this to also log it on every call.
@@ -336,7 +356,7 @@ async function main() {
         metaRepo.set('llm_fallback_count', String(Number(count ?? '0') + 1));
       },
     });
-    console.log(c.cyan('[llm] DeepSeek gateway initialized with fallback chain'));
+    console.log(c.cyan(`[llm] DeepSeek gateway initialized with fallback chain (model: ${LLM_MODEL ?? 'default'})`));
   } else {
     llm = new FallbackLlmGateway({
       decide: async (_ctx: LlmContext): Promise<LlmDecision> => ({
@@ -410,7 +430,7 @@ async function main() {
   registry.register('feedback', withTextOption(makeFeedbackCommand(engine)));
   registry.register('bug', withTextOption(makeBugCommand(engine)));
   registry.register('sleep', asHandler(makeSleepCommand(engine)));
-  registry.register('hi', asHandler(makeHiCommand(engine, dayJobs, getCurrentScene)));
+  registry.register('hi', asHandler(makeHiCommand(engine, dayJobs)));
   const joinWizards = new WizardSession();
   registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, {
     classes: assets.classes as CharDefs['classes'],
@@ -538,28 +558,50 @@ ${headInfo}`);
       if (!handler) {
         await interaction.reply({
           content: `Unknown command \`/${commandName}\`. Try \`/help\`.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
       try {
         const result = await handler(interaction);
-        // If the handler already replied (join/hi manage their own flow), skip
+        // If the handler already replied (join/action manage their own flow), skip
         if (interaction.replied || interaction.deferred) return;
+
+        // Stamp last interaction time (not join — not a char yet)
+        if (commandName !== 'join') {
+          const char = engine.getCharacter(interaction.user.id);
+          if (char) engine.updateLastPlayed(char.id);
+        }
 
         const ephemeralCommands = ['stats', 'backpack', 'journal', 'bug', 'feedback', 'help', 'hi', 'look'];
         const isEphemeral = ephemeralCommands.includes(commandName);
 
-        // Nav buttons on all commands except /action (own buttons) and /sleep (global message)
+        let isAdminTick = false;
         let navButtons: ReturnType<typeof getNavButtons> | undefined;
-        if (commandName !== 'action' && commandName !== 'sleep') {
+
+        if (commandName === 'action') {
+          // /action manages its own buttons
+        } else if (commandName === 'sleep') {
+          isAdminTick = interaction.user.id === ADMIN_USER_ID && process.env.SLEEP_ADMIN_TICK === 'true';
+          if (!isAdminTick) {
+            // Good night message: Action + Feedback buttons
+            const char = engine.getCharacter(interaction.user.id);
+            if (char) {
+              navButtons = [{
+                type: 1, // ACTION_ROW
+                components: [
+                  { type: 2, custom_id: 'nav:action', label: 'Action', emoji: { name: '⚔️' }, style: 2 },
+                  { type: 2, custom_id: 'sleep:feedback', label: 'Feedback', emoji: { name: '💬' }, style: 2 },
+                ],
+              }];
+            }
+          }
+        } else {
           const char = engine.getCharacter(interaction.user.id);
           if (char) navButtons = getNavButtons(char, commandName);
         }
 
-        // Admin /sleep shows the world-tick banner only when ticking.
-        const isAdminTick = commandName === 'sleep' && interaction.user.id === ADMIN_USER_ID && process.env.SLEEP_ADMIN_TICK === 'true';
         const bannerFiles = isAdminTick ? imageFiles(BANNER_IMAGE) : [];
         const payload = buildComponentPayload(result, {
           ephemeral: isEphemeral,
@@ -608,7 +650,7 @@ ${headInfo}`);
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong. Try `/join` again.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           }).catch(() => {});
         }
       }
@@ -645,12 +687,12 @@ ${headInfo}`);
       if (blocked !== null) {
         await interaction.reply({
           content: '❌ That action contains language the warden won\'t tolerate. Try something else.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       // Delete the stale day-job menu message so only the action scene shows
       const menuInfo = consumeMenuMessage(interaction.user.id);
@@ -695,6 +737,111 @@ ${headInfo}`);
       return;
     }
 
+    // ── Sleep feedback button ── opens a modal for feedback text
+    if (customId && customId === 'sleep:feedback') {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId('sleep:feedback:modal')
+        .setTitle('Share Feedback')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('sleep:feedback:input')
+              .setLabel('Your thoughts for the warden')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setPlaceholder('What did you enjoy? What could be better?'),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Sleep feedback modal submission ──
+    if (customId && customId === 'sleep:feedback:modal') {
+      if (!interaction.isModalSubmit()) return;
+      const text = interaction.fields.getTextInputValue('sleep:feedback:input');
+      await interaction.reply({ content: '🙏 Thanks. The warden listens.', flags: MessageFlags.Ephemeral });
+
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (char) {
+          engine.submitFeedback(char.id, text);
+        }
+      } catch (err) {
+        void notifyAdmin('Sleep feedback submission failed', err);
+      }
+      return;
+    }
+
+    // ── Outcome feedback button ── opens a modal
+    if (customId && customId === 'outcome:feedback') {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId('outcome:feedback:modal')
+        .setTitle('Share Feedback')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('outcome:feedback:input')
+              .setLabel('Your thoughts for the warden')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setPlaceholder('What did you enjoy? What could be better?'),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Outcome feedback modal submission ──
+    if (customId && customId === 'outcome:feedback:modal') {
+      if (!interaction.isModalSubmit()) return;
+      const text = interaction.fields.getTextInputValue('outcome:feedback:input');
+      await interaction.reply({ content: '🙏 Thanks. The warden listens.', flags: MessageFlags.Ephemeral });
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (char) engine.submitFeedback(char.id, text);
+      } catch (err) {
+        void notifyAdmin('Outcome feedback failed', err);
+      }
+      return;
+    }
+
+    // ── Outcome bug-report button ── opens a modal
+    if (customId && customId === 'outcome:bug') {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId('outcome:bug:modal')
+        .setTitle('Report a Bug')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('outcome:bug:input')
+              .setLabel('Describe the bug')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setPlaceholder('What went wrong?'),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Outcome bug-report modal submission ──
+    if (customId && customId === 'outcome:bug:modal') {
+      if (!interaction.isModalSubmit()) return;
+      const text = interaction.fields.getTextInputValue('outcome:bug:input');
+      await interaction.reply({ content: '🐛 Bug noted. The warden will investigate.', flags: MessageFlags.Ephemeral });
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (char) engine.submitBug(char.id, text);
+      } catch (err) {
+        void notifyAdmin('Outcome bug report failed', err);
+      }
+      return;
+    }
+
     // ── Day-job quick action buttons ──
     if (customId && customId.startsWith('action:dayjob:')) {
       if (!interaction.isButton()) return;
@@ -702,14 +849,14 @@ ${headInfo}`);
       try {
         const char = engine.getCharacter(interaction.user.id);
         if (!char) {
-          await interaction.reply({ content: "You don't have a character. Type `/join` first.", ephemeral: true });
+          await interaction.reply({ content: "You don't have a character. Type `/join` first.", flags: MessageFlags.Ephemeral });
           return;
         }
         const dayNumber = Number(engine.getMeta('day_number') ?? '1');
         const jobActions = getDayJobActions(char.dayJob, dayJobs, { characterId: char.id, dayNumber });
         const hook = jobActions[idx]?.hook;
         if (!hook) {
-          await interaction.reply({ content: 'Invalid job action.', ephemeral: true });
+          await interaction.reply({ content: 'Invalid job action.', flags: MessageFlags.Ephemeral });
           return;
         }
         // Defer + immediately blank buttons to show loading
@@ -720,6 +867,27 @@ ${headInfo}`);
 _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           components: [],
         });
+
+        // ── Teleport from The Warden's Oak to workplace ──
+        if (char.location === "The Warden's Oak") {
+          const workplace = getWorkplaceLocation(char.dayJob, dayJobs, { characterId: char.id, dayNumber });
+
+          if (workplace && workplace !== char.location) {
+            charRepo.update(char.id, { stamina: Math.max(0, char.stamina - 1), location: workplace });
+            // Update the local char copy for the outcome renderer
+            char.stamina = Math.max(0, char.stamina - 1);
+            char.location = workplace;
+
+            await interaction.editReply({
+              embeds: [new EmbedBuilder()
+                .setTitle('🚶 Daily Commute')
+                .setDescription(`**You head to the ${workplace}.**  \n⚡ -1 stamina`)
+                .setColor(0x95a5a6)
+                .toJSON()],
+              components: [],
+            });
+          }
+        }
 
         const result = await engine.startAction(char.id, hook);
         if (result.outcome) {
@@ -755,7 +923,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong with your action. Try `/action` again.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           }).catch(() => {});
         }
       }
@@ -776,14 +944,14 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           if (!char) {
             await interaction.reply({
               content: "You don't have a character yet. Type `/join` to create one.",
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
             });
             return;
           }
           if (char.rollsRemaining <= 0 && !char.lastActionState) {
             await interaction.reply({
               content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
             });
             return;
           }
@@ -797,7 +965,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
                 await interaction.reply({
                   embeds: [new EmbedBuilder().setTitle('⏳ Stale Action').setDescription(resumeResult.nextDecision.prompt || 'Could not recover.').setColor(0x95a5a6).toJSON()],
                   components: [],
-                  ephemeral: true,
+                  flags: MessageFlags.Ephemeral,
                 });
               } else {
                 setPendingDecision(interaction.user.id, resumeResult.nextDecision);
@@ -805,14 +973,14 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
                 await interaction.reply({
                   embeds: decisionMsg.embeds,
                   components: decisionMsg.components,
-                  ephemeral: true,
+                  flags: MessageFlags.Ephemeral,
                 });
               }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               await interaction.reply({
                 content: `❌ **Could not resume.**\n${msg}`,
-                ephemeral: true,
+                flags: MessageFlags.Ephemeral,
               });
             }
             return;
@@ -845,7 +1013,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           await interaction.reply({
             embeds: [embed.toJSON()],
             components: [row.toJSON()],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         } catch (err) {
           void notifyAdmin('Nav (action) failed', err);
@@ -880,7 +1048,7 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
         if ('reply' in interaction) {
           await (interaction as { reply: Function }).reply({
             content: 'Something went wrong.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           }).catch(() => {});
         }
       }

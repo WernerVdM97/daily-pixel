@@ -15,6 +15,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  MessageFlags,
   type ChatInputCommandInteraction,
   type MessageComponentInteraction,
 } from 'discord.js';
@@ -23,7 +24,7 @@ import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
-import { getNavButtons } from '../format.js';
+import { getNavButtons, getOutcomeServiceButtons, classEmoji } from '../format.js';
 
 // ── Custom IDs ──
 
@@ -98,7 +99,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     if (!character) {
       await interaction.reply({
         content: "You don't have a character yet. Type `/join` to create one.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return 'action_guard_no_character';
     }
@@ -107,14 +108,14 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     if (character.rollsRemaining <= 0 && !character.lastActionState) {
       await interaction.reply({
         content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return 'action_no_rolls';
     }
 
     // If mid-action, resume regardless of description
     if (character.lastActionState !== null) {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const resumeResult = engine.resumeAction(character.id);
 
@@ -149,7 +150,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       if (character.rollsRemaining <= 0) {
         await interaction.reply({
           content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return 'action_no_rolls';
       }
@@ -181,7 +182,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         await interaction.reply({
           embeds: [embed.toJSON()],
           components: [row.toJSON()],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         const menuMsg = await interaction.fetchReply();
         stashMenuMessage(interaction.user.id, {
@@ -193,7 +194,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       } catch {
         await interaction.reply({
           content: `🔨 **${character.dayJob}**\n\nUse \`/action <what you do>\` to start an action.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return 'action_no_description';
       }
@@ -201,11 +202,11 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
 
     // Defer first — LLM call can take >3 seconds.
     // Immediately edit with an idle message so the player isn't staring at a blank spinner.
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await interaction.editReply({
       embeds: [
         new EmbedBuilder()
-          .setDescription(`⏳ **Starting…**\n_${randomIdleMessage()}_`)
+          .setDescription(`**You:** ${description}\n\n⏳ **Starting…**\n_${randomIdleMessage()}_`)
           .setColor(0x95a5a6)
           .toJSON(),
       ],
@@ -223,9 +224,11 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         const embed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
         await interaction.editReply({ embeds: [embed], components: [] });
         await interaction.followUp({
-          content: `**${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
+          content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
           embeds: [embed],
-          ...(resolvedChar ? { components: getNavButtons(resolvedChar) } : {}),
+          ...(resolvedChar
+            ? { components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()] }
+            : { components: getOutcomeServiceButtons() }),
         });
         return 'action_autofinished';
       }
@@ -269,48 +272,28 @@ export async function handleActionChoice(
   if (!character) {
     await i.reply({
       content: "You don't have a character. Type `/join` first.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
   const charId = character.id;
 
-  // Defer the button click — stepAction calls LLM which can take >3 seconds.
-  // Then immediately blank buttons and show idle message during the wait.
+  // Defer immediately — stepAction calls the LLM, which can take >3 seconds.
+  // Resolve which option the player picked first so the loading screen can echo
+  // their choice instead of a bare "Thinking…".
   await i.deferUpdate();
-  await i.editReply({
-    embeds: [
-      new EmbedBuilder()
-        .setDescription(`⏳ **Thinking…**\n_${randomIdleMessage()}_`)
-        .setColor(0x95a5a6)
-        .toJSON(),
-    ],
-    components: [],
-  });
 
-  // Bail — look up the actual bail option label from the pending decision
+  let label: string | null;
   if (i.customId === CID_BAIL) {
-    try {
-      const decision = pendingDecisions.get(i.user.id);
-      const bailOption = decision?.options.find(o => o.dcModifier === null);
-      const bailLabel = bailOption?.label ?? 'Bail';
-      const result = await engine.stepAction(charId, bailLabel);
-      await applyActionResult(i, result, engine);
-    } catch (err) {
-      await i.webhook.editMessage(i.message.id, {
-        content: `❌ ${(err as Error).message}`,
-        components: [],
-        embeds: [],
-      });
-    }
-    return;
+    // Bail — the real label comes from the pending decision's bail option.
+    const decision = pendingDecisions.get(i.user.id);
+    label = decision?.options.find(o => o.dcModifier === null)?.label ?? 'Bail';
+  } else {
+    const parsed = parseActionCid(i.customId);
+    if (!parsed) return;
+    label = getChoiceLabel(i.user.id, parsed.optionIdx);
   }
 
-  // Choice — look up the option label from the stored pending decision
-  const parsed = parseActionCid(i.customId);
-  if (!parsed) return;
-
-  const label = getChoiceLabel(i.user.id, parsed.optionIdx);
   if (!label) {
     await i.webhook.editMessage(i.message.id, {
       content: '❌ Your action session expired. Try `/action` again.',
@@ -319,6 +302,17 @@ export async function handleActionChoice(
     });
     return;
   }
+
+  // Blank the buttons and show the player's choice with a "Thinking…" line below it.
+  await i.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setDescription(`**You:** ${label}\n\n⏳ **Thinking…**\n_${randomIdleMessage()}_`)
+        .setColor(0x95a5a6)
+        .toJSON(),
+    ],
+    components: [],
+  });
 
   try {
     const result = await engine.stepAction(charId, label);
@@ -361,9 +355,11 @@ async function applyActionResult(
     // ephemeral screen for whoever clicks (handled in the nav: dispatcher).
     const charName = character?.name ?? 'Unknown';
     await i.followUp({
-      content: `**${charName}** — ${outcome.distilledType}`,
+      content: `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}`,
       embeds: [outcomeEmbed],
-      ...(character ? { components: getNavButtons(character) } : {}),
+      ...(character
+        ? { components: [...getNavButtons(character), ...getOutcomeServiceButtons()] }
+        : { components: getOutcomeServiceButtons() }),
     });
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
@@ -378,6 +374,61 @@ async function applyActionResult(
 /** How much easier the safest option must be than the next-best before passive
  *  insight will flag it — keeps the green hint a rare, earned tell. */
 const INSIGHT_MARGIN = 2;
+
+/** Discord caps an embed description at 4096 chars. */
+const MAX_EMBED_DESC = 4096;
+
+/** Quote every line of `text` as a Discord blockquote (blank lines keep the bar). */
+function quoteLines(text: string): string {
+  return text
+    .split('\n')
+    .map(line => (line.length > 0 ? `> ${line}` : '>'))
+    .join('\n');
+}
+
+/** Clip to `max` chars with a trailing ellipsis. */
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)).trimEnd() + '…';
+}
+
+/**
+ * Qualitative difficulty arrow for a choice's DC modifier — no raw numbers.
+ * A negative modifier lowered the DC (easier → green down); a positive one
+ * raised it (harder → red up); zero shows nothing. (Flip the two glyphs here to
+ * reverse the convention.)
+ */
+function dcArrow(mod: number | null | undefined): string {
+  if (mod == null || mod === 0) return '';
+  return mod < 0 ? '🟢⬇️' : '🔴⬆️';
+}
+
+/**
+ * Render the encounter "story so far" as a gamebook thread: the quest line,
+ * then each prior beat as the DM's prompt (quoted) followed by the player's
+ * choice (bold). `collapse` drops the prompt bodies down to a choice-only
+ * breadcrumb — the graceful-degradation form used when the full thread would
+ * overflow the embed description cap.
+ */
+function buildStoryThread(
+  rawInput: string,
+  decisions: Array<{ prompt: string; chosen: string; dcModifier?: number }>,
+  collapse = false,
+): string {
+  const out = [`> 🧭 **Quest:** ${rawInput}`];
+  for (const d of decisions) {
+    // A green/red arrow flags whether the choice was easier or harder (no raw DC).
+    const arrow = dcArrow(d.dcModifier);
+    const choice = `${d.chosen}${arrow ? ` ${arrow}` : ''}`;
+    if (collapse) {
+      out.push(`> ↳ *${choice}*`);
+    } else {
+      out.push('');
+      out.push(quoteLines(d.prompt));
+      out.push(`↪ **${choice}**`);
+    }
+  }
+  return out.join('\n');
+}
 
 export function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
@@ -395,17 +446,16 @@ export function buildDecisionMessage(
   const runningDc = state?.accumulatedDc;
   const passiveInsight = char ? 10 + char.stats.wisdom : undefined;
 
-  // ── Path so far (quoted) — visually separates the player's intent + prior
-  // choices ("decisions") from the current scene below ("response"). ──
+  // ── Gamebook layout — the story so far (quest + prior beats, DM prompts
+  // quoted, player choices bold) above the current scene, also quoted as DM
+  // narration. The lettered options below are the only unquoted, actionable
+  // text. Mirrors the outcome recap so the whole /action flow reads as one
+  // continuous gamebook page. ──
   const blocks: string[] = [];
   if (state) {
-    const path: string[] = [`> 🧭 **Quest:** ${state.rawInput}`];
-    for (const d of state.decisions) {
-      path.push(`> ↳ *${d.chosen}*`);
-    }
-    blocks.push(path.join('\n'));
+    blocks.push(buildStoryThread(state.rawInput, state.decisions));
   }
-  blocks.push(decision.prompt);
+  blocks.push(quoteLines(decision.prompt));
 
   // List the real (non-bail) options in the body as A. / B. / C. so button
   // captions can be just the letter — nothing truncates on mobile.
@@ -463,12 +513,17 @@ export function buildDecisionMessage(
     }
   });
 
-  const withOptions = optionLines.length > 0
-    ? `${blocks.join('\n\n')}\n\n${optionLines.join('\n')}`
-    : blocks.join('\n\n');
-  const truncated = withOptions.length > 4000
-    ? withOptions.slice(0, 3997) + '...'
-    : withOptions;
+  // Fit the embed description cap, degrading gracefully: full gamebook →
+  // collapse the history to a choice breadcrumb → hard clip. The clickable
+  // buttons live in `components` (always present), so even a hard clip of the
+  // option text below never disables the choices.
+  const optionsTail = optionLines.length > 0 ? `\n\n${optionLines.join('\n')}` : '';
+  let truncated = blocks.join('\n\n') + optionsTail;
+  if (truncated.length > MAX_EMBED_DESC && state) {
+    truncated = [buildStoryThread(state.rawInput, state.decisions, true), quoteLines(decision.prompt)]
+      .join('\n\n') + optionsTail;
+  }
+  if (truncated.length > MAX_EMBED_DESC) truncated = clip(truncated, MAX_EMBED_DESC);
 
   const footerText = favouredIdx >= 0
     ? '🟢 a safer path catches your eye'
@@ -521,28 +576,31 @@ export function buildOutcomeEmbed(
     : [outcome.distilledType];
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
-  const trail: string[] = [];
-  if (breadcrumb) {
-    trail.push(breadcrumb);
-    trail.push('');
-  }
-  if (scene) {
-    trail.push('```');
-    trail.push(scene);
-    trail.push('```');
-    trail.push('');
-  }
-  trail.push(`**You:** ${state.rawInput}`);
-  for (const d of state.decisions) {
-    trail.push(`**Decision:** ${d.prompt}`);
-    trail.push(`→ *${d.chosen}* (DC ${d.dcModifier >= 0 ? '+' : ''}${d.dcModifier})`);
-  }
-  trail.push('');
-  trail.push(formatOutcome(outcome, ctx));
+  const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
+  const outcomeBlock = formatOutcome(outcome, ctx);
+
+  // Full gamebook recap: the action-type breadcrumb, the destination scene, then
+  // the story thread (quest + each beat's DM prompt quoted, player choice bold),
+  // and finally the resolution as the focal unquoted text. Degrade gracefully to
+  // fit the 4096-char embed cap: full → collapse history to a choice breadcrumb →
+  // drop the decorative scene → hard clip.
+  const assemble = (collapseHistory: boolean, includeScene: boolean): string => {
+    const parts: string[] = [];
+    if (breadcrumb) parts.push(breadcrumb);
+    if (includeScene && sceneBlock) parts.push(sceneBlock);
+    parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory));
+    parts.push(outcomeBlock);
+    return parts.join('\n\n');
+  };
+
+  let description = assemble(false, true);
+  if (description.length > MAX_EMBED_DESC) description = assemble(true, true);
+  if (description.length > MAX_EMBED_DESC) description = assemble(true, false);
+  if (description.length > MAX_EMBED_DESC) description = clip(description, MAX_EMBED_DESC);
 
   return new EmbedBuilder()
     .setTitle(`${distilledActionEmoji(outcome.distilledType)} ${capitalize(outcome.distilledType)}`)
-    .setDescription(trail.join('\n'))
+    .setDescription(description)
     .setColor(outcomeColor(outcome.outcome))
     .toJSON();
 }

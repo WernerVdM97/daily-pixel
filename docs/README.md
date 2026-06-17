@@ -34,6 +34,7 @@ mechanics, loop, actions
 | Status | Doc | Summary |
 |---|---|---|
 | ✅| [The POC — Intent](./game/the-poc.md) | The one question, the daily ritual, what ships, what's deliberately out |
+| ✅| [Daily-Work Teleport](./game/daily-work-teleport.md) | Commute from the Oak to your workplace. Costs 1 stamina, free transit. |
 | 🪦| [POC Build — Plan of Attack](./archived/poc/poc-build-poa.md) | POC build root plan — superseded by implementation. Kept for history |
 | ✅| [POC Build — Deploy](./archived/poc/poc-build-deploy.md) | CI/CD, provisioning — implemented. Kept for history |
 

@@ -30,7 +30,7 @@ export function validateDcModifier(mod: number): boolean {
  * of ammunition/consumables).  Having 10 arrows makes you no better at
  * shooting than having 1; each is used one at a time.
  */
-export function computeItemBonus(items: ItemData[], stat: string): number {
+export function itemStatModifier(items: ItemData[], stat: string): number {
   return items
     .filter(item => item.stat === stat)
     .reduce((sum, item) => sum + item.modifier, 0);
@@ -44,9 +44,9 @@ export function computeItemBonus(items: ItemData[], stat: string): number {
  * "haggle" option taps charisma while "inspect" taps wisdom — your build and gear
  * decide which approach is strongest for you. Returns 0 for an unknown stat key.
  */
-export function computeRollBonus(stats: StatBlock, items: ItemData[], stat: string): number {
+export function abilityCheckBonus(stats: StatBlock, items: ItemData[], stat: string): number {
   const abilityScore = (stats as unknown as Record<string, number>)[stat] ?? 0;
-  return abilityScore + computeItemBonus(items, stat);
+  return abilityScore + itemStatModifier(items, stat);
 }
 
 /**

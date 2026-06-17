@@ -303,6 +303,29 @@ describe('ActionStateMachine — step', () => {
     }
   });
 
+  it('infers done from a non-required, choice-less decision even when done:false', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({
+      distilledType: 'travel',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      done: false, // LLM forgot to set done — the bot infers it from no real options
+      decision: [],
+    });
+
+    const machine = new ActionStateMachine(llm);
+    const start = await machine.start(testChar(), 'wander to the edge', testItems);
+
+    expect(start.resolved).toBe(true);
+    if (start.resolved) {
+      expect(start.outcome.outcome).toBe('done');
+      expect(start.outcome.playerRolled).toBeNull();
+      // No mutations supplied → neutral resolution, not a dead-end.
+      expect(start.outcome.mutations).toEqual([]);
+    }
+  });
+
   it('does NOT auto-finish a required, choice-less done decision', async () => {
     const llm = new MockLlmGateway();
     llm.setDecision({
