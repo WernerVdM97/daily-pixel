@@ -5,6 +5,8 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [0.3.0] — 2026-06-17
 ### Added
 - **DB migration framework** — `src/db/migrations/` holds dated `YYYYMMDDHHMM_<description>.ts` files, each exporting `up(db)`. A runner applies any whose id isn't yet in the new `schema_migrations` ledger table, in chronological order. The `…_baseline` migration wraps the prior `schema.sql` + v2–v7 idempotent ALTERs, so existing production DBs run it as a no-op and are simply stamped; fresh DBs build from scratch. Replaces the single growing `migrate()` function.
 - **Applied-mutation insight logging** — every resolved action now persists the mutations *actually applied* (post-validation, post-failure-strip) as JSON in the new `actions.applied_mutations` column, and emits a concise always-on `[mutations]` log line with the net before→after state change (e.g. `rolls 1→0`). Makes anomalies like a roll handed back via `modify_rolls_remaining` greppable from the live log and queryable after the fact.
