@@ -7,6 +7,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily-work teleport** — clicking a day-job quick-action button from The Warden's Oak now costs 1 stamina and teleports the character to their workplace before the action starts. Custom actions (`/action <description>`) and actions from non-Oak locations never trigger teleport. Wanderers teleport to a seeded random safe location (deterministic per character per day). See `docs/game/daily-work-teleport.md`.
+- **Two new locations** — The Town Forge (Blacksmith workplace) and The Warden's Library (Scribe workplace) are seeded in the locations table with safe-zone status and ASCII scenes.
+- **`/hi` workplace display** — the daily-work section now shows the workplace name next to the job title (e.g. `🔨 Blacksmith — The Town Forge`).
+- **`workplace_location` in day-jobs YAML** — each job in `assets/char-creation/day-jobs.yml` carries a `workplace_location` field (null for Wanderer, whose destination is computed).
+- **`getWorkplaceLocation()` utility** — pure function in `hi.ts` that resolves workplace destinations (with seeded Wanderer logic), exported for testing.
+
+### Added
+- **The Warden NPC** — The Warden is now a seeded NPC at the Oak: a silent, hooded figure who tends the fire and offers stew. Added to `seedNpcs()` in `migrate.ts` with class `Warden`, location `"The Warden's Oak"`, and a fire-tending description.
+- **The Warden's location frozen on world tick** — NPCs with class `Warden` are skipped in the nightly movement loop. The Warden never leaves the Oak.
+- **Warden emoji in `/look`** — The Warden renders with a `🔥` emoji in the `/look` entities list.
+- **Conditional Warden lore injection** — The Warden's century-spanning secret is injected into the LLM context only when The Warden is nearby, with instructions to drip-feed fragments over the year and never explain the secret outright.
 - **Good night message with Action/Feedback buttons** — `/sleep` now shows a Components V2 good-night embed with an ⚔️ Action button (opens day-job menu) and a 💬 Feedback button (opens a modal). The message reports how many souls did not make it home.
 - **Unsafe sleep penalty** — sleeping in an unsafe location costs -1 HP. Flavour text reflects the rough night.
 - **Feedback & Bug Report buttons on action outcomes** — public action outcome messages now include 💬 Feedback and 🐛 Bug Report buttons that open modals, routing to `engine.submitFeedback()` / `engine.submitBug()`.
