@@ -6,8 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 ### Added
+- **Admin notification on tick failure** — `notifyAdmin()` called when the nightly cron tick or morning announcement fails, so silent errors like `DiscordAPIError 50001 (Missing Access)` are no longer invisible.
+- **Hi button on morning announcement** — the daily welcome message now includes a 🌅 Hi button. Clicking it spawns an ephemeral `/hi` screen for the player, reusing the existing nav-button handler.
+- **`setMeta()` on `WorldEngine` interface** — allows the morning announcement to write `last_announcement_date` for idempotency.
+- **`last_announcement_date` idempotency guard** — prevents double-posting the morning message if the bot restarts.
+
 ### Changed
+- **Tick decoupled from announcement** — the nightly world tick (DB reset at 3:30 UTC) and the morning announcement (7:30 UTC) are now separate `setTimeout` schedulers. The tick writes `last_tick_players_affected` and `last_tick_npc_movement_count` to meta; the announcement reads them 4 hours later.
+
 ### Fixed
+
+### Chore
+- **`biome.json`** — formatter config enforcing `indentStyle: space, indentWidth: 2` to prevent whitespace churn.
 
 ## [0.2.1] — 2026-06-16
 
