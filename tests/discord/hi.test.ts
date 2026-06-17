@@ -28,6 +28,7 @@ function makeChar(overrides?: Partial<CharacterData>): CharacterData {
     health: 10,
     maxHealth: 12,
     stamina: 8,
+    maxStamina: 10,
     rollsRemaining: 2,
     location: "The Warden's Oak",
     wealth: 15,
@@ -42,6 +43,7 @@ const mockDayJobs = [
     name: "Blacksmith",
     depends_on: ["physical"] as string[],
     base_income: 10,
+    workplace_location: "The Town Forge",
     description: "Hammer and anvil.",
     actions: [
       { label: "Forge blade", income: 6, hook: "The steel sings." },
@@ -53,6 +55,7 @@ const mockDayJobs = [
     name: "Hunter",
     depends_on: ["physical", "wisdom"] as string[],
     base_income: 8,
+    workplace_location: "The Forest Edge",
     description: "Track game.",
     actions: [
       { label: "Track game", income: 5, hook: "Deer sign everywhere." },
@@ -152,7 +155,6 @@ describe("getDayJobActions", () => {
 
 describe("isWeekend", () => {
   it("returns true for Saturday (6) and Sunday (0)", () => {
-    const realDay = new Date().getDay;
     vi.stubGlobal(
       "Date",
       class extends Date {

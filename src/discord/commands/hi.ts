@@ -7,6 +7,9 @@ export interface DayJobDef {
   name: string;
   depends_on: string[];
   base_income: number;
+  /** Where the character teleports when starting a daily-work action from The Warden's Oak.
+   *  Null for Wanderer (seeded random safe location). */
+  workplace_location: string | null;
   description: string;
   /** The job's action pool. `getDayJobActions` surfaces 3 at random (job pool + COMMON_ACTIONS). */
   actions: DayJobAction[];

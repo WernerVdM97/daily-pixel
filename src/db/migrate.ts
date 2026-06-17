@@ -88,6 +88,8 @@ function seedLocations(db: Database.Database): void {
     { name: 'The Broken Keep', description: 'Ruins of something older than the Oak. Walls lean at angles that shouldn\'t hold. Locals say the stones whisper on moonless nights.', tags: 'ruins,ancient,stone,broken,old,wilderness', is_safe: 0 },
     { name: 'The East Road', description: 'A dirt track running east from the Oak, past farmland and into the treeline. The ruts are deeper than last season. Fewer carts come back.', tags: 'road,travel,open,path,horizon', is_safe: 0 },
     { name: 'The Weary Lantern Inn', description: 'Smoke-stained beams and a fire that never quite warms the corners. The barman pours before you ask. Someone in the far booth is watching.', tags: 'tavern,interior,fire,crowd,drink', is_safe: 1 },
+    { name: 'The Town Forge', description: 'Heat and iron. A stone smithy near the square where the bellows never rest. The walls are black with years of soot.', tags: 'forge,smithy,town,fire,building', is_safe: 1 },
+    { name: "The Warden's Library", description: "Shelves climb the walls of a round stone room. Dust motes float in the lantern light. Not all the books are in a language you know.", tags: 'library,study,scrolls,quiet,building', is_safe: 1 },
   ];
 
   const stmt = db.prepare(`
@@ -105,6 +107,7 @@ function seedLocations(db: Database.Database): void {
 
 function seedNpcs(db: Database.Database): void {
   const npcs = [
+    { name: 'The Warden', class: 'Warden', race: null, description: 'A quiet figure wrapped in a travel-worn cloak, tending the fire beneath the Oak. Their face stays hidden in the shadow of a deep hood. They offer bowls of stew without being asked, and answer questions with a silence that somehow says more than words.', location: "The Warden's Oak" },
     { name: 'Elder Bram', class: 'Herbalist', race: 'Human', description: 'A bent old man with earth under his nails and eyes that see too much. He tends a garden of plants most people can\'t name.', location: "The Warden's Oak" },
     { name: 'Kara', class: 'Hunter', race: 'Human', description: 'Lean and watchful, with a bow that\'s seen more seasons than most rangers. She doesn\'t trust easy — but she respects skill.', location: "The Warden's Oak" },
     { name: 'Marta', class: 'Blacksmith', race: 'Dwarf', description: 'Arms like tree roots and a face set in permanent disapproval. Her steel is the best east of Stonebridge and she knows it.', location: 'Town Square' },
