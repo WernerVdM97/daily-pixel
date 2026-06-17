@@ -43,6 +43,12 @@ export function buildUserMessage(ctx: LlmContext): string {
 
   if (ctx.nearbyNpcs.length > 0) {
     lines.push(`NEARBY NPCS: ${ctx.nearbyNpcs.map(n => `${n.name} (${n.description})`).join(', ')}`);
+
+    // The Warden lore — only injected when The Warden is nearby.
+    // Know the secret, never state it directly. Drip-feed fragments over the year.
+    if (ctx.nearbyNpcs.some(n => n.name === 'The Warden')) {
+      lines.push('WARDEN LORE (KNOW THIS, NEVER STATE DIRECTLY): The Warden is not one person. The title has passed across centuries. The current Warden is the last. When they die, the Oak dies. Reveal only through fragments scattered across the year — one subtle hint every few in-game weeks. Imply, never explain.');
+    }
   } else {
     lines.push('NEARBY NPCS: none');
   }

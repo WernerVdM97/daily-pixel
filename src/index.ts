@@ -54,7 +54,7 @@ import { makeJournalCommand } from './discord/commands/journal.js';
 import { makeFeedbackCommand } from './discord/commands/feedback.js';
 import { makeBugCommand } from './discord/commands/bug.js';
 import { makeSleepCommand } from './discord/commands/sleep.js';
-import { makeHiCommand, getDayJobActions, type DayJobDef } from './discord/commands/hi.js';
+import { makeHiCommand, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './discord/commands/hi.js';
 import { buildComponentPayload, getNavButtons } from './discord/format.js';
 import { BANNER_IMAGE, imageFiles } from './discord/images.js';
 import { makeJoinCommand, handleInteraction as handleJoinInteraction, type CharDefs } from './discord/commands/join.js';
@@ -867,6 +867,27 @@ ${headInfo}`);
 _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
           components: [],
         });
+
+        // ── Teleport from The Warden's Oak to workplace ──
+        if (char.location === "The Warden's Oak") {
+          const workplace = getWorkplaceLocation(char.dayJob, dayJobs, { characterId: char.id, dayNumber });
+
+          if (workplace && workplace !== char.location) {
+            charRepo.update(char.id, { stamina: Math.max(0, char.stamina - 1), location: workplace });
+            // Update the local char copy for the outcome renderer
+            char.stamina = Math.max(0, char.stamina - 1);
+            char.location = workplace;
+
+            await interaction.editReply({
+              embeds: [new EmbedBuilder()
+                .setTitle('🚶 Daily Commute')
+                .setDescription(`**You head to the ${workplace}.**  \n⚡ -1 stamina`)
+                .setColor(0x95a5a6)
+                .toJSON()],
+              components: [],
+            });
+          }
+        }
 
         const result = await engine.startAction(char.id, hook);
         if (result.outcome) {

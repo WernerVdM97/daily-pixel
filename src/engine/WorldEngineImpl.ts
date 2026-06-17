@@ -822,6 +822,9 @@ export class WorldEngineImpl implements WorldEngine {
       for (const npc of allNpcs) {
         const cls = npc.class ?? '';
 
+        // The Warden never leaves the Oak — frozen in place.
+        if (cls === 'Warden') continue;
+
         if (cls === 'Blacksmith') {
           this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + 5 });
           continue;
