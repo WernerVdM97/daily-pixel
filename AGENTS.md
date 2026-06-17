@@ -44,6 +44,15 @@ dev  ─── feature work ─── changelog ─── merge ─── featur
 main ────────────────────────────────── v0.x.y ──────── tag
 ```
 
+## System prompt conventions
+
+The LLM decision prompt is versioned: `assets/prompts/decision-prompts/decision-<version>.md`, selected by `PROMPT_VERSION` in `src/llm/prompt-builder.ts` (stamped on every action row for data mining).
+
+When modifying the system prompt:
+
+1. **Never edit a published version in place** — add a new `decision-v<N+1>.md` and bump `PROMPT_VERSION`, so historical action rows stay attributable to the prompt that produced them.
+2. **Always copy the latest prompt to `current_source.md`** in the same folder. It is the canonical "current" mirror — keep it byte-identical to the active versioned file.
+
 ## Agent skills
 
 Project-tailored agent skills live in [`agent/skills/`](./agent/skills/). Expect them to be manually invoked.
