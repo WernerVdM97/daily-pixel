@@ -209,3 +209,21 @@ Tests       460 passed (460)
 - **Consider #3:** Extract shared `renderScreen` helper to avoid callback duplication.
 - **Consider #4:** Add tests for the `renderHiScreen` and `nav:action` interaction paths.
 - **Nits:** Dead `_getScene`, `escapeRegex` parameter name, missing rogue/thief emoji.
+
+---
+
+### Update — addressed 2026-06-17
+
+The split-PR recommendation is moot (those changes already landed). The actionable code items have now been resolved on `feat/improvement`:
+
+- ✅ **Required #1** — renamed `computeItemBonus` → `itemStatModifier` and `computeRollBonus` → `abilityCheckBonus` (dc.ts, machine.ts, tests).
+- ✅ **Required #2 / #3** — `hi.ts` reindented from tabs to 2-space (it was the only tab-indented file in `src/`; now conforms to `biome.json`).
+- ✅ **Nit #6** — `escapeRegex(s)` → `escapeRegex(str)`.
+- ✅ **Nit #7** — `npcEmoji` gained rogue/thief (🗡️), scout (🧭), guard/soldier (🛡️) archetypes.
+- ✅ **Nit #8** — removed the dead `_getScene` param from `makeHiCommand` and its `index.ts` call site.
+
+Deferred (not done):
+
+- **Consider #2** — shared `renderScreen(userId, commandName)` helper in `index.ts`. Optional refactor; left as-is.
+- **Coverage gaps** — no tests yet for the `renderHiScreen` wizard-completion path or the `nav:action` handler. Still open.
+- FYI items #9–#11 (groupBy extraction, `buildComponentPayload` cast, `join.ts` catch comments) — left as noted.

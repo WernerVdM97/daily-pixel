@@ -47,6 +47,7 @@ export class MockWorldEngine implements WorldEngine {
     getJournal: number[];
     submitFeedback: { characterId: number; text: string }[];
     submitBug: { characterId: number; text: string }[];
+    updateLastPlayed: number[];
     tick: boolean[];
     restAtOak: string[];
     getMeta: string[];
@@ -63,6 +64,7 @@ export class MockWorldEngine implements WorldEngine {
     getJournal: [],
     submitFeedback: [],
     submitBug: [],
+    updateLastPlayed: [],
     restAtOak: [],
     tick: [],
     getMeta: [],
@@ -248,5 +250,9 @@ export class MockWorldEngine implements WorldEngine {
   getMeta(key: string): string | null {
     this.calls.getMeta.push(key);
     return this._meta.get(key) ?? null;
+  }
+
+  updateLastPlayed(characterId: number): void {
+    this.calls.updateLastPlayed.push(characterId);
   }
 }

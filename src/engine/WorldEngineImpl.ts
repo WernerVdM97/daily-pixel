@@ -433,6 +433,8 @@ export class WorldEngineImpl implements WorldEngine {
       throw new Error('You are already mid-action. Finish your current action first.');
     }
 
+    this.updateLastPlayed(characterId);
+
     try {
       const char = this.rowToCharacterData(row);
       const items = this.getItems(characterId);
@@ -508,6 +510,8 @@ export class WorldEngineImpl implements WorldEngine {
     if (isStateStale(internalState, row, this.actionRepo, this.charRepo, characterId, this.db)) {
       throw new Error('Action timed out after 30 minutes');
     }
+
+    this.updateLastPlayed(characterId);
 
     const char = this.rowToCharacterData(row);
     const items = this.getItems(characterId);
@@ -632,6 +636,13 @@ export class WorldEngineImpl implements WorldEngine {
     return entities;
   }
 
+  // ── Last played ──
+
+  updateLastPlayed(characterId: number): void {
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    this.charRepo.update(characterId, { last_played_at: now });
+  }
+
   // ── Items ──
 
   getItems(characterId: number): ItemData[] {
@@ -693,6 +704,8 @@ export class WorldEngineImpl implements WorldEngine {
     if (!user) return null;
     const row = this.charRepo.findByUserId(user.id);
     if (!row) return null;
+
+    this.updateLastPlayed(row.id);
 
     const oakName = "The Warden's Oak";
     if (row.location === oakName) {

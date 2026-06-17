@@ -1,6 +1,7 @@
 import type { Migration } from './types.js';
 import { migration as baseline } from './202606170000_baseline.js';
 import { migration as actionAppliedMutations } from './202606171200_action_applied_mutations.js';
+import { migration as playerLastPlayedAndNarrative } from './202606171400_player_last_played_and_narrative.js';
 
 /**
  * All migrations in apply order. Append new ones at the end — the runner applies
@@ -10,4 +11,5 @@ import { migration as actionAppliedMutations } from './202606171200_action_appli
 export const MIGRATIONS: Migration[] = [
   baseline,
   actionAppliedMutations,
+  playerLastPlayedAndNarrative,
 ];

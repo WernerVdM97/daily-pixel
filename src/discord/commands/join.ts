@@ -14,6 +14,7 @@ import {
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import type { WizardSession, WizardState } from "../WizardSession.js";
 import { OAK_IMAGE, imageFiles, hasImage } from "../images.js";
+import { CLASS_EMOJI } from "../format.js";
 
 // ── Custom IDs ──
 
@@ -440,9 +441,6 @@ const STEP_HEADINGS: Record<number, string> = {
 
 const FALLBACK_EMOJI = "🔹";
 
-const CLASS_EMOJI: Record<string, string> = {
-  Warrior: "⚔️", Ranger: "🏹", Wizard: "🔮", Bard: "🎵", Priest: "✝️",
-};
 const UPBRINGING_EMOJI: Record<string, string> = {
   Soldier: "🎖️", Merchant: "⚖️", Scholar: "📚", "Folk Hero": "🌟", Outcast: "🏚️", Noble: "👑",
   Artisan: "🪚", Farmstead: "🌾", "Temple-Raised": "⛪", Urchin: "🗝️", Entertainer: "🎭", Scout: "🧭",

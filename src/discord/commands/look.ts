@@ -16,6 +16,9 @@ function npcEmoji(classOrType: string): string {
   if (t.includes('herbalist') || t.includes('alchemist')) return '🌿';
   if (t.includes('acolyte') || t.includes('priest')) return '🙏';
   if (t.includes('wanderer') || t.includes('vagrant')) return '🗝️';
+  if (t.includes('rogue') || t.includes('thief')) return '🗡️';
+  if (t.includes('scout')) return '🧭';
+  if (t.includes('guard') || t.includes('soldier')) return '🛡️';
   return '🗣️';
 }
 

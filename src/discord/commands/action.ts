@@ -24,7 +24,7 @@ import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
-import { getNavButtons } from '../format.js';
+import { getNavButtons, classEmoji } from '../format.js';
 
 // ── Custom IDs ──
 
@@ -206,7 +206,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     await interaction.editReply({
       embeds: [
         new EmbedBuilder()
-          .setDescription(`⏳ **Starting…**\n_${randomIdleMessage()}_`)
+          .setDescription(`**You:** ${description}\n\n⏳ **Starting…**\n_${randomIdleMessage()}_`)
           .setColor(0x95a5a6)
           .toJSON(),
       ],
@@ -224,7 +224,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         const embed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
         await interaction.editReply({ embeds: [embed], components: [] });
         await interaction.followUp({
-          content: `**${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
+          content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
           embeds: [embed],
           ...(resolvedChar ? { components: getNavButtons(resolvedChar) } : {}),
         });
@@ -276,42 +276,22 @@ export async function handleActionChoice(
   }
   const charId = character.id;
 
-  // Defer the button click — stepAction calls LLM which can take >3 seconds.
-  // Then immediately blank buttons and show idle message during the wait.
+  // Defer immediately — stepAction calls the LLM, which can take >3 seconds.
+  // Resolve which option the player picked first so the loading screen can echo
+  // their choice instead of a bare "Thinking…".
   await i.deferUpdate();
-  await i.editReply({
-    embeds: [
-      new EmbedBuilder()
-        .setDescription(`⏳ **Thinking…**\n_${randomIdleMessage()}_`)
-        .setColor(0x95a5a6)
-        .toJSON(),
-    ],
-    components: [],
-  });
 
-  // Bail — look up the actual bail option label from the pending decision
+  let label: string | null;
   if (i.customId === CID_BAIL) {
-    try {
-      const decision = pendingDecisions.get(i.user.id);
-      const bailOption = decision?.options.find(o => o.dcModifier === null);
-      const bailLabel = bailOption?.label ?? 'Bail';
-      const result = await engine.stepAction(charId, bailLabel);
-      await applyActionResult(i, result, engine);
-    } catch (err) {
-      await i.webhook.editMessage(i.message.id, {
-        content: `❌ ${(err as Error).message}`,
-        components: [],
-        embeds: [],
-      });
-    }
-    return;
+    // Bail — the real label comes from the pending decision's bail option.
+    const decision = pendingDecisions.get(i.user.id);
+    label = decision?.options.find(o => o.dcModifier === null)?.label ?? 'Bail';
+  } else {
+    const parsed = parseActionCid(i.customId);
+    if (!parsed) return;
+    label = getChoiceLabel(i.user.id, parsed.optionIdx);
   }
 
-  // Choice — look up the option label from the stored pending decision
-  const parsed = parseActionCid(i.customId);
-  if (!parsed) return;
-
-  const label = getChoiceLabel(i.user.id, parsed.optionIdx);
   if (!label) {
     await i.webhook.editMessage(i.message.id, {
       content: '❌ Your action session expired. Try `/action` again.',
@@ -320,6 +300,17 @@ export async function handleActionChoice(
     });
     return;
   }
+
+  // Blank the buttons and show the player's choice with a "Thinking…" line below it.
+  await i.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setDescription(`**You:** ${label}\n\n⏳ **Thinking…**\n_${randomIdleMessage()}_`)
+        .setColor(0x95a5a6)
+        .toJSON(),
+    ],
+    components: [],
+  });
 
   try {
     const result = await engine.stepAction(charId, label);
@@ -362,7 +353,7 @@ async function applyActionResult(
     // ephemeral screen for whoever clicks (handled in the nav: dispatcher).
     const charName = character?.name ?? 'Unknown';
     await i.followUp({
-      content: `**${charName}** — ${outcome.distilledType}`,
+      content: `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}`,
       embeds: [outcomeEmbed],
       ...(character ? { components: getNavButtons(character) } : {}),
     });

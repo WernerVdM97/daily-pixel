@@ -19,6 +19,23 @@
 /** Sentinel used in command output to mark section boundaries for splitting. */
 export const SEPARATOR = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
 
+/** Fallback emoji for an unknown class. */
+export const CLASS_EMOJI_FALLBACK = '🔹';
+
+/** Player-class → emoji. Shared by char creation (join) and outcome broadcasts. */
+export const CLASS_EMOJI: Record<string, string> = {
+  Warrior: '⚔️',
+  Ranger: '🏹',
+  Wizard: '🔮',
+  Bard: '🎵',
+  Priest: '✝️',
+};
+
+/** Emoji for a player class, falling back to a neutral marker for unknown classes. */
+export function classEmoji(charClass: string | null | undefined): string {
+  return (charClass && CLASS_EMOJI[charClass]) || CLASS_EMOJI_FALLBACK;
+}
+
 /** Component type constants for Components V2. */
 const CT = {
   ACTION_ROW: 1,
@@ -205,6 +222,6 @@ export function buildComponentPayload(
 }
 
 /** Escape special regex chars in a string. */
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -24,6 +24,7 @@ export interface CharacterRow {
   location: string;
   wealth: number;
   last_action_state: string | null;
+  last_played_at: string | null;
   created_at: string;
 }
 
@@ -38,6 +39,7 @@ export interface ActionRow {
   outcome: string;
   app_version: string | null;
   prompt_version: string;
+  narrative: string | null;
   /** @deprecated superseded by the llm_calls table; unwritten since v4. */
   llm_request: string | null;
   /** @deprecated superseded by the llm_calls table; unwritten since v4. */

@@ -12,8 +12,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Hi button on morning announcement** — the daily welcome message now includes a 🌅 Hi button. Clicking it spawns an ephemeral `/hi` screen for the player, reusing the existing nav-button handler.
 - **`setMeta()` on `WorldEngine` interface** — allows the morning announcement to write `last_announcement_date` for idempotency.
 - **`last_announcement_date` idempotency guard** — prevents double-posting the morning message if the bot restarts.
+- **Player class emoji on public action outcomes** (P2) — the global outcome message posted to the channel now leads with the player's class emoji (`⚔️ **Name** — hunt`), so glancing at the feed shows who did what. Backed by a shared `classEmoji()` helper in `discord/format.ts` (single source of truth, also used by the `/join` wizard).
+- **`LLM_MODEL` env var** (P1) — overrides the LLM model at boot (e.g. a pro-vs-flash A/B comparison) without a code change; empty falls back to the gateway default. The active model is logged on init.
+- **`player_characters.last_played_at` + `actions.narrative` columns** — new dated migration backing the upcoming goodnight/rest features (absence penalty + journal narrative). Schema-only; no behaviour change yet.
 
 ### Changed
+- **`done` is inferred from the absence of options** (P1) — the action machine no longer trusts the LLM's `done` flag to auto-finish a choice-less, non-required action. If the LLM returns no real options (regardless of `done`), the bot resolves it immediately as a neutral outcome instead of dead-ending on a lone red "Step back". Divine intervention and required (reactive) actions are unchanged. The auto-finish now emits an `[action] auto-finished …` log line noting the option count and whether `done` was inferred, so this path is greppable in the live log.
+- **Loading screen echoes the player's choice** (P2) — the "Starting…/Thinking…" interim message now shows what the player did (`**You:** <input or chosen option>`) above the spinner line, so the wait reflects their action instead of a bare "Thinking…". The button handler resolves the chosen label before rendering the wait.
 - **Tick decoupled from announcement** — the nightly world tick (DB reset at 3:30 UTC) and the morning announcement (7:30 UTC) are now separate `setTimeout` schedulers. The tick writes `last_tick_players_affected` and `last_tick_npc_movement_count` to meta; the announcement reads them 4 hours later.
 
 ### Fixed
@@ -22,6 +27,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Chore
 - **`biome.json`** — formatter config enforcing `indentStyle: space, indentWidth: 2` to prevent whitespace churn.
+- **Post-PR#14 code-review cleanup** — renamed `computeItemBonus` → `itemStatModifier` and `computeRollBonus` → `abilityCheckBonus` for clarity; reindented `hi.ts` from tabs to 2-space (the last tab-indented file); removed the dead `_getScene` param from `makeHiCommand`; added rogue/scout/guard archetypes to `npcEmoji`; minor `escapeRegex` param rename. See `docs/sparks/handover-code-review-post-pr14.md`.
 
 ## [0.2.1] — 2026-06-16
 

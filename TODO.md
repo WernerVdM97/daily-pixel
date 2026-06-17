@@ -11,34 +11,28 @@ have no doc home yet. See `docs/decisions/poc-action-ux-refinements.md`,
 > `[P1]` = coherence ("not random") — narrow POC slices, `[P2]` = daily-ritual polish.
 > Untagged scratchpad items are MVP/MVP+ by the scope docs.
 
-- [ ] **[P2]** add player class emoji to global action outcome messages 
-  - still improve formatting of final response
-- [~] bug: got an extra throw on the second action and then autocompleted the last one ended with me not getting a sleep button but instead another action button. Luckily that blocked me.
-  - [x] FIXED (sleep/action button): the Action nav button now hides when out of rolls & idle, so Sleep takes its place (was always rendered, dead-ending on the out-of-rolls guard). See format.ts getNavButtons + tests.
-  - [ ] STILL OPEN ("extra throw"): no deterministic double-decrement exists in the bot — a roll is spent exactly once per action in startAction. An extra roll can only come from an LLM `modify_rolls_remaining: +N` reward. Belongs to the prompt/roll-economy work in [[mvp-llm-prompt-architecture]] (or add a POC guard blocking positive modify_rolls_remaining).
-- [ ] **[P2]** delay sleep tick message and setup daily messages, with a button to start playing
-- [x] implement layered db migration framework
-  - DONE: `src/db/migrations/` — dated `YYYYMMDDHHMM_*.ts` files exporting `up(db)`, applied in order by a runner that tracks ids in `schema_migrations`. `0000_baseline` wraps the old schema+v2–v7 alters (idempotent, no behaviour change). ⚠️ needs a run where better-sqlite3 builds to exercise the DB tests.
+- [ ] the /join options should be loaded from the yaml, not injected in code. merge the hard coded options into the yamls in assets/
+- [ ] improve formatting of the final action outcome response (class emoji on the public outcome is DONE — `classEmoji()` in discord/format.ts)
+- [ ] mechanic — bonus rolls: an LLM `modify_rolls_remaining: +N` reward is a deliberate mechanic, not a bug (the "extra throw" report traces to this; no deterministic double-decrement exists — a roll is spent exactly once per action in startAction). Design it properly: when/why the world grants an extra roll, and surface it to the player so it reads as a reward. Belongs to the roll-economy work in [[mvp-llm-prompt-architecture]].
 - [ ] how to make wealth spendable or meaning full (same for stamina and health)?
   - how do we handle death or 0 HP?
 - [ ] stealth or following mechanics?
-- [ ] **[P1 — deterministic slices only; pacing parts are MVP]** evaluate the /action flow and prompt and determine how much of it we can pull into the bot to do probalistically instead of having the LLM do calculation or cross dependant choices.
-  - **[P1]** like bail, the LLM does not have to return the bail option as a decision, we can just infer it from `required: false`?
-  - **[P1]** or drop the `done: true` and just infer it if there arent decision options.
+- [ ] **[MVP — pacing parts; the deterministic P1 slices are DONE]** evaluate the /action flow and prompt and determine how much of it we can pull into the bot to do probalistically instead of having the LLM do calculation or cross dependant choices.
+  - ~~infer bail from `required: false`~~ DONE — `ensureBail()` in engine/action/machine.ts auto-adds "Step back" when not required, strips it when required.
+  - ~~drop `done: true`, infer from no decision options~~ DONE — machine.start() now resolves any non-required, choice-less decision regardless of the LLM `done` flag.
   - MVP: start capping rolls per action type... add short rest option
   - players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
   - pacing should not be done by the llm but by the bot before hand. If every fourth encounter should be dangerous, that must be tracked in the bot
   this links to refacotring the prompting. the pacing outcome can be injected into the prompt.
 - [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
 - [ ] **[P1]** A/B test with pro vs flash (high vs xhigh thinking) for different stages? Token usage seems very low right now... could get away with more expensive models
+  - ENABLED: set `LLM_MODEL` env var to swap models at boot (logged on init). Still to do: actually run the comparison and decide; per-stage model selection is a further step.
 - [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other. globals messages on nat 1 or 20
 - [ ] use reactions as a way of buffering input before a button is pressed (expend items or use certain abilities to amplify actions, also works for trades) 
   `this is cool!!!`
   (but does it work with ephemeral..?)
-- [ ] **[P2]** use the "thinking" or loading interval in actions to display the user choice or action better and any possible response that is already known?
+- [ ] **[P2]** use the "thinking" or loading interval in actions to display any possible response that is already known? (echoing the player's choice/input on the loading screen is DONE — `**You:** …` above the spinner)
 - [ ] add a weight to time, the world should evolve with progression. DC should become higher, new threats appear
-- [x] [2026-06-16 12:20:29.829] (node:30) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
-  - FIXED: all `{ ephemeral: true }` opts → `flags: MessageFlags.Ephemeral`; buildComponentPayload folds the bit into its V2 flags.
 - [ ] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty.
 - [ ] using a daily_action should immeadiately teleport the person (if they are nearby(?), safe, or at camp) to the place of their work (associate jobs with locations).
 

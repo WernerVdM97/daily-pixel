@@ -191,6 +191,9 @@ export interface WorldEngine {
   // Items
   getItems(characterId: number): ItemData[];
 
+  /** Stamp the current time as the player's last interaction. */
+  updateLastPlayed(characterId: number): void;
+
   // Journal
   getJournal(characterId: number): JournalData;
 

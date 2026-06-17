@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   accumulateDc,
-  computeItemBonus,
-  computeRollBonus,
+  itemStatModifier,
+  abilityCheckBonus,
   resolveRoll,
   validateDcModifier,
 } from '../../src/engine/action/dc.js';
@@ -77,23 +77,23 @@ describe('Item bonus computation', () => {
 
   it('sums modifiers for matching stat', () => {
     // physical: Iron Sword (+2) = 2
-    expect(computeItemBonus(items, 'physical')).toBe(2);
+    expect(itemStatModifier(items, 'physical')).toBe(2);
   });
 
   it('handles negative modifiers', () => {
     // charisma: Cursed Ring (-1) = -1
-    expect(computeItemBonus(items, 'charisma')).toBe(-1);
+    expect(itemStatModifier(items, 'charisma')).toBe(-1);
   });
 
   it('returns 0 for stat with no items', () => {
     // no stamina items in the list
-    expect(computeItemBonus([], 'physical')).toBe(0);
+    expect(itemStatModifier([], 'physical')).toBe(0);
   });
 
   it('does not multiply modifier by quantity (consumables don\'t stack)', () => {
     // intelligence: Old Map (+1) x2 = +1, not +2 — quantity tracks consumption,
     // it does not multiply the stat bonus.
-    expect(computeItemBonus(items, 'intelligence')).toBe(1);
+    expect(itemStatModifier(items, 'intelligence')).toBe(1);
   });
 
   it('handles mixed positive and negative for same stat', () => {
@@ -101,7 +101,7 @@ describe('Item bonus computation', () => {
       { id: 1, characterId: 1, name: 'Helm', emoji: '⛑️', stat: 'physical', modifier: 1, quantity: 1 },
       { id: 2, characterId: 1, name: 'Rusty Blade', emoji: '🗡️', stat: 'physical', modifier: -1, quantity: 1 },
     ];
-    expect(computeItemBonus(mixed, 'physical')).toBe(0);
+    expect(itemStatModifier(mixed, 'physical')).toBe(0);
   });
 });
 
@@ -114,21 +114,21 @@ describe('Roll bonus (ability check = character stat + item bonus)', () => {
 
   it('adds the character ability score to the item bonus', () => {
     // physical: stat 3 + Iron Sword (+2) = 5
-    expect(computeRollBonus(stats, items, 'physical')).toBe(5);
+    expect(abilityCheckBonus(stats, items, 'physical')).toBe(5);
   });
 
   it('includes a negative ability score', () => {
     // wisdom: stat -1 + Lucky Charm (+1) = 0
-    expect(computeRollBonus(stats, items, 'wisdom')).toBe(0);
+    expect(abilityCheckBonus(stats, items, 'wisdom')).toBe(0);
   });
 
   it('uses the ability score even with no matching items', () => {
     // charisma: stat 2 + no charisma items = 2
-    expect(computeRollBonus(stats, items, 'charisma')).toBe(2);
+    expect(abilityCheckBonus(stats, items, 'charisma')).toBe(2);
   });
 
   it('returns 0 for an unknown stat key', () => {
-    expect(computeRollBonus(stats, items, 'luck')).toBe(0);
+    expect(abilityCheckBonus(stats, items, 'luck')).toBe(0);
   });
 });
 

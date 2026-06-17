@@ -71,6 +71,9 @@ const CHAR_CREATION_DIR = path.join(ASSETS_DIR, 'char-creation');
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN ?? '';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? '';
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID ?? '';
+// A/B testing: override the LLM model (e.g. a pro vs flash comparison) without a
+// code change. Empty → the gateway's built-in default.
+const LLM_MODEL = process.env.LLM_MODEL?.trim() || undefined;
 
 if (!DISCORD_TOKEN) {
   console.error('FATAL: DISCORD_TOKEN is not set. Set it in .env');
@@ -340,6 +343,7 @@ async function main() {
   if (DEEPSEEK_API_KEY) {
     const deepseek = new DeepseekLlmGateway({
       apiKey: DEEPSEEK_API_KEY,
+      ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
       verbose: process.env.VERBOSE_LLM === 'true',
       recorder: new LlmCallRepository(initDb()),
       // POC: failures always log thinking; set this to also log it on every call.
@@ -352,7 +356,7 @@ async function main() {
         metaRepo.set('llm_fallback_count', String(Number(count ?? '0') + 1));
       },
     });
-    console.log(c.cyan('[llm] DeepSeek gateway initialized with fallback chain'));
+    console.log(c.cyan(`[llm] DeepSeek gateway initialized with fallback chain (model: ${LLM_MODEL ?? 'default'})`));
   } else {
     llm = new FallbackLlmGateway({
       decide: async (_ctx: LlmContext): Promise<LlmDecision> => ({
@@ -426,7 +430,7 @@ async function main() {
   registry.register('feedback', withTextOption(makeFeedbackCommand(engine)));
   registry.register('bug', withTextOption(makeBugCommand(engine)));
   registry.register('sleep', asHandler(makeSleepCommand(engine)));
-  registry.register('hi', asHandler(makeHiCommand(engine, dayJobs, getCurrentScene)));
+  registry.register('hi', asHandler(makeHiCommand(engine, dayJobs)));
   const joinWizards = new WizardSession();
   registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, {
     classes: assets.classes as CharDefs['classes'],
@@ -561,8 +565,14 @@ ${headInfo}`);
 
       try {
         const result = await handler(interaction);
-        // If the handler already replied (join/hi manage their own flow), skip
+        // If the handler already replied (join/action manage their own flow), skip
         if (interaction.replied || interaction.deferred) return;
+
+        // Stamp last interaction time (not join — not a char yet)
+        if (commandName !== 'join') {
+          const char = engine.getCharacter(interaction.user.id);
+          if (char) engine.updateLastPlayed(char.id);
+        }
 
         const ephemeralCommands = ['stats', 'backpack', 'journal', 'bug', 'feedback', 'help', 'hi', 'look'];
         const isEphemeral = ephemeralCommands.includes(commandName);
