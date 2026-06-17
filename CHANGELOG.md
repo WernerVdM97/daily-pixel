@@ -5,14 +5,11 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
-
 ### Added
-- **Daily-work teleport** — clicking a day-job quick-action button from The Warden's Oak now costs 1 stamina and teleports the character to their workplace before the action starts. Custom actions (`/action <description>`) and actions from non-Oak locations never trigger teleport. Wanderers teleport to a seeded random safe location (deterministic per character per day). See `docs/game/daily-work-teleport.md`.
-- **Two new locations** — The Town Forge (Blacksmith workplace) and The Warden's Library (Scribe workplace) are seeded in the locations table with safe-zone status and ASCII scenes.
-- **`/hi` workplace display** — the daily-work section now shows the workplace name next to the job title (e.g. `🔨 Blacksmith — The Town Forge`).
-- **`workplace_location` in day-jobs YAML** — each job in `assets/char-creation/day-jobs.yml` carries a `workplace_location` field (null for Wanderer, whose destination is computed).
-- **`getWorkplaceLocation()` utility** — pure function in `hi.ts` that resolves workplace destinations (with seeded Wanderer logic), exported for testing.
+### Changed
+### Fixed
 
+## [0.2.2] — 2026-06-18
 ### Added
 - **The Warden NPC** — The Warden is now a seeded NPC at the Oak: a silent, hooded figure who tends the fire and offers stew. Added to `seedNpcs()` in `migrate.ts` with class `Warden`, location `"The Warden's Oak"`, and a fire-tending description.
 - **The Warden's location frozen on world tick** — NPCs with class `Warden` are skipped in the nightly movement loop. The Warden never leaves the Oak.
@@ -28,20 +25,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`countSoulsInUnsafe()`** — new `WorldEngine` method that counts player characters at unsafe locations. Used by the good night message.
 - **`modifyHealth()`** — new `WorldEngine` method for flat health modification (clamped 0..max).
 - **`updateLastPlayed()`** — stamps the current time on a character's `last_played_at` field. Called on `/action`, `/hi`, `/look`, `/sleep`.
-
-### Changed
-- **Decision prompt `v7` — bail/`done` simplification** — now that the engine adds the "Step back" option itself (from `required`) and infers completion from a choice-less beat, the prompt no longer asks the LLM to emit a bail option (`dc_modifier: null`) or lean on `done` to end a no-option beat. `required` stays (it drives the bail inference); `done` stays for `CONTINUE`/`RESOLVE_ROLL`. Also corrects the prompt's `RECENT ACTIONS` doc to the now-fed last-3 narrative thread. `PROMPT_VERSION` → `v7`.
-- **`/hi` shows status, not ability scores** — the header now leads with current vitals (`❤️ HP ┃ ⚡ Stamina ┃ 🎲 Rolls ┃ 💰 Wealth`) and drops the PHY/WIS/INT/CHA line. "Rolls" no longer says "remaining"; Wealth is now surfaced. Low-health warning preserved.
-- **`/action` gamebook layout** — both the live decision screen and the outcome recap now read as one continuous gamebook page: the DM's narration (quest, each scene prompt, the final resolution) is rendered as Discord blockquotes, and the player's choices stand out in bold (`↪ **Choice**`). Replaces the old mixed `**Decision:** … → *choice*` formatting that ran together in long multi-decision encounters. Each past choice now shows a qualitative difficulty arrow instead of a raw DC number — 🟢⬇️ when the choice lowered the DC (easier), 🔴⬆️ when it raised it (harder). Descriptions degrade gracefully to fit Discord's 4096-char embed cap (full thread → collapse history to a choice breadcrumb → drop the scene art → hard clip), so long encounters never fail to send.
-- **Recent-action narrative thread fed to the LLM** — the decision prompt's `RECENT ACTIONS` block now carries each prior action's stored `narrative` (the DM outcome text), rendered oldest→newest for story continuity, and the count fed to the LLM rose from 2 to 3. Previously only `type (outcome)` was passed.
-- **Nav button cleanup** — removed `look`, `stats`, and `backpack` from the global navigation bar. Remaining buttons: `hi`, `journal`, `action`, `sleep`.
-- **`/hi` location safety display** — moved the safety emoji onto the location name itself instead of a separate text badge.
-
-### Fixed
-- `MockWorldEngine` now implements all `WorldEngine` interface methods (`updateLastPlayed`, `modifyHealth`, `countSoulsInUnsafe`).
-
-## [0.2.2] — 2026-06-17
-### Added
+- **Daily-work teleport** — clicking a day-job quick-action button from The Warden's Oak now costs 1 stamina and teleports the character to their workplace before the action starts. Custom actions (`/action <description>`) and actions from non-Oak locations never trigger teleport. Wanderers teleport to a seeded random safe location (deterministic per character per day). See `docs/game/daily-work-teleport.md`.
+- **Two new locations** — The Town Forge (Blacksmith workplace) and The Warden's Library (Scribe workplace) are seeded in the locations table with safe-zone status and ASCII scenes.
+- **`/hi` workplace display** — the daily-work section now shows the workplace name next to the job title (e.g. `🔨 Blacksmith — The Town Forge`).
+- **`workplace_location` in day-jobs YAML** — each job in `assets/char-creation/day-jobs.yml` carries a `workplace_location` field (null for Wanderer, whose destination is computed).
+- **`getWorkplaceLocation()` utility** — pure function in `hi.ts` that resolves workplace destinations (with seeded Wanderer logic), exported for testing.
 - **DB migration framework** — `src/db/migrations/` holds dated `YYYYMMDDHHMM_<description>.ts` files, each exporting `up(db)`. A runner applies any whose id isn't yet in the new `schema_migrations` ledger table, in chronological order. The `…_baseline` migration wraps the prior `schema.sql` + v2–v7 idempotent ALTERs, so existing production DBs run it as a no-op and are simply stamped; fresh DBs build from scratch. Replaces the single growing `migrate()` function.
 - **Applied-mutation insight logging** — every resolved action now persists the mutations *actually applied* (post-validation, post-failure-strip) as JSON in the new `actions.applied_mutations` column, and emits a concise always-on `[mutations]` log line with the net before→after state change (e.g. `rolls 1→0`). Makes anomalies like a roll handed back via `modify_rolls_remaining` greppable from the live log and queryable after the fact.
 - **Admin notification on tick failure** — `notifyAdmin()` called when the nightly cron tick or morning announcement fails, so silent errors like `DiscordAPIError 50001 (Missing Access)` are no longer invisible.
@@ -56,10 +44,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`done` is inferred from the absence of options** (P1) — the action machine no longer trusts the LLM's `done` flag to auto-finish a choice-less, non-required action. If the LLM returns no real options (regardless of `done`), the bot resolves it immediately as a neutral outcome instead of dead-ending on a lone red "Step back". Divine intervention and required (reactive) actions are unchanged. The auto-finish now emits an `[action] auto-finished …` log line noting the option count and whether `done` was inferred, so this path is greppable in the live log.
 - **Loading screen echoes the player's choice** (P2) — the "Starting…/Thinking…" interim message now shows what the player did (`**You:** <input or chosen option>`) above the spinner line, so the wait reflects their action instead of a bare "Thinking…". The button handler resolves the chosen label before rendering the wait.
 - **Tick decoupled from announcement** — the nightly world tick (DB reset at 3:30 UTC) and the morning announcement (7:30 UTC) are now separate `setTimeout` schedulers. The tick writes `last_tick_players_affected` and `last_tick_npc_movement_count` to meta; the announcement reads them 4 hours later.
+- **Decision prompt `v7` — bail/`done` simplification** — now that the engine adds the "Step back" option itself (from `required`) and infers completion from a choice-less beat, the prompt no longer asks the LLM to emit a bail option (`dc_modifier: null`) or lean on `done` to end a no-option beat. `required` stays (it drives the bail inference); `done` stays for `CONTINUE`/`RESOLVE_ROLL`. Also corrects the prompt's `RECENT ACTIONS` doc to the now-fed last-3 narrative thread. `PROMPT_VERSION` → `v7`.
+- **`/hi` shows status, not ability scores** — the header now leads with current vitals (`❤️ HP ┃ ⚡ Stamina ┃ 🎲 Rolls ┃ 💰 Wealth`) and drops the PHY/WIS/INT/CHA line. "Rolls" no longer says "remaining"; Wealth is now surfaced. Low-health warning preserved.
+- **`/action` gamebook layout** — both the live decision screen and the outcome recap now read as one continuous gamebook page: the DM's narration (quest, each scene prompt, the final resolution) is rendered as Discord blockquotes, and the player's choices stand out in bold (`↪ **Choice**`). Replaces the old mixed `**Decision:** … → *choice*` formatting that ran together in long multi-decision encounters. Each past choice now shows a qualitative difficulty arrow instead of a raw DC number — 🟢⬇️ when the choice lowered the DC (easier), 🔴⬆️ when it raised it (harder). Descriptions degrade gracefully to fit Discord's 4096-char embed cap (full thread → collapse history to a choice breadcrumb → drop the scene art → hard clip), so long encounters never fail to send.
+- **Recent-action narrative thread fed to the LLM** — the decision prompt's `RECENT ACTIONS` block now carries each prior action's stored `narrative` (the DM outcome text), rendered oldest→newest for story continuity, and the count fed to the LLM rose from 2 to 3. Previously only `type (outcome)` was passed.
+- **Nav button cleanup** — removed `look`, `stats`, and `backpack` from the global navigation bar. Remaining buttons: `hi`, `journal`, `action`, `sleep`.
+- **`/hi` location safety display** — moved the safety emoji onto the location name itself instead of a separate text badge.
 
 ### Fixed
 - **Out of rolls now offers Sleep, not a dead Action button** — the `Action` nav button is hidden exactly when `Sleep` appears (out of rolls and not mid-action), instead of always rendering and dead-ending on the "out of actions for today" guard. The two buttons are now mutually exclusive; `Action` still shows mid-action so a player can resume.
 - **`ephemeral` reply-option deprecation** — replaced all deprecated `{ ephemeral: true }` interaction options with `flags: MessageFlags.Ephemeral` across `action.ts`, `join.ts`, and `index.ts`. `buildComponentPayload` now folds the ephemeral bit into its Components V2 `flags` bitfield rather than emitting a separate (and illegal-with-V2) `ephemeral` field.
+- `MockWorldEngine` now implements all `WorldEngine` interface methods (`updateLastPlayed`, `modifyHealth`, `countSoulsInUnsafe`).
 
 ### Chore
 - **`biome.json`** — formatter config enforcing `indentStyle: space, indentWidth: 2` to prevent whitespace churn.
