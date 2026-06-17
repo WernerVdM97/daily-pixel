@@ -15,13 +15,12 @@ describe('PromptBuilder — system prompt', () => {
     expect(result).toContain('game master');
   });
 
-  it('includes the decision rules (distilled_type, stat, base_dc, required, done)', () => {
+  it('includes the decision rules (distilled_type, stat, base_dc, required, dc_modifier)', () => {
     const result = buildSystemPrompt();
 
     expect(result).toContain('distilled_type');
     expect(result).toContain('base_dc');
     expect(result).toContain('required');
-    expect(result).toContain('done');
     expect(result).toContain('dc_modifier');
     expect(result).toContain('bail');
   });
