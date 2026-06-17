@@ -101,6 +101,43 @@ export function isWeekend(): boolean {
   return day === 0 || day === 6;
 }
 
+/** Safe locations a Wanderer can teleport to (excluding The Warden's Oak). */
+export const WANDERER_SPOTS: string[] = [
+  'Town Square',
+  'The Shrine of the First Flame',
+  'The Weary Lantern Inn',
+  'The Town Forge',
+  "The Warden's Library",
+];
+
+/**
+ * Resolve the workplace location for a character's day job.
+ * Returns `null` for jobs without a fixed workplace (Wanderer teleport destination
+ * is computed at call time, not stored in the YAML).
+ *
+ * For Wanderer: picks a seeded deterministic safe location using the same
+ * mulberry32 PRNG as `getDayJobActions`, so `/hi` and the action stay consistent
+ * within a day. Candidates are all safe locations except The Warden's Oak.
+ */
+export function getWorkplaceLocation(
+  jobName: string,
+  dayJobs: DayJobDef[],
+  opts: { characterId: number; dayNumber: number },
+): string | null {
+  const job = dayJobs.find((j) => j.name === jobName);
+  if (!job) return null;
+
+  if (job.workplace_location) {
+    return job.workplace_location;
+  }
+
+  // Wanderer: seeded random safe location
+  const seed = opts.characterId * 1000 + opts.dayNumber;
+  const rng = mulberry32(seed);
+  const idx = Math.floor(rng() * WANDERER_SPOTS.length);
+  return WANDERER_SPOTS[idx];
+}
+
 // ── Command factory ──
 
 export function makeHiCommand(

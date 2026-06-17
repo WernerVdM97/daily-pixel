@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   formatCharacterHeader,
   getDayJobActions,
+  getWorkplaceLocation,
   isWeekend,
   COMMON_ACTIONS,
 } from "../../src/discord/commands/hi.js";
@@ -57,6 +58,18 @@ const mockDayJobs = [
     base_income: 8,
     workplace_location: "The Forest Edge",
     description: "Track game.",
+    actions: [
+      { label: "Track game", income: 5, hook: "Deer sign everywhere." },
+      { label: "Set traps", income: 4, hook: "The old trap line..." },
+      { label: "Check snares", income: 3, hook: "One snare holds..." },
+    ],
+  },
+  {
+    name: "Wanderer",
+    depends_on: ["charisma"] as string[],
+    base_income: 2,
+    workplace_location: null,
+    description: "No roof, no boss.",
     actions: [
       { label: "Track game", income: 5, hook: "Deer sign everywhere." },
       { label: "Set traps", income: 4, hook: "The old trap line..." },
@@ -150,6 +163,39 @@ describe("getDayJobActions", () => {
       expect(typeof a.income).toBe("number");
       expect(typeof a.hook).toBe("string");
     }
+  });
+});
+
+describe("getWorkplaceLocation", () => {
+  it("returns the workplace_location from YAML for a fixed-location job", () => {
+    const loc = getWorkplaceLocation("Blacksmith", mockDayJobs, { characterId: 1, dayNumber: 1 });
+    expect(loc).toBe("The Town Forge");
+  });
+
+  it("returns null for unknown day jobs", () => {
+    const loc = getWorkplaceLocation("Astronaut", mockDayJobs, { characterId: 1, dayNumber: 1 });
+    expect(loc).toBeNull();
+  });
+
+  it("returns a safe location (not the Oak) for Wanderer", () => {
+    const loc = getWorkplaceLocation("Wanderer", mockDayJobs, { characterId: 7, dayNumber: 3 });
+    expect(
+      ['Town Square', 'The Shrine of the First Flame', 'The Weary Lantern Inn', 'The Town Forge', "The Warden's Library"],
+    ).toContain(loc);
+  });
+
+  it("is deterministic: same (characterId, dayNumber) → same Wanderer destination", () => {
+    const a = getWorkplaceLocation("Wanderer", mockDayJobs, { characterId: 42, dayNumber: 5 });
+    const b = getWorkplaceLocation("Wanderer", mockDayJobs, { characterId: 42, dayNumber: 5 });
+    expect(a).toBe(b);
+  });
+
+  it("varies across days for Wanderer", () => {
+    const destinations = [1, 2, 3, 4, 5].map(
+      (d) => getWorkplaceLocation("Wanderer", mockDayJobs, { characterId: 7, dayNumber: d }),
+    );
+    // At least 2 different destinations across 5 days (not guaranteed but extremely likely)
+    expect(new Set(destinations).size).toBeGreaterThan(1);
   });
 });
 
