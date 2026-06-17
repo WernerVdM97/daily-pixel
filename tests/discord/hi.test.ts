@@ -63,26 +63,29 @@ const mockDayJobs = [
 ];
 
 describe("formatCharacterHeader", () => {
-  it("includes character name, class, health, stamina, and rolls", () => {
+  it("shows status: name, class, HP, stamina, rolls, and wealth", () => {
     const result = formatCharacterHeader(makeChar());
     expect(result).toContain("Aldric");
     expect(result).toContain("Warrior");
-    expect(result).toContain("10");
-    expect(result).toContain("12");
-    expect(result).toContain("8");
-    expect(result).toContain("2");
+    expect(result).toContain("❤️ HP: 10/12");
+    expect(result).toContain("⚡ Stamina: 8/");
+    expect(result).toContain("🎲 Rolls: 2");
+    expect(result).toContain("💰 Wealth: 15");
   });
 
-  it("shows stats for all four attributes", () => {
+  it("shows the rolls count without the word 'remaining'", () => {
+    const result = formatCharacterHeader(makeChar());
+    expect(result).not.toContain("remaining");
+  });
+
+  it("does not show ability scores (PHY/WIS/INT/CHA)", () => {
     const result = formatCharacterHeader(
-      makeChar({
-        stats: { physical: 4, wisdom: -1, intelligence: 0, charisma: 1 },
-      }),
+      makeChar({ stats: { physical: 4, wisdom: -1, intelligence: 0, charisma: 1 } }),
     );
-    expect(result).toContain("💪 PHY");
-    expect(result).toContain("🧠 WIS");
-    expect(result).toContain("📖 INT");
-    expect(result).toContain("💬 CHA");
+    expect(result).not.toContain("PHY");
+    expect(result).not.toContain("WIS");
+    expect(result).not.toContain("INT");
+    expect(result).not.toContain("CHA");
   });
 
   it("shows low health warning", () => {

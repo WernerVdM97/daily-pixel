@@ -1,5 +1,4 @@
 import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
-import { formatStatLabel } from "../../engine/stat-format.js";
 import { SEPARATOR } from "../format.js";
 
 // ── Day job types (from day-jobs.yml shape) ──
@@ -48,27 +47,18 @@ function mulberry32(seed: number): () => number {
 // ── Pure formatters (tested in isolation) ──
 
 export function formatCharacterHeader(char: CharacterData): string {
-const lines: string[] = [];
-lines.push(`⚔️  **${char.name}** — ${char.class}`);
-lines.push(SEPARATOR);
+  const lines: string[] = [];
+  lines.push(`⚔️  **${char.name}** — ${char.class}`);
+  lines.push(SEPARATOR);
 
-  // Stats line
-  const stat = (abbr: string, val: number): string => {
-    const sign = val >= 0 ? "+" : "";
-    return `${abbr} ${sign}${val}`;
-  };
+  // Status line — current vitals, not ability scores: HP, Stamina, Rolls, Wealth.
   lines.push(
-    `${stat(formatStatLabel('physical'), char.stats.physical)}  ${stat(formatStatLabel('wisdom'), char.stats.wisdom)}  ` +
-      `${stat(formatStatLabel('intelligence'), char.stats.intelligence)}  ${stat(formatStatLabel('charisma'), char.stats.charisma)}`,
+    `❤️ HP: ${char.health}/${char.maxHealth}  ┃  ⚡ Stamina: ${char.stamina}/${char.maxStamina}  ┃  ` +
+      `🎲 Rolls: ${char.rollsRemaining}  ┃  💰 Wealth: ${char.wealth}`,
   );
-
-  // Vitals
-  const hpPct = char.health / char.maxHealth;
-  const hpWarn = hpPct < 0.34 ? " ⚠️ **low health!**" : "";
-  lines.push(`❤️ HP: ${char.health}/${char.maxHealth}${hpWarn}`);
-  lines.push(
-    `⚡ Stamina: ${char.stamina}/${char.maxStamina}  |  🎲 Rolls: ${char.rollsRemaining} remaining`,
-  );
+  if (char.health / char.maxHealth < 0.34) {
+    lines.push("⚠️ **low health!**");
+  }
 
   return lines.join("\n");
 }
