@@ -15,6 +15,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  MessageFlags,
   type ChatInputCommandInteraction,
   type MessageComponentInteraction,
 } from 'discord.js';
@@ -98,7 +99,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     if (!character) {
       await interaction.reply({
         content: "You don't have a character yet. Type `/join` to create one.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return 'action_guard_no_character';
     }
@@ -107,14 +108,14 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     if (character.rollsRemaining <= 0 && !character.lastActionState) {
       await interaction.reply({
         content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return 'action_no_rolls';
     }
 
     // If mid-action, resume regardless of description
     if (character.lastActionState !== null) {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const resumeResult = engine.resumeAction(character.id);
 
@@ -149,7 +150,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       if (character.rollsRemaining <= 0) {
         await interaction.reply({
           content: '🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return 'action_no_rolls';
       }
@@ -181,7 +182,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         await interaction.reply({
           embeds: [embed.toJSON()],
           components: [row.toJSON()],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         const menuMsg = await interaction.fetchReply();
         stashMenuMessage(interaction.user.id, {
@@ -193,7 +194,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       } catch {
         await interaction.reply({
           content: `🔨 **${character.dayJob}**\n\nUse \`/action <what you do>\` to start an action.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return 'action_no_description';
       }
@@ -201,7 +202,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
 
     // Defer first — LLM call can take >3 seconds.
     // Immediately edit with an idle message so the player isn't staring at a blank spinner.
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await interaction.editReply({
       embeds: [
         new EmbedBuilder()
@@ -269,7 +270,7 @@ export async function handleActionChoice(
   if (!character) {
     await i.reply({
       content: "You don't have a character. Type `/join` first.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }

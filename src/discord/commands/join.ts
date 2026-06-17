@@ -3,6 +3,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  MessageFlags,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -79,7 +80,7 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
     if (engine.characterExists(interaction.user.id)) {
       await interaction.reply({
         content: "You already have a character. Type `/stats` to see it.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return "join_guard_has_character";
     }
@@ -100,7 +101,7 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
     }
 
     // Show current step
-    await interaction.reply({ ...buildStepMessage(state), ephemeral: true });
+    await interaction.reply({ ...buildStepMessage(state), flags: MessageFlags.Ephemeral });
     return "join_wizard_started";
   };
 }
@@ -257,9 +258,9 @@ async function safeNotify(
 ): Promise<void> {
   try {
     if (i.deferred || i.replied) {
-      await i.followUp({ content: message, ephemeral: true });
+      await i.followUp({ content: message, flags: MessageFlags.Ephemeral });
     } else {
-      await i.reply({ content: message, ephemeral: true });
+      await i.reply({ content: message, flags: MessageFlags.Ephemeral });
     }
   } catch {
     /* interaction is gone (expired/acked) — nothing more we can do */

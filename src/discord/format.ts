@@ -37,6 +37,9 @@ const BS = {
 /** Flag required to enable Components V2 on a message. Disables `content` and `embeds`. */
 export const IS_COMPONENTS_V2 = 1 << 15; // 32768
 
+/** MessageFlags.Ephemeral. Set via `flags` (the `ephemeral` reply option is deprecated). */
+const EPHEMERAL = 1 << 6; // 64
+
 /**
  * Navigation button definitions.
  * Each entry: [customId suffix, label, emoji, showCondition?]
@@ -56,7 +59,14 @@ const NAV_BUTTONS: NavButtonDef[] = [
   { id: 'stats',     label: 'Stats',     emoji: '📊' },
   { id: 'backpack',  label: 'Backpack',  emoji: '🎒' },
   { id: 'journal',   label: 'Journal',   emoji: '📖' },
-  { id: 'action',    label: 'Action',    emoji: '⚔️' },
+  {
+    id: 'action',
+    label: 'Action',
+    emoji: '⚔️',
+    // Hidden exactly when Sleep takes its place — out of rolls and not mid-action.
+    // Otherwise the button just dead-ends on the "out of actions for today" guard.
+    showIf: (ctx) => ctx.rollsRemaining > 0 || ctx.hasPendingAction,
+  },
   {
     id: 'sleep',
     label: 'Sleep',
@@ -143,7 +153,6 @@ export function buildComponentPayload(
     | { type: number; components: Array<{ type: number; content?: string }> }
     | { type: number; components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }> }
   >;
-  ephemeral?: boolean;
 } {
   // Split the text on SEPARATOR lines into sections.
   const sections = text
@@ -175,11 +184,11 @@ export function buildComponentPayload(
   const result: {
     flags: number;
     components: Array<unknown>;
-    ephemeral?: boolean;
   } = {
-    flags: IS_COMPONENTS_V2,
+    // Ephemeral is folded into the flags bitfield (the `ephemeral` reply option
+    // is deprecated, and a V2 message can't mix `flags` with a separate `ephemeral`).
+    flags: IS_COMPONENTS_V2 | (opts?.ephemeral ? EPHEMERAL : 0),
     components: [{ type: CT.CONTAINER, components: contentComponents }],
-    ...(opts?.ephemeral ? { ephemeral: true } : {}),
   };
 
   // Append nav button rows after the content container.
