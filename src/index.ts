@@ -242,16 +242,104 @@ function scheduleTick(engine: WorldEngine): void {
 }
 
 /**
+ * Run the morning announcement body — post the day-transition message with a "/hi"
+ * button to the configured Discord channel. Checks that the tick has completed today
+ * before posting. Safe to call at any time (idempotent: won't re-post the same day).
+ *
+ * @returns true if the announcement was posted, false if skipped.
+ */
+async function runMorningAnnouncement(engine: WorldEngine, client: Client, channelId: string): Promise<boolean> {
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Idempotency: skip if already announced today
+  const lastAnnouncement = engine.getMeta('last_announcement_date');
+  if (lastAnnouncement === today) {
+    console.log(c.grey('[cron] Announcement already sent today — skipping.'));
+    return false;
+  }
+
+  // H3: gate on tick success — don't post stale stats if the tick hasn't completed today
+  const lastCron = engine.getMeta('last_cron_date');
+  if (lastCron !== today) {
+    console.log(c.grey('[cron] Tick did not complete today — skipping announcement.'));
+    return false;
+  }
+
+  try {
+    const dayNumber = engine.getMeta('day_number') ?? '1';
+    const playersAffected = Number(engine.getMeta('last_tick_players_affected') ?? '0');
+    const npcMovementCount = Number(engine.getMeta('last_tick_npc_movement_count') ?? '0');
+
+    const flavor = Number(dayNumber) <= 3
+      ? 'The warden watches the horizon. The fire crackles, steady and low.'
+      : 'The smoke on the eastern horizon has thickened. The warden hasn\'t spoken since yesterday.';
+
+    const lines: string[] = [
+      `🌅 **Day ${dayNumber} begins.**`,
+      '',
+      flavor,
+      '',
+      'The Oak awaits. `/hi` to begin.',
+    ];
+
+    if (playersAffected > 0 || npcMovementCount > 0) {
+      lines.push('');
+      lines.push(`─ ${playersAffected} soul(s) stirred, ${npcMovementCount} NPC(s) on the move.`);
+    }
+
+    const channel = await client.channels.fetch(channelId);
+    if (channel?.isTextBased() && 'send' in channel) {
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId('nav:hi')
+          .setLabel('Hi')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji('🌅'),
+      );
+
+      await (channel as { send: (opts: { content: string; components: unknown[] }) => Promise<unknown> }).send({
+        content: lines.join('\n'),
+        components: [row],
+      });
+
+      engine.setMeta('last_announcement_date', today);
+      console.log(c.green(`[cron] Day ${dayNumber} announcement posted.`));
+      return true;
+    } else {
+      console.error(c.red(`[cron] Channel ${channelId} is not a text channel or not found`));
+      return false;
+    }
+  } catch (err) {
+    console.error(c.red('[cron] Morning announcement failed:'), err);
+    void notifyAdmin('Morning announcement failed', err);
+    return false;
+  }
+}
+
+/**
  * Schedule the morning announcement to fire at 7:30 UTC daily.
  * Reads post-tick state from the engine and posts the day-transition message
  * with a "/hi" button to the configured Discord channel.
+ *
+ * M1: on boot, if the tick already ran today but the announcement was missed
+ * (e.g. restart between 03:30 and 07:30 UTC), runs it immediately.
  */
 function scheduleMorningAnnouncement(engine: WorldEngine, client: Client, channelId: string): void {
   const now = Date.now();
+  const today = new Date().toISOString().slice(0, 10);
+
+  // M1: boot-time catch-up — if we're past today's 07:30 and the announcement
+  // hasn't fired but the tick ran, fire it now.
   const next = new Date();
   next.setUTCHours(7, 30, 0, 0);
   next.setUTCMinutes(30, 0, 0);
   if (next.getTime() <= now) {
+    const lastAnnouncement = engine.getMeta('last_announcement_date');
+    const lastCron = engine.getMeta('last_cron_date');
+    if (lastAnnouncement !== today && lastCron === today) {
+      console.log(c.yellow('[cron] Boot-time catch-up: running missed announcement now.'));
+      void runMorningAnnouncement(engine, client, channelId);
+    }
     next.setUTCDate(next.getUTCDate() + 1);
   }
 
@@ -259,63 +347,7 @@ function scheduleMorningAnnouncement(engine: WorldEngine, client: Client, channe
   console.log(c.grey(`[cron] Next morning announcement scheduled for ${next.toISOString()} (in ${Math.round(delay / 60000)} min)`));
 
   setTimeout(async () => {
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-
-      // Idempotency: skip if already announced today
-      const lastAnnouncement = engine.getMeta('last_announcement_date');
-      if (lastAnnouncement === today) {
-        console.log(c.grey('[cron] Announcement already sent today — skipping.'));
-        scheduleMorningAnnouncement(engine, client, channelId);
-        return;
-      }
-
-      const dayNumber = engine.getMeta('day_number') ?? '1';
-      const playersAffected = Number(engine.getMeta('last_tick_players_affected') ?? '0');
-      const npcMovementCount = Number(engine.getMeta('last_tick_npc_movement_count') ?? '0');
-
-      const flavor = Number(dayNumber) <= 3
-        ? 'The warden watches the horizon. The fire crackles, steady and low.'
-        : 'The smoke on the eastern horizon has thickened. The warden hasn\'t spoken since yesterday.';
-
-      const lines: string[] = [
-        `🌅 **Day ${dayNumber} begins.**`,
-        '',
-        flavor,
-        '',
-        'The Oak awaits. `/hi` to begin.',
-      ];
-
-      if (playersAffected > 0 || npcMovementCount > 0) {
-        lines.push('');
-        lines.push(`─ ${playersAffected} soul(s) stirred, ${npcMovementCount} NPC(s) on the move.`);
-      }
-
-      const channel = await client.channels.fetch(channelId);
-      if (channel?.isTextBased() && 'send' in channel) {
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId('nav:hi')
-            .setLabel('Hi')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🌅'),
-        );
-
-        await (channel as { send: (opts: { content: string; components: unknown[] }) => Promise<unknown> }).send({
-          content: lines.join('\n'),
-          components: [row],
-        });
-
-        engine.setMeta('last_announcement_date', today);
-        console.log(c.green(`[cron] Day ${dayNumber} announcement posted.`));
-      } else {
-        console.error(c.red(`[cron] Channel ${channelId} is not a text channel or not found`));
-      }
-    } catch (err) {
-      console.error(c.red('[cron] Morning announcement failed:'), err);
-      void notifyAdmin('Morning announcement failed', err);
-    }
-
+    await runMorningAnnouncement(engine, client, channelId);
     scheduleMorningAnnouncement(engine, client, channelId);
   }, delay);
 }
@@ -429,7 +461,7 @@ async function main() {
   registry.register('journal', asHandler(makeJournalCommand(engine)));
   registry.register('feedback', withTextOption(makeFeedbackCommand(engine)));
   registry.register('bug', withTextOption(makeBugCommand(engine)));
-  registry.register('sleep', asHandler(makeSleepCommand(engine)));
+  registry.register('sleep', asHandler(makeSleepCommand(engine, dayJobs)));
   registry.register('hi', asHandler(makeHiCommand(engine, dayJobs)));
   const joinWizards = new WizardSession();
   registry.register('join', asHandler(makeJoinCommand(engine, joinWizards, {
@@ -585,16 +617,17 @@ ${headInfo}`);
         } else if (commandName === 'sleep') {
           isAdminTick = interaction.user.id === ADMIN_USER_ID && process.env.SLEEP_ADMIN_TICK === 'true';
           if (!isAdminTick) {
-            // Good night message: Action + Feedback buttons
+            // Good night message: nav buttons (Action auto-hidden by getNavButtons) + Feedback
             const char = engine.getCharacter(interaction.user.id);
             if (char) {
-              navButtons = [{
-                type: 1, // ACTION_ROW
-                components: [
-                  { type: 2, custom_id: 'nav:action', label: 'Action', emoji: { name: '⚔️' }, style: 2 },
-                  { type: 2, custom_id: 'sleep:feedback', label: 'Feedback', emoji: { name: '💬' }, style: 2 },
-                ],
-              }];
+              navButtons = getNavButtons(char, 'sleep');
+              // Append the dedicated Feedback button row
+              if (navButtons && navButtons.length > 0) {
+                navButtons = [
+                  ...navButtons,
+                  { type: 1, components: [{ type: 2, custom_id: 'sleep:feedback', label: 'Feedback', emoji: { name: '💬' }, style: 2 }] },
+                ];
+              }
             }
           }
         } else {
@@ -852,6 +885,7 @@ ${headInfo}`);
           await interaction.reply({ content: "You don't have a character. Type `/join` first.", flags: MessageFlags.Ephemeral });
           return;
         }
+        engine.updateLastPlayed(char.id); // M2: stamp on day-job button clicks
         const dayNumber = Number(engine.getMeta('day_number') ?? '1');
         const jobActions = getDayJobActions(char.dayJob, dayJobs, { characterId: char.id, dayNumber });
         const hook = jobActions[idx]?.hook;
@@ -935,6 +969,10 @@ _${idleMsg}_`).setColor(0x95a5a6).toJSON()],
       if (!interaction.isButton()) return;
 
       const navTarget = customId.slice(4); // 'hi', 'look', etc.
+
+      // M2: stamp on nav button clicks (before any handler logic)
+      const clickerChar = engine.getCharacter(interaction.user.id);
+      if (clickerChar) engine.updateLastPlayed(clickerChar.id);
 
       // /action shows the day-job menu instead — can't route through the registry
       // because the handler expects a ChatInputCommandInteraction with options.
