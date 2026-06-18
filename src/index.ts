@@ -90,6 +90,10 @@ import {
   buildThreatAnnouncement,
   buildLeaderboardAnnouncement,
 } from "./discord/afternoon.js";
+import {
+  loadReleaseNotes,
+  buildReleaseNotesMessage,
+} from "./discord/release-notes.js";
 import { BANNER_IMAGE, imageFiles } from "./discord/images.js";
 import {
   makeJoinCommand,
@@ -112,6 +116,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
 const SCENES_DIR = path.join(ASSETS_DIR, "scenes");
 const CHAR_CREATION_DIR = path.join(ASSETS_DIR, "char-creation");
+const RELEASE_NOTES_DIR = path.join(ASSETS_DIR, "release-notes");
 
 // ── Config ──
 
@@ -755,6 +760,59 @@ function scheduleAfternoonBeat(
   }, delay);
 }
 
+// ── Release notes (on version bump) ──
+
+/**
+ * On boot, if the running tag (`v<VERSION>`) hasn't been announced yet and a
+ * notes file exists for it, post the player-facing release notes — with a
+ * feedback/request button — to the announcement channel, then stamp the meta so
+ * it fires exactly once per tag. Best-effort; never throws.
+ */
+async function runReleaseAnnouncement(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+): Promise<void> {
+  const currentTag = `v${APP_VERSION}`;
+  if (engine.getMeta("last_release_announced") === currentTag) return;
+
+  const notes = loadReleaseNotes(currentTag, RELEASE_NOTES_DIR);
+  if (!notes) {
+    // No notes for this tag — don't stamp, so adding a file later still fires.
+    console.log(c.grey(`[release] No notes file for ${currentTag} — skipping.`));
+    return;
+  }
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!(channel?.isTextBased() && "send" in channel)) {
+      console.error(c.red(`[release] Channel ${channelId} not usable for release notes.`));
+      return;
+    }
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("release:feedback")
+        .setLabel("Request / Feedback")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("💬"),
+    );
+    await (
+      channel as {
+        send: (opts: {
+          content: string;
+          components: unknown[];
+        }) => Promise<unknown>;
+      }
+    ).send({ content: buildReleaseNotesMessage(notes), components: [row] });
+
+    engine.setMeta("last_release_announced", currentTag);
+    console.log(c.green(`[release] Announced release notes for ${currentTag}.`));
+  } catch (err) {
+    console.error(c.red("[release] Release announcement failed:"), err);
+    void notifyAdmin("Release announcement failed", err);
+  }
+}
+
 async function main() {
   console.log("The Warden's Oak — starting up...");
 
@@ -1040,6 +1098,8 @@ ${headInfo}`);
       scheduleMorningAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleGoodnightAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleAfternoonBeat(engine, readyClient, TICK_CHANNEL_ID);
+      // Announce release notes once if the bot just booted on a new tag.
+      void runReleaseAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
     } else {
       console.warn(
         c.yellow(
@@ -1388,6 +1448,46 @@ ${headInfo}`);
         }
       } catch (err) {
         void notifyAdmin("Sleep feedback submission failed", err);
+      }
+      return;
+    }
+
+    // ── Release-notes feedback button ── opens a modal for requests/feedback
+    if (customId && customId === "release:feedback") {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId("release:feedback:modal")
+        .setTitle("Request / Feedback")
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId("release:feedback:input")
+              .setLabel("What would you like to see, or tell us?")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setPlaceholder("A feature you'd love, or what you think of the latest update…"),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Release-notes feedback modal submission ──
+    if (customId && customId === "release:feedback:modal") {
+      if (!interaction.isModalSubmit()) return;
+      const text = interaction.fields.getTextInputValue("release:feedback:input");
+      await interaction.reply({
+        content: "🙏 Noted. The warden carries your words forward.",
+        flags: MessageFlags.Ephemeral,
+      });
+
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (char) {
+          engine.submitFeedback(char.id, text);
+        }
+      } catch (err) {
+        void notifyAdmin("Release feedback submission failed", err);
       }
       return;
     }

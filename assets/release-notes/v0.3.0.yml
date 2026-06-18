@@ -1,0 +1,20 @@
+# Player-facing release notes for tag v0.3.0.
+# Keep it non-technical — what's new and fun, not migrations/refactors.
+# Posted automatically to the announcement channel the first time the bot
+# boots on this tag. One file per tag: assets/release-notes/<tag>.yml.
+
+tag: "v0.3.0"
+title: "The Weekend Update"
+date: "2026-06-18"
+
+highlights:
+  - "🎲 Everyone now gets **3 actions a day** — and a **bonus 4th roll on Saturdays**."
+  - "🏕️ The old **Sleep** button is now **Rest**, and it tidily disappears once you've bedded down for the day."
+  - "⚔️ **Saturday threats** stir in the wild — a dangerous foe appears out in the wilds each weekend. Hunt it down… if you dare."
+  - "📊 **Leaderboards** every Wednesday & Sunday — see who's richest and who's mightiest at the Oak."
+  - "💔 When a soul drops to **0 HP or stamina**, the whole table hears about it. Watch each other's backs."
+
+notes: >
+  Thanks for playing The Warden's Oak. This update is all about giving you more
+  to do and more reasons to gather. More events and a proper questline are on
+  the way — tell us what you'd love to see next.
