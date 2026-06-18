@@ -396,7 +396,7 @@ export class WorldEngineImpl implements WorldEngine {
       promptVersion: PROMPT_VERSION,
       appliedMutations: outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
       // Save the LLM's outcome text as narrative for the journal
-      narrative: outcome.outcomeText.slice(0, 500) ?? null,
+      narrative: (outcome.outcomeText ?? '').slice(0, 500) || null,
     });
 
     // Link the audit row to the action it produced (best-effort)
@@ -788,7 +788,7 @@ export class WorldEngineImpl implements WorldEngine {
         // in 3+ days (by calendar date), they lose 3 health.
         if (charRow.last_played_at) {
           const lastDate = charRow.last_played_at.slice(0, 10);
-          const diffMs = new Date(today + 'T00:00:00').getTime() - new Date(lastDate + 'T00:00:00').getTime();
+          const diffMs = new Date(today + 'T00:00:00Z').getTime() - new Date(lastDate + 'T00:00:00Z').getTime();
           const diffDays = Math.floor(diffMs / 86400000);
           if (diffDays >= 3) {
             const absentPenalty = Math.min(3, newHealth !== undefined ? newHealth : charRow.health);
