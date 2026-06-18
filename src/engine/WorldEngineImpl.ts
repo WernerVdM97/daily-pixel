@@ -49,7 +49,14 @@ import type {
   TickResult,
   NpcMovement,
   StatBlock,
+  Leaderboards,
 } from "./WorldEngine.js";
+
+/** Daily action allotment granted at character creation and refreshed each tick. */
+const DAILY_ROLL_ALLOWANCE = 3;
+
+/** Extra rolls everyone is granted on the Saturday tick (a weekend treat). */
+const SATURDAY_BONUS_ROLLS = 1;
 
 // ── Seeded RNG helpers (no external deps) ──
 
@@ -346,7 +353,7 @@ export class WorldEngineImpl implements WorldEngine {
       max_health: 10,
       stamina: 10,
       max_stamina: 10,
-      rolls_remaining: 2,
+      rolls_remaining: DAILY_ROLL_ALLOWANCE,
       location: "The Warden's Oak",
       wealth: 0,
       last_action_state: null,
@@ -830,17 +837,64 @@ export class WorldEngineImpl implements WorldEngine {
 
     this.updateLastPlayed(row.id);
 
+    // Stamp the rest on the current game day so the Rest nav button hides until
+    // the next tick (when day_number advances and resting is possible again).
+    const currentDay = Number(this.metaRepo.get("day_number") ?? "1");
+
     const oakName = "The Warden's Oak";
     if (row.location === oakName) {
-      // Already at the Oak — still return the character so the command can flavour it
-      return this.rowToCharacterData(row);
+      // Already at the Oak — still record the rest and return the character so
+      // the command can flavour it.
+      this.charRepo.update(row.id, { last_rested_day: currentDay });
+      return this.rowToCharacterData({ ...row, last_rested_day: currentDay });
     }
 
-    this.charRepo.update(row.id, { location: oakName });
+    this.charRepo.update(row.id, {
+      location: oakName,
+      last_rested_day: currentDay,
+    });
     return this.rowToCharacterData({
       ...row,
       location: oakName,
+      last_rested_day: currentDay,
     });
+  }
+
+  spawnNpc(data: {
+    name: string;
+    class?: string;
+    race?: string;
+    description?: string;
+    location: string;
+  }): void {
+    this.npcRepo.create({
+      name: data.name,
+      class: data.class,
+      race: data.race,
+      description: data.description,
+      location: data.location,
+    });
+  }
+
+  getLeaderboards(limit: number): Leaderboards {
+    const chars = this.charRepo.findAll().map((r) => this.rowToCharacterData(r));
+
+    const wealth = [...chars]
+      .sort((a, b) => b.wealth - a.wealth)
+      .slice(0, limit)
+      .map((c) => ({ name: c.name, class: c.class, value: c.wealth }));
+
+    const might = chars
+      .map((c) => {
+        const [stat, value] = (
+          Object.entries(c.stats) as [string, number][]
+        ).reduce((best, cur) => (cur[1] > best[1] ? cur : best));
+        return { name: c.name, class: c.class, value, stat };
+      })
+      .sort((a, b) => b.value - a.value)
+      .slice(0, limit);
+
+    return { wealth, might };
   }
 
   countSoulsInUnsafe(): number {
@@ -871,7 +925,11 @@ export class WorldEngineImpl implements WorldEngine {
   // ── World tick (S5) ──
 
   tick(isAdmin: boolean): TickResult {
-    const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10); // 'YYYY-MM-DD'
+    // Saturday (UTC) grants everyone a bonus roll on top of the daily allowance.
+    const rollAllowance =
+      DAILY_ROLL_ALLOWANCE + (now.getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
 
     // Cron idempotency: skip if last_cron_date is already today
     if (!isAdmin) {
@@ -883,6 +941,7 @@ export class WorldEngineImpl implements WorldEngine {
           playersAffected: 0,
           npcMovements: [],
           absentWarnings: [],
+          collapsedNames: [],
         };
       }
     }
@@ -899,6 +958,7 @@ export class WorldEngineImpl implements WorldEngine {
       // ── Player effects ──
       const allChars = this.charRepo.findAll();
       const absentWarnings: string[] = [];
+      const collapsedNames: string[] = [];
       for (const charRow of allChars) {
         const loc = this.locationRepo.findByName(charRow.location);
         const isSafe = loc?.is_safe === 1;
@@ -911,6 +971,12 @@ export class WorldEngineImpl implements WorldEngine {
           newHealth = Math.min(charRow.health + 3, charRow.max_health);
         } else {
           newStamina = Math.max(charRow.stamina - 1, 0);
+        }
+
+        // Stamina just bottomed out from the unsafe drain — flag a public
+        // collapse announcement (by character name).
+        if (charRow.stamina > 0 && newStamina === 0) {
+          collapsedNames.push(charRow.name);
         }
 
         // Five-day absence nudge: on the tick where a player crosses exactly
@@ -932,7 +998,7 @@ export class WorldEngineImpl implements WorldEngine {
         const income = this.dayJobIncome[charRow.day_job] ?? 0;
 
         const updates: Record<string, unknown> = {
-          rolls_remaining: 2,
+          rolls_remaining: rollAllowance,
           stamina: newStamina,
           wealth: charRow.wealth + income,
         };
@@ -1055,6 +1121,7 @@ export class WorldEngineImpl implements WorldEngine {
         playersAffected: allChars.length,
         npcMovements,
         absentWarnings,
+        collapsedNames,
       };
     })();
   }
@@ -1089,6 +1156,7 @@ export class WorldEngineImpl implements WorldEngine {
     location: string;
     wealth: number;
     last_action_state: string | null;
+    last_rested_day?: number | null;
     created_at: string;
   }): CharacterData {
     let stats: StatBlock;
@@ -1125,6 +1193,9 @@ export class WorldEngineImpl implements WorldEngine {
       location: row.location,
       wealth: row.wealth,
       lastActionState,
+      hasRestedToday:
+        row.last_rested_day != null &&
+        row.last_rested_day === Number(this.metaRepo.get("day_number") ?? "1"),
       createdAt: row.created_at,
     };
   }

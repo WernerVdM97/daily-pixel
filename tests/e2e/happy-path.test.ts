@@ -8,7 +8,7 @@
  *
  * Uses real WorldEngineImpl with MockLlmGateway for deterministic output.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
 import { MockLlmGateway } from '../../src/llm/MockLlmGateway.js';
 import { initDb, closeDb, getDb } from '../../src/db/connection.js';
@@ -126,11 +126,16 @@ describe('E2E — full happy path', () => {
   let ctx: TestContext;
 
   beforeEach(() => {
+    // Pin to a fixed Monday so the Saturday bonus-roll path doesn't perturb the
+    // roll-count assertions in the /sleep tick steps.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-15T03:30:00Z'));
     ctx = setupTest();
   });
 
   afterEach(() => {
     closeDb();
+    vi.useRealTimers();
   });
 
   // ── 1. /join → character in DB ──
@@ -153,7 +158,7 @@ describe('E2E — full happy path', () => {
     expect(char.health).toBe(10);
     expect(char.maxHealth).toBe(10);
     expect(char.stamina).toBe(10);
-    expect(char.rollsRemaining).toBe(2);
+    expect(char.rollsRemaining).toBe(3);
     expect(char.wealth).toBe(0);
     expect(char.location).toBe("The Warden's Oak");
     expect(char.createdAt).toBeTruthy();
@@ -232,9 +237,9 @@ describe('E2E — full happy path', () => {
       expect(stepResult.outcome.outcomeText).toBe('The wolf snaps at you, but your blade finds its mark.');
     }
 
-    // Verify roll consumed (started with 2, drained 1)
+    // Verify roll consumed (started with 3, drained 1)
     const afterAction = ctx.engine.getCharacter(DISCORD_USER_ID);
-    expect(afterAction!.rollsRemaining).toBe(1);
+    expect(afterAction!.rollsRemaining).toBe(2);
 
     // Verify item was added
     const items = ctx.engine.getItems(ctx.characterId);
@@ -366,7 +371,7 @@ describe('E2E — full happy path', () => {
 
     // Verify rolls reset
     const afterTick = ctx.engine.getCharacter(DISCORD_USER_ID);
-    expect(afterTick!.rollsRemaining).toBe(2);
+    expect(afterTick!.rollsRemaining).toBe(3);
   });
 
   // ── 9. /hi after sleep → new day, new hooks ──
@@ -389,7 +394,7 @@ describe('E2E — full happy path', () => {
     ctx.engine.tick(true);
 
     const charAfter = ctx.engine.getCharacter(DISCORD_USER_ID);
-    expect(charAfter!.rollsRemaining).toBe(2); // reset
+    expect(charAfter!.rollsRemaining).toBe(3); // reset
     expect(charAfter!.stamina).toBeGreaterThan(3); // recovered
 
     // /hi should show refreshed state

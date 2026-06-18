@@ -28,6 +28,9 @@ export interface CharacterData {
   location: string;
   wealth: number;
   lastActionState: ActionState | null;
+  /** True when the player has already rested at the Oak on the current game day
+   *  (last_rested_day === day_number). Drives the Rest nav button's visibility. */
+  hasRestedToday: boolean;
   createdAt: string;
 }
 
@@ -167,6 +170,12 @@ export interface TickResult {
    * idempotent (already-ticked-today) returns.
    */
   absentWarnings: string[];
+  /**
+   * Character names whose stamina dropped to 0 on this tick (from
+   * resting/lingering in unsafe locations). The caller announces these
+   * publicly. Empty on idempotent (already-ticked-today) returns.
+   */
+  collapsedNames: string[];
 }
 
 export interface NearbyEntity {
@@ -174,6 +183,22 @@ export interface NearbyEntity {
   classOrType: string;
   description: string | null;
   isPlayer: boolean;
+}
+
+export interface LeaderboardEntry {
+  name: string;
+  class: string;
+  /** The ranked value — coin for the wealth board, ability score for the might board. */
+  value: number;
+  /** For the might board: which ability (physical/wisdom/intelligence/charisma) is highest. */
+  stat?: string;
+}
+
+export interface Leaderboards {
+  /** Richest characters, descending by wealth. */
+  wealth: LeaderboardEntry[];
+  /** Mightiest characters, descending by their single highest ability score. */
+  might: LeaderboardEntry[];
 }
 
 // ── The one cohesive interface ──
@@ -219,6 +244,24 @@ export interface WorldEngine {
 
   /** Apply a flat health delta (signed, clamped 0..max). Returns updated char or null. */
   modifyHealth(discordUserId: string, amount: number): CharacterData | null;
+
+  /**
+   * Introduce an NPC at a location from engine-driven events (scheduled threats,
+   * not the LLM mutation path). The NPC has no `created_by_action_id`.
+   */
+  spawnNpc(data: {
+    name: string;
+    class?: string;
+    race?: string;
+    description?: string;
+    location: string;
+  }): void;
+
+  /**
+   * Top-N leaderboards across all player characters: richest by wealth and
+   * mightiest by highest single ability score. Used by the Wed/Sun announcements.
+   */
+  getLeaderboards(limit: number): Leaderboards;
 
   // World tick (S5)
   tick(isAdmin: boolean): TickResult;

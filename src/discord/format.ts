@@ -67,7 +67,7 @@ interface NavButtonDef {
   label: string;
   emoji: string;
   /** If false, the button is omitted. Default: always shown. */
-  showIf?: (ctx: { rollsRemaining: number; hasPendingAction: boolean }) => boolean;
+  showIf?: (ctx: { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean }) => boolean;
   /**
    * If set, the button only appears when the current page is in this list.
    * Used for the "view" buttons (look/stats/backpack) so they cross-link
@@ -85,14 +85,18 @@ const NAV_BUTTONS: NavButtonDef[] = [
     id: 'action',
     label: 'Action',
     emoji: '⚔️',
-    // Hidden exactly when Sleep takes its place — out of rolls and not mid-action.
+    // Hidden exactly when Rest takes its place — out of rolls and not mid-action.
     showIf: (ctx) => ctx.rollsRemaining > 0 || ctx.hasPendingAction,
   },
   {
+    // Internal id stays 'sleep' so the nav click still routes to the /sleep
+    // command; only the player-facing label/emoji read as "Rest".
     id: 'sleep',
-    label: 'Sleep',
-    emoji: '😴',
-    showIf: (ctx) => ctx.rollsRemaining === 0 && !ctx.hasPendingAction,
+    label: 'Rest',
+    emoji: '🏕️',
+    // Shown once the day's actions are spent and you're idle — but only until
+    // you've actually rested today (then it hides until the next tick).
+    showIf: (ctx) => ctx.rollsRemaining === 0 && !ctx.hasPendingAction && !ctx.hasRestedToday,
   },
   // View buttons — the info pages (backpack/stats/journal/look) cross-link to
   // each other; Look also appears on Hi. They stay off action/sleep/outcome views.
@@ -113,7 +117,7 @@ const NAV_BUTTONS: NavButtonDef[] = [
  *                         Its matching nav button is omitted.
  */
 export function getNavButtons(
-  char: { rollsRemaining: number; lastActionState: unknown },
+  char: { rollsRemaining: number; lastActionState: unknown; hasRestedToday?: boolean },
   currentCommand?: string,
 ): Array<{
   type: number;
@@ -122,6 +126,7 @@ export function getNavButtons(
   const ctx = {
     rollsRemaining: char.rollsRemaining,
     hasPendingAction: char.lastActionState !== null,
+    hasRestedToday: char.hasRestedToday ?? false,
   };
 
   const buttons = NAV_BUTTONS

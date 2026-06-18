@@ -4,15 +4,18 @@
 ## scratchpad (humans start here)
 
 ### TBD
+- [ ] player facing release notes message with feedabck button for requests. loaded from yaml
+- [x] rest button should only be visible on any screen if the player has not rested yet. and rename sleep to `rest` with camp emoji — Rest button (🏕️) hides once rested today via `last_rested_day`; nav id kept as `sleep` for routing.
+- [x] more messages: — all on a 12:00 UTC afternoon beat, idempotent per day.
+  - [x] hint at an unexplored location and threat on saturday afternoon and spawn a npc there to engage — rotates the wilderness locations weekly, spawns a themed hostile NPC.
+  - [x] weekend bonus rolls announcement on ~~friday~~ saturday afternoon — dropped the Friday bonus-rolls mechanic per decision; instead bumped flat rolls 2→3, added a Saturday +1 bonus roll, and the Saturday threat beat announces it.
+  - [x] character hits 0 hp/stamina — public collapse notice broadcast to the announcement channel (action/rest, and a batched overnight-tick announcement).
+  - [x] wealth/stat leaderboards on wednesdays and sunday afternoon — two boards (richest by wealth, mightiest by top stat).
+- [x] pressing custom button on action-daily work should dismiss the old message. — Custom… now deletes the day-job menu on press, not on modal submit.
 - [ ] duplicate NPCs for warden. The hooded figure and The Warden
-- [ ] pressing custom button on action-daily work should dismiss the old message.
-- [x] the auto complete action did not show report bug or feedback button. — fixed: service buttons now on custom + day-job auto-finished outcomes.
-- [x] on jun 18 I autocompleted a action but still had a roll left? it was not clear that I received an addtional roll or that the action was free.
-  - actually, no. It did properly block me from performing a third follow up action but the previous message indicated I still had 1/2 rolls left.
   - action button should not have showed, instead sleep. also my stamina was still showing the value before the deduction.
   - I sent a long prompt for the action but it didnt give me any decisions ...
   - **root cause:** custom-modal + day-job handlers rendered the outcome from the pre-action `char` snapshot (stale rolls/stamina, wrong Action/Sleep button). Fixed by re-reading after `startAction`. NOTE: the "no decisions" part is the LLM auto-finish (no real options) → belongs to the prompt refactor; and surfacing the spent roll as a `(−1)` in the footer is a deferred UX nicety (see below).
-- [x] how to handle daily work from unsafe locations? block? force travel? — decided: **block** with an in-character nudge. Done.
 - [ ] surface the spent roll in the outcome footer — taking an action costs a roll via the engine (not a mutation), so the footer shows `🎲 0/2` with no `(−1)`, reading as "free". Add a roll-spend indicator (touches `OutcomeRenderer.formatOutcome`, affects all outcome views).
 - [ ] implement menu framework coupled to views (standardise views/command/message terminology)
   - each message should be structured in a tab manner? with subtabs in mvp.
@@ -29,7 +32,8 @@
 
 ## MVP — deferred
 
-
+- [ ] saturday special event, spawn an "evil npc" somewhere with a hint. Incentivise hunting it/them and add npc death mutation
+- [ ] choose age
 - [ ] Improved journal/story
   - track or show quests or hints?
   - add clue system? also grants +1 roll

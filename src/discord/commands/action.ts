@@ -25,6 +25,7 @@ import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
 import { getNavButtons, getOutcomeServiceButtons, classEmoji } from '../format.js';
+import { announceCollapse } from '../collapse.js';
 
 // ── Custom IDs ──
 
@@ -230,6 +231,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
             ? { components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()] }
             : { components: getOutcomeServiceButtons() }),
         });
+        await announceCollapse(resolvedChar?.name ?? 'A soul', character, resolvedChar);
         return 'action_autofinished';
       }
 
@@ -316,7 +318,7 @@ export async function handleActionChoice(
 
   try {
     const result = await engine.stepAction(charId, label);
-    await applyActionResult(i, result, engine);
+    await applyActionResult(i, result, engine, character);
   } catch (err) {
     console.error('[action] stepAction error:', err);
     await i.webhook.editMessage(i.message.id, {
@@ -336,6 +338,7 @@ async function applyActionResult(
   i: MessageComponentInteraction,
   result: ActionStepResult,
   engine: WorldEngine,
+  prevChar?: CharacterData | null,
 ): Promise<void> {
   if (result.resolved) {
     const character = engine.getCharacter(i.user.id);
@@ -361,6 +364,7 @@ async function applyActionResult(
         ? { components: [...getNavButtons(character), ...getOutcomeServiceButtons()] }
         : { components: getOutcomeServiceButtons() }),
     });
+    await announceCollapse(character?.name ?? prevChar?.name ?? 'A soul', prevChar, character);
   } else {
     setPendingDecision(i.user.id, result.nextDecision);
     const decisionIdx = result.state.decisions.length;

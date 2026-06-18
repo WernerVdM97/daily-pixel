@@ -105,6 +105,16 @@ describe("getNavButtons — action/sleep are mutually exclusive", () => {
     expect(ids).toContain("action");
     expect(ids).not.toContain("sleep");
   });
+
+  it("hides Rest once the player has already rested today", () => {
+    const ids = getNavButtons({
+      rollsRemaining: 0,
+      lastActionState: null,
+      hasRestedToday: true,
+    }).flatMap(row => row.components.map(b => b.custom_id.replace(/^nav:/, "")));
+    expect(ids).not.toContain("sleep");
+    expect(ids).not.toContain("action");
+  });
 });
 
 describe("getNavButtons — view buttons (look/stats/backpack)", () => {
