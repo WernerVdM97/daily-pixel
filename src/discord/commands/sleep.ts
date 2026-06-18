@@ -7,8 +7,9 @@
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { mapError } from "../../engine/ErrorMapper.js";
 import { SEPARATOR } from "../format.js";
+import { getWorkplaceLocation, type DayJobDef } from "./hi.js";
 
-export function makeSleepCommand(engine: WorldEngine) {
+export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
   /** Warn once at first call if ADMIN_USER_ID is unset (deploy-time safety net). */
   const adminUserId = process.env.ADMIN_USER_ID ?? '';
   if (!adminUserId) {
@@ -81,7 +82,11 @@ export function makeSleepCommand(engine: WorldEngine) {
 
     const alreadyThere = character.location === "The Warden's Oak";
     const currentLoc = engine.getLocation(character.location);
-    const wasUnsafe = currentLoc !== null && !currentLoc.isSafe && !alreadyThere;
+    // H1: treat sleeping at your own workplace as safe (no HP penalty for doing your job)
+    const dayNumber = Number(engine.getMeta('day_number') ?? '1');
+    const workplace = dayJobs ? getWorkplaceLocation(character.dayJob, dayJobs, { characterId: character.id, dayNumber }) : null;
+    const atWorkplace = workplace !== null && character.location === workplace;
+    const wasUnsafe = currentLoc !== null && !currentLoc.isSafe && !alreadyThere && !atWorkplace;
 
     engine.restAtOak(interaction.user.id);
 
@@ -104,12 +109,6 @@ export function makeSleepCommand(engine: WorldEngine) {
     if (penaltyLine) {
       lines.push('');
       lines.push(penaltyLine);
-    }
-
-    const soulsOut = engine.countSoulsInUnsafe();
-    if (soulsOut > 0) {
-      lines.push('');
-      lines.push(`🌙 ${soulsOut} soul(s) did not make it home tonight.`);
     }
 
     lines.push('');
