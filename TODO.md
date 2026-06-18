@@ -4,7 +4,7 @@
 ## scratchpad (humans start here)
 
 ### TBD
-- [x] player facing release notes message with feedabck button for requests. loaded from yaml — one file per tag (`assets/release-notes/<tag>.yml`); auto-posts on boot when the tag changes, with a Request/Feedback button. `v0.3.0.yml` authored (dormant until VERSION is bumped at release).
+- [x] player facing release notes message with feedabck button for requests. loaded from yaml — one file per tag (`assets/release-notes/<tag>.yml`); auto-posts on boot when the tag changes, with a Request/Feedback button. `v0.2.3.yml` authored (dormant until VERSION is bumped at release).
 - [x] rest button should only be visible on any screen if the player has not rested yet. and rename sleep to `rest` with camp emoji — Rest button (🏕️) hides once rested today via `last_rested_day`; nav id kept as `sleep` for routing.
 - [x] more messages: — all on a 12:00 UTC afternoon beat, idempotent per day.
   - [x] hint at an unexplored location and threat on saturday afternoon and spawn a npc there to engage — rotates the wilderness locations weekly, spawns a themed hostile NPC.

@@ -1,9 +1,9 @@
-# Player-facing release notes for tag v0.3.0.
+# Player-facing release notes for tag v0.2.3.
 # Keep it non-technical — what's new and fun, not migrations/refactors.
 # Posted automatically to the announcement channel the first time the bot
 # boots on this tag. One file per tag: assets/release-notes/<tag>.yml.
 
-tag: "v0.3.0"
+tag: "v0.2.3"
 title: "The Weekend Update"
 date: "2026-06-18"
 

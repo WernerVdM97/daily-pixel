@@ -2,7 +2,7 @@
  * Player-facing release notes.
  *
  * One YAML file per release tag lives in `assets/release-notes/<tag>.yml`
- * (e.g. `v0.3.0.yml`). When the bot boots on a tag it hasn't announced before
+ * (e.g. `v0.2.3.yml`). When the bot boots on a tag it hasn't announced before
  * (see the `last_release_announced` meta key), it posts the matching notes to
  * the announcement channel with a feedback/request button — so players, not
  * just the changelog, hear what changed. Keep the content **non-technical**:
@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export interface ReleaseNotes {
-  /** The release tag, e.g. "v0.3.0". Defaults to the requested tag if omitted. */
+  /** The release tag, e.g. "v0.2.3". Defaults to the requested tag if omitted. */
   tag: string;
   title: string;
   date?: string;
