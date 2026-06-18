@@ -6,6 +6,7 @@ import { makeJoinCommand } from "../../src/discord/commands/join.js";
 function mockInteraction(userId: string) {
   return {
     user: { id: userId },
+    deferReply: vi.fn().mockResolvedValue(undefined),
     reply: vi.fn().mockResolvedValue(undefined),
     editReply: vi.fn().mockResolvedValue(undefined),
     channel: {
@@ -39,7 +40,9 @@ describe("/join", () => {
     const intr = mockInteraction("existing-user");
     const result = await handler(intr as never);
     expect(result).toContain("join_guard_has_character");
-    expect(intr.reply).toHaveBeenCalledWith(
+    // Defers up front to beat Discord's 3s ack window, then answers via editReply.
+    expect(intr.deferReply).toHaveBeenCalled();
+    expect(intr.editReply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: expect.stringContaining("already have a character"),
       }),
@@ -56,7 +59,8 @@ describe("/join", () => {
     expect(session).toBeDefined();
     expect(session!.step).toBe(1);
     expect(result).toContain("join_wizard_started");
-    expect(intr.reply).toHaveBeenCalled();
+    expect(intr.deferReply).toHaveBeenCalled();
+    expect(intr.editReply).toHaveBeenCalled();
   });
 
   it("resumes existing wizard session if user re-joins", async () => {
