@@ -3,12 +3,19 @@
 
 ## scratchpad (humans start here)
 
-### NB
-- [ ] add more narrative to the recent action journal entry
-- [ ] too many buttons missing
-- [ ] review 0.2.2
-
-### Other
+### TBD
+- [ ] duplicate NPCs for warden. The hooded figure and The Warden
+- [ ] pressing custom button on action-daily work should dismiss the old message.
+- [x] the auto complete action did not show report bug or feedback button. — fixed: service buttons now on custom + day-job auto-finished outcomes.
+- [x] on jun 18 I autocompleted a action but still had a roll left? it was not clear that I received an addtional roll or that the action was free.
+  - actually, no. It did properly block me from performing a third follow up action but the previous message indicated I still had 1/2 rolls left.
+  - action button should not have showed, instead sleep. also my stamina was still showing the value before the deduction.
+  - I sent a long prompt for the action but it didnt give me any decisions ...
+  - **root cause:** custom-modal + day-job handlers rendered the outcome from the pre-action `char` snapshot (stale rolls/stamina, wrong Action/Sleep button). Fixed by re-reading after `startAction`. NOTE: the "no decisions" part is the LLM auto-finish (no real options) → belongs to the prompt refactor; and surfacing the spent roll as a `(−1)` in the footer is a deferred UX nicety (see below).
+- [x] how to handle daily work from unsafe locations? block? force travel? — decided: **block** with an in-character nudge. Done.
+- [ ] surface the spent roll in the outcome footer — taking an action costs a roll via the engine (not a mutation), so the footer shows `🎲 0/2` with no `(−1)`, reading as "free". Add a roll-spend indicator (touches `OutcomeRenderer.formatOutcome`, affects all outcome views).
+- [ ] implement menu framework coupled to views (standardise views/command/message terminology)
+  - each message should be structured in a tab manner? with subtabs in mvp.
 - [ ] the /join options should be loaded from the yaml, not injected in code. merge the hard coded options into the yamls in assets/
 - [ ] how to make wealth spendable or meaning full (same for stamina and health)?
   - how do we handle death or 0 HP?
