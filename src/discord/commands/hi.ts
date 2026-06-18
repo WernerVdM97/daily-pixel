@@ -176,8 +176,7 @@ export function makeHiCommand(
       try {
         const dayNumber = Number(engine.getMeta('day_number') ?? '1');
         const actions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
-        const job = dayJobs.find((j) => j.name === character.dayJob);
-        const workplace = job?.workplace_location;
+        const workplace = getWorkplaceLocation(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
         const workplaceSuffix = workplace ? ` — ${workplace}` : '';
         actionLines = [
           `🔨 **${character.dayJob}${workplaceSuffix} — Daily Work**`,
