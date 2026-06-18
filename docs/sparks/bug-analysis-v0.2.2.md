@@ -16,6 +16,43 @@ In-depth bug review of the **v0.2.2** release (git range `2fc951e..aed7038`, ~2,
 
 ---
 
+## 🔄 Fix review — 2026-06-18
+
+A round of fixes landed in the working tree (`hi.ts`, `sleep.ts`, `WorldEngineImpl.ts`, `index.ts`). Each finding below was **re-verified against the actual current code**, not the original reviewer reports. Suite green: **497/497**.
+
+- [x] **H1 — fixed.** `sleep.ts:88-101` adds an `atWorkplace` carve-out: sleeping at your own resolved `workplace_location` no longer counts as unsafe, so Hunter/Herbalist take no penalty for doing their job. Correct, and uses the same `getWorkplaceLocation` seed as the teleport so the two agree.
+- [x] **H2 — fixed.** The good-night message now builds its row via `getNavButtons(char, "sleep")` (`index.ts` ~875) instead of a hardcoded `nav:action`. Since `/sleep` requires `rollsRemaining === 0`, the mutual-exclusion logic hides Action and shows Sleep — the dead button is gone.
+- [x] **H3 — fixed.** `index.ts:323-326` gates the announcement on `lastCron === today`; a failed/incomplete tick now skips the announcement instead of posting stale stats.
+  - [!] **Follow-on:** a genuinely failed tick now yields **no announcement at all** for that day (day silently frozen until an admin `/sleep` tick). That's the safe choice over wrong data, but it's a silent-stall path — worth an admin alert beyond the existing tick-failure DM, or an auto catch-up tick.
+- [x] **M1 — fixed.** `index.ts:414-424` runs a boot-time catch-up: if we're past today's 07:30 UTC, the tick completed (`lastCron === today`), and we haven't announced (`lastAnnouncement !== today`), it announces immediately. Closes the restart-in-window gap.
+- [x] **M2 — fixed (well-covered).** `updateLastPlayed` is now stamped on the nav-button handler (`:1287`, covers `nav:hi/journal/sleep/look` **and** the morning-announcement Hi button), day-job buttons (`:1144`), and chat commands (`:767`); `startAction`/`resumeAction` stamp internally. Only feedback/bug **modal** submits don't stamp — acceptable, those aren't gameplay.
+- [x] **M3 — resolved (reworked, 2nd round).** The HP penalty is **gone** — `WorldEngineImpl.tick()` no longer docks health for absence. Replaced with a soft retention nudge: a player who crosses **exactly 5 calendar days** of absence gets a one-shot in-character **DM** (`⚠️ The Oak stirs without you…`). The tick collects their Discord ids into the new `TickResult.absentWarnings`, and the 03:30 scheduler DMs them (best-effort via `dmUser`). Fires once on the 5-day mark — no nightly spam, no HP loss.
+  - [I] **Tradeoff noted:** firing on `diffDays === 5` (not `>= 5`) means if the tick fully fails on a player's exact 5-day night, that player never gets the nudge. Acceptable for a soft warning; the alternative needs a `last_absence_warned_at` column.
+- [x] **M4 — fixed (by removal).** The misleading per-`/sleep` "souls did not make it home" tally is gone; `sleep.ts`/`index.ts` now show the tick-derived "X soul(s) stirred, N NPC(s) on the move" instead.
+  - [x] **Cleanup done:** dead `countSoulsInUnsafe()` removed from `WorldEngine`, `WorldEngineImpl`, and `MockWorldEngine` (no callers remained).
+- [x] **M5 — fixed.** `hi.ts` resolves the display workplace via `getWorkplaceLocation(...)` with `characterId`/`dayNumber`, so the Wanderer's seeded destination now shows in `/hi` and matches the teleport.
+- [x] **L4 — fixed (see round 3).** `current_source.md` had drifted from `decision-v7.md`; re-synced in commit `c0c6dc1`.
+
+**Still open after this round:** L1–L3, L5, L6 (all low/suspect) were not touched and remain as written. Suite: **496 green**, `tsc` clean.
+
+---
+
+## 🔄 Fix review — 2026-06-18 (round 3, hotfix)
+
+Follow-up items addressed. Suite: **502 green**, `tsc` clean.
+
+- [x] **H3 follow-on — admin alert added.** `runMorningAnnouncement` now calls `notifyAdmin("World stalled — announcement skipped", …)` when it skips because `last_cron_date !== today`, so a failed/missed tick (no day advance, no announcement) surfaces immediately instead of sitting in a console log. Recovery is still admin `/sleep`. (Auto catch-up tick deliberately not added — a stalled tick usually means a real fault worth a human look.)
+- [x] **M4 follow-on — public goodnight added (the count is now meaningfully wired).** The unsafe-soul count was the *missing second message*, not dead code. There are now two distinct goodnight surfaces:
+  - **Per-user** `/sleep` response — unchanged (rests you at the Oak, private reply).
+  - **Public goodnight** `🌙 Night falls over the Oak` — posted to the tick channel, naming the count of souls still at unsafe locations (*"will they make it back?"*) or noting all are home. `countSoulsInUnsafe()` was **restored** and is read **live** at post-time, so it reflects who's actually out as night falls.
+  - [I] **Timing (updated):** its own scheduler at **18:30 UTC** (idempotent per day + boot-time catch-up), the evening bookend to the morning message. Day cycle (UTC): `03:30` tick · `05:30` morning (moved from 07:30) · `18:30` goodnight.
+- [x] **Nav buttons restored (regression from the 0.2.2 "nav cleanup").** `Look`, `Stats`, `Backpack` are back in `format.ts` with page-scoped visibility: the four info pages (backpack/stats/journal/look) cross-link to each other, and `Look` also shows on `/hi`. They stay off action-outcome/sleep views, and every page stays within Discord's 5-button row cap. All view commands were still registered, so this was display-only — no handler work needed.
+- [x] **L4 — fixed.** `current_source.md` had genuinely drifted from `decision-v7.md` (the original flag was real); it was re-synced in commit `c0c6dc1`. Verified byte-identical. (An earlier note here called it a false positive — that was wrong; the branch HEAD already carried the fix, which is why a re-`cp` showed no diff.)
+
+**Remaining:** L1 (machine `done`-inference behavioral change), L3 (`countSoulsInUnsafe` treats unknown locations as unsafe — now live-relevant since the goodnight uses it), L6 (`notifyAdmin` REST fallback). L2 + L5 were fixed in `1977a29`, L4 in `c0c6dc1`.
+
+---
+
 ## How to read this
 
 Severity is **impact on a live player or the live bot**, not code aesthetics. Each item has a concrete failure scenario and a suggested fix. Items marked `[?]` need a design call, not just a code change.
@@ -82,11 +119,17 @@ Severity is **impact on a live player or the live bot**, not code aesthetics. Ea
 
 ## Suggested triage order
 
-1. [ ] **H1** — Hunter/Herbalist nightly HP drain (design call + fix).
-2. [ ] **H2** — dead Action button on the sleep message (one-line fix).
-3. [ ] **H3 / M1** — announcement vs tick coordination (gate on `last_cron_date`; boot-time catch-up).
-4. [ ] **M2** — stamp `last_played_at` on all interaction types.
-5. [ ] **M3 / M4** — absence-penalty net-zero & the misleading "souls" tally (design calls).
-6. [ ] **M5, L1–L6** — polish & verification.
+1. [x] **H1** — Hunter/Herbalist nightly HP drain (workplace carve-out in `sleep.ts`).
+2. [x] **H2** — dead Action button on the sleep message (routed through `getNavButtons`).
+3. [x] **H3 / M1** — announcement vs tick coordination (gated on `last_cron_date`; boot-time catch-up).
+4. [x] **M2** — stamp `last_played_at` on nav/day-job buttons (covers the button-only flow).
+5. [x] **M3** — HP penalty removed; replaced with a one-shot 5-day absence-warning DM.
+6. [x] **M4** — misleading "souls" tally removed; dead `countSoulsInUnsafe` deleted.
+7. [x] **M5** — Wanderer workplace now shown in `/hi`.
+8. [x] **L4** — `current_source.md` re-synced with `decision-v7.md` (commit `c0c6dc1`).
+9. [x] **H3 follow-on** — admin alert when a missed tick stalls the world.
+10. [x] **Goodnight** — public night announcement added (unsafe-soul count wired into the tick).
+11. [x] **Nav buttons** — Look/Stats/Backpack restored with page-scoped visibility.
+12. [ ] **L1–L3, L5, L6** — low/suspect, verify/polish.
 
 > Range reviewed: `2fc951e..aed7038`. Reviewers read full file context and ran the suite; findings above are what survived that pass. The `[?]` items are intent questions for the designer, not defects to silently patch.

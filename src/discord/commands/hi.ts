@@ -26,14 +26,46 @@ export interface DayJobAction {
  * surfaced each day vary and don't read as a fixed, over-specific rota.
  */
 export const COMMON_ACTIONS: DayJobAction[] = [
-  { label: 'Help at the market', income: 3, hook: 'A stall-keeper could use an extra pair of hands through the morning rush.' },
-  { label: 'Lend a neighbour a hand', income: 2, hook: 'Someone nearby is wrestling with a task too big for one person.' },
-  { label: 'Run an errand', income: 3, hook: 'A message needs carrying across town before midday.' },
-  { label: 'Share a meal at the inn', income: 0, hook: 'The common room is warm and loud — a good place to take the measure of the town.' },
-  { label: 'See to chores', income: 2, hook: 'There is always work to be done: wood to split, water to haul, a fence to mend.' },
-  { label: 'Listen for news', income: 1, hook: 'Travellers pass through with rumours from the road. Some of it might even be true.' },
-  { label: 'Haul and load', income: 3, hook: 'Crates and sacks need moving before the carts leave. Honest sweat for honest coin.' },
-  { label: 'Mind a child', income: 2, hook: 'A harried parent presses a coin into your hand and a restless toddler into your care.' },
+  {
+    label: "Help at the market",
+    income: 3,
+    hook: "A stall-keeper could use an extra pair of hands through the morning rush.",
+  },
+  {
+    label: "Lend a neighbour a hand",
+    income: 2,
+    hook: "Someone nearby is wrestling with a task too big for one person.",
+  },
+  {
+    label: "Run an errand",
+    income: 3,
+    hook: "A message needs carrying across town before midday.",
+  },
+  {
+    label: "Share a meal at the inn",
+    income: 0,
+    hook: "The common room is warm and loud — a good place to take the measure of the town.",
+  },
+  {
+    label: "See to chores",
+    income: 2,
+    hook: "There is always work to be done: wood to split, water to haul, a fence to mend.",
+  },
+  {
+    label: "Listen for news",
+    income: 1,
+    hook: "Travellers pass through with rumours from the road. Some of it might even be true.",
+  },
+  {
+    label: "Haul and load",
+    income: 3,
+    hook: "Crates and sacks need moving before the carts leave. Honest sweat for honest coin.",
+  },
+  {
+    label: "Mind a child",
+    income: 2,
+    hook: "A harried parent presses a coin into your hand and a restless toddler into your care.",
+  },
 ];
 
 /** Deterministic PRNG (mulberry32) so a given seed always yields the same picks. */
@@ -103,10 +135,10 @@ export function isWeekend(): boolean {
 
 /** Safe locations a Wanderer can teleport to (excluding The Warden's Oak). */
 export const WANDERER_SPOTS: string[] = [
-  'Town Square',
-  'The Shrine of the First Flame',
-  'The Weary Lantern Inn',
-  'The Town Forge',
+  "Town Square",
+  "The Shrine of the First Flame",
+  "The Weary Lantern Inn",
+  "The Town Forge",
   "The Warden's Library",
 ];
 
@@ -140,10 +172,7 @@ export function getWorkplaceLocation(
 
 // ── Command factory ──
 
-export function makeHiCommand(
-  engine: WorldEngine,
-  dayJobs: DayJobDef[],
-) {
+export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
   return async (interaction: { user: { id: string } }): Promise<string> => {
     const character = engine.getCharacter(interaction.user.id);
     if (!character) {
@@ -153,7 +182,7 @@ export function makeHiCommand(
     // Character + location header
     const header = formatCharacterHeader(character);
     const location = engine.getLocation(character.location);
-    const locEmoji = location?.isSafe ? '🛡️' : '⚠️';
+    const locEmoji = location?.isSafe ? "🛡️" : "⚠️";
     const locationLine = location
       ? `🏠 ${locEmoji} **${location.name}** — Use \`look\` for the full scene.`
       : `🏠 **${character.location}** — Use \`look\` for the full scene.`;
@@ -174,10 +203,16 @@ export function makeHiCommand(
       ];
     } else {
       try {
-        const dayNumber = Number(engine.getMeta('day_number') ?? '1');
-        const actions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
-        const workplace = getWorkplaceLocation(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
-        const workplaceSuffix = workplace ? ` — ${workplace}` : '';
+        const dayNumber = Number(engine.getMeta("day_number") ?? "1");
+        const actions = getDayJobActions(character.dayJob, dayJobs, {
+          characterId: character.id,
+          dayNumber,
+        });
+        const workplace = getWorkplaceLocation(character.dayJob, dayJobs, {
+          characterId: character.id,
+          dayNumber,
+        });
+        const workplaceSuffix = workplace ? ` — ${workplace}` : "";
         actionLines = [
           `🔨 **${character.dayJob}${workplaceSuffix} — Daily Work**`,
           "",
@@ -201,15 +236,15 @@ export function makeHiCommand(
       const resumeResult = engine.resumeAction(character.id);
       const prompt = resumeResult.nextDecision.prompt;
       return [
-        '⏳ **Unfinished Action**',
+        "⏳ **Unfinished Action**",
         SEPARATOR,
-        '',
+        "",
         prompt,
-        '',
-        'Press the **Action** button or type `action <what you do>` to continue.',
-      ].join('\n');
+        "",
+        "Press the **Action** button or type `action <what you do>` to continue.",
+      ].join("\n");
     }
 
-    return [locationLine, '', header, '', SEPARATOR, ...actionLines].join('\n');
+    return [locationLine, "", header, "", SEPARATOR, ...actionLines].join("\n");
   };
 }
