@@ -261,9 +261,12 @@ export class DeepseekLlmGateway implements LlmGateway {
 
     if (!Array.isArray(raw.decision)) {
       warnings.push('decision is not an array');
-    } else if (!d.done && d.decision.length === 0) {
-      warnings.push('decision array is empty but done=false — player will have no options');
-    } else {
+    } else if (d.decision.length === 0 && d.mutations === undefined && d.outcomeText === undefined) {
+      // Empty `decision` is the prompt's "resolve outright" signal (v7+ dropped
+      // the `done` flag), so it's only a problem when there's nothing to resolve
+      // WITH — no mutations and no outcome_text.
+      warnings.push('decision array is empty with no mutations or outcome_text — nothing to resolve and no options');
+    } else if (d.decision.length > 0) {
       for (let i = 0; i < d.decision.length; i++) {
         const opt = d.decision[i];
         if (!opt.label) {

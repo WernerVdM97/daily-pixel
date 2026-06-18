@@ -40,12 +40,6 @@ export interface InternalActionState extends ActionState {
   required: boolean;
   /** Epoch ms when this state was last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
-  /** Mutations from the LLM when it resolved immediately (done: true).
-   *  Used so bail on a pre-resolved action applies the LLM's mutations instead of empty arrays. */
-  preResolvedMutations?: WorldMutation[];
-  preResolvedOutcomeText?: string;
-  /** Id of the llm_calls audit row that produced the pre-resolved mutations. */
-  preResolvedLlmCallId?: number;
 }
 
 export class ActionStateMachine {
@@ -119,14 +113,6 @@ export class ActionStateMachine {
 
     const firstDecision = this.toActionDecision(decision, decision.required);
 
-    // When the LLM resolves immediately (done: true), stash the mutations and
-    // audit call id so the bail path can apply them instead of returning empty arrays.
-    const preResolvedMutations = decision.done && Array.isArray(decision.mutations)
-      ? decision.mutations as WorldMutation[]
-      : undefined;
-    const preResolvedOutcomeText = decision.done ? (decision.outcomeText ?? undefined) : undefined;
-    const preResolvedLlmCallId = decision.done ? decision._llmCallId : undefined;
-
     const state: InternalActionState = {
       rawInput,
       decisions: [],
@@ -136,9 +122,6 @@ export class ActionStateMachine {
       rollStat: decision.stat,
       required: decision.required,
       lastActionAt: Date.now(),
-      ...(preResolvedMutations ? { preResolvedMutations } : {}),
-      ...(preResolvedOutcomeText ? { preResolvedOutcomeText } : {}),
-      ...(preResolvedLlmCallId !== undefined ? { preResolvedLlmCallId } : {}),
     };
 
     return { resolved: false, state, firstDecision };
@@ -172,24 +155,6 @@ export class ActionStateMachine {
         decisions: [...state.decisions, record],
         pendingDecision: state.pendingDecision,
       };
-
-      // Pre-resolved (done) action that still surfaced options — finish it,
-      // applying the LLM's mutations. Neutral `done`, no bail cost.
-      if (state.preResolvedMutations) {
-        return {
-          resolved: true,
-          state: nextState,
-          outcome: {
-            distilledType: state.distilledType,
-            finalDc: state.accumulatedDc,
-            playerRolled: null,
-            outcome: 'done',
-            mutations: state.preResolvedMutations,
-            outcomeText: state.preResolvedOutcomeText ?? 'The moment passes.',
-            ...(state.preResolvedLlmCallId !== undefined ? { llmCallId: state.preResolvedLlmCallId } : {}),
-          },
-        };
-      }
 
       // Genuine bail — the player retreats from a real decision. Costs stamina.
       return {
@@ -229,10 +194,14 @@ export class ActionStateMachine {
     const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items);
     const decision = await this.llm.decide(context);
 
-    // Resolve — at the decision cap, or when the LLM says the action is done.
-    // Roll FIRST, then make a narration call so the LLM's prose + mutations match
-    // the dice (the first `decision` above only told us whether to resolve).
-    if (isLastDecision || decision.done) {
+    // Resolve — at the decision cap, or when the LLM signals the beat is over by
+    // returning no real options (empty / all-bail `decision`). This mirrors the
+    // inference in start(): `done` was deprecated from the prompt (v7+), so an
+    // empty real-options array is the canonical "resolve now" signal; without
+    // this, a mid-action resolve degrades to a lone "Step back" dead-end. Roll
+    // FIRST, then narrate so the LLM's prose + mutations match the dice.
+    const realOptions = decision.decision.filter(o => o.dcModifier !== null);
+    if (isLastDecision || decision.done || realOptions.length === 0) {
       return this.resolveWithRoll(stateWithStat, char, items, newDc, newDecisions);
     }
 
