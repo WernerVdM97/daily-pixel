@@ -77,11 +77,16 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
   // Store the YAML-loaded option data for use across all steps.
   _defs = defs;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
+    // Defer immediately. The wizard's first screen carries the Oak PNG attachment,
+    // and uploading that as the initial reply can blow past Discord's 3s ack window
+    // (→ 10062 Unknown interaction) on slower hosts. A payload-free defer acks well
+    // within 3s; editReply below then has a 15-minute window for the heavy payload.
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     // Guard: already has a character?
     if (engine.characterExists(interaction.user.id)) {
-      await interaction.reply({
+      await interaction.editReply({
         content: "You already have a character. Type `/stats` to see it.",
-        flags: MessageFlags.Ephemeral,
       });
       return "join_guard_has_character";
     }
@@ -101,8 +106,8 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
       }
     }
 
-    // Show current step
-    await interaction.reply({ ...buildStepMessage(state), flags: MessageFlags.Ephemeral });
+    // Show current step (ephemeral flag was set at defer time)
+    await interaction.editReply(buildStepMessage(state));
     return "join_wizard_started";
   };
 }
