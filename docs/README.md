@@ -72,6 +72,7 @@ resolved cross-cutting trade-offs (ADRs)
 | Status | Doc | Summary |
 |---|---|---|
 | 🌱 | [Code Review — Post PR #14](./sparks/handover-code-review-post-pr14.md) | 5-axis review of 22 commits (3299 lines). Critical: split into smaller PRs. Required renames, indentation fix, dead param. |
+| 🌱 | [Bug Analysis — v0.2.2](./sparks/bug-analysis-v0.2.2.md) | Bug review of the v0.2.2 diff (52 files). 3 highs: Hunter/Herbalist nightly HP drain, dead Action button on sleep, stale announcement on tick failure. Plus scheduler/absence-penalty gaps. |
 
 ## 🔥 MVP 
 

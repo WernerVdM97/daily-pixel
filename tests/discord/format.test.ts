@@ -106,3 +106,44 @@ describe("getNavButtons — action/sleep are mutually exclusive", () => {
     expect(ids).not.toContain("sleep");
   });
 });
+
+describe("getNavButtons — view buttons (look/stats/backpack)", () => {
+  const char = { rollsRemaining: 2, lastActionState: null };
+
+  it("shows Look on hi (but not Stats/Backpack)", () => {
+    const ids = navIds(char, "hi");
+    expect(ids).toContain("look");
+    expect(ids).not.toContain("stats");
+    expect(ids).not.toContain("backpack");
+  });
+
+  it("cross-links the four info pages to each other", () => {
+    // On each info page, the OTHER three of {backpack, stats, journal, look} appear.
+    for (const [page, others] of [
+      ["backpack", ["stats", "journal", "look"]],
+      ["stats", ["backpack", "journal", "look"]],
+      ["journal", ["backpack", "stats", "look"]],
+      ["look", ["backpack", "stats", "journal"]],
+    ] as const) {
+      const ids = navIds(char, page);
+      for (const other of others) expect(ids).toContain(other);
+      expect(ids).not.toContain(page); // never its own button
+    }
+  });
+
+  it("keeps view buttons off action outcomes (no current page)", () => {
+    const ids = navIds(char);
+    expect(ids).not.toContain("look");
+    expect(ids).not.toContain("stats");
+    expect(ids).not.toContain("backpack");
+  });
+
+  it("never exceeds 5 buttons per action row (Discord cap)", () => {
+    for (const page of ["hi", "journal", "look", "stats", "backpack"]) {
+      for (const rolls of [0, 2]) {
+        const rows = getNavButtons({ rollsRemaining: rolls, lastActionState: null }, page);
+        for (const row of rows) expect(row.components.length).toBeLessThanOrEqual(5);
+      }
+    }
+  });
+});

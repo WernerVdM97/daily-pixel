@@ -161,6 +161,12 @@ export interface TickResult {
   dayNumber: number;
   playersAffected: number;
   npcMovements: NpcMovement[];
+  /**
+   * Discord user ids of players who crossed exactly 5 calendar days of absence
+   * on this tick. The caller DMs each a "danger is nearby" warning. Empty on
+   * idempotent (already-ticked-today) returns.
+   */
+  absentWarnings: string[];
 }
 
 export interface NearbyEntity {
@@ -195,7 +201,10 @@ export interface WorldEngine {
   /** Stamp the current time as the player's last interaction. */
   updateLastPlayed(characterId: number): void;
 
-  /** Count player characters currently at unsafe (non-safe) locations. */
+  /**
+   * Count player characters currently at unsafe locations. Read live by the
+   * evening "goodnight" announcement (souls still out as night falls).
+   */
   countSoulsInUnsafe(): number;
 
   // Journal
