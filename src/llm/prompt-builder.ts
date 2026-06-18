@@ -86,7 +86,7 @@ export function buildUserMessage(ctx: LlmContext): string {
 
   // Narration pass: the dice have already decided. Narrate THIS verdict.
   if (ctx.rollOutcome) {
-    lines.push(`ROLL RESULT: ${ctx.rollOutcome.toUpperCase()} — narrate this outcome and emit matching mutations. done: true, no decision options.`);
+    lines.push(`ROLL RESULT: ${ctx.rollOutcome.toUpperCase()} — narrate this outcome and emit matching mutations. No decision options.`);
   }
 
   return lines.join('\n');
