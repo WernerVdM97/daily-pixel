@@ -254,6 +254,38 @@ describe('ActionStateMachine — step', () => {
     }
   });
 
+  it('resolves mid-action when the next beat has no real options, even when done:false', async () => {
+    // The LLM follows the v7 prompt and returns an empty `decision` array to
+    // signal "resolve now" — `done` is deprecated, so step() must infer it from
+    // no real options instead of degrading to a lone "Step back" dead-end.
+    const llm = new MockLlmGateway();
+    llm.setDecision(huntFirstDecision());
+    const machine = new ActionStateMachine(llm, () => 20); // high roll → success
+    const start = await machine.start(testChar(), 'go hunt a wolf', testItems);
+    if (start.resolved) return;
+
+    // Next LLM call (and the narration call) returns an all-bail / empty decision.
+    llm.setDecision({
+      distilledType: 'hunt',
+      stat: 'physical',
+      baseDc: 12,
+      required: false,
+      done: false, // deprecated flag intentionally unset
+      decision: [{ label: 'Step back', dcModifier: null }],
+      mutations: [{ type: 'modify_health', amount: -2 }],
+      outcomeText: 'You corner the wolf and finish the hunt.',
+    });
+
+    const result = await machine.step(start.state, 'Track the wolf', testChar(), testItems);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.playerRolled).toBe(20); // rolled, not a dead-end
+      expect(result.outcome.outcome).toBe('success');
+      expect(result.outcome.outcomeText).toBe('You corner the wolf and finish the hunt.');
+    }
+  });
+
   it('resolves as bailed (−1 stamina) when player bails a real decision', async () => {
     const llm = new MockLlmGateway();
     llm.setDecision(huntFirstDecision());

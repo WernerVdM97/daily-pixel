@@ -83,7 +83,7 @@ import {
   getWorkplaceLocation,
   type DayJobDef,
 } from "./discord/commands/hi.js";
-import { buildComponentPayload, getNavButtons } from "./discord/format.js";
+import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons } from "./discord/format.js";
 import { BANNER_IMAGE, imageFiles } from "./discord/images.js";
 import {
   makeJoinCommand,
@@ -1138,17 +1138,20 @@ ${headInfo}`);
         }
         const result = await engine.startAction(char.id, description);
         if (result.outcome) {
+          // Re-read AFTER startAction so the embed + nav reflect the spent roll
+          // and any applied mutations — `char` above is the pre-action snapshot.
+          const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
           const embed = buildOutcomeEmbed(
             result.outcome,
-            char,
+            resolvedChar,
             getCurrentScene(interaction.user.id),
             result.state,
           );
           await interaction.editReply({ embeds: [embed], components: [] });
           await interaction.followUp({
-            content: `**${char.name}** — ${result.outcome.distilledType}`,
+            content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
             embeds: [embed],
-            components: getNavButtons(char),
+            components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
           });
         } else if (result.firstDecision.options.length === 0) {
           await interaction.editReply({
@@ -1320,6 +1323,18 @@ ${headInfo}`);
           });
           return;
         }
+        // Block daily work from unsafe ground — get to safety first. Unknown
+        // (procedural) locations are treated as unsafe, mirroring the
+        // unsafe-soul count. Freeform `/action` is unaffected — only quick
+        // day-job tasks are gated.
+        const here = engine.getLocation(char.location);
+        if (!here?.isSafe) {
+          await interaction.reply({
+            content: `⚠️ **It's no place for honest work here.**\nThe ${char.location} is too dangerous — make for safer ground before you set to your trade.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
         // Defer + immediately blank buttons to show loading
         const idleMsg = randomIdleMessage();
         await interaction.deferUpdate();
@@ -1367,9 +1382,13 @@ _${idleMsg}_`)
 
         const result = await engine.startAction(char.id, hook);
         if (result.outcome) {
+          // Re-read AFTER startAction so the embed + nav reflect the spent roll
+          // and any applied mutations — `char` above is the pre-action snapshot
+          // (only patched locally for the commute stamina cost).
+          const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
           const embed = buildOutcomeEmbed(
             result.outcome,
-            char,
+            resolvedChar,
             getCurrentScene(interaction.user.id),
             result.state,
           );
@@ -1378,9 +1397,9 @@ _${idleMsg}_`)
             components: [],
           });
           await interaction.followUp({
-            content: `**${char.name}** — ${result.outcome.distilledType}`,
+            content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
             embeds: [embed],
-            components: getNavButtons(char),
+            components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
           });
         } else if (result.firstDecision.options.length === 0) {
           await interaction.webhook.editMessage(interaction.message.id, {
