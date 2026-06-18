@@ -68,9 +68,17 @@ interface NavButtonDef {
   emoji: string;
   /** If false, the button is omitted. Default: always shown. */
   showIf?: (ctx: { rollsRemaining: number; hasPendingAction: boolean }) => boolean;
+  /**
+   * If set, the button only appears when the current page is in this list.
+   * Used for the "view" buttons (look/stats/backpack) so they cross-link
+   * among the info pages instead of cluttering every screen. Buttons without
+   * `showOnPages` are global (shown on every page, minus the current one).
+   */
+  showOnPages?: string[];
 }
 
 const NAV_BUTTONS: NavButtonDef[] = [
+  // Global flow buttons — shown on every page (minus the current one).
   { id: 'hi',        label: 'Hi',        emoji: '🌅' },
   { id: 'journal',   label: 'Journal',   emoji: '📖' },
   {
@@ -86,6 +94,11 @@ const NAV_BUTTONS: NavButtonDef[] = [
     emoji: '😴',
     showIf: (ctx) => ctx.rollsRemaining === 0 && !ctx.hasPendingAction,
   },
+  // View buttons — the info pages (backpack/stats/journal/look) cross-link to
+  // each other; Look also appears on Hi. They stay off action/sleep/outcome views.
+  { id: 'look',     label: 'Look',     emoji: '👁️', showOnPages: ['hi', 'journal', 'backpack', 'stats'] },
+  { id: 'stats',    label: 'Stats',    emoji: '📊', showOnPages: ['journal', 'backpack', 'look'] },
+  { id: 'backpack', label: 'Backpack', emoji: '🎒', showOnPages: ['journal', 'stats', 'look'] },
 ];
 
 /**
@@ -112,7 +125,13 @@ export function getNavButtons(
   };
 
   const buttons = NAV_BUTTONS
-    .filter(b => (!b.showIf || b.showIf(ctx)) && b.id !== currentCommand)
+    .filter(b =>
+      (!b.showIf || b.showIf(ctx)) &&
+      b.id !== currentCommand &&
+      // Page-scoped buttons only show on their listed pages (and never when
+      // there's no current page, e.g. public action-outcome broadcasts).
+      (!b.showOnPages || (currentCommand !== undefined && b.showOnPages.includes(currentCommand))),
+    )
     .map(b => ({
       type: CT.BUTTON,
       custom_id: `nav:${b.id}`,

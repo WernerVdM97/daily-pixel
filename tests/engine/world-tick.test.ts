@@ -457,7 +457,7 @@ describe('world tick', () => {
       expect(result.playersAffected).toBe(2);
     });
 
-    describe('three-day absence penalty', () => {
+    describe('five-day absence warning', () => {
       beforeEach(() => {
         vi.setSystemTime(new Date('2026-06-15T12:00:00Z'));
       });
@@ -466,94 +466,80 @@ describe('world tick', () => {
         vi.useFakeTimers();
       });
 
-      it('skips penalty when last_played_at is null (new character)', () => {
-        const { engine, charRepo, userRepo } = makeEngine();
-        createTestChar(charRepo, userRepo, { health: 10, max_health: 10 });
-
-        engine.tick(true);
-
-        const char = charRepo.findByUserId(1);
-        // Should get full safe recovery (health +3) since no absence penalty
-        expect(char!.health).toBe(10); // 10+3=13 capped at 10
-        expect(char!.stamina).toBe(10); // 10+5=15 capped at 10
-      });
-
-      it('applies -3 health when player has not played in 3+ days', () => {
-        const { engine, charRepo, userRepo } = makeEngine();
-        createTestChar(charRepo, userRepo, {
-          health: 10,
-          max_health: 10,
-          last_played_at: '2026-06-10 12:00:00',
-        });
-
-        // Tick at 2026-06-15: diff = 5 days >= 3
-        engine.tick(true);
-
-        const char = charRepo.findByUserId(1);
-        // Safe location: +3 → 13 capped at 10, then absence penalty: -3 → 7
-        expect(char!.health).toBe(7);
-      });
-
-      it('applies -3 health to a wounded character (does not go below 0)', () => {
+      it('never penalizes health for absence (full safe recovery regardless)', () => {
         const { engine, charRepo, userRepo } = makeEngine();
         createTestChar(charRepo, userRepo, {
           health: 4,
           max_health: 10,
-          last_played_at: '2026-06-10 12:00:00',
+          last_played_at: '2026-06-10 12:00:00', // 5 days absent
         });
 
         engine.tick(true);
 
         const char = charRepo.findByUserId(1);
-        // Safe recovery: +3 → 7 (capped at 10), then absence penalty: -3 → 4
-        expect(char!.health).toBe(4);
+        // Safe recovery: +3 → 7, NO absence penalty (penalty was removed)
+        expect(char!.health).toBe(7);
       });
 
-      it('floors health at 0 when absence + low health', () => {
+      it('warns the player who crosses exactly 5 days of absence', () => {
         const { engine, charRepo, userRepo } = makeEngine();
-        createTestChar(charRepo, userRepo, {
-          health: 2,
-          max_health: 10,
-          last_played_at: '2026-06-10 12:00:00',
-        });
-
-        engine.tick(true);
-
-        const char = charRepo.findByUserId(1);
-        // Safe recovery: +3 → 5, then absence penalty: -3 → 2
-        expect(char!.health).toBe(2);
-      });
-
-      it('does not penalize if last_played_at is less than 3 days ago', () => {
-        const { engine, charRepo, userRepo } = makeEngine();
-        createTestChar(charRepo, userRepo, {
-          health: 8,
-          max_health: 10,
-          last_played_at: '2026-06-13 12:00:00',
-        });
-
-        engine.tick(true);
-
-        const char = charRepo.findByUserId(1);
-        // Safe recovery: +3 → 11 capped at 10, no penalty (2 days < 3)
-        expect(char!.health).toBe(10);
-      });
-
-      it('absence penalty also applies in unsafe locations', () => {
-        const { engine, charRepo, userRepo, locationRepo } = makeEngine();
-        locationRepo.create({ name: 'Dark Forest', tags: 'forest,wilderness', isSafe: 0 });
         createTestChar(charRepo, userRepo, {
           health: 10,
           max_health: 10,
-          location: 'Dark Forest',
-          last_played_at: '2026-06-10 12:00:00',
+          last_played_at: '2026-06-10 12:00:00', // exactly 5 days before 06-15
         });
 
-        engine.tick(true);
+        const result = engine.tick(true);
 
-        const char = charRepo.findByUserId(1);
-        // Unsafe: no health recovery, then -3 absence penalty
-        expect(char!.health).toBe(7);
+        expect(result.absentWarnings).toEqual(['123456789']);
+        // Health untouched by absence — full safe recovery, capped.
+        expect(charRepo.findByUserId(1)!.health).toBe(10);
+      });
+
+      it('does not warn before 5 days', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          last_played_at: '2026-06-11 12:00:00', // 4 days
+        });
+
+        expect(engine.tick(true).absentWarnings).toEqual([]);
+      });
+
+      it('warns only on the 5-day mark, not afterwards (no nightly spam)', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          last_played_at: '2026-06-09 12:00:00', // 6 days — already past the mark
+        });
+
+        expect(engine.tick(true).absentWarnings).toEqual([]);
+      });
+
+      it('does not warn when last_played_at is null (new character)', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, { health: 10, max_health: 10 });
+
+        const result = engine.tick(true);
+
+        expect(result.absentWarnings).toEqual([]);
+        // Full safe recovery still applies.
+        expect(charRepo.findByUserId(1)!.health).toBe(10);
+      });
+    });
+
+    describe('countSoulsInUnsafe (live goodnight count)', () => {
+      it('counts a player at an unsafe location', () => {
+        const { engine, charRepo, userRepo, locationRepo } = makeEngine();
+        locationRepo.create({ name: 'Dark Forest', tags: 'forest,wilderness', isSafe: 0 });
+        createTestChar(charRepo, userRepo, { location: 'Dark Forest' });
+
+        expect(engine.countSoulsInUnsafe()).toBe(1);
+      });
+
+      it('is zero when everyone rests at a safe location', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, { location: "The Warden's Oak" });
+
+        expect(engine.countSoulsInUnsafe()).toBe(0);
       });
     });
   });

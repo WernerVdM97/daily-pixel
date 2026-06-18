@@ -30,6 +30,7 @@ export class MockWorldEngine implements WorldEngine {
   private _nearbyEntities: NearbyEntity[] = [];
   private _journal: JournalData | null = null;
   private _tickResult: TickResult | null = null;
+  private _soulsInUnsafe = 0;
   private _meta: Map<string, string> = new Map();
 
   // ── Call tracking ──
@@ -101,6 +102,10 @@ export class MockWorldEngine implements WorldEngine {
   setJournal(journal: JournalData): void {
     this._journal = journal;
   }
+  setSoulsInUnsafe(count: number): void {
+    this._soulsInUnsafe = count;
+  }
+
   setTickResult(result: TickResult): void {
     this._tickResult = result;
   }
@@ -247,6 +252,7 @@ export class MockWorldEngine implements WorldEngine {
         dayNumber: 1,
         playersAffected: 0,
         npcMovements: [],
+        absentWarnings: [],
       }
     );
   }
@@ -269,6 +275,6 @@ export class MockWorldEngine implements WorldEngine {
 
   countSoulsInUnsafe(): number {
     this.calls.countSoulsInUnsafe.push();
-    return 0;
+    return this._soulsInUnsafe;
   }
 }

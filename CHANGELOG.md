@@ -6,7 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 ### Added
+- **Five-day absence warning DM** — on the world tick, a player who crosses exactly 5 calendar days without interacting receives a one-shot, in-character DM (`⚠️ The Oak stirs without you…`) nudging them to return. Fires once on the 5-day mark (no nightly spam); best-effort delivery (closed DMs degrade to a log). The tick now returns `absentWarnings: string[]` (Discord ids) for the scheduler to DM.
+- **Public "goodnight" announcement** — the evening bookend to the morning message, posted at **18:30 UTC** by its own scheduler (idempotent per day, with boot-time catch-up). Posts a public `🌙 Night falls over the Oak` message to the tick channel; when souls are still at unsafe locations it names the count as a cold reminder (*"…will they make it back?"*), otherwise it notes all are home. The count is read **live** at 18:30 via `WorldEngine.countSoulsInUnsafe()` (who's actually out as night falls — not the dawn tick snapshot).
+- **Restored view nav buttons** — `Look`, `Stats`, and `Backpack` are back in the navigation bar with page-scoped visibility: the info pages (backpack/stats/journal/look) cross-link to each other, and `Look` also appears on `/hi`. They stay off action-outcome and sleep views. Each page stays within Discord's 5-button row cap.
+- **Admin alert on a stalled world** — when the morning announcement is skipped because the nightly tick never completed, `notifyAdmin()` now fires (`World stalled — announcement skipped`) instead of only a console line, so a frozen day surfaces immediately (recoverable via admin `/sleep`).
+
 ### Changed
+- **Absence no longer costs health** — removed the 3-day `-3 HP` absence penalty (introduced in 0.2.2). It was a net no-op for the common case (safe-location regen `+3` cancelled it) and only bit players at max HP or idling in the wild. Replaced with the soft DM nudge above (threshold raised 3 → 5 days).
+- **Daily announcement times** — the morning announcement moved **07:30 → 05:30 UTC**; the new goodnight announcement posts at **18:30 UTC**. Day cycle (UTC): `03:30` tick · `05:30` morning · `18:30` goodnight.
+
 ### Fixed
 
 ## [0.2.2] — 2026-06-18
