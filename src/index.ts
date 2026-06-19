@@ -84,6 +84,16 @@ import {
   type DayJobDef,
 } from "./discord/commands/hi.js";
 import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons } from "./discord/format.js";
+import { announceCollapse, setCollapseBroadcaster } from "./discord/collapse.js";
+import {
+  pickWeeklyThreat,
+  buildThreatAnnouncement,
+  buildLeaderboardAnnouncement,
+} from "./discord/afternoon.js";
+import {
+  loadReleaseNotes,
+  buildReleaseNotesMessage,
+} from "./discord/release-notes.js";
 import { BANNER_IMAGE, imageFiles } from "./discord/images.js";
 import {
   makeJoinCommand,
@@ -106,6 +116,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
 const SCENES_DIR = path.join(ASSETS_DIR, "scenes");
 const CHAR_CREATION_DIR = path.join(ASSETS_DIR, "char-creation");
+const RELEASE_NOTES_DIR = path.join(ASSETS_DIR, "release-notes");
 
 // ── Config ──
 
@@ -246,6 +257,24 @@ async function dmUser(discordUserId: string, content: string): Promise<void> {
   }
 }
 
+/** Post a plain public message to the tick/announcement channel. Best-effort. */
+async function postToTickChannel(content: string): Promise<void> {
+  if (!_client || !TICK_CHANNEL_ID) return;
+  try {
+    const channel = await _client.channels.fetch(TICK_CHANNEL_ID);
+    if (channel?.isTextBased() && "send" in channel) {
+      await (
+        channel as { send: (o: { content: string }) => Promise<unknown> }
+      ).send({ content });
+    }
+  } catch (e) {
+    console.warn(
+      c.yellow("[cron] could not post to tick channel:"),
+      e instanceof Error ? e.message : e,
+    );
+  }
+}
+
 /**
  * Surface an error message to the user without ever throwing. Respects the
  * interaction's acknowledged state — `reply()` on an already-replied/deferred
@@ -327,6 +356,19 @@ function scheduleTick(engine: WorldEngine): void {
         for (const userId of result.absentWarnings) {
           await dmUser(userId, ABSENCE_WARNING);
         }
+      }
+
+      // Collapse: announce publicly who the wild drained to 0 stamina overnight.
+      if (result.collapsedNames.length > 0) {
+        console.log(
+          c.grey(
+            `[cron] Announcing ${result.collapsedNames.length} overnight collapse(s).`,
+          ),
+        );
+        const who = result.collapsedNames.map((n) => `**${n}**`).join(", ");
+        await postToTickChannel(
+          `🥵 **The wild takes its toll.** Overnight, ${who} collapsed to **0 stamina** out beyond the safe paths — they wake leaden. Return to the Oak and rest to recover.`,
+        );
       }
     } catch (err) {
       console.error(c.red("[cron] Tick failed:"), err);
@@ -605,6 +647,172 @@ function scheduleMorningAnnouncement(
   }, delay);
 }
 
+// ── Afternoon beats (12:00 UTC) ──
+
+/** Post a plain channel announcement with a single "Hi" button. Best-effort. */
+async function postAnnouncement(
+  client: Client,
+  channelId: string,
+  content: string,
+): Promise<boolean> {
+  const channel = await client.channels.fetch(channelId);
+  if (channel?.isTextBased() && "send" in channel) {
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("nav:hi")
+        .setLabel("Hi")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("🌅"),
+    );
+    await (
+      channel as {
+        send: (opts: {
+          content: string;
+          components: unknown[];
+        }) => Promise<unknown>;
+      }
+    ).send({ content, components: [row] });
+    return true;
+  }
+  console.error(
+    c.red(`[cron] Channel ${channelId} is not a text channel or not found`),
+  );
+  return false;
+}
+
+/**
+ * The midday beat, dispatched by UTC weekday:
+ *   - Saturday  → spawn a rotating wilderness threat NPC + post the hint.
+ *   - Wed & Sun → post the wealth + might leaderboards.
+ * Other days are no-ops. Each beat is idempotent per UTC day via a meta key.
+ */
+async function runAfternoonBeat(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+): Promise<void> {
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10);
+  const weekday = now.getUTCDay(); // 0 = Sunday … 6 = Saturday
+
+  try {
+    if (weekday === 6) {
+      // Saturday — wilderness threat.
+      if (engine.getMeta("last_threat_date") === dateStr) {
+        console.log(c.grey("[cron] Saturday threat already posted today — skipping."));
+        return;
+      }
+      const threat = pickWeeklyThreat(now);
+      engine.spawnNpc({
+        name: threat.npc.name,
+        class: threat.npc.class,
+        race: threat.npc.race,
+        description: threat.npc.description,
+        location: threat.location,
+      });
+      if (await postAnnouncement(client, channelId, buildThreatAnnouncement(threat))) {
+        engine.setMeta("last_threat_date", dateStr);
+        console.log(
+          c.green(`[cron] Saturday threat posted: ${threat.npc.name} at ${threat.location}.`),
+        );
+      }
+    } else if (weekday === 3 || weekday === 0) {
+      // Wednesday & Sunday — leaderboards.
+      if (engine.getMeta("last_leaderboard_date") === dateStr) {
+        console.log(c.grey("[cron] Leaderboards already posted today — skipping."));
+        return;
+      }
+      const boards = engine.getLeaderboards(5);
+      if (await postAnnouncement(client, channelId, buildLeaderboardAnnouncement(boards))) {
+        engine.setMeta("last_leaderboard_date", dateStr);
+        console.log(c.green("[cron] Leaderboards posted."));
+      }
+    }
+  } catch (err) {
+    console.error(c.red("[cron] Afternoon beat failed:"), err);
+    void notifyAdmin("Afternoon beat failed", err);
+  }
+}
+
+/** Schedule the afternoon beat to fire at 12:00 UTC daily. */
+function scheduleAfternoonBeat(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+): void {
+  const now = Date.now();
+  const next = new Date();
+  next.setUTCHours(12, 0, 0, 0);
+  if (next.getTime() <= now) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  }
+
+  const delay = next.getTime() - now;
+  console.log(
+    c.grey(
+      `[cron] Next afternoon beat scheduled for ${next.toISOString()} (in ${Math.round(delay / 60000)} min)`,
+    ),
+  );
+
+  setTimeout(async () => {
+    await runAfternoonBeat(engine, client, channelId);
+    scheduleAfternoonBeat(engine, client, channelId);
+  }, delay);
+}
+
+// ── Release notes (on version bump) ──
+
+/**
+ * On boot, if the running tag (`v<VERSION>`) hasn't been announced yet and a
+ * notes file exists for it, post the player-facing release notes — with a
+ * feedback/request button — to the announcement channel, then stamp the meta so
+ * it fires exactly once per tag. Best-effort; never throws.
+ */
+async function runReleaseAnnouncement(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+): Promise<void> {
+  const currentTag = `v${APP_VERSION}`;
+  if (engine.getMeta("last_release_announced") === currentTag) return;
+
+  const notes = loadReleaseNotes(currentTag, RELEASE_NOTES_DIR);
+  if (!notes) {
+    // No notes for this tag — don't stamp, so adding a file later still fires.
+    console.log(c.grey(`[release] No notes file for ${currentTag} — skipping.`));
+    return;
+  }
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!(channel?.isTextBased() && "send" in channel)) {
+      console.error(c.red(`[release] Channel ${channelId} not usable for release notes.`));
+      return;
+    }
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("release:feedback")
+        .setLabel("Request / Feedback")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("💬"),
+    );
+    await (
+      channel as {
+        send: (opts: {
+          content: string;
+          components: unknown[];
+        }) => Promise<unknown>;
+      }
+    ).send({ content: buildReleaseNotesMessage(notes), components: [row] });
+
+    engine.setMeta("last_release_announced", currentTag);
+    console.log(c.green(`[release] Announced release notes for ${currentTag}.`));
+  } catch (err) {
+    console.error(c.red("[release] Release announcement failed:"), err);
+    void notifyAdmin("Release announcement failed", err);
+  }
+}
+
 async function main() {
   console.log("The Warden's Oak — starting up...");
 
@@ -770,6 +978,10 @@ async function main() {
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   _client = client; // expose for the process-level error handlers (admin DMs)
 
+  // Collapse notices broadcast publicly to the announcement channel so the
+  // whole table sees who fell. No-op until TICK_CHANNEL_ID is configured.
+  setCollapseBroadcaster((content) => postToTickChannel(content));
+
   // An 'error' event with no listener makes EventEmitter throw → process crash.
   // Listen so client/REST errors are reported, not fatal.
   client.on("error", (err) => {
@@ -885,6 +1097,9 @@ ${headInfo}`);
       scheduleTick(engine);
       scheduleMorningAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleGoodnightAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
+      scheduleAfternoonBeat(engine, readyClient, TICK_CHANNEL_ID);
+      // Announce release notes once if the bot just booted on a new tag.
+      void runReleaseAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
     } else {
       console.warn(
         c.yellow(
@@ -1079,7 +1294,23 @@ ${headInfo}`);
               .setPlaceholder("e.g. scout the northern ridge"),
           ),
         );
+      // showModal must be the first (and only) ack of this button interaction,
+      // so send it before touching anything else.
       await interaction.showModal(modal);
+
+      // Dismiss the stale day-job menu now that the player has chosen "Custom…"
+      // — don't wait for the modal submit. The modal overlay survives its source
+      // message being deleted; consuming the entry also stops the submit handler
+      // from trying to delete it a second time.
+      const menuInfo = consumeMenuMessage(interaction.user.id);
+      if (menuInfo) {
+        const { WebhookClient } = await import("discord.js");
+        const wh = new WebhookClient({
+          id: menuInfo.applicationId,
+          token: menuInfo.token,
+        });
+        await wh.deleteMessage(menuInfo.messageId).catch(() => {});
+      }
       return;
     }
 
@@ -1153,6 +1384,7 @@ ${headInfo}`);
             embeds: [embed],
             components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
           });
+          await announceCollapse(resolvedChar.name, char, resolvedChar);
         } else if (result.firstDecision.options.length === 0) {
           await interaction.editReply({
             embeds: [
@@ -1216,6 +1448,46 @@ ${headInfo}`);
         }
       } catch (err) {
         void notifyAdmin("Sleep feedback submission failed", err);
+      }
+      return;
+    }
+
+    // ── Release-notes feedback button ── opens a modal for requests/feedback
+    if (customId && customId === "release:feedback") {
+      if (!interaction.isButton()) return;
+      const modal = new ModalBuilder()
+        .setCustomId("release:feedback:modal")
+        .setTitle("Request / Feedback")
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId("release:feedback:input")
+              .setLabel("What would you like to see, or tell us?")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setPlaceholder("A feature you'd love, or what you think of the latest update…"),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // ── Release-notes feedback modal submission ──
+    if (customId && customId === "release:feedback:modal") {
+      if (!interaction.isModalSubmit()) return;
+      const text = interaction.fields.getTextInputValue("release:feedback:input");
+      await interaction.reply({
+        content: "🙏 Noted. The warden carries your words forward.",
+        flags: MessageFlags.Ephemeral,
+      });
+
+      try {
+        const char = engine.getCharacter(interaction.user.id);
+        if (char) {
+          engine.submitFeedback(char.id, text);
+        }
+      } catch (err) {
+        void notifyAdmin("Release feedback submission failed", err);
       }
       return;
     }
@@ -1401,6 +1673,7 @@ _${idleMsg}_`)
             embeds: [embed],
             components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
           });
+          await announceCollapse(resolvedChar.name, char, resolvedChar);
         } else if (result.firstDecision.options.length === 0) {
           await interaction.webhook.editMessage(interaction.message.id, {
             embeds: [

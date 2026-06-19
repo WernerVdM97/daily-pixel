@@ -11,6 +11,7 @@ import type {
   JournalData,
   TickResult,
   StatBlock,
+  Leaderboards,
 } from "./WorldEngine.js";
 
 /**
@@ -31,6 +32,7 @@ export class MockWorldEngine implements WorldEngine {
   private _journal: JournalData | null = null;
   private _tickResult: TickResult | null = null;
   private _soulsInUnsafe = 0;
+  private _leaderboards: Leaderboards = { wealth: [], might: [] };
   private _meta: Map<string, string> = new Map();
 
   // ── Call tracking ──
@@ -53,6 +55,8 @@ export class MockWorldEngine implements WorldEngine {
     countSoulsInUnsafe: void[];
     tick: boolean[];
     restAtOak: string[];
+    spawnNpc: { name: string; location: string }[];
+    getLeaderboards: number[];
     getMeta: string[];
   } = {
     createCharacter: [],
@@ -72,6 +76,8 @@ export class MockWorldEngine implements WorldEngine {
     countSoulsInUnsafe: [],
     restAtOak: [],
     tick: [],
+    spawnNpc: [],
+    getLeaderboards: [],
     getMeta: [],
   };
 
@@ -109,6 +115,9 @@ export class MockWorldEngine implements WorldEngine {
   setTickResult(result: TickResult): void {
     this._tickResult = result;
   }
+  setLeaderboards(result: Leaderboards): void {
+    this._leaderboards = result;
+  }
   setMeta(key: string, value: string): void {
     this._meta.set(key, value);
   }
@@ -141,6 +150,7 @@ export class MockWorldEngine implements WorldEngine {
       location: "The Warden's Oak",
       wealth: 5,
       lastActionState: null,
+      hasRestedToday: false,
       createdAt: "2026-01-01T00:00:00Z",
       ...restOverrides,
     };
@@ -245,6 +255,21 @@ export class MockWorldEngine implements WorldEngine {
     this.calls.submitBug.push({ characterId, text });
   }
 
+  spawnNpc(data: {
+    name: string;
+    class?: string;
+    race?: string;
+    description?: string;
+    location: string;
+  }): void {
+    this.calls.spawnNpc.push({ name: data.name, location: data.location });
+  }
+
+  getLeaderboards(limit: number): Leaderboards {
+    this.calls.getLeaderboards.push(limit);
+    return this._leaderboards;
+  }
+
   tick(isAdmin: boolean): TickResult {
     this.calls.tick.push(isAdmin);
     return (
@@ -253,6 +278,7 @@ export class MockWorldEngine implements WorldEngine {
         playersAffected: 0,
         npcMovements: [],
         absentWarnings: [],
+        collapsedNames: [],
       }
     );
   }

@@ -220,24 +220,40 @@ describe('world tick', () => {
   });
 
   describe('player effects', () => {
-    it('resets rolls_remaining to 2 after tick', () => {
+    // Pin to a Monday so the Saturday bonus-roll path doesn't perturb the
+    // baseline roll-reset expectations (the suite otherwise runs at real "now").
+    beforeEach(() => {
+      vi.setSystemTime(new Date('2026-06-15T03:30:00Z'));
+    });
+
+    it('resets rolls_remaining to 3 after tick', () => {
       const { engine, charRepo, userRepo } = makeEngine();
       createTestChar(charRepo, userRepo, { rolls_remaining: 1 });
 
       engine.tick(true);
 
       const char = charRepo.findByUserId(1);
-      expect(char!.rolls_remaining).toBe(2);
+      expect(char!.rolls_remaining).toBe(3);
     });
 
-    it('resets rolls_remaining to 2 even when player had 0 rolls', () => {
+    it('resets rolls_remaining to 3 even when player had 0 rolls', () => {
       const { engine, charRepo, userRepo } = makeEngine();
       createTestChar(charRepo, userRepo, { rolls_remaining: 0 });
 
       engine.tick(true);
 
       const char = charRepo.findByUserId(1);
-      expect(char!.rolls_remaining).toBe(2);
+      expect(char!.rolls_remaining).toBe(3);
+    });
+
+    it('grants a bonus roll on the Saturday tick (3 + 1 = 4)', () => {
+      vi.setSystemTime(new Date('2026-06-20T03:30:00Z')); // a Saturday
+      const { engine, charRepo, userRepo } = makeEngine();
+      createTestChar(charRepo, userRepo, { rolls_remaining: 0 });
+
+      engine.tick(true);
+
+      expect(charRepo.findByUserId(1)!.rolls_remaining).toBe(4);
     });
 
     it('recovers stamina +5 at safe location (capped at 10)', () => {
@@ -407,14 +423,14 @@ describe('world tick', () => {
       expect(char1!.stamina).toBe(8);  // 3 + 5 = 8
       expect(char1!.health).toBe(8);   // 5 + 3 = 8
       expect(char1!.wealth).toBe(20);  // 10 + 10
-      expect(char1!.rolls_remaining).toBe(2);
+      expect(char1!.rolls_remaining).toBe(3);
 
       // Check char 2 (wilds)
       const char2 = charRepo.findByUserId(user2.id);
       expect(char2!.stamina).toBe(1);  // 2 - 1 = 1
       expect(char2!.health).toBe(8);   // wilds: no health change
       expect(char2!.wealth).toBe(28);  // 20 + 8
-      expect(char2!.rolls_remaining).toBe(2);
+      expect(char2!.rolls_remaining).toBe(3);
     });
 
     it('does not modify health in wilds (no decay)', () => {
@@ -526,6 +542,41 @@ describe('world tick', () => {
       });
     });
 
+    describe('collapse — stamina bottoming out', () => {
+      it('flags the player whose stamina drops to 0 in an unsafe location', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          location: 'The Dark Pines', // unsafe → -1 stamina
+          stamina: 1,
+        });
+
+        const result = engine.tick(true);
+
+        expect(charRepo.findByUserId(1)!.stamina).toBe(0);
+        expect(result.collapsedNames).toEqual(['Aldric']);
+      });
+
+      it('does not flag a player who recovers in a safe location', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          location: "The Warden's Oak", // safe → +5 stamina
+          stamina: 1,
+        });
+
+        expect(engine.tick(true).collapsedNames).toEqual([]);
+      });
+
+      it('does not re-flag a player already at 0 stamina', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, {
+          location: 'The Dark Pines',
+          stamina: 0, // already bottomed — no transition this tick
+        });
+
+        expect(engine.tick(true).collapsedNames).toEqual([]);
+      });
+    });
+
     describe('countSoulsInUnsafe (live goodnight count)', () => {
       it('counts a player at an unsafe location', () => {
         const { engine, charRepo, userRepo, locationRepo } = makeEngine();
@@ -540,6 +591,39 @@ describe('world tick', () => {
         createTestChar(charRepo, userRepo, { location: "The Warden's Oak" });
 
         expect(engine.countSoulsInUnsafe()).toBe(0);
+      });
+    });
+
+    describe('getLeaderboards', () => {
+      it('ranks a player on both the wealth and might boards', () => {
+        const { engine, charRepo, userRepo } = makeEngine();
+        createTestChar(charRepo, userRepo, { wealth: 99 });
+
+        const boards = engine.getLeaderboards(5);
+
+        expect(boards.wealth[0]).toMatchObject({ name: 'Aldric', value: 99 });
+        // Seeded stats are physical:3 (highest), wisdom:-1, intelligence:0, charisma:0.
+        expect(boards.might[0]).toMatchObject({ name: 'Aldric', stat: 'physical', value: 3 });
+      });
+
+      it('returns empty boards when there are no characters', () => {
+        const { engine } = makeEngine();
+        expect(engine.getLeaderboards(5)).toEqual({ wealth: [], might: [] });
+      });
+    });
+
+    describe('spawnNpc (engine-driven)', () => {
+      it('places an NPC at the given location, findable by location', () => {
+        const { engine, npcRepo } = makeEngine();
+        engine.spawnNpc({
+          name: 'The Pale Stalker',
+          class: 'Beast',
+          description: 'A gaunt thing between the trunks.',
+          location: 'The Dark Pines',
+        });
+
+        const here = npcRepo.findByLocation('The Dark Pines');
+        expect(here.some((n) => n.name === 'The Pale Stalker')).toBe(true);
       });
     });
   });

@@ -25,6 +25,7 @@ export interface CharacterRow {
   wealth: number;
   last_action_state: string | null;
   last_played_at: string | null;
+  last_rested_day: number | null;
   created_at: string;
 }
 

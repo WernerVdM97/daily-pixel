@@ -21,10 +21,11 @@ CREATE TABLE IF NOT EXISTS player_characters (
   max_health        INTEGER NOT NULL DEFAULT 10,
   stamina           INTEGER NOT NULL DEFAULT 10,
   max_stamina       INTEGER NOT NULL DEFAULT 10,
-  rolls_remaining   INTEGER NOT NULL DEFAULT 2,
+  rolls_remaining   INTEGER NOT NULL DEFAULT 3,
   location          TEXT    NOT NULL DEFAULT "The Warden's Oak",
   wealth            INTEGER NOT NULL DEFAULT 0,
   last_action_state TEXT,              -- JSON ActionState | NULL
+  last_rested_day   INTEGER,           -- game day_number the player last rested at the Oak | NULL
   created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

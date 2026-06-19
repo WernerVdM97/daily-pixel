@@ -3,7 +3,7 @@ import type { CharacterRow } from './types.js';
 
 export type { CharacterRow };
 
-type CreateInput = Omit<CharacterRow, 'id' | 'user_id' | 'created_at' | 'last_played_at'> & {
+type CreateInput = Omit<CharacterRow, 'id' | 'user_id' | 'created_at' | 'last_played_at' | 'last_rested_day'> & {
   created_at?: string;
 };
 
@@ -40,7 +40,7 @@ export class CharacterRepository {
       health: data.health ?? 10,
       max_health: data.max_health ?? 10,
       stamina: data.stamina ?? 10,
-      rolls_remaining: data.rolls_remaining ?? 2,
+      rolls_remaining: data.rolls_remaining ?? 3,
       location: data.location ?? "The Warden's Oak",
       wealth: data.wealth ?? 0,
       last_action_state: data.last_action_state ?? null,
@@ -58,6 +58,7 @@ export class CharacterRepository {
       wealth: params.wealth,
       last_action_state: params.last_action_state,
       last_played_at: null,
+      last_rested_day: null,
       created_at: this.getCreatedAt(result.lastInsertRowid as number),
     };
   }
@@ -84,7 +85,7 @@ export class CharacterRepository {
     const allowed = [
       'name', 'class', 'upbringing', 'race', 'alignment', 'day_job',
       'stats', 'health', 'max_health', 'stamina', 'rolls_remaining',
-      'location', 'wealth', 'last_action_state', 'last_played_at',
+      'location', 'wealth', 'last_action_state', 'last_played_at', 'last_rested_day',
     ];
     const setClauses: string[] = [];
     const values: Record<string, unknown> = { id };

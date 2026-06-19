@@ -3,6 +3,23 @@
 
 ## scratchpad (humans start here)
 
+### TBD
+- [ ] often forgets too move people...
+- [x] player facing release notes message with feedabck button for requests. loaded from yaml — one file per tag (`assets/release-notes/<tag>.yml`); auto-posts on boot when the tag changes, with a Request/Feedback button. `v0.2.3.yml` authored (dormant until VERSION is bumped at release).
+- [x] rest button should only be visible on any screen if the player has not rested yet. and rename sleep to `rest` with camp emoji — Rest button (🏕️) hides once rested today via `last_rested_day`; nav id kept as `sleep` for routing.
+- [x] more messages: — all on a 12:00 UTC afternoon beat, idempotent per day.
+  - [x] hint at an unexplored location and threat on saturday afternoon and spawn a npc there to engage — rotates the wilderness locations weekly, spawns a themed hostile NPC.
+  - [x] weekend bonus rolls announcement on ~~friday~~ saturday afternoon — dropped the Friday bonus-rolls mechanic per decision; instead bumped flat rolls 2→3, added a Saturday +1 bonus roll, and the Saturday threat beat announces it.
+  - [x] character hits 0 hp/stamina — public collapse notice broadcast to the announcement channel (action/rest, and a batched overnight-tick announcement).
+  - [x] wealth/stat leaderboards on wednesdays and sunday afternoon — two boards (richest by wealth, mightiest by top stat).
+- [x] pressing custom button on action-daily work should dismiss the old message. — Custom… now deletes the day-job menu on press, not on modal submit.
+- [ ] duplicate NPCs for warden. The hooded figure and The Warden
+  - action button should not have showed, instead sleep. also my stamina was still showing the value before the deduction.
+  - I sent a long prompt for the action but it didnt give me any decisions ...
+  - **root cause:** custom-modal + day-job handlers rendered the outcome from the pre-action `char` snapshot (stale rolls/stamina, wrong Action/Sleep button). Fixed by re-reading after `startAction`. NOTE: the "no decisions" part is the LLM auto-finish (no real options) → belongs to the prompt refactor; and surfacing the spent roll as a `(−1)` in the footer is a deferred UX nicety (see below).
+- [ ] surface the spent roll in the outcome footer — taking an action costs a roll via the engine (not a mutation), so the footer shows `🎲 0/2` with no `(−1)`, reading as "free". Add a roll-spend indicator (touches `OutcomeRenderer.formatOutcome`, affects all outcome views).
+- [ ] implement menu framework coupled to views (standardise views/command/message terminology)
+  - each message should be structured in a tab manner? with subtabs in mvp.
 - [ ] the /join options should be loaded from the yaml, not injected in code. merge the hard coded options into the yamls in assets/
 - [ ] how to make wealth spendable or meaning full (same for stamina and health)?
   - how do we handle death or 0 HP?
@@ -16,7 +33,9 @@
 
 ## MVP — deferred
 
-
+- [ ] use both models differently, flash for generating quick responses and daily work, pro for decision trees.
+- [ ] saturday special event, spawn an "evil npc" somewhere with a hint. Incentivise hunting it/them and add npc death mutation
+- [ ] choose age
 - [ ] Improved journal/story
   - track or show quests or hints?
   - add clue system? also grants +1 roll

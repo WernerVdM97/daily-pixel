@@ -95,7 +95,7 @@ describe('CharacterRepository', () => {
     expect(minimal.health).toBe(10);
     expect(minimal.max_health).toBe(10);
     expect(minimal.stamina).toBe(10);
-    expect(minimal.rolls_remaining).toBe(2);
+    expect(minimal.rolls_remaining).toBe(3);
     expect(minimal.location).toBe("The Warden's Oak");
     expect(minimal.wealth).toBe(0);
     expect(minimal.last_action_state).toBeNull();

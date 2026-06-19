@@ -7,6 +7,7 @@
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { mapError } from "../../engine/ErrorMapper.js";
 import { SEPARATOR } from "../format.js";
+import { announceCollapse } from "../collapse.js";
 import { getWorkplaceLocation, type DayJobDef } from "./hi.js";
 
 export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
@@ -106,6 +107,14 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
     if (wasUnsafe) {
       const updated = engine.modifyHealth(interaction.user.id, -1);
       penaltyLine = `⚠️ The night was rough — you lost **1 HP**. ${updated ? `(${updated.health}/${updated.maxHealth} ❤️)` : ""}`;
+      // A collapse from the penalty is announced publicly (not just to the actor).
+      if (updated) {
+        await announceCollapse(
+          character.name,
+          { health: character.health, stamina: character.stamina },
+          { health: updated.health, stamina: updated.stamina },
+        );
+      }
     }
 
     const locationLine = alreadyThere
