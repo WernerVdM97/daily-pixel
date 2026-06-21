@@ -63,6 +63,7 @@ resolved cross-cutting trade-offs (ADRs)
 |---|---|---|
 | ✅ | [POC Action UX Refinements](./decisions/poc-action-ux-refinements.md) | Buttons A/B/C, Bail/Skip/Finish terminal states, footer standardisation, generic daily actions |
 | ✅ | [Per-Option Stat & Ability-Check Rolls](./decisions/per-option-stat-and-ability-checks.md) | Roll = d20 + char ability + item bonus; per-option stat so approach choice selects the stat tested |
+| ✅ | [Roll Economy, Timeouts & World Growth](./decisions/roll-economy-timeouts-and-world-growth.md) | Resolves prod-data D1/D2/D3: refund no-op/timeout rolls (1 free each per day), lazy-create off-map locations via sync stub + async cartographer. Drives the `decision-v8` bump. |
 
 ---
 
@@ -70,8 +71,9 @@ resolved cross-cutting trade-offs (ADRs)
 
 | Status | Doc | Summary |
 |---|---|---|
-| 🌱 | [Polish Pass — v0.2.4](./sparks/polish-pass-v0.2.4.md) | Two-sweep bug/coherency/thematic punch list for the next patch. Highs: 4 `/join` backgrounds yield `NaN` stats; stale `/2` roll footer. Plus duplicate-threat-NPC race, class/job emoji, `/stats` stamina, prompt typo, `done`-flag drift, ops nits. No features. |
+| 🌱 | [Polish Pass — v0.2.4](./sparks/polish-pass-v0.2.4.md) | Two-sweep bug/coherency/thematic punch list for the next patch. Highs: 5 `/join` backgrounds yield `NaN` stats; stale `/2` roll footer. Plus duplicate-threat-NPC race, class/job emoji, `/stats` stamina, prompt typo, `done`-flag drift, ops nits. No features. |
 | 🌱 | [Prod Data Review — v0.2.3](./sparks/prod-data-review-v0.2.3.md) | Player-voice + LLM-telemetry mining of the live prod DB (8 players, 67 actions, 216 LLM calls). Critical: auto-resolve (`done`) eats a roll for no agency (28% of v0.2.3 actions, worsening); timeout drops travel + keeps roll + ghost-renders. Core-loop gaps: leaky roll economy, invisible unsafe-rest HP rule, world can't grow new locations. Confirms & upgrades polish-pass §E4 with prod evidence. |
+| 🌱 | [YAML Asset Schemas & Test Coverage](./sparks/yaml-asset-schemas-and-tests.md) | Canonical template per YAML asset (char-creation + release-notes) and a test layer that validates the real files: modifier completeness, a `computeStats` finite round-trip, cross-file integrity (kits/locations/stat enums). Guardrail for the `NaN`-stat class of bug (5/8 live chars corrupted); expands polish §B7, defers the data fix to §B1. |
 
 ## 🔥 MVP 
 
