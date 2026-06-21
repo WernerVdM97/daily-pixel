@@ -1,7 +1,40 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { WizardSession } from "../../src/discord/WizardSession.js";
-import { makeJoinCommand } from "../../src/discord/commands/join.js";
+import { makeJoinCommand, handleInteraction } from "../../src/discord/commands/join.js";
+
+const CID_CONFIRM = "join:confirm";
+
+/** A button interaction at the wizard's final confirm step. */
+function mockConfirmInteraction(userId: string) {
+  return {
+    user: { id: userId },
+    customId: CID_CONFIRM,
+    applicationId: "app-1",
+    token: "tok-1",
+    deferred: false,
+    replied: false,
+    isModalSubmit: () => false,
+    isButton: () => true,
+    deferUpdate: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue(undefined),
+    followUp: vi.fn().mockResolvedValue(undefined),
+    deleteReply: vi.fn().mockResolvedValue(undefined),
+    reply: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+/** Drive a wizard session through every step so confirm() succeeds. */
+function completeWizard(wizard: WizardSession, userId: string) {
+  wizard.start(userId);
+  wizard.setName(userId, "Aldric");
+  wizard.choose(userId, 2, "class", "Warrior");
+  wizard.choose(userId, 3, "upbringing", "Soldier");
+  wizard.choose(userId, 4, "race", "Human");
+  wizard.choose(userId, 5, "alignment", "lawful good");
+  wizard.choose(userId, 6, "dayJob", "Blacksmith");
+  wizard.choose(userId, 7, "itemSet", "Soldier's Kit");
+}
 
 function mockInteraction(userId: string) {
   return {
@@ -105,5 +138,65 @@ describe("/join", () => {
     const intr = mockInteraction("existing-user");
     const result = await handler(intr as never);
     expect(result).toBe("join_guard_has_character");
+  });
+});
+
+// ═══ /join wizard-completion path (C1) ═══
+
+describe("/join confirm → handleInteraction", () => {
+  let engine: MockWorldEngine;
+  let wizard: WizardSession;
+
+  beforeEach(() => {
+    engine = new MockWorldEngine();
+    engine.setCharacterExists(false);
+    wizard = new WizardSession();
+  });
+
+  it("creates the character, announces publicly, then swaps in the /hi screen", async () => {
+    completeWizard(wizard, "finisher");
+    const intr = mockConfirmInteraction("finisher");
+    const renderHiScreen = vi.fn().mockResolvedValue({ content: "HI-SCREEN" });
+
+    await handleInteraction(intr as never, engine, wizard, renderHiScreen);
+
+    // Character persisted with the wizard's choices.
+    expect(engine.calls.createCharacter).toHaveLength(1);
+    expect(engine.calls.createCharacter[0].data.name).toBe("Aldric");
+
+    // Acked the click, posted the public celebration, then replaced the wizard
+    // with the player's own ephemeral /hi screen (deleteReply → followUp).
+    expect(intr.deferUpdate).toHaveBeenCalled();
+    expect(intr.followUp).toHaveBeenCalledTimes(2);
+    expect(intr.deleteReply).toHaveBeenCalled();
+    expect(renderHiScreen).toHaveBeenCalledWith("finisher");
+  });
+
+  it("falls back to a text pointer when no /hi renderer is supplied", async () => {
+    completeWizard(wizard, "no-render");
+    const intr = mockConfirmInteraction("no-render");
+
+    await handleInteraction(intr as never, engine, wizard, undefined);
+
+    expect(engine.calls.createCharacter).toHaveLength(1);
+    // No /hi screen → wizard collapses to a short pointer via editReply, no deleteReply.
+    expect(intr.deleteReply).not.toHaveBeenCalled();
+    expect(intr.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining("/hi") }),
+    );
+  });
+
+  it("does not throw when the public follow-up rejects (swallowed)", async () => {
+    completeWizard(wizard, "flaky");
+    const intr = mockConfirmInteraction("flaky");
+    intr.followUp.mockRejectedValue(new Error("Discord hiccup"));
+    const renderHiScreen = vi.fn().mockResolvedValue({ content: "HI" });
+
+    // The .catch(() => {}) swallows must keep this from rejecting.
+    await expect(
+      handleInteraction(intr as never, engine, wizard, renderHiScreen),
+    ).resolves.toBeUndefined();
+    // The character is still created despite the announcement failing.
+    expect(engine.calls.createCharacter).toHaveLength(1);
   });
 });

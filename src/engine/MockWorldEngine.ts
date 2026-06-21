@@ -25,6 +25,7 @@ export class MockWorldEngine implements WorldEngine {
   private _characterExists = false;
   private _startActionResult: ActionStartResult | null = null;
   private _stepActionResult: ActionStepResult | null = null;
+  private _resumeResult: ActionResumeResult | null = null;
   private _location: LocationInfo | null = null;
   private _locationSet = false;
   private _items: ItemData[] = [];
@@ -94,6 +95,9 @@ export class MockWorldEngine implements WorldEngine {
   }
   setStepActionResult(result: ActionStepResult): void {
     this._stepActionResult = result;
+  }
+  setResumeResult(result: ActionResumeResult): void {
+    this._resumeResult = result;
   }
   setLocation(loc: LocationInfo | null): void {
     this._location = loc;
@@ -209,7 +213,10 @@ export class MockWorldEngine implements WorldEngine {
 
   resumeAction(characterId: number): ActionResumeResult {
     this.calls.resumeAction.push(characterId);
-    throw new Error("MockWorldEngine.resumeAction: no canned result set");
+    if (!this._resumeResult) {
+      throw new Error("MockWorldEngine.resumeAction: no canned result set");
+    }
+    return this._resumeResult;
   }
 
   getNearbyEntities(characterId: number): NearbyEntity[] {

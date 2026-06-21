@@ -36,6 +36,14 @@ if [ -z "$CHANNEL_ID" ]; then
   exit 1
 fi
 
+# ── Confirmation gate — this irreversibly deletes the bot's messages ──
+echo "⚠️  About to PERMANENTLY delete the bot's messages from channel $CHANNEL_ID (mode: $MODE)."
+read -r -p "Type 'yes' to proceed: " confirm
+if [ "$confirm" != "yes" ]; then
+  echo "Aborted."
+  exit 1
+fi
+
 # ── Resolve bot user ID ──
 BOT_INFO=$(curl -sf -H "Authorization: Bot $TOKEN" https://discord.com/api/v10/users/@me)
 BOT_ID=$(echo "$BOT_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
