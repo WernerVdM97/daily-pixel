@@ -17,6 +17,11 @@ The punch list for the **v0.2.4** patch. Scope is deliberately narrow: **bug-fix
 
 > **Two sweeps:** §A below is the original hot-path review (`src/discord` frontend, `src/engine`/`index.ts` mechanics, `src/llm`). **§B (2026-06-21)** is a follow-up sweep over every source file the first pass had *not* opened — peripheral Discord, all DB repositories/migrations, engine internals, LLM/scene/asset loaders, the char-creation YAML, and the ops/scripts/config layer. Every `file:line` in both was opened and confirmed.
 
+> **Division of labour — this doc and [[prod-data-review-v0.2.3]] are executed by separate agents.** To keep them from editing the same files:
+> - **This doc (polish-pass) owns the *code-tidy & data-fix* work:** cosmetic/coherency/thematic fixes and the §B data/ops bugs. It makes **no edits to the decision prompt files** and **no edits to the auto-resolve / resolution path** (`machine.ts` auto-finish, `WorldEngineImpl.startAction` roll-debit, the gateway empty-decision handling).
+> - **[[prod-data-review-v0.2.3]] owns the *decision/resolution/roll-economy/prompt-behaviour* domain** — its §C1 (auto-resolve eats a roll), §C2 (timeout), §G–§Q items, **and the `decision-v8.md` prompt bump** (into which the cosmetic prompt fixes below have been relocated).
+> - Items here that touched that domain (former **E3**, **E4**, **P1**, **P2**) are now **deferred** to that doc; the footer fix (**F1**) stays here and prod-data §G1 defers to it. The only file both agents touch is `WorldEngineImpl.ts` — but in **different functions** (`countSoulsInUnsafe` here vs `startAction`/`isStateStale` there), so they don't collide.
+
 ---
 
 ## How to read this
@@ -29,6 +34,7 @@ Severity is **impact on a live player or the live bot**, not code aesthetics. Ea
 
 - [!] **F1 · Outcome footer shows a stale `/2` roll denominator.** `src/engine/OutcomeRenderer.ts:205` hardcodes `🎲 ${ctx.rollsRemaining}/2`. But `DAILY_ROLL_ALLOWANCE` is now **3** (`src/db/schema.sql:24`, `character.ts:43`) and Saturday grants **+1 = 4** (`WorldEngineImpl.ts:58-59,930-932`). So after one action on a normal day the footer reads `🎲 2/2`, and at the start of the day `🎲 3/2` — a nonsensical "over-full" fraction. Every action outcome a player sees carries this wrong denominator.
   - [I] Fix: drop the denominator entirely (`🎲 ${ctx.rollsRemaining}`), matching `/hi`'s "Rolls: N" style — simplest and avoids re-deriving the daily max. **Fix this together with the `todo-roll-footer` item below** (surfacing the spent roll), since both live on this one line.
+  - [I] **Owned here.** [[prod-data-review-v0.2.3]] §G1 reaches the same finding from player complaints ("I'm losing rolls I didn't use") and explicitly defers the fix to this §F1 — it's a one-line `OutcomeRenderer.ts` change that doesn't touch the resolution path.
 
 ---
 
@@ -45,6 +51,7 @@ Severity is **impact on a live player or the live bot**, not code aesthetics. Ea
 
 - [I] **E1 · `countSoulsInUnsafe()` counts unknown locations as unsafe + does N+1 lookups.** `src/engine/WorldEngineImpl.ts:900-908` does one `locationRepo.findByName(c.location)` per character and treats a missing row (`!loc`) as unsafe. This is now **live** — the 18:30 public goodnight reads it. With current seeding all locations resolve, so it's correct today; the risk is a single mismatched/cased `set_location` value silently inflating "souls still out in the wilds." (Carried forward as **L3** — confirmed still live.)
   - [I] Fix: build a `Set` of location names once (or a `name→is_safe` map) and filter in memory; treat an unknown location explicitly rather than implicitly-unsafe. Bounded by player count, so purely a robustness/clarity fix for POC.
+  - [I] *Related, not a conflict (different file):* [[prod-data-review-v0.2.3]] §G3 covers where unknown locations **come from** (`set_location` to unseeded names). If G3 picks option (a) "lazily create the location row," unknown locations stop existing and this hardening becomes belt-and-braces; if it picks (b) "constrain the prompt," this stays the safety net. Either way `countSoulsInUnsafe` should treat unknown explicitly.
 
 - [?] **E2 · No multi-day boot catch-up for missed world ticks.** `src/index.ts` `scheduleTick()` arms only the *next* 03:30 and relies on a single idempotency guard; the morning/goodnight announcements got boot-time catch-up (per [[bug-analysis-v0.2.2]]) but the tick itself does not backfill more than the current day. If the bot is offline across **two or more** tick windows, intervening days are not advanced — the world falls behind by the length of the outage minus one.
   - [?] Is multi-day backfill in POC scope, or is "bot stays up" an accepted POC assumption? If we want it: on boot, while `last_cron_date < today (UTC)`, run `engine.tick(false)` until caught up, then arm the next. Flagging rather than prescribing — could be deferred to MVP if outages are handled operationally.
@@ -53,17 +60,15 @@ Severity is **impact on a live player or the live bot**, not code aesthetics. Ea
 
 ## 🟡 Low — thematic / clarity / tests
 
-- [I] **P1 · Prompt typo: "expendale".** `assets/prompts/decision-prompts/decision-v7.md:103` — "For items that are expendale, ammunition…". The LLM can mirror sloppy spelling into player-facing prose.
-- [I] **P2 · Prompt clarity: inventory reference.** `decision-v7.md:102` says "Check the INVENTORY in the input context", but there is no `INVENTORY` line — inventory rides inside the `SCALING HINT` block. Minor LLM-confusion risk; reword to point at the right field.
-  - [!] **Mechanism for P1+P2:** per `AGENTS.md`, **never edit a published prompt in place.** Add `decision-v8.md` with both fixes, bump `PROMPT_VERSION` to `'v8'` in `src/llm/prompt-builder.ts`, and copy it over `current_source.md` byte-identical. Batch P1+P2 into the one new version.
+- [>] **P1 · Prompt typo: "expendale".** `assets/prompts/decision-prompts/decision-v7.md:103` — "For items that are expendale, ammunition…". The LLM can mirror sloppy spelling into player-facing prose. **Relocated to [[prod-data-review-v0.2.3]] §C1** — it owns the `decision-v8.md` bump, so this typo lands there to avoid two competing v8 files.
+- [>] **P2 · Prompt clarity: inventory reference.** `decision-v7.md:102` says "Check the INVENTORY in the input context", but there is no `INVENTORY` line — inventory rides inside the `SCALING HINT` block. Minor LLM-confusion risk; reword to point at the right field. **Relocated to [[prod-data-review-v0.2.3]] §C1** (same `decision-v8.md` bump).
+  - [I] *Mechanism, for the doc that does it:* per `AGENTS.md`, never edit a published prompt in place — add `decision-v8.md`, bump `PROMPT_VERSION` to `'v8'` in `src/llm/prompt-builder.ts`, and copy it over `current_source.md` byte-identical. P1, P2, the former E3 contract decision, and prod-data §C1's behavioural prompt change all batch into that single v8.
 
 - [I] **P3 · Fallback copy: "The warden's hand" (lowercase).** `src/llm/FallbackLlmGateway.ts:15`. Everywhere else the NPC is "**The Warden**". The divine-intervention fallback should read "The Warden's hand" for voice consistency. One-line string fix (not prompt-versioned — it's code copy).
 
-- [?] **E3 · Prompt and engine disagree on the `done` flag.** The v7 prompt no longer documents `done`, yet the engine still consumes it as a resolution signal: `machine.ts:204` (`isLastDecision || decision.done || …`), `machine.ts:301`, and `DeepseekLlmGateway.ts:227,294`. It's **not dead code** — if the LLM happens to emit `done`, it changes behaviour; if it doesn't, the code falls back to `realOptions.length === 0`. Today this is benign (the fallback covers it), but prompt-says-X / engine-relies-on-Y is exactly the drift the conventions warn about.
-  - [?] Decide the contract: either re-document `done` in `decision-v8.md` (if the engine should keep honouring it) or strip the engine's reliance on it (if completion is purely inferred). Don't leave them disagreeing.
+- [>] **E3 · Prompt and engine disagree on the `done` flag → owned by [[prod-data-review-v0.2.3]] §C1.** The v7 prompt no longer documents `done`, yet the engine still consumes it (`machine.ts:204,301`, `DeepseekLlmGateway.ts:227,294`). It's not dead code — if the LLM emits `done` it changes behaviour, else the code falls back to `realOptions.length === 0`. This sits in the auto-resolve path that prod-data §C1 reworks, so the contract decision (re-document `done` in `decision-v8.md` vs strip the engine's reliance) is made there, in the same edit — not here. *Documented in this doc only so the code observation isn't lost.*
 
-- [I] **E4 · Empty decision + no mutations resolves to a no-op that still spent a roll.** `machine.ts:99-111` auto-finishes with `mutations: []` and `outcomeText: 'The moment passes.'` when the LLM returns nothing rollable. The roll was already debited in `WorldEngineImpl.startAction()` (`:565`), so a player can spend a roll and get a literal nothing-happened. Bounded and rare, but reads as a wasted turn. (This is the benign residual of carried-forward **L1** — the roll *is* spent exactly once; there is no double-decrement.)
-  - [I] Fix (optional): in the gateway, reject an empty-decision/no-mutation/no-outcome response (it already only *warns* — `DeepseekLlmGateway.ts:264`) so it retries the fallback instead of surfacing a dead turn.
+- [>] **E4 · Empty decision + no mutations resolves to a no-op that still spent a roll → owned by [[prod-data-review-v0.2.3]] §C1.** `machine.ts:99-111` auto-finishes with `mutations: []` / "The moment passes." when nothing is rollable, while the roll was already debited in `WorldEngineImpl.startAction()` (`:565`). This doc originally called it "bounded and rare" — **the prod telemetry upgrades it to Critical** (28% of v0.2.3 actions; see prod-data §C1). The fix (gateway-reject the empty response at `DeepseekLlmGateway.ts:264`, and the roll-cost design call) lives in prod-data §C1. *Kept here only as the code-side cross-reference; do not action from this doc.*
 
 - [I] **F5 · `/stats` says "Rolls: N remaining"; `/hi` says "Rolls: N".** `stats.ts:40` vs `hi.ts` — the `/hi` test deliberately asserts "remaining" is absent. Align `stats.ts` to drop "remaining" for one rolls vocabulary across screens.
 
@@ -140,18 +145,20 @@ A pass over the files the first review never opened. Findings below are de-dupli
 
 ## Suggested triage order
 
+> Scope: **only the code-tidy & data-fix items this doc owns.** The auto-resolve / roll-economy / prompt-`v8` cluster (former E3, E4, P1, P2) is triaged in [[prod-data-review-v0.2.3]], not here.
+
 1. [ ] **B1** — fix the four `backgrounds.yml` entries (+ optional B7 loader guard). Silent stat corruption; data-only, highest impact-per-effort.
 2. [ ] **F1 + todo-roll-footer** — one line in `OutcomeRenderer.ts`; the player-visible footer bug. Add the C3 stats test alongside.
 3. [ ] **B2** — stamp `last_threat_date` on spawn, not on announcement success. Kills the duplicate-threat-NPC path.
 4. [ ] **F2 / F5** — `/stats` stamina max + rolls label (+ the C3 assertion).
 5. [ ] **F3 / F4** — `classEmoji` in headers; export + reuse `DAYJOB_EMOJI`. Pure thematic win, low risk.
 6. [ ] **B3** — add `max_stamina` to the character INSERT.
-7. [ ] **P1 + P2 (+ E3 decision)** — author `decision-v8.md`, bump `PROMPT_VERSION`, re-sync `current_source.md`. Settle the `done`-flag contract in the same pass.
-8. [ ] **P3 / B8 / B9** — Warden casing; mock fixtures (`MockWorldEngine` 10/10/3, `MockLlmGateway` fields).
-9. [ ] **E1 (L3)** — `countSoulsInUnsafe` robustness.
-10. [ ] **B4 / B5 / B6 / B11** — version sync, `expectTimestamp` inline, async `journal`, env-var docs. Cheap housekeeping.
-11. [ ] **C1 / C2** — wizard-completion and `nav:action` handler tests.
-12. [ ] **B10** — confirmation prompts on destructive scripts (do before next prod script run).
-13. [?] **E2 / E4** — design calls (multi-day tick backfill; reject empty no-op decisions). Resolve before coding.
+7. [ ] **P3 / B8 / B9** — Warden casing (code copy, not the prompt file); mock fixtures (`MockWorldEngine` 10/10/3, `MockLlmGateway` fields).
+8. [ ] **E1 (L3)** — `countSoulsInUnsafe` robustness.
+9. [ ] **B4 / B5 / B6 / B11** — version sync, `expectTimestamp` inline, async `journal`, env-var docs. Cheap housekeeping.
+10. [ ] **C1 / C2** — wizard-completion and `nav:action` handler tests.
+11. [ ] **B10** — confirmation prompts on destructive scripts (do before next prod script run).
+12. [?] **E2** — design call (multi-day tick backfill). Resolve before coding.
+13. [>] **Deferred to [[prod-data-review-v0.2.3]]:** E3 (`done`-flag contract), E4 (empty no-op wastes a roll → its §C1), P1/P2 (prompt typo + wording → its `decision-v8`).
 
 > Sweep basis: four parallel readers over `src/discord`, `src/engine` + `src/index.ts`, `src/llm` + `assets/prompts`, plus a re-verification pass on the open tails of the two prior reviews and `TODO.md`. Every `file:line` here was opened and confirmed, not taken from the reader summaries.

@@ -14,6 +14,8 @@ What the **live POC data actually says** — not a code sweep. Pulled the produc
 
 Scope per request: **what is still broken or a core-loop gap for the POC.** Net-new feature requests are catalogued but out of scope. MVP work is out of scope.
 
+> **Division of labour — this doc and [[polish-pass-v0.2.4]] are executed by separate agents, on disjoint files.** This doc owns the **decision/resolution/roll-economy/prompt-behaviour** domain: C1 (auto-resolve), C2 (timeout), the C1/C2 roll *leak*, G2 (rest-risk copy), G3 (location growth), Q1–Q2, **and the `decision-v8.md` prompt bump** — into which the cosmetic prompt fixes from polish-pass (its former §P1/§P2/§E3) have been folded (see §C1). Polish-pass owns the cosmetic/data/ops fixes and the **footer denominator** (§F1, the *wrong-`/2`* half of G1). The only shared file is `WorldEngineImpl.ts`, touched in **different functions** (here: `startAction`/`isStateStale`; there: `countSoulsInUnsafe`).
+
 ---
 
 ## Dataset
@@ -49,8 +51,12 @@ Scope per request: **what is still broken or a core-loop gap for the POC.** Net-
 - [c] This is *by design* for travel/rest. The failure is that **the LLM is increasingly classifying substantive, effortful player input as a no-option auto-resolve** — exactly the inputs players wrote a paragraph for.
 - [x] **Already partially addressed (don't re-litigate):** the *rendering* of auto-finished actions was fixed in v0.2.3 ("Stale stats on auto-finished actions", "Missing Feedback/Bug buttons on auto-finished actions") and v0.2.2 made `done` *inferred* from absent options rather than trusting the flag. **The dissatisfaction is not fixed** — complaints #5/#6 post-date those fixes.
 - [I] **POC fix direction (design call, not a silent patch):**
-  - [?] Should an action that the LLM wants to auto-resolve **with no rollable choice cost a roll at all?** Refunding the roll (or not debiting until a real roll occurs) would remove the "wasted turn" sting immediately. Pairs with [[polish-pass-v0.2.4]] §E4.
+  - [?] Should an action that the LLM wants to auto-resolve **with no rollable choice cost a roll at all?** Refunding the roll (or not debiting until a real roll occurs) would remove the "wasted turn" sting immediately. **Absorbs [[polish-pass-v0.2.4]] §E4** (which the code sweep called "bounded and rare" — the data says otherwise).
   - [I] Tighten the v7→v8 prompt so a paragraph of player intent must yield **at least one rollable decision** unless it is genuinely pure travel/rest; reject empty-decision/no-mutation responses at the gateway (`DeepseekLlmGateway.ts:264` currently only *warns*) and retry instead of surfacing a dead turn.
+  - [!] **This doc owns the `decision-v8.md` bump.** Per `AGENTS.md`, never edit a published prompt in place: add `decision-v8.md`, bump `PROMPT_VERSION` to `'v8'` in `src/llm/prompt-builder.ts`, and copy it over `current_source.md` byte-identical. Into that single v8, fold the cosmetic prompt fixes **relocated from [[polish-pass-v0.2.4]]** so there aren't two competing v8 files:
+    - [>] **(was polish §P1)** typo `decision-v7.md:103` "expendale" → "expendable".
+    - [>] **(was polish §P2)** `decision-v7.md:102` "Check the INVENTORY in the input context" → point at the `SCALING HINT` block where inventory actually lives.
+    - [>] **(was polish §E3)** settle the `done`-flag contract: the v7 prompt dropped `done` but the engine still consumes it (`machine.ts:204,301`, `DeepseekLlmGateway.ts:227,294`). Either re-document `done` in v8 or strip the engine's reliance — decide it here, in the same edit, since it's the same auto-resolve path.
 
 ### C2 · Timeout drops travel, keeps the roll, and renders as a confusing ghost message
 
@@ -71,7 +77,7 @@ Scope per request: **what is still broken or a core-loop gap for the POC.** Net-
 - [!] **What players said:** *Warden's Apprentice (bug 06-19):* "Only getting two rolls.." · *Flikker (bug 06-19):* "Roll got consumed for some reason when the server was experiencing difficulties."
 - [I] **What the data shows:** the three most active characters (Flikker, Apprentice, Ulrich) all sit at `rolls_remaining = 0`; the inactive five sit at `3`. The allowance **is** 3 today (`DAILY_ROLL_ALLOWANCE = 3`, raised from 2 in v0.2.2).
 - [!] **Why players still perceive a deficit:** rolls leak into outcomes that feel free — **auto-resolve (C1)** and **timeout (C2)** both debit a roll for a non-roll. Plus the **outcome footer prints `🎲 N/2`** against the new max of 3/4 ([[polish-pass-v0.2.4]] §F1, `OutcomeRenderer.ts:205`), so a player literally sees `3/2` then `2/2` — reading as "I'm losing rolls I didn't use."
-- [x] **Partially addressed:** allowance raised 2→3 (v0.2.2); footer fix is queued in [[polish-pass-v0.2.4]]. **Still live:** the leak via C1/C2 and the wrong denominator on every outcome card.
+- [x] **Partially addressed:** allowance raised 2→3 (v0.2.2). **The footer fix is owned by [[polish-pass-v0.2.4]] §F1 — not actioned here** (one-line `OutcomeRenderer.ts` change, off the resolution path). This doc owns the *leak* (the roll debited by C1/C2 for a non-roll); polish owns the *wrong denominator*. **Still live:** both, until each doc's owner lands its fix.
 
 ### G2 · Rest / unsafe-HP rules are invisible to the player
 
