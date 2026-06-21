@@ -9,6 +9,7 @@ related:
   - "[[handover-code-review-post-pr14]]"
   - "[[daily-work-teleport]]"
   - "[[per-option-stat-and-ability-checks]]"
+  - "[[yaml-asset-schemas-and-tests]]"
 ---
 
 The punch list for the **v0.2.4** patch. Scope is deliberately narrow: **bug-fixing, coherency, and thematic consistency** on surfaces the player already touches. **No new features, no MVP work.** This consolidates the still-open tails of [[bug-analysis-v0.2.2]] and [[handover-code-review-post-pr14]] (re-verified against current code), the POC-relevant items from `TODO.md`, and a fresh four-reader sweep of `src/discord` (frontend), `src/engine` + `src/index.ts` (mechanics), and `src/llm` + the decision prompt.
@@ -92,9 +93,10 @@ A pass over the files the first review never opened. Findings below are de-dupli
 
 ### 🔴 High
 
-- [!] **B1 · Four `/join` backgrounds produce a `NaN` stat (silent character corruption).** `assets/char-creation/backgrounds.yml` omits one required stat key in four entries — **Farmstead** (line 34, no `intelligence`), **Temple-Raised** (38, no `physical`), **Urchin** (42, no `intelligence`), **Scout** (50, no `intelligence`). `StatComputer.computeStats` (`src/engine/StatComputer.ts:40-50`) sums the three sources unguarded, so `cls + undefined + race = NaN`. A player picking any of these four backgrounds ends up with one ability score permanently `NaN`, which poisons every DC/ability-check (`d20 + NaN = NaN`), the stat display, and any LLM context built from stats. The other eight backgrounds spell out all four keys, so this only bites a third of choices — but silently.
-  - [I] Fix (data): add the missing key with value `0` to all four entries. Two-minute edit, no code change.
-  - [I] Fix (defence-in-depth, see B7): have the YAML loader (or `computeStats`) default missing stat keys to `0`, so a future omission can't recreate this.
+- [!] **B1 · `/join` backgrounds produce a `NaN` stat (silent character corruption).** `assets/char-creation/backgrounds.yml` omits one required stat key in **five** entries — **Farmstead** (line 34, no `intelligence`), **Temple-Raised** (38, no `physical`), **Urchin** (42, no `intelligence`), **Entertainer** (46, no `wisdom`), **Scout** (50, no `intelligence`). `StatComputer.computeStats` (`src/engine/StatComputer.ts:40-50`) sums the three sources unguarded, so `cls + undefined + race = NaN`. A player picking any of these backgrounds ends up with one ability score permanently `NaN` (persisted as `null`), which poisons every DC/ability-check (`d20 + NaN = NaN`), the stat display, and any LLM context built from stats.
+  - [!] **Correction + evidence:** this sweep originally said "four" and missed **Entertainer** — and [[prod-data-review-v0.2.3]]'s DB pull confirms **5 of 8 live characters already carry a `null` stat** (Flikker = Entertainer→`wisdom`, two Scouts + two Urchins→`intelligence`). The miscount is itself the argument for automated validation.
+  - [I] Fix (data): add the missing key with value `0` to all five entries. Two-minute edit, no code change. **Owned here.**
+  - [>] Fix (defence-in-depth, was B7): the systematic validation layer + tests that prevent recurrence — **and the repair of the 5 corrupted live characters** — are specified in **[[yaml-asset-schemas-and-tests]]** (its T2/T3 turn this into a red test). Land the data edit here; that spark guards it.
 
 ### 🟠 Medium
 
@@ -109,7 +111,7 @@ A pass over the files the first review never opened. Findings below are de-dupli
 - [I] **B4 · `package.json` version (`0.1.8`) is stale vs `VERSION` (`0.2.3`).** `package.json:3`. Runtime is unaffected — `src/version.ts` reads the `VERSION` file, and this app isn't published to npm — but it contradicts the single-version release discipline in `AGENTS.md`. Either sync `package.json` to `VERSION` as part of the release step, or set it to `0.0.0` to make "VERSION is the source of truth" explicit.
 - [I] **B5 · `expectTimestamp` interpolates a table name into SQL.** `src/db/repositories/user.ts:43` builds `SELECT created_at FROM ${table} …`. **Not exploitable** — the only caller passes the string literal `'users'` (`:21`) — but it's an injection-shaped footgun in a file full of correctly-parameterised queries. Inline the table (`FROM users`) and drop the `table` param.
 - [I] **B6 · `makeJournalCommand` returns a sync `string`, unlike every other command.** `src/discord/commands/journal.ts:5` returns `(i) => string`; all siblings return `async … Promise<string>`. Harmless at runtime (the dispatcher `await`s it and `await "str"` yields the string) and the `asHandler` cast (`index.ts:922`) hides the type gap — but it's the kind of inconsistency that makes the blanket cast risky. Make it `async` for uniformity.
-- [I] **B7 · The YAML loader does no schema-completeness check.** `src/assets/yaml-loader.ts` validates syntax/array shape but not that `modifiers` carries all four stat keys — which is precisely the gap that let B1 ship undetected. Optional hardening: assert required keys (or default-fill) when loading stat-modifier defs.
+- [>] **B7 · The YAML loader does no schema-completeness check → owned by [[yaml-asset-schemas-and-tests]].** `src/assets/yaml-loader.ts` validates syntax/array shape but not that `modifiers` carries all four stat keys — precisely the gap that let B1 ship undetected. That spark expands this nit into a per-asset schema module + validate-on-load + a real-file test layer (T1–T5). *Kept here only as the code-side cross-reference; do not action from this doc.*
 - [I] **B8 · `MockWorldEngine` defaults drift from real character creation.** `src/engine/MockWorldEngine.ts:145-146,149`: `health/maxHealth: 12` and `rollsRemaining: 2`, but real defaults are `10` and `3` (`WorldEngineImpl` + `schema.sql`). Tests assert against a character that can't exist in prod, which can mask off-by-one/clamping bugs. Align to `10`/`10`/`3`. *(Supersedes/expands E5.)*
 - [I] **B9 · `MockLlmGateway.defaultDecision()` omits `mutations`/`outcomeText`.** `src/llm/MockLlmGateway.ts:24-39` returns a decision missing the optional fields a real gateway populates, so tests can pass on shapes the engine would treat differently. Populate `mutations: []` and a stub `outcomeText` for fidelity.
 - [I] **B10 · Ops/scripts hardening (dev-only, low live impact).** Bundled because they share a theme — destructive/automation scripts lacking guards: `clear-admin.sh` and `clear-channel.sh` perform irreversible deletes (wipe a character / purge a channel) with **no confirmation prompt**, and `clear-admin.sh` leaves its `/tmp/warden-clear.db` copy (with `-wal`/`-shm`) behind; `deploy-check.sh` does an unconditional `git checkout $BRANCH` (a branch switch mid-deploy if HEAD drifted); `daily-pixel-deploy.service` has no `[Unit] After=network-online.target` ordering. None affects the live player loop; all are "fix before someone fat-fingers a prod script." Add a `read -r confirm` gate to the two destructive scripts at minimum.
@@ -147,7 +149,7 @@ A pass over the files the first review never opened. Findings below are de-dupli
 
 > Scope: **only the code-tidy & data-fix items this doc owns.** The auto-resolve / roll-economy / prompt-`v8` cluster (former E3, E4, P1, P2) is triaged in [[prod-data-review-v0.2.3]], not here.
 
-1. [ ] **B1** — fix the four `backgrounds.yml` entries (+ optional B7 loader guard). Silent stat corruption; data-only, highest impact-per-effort.
+1. [ ] **B1** — fix the **five** `backgrounds.yml` entries. Silent stat corruption; data-only, highest impact-per-effort. The loader guard + tests (B7) and the live-character repair are owned by [[yaml-asset-schemas-and-tests]].
 2. [ ] **F1 + todo-roll-footer** — one line in `OutcomeRenderer.ts`; the player-visible footer bug. Add the C3 stats test alongside.
 3. [ ] **B2** — stamp `last_threat_date` on spawn, not on announcement success. Kills the duplicate-threat-NPC path.
 4. [ ] **F2 / F5** — `/stats` stamina max + rolls label (+ the C3 assertion).

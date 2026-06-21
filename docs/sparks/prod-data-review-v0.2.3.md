@@ -8,6 +8,8 @@ related:
   - "[[polish-pass-v0.2.4]]"
   - "[[bug-analysis-v0.2.2]]"
   - "[[goodnight-and-rest-features]]"
+  - "[[yaml-asset-schemas-and-tests]]"
+  - "[[roll-economy-timeouts-and-world-growth]]"
 ---
 
 What the **live POC data actually says** — not a code sweep. Pulled the production SQLite DB off the container (`root@192.168.0.242:/home/bot/app/data/warden.db`, read-only `scp`, nothing on prod touched) and mined `feedback`, `bug_reports`, `actions`, and the `llm_calls` audit log. This is the player-voice + telemetry companion to [[polish-pass-v0.2.4]] (which found the same issues by *reading code*); where they overlap I say so, and in one case (**auto-resolve**) the data **upgrades the severity** of a finding the code sweep called "rare."
