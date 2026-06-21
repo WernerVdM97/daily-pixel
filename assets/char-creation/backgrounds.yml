@@ -31,20 +31,20 @@
 
 - name: Farmstead
   description: You read weather, soil, and seasons like others read books.
-  modifiers: { physical: 1, wisdom: 1, charisma: -1 }
+  modifiers: { physical: 1, wisdom: 1, intelligence: 0, charisma: -1 }
 
 - name: Temple-Raised
   description: Given to the old faith as a child. The hymns are still in your bones.
-  modifiers: { wisdom: 2, intelligence: -1, charisma: -1 }
+  modifiers: { physical: 0, wisdom: 2, intelligence: -1, charisma: -1 }
 
 - name: Urchin
   description: The gutter taught you everything. Pockets, roofs, escape routes.
-  modifiers: { physical: 1, wisdom: 1, charisma: -2 }
+  modifiers: { physical: 1, wisdom: 1, intelligence: 0, charisma: -2 }
 
 - name: Entertainer
   description: You travelled with a troupe. You learned to read a room before you learned to read a page.
-  modifiers: { charisma: 2, intelligence: -1, physical: -1 }
+  modifiers: { physical: -1, wisdom: 0, intelligence: -1, charisma: 2 }
 
 - name: Scout
   description: Range-born. Your family kept the borders, watched the roads, knew when something changed.
-  modifiers: { wisdom: 2, physical: 1, charisma: -2 }
+  modifiers: { physical: 1, wisdom: 2, intelligence: 0, charisma: -2 }
