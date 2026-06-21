@@ -1,9 +1,10 @@
 ---
 title: Bug Analysis — v0.2.2 Release
-status: spark
-domain: spark
+status: shipped
+domain: archived
 phase: poc
 tags: [bugs, review, release, scheduler, sleep, migrations]
+superseded_by: "implemented in code"
 related:
   - "[[handover-code-review-post-pr14.md]]"
   - "[[goodnight-and-rest-features.md]]"

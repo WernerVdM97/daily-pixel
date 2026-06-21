@@ -1,9 +1,10 @@
 ---
 title: Goodnight, Absence Penalty, and Rest Features
-status: exploring
-domain: game
+status: shipped
+domain: archived
 phase: poc
 tags: [sleep, journal, navigation, penalties, safety]
+superseded_by: "implemented in code"
 related:
   - "[[poc-build-action-ux]]"
   - "[[poc-discord-ux]]"
