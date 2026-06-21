@@ -2,7 +2,14 @@
 // Chat completions: POST /chat/completions with Bearer auth
 // JSON mode: response_format: { type: "json_object" } — https://api-docs.deepseek.com/guides/json_mode
 
-import type { LlmGateway, LlmContext, LlmDecision } from './LlmGateway.js';
+import type {
+  LlmGateway,
+  LlmContext,
+  LlmDecision,
+  CartographerGateway,
+  CartographerInput,
+  CartographerResult,
+} from './LlmGateway.js';
 import type { LlmCallRecorder } from './LlmCallRecorder.js';
 import { buildSystemPrompt, buildUserMessage, buildContextDigest, PROMPT_VERSION } from './prompt-builder.js';
 import { APP_VERSION } from '../version.js';
@@ -25,7 +32,24 @@ export interface DeepseekConfig {
   logThinkingAll?: boolean;
 }
 
-export class DeepseekLlmGateway implements LlmGateway {
+/** System prompt for the D3 cartographer — a tiny, focused world-builder. */
+const CARTOGRAPHER_SYSTEM_PROMPT = `You are the cartographer for The Warden's Oak, a dark-fantasy text RPG. A player's action just took them to a place that is NOT yet on the map, so a provisional entry was created. Your job is to chart it.
+
+You are given the NEW place's name, the list of ALREADY-KNOWN locations, and the narrative that led the player there.
+
+Decide:
+- Is this genuinely a NEW place, or is the new name just a synonym for one already in the known list (e.g. "The Temple" for "The Shrine of the First Flame")? If it is a duplicate, set "matchesExisting" to the EXACT existing name.
+- Is it safe (a settlement, sanctuary, indoors-with-people) or wild (wilderness, ruins, open road, anywhere danger roams)? Off-map places are usually wild.
+- Write a vivid one-paragraph description (2-3 sentences) in the game's grim tone that fits the narrative and the name.
+
+Return ONLY valid JSON, no markdown fences:
+{
+  "matchesExisting": "<exact existing name, or omit if genuinely new>",
+  "is_safe": 0 or 1,
+  "description": "<2-3 sentence description>"
+}`;
+
+export class DeepseekLlmGateway implements LlmGateway, CartographerGateway {
   private apiKey: string;
   private model: string;
   private temperature: number;
@@ -230,6 +254,75 @@ export class DeepseekLlmGateway implements LlmGateway {
     }
 
     return decision;
+  }
+
+  /**
+   * D3 cartographer call — reuses the same HTTP transport as `decide`, with a
+   * tiny focused prompt and structured schema. Best-effort: never throws on a
+   * parse/transport failure (returns an empty result so the caller leaves the
+   * provisional row as-is). Not audited via the decision recorder — it is a
+   * separate, off-critical-path concern.
+   */
+  async enrich(input: CartographerInput): Promise<CartographerResult> {
+    const userMessage = [
+      `NEW LOCATION NAME: ${input.newName}`,
+      `KNOWN LOCATIONS: ${input.existingNames.join(', ') || 'none'}`,
+      `NARRATIVE: ${input.narrative || '(none given)'}`,
+    ].join('\n');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { role: 'system' as const, content: CARTOGRAPHER_SYSTEM_PROMPT },
+            { role: 'user' as const, content: userMessage },
+          ],
+          response_format: { type: 'json_object' as const },
+          temperature: this.temperature,
+          stream: false,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        console.warn(c.yellow('[cartographer] non-200'), response.status);
+        return {};
+      }
+
+      const data = await response.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) return {};
+
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const result: CartographerResult = {};
+      if (typeof parsed.matchesExisting === 'string' && parsed.matchesExisting.trim() !== '') {
+        result.matchesExisting = parsed.matchesExisting.trim();
+      }
+      if (parsed.is_safe === 0 || parsed.is_safe === 1) {
+        result.is_safe = parsed.is_safe;
+      } else if (typeof parsed.is_safe === 'boolean') {
+        result.is_safe = parsed.is_safe ? 1 : 0;
+      }
+      if (typeof parsed.description === 'string' && parsed.description.trim() !== '') {
+        result.description = stripCR(parsed.description.trim());
+      }
+      return result;
+    } catch (err) {
+      console.warn(c.yellow('[cartographer] enrich failed'), err instanceof Error ? err.message : String(err));
+      return {};
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private parseDecision(raw: Record<string, unknown>): LlmDecision {

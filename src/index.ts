@@ -845,6 +845,10 @@ async function main() {
 
   // 4. LLM gateway
   let llm: FallbackLlmGateway;
+  // D3 cartographer — the same DeepSeek transport, used for async location
+  // enrichment. Undefined when no API key (the mock path); the engine then just
+  // leaves provisional rows unenriched.
+  let cartographer: DeepseekLlmGateway | undefined;
   if (DEEPSEEK_API_KEY) {
     const deepseek = new DeepseekLlmGateway({
       apiKey: DEEPSEEK_API_KEY,
@@ -861,6 +865,7 @@ async function main() {
         metaRepo.set("llm_fallback_count", String(Number(count ?? "0") + 1));
       },
     });
+    cartographer = deepseek;
     console.log(
       c.cyan(
         `[llm] DeepSeek gateway initialized with fallback chain (model: ${LLM_MODEL ?? "default"})`,
@@ -902,6 +907,7 @@ async function main() {
     itemRepo,
     actionRepo,
     npcRepo,
+    ...(cartographer ? { cartographer } : {}),
     classDefs: assets.classes as ClassDef[],
     upbringingDefs: assets.backgrounds as ModifierDef[],
     raceDefs: assets.races as ModifierDef[],

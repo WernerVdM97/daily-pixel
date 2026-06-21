@@ -687,3 +687,42 @@ describe('DeepseekLlmGateway — empty-turn rejection (D1)', () => {
     expect(result.outcomeText).toBe('The moment passes.');
   });
 });
+
+describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
+  function enrichFetch(body: unknown): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{ message: { content: JSON.stringify(body) } }],
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  it('parses a structured cartographer result', async () => {
+    const gw = new DeepseekLlmGateway({
+      apiKey: 'x',
+      fetch: enrichFetch({ is_safe: 0, description: 'A cold ruin.', matchesExisting: '' }),
+    });
+    const result = await gw.enrich({ newName: 'The Cold Ruin', existingNames: ['Town Square'], narrative: 'you enter a ruin' });
+    expect(result.is_safe).toBe(0);
+    expect(result.description).toBe('A cold ruin.');
+    expect(result.matchesExisting).toBeUndefined(); // empty string dropped
+  });
+
+  it('flags a duplicate via matchesExisting', async () => {
+    const gw = new DeepseekLlmGateway({
+      apiKey: 'x',
+      fetch: enrichFetch({ is_safe: 1, description: 'The shrine.', matchesExisting: 'The Shrine of the First Flame' }),
+    });
+    const result = await gw.enrich({ newName: 'The Temple', existingNames: ['The Shrine of the First Flame'], narrative: 'a temple' });
+    expect(result.matchesExisting).toBe('The Shrine of the First Flame');
+    expect(result.is_safe).toBe(1);
+  });
+
+  it('returns an empty result (never throws) on a non-200 / malformed response', async () => {
+    const bad = vi.fn().mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom'), json: () => Promise.resolve({}) }) as unknown as typeof fetch;
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: bad });
+    await expect(gw.enrich({ newName: 'X', existingNames: [], narrative: '' })).resolves.toEqual({});
+  });
+});

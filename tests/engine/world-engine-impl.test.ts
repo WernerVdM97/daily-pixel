@@ -533,3 +533,111 @@ describe('WorldEngineImpl — action state machine integration', () => {
     });
   });
 });
+
+// ── B6 · D3 async cartographer enrichment ──
+describe('WorldEngineImpl — D3 cartographer enrichment', () => {
+  let engine: WorldEngineImpl;
+  let llm: MockLlmGateway;
+  let charRepo: CharacterRepository;
+  let locationRepo: LocationRepository;
+  let characterId: number;
+
+  /** A stub cartographer whose enrich() resolution the test can await. */
+  function makeStubCartographer(result: {
+    matchesExisting?: string;
+    is_safe?: 0 | 1;
+    description?: string;
+  }) {
+    const calls: Array<{ newName: string; existingNames: string[]; narrative: string }> = [];
+    let resolveDone!: () => void;
+    const done = new Promise<void>((r) => { resolveDone = r; });
+    return {
+      calls,
+      done,
+      gateway: {
+        enrich: async (input: { newName: string; existingNames: string[]; narrative: string }) => {
+          calls.push(input);
+          resolveDone();
+          return result;
+        },
+      },
+    };
+  }
+
+  function setup(cartographer?: { enrich: (i: { newName: string; existingNames: string[]; narrative: string }) => Promise<unknown> }) {
+    initDb(':memory:');
+    migrate(getDb());
+    llm = new MockLlmGateway();
+    const userRepo = new UserRepository(getDb());
+    charRepo = new CharacterRepository(getDb());
+    const itemRepo = new ItemRepository(getDb());
+    const actionRepo = new ActionRepository(getDb());
+    const npcRepo = new NpcRepository(getDb());
+    locationRepo = new LocationRepository(getDb());
+    engine = new WorldEngineImpl({
+      db: getDb(), llm, userRepo, charRepo, itemRepo, actionRepo, npcRepo,
+      rollD20: () => 15,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...(cartographer ? { cartographer: cartographer as any } : {}),
+    });
+    characterId = createTestChar(userRepo, charRepo).characterId;
+  }
+
+  afterEach(() => { closeDb(); });
+
+  const travelToNovelPlace = (): LlmDecision => ({
+    distilledType: 'travel', stat: 'physical', baseDc: 10,
+    required: false, done: true, decision: [],
+    mutations: [{ type: 'set_location', name: 'The Sunken Vault' }],
+    outcomeText: 'You descend a flooded stair into a sunken vault.',
+  });
+
+  it('fires the cartographer for a new provisional location and enriches the row', async () => {
+    const stub = makeStubCartographer({ is_safe: 0, description: 'A drowned hall of black stone, the water ankle-deep and cold.' });
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+
+    await stub.done;            // wait for the fire-and-forget enrich() to run
+    await Promise.resolve();    // let enrichProvisional's DB write settle
+
+    expect(stub.calls).toHaveLength(1);
+    expect(stub.calls[0].newName).toBe('The Sunken Vault');
+    // The existing-names list excludes the fresh provisional row itself.
+    expect(stub.calls[0].existingNames).not.toContain('The Sunken Vault');
+    expect(stub.calls[0].narrative).toMatch(/sunken vault/i);
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.description).toMatch(/drowned hall/i);
+    expect(loc.is_safe).toBe(0);
+    expect(loc.enrichment_pending).toBe(0); // flag cleared after enrichment
+  });
+
+  it('does not fire the cartographer when no provisional location was created', async () => {
+    const stub = makeStubCartographer({ is_safe: 1, description: 'x' });
+    setup(stub.gateway);
+
+    // A no-op (no set_location) — nothing to chart.
+    llm.setDecision({
+      distilledType: 'wait', stat: 'wisdom', baseDc: 10,
+      required: false, done: true, decision: [], mutations: [],
+      outcomeText: 'The moment passes.',
+    });
+    await engine.startAction(characterId, 'stand still');
+    await Promise.resolve();
+
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('works without a cartographer configured — row stays provisional', async () => {
+    setup(); // no cartographer
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await Promise.resolve();
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.enrichment_pending).toBe(1); // left provisional, no crash
+  });
+});

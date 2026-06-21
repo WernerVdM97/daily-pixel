@@ -2,7 +2,7 @@
 const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 
 import type Database from "better-sqlite3";
-import type { LlmGateway } from "../llm/LlmGateway.js";
+import type { LlmGateway, CartographerGateway } from "../llm/LlmGateway.js";
 import type { UserRepository } from "../db/repositories/user.js";
 import type {
   CharacterRepository,
@@ -172,6 +172,10 @@ interface WorldEngineConfig {
   actionRepo: ActionRepository;
   npcRepo: NpcRepository;
   rollD20?: () => number;
+  /** D3 async world-builder. When present, a newly-created provisional location is
+   *  enriched (is_safe + description) off the player's critical path. Optional —
+   *  absent in tests / when no LLM key is configured; the row just stays provisional. */
+  cartographer?: CartographerGateway;
   /** YAML asset data for stat computation. Injected so engine stays presentation-free. */
   classDefs?: ClassDef[];
   upbringingDefs?: ModifierDef[];
@@ -203,6 +207,7 @@ export class WorldEngineImpl implements WorldEngine {
   private metaRepo: MetaRepository;
   private llmCallRepo: LlmCallRepository;
   private machine: ActionStateMachine;
+  private cartographer?: CartographerGateway;
   private classDefs: ClassDef[];
   private upbringingDefs: ModifierDef[];
   private raceDefs: ModifierDef[];
@@ -237,6 +242,7 @@ export class WorldEngineImpl implements WorldEngine {
     this.raceDefs = config.raceDefs ?? [];
     this.dayJobIncome = config.dayJobIncome ?? {};
     this.itemSets = config.itemSets ?? [];
+    this.cartographer = config.cartographer;
 
     // Wrap LLM in fallback decorator (S4: two-tier retry → divine intervention)
     const fallbackLlm = new FallbackLlmGateway(config.llm, {
@@ -488,6 +494,53 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   /**
+   * D3 async cartographer — fire-and-forget. For each provisional location just
+   * created, ask the LLM (off the player's critical path) to chart it: fill
+   * is_safe + a real description and clear enrichment_pending, only while the row
+   * is STILL provisional (enrichProvisional guards on the flag, so a double-fire
+   * or a row already settled is a no-op). If the cartographer says the new name is
+   * really an existing place, we leave the provisional row alone (POC: no merge —
+   * the player may be standing on it) and just clear the flag with the LLM's
+   * verdict. Never awaited; never throws into the caller.
+   */
+  private fireCartographer(provisionalNames: string[], narrative: string): void {
+    if (!this.cartographer || provisionalNames.length === 0) return;
+    const cartographer = this.cartographer;
+
+    for (const name of provisionalNames) {
+      // Existing names EXCLUDING this fresh provisional row, so the cartographer
+      // can flag it as a synonym of a real one.
+      const existingNames = this.locationRepo
+        .findAll()
+        .map((l) => l.name)
+        .filter((n) => n !== name);
+
+      void (async () => {
+        try {
+          const result = await cartographer.enrich({ newName: name, existingNames, narrative });
+          const description =
+            result.description ??
+            "An uncharted place beyond the known map.";
+          const isSafe = result.is_safe ?? 0;
+          const updated = this.locationRepo.enrichProvisional(name, { isSafe, description });
+          if (updated) {
+            console.log(
+              `[cartographer] charted "${name}" (is_safe=${isSafe}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
+            );
+          }
+        } catch (err) {
+          // Best-effort: a failed enrichment just leaves the row provisional.
+          console.warn(
+            "[cartographer] enrichment failed for",
+            name,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      })();
+    }
+  }
+
+  /**
    * D3 helper: for each `set_location` mutation whose name does not match (case/
    * trim-normalized) any known location, create a provisional stub row and return
    * the list of names actually created. A match reuses the existing row (no
@@ -590,16 +643,18 @@ export class WorldEngineImpl implements WorldEngine {
       // so the charge/refund is applied as a delta on top of the post-resolution value.
       if (startResult.resolved) {
         const today = this.currentDayNumber();
+        let provisionalLocations: string[] = [];
         this.db.transaction(() => {
-          const { worldChanged } = this.applyResolution(
+          const res = this.applyResolution(
             characterId,
             row,
             startResult.outcome,
             rawInput,
             internalState.decisions,
           );
+          provisionalLocations = res.provisionalLocations;
 
-          const charged = startResult.outcome.playerRolled != null || worldChanged;
+          const charged = startResult.outcome.playerRolled != null || res.worldChanged;
           // No-op gets the free refund only if it hasn't already been used today.
           const noopAlreadyRefundedToday = row.last_noop_refund_day === today;
           const debit = charged || noopAlreadyRefundedToday;
@@ -615,6 +670,9 @@ export class WorldEngineImpl implements WorldEngine {
             this.stampRefundDay(characterId, "last_noop_refund_day", today);
           }
         })();
+
+        // D3: enrich any just-created provisional locations off the critical path.
+        this.fireCartographer(provisionalLocations, startResult.outcome.outcomeText);
 
         return {
           state: this.toPublicState(internalState),
@@ -700,15 +758,20 @@ export class WorldEngineImpl implements WorldEngine {
         };
       }
 
+      let provisionalLocations: string[] = [];
       this.db.transaction(() => {
-        this.applyResolution(
+        const res = this.applyResolution(
           characterId,
           row,
           result.outcome,
           result.state.rawInput,
           result.state.decisions,
         );
+        provisionalLocations = res.provisionalLocations;
       })();
+
+      // D3: enrich any just-created provisional locations off the critical path.
+      this.fireCartographer(provisionalLocations, result.outcome.outcomeText);
 
       return {
         resolved: true,
