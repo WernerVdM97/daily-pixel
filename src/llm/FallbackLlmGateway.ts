@@ -12,7 +12,7 @@ export const DIVINE_INTERVENTION_TYPE = '__divine__';
 
 /** The divine intervention message shown to the player. */
 export const DIVINE_MESSAGE =
-  "A flash of light. The warden's hand on your shoulder. " +
+  "A flash of light. The Warden's hand on your shoulder. " +
   'You wake beneath the Oak, your action lost to forces beyond mortal ken.';
 
 export interface FallbackGatewayOptions {

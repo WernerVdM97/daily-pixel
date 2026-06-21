@@ -29,6 +29,8 @@ export class MockLlmGateway implements LlmGateway {
       baseDc: 12,
       required: false,
       done: false,
+      mutations: [],
+      outcomeText: 'The trail goes cold, but the wilds keep their secrets a while longer.',
       decision: [
         { label: 'Investigate the tracks', dcModifier: -2 },
         { label: 'Charge ahead', dcModifier: 2 },

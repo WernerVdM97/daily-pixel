@@ -18,7 +18,7 @@ export class UserRepository {
     return {
       id: result.lastInsertRowid as number,
       discord_user_id: discordUserId,
-      created_at: expectTimestamp(this.db, result.lastInsertRowid as number, 'users'),
+      created_at: expectTimestamp(this.db, result.lastInsertRowid as number),
     };
   }
 
@@ -35,11 +35,7 @@ export class UserRepository {
   }
 }
 
-function expectTimestamp(
-  db: Database.Database,
-  id: number,
-  table: string
-): string {
-  const row = db.prepare(`SELECT created_at FROM ${table} WHERE id = ?`).get(id) as { created_at: string };
+function expectTimestamp(db: Database.Database, id: number): string {
+  const row = db.prepare('SELECT created_at FROM users WHERE id = ?').get(id) as { created_at: string };
   return row.created_at;
 }

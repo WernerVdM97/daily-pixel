@@ -335,7 +335,7 @@ describe('WorldEngineImpl — action state machine integration', () => {
       // Should still get a result with one option
       expect(result.firstDecision.options).toHaveLength(1);
       expect(result.firstDecision.options[0].label).toBe('Resolve');
-      expect(result.firstDecision.prompt).toContain("The warden's hand");
+      expect(result.firstDecision.prompt).toContain("The Warden's hand");
     });
 
     it('startAction drains a roll on divine', async () => {

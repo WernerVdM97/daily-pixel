@@ -15,6 +15,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - **Class and day-job emoji on character surfaces** — `/stats` and `/hi` headers use the per-class emoji (Ranger 🏹, Wizard 🔮, …) instead of a hardcoded ⚔️; the day-job menu title (`/action`, `/hi`) uses the per-job emoji (Merchant 💰, Herbalist 🌿, …) from a single shared map instead of a hardcoded 🔨.
 - **`/stats` rolls line drops the word "remaining"** — one rolls vocabulary across `/stats` and `/hi`.
+- **Divine-intervention fallback copy** — now reads "The Warden's hand" (was lowercase), consistent with the NPC's name everywhere else.
+
+### Internal
+- `package.json` version synced to `VERSION` (`0.2.3`).
+- `expectTimestamp` (user repo) inlines the `users` table instead of interpolating a table-name param — removes an injection-shaped footgun.
+- `/journal` command handler is now `async`, matching every other command.
+- Mock fixtures aligned to live defaults: `MockWorldEngine` health/maxHealth `10`/`10`, rolls `3`; `MockLlmGateway.defaultDecision()` populates `mutations` + `outcomeText`.
+- `.env.example` documents `SLEEP_ADMIN_TICK` and `CLEAR_CHANNEL_ID`.
+- Destructive ops scripts (`clear-admin.sh`, `clear-channel.sh`) now require a typed confirmation; `clear-admin.sh` cleans up its temp DB copy.
 
 ## [0.2.3] — 2026-06-19
 ### Added
