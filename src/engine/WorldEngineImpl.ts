@@ -407,7 +407,7 @@ export class WorldEngineImpl implements WorldEngine {
     outcome: ActionOutcome,
     rawInput: string,
     decisions: ActionDecisionRecord[],
-  ): void {
+  ): { worldChanged: boolean } {
     // Clear mid-action state (no-op for auto-finish, which never persisted)
     this.charRepo.update(characterId, { last_action_state: null });
 
@@ -450,6 +450,16 @@ export class WorldEngineImpl implements WorldEngine {
     if (Object.keys(updates).length > 0) {
       this.charRepo.update(characterId, updates);
     }
+
+    // D1: did this resolution change the world? A character-state delta
+    // (location/health/stamina/wealth/rolls), an item gained/lost, or an NPC
+    // spawned all count. Drives the no-op roll refund in startAction. Computed
+    // from the applied mutations only — the roll debit itself is not a "change".
+    const worldChanged =
+      Object.keys(updates).length > 0 ||
+      applied.itemsToAdd.length > 0 ||
+      applied.itemsToRemove.length > 0 ||
+      applied.npcsToSpawn.length > 0;
 
     // Add items
     for (const item of applied.itemsToAdd) {
@@ -497,6 +507,8 @@ export class WorldEngineImpl implements WorldEngine {
         createdByActionId: actionRow.id,
       });
     }
+
+    return { worldChanged };
   }
 
   async startAction(
@@ -558,19 +570,39 @@ export class WorldEngineImpl implements WorldEngine {
       }
 
       // Auto-finish: the LLM resolved the action outright (e.g. travel/rest).
-      // Drain a roll, apply the resolution (writes an action row), return the outcome.
+      // D1 roll economy — a roll is the price of a resolved action that CHANGES
+      // the world or offers a real choice, never the price of merely starting one:
+      //   • world-changing (>=1 applied mutation) or the player rolled → charge.
+      //   • no-op (a `done` with no world change) → refund the roll, but only the
+      //     first no-op per character per day; later no-ops that day still cost it.
+      // applyResolution may itself adjust rolls_remaining (e.g. a +1 roll reward),
+      // so the charge/refund is applied as a delta on top of the post-resolution value.
       if (startResult.resolved) {
+        const today = this.currentDayNumber();
         this.db.transaction(() => {
-          this.charRepo.update(characterId, {
-            rolls_remaining: Math.max(0, row.rolls_remaining - 1),
-          });
-          this.applyResolution(
+          const { worldChanged } = this.applyResolution(
             characterId,
             row,
             startResult.outcome,
             rawInput,
             internalState.decisions,
           );
+
+          const charged = startResult.outcome.playerRolled != null || worldChanged;
+          // No-op gets the free refund only if it hasn't already been used today.
+          const noopAlreadyRefundedToday = row.last_noop_refund_day === today;
+          const debit = charged || noopAlreadyRefundedToday;
+
+          // Re-read: applyResolution may have written a mutation-driven roll change.
+          const afterRes = this.charRepo.findById(characterId)!;
+          if (debit) {
+            this.charRepo.update(characterId, {
+              rolls_remaining: Math.max(0, afterRes.rolls_remaining - 1),
+            });
+          } else {
+            // Free no-op refund granted — stamp the day so it's once-per-day.
+            this.stampRefundDay(characterId, "last_noop_refund_day", today);
+          }
         })();
 
         return {
@@ -1212,6 +1244,27 @@ export class WorldEngineImpl implements WorldEngine {
     this.charRepo.update(characterId, {
       last_action_state: JSON.stringify(state),
     });
+  }
+
+  /** Current game day number (meta `day_number`, default 1). */
+  private currentDayNumber(): number {
+    return Number(this.metaRepo.get("day_number") ?? "1");
+  }
+
+  /**
+   * Stamp a per-day refund-grace column on a character via raw SQL. These columns
+   * (`last_noop_refund_day`, `last_timeout_refund_day`) are outside CharacterRepository's
+   * update whitelist, so we write them directly — the column name is a fixed
+   * literal (never user input), so this is injection-safe.
+   */
+  private stampRefundDay(
+    characterId: number,
+    column: "last_noop_refund_day" | "last_timeout_refund_day",
+    day: number,
+  ): void {
+    this.db
+      .prepare(`UPDATE player_characters SET ${column} = ? WHERE id = ?`)
+      .run(day, characterId);
   }
 
   private toPublicState(internal: InternalActionState): {

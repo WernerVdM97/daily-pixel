@@ -638,3 +638,52 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
     expect(records[0].validationWarnings).toEqual([]);
   });
 });
+
+describe('DeepseekLlmGateway — empty-turn rejection (D1)', () => {
+  function emptyTurnFetch(): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          // No decision options, no mutations field, no outcome_text — a dead turn.
+          message: { content: JSON.stringify({
+            distilled_type: 'wait', stat: 'wisdom', base_dc: 10,
+            required: false, decision: [],
+          }), reasoning_content: '' },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  it('rejects (throws) a completely empty turn so the fallback retries instead of a dead turn', async () => {
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: emptyTurnFetch(), recorder });
+    await expect(gw.decide(minimalContext)).rejects.toThrow(/empty turn/i);
+    // Recorded as a diagnostic failure (carries the error).
+    expect(records[0].error).toMatch(/empty turn/i);
+  });
+
+  it('does NOT reject when an empty decision carries an outcome_text (a legitimate no-op resolve)', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content: JSON.stringify({
+            distilled_type: 'wait', stat: 'wisdom', base_dc: 10,
+            required: false, decision: [], outcome_text: 'The moment passes.',
+          }), reasoning_content: '' },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+    const { recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
+    const result = await gw.decide(minimalContext);
+    expect(result.outcomeText).toBe('The moment passes.');
+  });
+});

@@ -214,6 +214,21 @@ export class DeepseekLlmGateway implements LlmGateway {
 
     const decision = this.parseDecision(parsed);
     onProgress({ warnings: this.validateDecision(parsed, decision) });
+
+    // D1: reject a completely empty turn — no options to choose, no mutations, no
+    // outcome text. There is nothing to resolve and nothing to decide, so surfacing
+    // it would burn a roll on a dead turn. Throw so the fallback gateway retries
+    // (and, failing that, hands the player divine intervention) instead.
+    if (
+      decision.decision.length === 0 &&
+      decision.mutations === undefined &&
+      decision.outcomeText === undefined
+    ) {
+      throw new Error(
+        'DeepSeek returned an empty turn (no decision, no mutations, no outcome_text) — nothing to resolve',
+      );
+    }
+
     return decision;
   }
 

@@ -163,6 +163,60 @@ describe('WorldEngineImpl — action state machine integration', () => {
       expect(char?.rolls_remaining).toBe(1);
     });
 
+    // ── D1 roll economy: charge only when the world changes; refund the first
+    //    no-op per day (ADR roll-economy-timeouts-and-world-growth §D1) ──
+    describe('D1 roll economy (no-op refund)', () => {
+      const noopDecision = (): LlmDecision => ({
+        distilledType: 'wait', stat: 'wisdom', baseDc: 10,
+        required: false, done: true, decision: [],
+        mutations: [],
+        outcomeText: 'The moment passes.',
+      });
+
+      it('refunds the roll on the first no-op auto-resolve of the day', async () => {
+        llm.setDecision(noopDecision());
+        const before = charRepo.findById(characterId)!.rolls_remaining; // 2
+
+        const result = await engine.startAction(characterId, 'stand around');
+
+        expect(result.outcome?.outcome).toBe('done');
+        const after = charRepo.findById(characterId)!;
+        expect(after.rolls_remaining).toBe(before); // refunded — unchanged
+        expect(after.last_noop_refund_day).toBe(1); // stamped on the current day
+      });
+
+      it('charges the roll on the second no-op of the same day', async () => {
+        // First no-op — refunded, stamps the day.
+        llm.setDecision(noopDecision());
+        await engine.startAction(characterId, 'stand around');
+        const afterFirst = charRepo.findById(characterId)!.rolls_remaining; // 2
+
+        // Second no-op same day — the freebie is spent, so this one costs a roll.
+        llm.setDecision(noopDecision());
+        await engine.startAction(characterId, 'stand around again');
+
+        expect(charRepo.findById(characterId)!.rolls_remaining).toBe(afterFirst - 1);
+      });
+
+      it('charges a world-changing auto-resolve every time (not a no-op)', async () => {
+        // Travel changes location + stamina → world-changing → always costs a roll,
+        // and must NOT consume the no-op freebie.
+        llm.setDecision({
+          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'set_location', name: 'The Forest Edge' }],
+          outcomeText: 'You set off down the road.',
+        });
+        const before = charRepo.findById(characterId)!.rolls_remaining; // 2
+
+        await engine.startAction(characterId, 'walk to the forest edge');
+
+        const after = charRepo.findById(characterId)!;
+        expect(after.rolls_remaining).toBe(before - 1); // charged
+        expect(after.last_noop_refund_day ?? null).toBeNull(); // freebie untouched
+      });
+    });
+
     it('persists mid-action state in last_action_state', async () => {
       llm.setDecision(huntFirstDecision());
 
