@@ -88,6 +88,7 @@ export class CharacterRepository {
       'name', 'class', 'upbringing', 'race', 'alignment', 'day_job',
       'stats', 'health', 'max_health', 'stamina', 'rolls_remaining',
       'location', 'wealth', 'last_action_state', 'last_played_at', 'last_rested_day',
+      'last_noop_refund_day', 'last_timeout_refund_day',
     ];
     const setClauses: string[] = [];
     const values: Record<string, unknown> = { id };

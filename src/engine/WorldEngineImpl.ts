@@ -1318,19 +1318,16 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   /**
-   * Stamp a per-day refund-grace column on a character via raw SQL. These columns
-   * (`last_noop_refund_day`, `last_timeout_refund_day`) are outside CharacterRepository's
-   * update whitelist, so we write them directly — the column name is a fixed
-   * literal (never user input), so this is injection-safe.
+   * Stamp a per-day refund-grace column (`last_noop_refund_day` /
+   * `last_timeout_refund_day`) on a character. Routed through the repository's
+   * update whitelist like every other column write.
    */
   private stampRefundDay(
     characterId: number,
     column: "last_noop_refund_day" | "last_timeout_refund_day",
     day: number,
   ): void {
-    this.db
-      .prepare(`UPDATE player_characters SET ${column} = ? WHERE id = ?`)
-      .run(day, characterId);
+    this.charRepo.update(characterId, { [column]: day });
   }
 
   /**

@@ -81,6 +81,7 @@ import {
   makeHiCommand,
   getDayJobActions,
   getWorkplaceLocation,
+  dayJobEmoji,
   type DayJobDef,
 } from "./discord/commands/hi.js";
 import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons } from "./discord/format.js";
@@ -1833,7 +1834,7 @@ _${idleMsg}_`)
             dayNumber,
           });
           const embed = new EmbedBuilder()
-            .setTitle(`🔨 ${char.dayJob} — Daily Work`)
+            .setTitle(`${dayJobEmoji(char.dayJob)} ${char.dayJob} — Daily Work`)
             .setDescription("Pick a task to start:")
             .setColor(0xdaa520);
 
