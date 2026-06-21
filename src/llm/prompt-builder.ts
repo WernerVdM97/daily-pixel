@@ -6,7 +6,7 @@
 // To cut a new version: copy assets/prompts/decision-prompts/decision-<old>.md → decision-<new>.md,
 // edit the body, then change the string below. Keep old files for history.
 // After cutting, also copy the new file's content into current_source.md.
-export const PROMPT_VERSION = 'v7';
+export const PROMPT_VERSION = 'v8';
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -71,6 +71,12 @@ export function buildUserMessage(ctx: LlmContext): string {
     lines.push('RECENT ACTIONS: none');
   }
 
+  // KNOWN LOCATIONS (v8+) — the charted map. The LLM prefers an exact name here
+  // for set_location and only invents for genuine off-map exploration (D3).
+  if (ctx.knownLocations && ctx.knownLocations.length > 0) {
+    lines.push(`KNOWN LOCATIONS: ${ctx.knownLocations.join(', ')}`);
+  }
+
   lines.push(`PLAYER INPUT: ${ctx.rawInput}`);
 
   if (ctx.scalingHint) {
@@ -107,6 +113,7 @@ export function buildContextDigest(ctx: LlmContext): string {
     pcs: ctx.nearbyPcs.length,
     recent: ctx.recentActions.map(a => `${a.type}:${a.outcome}`),
     has_scaling: Boolean(ctx.scalingHint),
+    known_locations: ctx.knownLocations?.length ?? 0,  // count only — names are reconstructable
     prev_decisions: ctx.previousDecisions?.length ?? 0,
   });
 }

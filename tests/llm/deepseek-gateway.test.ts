@@ -573,23 +573,23 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
     }) as unknown as typeof fetch;
   }
 
-  it('warns when done:true has only negative stamina/health mutations and no reward', async () => {
+  it('warns when a resolving turn has only negative stamina/health mutations and no reward', async () => {
     const { records, recorder } = capture();
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: rewardlessFetch(), recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
-    expect(joined).toContain('done:true with only negative stamina/health mutations');
+    expect(joined).toContain('resolving turn with only negative stamina/health mutations');
   });
 
-  it('does NOT warn when done:true includes a reward mutation (modify_rolls_remaining)', async () => {
+  it('does NOT warn when a resolving turn includes a reward mutation (modify_rolls_remaining)', async () => {
     const { records, recorder } = capture();
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: rewardingFetch(), recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
-    expect(joined).not.toContain('done:true with only negative stamina/health mutations');
+    expect(joined).not.toContain('resolving turn with only negative stamina/health mutations');
   });
 
-  it('does NOT warn when done:true mutations include add_item', async () => {
+  it('does NOT warn when a resolving turn includes add_item', async () => {
     const fetchFn = vi.fn().mockResolvedValue({
       ok: true, status: 200,
       json: () => Promise.resolve({
@@ -613,10 +613,10 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
-    expect(joined).not.toContain('done:true with only negative stamina/health mutations');
+    expect(joined).not.toContain('resolving turn with only negative stamina/health mutations');
   });
 
-  it('does NOT warn when done:false (mid-decision, no reward expected)', async () => {
+  it('does NOT warn for a mid-decision turn (real options present, no reward expected)', async () => {
     const fetchFn = vi.fn().mockResolvedValue({
       ok: true, status: 200,
       json: () => Promise.resolve({

@@ -11,6 +11,10 @@ export interface LlmContext {
   nearbyNpcs: { name: string; description: string }[];
   nearbyPcs: { name: string; class: string }[];
   recentActions: { type: string; outcome: string; narrative?: string | null }[];
+  /** Every charted location name. Injected as a `KNOWN LOCATIONS` block (v8+) so the
+   *  LLM reuses real names for set_location and only invents for true off-map
+   *  exploration. Optional: the stripped retry context omits it. */
+  knownLocations?: string[];
   rawInput: string;
   previousDecisions?: { prompt: string; chosen: string; dcModifier: number }[];
   scalingHint: string;

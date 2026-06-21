@@ -290,8 +290,12 @@ export class DeepseekLlmGateway implements LlmGateway {
       console.warn(c.yellow('[llm:validate] raw response:'), JSON.stringify(raw).slice(0, 500));
     }
 
-    // Rule 4b: done:true with only negative stamina/health mutations and no reward
-    if (d.done && Array.isArray(raw.mutations)) {
+    // Rule 4b: a resolving turn — the v8 signal is an empty `decision` array, with
+    // the legacy `done` flag honoured as a backstop (E3) — whose mutations are only
+    // negative stamina/health with no reward. On a SUCCESS that reads as a failure
+    // reward. Kept as a quality warning under the settled contract.
+    const isResolving = d.done || d.decision.length === 0;
+    if (isResolving && Array.isArray(raw.mutations) && raw.mutations.length > 0) {
       const hasReward = (raw.mutations as Array<Record<string, unknown>>).some(m => {
         if (!m || typeof m !== 'object') return false;
         const type = String(m.type ?? '');
@@ -306,7 +310,7 @@ export class DeepseekLlmGateway implements LlmGateway {
           return ['modify_stamina', 'modify_health'].includes(type) && Number(m.amount ?? 0) < 0;
         });
         if (allNegative) {
-          warnings.push('done:true with only negative stamina/health mutations — SUCCESS must include a reward (prompt rule 4b)');
+          warnings.push('resolving turn with only negative stamina/health mutations — a SUCCESS must include a reward (prompt rule 4b)');
         }
       }
     }
