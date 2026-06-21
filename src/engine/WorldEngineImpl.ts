@@ -898,11 +898,17 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   countSoulsInUnsafe(): number {
-    const allChars = this.charRepo.findAll();
+    // Build a name→is_safe map once (avoids an N+1 findByName per character).
+    const safeByName = new Map<string, boolean>();
+    for (const loc of this.locationRepo.findAll()) {
+      safeByName.set(loc.name, loc.is_safe === 1);
+    }
     let count = 0;
-    for (const charRow of allChars) {
-      const loc = this.locationRepo.findByName(charRow.location);
-      if (!loc || loc.is_safe !== 1) count++;
+    for (const charRow of this.charRepo.findAll()) {
+      const isSafe = safeByName.get(charRow.location);
+      // Unknown location (no matching row) is treated explicitly as unsafe —
+      // a soul standing somewhere we can't vouch for is "out in the wilds".
+      if (isSafe === undefined || isSafe === false) count++;
     }
     return count;
   }

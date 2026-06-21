@@ -20,11 +20,11 @@ export class CharacterRepository {
     const stmt = this.db.prepare(`
       INSERT INTO player_characters (
         user_id, name, class, upbringing, race, alignment, day_job,
-        stats, health, max_health, stamina, rolls_remaining,
+        stats, health, max_health, stamina, max_stamina, rolls_remaining,
         location, wealth, last_action_state
       ) VALUES (
         @user_id, @name, @class, @upbringing, @race, @alignment, @day_job,
-        @stats, @health, @max_health, @stamina, @rolls_remaining,
+        @stats, @health, @max_health, @stamina, @max_stamina, @rolls_remaining,
         @location, @wealth, @last_action_state
       )
     `);
@@ -40,6 +40,7 @@ export class CharacterRepository {
       health: data.health ?? 10,
       max_health: data.max_health ?? 10,
       stamina: data.stamina ?? 10,
+      max_stamina: data.max_stamina ?? 10,
       rolls_remaining: data.rolls_remaining ?? 3,
       location: data.location ?? "The Warden's Oak",
       wealth: data.wealth ?? 0,
@@ -53,6 +54,7 @@ export class CharacterRepository {
       health: params.health,
       max_health: params.max_health,
       stamina: params.stamina,
+      max_stamina: params.max_stamina,
       rolls_remaining: params.rolls_remaining,
       location: params.location,
       wealth: params.wealth,

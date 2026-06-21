@@ -710,10 +710,18 @@ async function runAfternoonBeat(
         description: threat.npc.description,
         location: threat.location,
       });
+      // Stamp the idempotency meta on the irreversible side effect (the spawn),
+      // not on announcement success — otherwise a failed Discord post would let a
+      // later run pass the guard and spawn a second identical threat NPC. A failed
+      // announcement now just means no message that day, never a duplicate mob.
+      engine.setMeta("last_threat_date", dateStr);
       if (await postAnnouncement(client, channelId, buildThreatAnnouncement(threat))) {
-        engine.setMeta("last_threat_date", dateStr);
         console.log(
           c.green(`[cron] Saturday threat posted: ${threat.npc.name} at ${threat.location}.`),
+        );
+      } else {
+        console.warn(
+          c.yellow(`[cron] Saturday threat spawned (${threat.npc.name} at ${threat.location}) but announcement failed to post.`),
         );
       }
     } else if (weekday === 3 || weekday === 0) {

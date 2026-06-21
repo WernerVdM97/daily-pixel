@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **Outcome footer no longer shows a stale `🎲 N/2`** — the daily roll allowance is now 3 (Saturday 4), so the hardcoded `/2` denominator rendered nonsensical over-full fractions (e.g. `🎲 3/2`). The footer now prints the bare roll count and surfaces the roll spent on the action as `(−1)`, matching `/hi`'s "Rolls: N" style.
 - **`/stats` stamina now shows its ceiling** — stamina rendered as a bare number while health showed `N/M`; it now reads `N/maxStamina`, consistent with `/hi`.
+- **Saturday threat NPC can no longer double-spawn** — the afternoon beat stamped `last_threat_date` only after the announcement posted, so a failed Discord post left the guard unstamped and a later run spawned a second identical threat. The meta is now stamped on the irreversible spawn; a failed announcement just means no message that day.
+- **`max_stamina` now persisted on character creation** — the INSERT omitted the column, relying on the DB default (10) happening to match the intended value. A non-10 starting max stamina was silently dropped; the passed value is now written.
+- **`countSoulsInUnsafe()` hardening** — the 18:30 goodnight count now builds a name→safety map once (no per-character lookup) and treats an unknown location explicitly as unsafe, so a single mismatched location value can't silently mislead the tally.
 
 ### Changed
 - **Class and day-job emoji on character surfaces** — `/stats` and `/hi` headers use the per-class emoji (Ranger 🏹, Wizard 🔮, …) instead of a hardcoded ⚔️; the day-job menu title (`/action`, `/hi`) uses the per-job emoji (Merchant 💰, Herbalist 🌿, …) from a single shared map instead of a hardcoded 🔨.
