@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS player_characters (
   wealth            INTEGER NOT NULL DEFAULT 0,
   last_action_state TEXT,              -- JSON ActionState | NULL
   last_rested_day   INTEGER,           -- game day_number the player last rested at the Oak | NULL
+  last_noop_refund_day    INTEGER,     -- game day_number the player last got the free no-op refund (D1) | NULL
+  last_timeout_refund_day INTEGER,     -- game day_number the player last got the free timeout refund (D2) | NULL
   created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -104,7 +106,8 @@ CREATE TABLE IF NOT EXISTS locations (
   name        TEXT    UNIQUE NOT NULL,
   description TEXT,
   tags        TEXT,            -- comma-separated
-  is_safe     INTEGER NOT NULL DEFAULT 0  -- boolean 0|1
+  is_safe     INTEGER NOT NULL DEFAULT 0,  -- boolean 0|1
+  enrichment_pending INTEGER NOT NULL DEFAULT 0  -- 1 while a provisional (D3) location awaits async cartographer enrichment
 );
 
 CREATE TABLE IF NOT EXISTS feedback (

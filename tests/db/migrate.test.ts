@@ -86,8 +86,10 @@ describe('migrate', () => {
       'health',
       'id',
       'last_action_state',
+      'last_noop_refund_day',
       'last_played_at',
       'last_rested_day',
+      'last_timeout_refund_day',
       'location',
       'max_health',
       'max_stamina',
@@ -100,6 +102,40 @@ describe('migrate', () => {
       'user_id',
       'wealth',
     ]);
+  });
+
+  it('adds the enrichment_pending column to locations (default 0)', () => {
+    const cols = db.prepare("PRAGMA table_info('locations')").all() as { name: string }[];
+    expect(cols.map((c) => c.name)).toContain('enrichment_pending');
+    const row = db.prepare("SELECT enrichment_pending FROM locations WHERE name = ?").get("The Warden's Oak") as { enrichment_pending: number };
+    expect(row.enrichment_pending).toBe(0);
+  });
+});
+
+describe('roll-refund + enrichment migration — existing DB backfill', () => {
+  it('adds the new columns to a DB that predates them (guarded ALTERs)', async () => {
+    // Build a real DB, then DROP the three new columns to simulate a production
+    // DB that predates this migration, and confirm the migration backfills them.
+    const old = new Database(':memory:');
+    runMigrations(old);
+    old.exec('ALTER TABLE player_characters DROP COLUMN last_noop_refund_day');
+    old.exec('ALTER TABLE player_characters DROP COLUMN last_timeout_refund_day');
+    old.exec('ALTER TABLE locations DROP COLUMN enrichment_pending');
+
+    const { migration } = await import('../../src/db/migrations/202606210000_roll_refund_and_enrichment.js');
+    migration.up(old);
+
+    const pcCols = (old.prepare("PRAGMA table_info('player_characters')").all() as { name: string }[]).map(c => c.name);
+    expect(pcCols).toContain('last_noop_refund_day');
+    expect(pcCols).toContain('last_timeout_refund_day');
+
+    const locCols = (old.prepare("PRAGMA table_info('locations')").all() as { name: string }[]).map(c => c.name);
+    expect(locCols).toContain('enrichment_pending');
+
+    // Re-running the up() is a clean no-op (guarded ALTERs swallow "duplicate column").
+    expect(() => migration.up(old)).not.toThrow();
+
+    old.close();
   });
 });
 

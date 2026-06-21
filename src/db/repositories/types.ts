@@ -26,6 +26,13 @@ export interface CharacterRow {
   last_action_state: string | null;
   last_played_at: string | null;
   last_rested_day: number | null;
+  /** game day_number the player last received the free no-op refund (D1) | NULL.
+   *  Optional: absent in CreateInput (defaults NULL); always present (possibly
+   *  null) on a SELECT * read. */
+  last_noop_refund_day?: number | null;
+  /** game day_number the player last received the free timeout refund (D2) | NULL.
+   *  Optional for the same reason as last_noop_refund_day. */
+  last_timeout_refund_day?: number | null;
   created_at: string;
 }
 
@@ -108,6 +115,8 @@ export interface LocationRow {
   description: string | null;
   tags: string | null;
   is_safe: number;            // 0|1
+  /** 1 while a provisional (D3) location awaits async cartographer enrichment. */
+  enrichment_pending: number; // 0|1
 }
 
 export interface FeedbackRow {
