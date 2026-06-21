@@ -366,9 +366,23 @@ export class WorldEngineImpl implements WorldEngine {
     outcome: ActionOutcome,
     rawInput: string,
     decisions: ActionDecisionRecord[],
-  ): { worldChanged: boolean } {
+  ): { worldChanged: boolean; provisionalLocations: string[] } {
     // Clear mid-action state (no-op for auto-finish, which never persisted)
     this.charRepo.update(characterId, { last_action_state: null });
+
+    // D3 lazy world growth: a resolved set_location naming a place not on the
+    // known map (case/trim-normalized) creates a PROVISIONAL stub row right now —
+    // is_safe=0 (off-map wilds are unsafe until charted), a placeholder
+    // description, enrichment_pending=1 — so the player lands somewhere valid and
+    // renderable immediately (the stranding bug dies regardless of LLM timing).
+    // An async cartographer (fired by the caller, off the critical path) fills in
+    // is_safe + a real description later. Matches reuse the existing row (the
+    // mutation validator/applier then snaps to canonical casing).
+    const knownLocations = this.locationRepo.findAll().map((l) => l.name);
+    const provisionalLocations = this.ensureProvisionalLocations(
+      outcome.mutations,
+      knownLocations,
+    );
 
     const ctx = {
       currentHealth: row.health,
@@ -378,6 +392,9 @@ export class WorldEngineImpl implements WorldEngine {
       wealth: row.wealth,
       rollsRemaining: row.rolls_remaining,
       location: row.location,
+      // Now includes any just-created provisional names, so the set_location guard
+      // accepts them and applyMutations snaps to canonical casing.
+      knownLocations: [...knownLocations, ...provisionalLocations],
     };
 
     // Per spec: malformed mutations are silently dropped, valid ones applied.
@@ -467,7 +484,42 @@ export class WorldEngineImpl implements WorldEngine {
       });
     }
 
-    return { worldChanged };
+    return { worldChanged, provisionalLocations };
+  }
+
+  /**
+   * D3 helper: for each `set_location` mutation whose name does not match (case/
+   * trim-normalized) any known location, create a provisional stub row and return
+   * the list of names actually created. A match reuses the existing row (no
+   * create). Names are de-duped within the call. The `locations.name UNIQUE`
+   * constraint + INSERT OR IGNORE make a racing create harmless.
+   */
+  private ensureProvisionalLocations(
+    mutations: WorldMutation[],
+    knownLocations: string[],
+  ): string[] {
+    const known = new Set(knownLocations.map((n) => n.trim().toLowerCase()));
+    const created: string[] = [];
+
+    for (const m of mutations) {
+      if (m.type !== "set_location") continue;
+      const name = typeof m.name === "string" ? m.name.trim() : "";
+      if (name === "") continue;
+      const norm = name.toLowerCase();
+      if (known.has(norm)) continue; // snap-to-canonical handled downstream
+
+      this.locationRepo.create({
+        name,
+        description: "An uncharted place, newly set foot upon. (Mapping…)",
+        isSafe: 0,
+        enrichmentPending: 1,
+      });
+      known.add(norm); // dedupe within this resolution
+      created.push(name);
+      console.log(`[location] provisional row created: "${name}" (enrichment pending)`);
+    }
+
+    return created;
   }
 
   async startAction(

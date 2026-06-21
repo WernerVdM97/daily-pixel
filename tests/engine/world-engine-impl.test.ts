@@ -8,6 +8,7 @@ import { CharacterRepository } from '../../src/db/repositories/character.js';
 import { ItemRepository } from '../../src/db/repositories/item.js';
 import { ActionRepository } from '../../src/db/repositories/action.js';
 import { NpcRepository } from '../../src/db/repositories/npc.js';
+import { LocationRepository } from '../../src/db/repositories/location.js';
 import type { LlmDecision } from '../../src/llm/LlmGateway.js';
 
 // RED: tests fail because WorldEngineImpl doesn't exist yet
@@ -204,16 +205,67 @@ describe('WorldEngineImpl — action state machine integration', () => {
         llm.setDecision({
           distilledType: 'travel', stat: 'physical', baseDc: 10,
           required: false, done: true, decision: [],
-          mutations: [{ type: 'set_location', name: 'The Forest Edge' }],
-          outcomeText: 'You set off down the road.',
+          mutations: [{ type: 'modify_stamina', amount: -1 }],
+          outcomeText: 'You trek down the road, tiring.',
         });
         const before = charRepo.findById(characterId)!.rolls_remaining; // 2
 
-        await engine.startAction(characterId, 'walk to the forest edge');
+        await engine.startAction(characterId, 'walk down the road');
 
         const after = charRepo.findById(characterId)!;
         expect(after.rolls_remaining).toBe(before - 1); // charged
         expect(after.last_noop_refund_day ?? null).toBeNull(); // freebie untouched
+      });
+    });
+
+    // ── D3 lazy world growth: a set_location to an unseeded name creates a
+    //    provisional row so the player is never stranded (ADR §D3) ──
+    describe('D3 lazy location creation', () => {
+      let locationRepo: LocationRepository;
+      beforeEach(() => {
+        locationRepo = new LocationRepository(getDb());
+      });
+
+      it('creates a provisional row for an unknown set_location and moves the player there', async () => {
+        llm.setDecision({
+          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'set_location', name: 'The Hidden Grotto' }],
+          outcomeText: 'You push past the falls into a hidden grotto.',
+        });
+
+        await engine.startAction(characterId, 'explore behind the waterfall');
+
+        const loc = locationRepo.findByName('The Hidden Grotto');
+        expect(loc).toBeDefined();
+        expect(loc!.is_safe).toBe(0);                 // off-map wilds unsafe until charted
+        expect(loc!.enrichment_pending).toBe(1);      // awaiting the cartographer
+        expect(loc!.description).toBeTruthy();         // placeholder, not null
+        // The player actually landed there (renderable, not phantom).
+        expect(charRepo.findById(characterId)!.location).toBe('The Hidden Grotto');
+      });
+
+      it('reuses an existing location (case-insensitive) — no new row, snaps to canonical', async () => {
+        locationRepo.create({ name: 'Town Square', isSafe: 1, description: 'The square.' });
+        const countBefore = locationRepo.findAll().length;
+
+        llm.setDecision({
+          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'set_location', name: 'town square' }], // lower-case
+          outcomeText: 'You head to the square.',
+        });
+
+        await engine.startAction(characterId, 'go to the square');
+
+        // No new row created…
+        expect(locationRepo.findAll().length).toBe(countBefore);
+        // …and the player is snapped to the canonical casing so getLocation resolves.
+        expect(charRepo.findById(characterId)!.location).toBe('Town Square');
+        // Existing row untouched (still safe, not flagged provisional).
+        const loc = locationRepo.findByName('Town Square')!;
+        expect(loc.is_safe).toBe(1);
+        expect(loc.enrichment_pending).toBe(0);
       });
     });
 
