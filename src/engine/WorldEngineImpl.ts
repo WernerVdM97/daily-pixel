@@ -163,47 +163,6 @@ function logAppliedMutations(
   );
 }
 
-/**
- * Check if the stored action state has been sitting idle past the 30-min timeout.
- * If stale, atomically clears the state and inserts a timed_out action row so the
- * player sees the correct outcome in their journal.
- *
- * @returns true if the state was stale and has been auto-failed
- */
-function isStateStale(
-  state: InternalActionState,
-  _row: { id: number },
-  actionRepo: ActionRepository,
-  charRepo: CharacterRepository,
-  characterId: number,
-  db: Database.Database,
-): boolean {
-  // If the state predates lastActionAt (pre-S7 state), treat as not stale
-  if (!state.lastActionAt) return false;
-
-  const elapsed = Date.now() - state.lastActionAt;
-  if (elapsed < ACTION_TIMEOUT_MS) return false;
-
-  // Wrap both writes in a transaction so a partial failure doesn't leave
-  // a timed_out row orphaned while last_action_state survives.
-  db.transaction(() => {
-    actionRepo.create({
-      characterId,
-      rawInput: state.rawInput,
-      type: state.distilledType,
-      decisionsJson: JSON.stringify(state.decisions),
-      finalDc: state.accumulatedDc,
-      playerRolled: null,
-      outcome: "timed_out",
-      appVersion: APP_VERSION,
-      promptVersion: PROMPT_VERSION,
-    });
-    charRepo.update(characterId, { last_action_state: null });
-  })();
-
-  return true;
-}
-
 interface WorldEngineConfig {
   db: Database.Database;
   llm: LlmGateway;
@@ -641,18 +600,16 @@ export class WorldEngineImpl implements WorldEngine {
       row.last_action_state,
     ) as InternalActionState;
 
-    // 30-min timeout auto-fail: if the state has been sitting untouched, auto-fail it
-    if (
-      isStateStale(
-        internalState,
-        row,
-        this.actionRepo,
-        this.charRepo,
-        characterId,
-        this.db,
-      )
-    ) {
-      throw new Error("Action timed out after 30 minutes");
+    // D2 30-min timeout: if the state has gone stale, resolve it as an in-voice
+    // server-side timeout (refund the roll once per day) and return that outcome
+    // so the UI renders an explicit grey card instead of a bare error.
+    const timeout = this.resolveStaleTimeout(internalState, characterId);
+    if (timeout) {
+      return {
+        resolved: true,
+        state: this.toPublicState(internalState),
+        outcome: timeout,
+      };
     }
 
     this.updateLastPlayed(characterId);
@@ -727,18 +684,12 @@ export class WorldEngineImpl implements WorldEngine {
       row.last_action_state,
     ) as InternalActionState;
 
-    // 30-min timeout auto-fail: if the state has been sitting untouched, auto-fail it
-    if (
-      isStateStale(
-        internalState,
-        row,
-        this.actionRepo,
-        this.charRepo,
-        characterId,
-        this.db,
-      )
-    ) {
-      throw new Error("Action timed out after 30 minutes");
+    // D2 30-min timeout: resolve the stale state (refund once/day, no mutations)
+    // and surface the in-voice timeout message. The resume entry point can't return
+    // an outcome, so we throw the player-facing message for the caller to show.
+    const timeout = this.resolveStaleTimeout(internalState, characterId);
+    if (timeout) {
+      throw new Error(timeout.outcomeText);
     }
 
     const { state, nextDecision } = this.machine.resume(internalState);
@@ -1265,6 +1216,74 @@ export class WorldEngineImpl implements WorldEngine {
     this.db
       .prepare(`UPDATE player_characters SET ${column} = ? WHERE id = ?`)
       .run(day, characterId);
+  }
+
+  /**
+   * D2 timeout handling. If the stored action state has been idle past the 30-min
+   * timeout, atomically: clear the state, write a `timed_out` action row (no
+   * mutations — the intended travel does NOT occur), and refund the roll for the
+   * FIRST timeout per character per day (stamping `last_timeout_refund_day`); later
+   * timeouts that day keep the roll spent. Returns an in-voice `timed_out`
+   * ActionOutcome the caller surfaces for rendering, or null if the state is fresh.
+   *
+   * The timeout grace is separate from the D1 no-op grace — a server-side timeout
+   * (our slowness) must never burn the player's no-op allowance, and vice versa.
+   */
+  private resolveStaleTimeout(
+    state: InternalActionState,
+    characterId: number,
+  ): ActionOutcome | null {
+    // If the state predates lastActionAt (pre-S7 state), treat as not stale.
+    if (!state.lastActionAt) return null;
+    if (Date.now() - state.lastActionAt < ACTION_TIMEOUT_MS) return null;
+
+    const today = this.currentDayNumber();
+    const row = this.charRepo.findById(characterId);
+    const refunded =
+      row != null && row.last_timeout_refund_day !== today;
+
+    const message = refunded
+      ? "The moment slipped away before you could act — a delay on our side, not yours. Nothing happened, and your travel did not occur. Your roll has been **refunded**; try again when you're ready."
+      : "The moment slipped away before you could act — a delay on our side, not yours. Nothing happened, and your travel did not occur. Your roll was already **spent** (you've had your free timeout today).";
+
+    const outcome: ActionOutcome = {
+      distilledType: state.distilledType,
+      finalDc: state.accumulatedDc,
+      playerRolled: null,
+      outcome: "timed_out",
+      mutations: [],
+      outcomeText: message,
+    };
+
+    // Wrap all writes so a partial failure can't leave a timed_out row orphaned
+    // while last_action_state survives.
+    this.db.transaction(() => {
+      this.actionRepo.create({
+        characterId,
+        rawInput: state.rawInput,
+        type: state.distilledType,
+        decisionsJson: JSON.stringify(state.decisions),
+        finalDc: state.accumulatedDc,
+        playerRolled: null,
+        outcome: "timed_out",
+        appVersion: APP_VERSION,
+        promptVersion: PROMPT_VERSION,
+        narrative: message.slice(0, 500),
+      });
+      this.charRepo.update(characterId, { last_action_state: null });
+      if (refunded && row) {
+        // Hand the spent roll back (capped at the daily allowance) and stamp the day.
+        this.charRepo.update(characterId, {
+          rolls_remaining: Math.min(
+            DAILY_ROLL_ALLOWANCE,
+            row.rolls_remaining + 1,
+          ),
+        });
+        this.stampRefundDay(characterId, "last_timeout_refund_day", today);
+      }
+    })();
+
+    return outcome;
   }
 
   private toPublicState(internal: InternalActionState): {

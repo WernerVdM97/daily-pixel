@@ -115,53 +115,85 @@ describe('30-min action timeout', () => {
     }
   });
 
-  it('fails stale action on resumeAction', async () => {
-    llm.setDecision(huntDecision1());
-    await engine.startAction(characterId, 'hunt a deer');
-
-    // Manually rewind lastActionAt past the 30-min threshold so we don't need
-    // a real 30-minute wait. We manipulate the persisted state directly.
+  /** Rewind the persisted action state past the 30-min stale threshold. */
+  function makeStale(): void {
     const row = charRepo.findById(characterId);
     const state = JSON.parse(row!.last_action_state!);
     state.lastActionAt = Date.now() - 31 * 60 * 1000; // 31 minutes ago
     charRepo.update(characterId, { last_action_state: JSON.stringify(state) });
+  }
 
-    // resumeAction should throw timed out
-    expect(() => engine.resumeAction(characterId)).toThrow('timed out after 30 minutes');
+  it('D2: resumeAction surfaces an in-voice server-timeout message and refunds the roll', async () => {
+    llm.setDecision(huntDecision1());
+    await engine.startAction(characterId, 'hunt a deer');
+    const spent = charRepo.findById(characterId)!.rolls_remaining; // 3 → 2
 
-    // Verify the action was recorded as timed_out
+    makeStale();
+
+    // The throw carries the player-facing message (not a bare "timed out") and
+    // names it as a server-side delay.
+    expect(() => engine.resumeAction(characterId)).toThrow(/slipped away/i);
+
+    // Recorded as timed_out with the in-voice narrative.
     const recent = actionRepo.findRecentByCharacterId(characterId, 1);
     expect(recent).toHaveLength(1);
     expect(recent[0].outcome).toBe('timed_out');
 
-    // Verify state was cleared
-    const updatedRow = charRepo.findById(characterId);
-    expect(updatedRow!.last_action_state).toBeNull();
+    const updatedRow = charRepo.findById(characterId)!;
+    expect(updatedRow.last_action_state).toBeNull();
+    // First timeout of the day → roll refunded + day stamped.
+    expect(updatedRow.rolls_remaining).toBe(spent + 1);
+    expect(updatedRow.last_timeout_refund_day).toBe(1);
   });
 
-  it('fails stale action on stepAction', async () => {
+  it('D2: stepAction returns a resolved timed_out outcome (no throw) and refunds once/day', async () => {
     llm.setDecision(huntDecision1());
     await engine.startAction(characterId, 'hunt a deer');
+    const spent = charRepo.findById(characterId)!.rolls_remaining; // 2
 
-    // Manually rewind lastActionAt past the 30-min threshold
-    const row = charRepo.findById(characterId);
-    const state = JSON.parse(row!.last_action_state!);
-    state.lastActionAt = Date.now() - 31 * 60 * 1000; // 31 minutes ago
-    charRepo.update(characterId, { last_action_state: JSON.stringify(state) });
+    makeStale();
 
-    // stepAction should throw timed out
-    await expect(engine.stepAction(characterId, 'Follow deer')).rejects.toThrow(
-      'timed out after 30 minutes',
-    );
+    const result = await engine.stepAction(characterId, 'Follow deer');
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.outcome).toBe('timed_out');
+      expect(result.outcome.mutations).toEqual([]); // no mutations applied
+      expect(result.outcome.outcomeText).toMatch(/slipped away/i);
+      expect(result.outcome.outcomeText).toMatch(/refunded/i);
+    }
 
-    // Verify the action was recorded as timed_out
     const recent = actionRepo.findRecentByCharacterId(characterId, 1);
-    expect(recent).toHaveLength(1);
     expect(recent[0].outcome).toBe('timed_out');
 
-    // Verify state was cleared
-    const updatedRow = charRepo.findById(characterId);
-    expect(updatedRow!.last_action_state).toBeNull();
+    const updatedRow = charRepo.findById(characterId)!;
+    expect(updatedRow.last_action_state).toBeNull();
+    expect(updatedRow.rolls_remaining).toBe(spent + 1); // refunded
+    expect(updatedRow.last_timeout_refund_day).toBe(1);
+  });
+
+  it('D2: a second timeout the same day keeps the roll spent', async () => {
+    // First timeout — refunded.
+    llm.setDecision(huntDecision1());
+    await engine.startAction(characterId, 'hunt a deer');
+    makeStale();
+    await engine.stepAction(characterId, 'Follow deer');
+    const afterFirst = charRepo.findById(characterId)!.rolls_remaining;
+
+    // Second action + timeout, same day — the freebie is gone, roll stays spent.
+    llm.setDecision(huntDecision1());
+    await engine.startAction(characterId, 'hunt again'); // drains 1
+    const spentAgain = charRepo.findById(characterId)!.rolls_remaining;
+    makeStale();
+    const result = await engine.stepAction(characterId, 'Follow deer');
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.outcome).toBe('timed_out');
+      expect(result.outcome.outcomeText).toMatch(/spent/i);
+    }
+    // No refund this time.
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(spentAgain);
+    expect(afterFirst).toBeGreaterThan(spentAgain); // sanity: first was refunded
   });
 
   it('does not fail state without lastActionAt (pre-S7 backward compat)', async () => {
