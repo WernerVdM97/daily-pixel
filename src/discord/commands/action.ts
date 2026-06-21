@@ -23,7 +23,7 @@ import type { WorldEngine, ActionDecision, ActionOutcome, CharacterData } from '
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
-import { getDayJobActions, type DayJobDef } from './hi.js';
+import { getDayJobActions, dayJobEmoji, type DayJobDef } from './hi.js';
 import { getNavButtons, getOutcomeServiceButtons, classEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 
@@ -160,7 +160,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         const dayNumber = Number(engine.getMeta('day_number') ?? '1');
         const jobActions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
         const embed = new EmbedBuilder()
-          .setTitle(`🔨 ${character.dayJob} — Daily Work`)
+          .setTitle(`${dayJobEmoji(character.dayJob)} ${character.dayJob} — Daily Work`)
           .setDescription('Pick a task to start:')
           .setColor(0xdaa520);
 
@@ -194,7 +194,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         return 'action_dayjob_menu';
       } catch {
         await interaction.reply({
-          content: `🔨 **${character.dayJob}**\n\nUse \`/action <what you do>\` to start an action.`,
+          content: `${dayJobEmoji(character.dayJob)} **${character.dayJob}**\n\nUse \`/action <what you do>\` to start an action.`,
           flags: MessageFlags.Ephemeral,
         });
         return 'action_no_description';

@@ -5,6 +5,13 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+### Fixed
+- **Outcome footer no longer shows a stale `🎲 N/2`** — the daily roll allowance is now 3 (Saturday 4), so the hardcoded `/2` denominator rendered nonsensical over-full fractions (e.g. `🎲 3/2`). The footer now prints the bare roll count and surfaces the roll spent on the action as `(−1)`, matching `/hi`'s "Rolls: N" style.
+- **`/stats` stamina now shows its ceiling** — stamina rendered as a bare number while health showed `N/M`; it now reads `N/maxStamina`, consistent with `/hi`.
+
+### Changed
+- **Class and day-job emoji on character surfaces** — `/stats` and `/hi` headers use the per-class emoji (Ranger 🏹, Wizard 🔮, …) instead of a hardcoded ⚔️; the day-job menu title (`/action`, `/hi`) uses the per-job emoji (Merchant 💰, Herbalist 🌿, …) from a single shared map instead of a hardcoded 🔨.
+- **`/stats` rolls line drops the word "remaining"** — one rolls vocabulary across `/stats` and `/hi`.
 
 ## [0.2.3] — 2026-06-19
 ### Added

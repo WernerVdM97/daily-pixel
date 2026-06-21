@@ -55,13 +55,15 @@ describe('OutcomeRenderer — success', () => {
     expect(result).toContain('The wolfsbane flares');
   });
 
-  it('shows stamina and rolls in footer (always, no delta when unchanged)', () => {
+  it('shows stamina and rolls in footer (no fixed denominator; spent roll surfaced)', () => {
     const result = formatOutcome(successOutcome, ctx());
     expect(result).toContain('⚡ 8/10');
-    expect(result).toContain('🎲 1/2');
-    // No delta suffix when mutations don't touch them
+    // No stale /2 denominator
+    expect(result).not.toContain('🎲 1/2');
+    // A resolved roll spends one roll → surfaced as (-1)
+    expect(result).toContain('🎲 1 (-1)');
+    // No delta suffix on stamina when mutations don't touch it
     expect(result).not.toContain('⚡ 8/10 (');
-    expect(result).not.toContain('🎲 1/2 (');
   });
 
   it('does not show health when unchanged', () => {
@@ -127,7 +129,7 @@ describe('OutcomeRenderer — success', () => {
     expect(result).toContain('+ 🦊 Wolf Pelt');
     expect(result).toContain('→ Deep Forest');
     expect(result).toContain('⚡ 6/10 (-2)');
-    expect(result).toContain('🎲 1/2');
+    expect(result).toContain('🎲 1 (-1)');
   });
 });
 
@@ -353,22 +355,37 @@ describe('OutcomeRenderer — rolls delta', () => {
     mutations: [],
   };
 
-  it('shows negative rolls delta', () => {
+  it('combines a negative rolls mutation with the spent roll', () => {
     const outcome: ActionOutcome = {
       ...base,
       mutations: [{ type: 'modify_rolls_remaining', amount: -1 }],
     };
+    // mutation -1 plus the one roll spent on this resolved action = -2
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 0 }));
-    expect(result).toContain('🎲 0/2 (-1)');
+    expect(result).toContain('🎲 0 (-2)');
   });
 
-  it('shows positive rolls delta', () => {
+  it('a positive rolls mutation cancels the spent roll', () => {
     const outcome: ActionOutcome = {
       ...base,
       mutations: [{ type: 'modify_rolls_remaining', amount: 1 }],
     };
+    // mutation +1 minus the one roll spent = net 0 → no delta suffix
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 1 }));
-    expect(result).toContain('🎲 1/2 (+1)');
+    expect(result).toContain('🎲 1');
+    expect(result).not.toContain('🎲 1 (');
+  });
+
+  it('surfaces the spent roll with no rolls mutation', () => {
+    const result = formatOutcome(base, ctx({ rollsRemaining: 2 }));
+    expect(result).toContain('🎲 2 (-1)');
+  });
+
+  it('shows no spent-roll delta when no roll was made (playerRolled null)', () => {
+    const outcome: ActionOutcome = { ...base, playerRolled: null };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 3 }));
+    expect(result).toContain('🎲 3');
+    expect(result).not.toContain('🎲 3 (');
   });
 });
 
@@ -390,7 +407,7 @@ describe('OutcomeRenderer — spawn_npc ignored', () => {
     const result = formatOutcome(outcome, ctx());
     expect(result).not.toContain('Elena');
     expect(result).toContain('⚡ 8/10');
-    expect(result).toContain('🎲 1/2');
+    expect(result).toContain('🎲 1 (-1)');
   });
 });
 
@@ -427,7 +444,8 @@ describe('OutcomeRenderer — complex outcome', () => {
     expect(result).toContain('→ Wolf Den');
     expect(result).toContain('❤️ 7/12 (-3)');
     expect(result).toContain('⚡ 6/10 (-2)');
-    expect(result).toContain('🎲 0/2 (-1)');
+    // rolls mutation -1 plus the spent roll = -2
+    expect(result).toContain('🎲 0 (-2)');
     expect(result).toContain('💰 20 (+15)');
   });
 });

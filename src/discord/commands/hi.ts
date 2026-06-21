@@ -1,5 +1,12 @@
 import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
-import { SEPARATOR } from "../format.js";
+import { SEPARATOR, classEmoji } from "../format.js";
+import { DAYJOB_EMOJI } from "./join.js";
+
+/** Day-job emoji with a sensible blacksmith-hammer fallback for unmapped jobs.
+ *  Exported so the /action day-job menu uses the same single source. */
+export function dayJobEmoji(job: string): string {
+  return DAYJOB_EMOJI[job] ?? "🔨";
+}
 
 // ── Day job types (from day-jobs.yml shape) ──
 
@@ -83,7 +90,7 @@ function mulberry32(seed: number): () => number {
 
 export function formatCharacterHeader(char: CharacterData): string {
   const lines: string[] = [];
-  lines.push(`⚔️  **${char.name}** — ${char.class}`);
+  lines.push(`${classEmoji(char.class)}  **${char.name}** — ${char.class}`);
   lines.push(SEPARATOR);
 
   // Status line — current vitals, not ability scores: HP, Stamina, Rolls, Wealth.
@@ -214,7 +221,7 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
         });
         const workplaceSuffix = workplace ? ` — ${workplace}` : "";
         actionLines = [
-          `🔨 **${character.dayJob}${workplaceSuffix} — Daily Work**`,
+          `${dayJobEmoji(character.dayJob)} **${character.dayJob}${workplaceSuffix} — Daily Work**`,
           "",
           ...actions.map(
             (a, i) => `  ${["🎯", "🔧", "📋"][i]} **${a.label}** — ${a.hook}`,
@@ -224,7 +231,7 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
         ];
       } catch {
         actionLines = [
-          `🔨 **${character.dayJob}**`,
+          `${dayJobEmoji(character.dayJob)} **${character.dayJob}**`,
           "",
           "📦 Press the **Action** button or type `action <what you do>` to start.",
         ];

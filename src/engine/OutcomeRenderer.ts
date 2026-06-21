@@ -201,8 +201,13 @@ export function formatOutcome(
   }
   // Stamina — always
   stats.push(`⚡ ${ctx.stamina}/${ctx.maxStamina}${formatDelta(d.staminaDelta)}`);
-  // Rolls — always
-  stats.push(`🎲 ${ctx.rollsRemaining}/2${formatDelta(d.rollsDelta)}`);
+  // Rolls — always. No fixed denominator (the daily allowance varies: 3, Saturday 4),
+  // so the old `/2` printed a nonsensical over-full fraction. Surface the roll spent
+  // on this action: starting an action debits one roll (an engine decrement, not a
+  // mutation), so a resolved roll shows as (−1), combined with any explicit
+  // modify_rolls_remaining mutation.
+  const rollsSpent = outcome.playerRolled !== null ? -1 : 0;
+  stats.push(`🎲 ${ctx.rollsRemaining}${formatDelta(d.rollsDelta + rollsSpent)}`);
   // Wealth — only when it changed
   if (d.wealthDelta !== 0) {
     stats.push(`💰 ${ctx.wealth}${formatDelta(d.wealthDelta)}`);

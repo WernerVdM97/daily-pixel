@@ -458,7 +458,9 @@ const ALIGNMENT_EMOJI: Record<string, string> = {
   "Lawful Neutral": "📏", "True Neutral": "⚖️", "Chaotic Neutral": "🎲",
   "Lawful Evil": "🗡️", "Neutral Evil": "🐍", "Chaotic Evil": "💀",
 };
-const DAYJOB_EMOJI: Record<string, string> = {
+/** Single source of day-job → emoji, reused by /hi and the /action day-job menu
+ *  (fallback 🔨 for unmapped jobs). Exported so those surfaces don't hardcode a glyph. */
+export const DAYJOB_EMOJI: Record<string, string> = {
   "Town Guard": "🛡️", Blacksmith: "🔨", Hunter: "🏹", Scribe: "📜", Herbalist: "🌿",
   Minstrel: "🎶", Merchant: "💰", Acolyte: "🕯️", Wanderer: "🚶",
 };
