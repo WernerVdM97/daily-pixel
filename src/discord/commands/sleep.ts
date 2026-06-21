@@ -101,12 +101,21 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
       !alreadyThere &&
       !atWorkplace;
 
+    // G2: the player models rest as a stamina thing and is surprised to take HP
+    // damage from an unsafe rest. Name the risk and its cause plainly (no mechanic
+    // change) — the unsafe location they bedded down at, and why it cost them.
+    const unsafeFromName = character.location;
+
     engine.restAtOak(interaction.user.id);
 
     let penaltyLine = "";
     if (wasUnsafe) {
       const updated = engine.modifyHealth(interaction.user.id, -1);
-      penaltyLine = `⚠️ The night was rough — you lost **1 HP**. ${updated ? `(${updated.health}/${updated.maxHealth} ❤️)` : ""}`;
+      penaltyLine = [
+        `⚠️ **Resting on unsafe ground costs 1 HP.** You bedded down at **${unsafeFromName}**, far from the Oak's protection — no safe fire, no walls, one eye open all night.`,
+        `The night was rough — you lost **1 HP**.${updated ? ` (${updated.health}/${updated.maxHealth} ❤️)` : ""}`,
+        `_Return to the Oak (or your workplace) **before** resting to avoid this._`,
+      ].join("\n");
       // A collapse from the penalty is announced publicly (not just to the actor).
       if (updated) {
         await announceCollapse(

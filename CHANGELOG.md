@@ -5,17 +5,26 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
-### Fixed
-- **Outcome footer no longer shows a stale `🎲 N/2`** — the daily roll allowance is now 3 (Saturday 4), so the hardcoded `/2` denominator rendered nonsensical over-full fractions (e.g. `🎲 3/2`). The footer now prints the bare roll count and surfaces the roll spent on the action as `(−1)`, matching `/hi`'s "Rolls: N" style.
-- **`/stats` stamina now shows its ceiling** — stamina rendered as a bare number while health showed `N/M`; it now reads `N/maxStamina`, consistent with `/hi`.
-- **Saturday threat NPC can no longer double-spawn** — the afternoon beat stamped `last_threat_date` only after the announcement posted, so a failed Discord post left the guard unstamped and a later run spawned a second identical threat. The meta is now stamped on the irreversible spawn; a failed announcement just means no message that day.
-- **`max_stamina` now persisted on character creation** — the INSERT omitted the column, relying on the DB default (10) happening to match the intended value. A non-10 starting max stamina was silently dropped; the passed value is now written.
-- **`countSoulsInUnsafe()` hardening** — the 18:30 goodnight count now builds a name→safety map once (no per-character lookup) and treats an unknown location explicitly as unsafe, so a single mismatched location value can't silently mislead the tally.
+### Added
+- **Lazy world growth — locations created from play (D3)** — a resolved `set_location` to a place not on the known map now creates a provisional `locations` row immediately (unsafe, placeholder description, `enrichment_pending`), so the player lands somewhere valid and renderable instead of being stranded at an "unknown" spot. An async "cartographer" LLM call then charts it off the player's critical path — filling `is_safe` + a real description and clearing the flag (idempotent, double-fire safe; never blocks resolution). A `set_location` matching an existing name (any casing) reuses that row.
+- **`KNOWN LOCATIONS` in the decision prompt (v8)** — the LLM now receives the full charted-location list as its own context block and is instructed to prefer exact known names for travel, inventing a new name only for genuine off-map exploration (never as a synonym for an existing place).
 
 ### Changed
+- **Roll economy — a roll is the price of a *resolved* action, not a started one (D1)** — an auto-resolve that changes the world (travel, rest, any state-changing mutation) or that the player actually rolled still costs a roll; a true **no-op** auto-resolve ("the moment passes") now **refunds** the roll, but only the first no-op per character per day (later no-ops that day still cost it). Removes the "wasted turn" sting that drove the loudest complaints without making rolls free.
+- **Timeouts are made whole and explained (D2)** — a server-side 30-minute action timeout now **refunds the roll** (first timeout per character per day; later ones that day stay spent) and renders an explicit in-character message naming it as a server-side delay and stating whether the roll was refunded or spent — no more confusing grey "ghost" card, and no silently-dropped travel.
+- **Unsafe-rest HP cost is now explained (G2)** — resting away from the Oak (or your workplace) still costs 1 HP, but `/sleep` now names the rule, the location you bedded down at, and how to avoid it, instead of a bare "the night was rough" line. No mechanic change.
+- **Decision prompt bumped to v8** — folds in the above prompt rules plus cosmetic fixes (typo `expendale`→`expendable`; the inventory reference now points at the scaling-hint block) and settles the `done`-flag contract (the resolve signal is an empty `decision` array; the engine honours a legacy `done` flag only as a tolerant backstop).
 - **Class and day-job emoji on character surfaces** — `/stats` and `/hi` headers use the per-class emoji (Ranger 🏹, Wizard 🔮, …) instead of a hardcoded ⚔️; the day-job menu title (`/action`, `/hi`) uses the per-job emoji (Merchant 💰, Herbalist 🌿, …) from a single shared map instead of a hardcoded 🔨.
 - **`/stats` rolls line drops the word "remaining"** — one rolls vocabulary across `/stats` and `/hi`.
 - **Divine-intervention fallback copy** — now reads "The Warden's hand" (was lowercase), consistent with the NPC's name everywhere else.
+
+### Fixed
+- **Outcome footer no longer shows a stale `🎲 N/2`** — the daily roll allowance is now 3 (Saturday 4), so the hardcoded `/2` denominator rendered nonsensical over-full fractions (e.g. `🎲 3/2`). The footer now prints the bare roll count and surfaces the roll spent on the action as `(−1)`, matching `/hi`'s "Rolls: N" style.
+- **`/stats` stamina now shows its ceiling** — stamina rendered as a bare number while health showed `N/M`; it now reads `N/maxStamina`, consistent with `/hi`.
+- **Empty LLM turns no longer burn a roll** — the decision gateway now rejects (and retries) a completely empty response (no options, no mutations, no outcome text) instead of surfacing it as a dead, roll-consuming turn.
+- **Saturday threat NPC can no longer double-spawn** — the afternoon beat stamped `last_threat_date` only after the announcement posted, so a failed Discord post left the guard unstamped and a later run spawned a second identical threat. The meta is now stamped on the irreversible spawn; a failed announcement just means no message that day.
+- **`max_stamina` now persisted on character creation** — the INSERT omitted the column, relying on the DB default (10) happening to match the intended value. A non-10 starting max stamina was silently dropped; the passed value is now written.
+- **`countSoulsInUnsafe()` hardening** — the 18:30 goodnight count now builds a name→safety map once (no per-character lookup) and treats an unknown location explicitly as unsafe, so a single mismatched location value can't silently mislead the tally.
 
 ### Internal
 - `package.json` version synced to `VERSION` (`0.2.3`).
@@ -23,7 +32,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `/journal` command handler is now `async`, matching every other command.
 - Mock fixtures aligned to live defaults: `MockWorldEngine` health/maxHealth `10`/`10`, rolls `3`; `MockLlmGateway.defaultDecision()` populates `mutations` + `outcomeText`.
 - `.env.example` documents `SLEEP_ADMIN_TICK` and `CLEAR_CHANNEL_ID`.
-- Destructive ops scripts (`clear-admin.sh`, `clear-channel.sh`) now require a typed confirmation; `clear-admin.sh` cleans up its temp DB copy.
 
 ## [0.2.3] — 2026-06-19
 ### Added

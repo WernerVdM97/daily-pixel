@@ -54,6 +54,28 @@ describe("/sleep", () => {
       expect(engine.calls.restAtOak[0]).toBe('traveller');
     });
 
+    it("G2: warns about the unsafe-rest HP cost and names the cause plainly", async () => {
+      const engine = new MockWorldEngine();
+      engine.setCharacter(MockWorldEngine.defaultCharacter({
+        rollsRemaining: 0,
+        location: "The Broken Keep",
+        health: 8,
+        maxHealth: 10,
+      }));
+      // Resting here is unsafe (not the Oak, not a workplace).
+      engine.setLocation({ name: "The Broken Keep", description: "Ruins.", tags: ["ruins"], isSafe: false });
+      const handler = makeSleepCommand(engine);
+      const result = await handler({ user: { id: 'wanderer' } });
+
+      // The rule is surfaced, the cause is named, and the fix is stated.
+      expect(result).toContain("Resting on unsafe ground costs 1 HP");
+      expect(result).toContain("The Broken Keep");
+      expect(result).toContain("lost **1 HP**");
+      expect(result).toContain("before");
+      expect(engine.calls.modifyHealth).toHaveLength(1);
+      expect(engine.calls.modifyHealth[0].amount).toBe(-1);
+    });
+
     it("uses familiar-boughs flavour when already at the Oak", async () => {
       const engine = new MockWorldEngine();
       engine.setCharacter(MockWorldEngine.defaultCharacter({
