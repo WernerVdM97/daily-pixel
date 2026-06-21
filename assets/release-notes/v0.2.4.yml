@@ -1,0 +1,20 @@
+# Player-facing release notes for tag v0.2.4.
+# Keep it non-technical — what's new and fun, not migrations/refactors.
+# Posted automatically to the announcement channel the first time the bot
+# boots on this tag. One file per tag: assets/release-notes/<tag>.yml.
+
+tag: "v0.2.4"
+title: "Fair Rolls & Uncharted Paths"
+date: "2026-06-21"
+
+highlights:
+  - "🎲 **Rolls you didn't really use come back to you.** If an action just fizzles into nothing, your first wasted roll each day is refunded — no more burning a turn for a shrug."
+  - "⏳ **When the world stalls, you're made whole.** If the bot times out on an action, your roll is refunded (once a day) and you get a clear message instead of a confusing blank one."
+  - "🗺️ **The map can grow.** Wander somewhere the tales haven't named yet and it becomes a real place on the map — charted, described, and yours to return to."
+  - "🏕️ **Resting rough is clearer.** Bedding down away from safety still costs you, but now the Oak warns you why and where, instead of a vague 'rough night'."
+  - "✨ **Sharper screens.** Your class and day-job now show their own icons, and the roll counter finally reads true."
+
+notes: >
+  This one's about fairness and a living world: you keep the rolls you didn't
+  spend, slow nights don't punish you, and the map quietly expands wherever you
+  choose to explore. Keep telling us what you'd love to see next.

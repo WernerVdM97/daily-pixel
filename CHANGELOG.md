@@ -5,6 +5,8 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [0.2.4] — 2026-06-21
 ### Added
 - **Lazy world growth — locations created from play (D3)** — a resolved `set_location` to a place not on the known map now creates a provisional `locations` row immediately (unsafe, placeholder description, `enrichment_pending`), so the player lands somewhere valid and renderable instead of being stranded at an "unknown" spot. An async "cartographer" LLM call then charts it off the player's critical path — filling `is_safe` + a real description and clearing the flag (idempotent, double-fire safe; never blocks resolution). A `set_location` matching an existing name (any casing) reuses that row.
 - **`KNOWN LOCATIONS` in the decision prompt (v8)** — the LLM now receives the full charted-location list as its own context block and is instructed to prefer exact known names for travel, inventing a new name only for genuine off-map exploration (never as a synonym for an existing place).
