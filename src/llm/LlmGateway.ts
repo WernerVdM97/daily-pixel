@@ -11,6 +11,10 @@ export interface LlmContext {
   nearbyNpcs: { name: string; description: string }[];
   nearbyPcs: { name: string; class: string }[];
   recentActions: { type: string; outcome: string; narrative?: string | null }[];
+  /** Every charted location name. Injected as a `KNOWN LOCATIONS` block (v8+) so the
+   *  LLM reuses real names for set_location and only invents for true off-map
+   *  exploration. Optional: the stripped retry context omits it. */
+  knownLocations?: string[];
   rawInput: string;
   previousDecisions?: { prompt: string; chosen: string; dcModifier: number }[];
   scalingHint: string;
@@ -53,4 +57,33 @@ export interface LlmDecisionOption {
 
 export interface LlmGateway {
   decide(context: LlmContext): Promise<LlmDecision>;
+}
+
+/** Input to the async D3 "cartographer" — the world it must place a new spot into. */
+export interface CartographerInput {
+  /** The new (provisional) location name the player was just moved to. */
+  newName: string;
+  /** Every already-charted location name (so the cartographer can flag a dup). */
+  existingNames: string[];
+  /** The narrative that produced the move — the fiction the place should fit. */
+  narrative: string;
+}
+
+/** Structured result from the cartographer. All fields optional/defaulted by the caller. */
+export interface CartographerResult {
+  /** If set, the new name is really an existing location (a synonym) — caller may skip enrichment. */
+  matchesExisting?: string;
+  /** Whether the place is safe (1) or wild (0). */
+  is_safe?: 0 | 1;
+  /** A proper one-paragraph description to replace the placeholder. */
+  description?: string;
+}
+
+/**
+ * Async world-builder for D3 lazy location creation — a focused, separate call
+ * from the decision gateway (but reusing the same transport). Fills a provisional
+ * location's is_safe + description off the player's critical path.
+ */
+export interface CartographerGateway {
+  enrich(input: CartographerInput): Promise<CartographerResult>;
 }

@@ -29,6 +29,7 @@ function makeChar(overrides?: Partial<CharacterData>): CharacterData {
     health: 10,
     maxHealth: 12,
     stamina: 8,
+    maxStamina: 10,
     rollsRemaining: 2,
     location: "The Warden's Oak",
     wealth: 15,
@@ -117,6 +118,29 @@ describe("/stats", () => {
     expect(result).toContain("3");
     expect(result).toContain("42");
     expect(result).toContain("1");
+  });
+
+  it("shows stamina with its max (C3 vitals line), matching /hi", async () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(
+      makeChar({ health: 5, maxHealth: 12, stamina: 3, maxStamina: 10 }),
+    );
+    const handler = makeStatsCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+
+    // Stamina must carry its ceiling, like health does and like /hi shows it.
+    expect(result).toContain("**Health:** 5/12");
+    expect(result).toContain("**Stamina:** 3/10");
+  });
+
+  it('drops the word "remaining" from the rolls line (one vocabulary with /hi)', async () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(makeChar({ rollsRemaining: 2 }));
+    const handler = makeStatsCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+
+    expect(result).toContain("**Rolls:** 2");
+    expect(result).not.toContain("remaining");
   });
 });
 

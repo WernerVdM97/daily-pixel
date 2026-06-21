@@ -81,6 +81,7 @@ import {
   makeHiCommand,
   getDayJobActions,
   getWorkplaceLocation,
+  dayJobEmoji,
   type DayJobDef,
 } from "./discord/commands/hi.js";
 import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons } from "./discord/format.js";
@@ -710,10 +711,18 @@ async function runAfternoonBeat(
         description: threat.npc.description,
         location: threat.location,
       });
+      // Stamp the idempotency meta on the irreversible side effect (the spawn),
+      // not on announcement success — otherwise a failed Discord post would let a
+      // later run pass the guard and spawn a second identical threat NPC. A failed
+      // announcement now just means no message that day, never a duplicate mob.
+      engine.setMeta("last_threat_date", dateStr);
       if (await postAnnouncement(client, channelId, buildThreatAnnouncement(threat))) {
-        engine.setMeta("last_threat_date", dateStr);
         console.log(
           c.green(`[cron] Saturday threat posted: ${threat.npc.name} at ${threat.location}.`),
+        );
+      } else {
+        console.warn(
+          c.yellow(`[cron] Saturday threat spawned (${threat.npc.name} at ${threat.location}) but announcement failed to post.`),
         );
       }
     } else if (weekday === 3 || weekday === 0) {
@@ -837,6 +846,10 @@ async function main() {
 
   // 4. LLM gateway
   let llm: FallbackLlmGateway;
+  // D3 cartographer — the same DeepSeek transport, used for async location
+  // enrichment. Undefined when no API key (the mock path); the engine then just
+  // leaves provisional rows unenriched.
+  let cartographer: DeepseekLlmGateway | undefined;
   if (DEEPSEEK_API_KEY) {
     const deepseek = new DeepseekLlmGateway({
       apiKey: DEEPSEEK_API_KEY,
@@ -853,6 +866,7 @@ async function main() {
         metaRepo.set("llm_fallback_count", String(Number(count ?? "0") + 1));
       },
     });
+    cartographer = deepseek;
     console.log(
       c.cyan(
         `[llm] DeepSeek gateway initialized with fallback chain (model: ${LLM_MODEL ?? "default"})`,
@@ -894,6 +908,7 @@ async function main() {
     itemRepo,
     actionRepo,
     npcRepo,
+    ...(cartographer ? { cartographer } : {}),
     classDefs: assets.classes as ClassDef[],
     upbringingDefs: assets.backgrounds as ModifierDef[],
     raceDefs: assets.races as ModifierDef[],
@@ -1819,7 +1834,7 @@ _${idleMsg}_`)
             dayNumber,
           });
           const embed = new EmbedBuilder()
-            .setTitle(`🔨 ${char.dayJob} — Daily Work`)
+            .setTitle(`${dayJobEmoji(char.dayJob)} ${char.dayJob} — Daily Work`)
             .setDescription("Pick a task to start:")
             .setColor(0xdaa520);
 

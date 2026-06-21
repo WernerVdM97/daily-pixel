@@ -1,9 +1,10 @@
 ---
 title: "Code Review — Changes since PR #14 (24e67b9..47700ca)"
-status: spark
-domain: spark
+status: shipped
+domain: archived
 phase: poc
 tags: [code-review, poc-beta-release]
+superseded_by: "implemented in code"
 related:
   - "[[poc-action-ux-refinements]]"
   - "[[per-option-stat-and-ability-checks]]"

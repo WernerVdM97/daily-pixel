@@ -194,12 +194,12 @@ export class ActionStateMachine {
     const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items);
     const decision = await this.llm.decide(context);
 
-    // Resolve — at the decision cap, or when the LLM signals the beat is over by
-    // returning no real options (empty / all-bail `decision`). This mirrors the
-    // inference in start(): `done` was deprecated from the prompt (v7+), so an
-    // empty real-options array is the canonical "resolve now" signal; without
-    // this, a mid-action resolve degrades to a lone "Step back" dead-end. Roll
-    // FIRST, then narrate so the LLM's prose + mutations match the dice.
+    // Resolve — at the decision cap, when the LLM still sets the legacy `done`
+    // flag, or (the canonical v8 signal) when it returns no real options
+    // (empty / all-bail `decision`). E3 contract: an empty real-options array is
+    // the primary "resolve now" signal; `done` is honoured as a backstop so a
+    // model that still emits it resolves cleanly rather than dead-ending on a lone
+    // "Step back". Roll FIRST, then narrate so the prose + mutations match the dice.
     const realOptions = decision.decision.filter(o => o.dcModifier !== null);
     if (isLastDecision || decision.done || realOptions.length === 0) {
       return this.resolveWithRoll(stateWithStat, char, items, newDc, newDecisions);
@@ -297,8 +297,11 @@ export class ActionStateMachine {
       return o;
     });
 
-    // When resolved immediately (done: true) with no options, show the outcome text
-    const prompt = llm.done && llm.outcomeText
+    // When the beat resolves outright and the LLM supplied outcome text, show that
+    // as the prompt. The resolve signal is "no rollable options" (the v8 contract)
+    // OR the legacy `done` flag (E3 backstop) — kept consistent with step()/start().
+    const hasRealOption = options.some(o => o.dcModifier !== null);
+    const prompt = (llm.done || !hasRealOption) && llm.outcomeText
       ? llm.outcomeText
       : (llm.prompt ?? `${capitalize(llm.distilledType)} — choose your approach:`);
 
@@ -330,11 +333,9 @@ export class ActionStateMachine {
       hintParts.push(`inventory: ${items.map(i => `${i.emoji} ${i.name} (${i.stat}+${i.modifier}, qty ${i.quantity})`).join(', ')}`);
     }
 
-    // Known locations — the LLM MUST use exact names from this list for set_location
-    const locations = this.resolver.getKnownLocations();
-    if (locations.length > 1) {
-      hintParts.push(`locations: ${locations.join(', ')}`);
-    }
+    // Known locations now ride their own KNOWN LOCATIONS block (v8+), not the
+    // scaling hint — see LlmContext.knownLocations and prompt-builder.
+    const knownLocations = this.resolver.getKnownLocations();
 
     return {
       character: {
@@ -349,6 +350,7 @@ export class ActionStateMachine {
       nearbyNpcs: this.resolver.getNearbyNpcs(char.location),
       nearbyPcs: this.resolver.getNearbyPcs(char.location, char.id),
       recentActions: this.resolver.getRecentActions(char.id),
+      knownLocations,
       rawInput,
       ...(previous.length > 0 ? { previousDecisions: previous } : {}),
       scalingHint: hintParts.join(' | ') || 'No relevant items',

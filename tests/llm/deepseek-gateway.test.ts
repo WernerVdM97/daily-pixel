@@ -573,23 +573,23 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
     }) as unknown as typeof fetch;
   }
 
-  it('warns when done:true has only negative stamina/health mutations and no reward', async () => {
+  it('warns when a resolving turn has only negative stamina/health mutations and no reward', async () => {
     const { records, recorder } = capture();
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: rewardlessFetch(), recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
-    expect(joined).toContain('done:true with only negative stamina/health mutations');
+    expect(joined).toContain('resolving turn with only negative stamina/health mutations');
   });
 
-  it('does NOT warn when done:true includes a reward mutation (modify_rolls_remaining)', async () => {
+  it('does NOT warn when a resolving turn includes a reward mutation (modify_rolls_remaining)', async () => {
     const { records, recorder } = capture();
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: rewardingFetch(), recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
-    expect(joined).not.toContain('done:true with only negative stamina/health mutations');
+    expect(joined).not.toContain('resolving turn with only negative stamina/health mutations');
   });
 
-  it('does NOT warn when done:true mutations include add_item', async () => {
+  it('does NOT warn when a resolving turn includes add_item', async () => {
     const fetchFn = vi.fn().mockResolvedValue({
       ok: true, status: 200,
       json: () => Promise.resolve({
@@ -613,10 +613,10 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
-    expect(joined).not.toContain('done:true with only negative stamina/health mutations');
+    expect(joined).not.toContain('resolving turn with only negative stamina/health mutations');
   });
 
-  it('does NOT warn when done:false (mid-decision, no reward expected)', async () => {
+  it('does NOT warn for a mid-decision turn (real options present, no reward expected)', async () => {
     const fetchFn = vi.fn().mockResolvedValue({
       ok: true, status: 200,
       json: () => Promise.resolve({
@@ -636,5 +636,93 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
     await gw.decide(minimalContext);
     expect(records[0].validationWarnings).toEqual([]);
+  });
+});
+
+describe('DeepseekLlmGateway — empty-turn rejection (D1)', () => {
+  function emptyTurnFetch(): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          // No decision options, no mutations field, no outcome_text — a dead turn.
+          message: { content: JSON.stringify({
+            distilled_type: 'wait', stat: 'wisdom', base_dc: 10,
+            required: false, decision: [],
+          }), reasoning_content: '' },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  it('rejects (throws) a completely empty turn so the fallback retries instead of a dead turn', async () => {
+    const { records, recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: emptyTurnFetch(), recorder });
+    await expect(gw.decide(minimalContext)).rejects.toThrow(/empty turn/i);
+    // Recorded as a diagnostic failure (carries the error).
+    expect(records[0].error).toMatch(/empty turn/i);
+  });
+
+  it('does NOT reject when an empty decision carries an outcome_text (a legitimate no-op resolve)', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content: JSON.stringify({
+            distilled_type: 'wait', stat: 'wisdom', base_dc: 10,
+            required: false, decision: [], outcome_text: 'The moment passes.',
+          }), reasoning_content: '' },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+    const { recorder } = capture();
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
+    const result = await gw.decide(minimalContext);
+    expect(result.outcomeText).toBe('The moment passes.');
+  });
+});
+
+describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
+  function enrichFetch(body: unknown): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{ message: { content: JSON.stringify(body) } }],
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  it('parses a structured cartographer result', async () => {
+    const gw = new DeepseekLlmGateway({
+      apiKey: 'x',
+      fetch: enrichFetch({ is_safe: 0, description: 'A cold ruin.', matchesExisting: '' }),
+    });
+    const result = await gw.enrich({ newName: 'The Cold Ruin', existingNames: ['Town Square'], narrative: 'you enter a ruin' });
+    expect(result.is_safe).toBe(0);
+    expect(result.description).toBe('A cold ruin.');
+    expect(result.matchesExisting).toBeUndefined(); // empty string dropped
+  });
+
+  it('flags a duplicate via matchesExisting', async () => {
+    const gw = new DeepseekLlmGateway({
+      apiKey: 'x',
+      fetch: enrichFetch({ is_safe: 1, description: 'The shrine.', matchesExisting: 'The Shrine of the First Flame' }),
+    });
+    const result = await gw.enrich({ newName: 'The Temple', existingNames: ['The Shrine of the First Flame'], narrative: 'a temple' });
+    expect(result.matchesExisting).toBe('The Shrine of the First Flame');
+    expect(result.is_safe).toBe(1);
+  });
+
+  it('returns an empty result (never throws) on a non-200 / malformed response', async () => {
+    const bad = vi.fn().mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom'), json: () => Promise.resolve({}) }) as unknown as typeof fetch;
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: bad });
+    await expect(gw.enrich({ newName: 'X', existingNames: [], narrative: '' })).resolves.toEqual({});
   });
 });

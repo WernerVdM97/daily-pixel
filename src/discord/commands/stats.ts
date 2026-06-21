@@ -1,6 +1,6 @@
 import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
 import { formatStatLabel } from "../../engine/stat-format.js";
-import { SEPARATOR } from "../format.js";
+import { SEPARATOR, classEmoji } from "../format.js";
 
 export function makeStatsCommand(engine: WorldEngine) {
   return async (interaction: { user: { id: string } }) => {
@@ -16,7 +16,7 @@ export function formatStats(char: CharacterData): string {
   const lines: string[] = [];
 
   // Header
-  lines.push(`⚔️  **${char.name}** — ${char.class}`);
+  lines.push(`${classEmoji(char.class)}  **${char.name}** — ${char.class}`);
   lines.push(SEPARATOR);
   lines.push(`**Upbringing:** ${char.upbringing}  |  **Race:** ${char.race}`);
   lines.push(`**Alignment:** ${char.alignment}`);
@@ -33,11 +33,11 @@ export function formatStats(char: CharacterData): string {
 
   // Vitals
   lines.push(
-    `**Health:** ${char.health}/${char.maxHealth}  |  **Stamina:** ${char.stamina}`,
+    `**Health:** ${char.health}/${char.maxHealth}  |  **Stamina:** ${char.stamina}/${char.maxStamina}`,
   );
   lines.push(`**Location:** ${char.location}`);
   lines.push(
-    `**Wealth:** ${char.wealth} copper  |  **Rolls:** ${char.rollsRemaining} remaining`,
+    `**Wealth:** ${char.wealth} copper  |  **Rolls:** ${char.rollsRemaining}`,
   );
 
   return lines.join("\n");

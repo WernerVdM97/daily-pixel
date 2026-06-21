@@ -8,6 +8,7 @@ import { CharacterRepository } from '../../src/db/repositories/character.js';
 import { ItemRepository } from '../../src/db/repositories/item.js';
 import { ActionRepository } from '../../src/db/repositories/action.js';
 import { NpcRepository } from '../../src/db/repositories/npc.js';
+import { LocationRepository } from '../../src/db/repositories/location.js';
 import type { LlmDecision } from '../../src/llm/LlmGateway.js';
 
 // RED: tests fail because WorldEngineImpl doesn't exist yet
@@ -161,6 +162,111 @@ describe('WorldEngineImpl — action state machine integration', () => {
       expect(char?.location).toBe('The Forest Edge');
       expect(char?.stamina).toBe(10);
       expect(char?.rolls_remaining).toBe(1);
+    });
+
+    // ── D1 roll economy: charge only when the world changes; refund the first
+    //    no-op per day (ADR roll-economy-timeouts-and-world-growth §D1) ──
+    describe('D1 roll economy (no-op refund)', () => {
+      const noopDecision = (): LlmDecision => ({
+        distilledType: 'wait', stat: 'wisdom', baseDc: 10,
+        required: false, done: true, decision: [],
+        mutations: [],
+        outcomeText: 'The moment passes.',
+      });
+
+      it('refunds the roll on the first no-op auto-resolve of the day', async () => {
+        llm.setDecision(noopDecision());
+        const before = charRepo.findById(characterId)!.rolls_remaining; // 2
+
+        const result = await engine.startAction(characterId, 'stand around');
+
+        expect(result.outcome?.outcome).toBe('done');
+        const after = charRepo.findById(characterId)!;
+        expect(after.rolls_remaining).toBe(before); // refunded — unchanged
+        expect(after.last_noop_refund_day).toBe(1); // stamped on the current day
+      });
+
+      it('charges the roll on the second no-op of the same day', async () => {
+        // First no-op — refunded, stamps the day.
+        llm.setDecision(noopDecision());
+        await engine.startAction(characterId, 'stand around');
+        const afterFirst = charRepo.findById(characterId)!.rolls_remaining; // 2
+
+        // Second no-op same day — the freebie is spent, so this one costs a roll.
+        llm.setDecision(noopDecision());
+        await engine.startAction(characterId, 'stand around again');
+
+        expect(charRepo.findById(characterId)!.rolls_remaining).toBe(afterFirst - 1);
+      });
+
+      it('charges a world-changing auto-resolve every time (not a no-op)', async () => {
+        // Travel changes location + stamina → world-changing → always costs a roll,
+        // and must NOT consume the no-op freebie.
+        llm.setDecision({
+          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'modify_stamina', amount: -1 }],
+          outcomeText: 'You trek down the road, tiring.',
+        });
+        const before = charRepo.findById(characterId)!.rolls_remaining; // 2
+
+        await engine.startAction(characterId, 'walk down the road');
+
+        const after = charRepo.findById(characterId)!;
+        expect(after.rolls_remaining).toBe(before - 1); // charged
+        expect(after.last_noop_refund_day ?? null).toBeNull(); // freebie untouched
+      });
+    });
+
+    // ── D3 lazy world growth: a set_location to an unseeded name creates a
+    //    provisional row so the player is never stranded (ADR §D3) ──
+    describe('D3 lazy location creation', () => {
+      let locationRepo: LocationRepository;
+      beforeEach(() => {
+        locationRepo = new LocationRepository(getDb());
+      });
+
+      it('creates a provisional row for an unknown set_location and moves the player there', async () => {
+        llm.setDecision({
+          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'set_location', name: 'The Hidden Grotto' }],
+          outcomeText: 'You push past the falls into a hidden grotto.',
+        });
+
+        await engine.startAction(characterId, 'explore behind the waterfall');
+
+        const loc = locationRepo.findByName('The Hidden Grotto');
+        expect(loc).toBeDefined();
+        expect(loc!.is_safe).toBe(0);                 // off-map wilds unsafe until charted
+        expect(loc!.enrichment_pending).toBe(1);      // awaiting the cartographer
+        expect(loc!.description).toBeTruthy();         // placeholder, not null
+        // The player actually landed there (renderable, not phantom).
+        expect(charRepo.findById(characterId)!.location).toBe('The Hidden Grotto');
+      });
+
+      it('reuses an existing location (case-insensitive) — no new row, snaps to canonical', async () => {
+        locationRepo.create({ name: 'Town Square', isSafe: 1, description: 'The square.' });
+        const countBefore = locationRepo.findAll().length;
+
+        llm.setDecision({
+          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'set_location', name: 'town square' }], // lower-case
+          outcomeText: 'You head to the square.',
+        });
+
+        await engine.startAction(characterId, 'go to the square');
+
+        // No new row created…
+        expect(locationRepo.findAll().length).toBe(countBefore);
+        // …and the player is snapped to the canonical casing so getLocation resolves.
+        expect(charRepo.findById(characterId)!.location).toBe('Town Square');
+        // Existing row untouched (still safe, not flagged provisional).
+        const loc = locationRepo.findByName('Town Square')!;
+        expect(loc.is_safe).toBe(1);
+        expect(loc.enrichment_pending).toBe(0);
+      });
     });
 
     it('persists mid-action state in last_action_state', async () => {
@@ -335,7 +441,7 @@ describe('WorldEngineImpl — action state machine integration', () => {
       // Should still get a result with one option
       expect(result.firstDecision.options).toHaveLength(1);
       expect(result.firstDecision.options[0].label).toBe('Resolve');
-      expect(result.firstDecision.prompt).toContain("The warden's hand");
+      expect(result.firstDecision.prompt).toContain("The Warden's hand");
     });
 
     it('startAction drains a roll on divine', async () => {
@@ -425,5 +531,113 @@ describe('WorldEngineImpl — action state machine integration', () => {
       const r2 = await engine.stepAction(characterId, 'Stalk');  // from huntSecondDecision
       expect(r2.resolved).toBe(true);
     });
+  });
+});
+
+// ── B6 · D3 async cartographer enrichment ──
+describe('WorldEngineImpl — D3 cartographer enrichment', () => {
+  let engine: WorldEngineImpl;
+  let llm: MockLlmGateway;
+  let charRepo: CharacterRepository;
+  let locationRepo: LocationRepository;
+  let characterId: number;
+
+  /** A stub cartographer whose enrich() resolution the test can await. */
+  function makeStubCartographer(result: {
+    matchesExisting?: string;
+    is_safe?: 0 | 1;
+    description?: string;
+  }) {
+    const calls: Array<{ newName: string; existingNames: string[]; narrative: string }> = [];
+    let resolveDone!: () => void;
+    const done = new Promise<void>((r) => { resolveDone = r; });
+    return {
+      calls,
+      done,
+      gateway: {
+        enrich: async (input: { newName: string; existingNames: string[]; narrative: string }) => {
+          calls.push(input);
+          resolveDone();
+          return result;
+        },
+      },
+    };
+  }
+
+  function setup(cartographer?: { enrich: (i: { newName: string; existingNames: string[]; narrative: string }) => Promise<unknown> }) {
+    initDb(':memory:');
+    migrate(getDb());
+    llm = new MockLlmGateway();
+    const userRepo = new UserRepository(getDb());
+    charRepo = new CharacterRepository(getDb());
+    const itemRepo = new ItemRepository(getDb());
+    const actionRepo = new ActionRepository(getDb());
+    const npcRepo = new NpcRepository(getDb());
+    locationRepo = new LocationRepository(getDb());
+    engine = new WorldEngineImpl({
+      db: getDb(), llm, userRepo, charRepo, itemRepo, actionRepo, npcRepo,
+      rollD20: () => 15,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...(cartographer ? { cartographer: cartographer as any } : {}),
+    });
+    characterId = createTestChar(userRepo, charRepo).characterId;
+  }
+
+  afterEach(() => { closeDb(); });
+
+  const travelToNovelPlace = (): LlmDecision => ({
+    distilledType: 'travel', stat: 'physical', baseDc: 10,
+    required: false, done: true, decision: [],
+    mutations: [{ type: 'set_location', name: 'The Sunken Vault' }],
+    outcomeText: 'You descend a flooded stair into a sunken vault.',
+  });
+
+  it('fires the cartographer for a new provisional location and enriches the row', async () => {
+    const stub = makeStubCartographer({ is_safe: 0, description: 'A drowned hall of black stone, the water ankle-deep and cold.' });
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+
+    await stub.done;            // wait for the fire-and-forget enrich() to run
+    await Promise.resolve();    // let enrichProvisional's DB write settle
+
+    expect(stub.calls).toHaveLength(1);
+    expect(stub.calls[0].newName).toBe('The Sunken Vault');
+    // The existing-names list excludes the fresh provisional row itself.
+    expect(stub.calls[0].existingNames).not.toContain('The Sunken Vault');
+    expect(stub.calls[0].narrative).toMatch(/sunken vault/i);
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.description).toMatch(/drowned hall/i);
+    expect(loc.is_safe).toBe(0);
+    expect(loc.enrichment_pending).toBe(0); // flag cleared after enrichment
+  });
+
+  it('does not fire the cartographer when no provisional location was created', async () => {
+    const stub = makeStubCartographer({ is_safe: 1, description: 'x' });
+    setup(stub.gateway);
+
+    // A no-op (no set_location) — nothing to chart.
+    llm.setDecision({
+      distilledType: 'wait', stat: 'wisdom', baseDc: 10,
+      required: false, done: true, decision: [], mutations: [],
+      outcomeText: 'The moment passes.',
+    });
+    await engine.startAction(characterId, 'stand still');
+    await Promise.resolve();
+
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('works without a cartographer configured — row stays provisional', async () => {
+    setup(); // no cartographer
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await Promise.resolve();
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.enrichment_pending).toBe(1); // left provisional, no crash
   });
 });

@@ -15,7 +15,7 @@ describe("/journal", () => {
     expect(result).toContain("character");
   });
 
-  it("shows known locations with current location marked", () => {
+  it("shows known locations with current location marked", async () => {
     engine.setJournal({
       knownLocations: ["The Warden's Oak", "Dark Forest", "Stone Bridge"],
       currentLocation: "Dark Forest",
@@ -23,7 +23,7 @@ describe("/journal", () => {
       recentActions: [],
     });
     const handler = makeJournalCommand(engine);
-    const result = handler({ user: { id: "user-1" } } as never);
+    const result = await handler({ user: { id: "user-1" } } as never);
     expect(result).toContain("The Warden's Oak");
     expect(result).toContain("Dark Forest");
     expect(result).toContain("Stone Bridge");
@@ -32,7 +32,7 @@ describe("/journal", () => {
     expect(result).toMatch(/Dark Forest.*←/);
   });
 
-  it("shows NPCs encountered with name, class, and location", () => {
+  it("shows NPCs encountered with name, class, and location", async () => {
     engine.setJournal({
       knownLocations: [],
       currentLocation: "The Warden's Oak",
@@ -43,7 +43,7 @@ describe("/journal", () => {
       recentActions: [],
     });
     const handler = makeJournalCommand(engine);
-    const result = handler({ user: { id: "user-1" } } as never);
+    const result = await handler({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("Greta");
     expect(result).toContain("Blacksmith");
@@ -51,7 +51,7 @@ describe("/journal", () => {
     expect(result).toContain("Dark Forest");
   });
 
-  it("shows NPCs without class as plain name", () => {
+  it("shows NPCs without class as plain name", async () => {
     engine.setJournal({
       knownLocations: [],
       currentLocation: "The Warden's Oak",
@@ -59,11 +59,11 @@ describe("/journal", () => {
       recentActions: [],
     });
     const handler = makeJournalCommand(engine);
-    const result = handler({ user: { id: "user-1" } } as never);
+    const result = await handler({ user: { id: "user-1" } } as never);
     expect(result).toContain("Stranger");
   });
 
-  it("shows recent actions with type and outcome", () => {
+  it("shows recent actions with type and outcome", async () => {
     engine.setJournal({
       knownLocations: [],
       currentLocation: "The Warden's Oak",
@@ -78,7 +78,7 @@ describe("/journal", () => {
       ],
     });
     const handler = makeJournalCommand(engine);
-    const result = handler({ user: { id: "user-1" } } as never);
+    const result = await handler({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("hunt");
     expect(result).toContain("success");
@@ -86,7 +86,7 @@ describe("/journal", () => {
     expect(result).toContain("failure");
   });
 
-  it("handles empty journal gracefully", () => {
+  it("handles empty journal gracefully", async () => {
     engine.setJournal({
       knownLocations: [],
       currentLocation: "The Warden's Oak",
@@ -94,7 +94,7 @@ describe("/journal", () => {
       recentActions: [],
     });
     const handler = makeJournalCommand(engine);
-    const result = handler({ user: { id: "user-1" } } as never);
+    const result = await handler({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("Journal");
     expect(result).toContain("no locations");

@@ -4,6 +4,7 @@
 ## scratchpad (humans start here)
 
 ### TBD
+- [ ] std stats, i.e. the rankigns message does not add items. the stats page as well. the stats page should perhaps go into more detail of the base value and how items or character builder influences it.
 - [ ] often forgets too move people...
 - [x] player facing release notes message with feedabck button for requests. loaded from yaml — one file per tag (`assets/release-notes/<tag>.yml`); auto-posts on boot when the tag changes, with a Request/Feedback button. `v0.2.3.yml` authored (dormant until VERSION is bumped at release).
 - [x] rest button should only be visible on any screen if the player has not rested yet. and rename sleep to `rest` with camp emoji — Rest button (🏕️) hides once rested today via `last_rested_day`; nav id kept as `sleep` for routing.

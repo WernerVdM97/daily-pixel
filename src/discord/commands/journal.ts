@@ -2,7 +2,7 @@ import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { SEPARATOR } from "../format.js";
 
 export function makeJournalCommand(engine: WorldEngine) {
-  return (interaction: { user: { id: string } }): string => {
+  return async (interaction: { user: { id: string } }): Promise<string> => {
     const character = engine.getCharacter(interaction.user.id);
     if (!character) {
       return "You don't have a character yet. Type `/join` to create one.";

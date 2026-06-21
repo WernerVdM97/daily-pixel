@@ -21,6 +21,13 @@ dist/
 # Runtime database directory (volume mount for dev)
 data/
 
+# Local prod DB backups — keep the helper/analysis scripts, never commit the DB itself.
+db-backups/warden-*/
+db-backups/.latest
+db-backups/*.db
+db-backups/*.db-wal
+db-backups/*.db-shm
+
 # OS cruft
 Thumbs.db
 .DS_Store

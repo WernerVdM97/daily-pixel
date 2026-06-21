@@ -154,7 +154,7 @@ describe('FallbackLlmGateway — tier 2 (divine intervention)', () => {
 
     expect(result.distilledType).toBe(DIVINE_INTERVENTION_TYPE);
     expect(result.done).toBe(true);
-    expect(result.outcomeText).toContain('The warden\'s hand');
+    expect(result.outcomeText).toContain('The Warden\'s hand');
   });
 
   it('includes the divine message text', async () => {
@@ -165,7 +165,7 @@ describe('FallbackLlmGateway — tier 2 (divine intervention)', () => {
     const result = await gateway.decide(testContext);
 
     expect(result.outcomeText).toBe(
-      "A flash of light. The warden's hand on your shoulder. " +
+      "A flash of light. The Warden's hand on your shoulder. " +
       "You wake beneath the Oak, your action lost to forces beyond mortal ken.",
     );
   });

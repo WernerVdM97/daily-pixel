@@ -18,6 +18,19 @@ if [ -z "$DISCORD_ID" ]; then
   exit 1
 fi
 
+# ── Confirmation gate — this irreversibly deletes a character and all its rows ──
+echo "⚠️  About to PERMANENTLY delete the character for Discord user $DISCORD_ID"
+echo "    from $DB (and all related items/actions/feedback/etc.)."
+read -r -p "Type 'yes' to proceed: " confirm
+if [ "$confirm" != "yes" ]; then
+  echo "Aborted."
+  exit 1
+fi
+
+# Always clean up the temp DB copies on exit (success, abort, or error).
+cleanup_tmp() { rm -f "$TMP" "$TMP-wal" "$TMP-shm"; }
+trap cleanup_tmp EXIT
+
 # Copy DB + WAL, checkpoint, clean
 cp "$DB" "$TMP"
 [ -f "$DB-wal" ] && cp "$DB-wal" "$TMP-wal"
