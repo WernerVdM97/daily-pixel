@@ -60,7 +60,13 @@ import {
 } from "./llm/FallbackLlmGateway.js";
 import { c } from "./util/colors.js";
 
-import { loadYamlFile } from "./assets/yaml-loader.js";
+import {
+  loadAndValidate,
+  validateStatDef,
+  validateAlignment,
+  validateDayJob,
+  validateItemSet,
+} from "./assets/asset-schemas.js";
 import { SceneLoader } from "./scenes/SceneLoader.js";
 import { TagResolver } from "./scenes/TagResolver.js";
 
@@ -163,14 +169,17 @@ const VERSION = APP_VERSION;
 
 // ── YAML asset loading (fail-fast) ──
 
+// Fail-fast: each file is validated against its schema at load time, so a
+// malformed asset (e.g. a background missing a stat key) crashes boot with a
+// file+entry+field message instead of silently producing a NaN/null downstream.
 function loadCharCreationAssets() {
   return {
-    classes: loadYamlFile(path.join(CHAR_CREATION_DIR, "classes.yml")),
-    backgrounds: loadYamlFile(path.join(CHAR_CREATION_DIR, "backgrounds.yml")),
-    races: loadYamlFile(path.join(CHAR_CREATION_DIR, "races.yml")),
-    alignments: loadYamlFile(path.join(CHAR_CREATION_DIR, "alignments.yml")),
-    dayJobs: loadYamlFile(path.join(CHAR_CREATION_DIR, "day-jobs.yml")),
-    itemSets: loadYamlFile(path.join(CHAR_CREATION_DIR, "item-sets.yml")),
+    classes: loadAndValidate(path.join(CHAR_CREATION_DIR, "classes.yml"), validateStatDef),
+    backgrounds: loadAndValidate(path.join(CHAR_CREATION_DIR, "backgrounds.yml"), validateStatDef),
+    races: loadAndValidate(path.join(CHAR_CREATION_DIR, "races.yml"), validateStatDef),
+    alignments: loadAndValidate(path.join(CHAR_CREATION_DIR, "alignments.yml"), validateAlignment),
+    dayJobs: loadAndValidate(path.join(CHAR_CREATION_DIR, "day-jobs.yml"), validateDayJob),
+    itemSets: loadAndValidate(path.join(CHAR_CREATION_DIR, "item-sets.yml"), validateItemSet),
   };
 }
 
