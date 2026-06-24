@@ -1,0 +1,22 @@
+# Player-facing release notes for tag v0.2.5.
+# Keep it non-technical — what's new and fun, not migrations/refactors.
+# Posted automatically to the announcement channel the first time the bot
+# boots on this tag. One file per tag: assets/release-notes/<tag>.yml.
+#
+# DRAFT / dormant: authored ahead of the v0.2.5 cut. Add `date:` and finalise
+# the highlights when VERSION is bumped to 0.2.5. Nothing posts until the bot
+# boots on the matching v0.2.5 tag.
+
+tag: "v0.2.5"
+title: "The Weekly Chronicle"
+
+highlights:
+  - "📜 **Every week now has its own thread.** Each Monday a fresh **Week N** thread opens at the Oak, and all the day's deeds are gathered there — one running log of the table's story instead of a scattered feed."
+  - "✍️ **The week gets written down.** When a new week begins, the one just gone is rewritten into a short **chronicle** — the highlights of who did what, who rose, who fell — pinned for everyone to look back on."
+  - "📊 **Gear finally counts where it matters.** Your `/stats` now shows each ability's true score with the bonus from your kit broken out, and the **Mightiest** board ranks on your real, geared-up strength."
+  - "📌 **The important stuff stays pinned.** Leaderboards, threats, and announcements are pinned in the channel so you can always find the latest at a glance."
+
+notes: >
+  This update is about the story you're all telling together. The week's deeds
+  now live in one place and get chronicled when it closes, so the Oak remembers.
+  Keep telling us what you'd love to see next.
