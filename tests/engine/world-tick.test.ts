@@ -606,6 +606,20 @@ describe('world tick', () => {
         expect(boards.might[0]).toMatchObject({ name: 'Aldric', stat: 'physical', value: 3 });
       });
 
+      it('ranks the might board on effective scores — gear bonuses count', () => {
+        const { engine, charRepo, userRepo, itemRepo } = makeEngine();
+        const { characterId } = createTestChar(charRepo, userRepo);
+        // Base stats: physical 3 (highest), charisma 0. A +4 charisma item lifts
+        // effective charisma to 4, so the board must report charisma/4, not physical/3.
+        itemRepo.create(characterId, {
+          name: 'Silver Tongue Charm', emoji: '💬', stat: 'charisma', modifier: 4, quantity: 1,
+        });
+
+        const boards = engine.getLeaderboards(5);
+
+        expect(boards.might[0]).toMatchObject({ name: 'Aldric', stat: 'charisma', value: 4 });
+      });
+
       it('returns empty boards when there are no characters', () => {
         const { engine } = makeEngine();
         expect(engine.getLeaderboards(5)).toEqual({ wealth: [], might: [] });

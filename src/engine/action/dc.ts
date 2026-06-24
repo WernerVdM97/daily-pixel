@@ -37,6 +37,21 @@ export function itemStatModifier(items: ItemData[], stat: string): number {
 }
 
 /**
+ * A character's effective ability scores: base stats plus the summed item
+ * modifiers keyed to each stat. This is the score that actually drives rolls
+ * (`abilityCheckBonus`), so it's what `/stats` and the might leaderboard should
+ * surface — base stats alone understate a geared-up character.
+ */
+export function effectiveStats(stats: StatBlock, items: ItemData[]): StatBlock {
+  return {
+    physical: stats.physical + itemStatModifier(items, 'physical'),
+    wisdom: stats.wisdom + itemStatModifier(items, 'wisdom'),
+    intelligence: stats.intelligence + itemStatModifier(items, 'intelligence'),
+    charisma: stats.charisma + itemStatModifier(items, 'charisma'),
+  };
+}
+
+/**
  * Total roll bonus for an ability check: the character's own stat plus the summed
  * modifiers of items keyed to that stat. This is what's added to the d20.
  *

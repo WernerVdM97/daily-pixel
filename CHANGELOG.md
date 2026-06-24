@@ -5,6 +5,15 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+### Fixed
+- **Custom day-job action from the nav menu now clears its stale menu** — the day-job menu opened by the **Action** nav button never recorded its message id (unlike the `/action` slash menu), so starting a **Custom…** action from it left the old ephemeral menu hanging on screen. The nav path now stashes the menu like the slash path, so the existing delete-on-modal-open logic clears it.
+
+### Added
+- **Pinned announcements** — the bot now pins the latest **leaderboard** (unpinning older boards so only the newest stays), and pins every **release-notes** and **Saturday threat** message. Best-effort: requires the bot to hold the **Manage Messages** permission in the announcement channel — without it the messages still post, just unpinned.
+
+### Changed
+- **No-op refund no longer denied by a stamina or roll-only change (D1 follow-up)** — the auto-resolve refund treats a resolution as world-changing only on a *meaningful* delta (health, max-stamina, wealth, location, an item gained/lost, or an NPC spawned). A "shrug" outcome whose only effect is tiring the character (stamina) or adjusting rolls is now correctly a refundable no-op (first per character per day) instead of charging the roll.
+- **Item bonuses now surfaced on `/stats` and the might leaderboard** — `/stats` shows each ability as its *effective* score (base + gear) with the gear contribution broken out (e.g. `+6  (+4 base, +2 🎒)`), and the Wed/Sun "Mightiest" board ranks on effective scores so a geared-up character's true strongest ability counts.
 
 ## [0.2.4] — 2026-06-21
 ### Added

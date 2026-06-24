@@ -35,6 +35,7 @@ import {
 import type {
   ChatInputCommandInteraction,
   RepliableInteraction,
+  Message,
 } from "discord.js";
 
 import { APP_VERSION } from "./version.js";
@@ -90,7 +91,9 @@ import {
   pickWeeklyThreat,
   buildThreatAnnouncement,
   buildLeaderboardAnnouncement,
+  LEADERBOARD_MARKER,
 } from "./discord/afternoon.js";
+import { pinMessage, pinReplacing } from "./discord/pin.js";
 import {
   loadReleaseNotes,
   buildReleaseNotesMessage,
@@ -108,6 +111,7 @@ import {
   buildDecisionMessage,
   buildOutcomeEmbed,
   consumeMenuMessage,
+  stashMenuMessage,
   CID_DAYJOB,
   CID_DAYJOB_CUSTOM,
 } from "./discord/commands/action.js";
@@ -650,12 +654,14 @@ function scheduleMorningAnnouncement(
 
 // ── Afternoon beats (12:00 UTC) ──
 
-/** Post a plain channel announcement with a single "Hi" button. Best-effort. */
+/** Post a plain channel announcement with a single "Hi" button. Best-effort.
+ *  Returns the sent message (so the caller can pin it), or null if the channel
+ *  wasn't usable. */
 async function postAnnouncement(
   client: Client,
   channelId: string,
   content: string,
-): Promise<boolean> {
+): Promise<Message | null> {
   const channel = await client.channels.fetch(channelId);
   if (channel?.isTextBased() && "send" in channel) {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -665,20 +671,19 @@ async function postAnnouncement(
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("🌅"),
     );
-    await (
+    return await (
       channel as {
         send: (opts: {
           content: string;
           components: unknown[];
-        }) => Promise<unknown>;
+        }) => Promise<Message>;
       }
     ).send({ content, components: [row] });
-    return true;
   }
   console.error(
     c.red(`[cron] Channel ${channelId} is not a text channel or not found`),
   );
-  return false;
+  return null;
 }
 
 /**
@@ -716,7 +721,9 @@ async function runAfternoonBeat(
       // later run pass the guard and spawn a second identical threat NPC. A failed
       // announcement now just means no message that day, never a duplicate mob.
       engine.setMeta("last_threat_date", dateStr);
-      if (await postAnnouncement(client, channelId, buildThreatAnnouncement(threat))) {
+      const threatMsg = await postAnnouncement(client, channelId, buildThreatAnnouncement(threat));
+      if (threatMsg) {
+        await pinMessage(threatMsg, "Saturday threat");
         console.log(
           c.green(`[cron] Saturday threat posted: ${threat.npc.name} at ${threat.location}.`),
         );
@@ -732,8 +739,11 @@ async function runAfternoonBeat(
         return;
       }
       const boards = engine.getLeaderboards(5);
-      if (await postAnnouncement(client, channelId, buildLeaderboardAnnouncement(boards))) {
+      const boardMsg = await postAnnouncement(client, channelId, buildLeaderboardAnnouncement(boards));
+      if (boardMsg) {
         engine.setMeta("last_leaderboard_date", dateStr);
+        // Pin the latest board and unpin any older ones (only the newest stays).
+        await pinReplacing(boardMsg, LEADERBOARD_MARKER, "leaderboard");
         console.log(c.green("[cron] Leaderboards posted."));
       }
     }
@@ -805,14 +815,15 @@ async function runReleaseAnnouncement(
         .setStyle(ButtonStyle.Primary)
         .setEmoji("💬"),
     );
-    await (
+    const sent = await (
       channel as {
         send: (opts: {
           content: string;
           components: unknown[];
-        }) => Promise<unknown>;
+        }) => Promise<Message>;
       }
     ).send({ content: buildReleaseNotesMessage(notes), components: [row] });
+    await pinMessage(sent, `release notes ${currentTag}`);
 
     engine.setMeta("last_release_announced", currentTag);
     console.log(c.green(`[release] Announced release notes for ${currentTag}.`));
@@ -1858,6 +1869,15 @@ _${idleMsg}_`)
             embeds: [embed.toJSON()],
             components: [row.toJSON()],
             flags: MessageFlags.Ephemeral,
+          });
+          // Stash this menu so the Custom… handler can delete it (same as the
+          // /action slash path). Without this, a Custom… action started from the
+          // nav-button menu leaves the stale menu message hanging on the screen.
+          const menuMsg = await interaction.fetchReply();
+          stashMenuMessage(interaction.user.id, {
+            applicationId: interaction.applicationId,
+            token: interaction.token,
+            messageId: menuMsg.id,
           });
         } catch (err) {
           void notifyAdmin("Nav (action) failed", err);

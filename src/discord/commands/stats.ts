@@ -1,5 +1,10 @@
-import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
+import type {
+  WorldEngine,
+  CharacterData,
+  ItemData,
+} from "../../engine/WorldEngine.js";
 import { formatStatLabel } from "../../engine/stat-format.js";
+import { itemStatModifier } from "../../engine/action/dc.js";
 import { SEPARATOR, classEmoji } from "../format.js";
 
 export function makeStatsCommand(engine: WorldEngine) {
@@ -8,11 +13,11 @@ export function makeStatsCommand(engine: WorldEngine) {
     if (!character) {
       return "You don't have a character yet. Type `/join` to create one.";
     }
-    return formatStats(character);
+    return formatStats(character, engine.getItems(character.id));
   };
 }
 
-export function formatStats(char: CharacterData): string {
+export function formatStats(char: CharacterData, items: ItemData[] = []): string {
   const lines: string[] = [];
 
   // Header
@@ -23,12 +28,13 @@ export function formatStats(char: CharacterData): string {
   lines.push(`**Day Job:** ${char.dayJob}`);
   lines.push("");
 
-  // Stats
+  // Stats — show the effective score (base + gear); break out the gear bonus
+  // when items contribute, since that's the number that actually drives rolls.
+  const pad = { physical: ' ', wisdom: '      ', intelligence: ' ', charisma: '    ' };
   lines.push("**Stats:**");
-  lines.push(`  ${formatStatLabel('physical')}  ${formatStat(char.stats.physical)}`);
-  lines.push(`  ${formatStatLabel('wisdom')}       ${formatStat(char.stats.wisdom)}`);
-  lines.push(`  ${formatStatLabel('intelligence')}  ${formatStat(char.stats.intelligence)}`);
-  lines.push(`  ${formatStatLabel('charisma')}     ${formatStat(char.stats.charisma)}`);
+  for (const stat of ['physical', 'wisdom', 'intelligence', 'charisma'] as const) {
+    lines.push(`  ${formatStatLabel(stat)} ${pad[stat]}${formatStatWithGear(char.stats[stat], itemStatModifier(items, stat))}`);
+  }
   lines.push("");
 
   // Vitals
@@ -46,4 +52,15 @@ export function formatStats(char: CharacterData): string {
 function formatStat(value: number): string {
   const sign = value >= 0 ? "+" : "";
   return `${sign}${value}`;
+}
+
+/**
+ * Render a stat as its effective score (base + gear). When gear contributes a
+ * nonzero modifier, append a breakdown so the player can see the bonus their
+ * items grant, e.g. `+3  (+2 base, +1 🎒)`.
+ */
+function formatStatWithGear(base: number, gear: number): string {
+  const effective = formatStat(base + gear);
+  if (gear === 0) return effective;
+  return `${effective}  (${formatStat(base)} base, ${formatStat(gear)} 🎒)`;
 }

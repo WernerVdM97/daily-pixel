@@ -200,21 +200,40 @@ describe('WorldEngineImpl — action state machine integration', () => {
       });
 
       it('charges a world-changing auto-resolve every time (not a no-op)', async () => {
-        // Travel changes location + stamina → world-changing → always costs a roll,
-        // and must NOT consume the no-op freebie.
+        // A wealth gain genuinely changes the world → always costs a roll, and
+        // must NOT consume the no-op freebie.
         llm.setDecision({
-          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          distilledType: 'forage', stat: 'wisdom', baseDc: 10,
           required: false, done: true, decision: [],
-          mutations: [{ type: 'modify_stamina', amount: -1 }],
-          outcomeText: 'You trek down the road, tiring.',
+          mutations: [{ type: 'modify_wealth', amount: 5 }],
+          outcomeText: 'You find a few coins in the dirt.',
         });
         const before = charRepo.findById(characterId)!.rolls_remaining; // 2
 
-        await engine.startAction(characterId, 'walk down the road');
+        await engine.startAction(characterId, 'search the ground');
 
         const after = charRepo.findById(characterId)!;
         expect(after.rolls_remaining).toBe(before - 1); // charged
         expect(after.last_noop_refund_day ?? null).toBeNull(); // freebie untouched
+      });
+
+      it('refunds an auto-resolve whose only changes are stamina and/or rolls', async () => {
+        // A "shrug" that merely tires the character (or fiddles rolls) is still a
+        // no-op for the player — they got nothing for it — so the first per day
+        // is refunded, exactly like an empty resolution.
+        llm.setDecision({
+          distilledType: 'wait', stat: 'wisdom', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'modify_stamina', amount: -1 }],
+          outcomeText: 'You mill about a while, getting nowhere.',
+        });
+        const before = charRepo.findById(characterId)!.rolls_remaining; // 2
+
+        await engine.startAction(characterId, 'mill about');
+
+        const after = charRepo.findById(characterId)!;
+        expect(after.rolls_remaining).toBe(before); // refunded — unchanged
+        expect(after.last_noop_refund_day).toBe(1); // freebie spent on this no-op
       });
     });
 

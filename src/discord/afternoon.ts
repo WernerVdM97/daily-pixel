@@ -118,9 +118,13 @@ function rankMarker(i: number): string {
   return RANK_MEDAL[i] ?? `${i + 1}.`;
 }
 
+/** Stable opening of every leaderboard message. Used both to build the body and
+ *  to recognise older leaderboard posts when unpinning all but the latest. */
+export const LEADERBOARD_MARKER = "📊 **The Reckoning**";
+
 /** The Wednesday/Sunday leaderboard announcement body. */
 export function buildLeaderboardAnnouncement(boards: Leaderboards): string {
-  const lines: string[] = ["📊 **The Reckoning** — where the souls of the Oak stand.", ""];
+  const lines: string[] = [`${LEADERBOARD_MARKER} — where the souls of the Oak stand.`, ""];
 
   lines.push("💰 **Richest**");
   if (boards.wealth.length === 0) {

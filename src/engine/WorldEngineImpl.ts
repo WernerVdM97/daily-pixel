@@ -27,6 +27,7 @@ import {
   type WorldContextResolver,
 } from "./action/machine.js";
 import { validateMutations, applyMutations } from "./action/mutations.js";
+import { effectiveStats } from "./action/dc.js";
 import {
   computeStats,
   type ClassDef,
@@ -433,12 +434,17 @@ export class WorldEngineImpl implements WorldEngine {
       this.charRepo.update(characterId, updates);
     }
 
-    // D1: did this resolution change the world? A character-state delta
-    // (location/health/stamina/wealth/rolls), an item gained/lost, or an NPC
-    // spawned all count. Drives the no-op roll refund in startAction. Computed
-    // from the applied mutations only — the roll debit itself is not a "change".
+    // D1: did this resolution change the world? Drives the no-op roll refund in
+    // startAction. A meaningful delta — health, max_stamina, wealth, location, an
+    // item gained/lost, or an NPC spawned — counts. Stamina and rolls_remaining
+    // deltas DO NOT: stamina is just the cost of the effort and rolls are the
+    // turn economy itself, so a "shrug" outcome that merely tires the character or
+    // adjusts rolls is still a refundable no-op (the player got nothing for it).
     const worldChanged =
-      Object.keys(updates).length > 0 ||
+      updates.health !== undefined ||
+      updates.max_stamina !== undefined ||
+      updates.wealth !== undefined ||
+      updates.location !== undefined ||
       applied.itemsToAdd.length > 0 ||
       applied.itemsToRemove.length > 0 ||
       applied.npcsToSpawn.length > 0;
@@ -984,8 +990,11 @@ export class WorldEngineImpl implements WorldEngine {
 
     const might = chars
       .map((c) => {
+        // Rank on effective scores (base + gear), so a geared-up character's
+        // strongest ability — including item bonuses — is what's compared.
+        const eff = effectiveStats(c.stats, this.getItems(c.id));
         const [stat, value] = (
-          Object.entries(c.stats) as [string, number][]
+          Object.entries(eff) as [string, number][]
         ).reduce((best, cur) => (cur[1] > best[1] ? cur : best));
         return { name: c.name, class: c.class, value, stat };
       })

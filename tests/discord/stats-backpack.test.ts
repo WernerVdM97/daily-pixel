@@ -133,6 +133,32 @@ describe("/stats", () => {
     expect(result).toContain("**Stamina:** 3/10");
   });
 
+  it("folds item bonuses into the shown stat and breaks out the gear contribution", async () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(makeChar()); // base physical 4
+    engine.setItems([makeItem({ stat: "physical", modifier: 2 })]); // +2 gear
+    const handler = makeStatsCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+
+    // Effective physical is base 4 + gear 2 = 6, with the breakdown spelled out.
+    const phyLine = result.split("\n").find((l) => l.includes("💪 PHY"))!;
+    expect(phyLine).toContain("+6");
+    expect(phyLine).toContain("+4 base");
+    expect(phyLine).toContain("+2 🎒");
+  });
+
+  it("shows no gear breakdown for a stat with no item bonus", async () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(makeChar()); // base charisma 1, no items touch it
+    engine.setItems([makeItem({ stat: "physical", modifier: 2 })]);
+    const handler = makeStatsCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+
+    const chaLine = result.split("\n").find((l) => l.includes("💬 CHA"))!;
+    expect(chaLine).toContain("+1");
+    expect(chaLine).not.toContain("🎒");
+  });
+
   it('drops the word "remaining" from the rolls line (one vocabulary with /hi)', async () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar({ rollsRemaining: 2 }));
