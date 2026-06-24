@@ -52,7 +52,7 @@ import { LlmCallRepository } from "./db/repositories/llm-call.js";
 import { WorldEngineImpl } from "./engine/WorldEngineImpl.js";
 import type { WorldEngine } from "./engine/WorldEngine.js";
 import type { ClassDef, ModifierDef } from "./engine/StatComputer.js";
-import type { LlmDecision, LlmContext } from "./llm/LlmGateway.js";
+import type { LlmDecision, LlmContext, RecapGateway } from "./llm/LlmGateway.js";
 import { DeepseekLlmGateway } from "./llm/DeepseekLlmGateway.js";
 import {
   FallbackLlmGateway,
@@ -94,6 +94,17 @@ import {
   LEADERBOARD_MARKER,
 } from "./discord/afternoon.js";
 import { pinMessage, pinReplacing } from "./discord/pin.js";
+import {
+  broadcastOutcome,
+  buildPlaceholderHeader,
+  buildRecapHeader,
+  generateWeeklyDigest,
+  META_RECAP_THREAD_ID,
+  META_RECAP_HEADER_ID,
+  META_RECAP_WEEK_START,
+  META_RECAP_WEEK_NUMBER,
+  META_LAST_RECAP_DATE,
+} from "./discord/weekly-recap.js";
 import {
   loadReleaseNotes,
   buildReleaseNotesMessage,
@@ -688,6 +699,7 @@ async function postAnnouncement(
 
 /**
  * The midday beat, dispatched by UTC weekday:
+ *   - Monday    → roll the weekly recap (finalize last week's header, start a new week).
  *   - Saturday  → spawn a rotating wilderness threat NPC + post the hint.
  *   - Wed & Sun → post the wealth + might leaderboards.
  * Other days are no-ops. Each beat is idempotent per UTC day via a meta key.
@@ -696,13 +708,22 @@ async function runAfternoonBeat(
   engine: WorldEngine,
   client: Client,
   channelId: string,
+  recap?: RecapGateway,
 ): Promise<void> {
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 10);
   const weekday = now.getUTCDay(); // 0 = Sunday … 6 = Saturday
 
   try {
-    if (weekday === 6) {
+    if (weekday === 1) {
+      // Monday — weekly recap rollover.
+      if (engine.getMeta(META_LAST_RECAP_DATE) === dateStr) {
+        console.log(c.grey("[cron] Weekly recap already rolled today — skipping."));
+        return;
+      }
+      await runWeeklyRecap(engine, client, channelId, recap);
+      engine.setMeta(META_LAST_RECAP_DATE, dateStr);
+    } else if (weekday === 6) {
       // Saturday — wilderness threat.
       if (engine.getMeta("last_threat_date") === dateStr) {
         console.log(c.grey("[cron] Saturday threat already posted today — skipping."));
@@ -758,6 +779,7 @@ function scheduleAfternoonBeat(
   engine: WorldEngine,
   client: Client,
   channelId: string,
+  recap?: RecapGateway,
 ): void {
   const now = Date.now();
   const next = new Date();
@@ -774,9 +796,138 @@ function scheduleAfternoonBeat(
   );
 
   setTimeout(async () => {
-    await runAfternoonBeat(engine, client, channelId);
-    scheduleAfternoonBeat(engine, client, channelId);
+    await runAfternoonBeat(engine, client, channelId, recap);
+    scheduleAfternoonBeat(engine, client, channelId, recap);
   }, delay);
+}
+
+// ── Weekly recap (Monday rollover) ──
+
+/** Add `n` whole UTC days to a 'YYYY-MM-DD' date string. */
+function addDaysUtc(dateStr: string, n: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+type GuildTextChannel = {
+  send: (opts: { content: string }) => Promise<Message>;
+  messages: { fetch: (id: string) => Promise<Message> };
+};
+
+function isGuildTextChannel(channel: unknown): channel is GuildTextChannel {
+  return (
+    !!channel &&
+    typeof (channel as { send?: unknown }).send === "function" &&
+    typeof (channel as { messages?: { fetch?: unknown } }).messages?.fetch === "function"
+  );
+}
+
+/**
+ * Edit the previous week's placeholder header into its finalized chronicle
+ * (digest + highlights), computed from that week's actions. Best-effort; a
+ * missing header/week (first ever run) or an unreachable message is a no-op.
+ */
+async function finalizePreviousWeek(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+  recap: RecapGateway | undefined,
+): Promise<void> {
+  const headerId = engine.getMeta(META_RECAP_HEADER_ID);
+  const weekStart = engine.getMeta(META_RECAP_WEEK_START);
+  if (!headerId || !weekStart) return; // nothing to finalize yet
+
+  const weekNumber = Number(engine.getMeta(META_RECAP_WEEK_NUMBER) ?? "1");
+  const today = new Date().toISOString().slice(0, 10);
+  // Half-open [weekStart, tomorrow) on the date column — captures everything up
+  // to and including today (date-only bounds compare safely vs 'YYYY-MM-DD HH:MM:SS').
+  const actions = engine.getActionsBetween(weekStart, addDaysUtc(today, 1));
+  const recapResult = await generateWeeklyDigest(actions, recap);
+  const headerText = buildRecapHeader(weekNumber, weekStart, recapResult);
+
+  const channel = await client.channels.fetch(channelId);
+  if (!isGuildTextChannel(channel)) return;
+  try {
+    const headerMsg = await channel.messages.fetch(headerId);
+    await headerMsg.edit(headerText);
+    console.log(c.green(`[recap] Finalized Week ${weekNumber} chronicle (${actions.length} actions).`));
+  } catch (err) {
+    console.warn(
+      c.yellow(`[recap] Could not edit Week ${weekNumber} header (${headerId}):`),
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+/**
+ * Start a new week: post a placeholder header in the channel, pin it, open a
+ * public thread on it, and persist the thread/header ids + week start + number.
+ */
+async function startNewWeek(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  const weekNumber = Number(engine.getMeta(META_RECAP_WEEK_NUMBER) ?? "0") + 1;
+
+  const channel = await client.channels.fetch(channelId);
+  if (!isGuildTextChannel(channel)) {
+    console.error(c.red(`[recap] Channel ${channelId} not usable for the weekly header.`));
+    return;
+  }
+
+  const header = await channel.send({ content: buildPlaceholderHeader(weekNumber, today) });
+  await pinMessage(header, `Week ${weekNumber} header`);
+  const thread = await header.startThread({ name: `Week ${weekNumber} — the Oak's log` });
+
+  engine.setMeta(META_RECAP_THREAD_ID, thread.id);
+  engine.setMeta(META_RECAP_HEADER_ID, header.id);
+  engine.setMeta(META_RECAP_WEEK_START, today);
+  engine.setMeta(META_RECAP_WEEK_NUMBER, String(weekNumber));
+  console.log(c.green(`[recap] Started Week ${weekNumber} (thread ${thread.id}).`));
+}
+
+/** The Monday rollover: finalize last week, then begin this week. */
+async function runWeeklyRecap(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+  recap: RecapGateway | undefined,
+): Promise<void> {
+  try {
+    await finalizePreviousWeek(engine, client, channelId, recap);
+    await startNewWeek(engine, client, channelId);
+  } catch (err) {
+    console.error(c.red("[recap] Weekly recap failed:"), err);
+    void notifyAdmin("Weekly recap failed", err);
+  }
+}
+
+/**
+ * Boot-time guarantee that a current week thread exists, so action outcomes
+ * always have somewhere to post before the first Monday. If the stored thread is
+ * gone (or none was ever set), start a fresh week. Never throws into caller.
+ */
+async function ensureWeeklyThread(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+): Promise<void> {
+  try {
+    const threadId = engine.getMeta(META_RECAP_THREAD_ID);
+    if (threadId) {
+      const existing = await client.channels.fetch(threadId).catch(() => null);
+      if (existing) return; // current thread still reachable
+    }
+    await startNewWeek(engine, client, channelId);
+  } catch (err) {
+    console.warn(
+      c.yellow("[recap] ensureWeeklyThread failed:"),
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 // ── Release notes (on version bump) ──
@@ -861,6 +1012,9 @@ async function main() {
   // enrichment. Undefined when no API key (the mock path); the engine then just
   // leaves provisional rows unenriched.
   let cartographer: DeepseekLlmGateway | undefined;
+  // Weekly recap chronicler — same DeepSeek transport. Undefined on the mock path
+  // (the Monday recap then falls back to a deterministic count summary).
+  let recapGateway: RecapGateway | undefined;
   if (DEEPSEEK_API_KEY) {
     const deepseek = new DeepseekLlmGateway({
       apiKey: DEEPSEEK_API_KEY,
@@ -878,6 +1032,7 @@ async function main() {
       },
     });
     cartographer = deepseek;
+    recapGateway = deepseek;
     console.log(
       c.cyan(
         `[llm] DeepSeek gateway initialized with fallback chain (model: ${LLM_MODEL ?? "default"})`,
@@ -1123,7 +1278,10 @@ ${headInfo}`);
       scheduleTick(engine);
       scheduleMorningAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleGoodnightAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
-      scheduleAfternoonBeat(engine, readyClient, TICK_CHANNEL_ID);
+      scheduleAfternoonBeat(engine, readyClient, TICK_CHANNEL_ID, recapGateway);
+      // Ensure a current week thread exists so action outcomes have a home before
+      // the first Monday rollover (boot-time catch-up; recreates if the thread is gone).
+      void ensureWeeklyThread(engine, readyClient, TICK_CHANNEL_ID);
       // Announce release notes once if the bot just booted on a new tag.
       void runReleaseAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
     } else {
@@ -1405,10 +1563,16 @@ ${headInfo}`);
             result.state,
           );
           await interaction.editReply({ embeds: [embed], components: [] });
-          await interaction.followUp({
+          const payload = {
             content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
             embeds: [embed],
             components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
+          };
+          await broadcastOutcome({
+            client: interaction.client,
+            threadId: engine.getMeta(META_RECAP_THREAD_ID),
+            payload,
+            fallback: () => interaction.followUp(payload),
           });
           await announceCollapse(resolvedChar.name, char, resolvedChar);
         } else if (result.firstDecision.options.length === 0) {
@@ -1694,10 +1858,16 @@ _${idleMsg}_`)
             embeds: [embed],
             components: [],
           });
-          await interaction.followUp({
+          const payload = {
             content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
             embeds: [embed],
             components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
+          };
+          await broadcastOutcome({
+            client: interaction.client,
+            threadId: engine.getMeta(META_RECAP_THREAD_ID),
+            payload,
+            fallback: () => interaction.followUp(payload),
           });
           await announceCollapse(resolvedChar.name, char, resolvedChar);
         } else if (result.firstDecision.options.length === 0) {

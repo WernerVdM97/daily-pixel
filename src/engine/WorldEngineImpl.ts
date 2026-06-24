@@ -51,6 +51,7 @@ import type {
   NpcMovement,
   StatBlock,
   Leaderboards,
+  WeeklyActionSummary,
 } from "./WorldEngine.js";
 
 /** Daily action allotment granted at character creation and refreshed each tick. */
@@ -1002,6 +1003,20 @@ export class WorldEngineImpl implements WorldEngine {
       .slice(0, limit);
 
     return { wealth, might };
+  }
+
+  getActionsBetween(startIso: string, endIso: string): WeeklyActionSummary[] {
+    const rows = this.db
+      .prepare(
+        `SELECT pc.name AS character, a.type AS type, a.outcome AS outcome,
+                COALESCE(a.narrative, '') AS narrative
+           FROM actions a
+           JOIN player_characters pc ON pc.id = a.character_id
+          WHERE a.created_at >= ? AND a.created_at < ?
+          ORDER BY a.created_at ASC`,
+      )
+      .all(startIso, endIso) as WeeklyActionSummary[];
+    return rows;
   }
 
   countSoulsInUnsafe(): number {

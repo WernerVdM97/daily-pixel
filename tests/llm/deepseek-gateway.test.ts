@@ -726,3 +726,46 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
     await expect(gw.enrich({ newName: 'X', existingNames: [], narrative: '' })).resolves.toEqual({});
   });
 });
+
+describe('DeepseekLlmGateway — summarizeWeek (weekly recap)', () => {
+  function recapFetch(content: unknown): typeof fetch {
+    return vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(content) } }] }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+  }
+
+  it('parses digest + highlights from the model response', async () => {
+    const fetchFn = recapFetch({
+      digest: 'A grim week on the eastern road.',
+      highlights: ['Bron slew the wraith', 'Aldric claimed the road'],
+    });
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn });
+    const out = await gw.summarizeWeek([
+      { character: 'Bron', type: 'combat', outcome: 'success', narrative: 'The wraith fell.' },
+    ]);
+    expect(out.digest).toBe('A grim week on the eastern road.');
+    expect(out.highlights).toEqual(['Bron slew the wraith', 'Aldric claimed the road']);
+  });
+
+  it('drops non-string / blank highlight entries', async () => {
+    const fetchFn = recapFetch({ digest: 'd', highlights: ['kept', '', 42, '  '] });
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn });
+    const out = await gw.summarizeWeek([]);
+    expect(out.highlights).toEqual(['kept']);
+  });
+
+  it('throws on a non-200 so the caller uses its deterministic fallback', async () => {
+    const bad = vi.fn().mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}), text: () => Promise.resolve('') }) as unknown as typeof fetch;
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: bad });
+    await expect(gw.summarizeWeek([])).rejects.toThrow();
+  });
+
+  it('throws when the response has neither digest nor highlights', async () => {
+    const fetchFn = recapFetch({ something: 'else' });
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn });
+    await expect(gw.summarizeWeek([])).rejects.toThrow();
+  });
+});

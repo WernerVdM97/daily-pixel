@@ -201,6 +201,14 @@ export interface Leaderboards {
   might: LeaderboardEntry[];
 }
 
+/** One resolved action flattened for the weekly recap (character name + outcome). */
+export interface WeeklyActionSummary {
+  character: string;
+  type: string;
+  outcome: string;
+  narrative: string;
+}
+
 // ── The one cohesive interface ──
 
 export interface WorldEngine {
@@ -262,6 +270,14 @@ export interface WorldEngine {
    * mightiest by highest single ability score. Used by the Wed/Sun announcements.
    */
   getLeaderboards(limit: number): Leaderboards;
+
+  /**
+   * All resolved actions in the half-open window [startIso, endIso), each joined
+   * to its character's name, oldest first. Feeds the weekly recap. Bounds are
+   * compared lexically against the `actions.created_at` ('YYYY-MM-DD HH:MM:SS'
+   * UTC) column, so 'YYYY-MM-DD' day boundaries work.
+   */
+  getActionsBetween(startIso: string, endIso: string): WeeklyActionSummary[];
 
   // World tick (S5)
   tick(isAdmin: boolean): TickResult;

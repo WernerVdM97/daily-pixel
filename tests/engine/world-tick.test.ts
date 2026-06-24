@@ -626,6 +626,40 @@ describe('world tick', () => {
       });
     });
 
+    describe('getActionsBetween (weekly recap window)', () => {
+      function seedAction(actionRepo: import('../../src/db/repositories/action.js').ActionRepository, characterId: number, type: string, outcome: string) {
+        actionRepo.create({
+          characterId, rawInput: 'do a thing', type, decisionsJson: '[]',
+          finalDc: 10, playerRolled: null, outcome, narrative: `${type} narrative`,
+        });
+      }
+
+      // NB: rows are stamped with SQLite's real-time datetime('now'), which the
+      // suite's fake timers don't touch — so we bound on fixed all-time / past
+      // windows rather than a "today"-relative one.
+      it('returns the window\'s actions joined to the character name, oldest first', () => {
+        const { engine, charRepo, userRepo, actionRepo } = makeEngine();
+        const { characterId } = createTestChar(charRepo, userRepo);
+        seedAction(actionRepo, characterId, 'travel', 'success');
+        seedAction(actionRepo, characterId, 'forage', 'failure');
+
+        const rows = engine.getActionsBetween('2000-01-01', '9999-12-31');
+
+        expect(rows.length).toBe(2);
+        expect(rows[0]).toEqual({ character: 'Aldric', type: 'travel', outcome: 'success', narrative: 'travel narrative' });
+        expect(rows[1].type).toBe('forage');
+      });
+
+      it('excludes actions outside the window', () => {
+        const { engine, charRepo, userRepo, actionRepo } = makeEngine();
+        const { characterId } = createTestChar(charRepo, userRepo);
+        seedAction(actionRepo, characterId, 'travel', 'success');
+
+        // A window entirely in the past — today's rows must not appear.
+        expect(engine.getActionsBetween('2000-01-01', '2000-01-02')).toEqual([]);
+      });
+    });
+
     describe('spawnNpc (engine-driven)', () => {
       it('places an NPC at the given location, findable by location', () => {
         const { engine, npcRepo } = makeEngine();

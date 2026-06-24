@@ -87,3 +87,32 @@ export interface CartographerResult {
 export interface CartographerGateway {
   enrich(input: CartographerInput): Promise<CartographerResult>;
 }
+
+/** One resolved action, flattened for the weekly recap prompt. */
+export interface RecapActionInput {
+  /** The acting character's name. */
+  character: string;
+  /** Distilled action type (travel, combat, forage, …). */
+  type: string;
+  /** success | failure | done | bailed | timed_out. */
+  outcome: string;
+  /** The narrative text shown to players (may be empty). */
+  narrative: string;
+}
+
+/** Structured result of the weekly recap call. */
+export interface RecapResult {
+  /** A short (2–4 sentence) world-level skim of the week's narrative progress. */
+  digest: string;
+  /** One-line highlights of the week's notable beats (bland actions omitted). */
+  highlights: string[];
+}
+
+/**
+ * The weekly-recap LLM call: given the week's resolved actions, judge what's
+ * notable (ignoring bland/routine actions) and return a short world digest plus
+ * a list of highlight lines. A reporting concern, separate from `decide`.
+ */
+export interface RecapGateway {
+  summarizeWeek(actions: RecapActionInput[]): Promise<RecapResult>;
+}

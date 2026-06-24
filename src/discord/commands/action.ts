@@ -26,6 +26,7 @@ import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, dayJobEmoji, type DayJobDef } from './hi.js';
 import { getNavButtons, getOutcomeServiceButtons, classEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
+import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 
 // ── Custom IDs ──
 
@@ -224,12 +225,18 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         const scene = getCurrentScene(interaction.user.id);
         const embed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
         await interaction.editReply({ embeds: [embed], components: [] });
-        await interaction.followUp({
+        const payload = {
           content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
           embeds: [embed],
           ...(resolvedChar
             ? { components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()] }
             : { components: getOutcomeServiceButtons() }),
+        };
+        await broadcastOutcome({
+          client: interaction.client,
+          threadId: engine.getMeta(META_RECAP_THREAD_ID),
+          payload,
+          fallback: () => interaction.followUp(payload),
         });
         await announceCollapse(resolvedChar?.name ?? 'A soul', character, resolvedChar);
         return 'action_autofinished';
@@ -357,12 +364,18 @@ async function applyActionResult(
     // Post a public copy to the channel — with nav buttons that spawn a fresh
     // ephemeral screen for whoever clicks (handled in the nav: dispatcher).
     const charName = character?.name ?? 'Unknown';
-    await i.followUp({
+    const payload = {
       content: `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}`,
       embeds: [outcomeEmbed],
       ...(character
         ? { components: [...getNavButtons(character), ...getOutcomeServiceButtons()] }
         : { components: getOutcomeServiceButtons() }),
+    };
+    await broadcastOutcome({
+      client: i.client,
+      threadId: engine.getMeta(META_RECAP_THREAD_ID),
+      payload,
+      fallback: () => i.followUp(payload),
     });
     await announceCollapse(character?.name ?? prevChar?.name ?? 'A soul', prevChar, character);
   } else {

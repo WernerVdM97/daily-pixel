@@ -9,6 +9,9 @@ import type {
   CartographerGateway,
   CartographerInput,
   CartographerResult,
+  RecapGateway,
+  RecapActionInput,
+  RecapResult,
 } from './LlmGateway.js';
 import type { LlmCallRecorder } from './LlmCallRecorder.js';
 import { buildSystemPrompt, buildUserMessage, buildContextDigest, PROMPT_VERSION } from './prompt-builder.js';
@@ -49,7 +52,20 @@ Return ONLY valid JSON, no markdown fences:
   "description": "<2-3 sentence description>"
 }`;
 
-export class DeepseekLlmGateway implements LlmGateway, CartographerGateway {
+/** System prompt for the weekly recap — a terse, evocative chronicler. */
+const RECAP_SYSTEM_PROMPT = `You are the chronicler of The Warden's Oak, a dark-fantasy text RPG. You are given a JSON list of the past week's resolved player actions (character, type, outcome, narrative). Write the week's chronicle.
+
+Judge what MATTERS. Ignore bland, routine, or failed-to-nothing actions (idle waiting, fruitless searches, ordinary day-work with no consequence). Favour: deaths and near-deaths, victories and defeats, discoveries, arrivals at new places, wealth or power swings, anything that moves a character's story.
+
+Return ONLY valid JSON, no markdown fences:
+{
+  "digest": "<2-4 sentences, world-level, weaving the week's arc across characters; grim, terse, evocative. If nothing notable happened, say so in one wry line.>",
+  "highlights": ["<one short line per notable beat, lead with the character name>", "..."]
+}
+
+Keep "highlights" to at most 12 lines, most significant first. Use only events present in the data — never invent.`;
+
+export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, RecapGateway {
   private apiKey: string;
   private model: string;
   private temperature: number;
@@ -320,6 +336,63 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway {
     } catch (err) {
       console.warn(c.yellow('[cartographer] enrich failed'), err instanceof Error ? err.message : String(err));
       return {};
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Weekly recap call — reuses the same HTTP transport, with the chronicler
+   * prompt and a JSON schema. Throws on transport/parse failure so the caller's
+   * deterministic fallback header takes over (the recap must never block the
+   * Monday beat). Not audited via the decision recorder — a reporting concern.
+   */
+  async summarizeWeek(actions: RecapActionInput[]): Promise<RecapResult> {
+    const userMessage = JSON.stringify(actions);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { role: 'system' as const, content: RECAP_SYSTEM_PROMPT },
+            { role: 'user' as const, content: userMessage },
+          ],
+          response_format: { type: 'json_object' as const },
+          temperature: this.temperature,
+          stream: false,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`recap non-200: ${response.status}`);
+      }
+
+      const data = await response.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error('recap returned empty content');
+
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const digest = typeof parsed.digest === 'string' ? stripCR(parsed.digest.trim()) : '';
+      const highlights = Array.isArray(parsed.highlights)
+        ? parsed.highlights
+            .filter((h): h is string => typeof h === 'string' && h.trim() !== '')
+            .map((h) => stripCR(h.trim()))
+        : [];
+      if (digest === '' && highlights.length === 0) {
+        throw new Error('recap had no digest and no highlights');
+      }
+      return { digest, highlights };
     } finally {
       clearTimeout(timeout);
     }

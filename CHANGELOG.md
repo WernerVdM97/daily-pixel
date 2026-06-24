@@ -5,6 +5,9 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+### Added
+- **Weekly recap thread (Monday rollover)** — each week gets one pinned **header** message in the play channel with a **thread** hanging off it; all public action outcomes now post into that week's thread instead of the channel feed (the private/ephemeral outcome the acting player sees is unchanged). On Mondays at 12:00 UTC the previous week's placeholder header is rewritten in place into a short LLM-generated **chronicle** (a 2–4 sentence world digest + notable highlights, bland actions ignored) via a new recap prompt, and a fresh week (new pinned header + thread) begins. Headers are kept pinned as a running archive. The recap is best-effort: on any LLM failure it finalizes with a deterministic count summary, and if a thread is ever unreachable, outcomes fall back to posting in the channel so none are lost. A current-week thread is also created on boot so outcomes always have a home. **Requires the bot to have _Create Public Threads_ + _Send Messages in Threads_** (in addition to _Manage Messages_ for pinning).
+
 ### Fixed
 - **Custom day-job action from the nav menu now clears its stale menu** — the day-job menu opened by the **Action** nav button never recorded its message id (unlike the `/action` slash menu), so starting a **Custom…** action from it left the old ephemeral menu hanging on screen. The nav path now stashes the menu like the slash path, so the existing delete-on-modal-open logic clears it.
 

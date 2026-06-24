@@ -12,6 +12,7 @@ import type {
   TickResult,
   StatBlock,
   Leaderboards,
+  WeeklyActionSummary,
 } from "./WorldEngine.js";
 
 /**
@@ -34,6 +35,7 @@ export class MockWorldEngine implements WorldEngine {
   private _tickResult: TickResult | null = null;
   private _soulsInUnsafe = 0;
   private _leaderboards: Leaderboards = { wealth: [], might: [] };
+  private _weeklyActions: WeeklyActionSummary[] = [];
   private _meta: Map<string, string> = new Map();
 
   // ── Call tracking ──
@@ -121,6 +123,10 @@ export class MockWorldEngine implements WorldEngine {
   }
   setLeaderboards(result: Leaderboards): void {
     this._leaderboards = result;
+  }
+
+  setWeeklyActions(actions: WeeklyActionSummary[]): void {
+    this._weeklyActions = actions;
   }
   setMeta(key: string, value: string): void {
     this._meta.set(key, value);
@@ -275,6 +281,10 @@ export class MockWorldEngine implements WorldEngine {
   getLeaderboards(limit: number): Leaderboards {
     this.calls.getLeaderboards.push(limit);
     return this._leaderboards;
+  }
+
+  getActionsBetween(_startIso: string, _endIso: string): WeeklyActionSummary[] {
+    return this._weeklyActions;
   }
 
   tick(isAdmin: boolean): TickResult {
