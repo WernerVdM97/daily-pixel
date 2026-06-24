@@ -7,7 +7,8 @@ import { c } from "../util/colors.js";
 export const META_RECAP_THREAD_ID = "recap_thread_id";
 /** Current week's header message id — edited into the chronicle at finalize. */
 export const META_RECAP_HEADER_ID = "recap_header_msg_id";
-/** Date the current week began ('YYYY-MM-DD') — the digest window lower bound. */
+/** Timestamp the current week began ('YYYY-MM-DD HH:MM:SS' UTC, the rollover
+ *  instant) — the digest window's lower bound. */
 export const META_RECAP_WEEK_START = "recap_week_start";
 /** Incrementing "Week N" counter. */
 export const META_RECAP_WEEK_NUMBER = "recap_week_number";

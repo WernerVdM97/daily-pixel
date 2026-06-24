@@ -331,12 +331,20 @@ process.on("uncaughtException", (err) => {
 // ── Nightly tick scheduler ──
 
 /**
- * Schedule the world tick (DB-only) to fire at 3:30 UTC daily.
+ * Schedule the world tick to fire at 3:30 UTC daily.
  * Advances the game day — rolls, stamina, health, wealth, NPC movement —
  * and DMs the five-day absence warnings. The public morning and goodnight
  * announcements are handled by their own schedulers.
+ *
+ * On Mondays it also rolls the weekly recap right after the tick, so the week
+ * boundary lines up exactly with the daily action refresh (rather than noon).
  */
-function scheduleTick(engine: WorldEngine): void {
+function scheduleTick(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+  recap?: RecapGateway,
+): void {
   const now = Date.now();
   const next = new Date();
   next.setUTCHours(3, 30, 0, 0);
@@ -386,12 +394,20 @@ function scheduleTick(engine: WorldEngine): void {
           `🥵 **The wild takes its toll.** Overnight, ${who} collapsed to **0 stamina** out beyond the safe paths — they wake leaden. Return to the Oak and rest to recover.`,
         );
       }
+
+      // Monday — roll the weekly recap at the same instant the day refreshed, so
+      // the week boundary aligns with the action reset. Idempotent per UTC day.
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (new Date().getUTCDay() === 1 && engine.getMeta(META_LAST_RECAP_DATE) !== todayStr) {
+        await runWeeklyRecap(engine, client, channelId, recap);
+        engine.setMeta(META_LAST_RECAP_DATE, todayStr);
+      }
     } catch (err) {
       console.error(c.red("[cron] Tick failed:"), err);
       void notifyAdmin("Nightly tick failed", err);
     }
 
-    scheduleTick(engine);
+    scheduleTick(engine, client, channelId, recap);
   }, delay);
 }
 
@@ -699,31 +715,22 @@ async function postAnnouncement(
 
 /**
  * The midday beat, dispatched by UTC weekday:
- *   - Monday    → roll the weekly recap (finalize last week's header, start a new week).
  *   - Saturday  → spawn a rotating wilderness threat NPC + post the hint.
  *   - Wed & Sun → post the wealth + might leaderboards.
  * Other days are no-ops. Each beat is idempotent per UTC day via a meta key.
+ * (The Monday weekly-recap rollover runs with the nightly tick, not here.)
  */
 async function runAfternoonBeat(
   engine: WorldEngine,
   client: Client,
   channelId: string,
-  recap?: RecapGateway,
 ): Promise<void> {
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 10);
   const weekday = now.getUTCDay(); // 0 = Sunday … 6 = Saturday
 
   try {
-    if (weekday === 1) {
-      // Monday — weekly recap rollover.
-      if (engine.getMeta(META_LAST_RECAP_DATE) === dateStr) {
-        console.log(c.grey("[cron] Weekly recap already rolled today — skipping."));
-        return;
-      }
-      await runWeeklyRecap(engine, client, channelId, recap);
-      engine.setMeta(META_LAST_RECAP_DATE, dateStr);
-    } else if (weekday === 6) {
+    if (weekday === 6) {
       // Saturday — wilderness threat.
       if (engine.getMeta("last_threat_date") === dateStr) {
         console.log(c.grey("[cron] Saturday threat already posted today — skipping."));
@@ -779,7 +786,6 @@ function scheduleAfternoonBeat(
   engine: WorldEngine,
   client: Client,
   channelId: string,
-  recap?: RecapGateway,
 ): void {
   const now = Date.now();
   const next = new Date();
@@ -796,18 +802,24 @@ function scheduleAfternoonBeat(
   );
 
   setTimeout(async () => {
-    await runAfternoonBeat(engine, client, channelId, recap);
-    scheduleAfternoonBeat(engine, client, channelId, recap);
+    await runAfternoonBeat(engine, client, channelId);
+    scheduleAfternoonBeat(engine, client, channelId);
   }, delay);
 }
 
 // ── Weekly recap (Monday rollover) ──
 
-/** Add `n` whole UTC days to a 'YYYY-MM-DD' date string. */
-function addDaysUtc(dateStr: string, n: number): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
+/**
+ * Current UTC time as a 'YYYY-MM-DD HH:MM:SS' string — the same format SQLite's
+ * `datetime('now')` stamps on `actions.created_at`, so it compares lexically as
+ * the recap window boundary. The week boundary is this exact rollover instant
+ * (not a calendar date): outcomes route on `recap_thread_id`, which flips only
+ * when the new week starts, so a single shared timestamp keeps the closing
+ * week's window aligned with what actually landed in its thread — no gap, no
+ * double-count across the Monday rollover.
+ */
+function nowDbTimestamp(): string {
+  return new Date().toISOString().slice(0, 19).replace("T", " ");
 }
 
 type GuildTextChannel = {
@@ -833,18 +845,18 @@ async function finalizePreviousWeek(
   client: Client,
   channelId: string,
   recap: RecapGateway | undefined,
+  boundaryTs: string,
 ): Promise<void> {
   const headerId = engine.getMeta(META_RECAP_HEADER_ID);
   const weekStart = engine.getMeta(META_RECAP_WEEK_START);
   if (!headerId || !weekStart) return; // nothing to finalize yet
 
   const weekNumber = Number(engine.getMeta(META_RECAP_WEEK_NUMBER) ?? "1");
-  const today = new Date().toISOString().slice(0, 10);
-  // Half-open [weekStart, tomorrow) on the date column — captures everything up
-  // to and including today (date-only bounds compare safely vs 'YYYY-MM-DD HH:MM:SS').
-  const actions = engine.getActionsBetween(weekStart, addDaysUtc(today, 1));
+  // Half-open [weekStart, boundaryTs): exactly the actions that landed in this
+  // week's thread (the boundary is the instant the thread id flips below).
+  const actions = engine.getActionsBetween(weekStart, boundaryTs);
   const recapResult = await generateWeeklyDigest(actions, recap);
-  const headerText = buildRecapHeader(weekNumber, weekStart, recapResult);
+  const headerText = buildRecapHeader(weekNumber, weekStart.slice(0, 10), recapResult);
 
   const channel = await client.channels.fetch(channelId);
   if (!isGuildTextChannel(channel)) return;
@@ -868,8 +880,8 @@ async function startNewWeek(
   engine: WorldEngine,
   client: Client,
   channelId: string,
+  startTs: string,
 ): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10);
   const weekNumber = Number(engine.getMeta(META_RECAP_WEEK_NUMBER) ?? "0") + 1;
 
   const channel = await client.channels.fetch(channelId);
@@ -878,18 +890,20 @@ async function startNewWeek(
     return;
   }
 
-  const header = await channel.send({ content: buildPlaceholderHeader(weekNumber, today) });
+  const header = await channel.send({ content: buildPlaceholderHeader(weekNumber, startTs.slice(0, 10)) });
   await pinMessage(header, `Week ${weekNumber} header`);
   const thread = await header.startThread({ name: `Week ${weekNumber} — the Oak's log` });
 
   engine.setMeta(META_RECAP_THREAD_ID, thread.id);
   engine.setMeta(META_RECAP_HEADER_ID, header.id);
-  engine.setMeta(META_RECAP_WEEK_START, today);
+  // Store the full rollover timestamp (the window lower bound), not just the date.
+  engine.setMeta(META_RECAP_WEEK_START, startTs);
   engine.setMeta(META_RECAP_WEEK_NUMBER, String(weekNumber));
   console.log(c.green(`[recap] Started Week ${weekNumber} (thread ${thread.id}).`));
 }
 
-/** The Monday rollover: finalize last week, then begin this week. */
+/** The Monday rollover: finalize last week, then begin this week — sharing one
+ *  boundary timestamp so the two windows meet exactly with no gap or overlap. */
 async function runWeeklyRecap(
   engine: WorldEngine,
   client: Client,
@@ -897,8 +911,9 @@ async function runWeeklyRecap(
   recap: RecapGateway | undefined,
 ): Promise<void> {
   try {
-    await finalizePreviousWeek(engine, client, channelId, recap);
-    await startNewWeek(engine, client, channelId);
+    const boundaryTs = nowDbTimestamp();
+    await finalizePreviousWeek(engine, client, channelId, recap, boundaryTs);
+    await startNewWeek(engine, client, channelId, boundaryTs);
   } catch (err) {
     console.error(c.red("[recap] Weekly recap failed:"), err);
     void notifyAdmin("Weekly recap failed", err);
@@ -921,7 +936,7 @@ async function ensureWeeklyThread(
       const existing = await client.channels.fetch(threadId).catch(() => null);
       if (existing) return; // current thread still reachable
     }
-    await startNewWeek(engine, client, channelId);
+    await startNewWeek(engine, client, channelId, nowDbTimestamp());
   } catch (err) {
     console.warn(
       c.yellow("[recap] ensureWeeklyThread failed:"),
@@ -1275,10 +1290,10 @@ ${headInfo}`);
 
     // ── Nightly tick scheduler (3:30 UTC) ──
     if (TICK_CHANNEL_ID) {
-      scheduleTick(engine);
+      scheduleTick(engine, readyClient, TICK_CHANNEL_ID, recapGateway);
       scheduleMorningAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleGoodnightAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
-      scheduleAfternoonBeat(engine, readyClient, TICK_CHANNEL_ID, recapGateway);
+      scheduleAfternoonBeat(engine, readyClient, TICK_CHANNEL_ID);
       // Ensure a current week thread exists so action outcomes have a home before
       // the first Monday rollover (boot-time catch-up; recreates if the thread is gone).
       void ensureWeeklyThread(engine, readyClient, TICK_CHANNEL_ID);
