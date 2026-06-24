@@ -1,6 +1,6 @@
-This repo is the design vault for **The Warden's Oak**.
+This repo is the source code for **The Warden's Oak**.
 
-When creating or editing ANY doc under `docs/`, **read and follow** the conventions in
+When creating or editing ANY files under `docs/`, **read and follow** the conventions in
 **[docs/CONVENTIONS.md](./docs/CONVENTIONS.md)** — most importantly:
 
 - every doc carries frontmatter (`title`, `status`, `domain` required);
@@ -8,7 +8,7 @@ When creating or editing ANY doc under `docs/`, **read and follow** the conventi
 - add its line to the map of content in [`docs/README.md`](./docs/README.md).
 - see `docs/templates/doc-template`
 
-Maturity is a frontmatter `status` (`spark → exploring → decided → superseded`), never the folder. Resolve conflicts with a `decisions/` record — don't spawn a rival doc.
+Maturity is a frontmatter `status` (`spark → exploring → decided → superseded/archived`), never the folder. Resolve conflicts with a `decisions/` record — don't spawn a rival doc.
 
 ---
 
