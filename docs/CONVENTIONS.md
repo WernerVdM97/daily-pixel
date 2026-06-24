@@ -13,7 +13,7 @@ Using `docs/templates/doc-template.md`;
 ```yaml
 ---
 title: Human-readable title
-status: spark            # spark | exploring | decided | superseded | nogo
+status: spark            # spark | exploring | decided | superseded | nogo | shipped | archived
 domain: engine           # vision | game | engine | ui | spark
 phase: mvp               # poc | mvp | mvp+ — when this is targeted for implementation
 tags: [render, vault]    # free-form, lowercase, for cross-cutting search
@@ -102,6 +102,7 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 | `spark` | Raw idea. May be half-baked, wrong, or contradict another spark. | …capture a thought. Don't build on it. |
 | `exploring` | A real candidate direction, actively being fleshed out. Not locked. | …discuss and prototype against, knowing it may change. |
 | `decided` | This **is** the direction. Build against it. | …implement. Changing it requires a decision record. |
+| `archived` | This is a document that is no longer applicable. Kept for history | …keep record of an old doc that was discarded. |
 | `shipped` | Implemented and archived. The code is the living artifact. | …read for history. The spec has been built. |
 | `superseded` | Kept for history. Points to what replaced it via `superseded_by`. | …understand why we moved on. Nothing else. |
 | `nogo` | Explored and rejected. Won't pursue — at least not in current form. | …remember why we said no. Don't resurrect without new information. |

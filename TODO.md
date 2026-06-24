@@ -4,6 +4,7 @@
 ## scratchpad (humans start here)
 
 ### TBD
+- [ ] write a spark for standardising the mutations into a "skill" like system for the LLM to interact with the graph db
 - [ ] improve stat reportings, i.e. the stats page should perhaps go into more detail of the base value and how items or character builder influences it.
 - [ ] char creater should show for each race/class/etc what stats are important and how it modifies them.
 - [ ] rest shows on /hi after it has been pressed (or not?)

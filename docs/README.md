@@ -71,6 +71,7 @@ resolved cross-cutting trade-offs (ADRs)
 
 | Status | Doc | Summary |
 |---|---|---|
+| 🌱 | [Decision Prompt v9 — Pipeline, Markdown, Scaling & Combat](./sparks/prompt-rework-markdown-combat-scaling.md) | Radical `decision-v8 → v9` rework: (A) JSON→markdown input for interpretability, (B) the world scales around the player — stronger players meet tougher foes for bigger rewards, lifted by a week-indexed World Tier — (C) combat as a frequent, long, high-reward mode in unsafe locations, (D) decompose the mega-call into a classify → decide → resolve LLM pipeline of small per-type templates. Sim harness is a prerequisite. |
 | 🌱 | [Polish Pass — v0.2.4](./sparks/polish-pass-v0.2.4.md) | Two-sweep bug/coherency/thematic punch list for the next patch. Highs: 5 `/join` backgrounds yield `NaN` stats; stale `/2` roll footer. Plus duplicate-threat-NPC race, class/job emoji, `/stats` stamina, prompt typo, `done`-flag drift, ops nits. No features. |
 | 🌱 | [Prod Data Review — v0.2.3](./sparks/prod-data-review-v0.2.3.md) | Player-voice + LLM-telemetry mining of the live prod DB (8 players, 67 actions, 216 LLM calls). Critical: auto-resolve (`done`) eats a roll for no agency (28% of v0.2.3 actions, worsening); timeout drops travel + keeps roll + ghost-renders. Core-loop gaps: leaky roll economy, invisible unsafe-rest HP rule, world can't grow new locations. Confirms & upgrades polish-pass §E4 with prod evidence. |
 
