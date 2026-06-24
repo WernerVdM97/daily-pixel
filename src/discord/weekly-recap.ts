@@ -73,6 +73,42 @@ function deterministicRecap(actions: WeeklyActionSummary[]): RecapResult {
   return { digest, highlights };
 }
 
+// ── prompt input cap ──
+/**
+ * Max actions sent to the recap LLM in one call. At ~22 actions/player/week this
+ * is ~9 fully-active players — comfortably above realistic scale — so it's a
+ * safety valve against an unbounded prompt (cost/latency/context), not a routine
+ * trim. Only the LLM path is capped; the deterministic digest still counts every
+ * action so its "N actions across M souls" line stays truthful.
+ */
+export const MAX_RECAP_ACTIONS = 200;
+/** Max characters of each action's narrative forwarded to the LLM (~60 tokens).
+ *  The chronicler only needs the gist to judge significance, not the full prose. */
+export const MAX_RECAP_NARRATIVE = 240;
+
+/**
+ * Bound the recap prompt's input. Always truncates each narrative; if there are
+ * more than MAX_RECAP_ACTIONS, keeps the notable beats (success/failure) plus the
+ * most recent of the rest, returned in the original oldest-first order — so a
+ * heavy week degrades gracefully instead of blindly dropping its early days.
+ */
+export function capRecapActions(actions: WeeklyActionSummary[]): WeeklyActionSummary[] {
+  const trimmed = actions.map((a) =>
+    a.narrative.length > MAX_RECAP_NARRATIVE
+      ? { ...a, narrative: `${a.narrative.slice(0, MAX_RECAP_NARRATIVE - 1)}…` }
+      : a,
+  );
+  if (trimmed.length <= MAX_RECAP_ACTIONS) return trimmed;
+
+  const isNotable = (o: string) => o === "success" || o === "failure";
+  const kept = new Set(trimmed.filter((a) => isNotable(a.outcome)).slice(-MAX_RECAP_ACTIONS));
+  const budget = MAX_RECAP_ACTIONS - kept.size;
+  if (budget > 0) {
+    for (const a of trimmed.filter((a) => !isNotable(a.outcome)).slice(-budget)) kept.add(a);
+  }
+  return trimmed.filter((a) => kept.has(a));
+}
+
 /**
  * Produce the week's recap. Uses the LLM gateway when present, falling back to a
  * deterministic summary on any failure (or no gateway / no actions) so the header
@@ -84,7 +120,11 @@ export async function generateWeeklyDigest(
 ): Promise<RecapResult> {
   if (gateway && actions.length > 0) {
     try {
-      return await gateway.summarizeWeek(actions);
+      const capped = capRecapActions(actions);
+      if (capped.length < actions.length) {
+        console.log(c.cyan(`[recap] capped ${actions.length} → ${capped.length} actions for the LLM prompt.`));
+      }
+      return await gateway.summarizeWeek(capped);
     } catch (err) {
       console.warn(
         c.yellow("[recap] LLM summary failed — using deterministic fallback:"),

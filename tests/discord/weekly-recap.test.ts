@@ -4,6 +4,9 @@ import {
   buildRecapHeader,
   generateWeeklyDigest,
   broadcastOutcome,
+  capRecapActions,
+  MAX_RECAP_ACTIONS,
+  MAX_RECAP_NARRATIVE,
 } from "../../src/discord/weekly-recap.js";
 import type { RecapGateway, RecapResult } from "../../src/llm/LlmGateway.js";
 import type { WeeklyActionSummary } from "../../src/engine/WorldEngine.js";
@@ -75,6 +78,51 @@ describe("generateWeeklyDigest", () => {
     const gateway: RecapGateway = { summarizeWeek: vi.fn() };
     await generateWeeklyDigest([], gateway);
     expect(gateway.summarizeWeek).not.toHaveBeenCalled();
+  });
+});
+
+describe("capRecapActions", () => {
+  it("truncates an over-long narrative to the cap (with an ellipsis)", () => {
+    const [out] = capRecapActions([action({ narrative: "x".repeat(5000) })]);
+    expect(out.narrative.length).toBe(MAX_RECAP_NARRATIVE);
+    expect(out.narrative.endsWith("…")).toBe(true);
+  });
+
+  it("leaves a short narrative untouched", () => {
+    const [out] = capRecapActions([action({ narrative: "Onward." })]);
+    expect(out.narrative).toBe("Onward.");
+  });
+
+  it("keeps every action when under the count cap", () => {
+    const actions = Array.from({ length: 10 }, (_, i) => action({ character: `C${i}` }));
+    expect(capRecapActions(actions)).toHaveLength(10);
+  });
+
+  it("caps the count and prefers notable beats, oldest-first", () => {
+    // MAX 'done' (routine) actions first, then a notable failure last.
+    const routine = Array.from({ length: MAX_RECAP_ACTIONS }, (_, i) =>
+      action({ character: `R${i}`, outcome: "done" }),
+    );
+    const notable = action({ character: "Hero", outcome: "failure" });
+    const out = capRecapActions([...routine, notable]);
+
+    expect(out).toHaveLength(MAX_RECAP_ACTIONS);
+    // The notable beat survives despite being last…
+    expect(out.some((a) => a.character === "Hero")).toBe(true);
+    // …and the oldest routine action was the one dropped (order preserved).
+    expect(out[0].character).toBe("R1");
+    expect(out.findIndex((a) => a.character === "Hero")).toBe(out.length - 1);
+  });
+});
+
+describe("generateWeeklyDigest input capping", () => {
+  it("sends the capped list (truncated narratives) to the gateway", async () => {
+    const summarizeWeek = vi.fn().mockResolvedValue({ digest: "d", highlights: [] });
+    const gateway: RecapGateway = { summarizeWeek };
+    await generateWeeklyDigest([action({ narrative: "y".repeat(5000) })], gateway);
+
+    const sent = summarizeWeek.mock.calls[0][0] as WeeklyActionSummary[];
+    expect(sent[0].narrative.length).toBe(MAX_RECAP_NARRATIVE);
   });
 });
 
