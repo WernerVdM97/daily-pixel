@@ -1,9 +1,10 @@
 ---
 title: Prod Data Review — Player Feedback & LLM Telemetry (v0.2.3)
-status: spark
-domain: spark
+status: shipped
+domain: archived
 phase: poc
 tags: [bugs, feedback, llm, telemetry, prod, auto-resolve, rolls, latency, review]
+superseded_by: "implemented in code"
 related:
   - "[[polish-pass-v0.2.4]]"
   - "[[bug-analysis-v0.2.2]]"

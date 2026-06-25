@@ -1,9 +1,10 @@
 ---
 title: Polish Pass — v0.2.4
-status: spark
-domain: spark
+status: shipped
+domain: archived
 phase: poc
 tags: [bugs, polish, coherency, thematic, release, footer, emoji, prompt]
+superseded_by: "implemented in code"
 related:
   - "[[bug-analysis-v0.2.2]]"
   - "[[handover-code-review-post-pr14]]"
