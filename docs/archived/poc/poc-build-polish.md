@@ -186,9 +186,7 @@ Run the full flow end-to-end before shipping:
 
 ## 7. Mid-POC Fix Pass
 
-Bugs surfaced during live POC play. Pure fixes (not design) — the UX *changes* they sit
-beside are in [[poc-action-ux-refinements]]. Fix these first; several corrupt the data
-the POC week is collecting.
+Bugs surfaced during live POC play. Pure fixes (not design) — the UX *changes* they sit beside are in [[poc-action-ux-refinements]]. Fix these first; several corrupt the data the POC week is collecting.
 
 - [ ] **Bail renders green Success** — bailing a non-required action shows a green success banner + success text. Should render the neutral `↩ Bailed` variant per §3. Divergence from the decided spec.
 - [ ] **Stamina exceeds max** — observed `Stamina: 11/10`. `modify_stamina` (and tick recovery) must clamp to max.

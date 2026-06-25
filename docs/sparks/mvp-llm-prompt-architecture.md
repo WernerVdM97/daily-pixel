@@ -15,13 +15,9 @@ phase: mvp
 
 # LLM Prompt & Resolution Architecture
 
-> *POC proved the ritual with one big JSON call per decision. MVP rethinks how the
-> dice and the LLM share authority. Raw — needs a lot of refinement.*
+> *POC proved the ritual with one big JSON call per decision. MVP rethinks how the dice and the LLM share authority. Raw — needs a lot of refinement.*
 
-The POC pattern: one LLM call per decision, JSON in/out, the LLM picks the stat, DC,
-options, mutations, and narration all at once. It works, but the LLM is doing the DM's
-*and* the dice's job in a single breath. This spark collects the directions for
-splitting those responsibilities.
+The POC pattern: one LLM call per decision, JSON in/out, the LLM picks the stat, DC, options, mutations, and narration all at once. It works, but the LLM is doing the DM's *and* the dice's job in a single breath. This spark collects the directions for splitting those responsibilities.
 
 > **Update (POC):** the "roll before flavour" shift below shipped early in the POC — the engine rolls, then makes a second narration call with the verdict (`machine.resolveWithRoll`, prompt `decision-v4.md` §4b). See [[poc-action-ux-refinements]]. The deeper items here (layered rolls, multi-agent, markdown prompts, sim harness) remain MVP.
 

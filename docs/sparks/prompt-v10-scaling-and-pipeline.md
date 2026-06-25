@@ -29,29 +29,11 @@ related:
 
 # Decision Prompt v10 — First-Class Combat, World Scaling & Multi-Stage Pipeline
 
-> *The kickoff for **POC round 2 (`0.3.0`)** — the deep, structural half of the original
-> `decision-v8 → v-next` rework, building **on top of** what v9 ships.
-> [[prompt-v9-markdown-and-critic]] (the next `0.2.x` patch) lands the LLM-layer changes —
-> markdown input and a coherence critic — first. This doc carries the three threads that need real
-> engine work: **(C)** combat as a frequent, long, high-reward mode in the wilds, backed by engine
-> scene-state; **(B)** the world scales around each player — stronger players meet tougher foes for
-> bigger rewards, climbing week by week; and **(D)** decompose the single mega-call into a
-> multi-stage LLM pipeline (classify → decide → resolve) over graph-shaped scene-state. Raw —
-> capture, don't build yet.*
+> *The kickoff for **POC round 2 (`0.3.0`)** — the deep, structural half of the original `decision-v8 → v-next` rework, building **on top of** what v9 ships. [[prompt-v9-markdown-and-critic]] (the next `0.2.x` patch) lands the LLM-layer changes — markdown input and a coherence critic — first. This doc carries the three threads that need real engine work: **(C)** combat as a frequent, long, high-reward mode in the wilds, backed by engine scene-state; **(B)** the world scales around each player — stronger players meet tougher foes for bigger rewards, climbing week by week; and **(D)** decompose the single mega-call into a multi-stage LLM pipeline (classify → decide → resolve) over graph-shaped scene-state. Raw — capture, don't build yet.*
 
-**The thesis (shared with v9):** deepen *immersion* by **balancing probabilistic and deterministic
-mechanics** — let the dice rule what should be uncertain, let the engine deterministically own what
-players would feel cheated by if it drifted, let the LLM dress it. v9 takes the first, absorbable,
-LLM-only steps; v10 is where the mechanically-heavy ideas land: **combat** (a real fight mode with
-a tracked enemy spine), **scaling** (the world sized to the soul facing it), and **pipelining** (a
-chain of focused, type-specific LLM sessions over real scene-state). The coherence critic shipped in
-v9 is the deliberate first slice of (D) — v10 grows it into the full pipeline.
+**The thesis (shared with v9):** deepen *immersion* by **balancing probabilistic and deterministic mechanics** — let the dice rule what should be uncertain, let the engine deterministically own what players would feel cheated by if it drifted, let the LLM dress it. v9 takes the first, absorbable, LLM-only steps; v10 is where the mechanically-heavy ideas land: **combat** (a real fight mode with a tracked enemy spine), **scaling** (the world sized to the soul facing it), and **pipelining** (a chain of focused, type-specific LLM sessions over real scene-state). The coherence critic shipped in v9 is the deliberate first slice of (D) — v10 grows it into the full pipeline.
 
-**Sequencing.** v9 ships first because it's absorbable without any engine change. v10 then slots
-**on top**: its `## World State` tier block (B) and its per-type templates (D) extend the v9
-prompt — which by then is a single `decision-v9.md`. v10 turns that single file into a **versioned
-prompt set** (see Thread D's [!]). Combat (C) is where the engine first grows scene-state, so it and
-the pipeline (D) are deeply entwined — C's enemy spine *is* a slice of D1/D2.
+**Sequencing.** v9 ships first because it's absorbable without any engine change. v10 then slots **on top**: its `## World State` tier block (B) and its per-type templates (D) extend the v9 prompt — which by then is a single `decision-v9.md`. v10 turns that single file into a **versioned prompt set** (see Thread D's [!]). Combat (C) is where the engine first grows scene-state, so it and the pipeline (D) are deeply entwined — C's enemy spine *is* a slice of D1/D2.
 
 ---
 
@@ -65,17 +47,9 @@ the pipeline (D) are deeply entwined — C's enemy spine *is* a slice of D1/D2.
 
 ## Thread C — Combat as a first-class mode
 
-This is the heart of the spark. Combat today is a generic `/action` roll the prompt actively pushes
-to *end fast* (`decision-v8.md:44`, "prefer resolving in two or three beats"). For a survival game
-with a rising Threat that is backwards. Combat should be **frequent in the wilds, long, and richly
-rewarded** — see [[mvp-combat]] for the locked constraint (roll-resolution, never twitch).
+This is the heart of the spark. Combat today is a generic `/action` roll the prompt actively pushes to *end fast* (`decision-v8.md:44`, "prefer resolving in two or three beats"). For a survival game with a rising Threat that is backwards. Combat should be **frequent in the wilds, long, and richly rewarded** — see [[mvp-combat]] for the locked constraint (roll-resolution, never twitch).
 
-**Why this needs v10, not v9 (the honest scoping call):** the rich version of combat — bounded
-severity bands, a no-one-shot floor, "a boar near death *stays* near death" — **cannot** be done
-with prompt rules alone. The engine has no enemy and no scene-state: `InternalActionState`
-(`src/engine/action/machine.ts:32`) tracks `accumulatedDc` and `decisions`, nothing else, and
-`modify_health` only ever hits the *player*. Real combat therefore needs engine scene-state — which
-*is* a slice of Thread D1 below — so it lives here in v10 with the pipeline, not in the LLM-only v9.
+**Why this needs v10, not v9 (the honest scoping call):** the rich version of combat — bounded severity bands, a no-one-shot floor, "a boar near death *stays* near death" — **cannot** be done with prompt rules alone. The engine has no enemy and no scene-state: `InternalActionState` (`src/engine/action/machine.ts:32`) tracks `accumulatedDc` and `decisions`, nothing else, and `modify_health` only ever hits the *player*. Real combat therefore needs engine scene-state — which *is* a slice of Thread D1 below — so it lives here in v10 with the pipeline, not in the LLM-only v9.
 
 ### C-a. Prompt-level rules (the combat template)
 
@@ -135,10 +109,7 @@ with prompt rules alone. The engine has no enemy and no scene-state: `InternalAc
 
 ## Thread B — The world scales around the player (danger and reward)
 
-The roll math stays **exactly as it is**: `d20 + stat + itemBonus ≥ DC` (`resolveRoll`,
-`src/engine/action/dc.ts:72`). **No player-side buff — no roll bonus, no advantage.** A player's
-power *is* their stats + gear (`effectiveStats`, `dc.ts:45`); we never inflate the dice. What
-changes is the **world**: it scales to whoever is facing it.
+The roll math stays **exactly as it is**: `d20 + stat + itemBonus ≥ DC` (`resolveRoll`, `src/engine/action/dc.ts:72`). **No player-side buff — no roll bonus, no advantage.** A player's power *is* their stats + gear (`effectiveStats`, `dc.ts:45`); we never inflate the dice. What changes is the **world**: it scales to whoever is facing it.
 
 Two inputs decide how hard an encounter is:
 
@@ -185,13 +156,7 @@ The tension to resolve (honest pushback):
 
 ## Thread D — Decompose the action into a multi-stage LLM pipeline
 
-The biggest structural change, and the **backbone** Thread B slots into. Today one LLM call does
-everything for a beat: classify the intent, pick the stat/DC, author the options, *and* (on
-`RESOLVE_ROLL`) compute mutations + narrate. The model is the DM, the dice, and the bookkeeper in
-one breath — and every call carries the **entire** rulebook whether the action is a knife-fight or
-a nap. Split it into a chain of focused, *fresh* sessions, each with a small, type-specific
-template. (Provenance: [[mvp-llm-prompt-architecture]] — "multiple short agent calls / a chain… distil
-intent → offer choices → resolve → narrate." The v9 coherence critic is the first such stage.)
+The biggest structural change, and the **backbone** Thread B slots into. Today one LLM call does everything for a beat: classify the intent, pick the stat/DC, author the options, *and* (on `RESOLVE_ROLL`) compute mutations + narrate. The model is the DM, the dice, and the bookkeeper in one breath — and every call carries the **entire** rulebook whether the action is a knife-fight or a nap. Split it into a chain of focused, *fresh* sessions, each with a small, type-specific template. (Provenance: [[mvp-llm-prompt-architecture]] — "multiple short agent calls / a chain… distil intent → offer choices → resolve → narrate." The v9 coherence critic is the first such stage.)
 
 **The pipeline (per custom action):**
 
@@ -243,11 +208,7 @@ intent → offer choices → resolve → narrate." The v9 coherence critic is th
 
 ### D1 — Scene-state: deterministic spine, narrative skin
 
-The pipeline's real prize is that it can carry a **per-type scene-state object across beats**,
-instead of every beat reconstructing "where are we" from `RECENT ACTIONS` prose. That's what makes
-combat track wounds, a puzzle keep one answer, an NPC hold a grudge. Thread C's `combatState` is the
-first instance of this; D1 generalises it across types and makes it persistent + graph-shaped.
-Ownership is **hybrid** (the "C" option, decided in brainstorm):
+The pipeline's real prize is that it can carry a **per-type scene-state object across beats**, instead of every beat reconstructing "where are we" from `RECENT ACTIONS` prose. That's what makes combat track wounds, a puzzle keep one answer, an NPC hold a grudge. Thread C's `combatState` is the first instance of this; D1 generalises it across types and makes it persistent + graph-shaped. Ownership is **hybrid** (the "C" option, decided in brainstorm):
 
 - [p] **Engine owns the hard, cheatable truth** — enemy HP, whether a puzzle is solved, an NPC's
   disposition score. Numbers a player would feel cheated by if they drifted.
@@ -257,10 +218,7 @@ Ownership is **hybrid** (the "C" option, decided in brainstorm):
 
 ### D2 — Scene-state is graph-shaped; mutations are typed graph-deltas (no LLM SQL)
 
-Model scene + relationship state as **nodes + edges** — the subject and object of a scene are
-nodes, and the **edges between them carry the context**. This is already the MVP world-state
-direction ([[mvp-data-model]], [[mvp-social-model]]'s three axes, [[mvp+world-state-projection]]).
-**This is where Thread C's `combatState` is modelled as persistent, graph-shaped state.**
+Model scene + relationship state as **nodes + edges** — the subject and object of a scene are nodes, and the **edges between them carry the context**. This is already the MVP world-state direction ([[mvp-data-model]], [[mvp-social-model]]'s three axes, [[mvp+world-state-projection]]). **This is where Thread C's `combatState` is modelled as persistent, graph-shaped state.**
 
 - [I] A fight: `PC ──in_combat{enemyHp, posture, round}──▶ enemy NPC`. Group/co-op combat falls out
   for free as multiple edges — no special-casing. Persistent enemy NPC nodes can flee, heal, and
@@ -307,12 +265,9 @@ Each type resolves differently — that's the point of per-type templates:
 
 ### D4 — Free-text input, judged (model "B") + the security stack
 
-Decided: free-text drives **conversations & puzzles**; **combat stays buttons + roll**. Players type
-arguments and guesses; the pipeline judges them against hidden state. The extra judgment call is
-affordable — see D5.
+Decided: free-text drives **conversations & puzzles**; **combat stays buttons + roll**. Players type arguments and guesses; the pipeline judges them against hidden state. The extra judgment call is affordable — see D5.
 
-Free text is an attack surface, so it is a **revocable privilege**, defended in layers (extends the
-v9 critic's pre-LLM checks):
+Free text is an attack surface, so it is a **revocable privilege**, defended in layers (extends the v9 critic's pre-LLM checks):
 
 - [I] **Pre-LLM gate** — cap custom-input size; regex/heuristic scrape for injection (role-resets,
   "ignore previous", fenced-instruction lookalikes).
@@ -341,10 +296,7 @@ v9 critic's pre-LLM checks):
 
 ## How the three threads compose (v10 ownership)
 
-Thread D reframes C and B: they stop being edits to *one* prompt file and become properties of a
-**versioned prompt set**. Per `AGENTS.md` the move is still "new version, bump `PROMPT_VERSION`
-(`prompt-builder.ts:9`), mirror to `current_source.md`" — but `v10` is now a *set of templates*,
-not a single file (see Thread D's [!]).
+Thread D reframes C and B: they stop being edits to *one* prompt file and become properties of a **versioned prompt set**. Per `AGENTS.md` the move is still "new version, bump `PROMPT_VERSION` (`prompt-builder.ts:9`), mirror to `current_source.md`" — but `v10` is now a *set of templates*, not a single file (see Thread D's [!]).
 
 - [>] **The `v10` prompt set owns** the per-type templates (classify / combat / travel / trade /
   talk / resolve), each inheriting v9's markdown framing — including the combat template's

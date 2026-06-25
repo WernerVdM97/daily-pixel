@@ -11,11 +11,7 @@ related:
   - "[[handover-code-review-post-pr14]]"
 ---
 
-> **✅ Shipped** (`feat/yaml-asset-schemas`, commit `899b24e`). Hand-rolled validators (no new deps) per the decision below.
-> - **Module:** `src/assets/asset-schemas.ts` — per-asset validators + `loadAndValidate<T>(file, validator)` (throws `AssetSchemaError` with file + entry index + field) + cross-file checks (`checkItemSetCoverage`, `checkDayJobLocations`, `checkAlignmentUniqueness`).
-> - **Fail-fast boot:** `index.ts` `loadCharCreationAssets()` now routes every file through `loadAndValidate`. `migrate.ts` exports `SEEDED_LOCATIONS` as the single source of truth for the `workplace_location` cross-check.
-> - **Tests:** `tests/assets/asset-schemas.test.ts` — T1–T5, golden entry counts, and malformed-data rejection cases (603 suite green).
-> - **Not done (deliberately):** the per-call `as` casts at the consumption sites were left in place (now casting already-validated data — harmless); stripping them was the lowest-priority "related suggestion".
+> **✅ Shipped** (`feat/yaml-asset-schemas`, commit `899b24e`). Hand-rolled validators (no new deps) per the decision below. - **Module:** `src/assets/asset-schemas.ts` — per-asset validators + `loadAndValidate<T>(file, validator)` (throws `AssetSchemaError` with file + entry index + field) + cross-file checks (`checkItemSetCoverage`, `checkDayJobLocations`, `checkAlignmentUniqueness`). - **Fail-fast boot:** `index.ts` `loadCharCreationAssets()` now routes every file through `loadAndValidate`. `migrate.ts` exports `SEEDED_LOCATIONS` as the single source of truth for the `workplace_location` cross-check. - **Tests:** `tests/assets/asset-schemas.test.ts` — T1–T5, golden entry counts, and malformed-data rejection cases (603 suite green). - **Not done (deliberately):** the per-call `as` casts at the consumption sites were left in place (now casting already-validated data — harmless); stripping them was the lowest-priority "related suggestion".
 >
 > The code is the living artifact; this doc is kept for history.
 
@@ -23,10 +19,7 @@ Every gameplay constant the bot ships — classes, backgrounds, races, alignment
 
 > **Motivating proof:** `backgrounds.yml` has **5** entries missing a stat key (Farmstead·Temple-Raised·Urchin·Entertainer·Scout), `computeStats` sums them unguarded → `NaN` → persisted as `null`. **5 of 8 live prod characters already have a `null` ability score** (Flikker's `wisdom`, etc.). A manual sweep ([[polish-pass-v0.2.4]] §B1) counted **4** and missed Entertainer — the exact failure mode automated validation removes. *This spark is the guardrail; the data fix itself stays with polish §B1.*
 
-> **Division of labour — disjoint from the other two sparks.**
-> - **This spark owns:** a new validation module (`src/assets/asset-schemas.ts`) and new tests under `tests/assets/`, plus the templates below. It **absorbs/expands [[polish-pass-v0.2.4]] §B7** (the "loader does no completeness check" nit) into a systematic layer.
-> - **Defers to [[polish-pass-v0.2.4]] §B1:** the `backgrounds.yml` *data* edit. The repair of the 5 already-corrupted live characters is a **one-off scriptfix, not a migration** — see "Repairing the corrupted live characters" below.
-> - **Does NOT touch:** mock-fixture fidelity (polish §B8/B9), UI-handler tests (polish §C1–C3), or anything in [[prod-data-review-v0.2.3]] (resolution/prompt domain). No file overlap.
+> **Division of labour — disjoint from the other two sparks.** - **This spark owns:** a new validation module (`src/assets/asset-schemas.ts`) and new tests under `tests/assets/`, plus the templates below. It **absorbs/expands [[polish-pass-v0.2.4]] §B7** (the "loader does no completeness check" nit) into a systematic layer. - **Defers to [[polish-pass-v0.2.4]] §B1:** the `backgrounds.yml` *data* edit. The repair of the 5 already-corrupted live characters is a **one-off scriptfix, not a migration** — see "Repairing the corrupted live characters" below. - **Does NOT touch:** mock-fixture fidelity (polish §B8/B9), UI-handler tests (polish §C1–C3), or anything in [[prod-data-review-v0.2.3]] (resolution/prompt domain). No file overlap.
 
 ---
 

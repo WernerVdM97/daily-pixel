@@ -6,10 +6,7 @@ Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain f
 
 Read **[CONVENTIONS](./CONVENTIONS.md)** first.
 
-> **Maintenance:** 
-> When you add a doc, add its row to the right table.
-> When status or phase changes, update the badge and table.
-> If a file exists that isn't listed, it's drifting toward slop.
+> **Maintenance:**  When you add a doc, add its row to the right table. When status or phase changes, update the badge and table. If a file exists that isn't listed, it's drifting toward slop.
 
 ---
 

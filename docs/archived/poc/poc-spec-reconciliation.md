@@ -66,5 +66,4 @@ A review of the POC specs surfaced direct contradictions — several between the
 - [x] **`day-jobs.yml` gains an `actions` field** (3 entries) so `/hi`'s job-specific buttons have a source.
 - [x] **Scene width hard cap set to 30** in [[poc-build-scenes]] to match the mobile no-scroll must-pass.
 - [x] **`base_dc` 8-18** is the absolute bound; the daily scaling ranges (8-16, 9-17) nest inside it.
-</content>
-</invoke>
+</content> </invoke>

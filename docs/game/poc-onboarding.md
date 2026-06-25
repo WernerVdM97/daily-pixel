@@ -51,11 +51,9 @@ Multiple steps, one message per step (edited in place). All deterministic. All o
        [Confirm]  [Abort]
 ```
 
-**Stats tracked:** Physical (DEX+CON+STR), Wisdom, Intelligence, Charisma.
-**Modifiers:** Cumulative across all steps. Each option in YAML carries its own modifier values.
+**Stats tracked:** Physical (DEX+CON+STR), Wisdom, Intelligence, Charisma. **Modifiers:** Cumulative across all steps. Each option in YAML carries its own modifier values.
 
-**Confirm:** Character saved to DB. `/hi` now works.
-**Abort:** Discard everything. No character created.
+**Confirm:** Character saved to DB. `/hi` now works. **Abort:** Discard everything. No character created.
 
 **After `/join`:** All subsequent `/join` calls show an error: "You already walk the eastern road, [Name]. `/hi` to continue."
 

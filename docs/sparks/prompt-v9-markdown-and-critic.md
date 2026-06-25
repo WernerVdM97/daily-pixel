@@ -20,31 +20,17 @@ related:
 
 # Decision Prompt v9 — Markdown Input & Coherence Critic
 
-> *The **next** release (a `0.2.x` POC-beta patch). Two shippable threads carved out of the larger
-> v8→v-next rework: (1) make the LLM's input pure markdown, (2) add a **coherence critic** — a
-> second LLM pass that reviews and repairs each decision before it reaches the player. Combat as a
-> first-class mode is **on ice** (moved to [[prompt-v10-scaling-and-pipeline]]), along with
-> world-scaling and the full multi-stage pipeline. This doc is spec-grade: written for a handoff
-> agent to implement directly.*
+> *The **next** release (a `0.2.x` POC-beta patch). Two shippable threads carved out of the larger v8→v-next rework: (1) make the LLM's input pure markdown, (2) add a **coherence critic** — a second LLM pass that reviews and repairs each decision before it reaches the player. Combat as a first-class mode is **on ice** (moved to [[prompt-v10-scaling-and-pipeline]]), along with world-scaling and the full multi-stage pipeline. This doc is spec-grade: written for a handoff agent to implement directly.*
 
-**Thesis (inherited, narrowed):** deepen immersion by balancing the probabilistic and the
-deterministic — let the dice rule what should be uncertain, let the engine own what players would
-feel cheated by if it drifted, and let the LLM dress the result. v9 advances that on two fronts the
-codebase can absorb **without** any engine/scene-state change: a cleaner input (Thread 1) and an
-LLM proof-reader on the way out (Thread 2). Both are pure LLM-layer changes — independently
-shippable, independently reversible, and they touch no game mechanics.
+**Thesis (inherited, narrowed):** deepen immersion by balancing the probabilistic and the deterministic — let the dice rule what should be uncertain, let the engine own what players would feel cheated by if it drifted, and let the LLM dress the result. v9 advances that on two fronts the codebase can absorb **without** any engine/scene-state change: a cleaner input (Thread 1) and an LLM proof-reader on the way out (Thread 2). Both are pure LLM-layer changes — independently shippable, independently reversible, and they touch no game mechanics.
 
-Today the prompt is `v8` (`src/llm/prompt-builder.ts:9`). v9 is a single new `decision-v9.md`
-(one file, not a set — the set is a v10 concern) plus one new gateway wrapper.
+Today the prompt is `v8` (`src/llm/prompt-builder.ts:9`). v9 is a single new `decision-v9.md` (one file, not a set — the set is a v10 concern) plus one new gateway wrapper.
 
 ---
 
 ## Thread 1 — Markdown input (interpretability)
 
-`buildUserMessage` (`src/llm/prompt-builder.ts:29`) emits a line-per-field block with embedded
-JSON: `CHARACTER: class=Ranger, stats={"physical":3,...}, health=…`. The model burns attention
-parsing `key=value` + stringified objects instead of reading a scene. **Input only** — the response
-stays JSON; the JSON CONTRACT is unchanged.
+`buildUserMessage` (`src/llm/prompt-builder.ts:29`) emits a line-per-field block with embedded JSON: `CHARACTER: class=Ranger, stats={"physical":3,...}, health=…`. The model burns attention parsing `key=value` + stringified objects instead of reading a scene. **Input only** — the response stays JSON; the JSON CONTRACT is unchanged.
 
 - [I] Render the whole input context as clean markdown — headings, short tables, bullet lists — so
   tokens read like a briefing, not a serialized struct. **Guiding rule: keep markdown's *structural*
@@ -75,12 +61,7 @@ stays JSON; the JSON CONTRACT is unchanged.
 
 ### Settled — the character block
 
-**Principle: pre-compute the join.** Today the model gets character data split across two blocks it
-must mentally join — `CHARACTER: stats={"physical":3,...}` and `SCALING HINT: item bonuses: physical
-+2` — re-deriving the very number the dice engine already computes (`abilityCheckBonus` = score +
-item bonus, `dc.ts:62`). The template does that join *for* the model: a per-stat table whose `Bonus`
-column is exactly what's added to the d20. That's the single most decision-relevant fact for both DC
-calibration and per-option `stat` selection.
+**Principle: pre-compute the join.** Today the model gets character data split across two blocks it must mentally join — `CHARACTER: stats={"physical":3,...}` and `SCALING HINT: item bonuses: physical +2` — re-deriving the very number the dice engine already computes (`abilityCheckBonus` = score + item bonus, `dc.ts:62`). The template does that join *for* the model: a per-stat table whose `Bonus` column is exactly what's added to the d20. That's the single most decision-relevant fact for both DC calibration and per-option `stat` selection.
 
 Two purpose-built views, no arithmetic left for the model:
 
@@ -114,8 +95,7 @@ Health 7/10 · Stamina 4/6
 
 ### Settled — the scene & NPC blocks
 
-The old `SCALING HINT` block (item bonuses + inventory) **dissolves into the character block above** —
-it disappears from the scene side entirely. What remains is the world the model narrates:
+The old `SCALING HINT` block (item bonuses + inventory) **dissolves into the character block above** — it disappears from the scene side entirely. What remains is the world the model narrates:
 
 ```markdown
 PHASE: NEW_ACTION
@@ -174,9 +154,7 @@ The Oak · Town · The Dark Pines · The Shrine of the First Flame
 
 ## Thread 2 — Coherence critic (a proof-reading LLM pass)
 
-A second, focused LLM call that reviews each authored decision/narration for **coherence** before
-it reaches the player, and repairs or flags it. New idea (not in the original rework), and the
-cheapest reliability win available — and a pure LLM-layer addition, no mechanics touched.
+A second, focused LLM call that reviews each authored decision/narration for **coherence** before it reaches the player, and repairs or flags it. New idea (not in the original rework), and the cheapest reliability win available — and a pure LLM-layer addition, no mechanics touched.
 
 - [p] **Architecturally trivial to add — decorator gateway.** The codebase already wraps gateways:
   `FallbackLlmGateway` (`src/llm/FallbackLlmGateway.ts`) wraps an `LlmGateway`. v9 adds

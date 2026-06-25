@@ -117,9 +117,7 @@ The stamina deduction and location change happen in the handler, not inside the 
 - `DayJobDef` interface gains `workplace_location: string | null`.
 - The `/hi` response shows the workplace name next to the job title:
 
-  ```
-  🔨 Town Guard — Town Square
-  ```
+  ```   🔨 Town Guard — Town Square   ```
 
 ### `src/engine/WorldEngine.ts` & `WorldEngineImpl.ts`
 

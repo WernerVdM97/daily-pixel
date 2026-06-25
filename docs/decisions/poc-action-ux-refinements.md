@@ -16,17 +16,13 @@ related:
 
 # POC Action UX Refinements
 
-> Amends the decided action flow ([[poc-build-probabilistic]]) and outcome rendering
-> ([[poc-build-polish]] §3) with refinements surfaced during live POC play. These do
-> not supersede those docs — they extend three specific points. Pure bugs found in the
-> same pass are tracked in [[poc-build-polish]] §7, not here.
+> Amends the decided action flow ([[poc-build-probabilistic]]) and outcome rendering ([[poc-build-polish]] §3) with refinements surfaced during live POC play. These do not supersede those docs — they extend three specific points. Pure bugs found in the same pass are tracked in [[poc-build-polish]] §7, not here.
 
 ---
 
 ## Context
 
-Live play exposed three rough edges in the `/action` UX. None are new mechanics — each
-is a tightening of an already-`decided` behaviour:
+Live play exposed three rough edges in the `/action` UX. None are new mechanics — each is a tightening of an already-`decided` behaviour:
 
 - [!] Decision-option **button captions are full sentences** ("Decline — I'll use steel") and get truncated by Discord's button width on mobile — the must-pass platform.
 - [!] The **bail/skip model only has one terminal state** (`skipped`). Three player intents collapse into it badly: bailing a *hunt* (costs stamina, a real retreat), *skipping* a dialogue (opt out, nothing happens), and *finishing* a travel/rest action that the LLM already resolved with no choices. The last case renders a red **"Step back"** button as the only option on an outcome that was positive — tone-mismatched.
@@ -68,9 +64,7 @@ is a tightening of an already-`decided` behaviour:
 - [I] Keep them verb-first and world-generic ("Hunt the treeline", "Trade at the square", "Scout the road") so they compose with any location/day.
 - Amends the day-job quick-action behaviour from [[poc-build-probabilistic]] / [[poc-build-scaffold]].
 
-> *Folded in here rather than as a standalone `phase: poc` spark, to preserve the
-> "no open POC sparks — all promoted to domain folders" invariant in `docs/README.md`.
-> Split it out if it grows past a paragraph.*
+> *Folded in here rather than as a standalone `phase: poc` spark, to preserve the "no open POC sparks — all promoted to domain folders" invariant in `docs/README.md`. Split it out if it grows past a paragraph.*
 
 ## Consequences
 
