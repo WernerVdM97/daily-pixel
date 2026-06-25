@@ -8,7 +8,7 @@ When creating or editing ANY files under `docs/`, **read and follow** the conven
 - add its line to the map of content in [`docs/README.md`](./docs/README.md).
 - see `docs/templates/doc-template`
 
-Maturity is a frontmatter `status` (`spark → exploring → decided → superseded/archived/shipped`), never the folder. Resolve conflicts with a `decisions/` record — don't spawn a rival doc.
+Maturity is a frontmatter `status` (`spark → exploring → decided → superseded/shipped/nogo`), never the folder. Resolve conflicts with a `decisions/` record — don't spawn a rival doc.
 
 ---
 

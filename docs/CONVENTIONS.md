@@ -13,8 +13,8 @@ Using `docs/templates/doc-template.md`;
 ```yaml
 ---
 title: Human-readable title
-status: spark            # spark | exploring | decided | superseded | nogo | shipped | archived
-domain: engine           # vision | game | engine | ui | spark
+status: spark            # spark | exploring | decided | superseded | nogo | shipped
+domain: engine           # vision | game | engine | ui | spark | archived
 phase: mvp               # poc | mvp | mvp+ — when this is targeted for implementation
 tags: [render, vault]    # free-form, lowercase, for cross-cutting search
 related:                 # wikilinks to sibling docs
@@ -97,15 +97,14 @@ NEVER USE PLAIN BULLET STYLE LISTS, always add flavour. Mix different flavours i
 
 A doc only moves between folders once as it matures from a spark. Its maturity is further tagged in this one field.
 
-| status | Meaning | Trust it to… |
-|---|---|---|
-| `spark` | Raw idea. May be half-baked, wrong, or contradict another spark. | …capture a thought. Don't build on it. |
-| `exploring` | A real candidate direction, actively being fleshed out. Not locked. | …discuss and prototype against, knowing it may change. |
-| `decided` | This **is** the direction. Build against it. | …implement. Changing it requires a decision record. |
-| `archived` | This is a document that is no longer applicable. Kept for history | …keep record of an old doc that was discarded. |
-| `shipped` | Implemented and archived. The code is the living artifact. | …read for history. The spec has been built. |
-| `superseded` | Kept for history. Points to what replaced it via `superseded_by`. | …understand why we moved on. Nothing else. |
-| `nogo` | Explored and rejected. Won't pursue — at least not in current form. | …remember why we said no. Don't resurrect without new information. |
+| status       | Meaning                                                             | Trust it to…                                                       |
+| ------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `spark`      | Raw idea. May be half-baked, wrong, or contradict another spark.    | …capture a thought. Don't build on it.                             |
+| `exploring`  | A real candidate direction, actively being fleshed out. Not locked. | …discuss and prototype against, knowing it may change.             |
+| `decided`    | This **is** the direction. Build against it.                        | …implement. Changing it requires a decision record.                |
+| `shipped`    | Implemented and archived. The code is the living artifact.          | …read for history. The spec has been built.                        |
+| `superseded` | Kept for history. Points to what replaced it via `superseded_by`.   | …understand why we moved on. Nothing else.                         |
+| `nogo`       | Explored and rejected. Won't pursue — at least not in current form. | …remember why we said no. Don't resurrect without new information. |
 
 **Rule:** to overturn a `decided` or `shipped` doc, write a `decisions/` record and flip the old doc to `superseded` — don't silently edit it into something new, and don't open a competing third doc.
 
@@ -115,15 +114,15 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 
 ## 3. `domain` — the folder
 
-| Folder       | Domain   | Holds                                                                                                                                                |
-| ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vision/`    | `vision` | Mission, pillars, north star, goals, non-goals. The "why."                                                                                           |
-| `game/`      | `game`   | Core loop, mechanics, economy, world, narrative design.                                                                                              |
-| `engine/`    | `engine` | Graph DB, render, simulation, LLM gateway, data model. The "how it runs."                                                                            |
-| `ui/`        | `ui`     | Discord UX, command flows, ASCII presentation, and `ui/mockups/`.                                                                                    |
-| `decisions/` | —        | Decision records (ADRs): cross-cutting trade-offs that have been resolved.                                                                           |
+| Folder       | Domain     | Holds                                                                                                                                                |
+| ------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vision/`    | `vision`   | Mission, pillars, north star, goals, non-goals. The "why."                                                                                           |
+| `game/`      | `game`     | Core loop, mechanics, economy, world, narrative design.                                                                                              |
+| `engine/`    | `engine`   | Graph DB, render, simulation, LLM gateway, data model. The "how it runs."                                                                            |
+| `ui/`        | `ui`       | Discord UX, command flows, ASCII presentation, and `ui/mockups/`.                                                                                    |
+| `decisions/` | —          | Decision records (ADRs): cross-cutting trade-offs that have been resolved.                                                                           |
 | `sparks/`    | `spark`    | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
-| `archived/`  | `archived` | Done deals: shipped specs (`status: shipped`), rejected ideas (`status: nogo`), replaced directions (`status: superseded`). Kept for history. |
+| `archived/`  | `archived` | Done deals: shipped specs (`status: shipped`), rejected ideas (`status: nogo`), replaced directions (`status: superseded`). Kept for history.        |
 
 `domain` in frontmatter always matches the folder the file sits in.
 

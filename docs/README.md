@@ -13,7 +13,7 @@ Read **[CONVENTIONS](./CONVENTIONS.md)** first.
 
 ---
 
-🌱 `spark` · 🔭 `exploring` · ✅ `decided` · 🪦 `superseded` · 🚫 `nogo`
+🌱 `spark` · 🔭 `exploring` · ✅ `decided` · 🪦 `superseded` · 🚫 `nogo` · 🚀 `shipped`
 
 ---
 

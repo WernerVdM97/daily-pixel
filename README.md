@@ -25,8 +25,8 @@ It draws from **MUD** (text-rendered multi-user dungeon), **Frieren** (time as t
 
 | Phase    .            | What                                                                         | Status  |
 | --------------------- | ---------------------------------------------------------------------------- | ------- |
-| **Phase 1<br>Design** | Explore mechanics, engine, UX, and world.                                    | Ongoing |
-| **Phase 2<br>POC**    | A bot that rolls dice and shows an ASCII tree.                               | Next    |
+| **Phase 1<br>Design** | Explore mechanics, engine, UX, and world.                                    | Done    |
+| **Phase 2<br>POC**    | A bot that rolls dice and shows an ASCII tree.                               | Ongoing |
 | **Phase 3<br>MVP**    | Daily decision leading up to rolls, co-op, NPC basics, weekly rhythm.        | Planned |
 | **Phase 4<br>MVP+**   | Year-long campaign. NPC economy, moral drift, LLM narratives, finall climax. | Distant |
 
