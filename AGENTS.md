@@ -7,6 +7,7 @@ When creating or editing ANY files under `docs/`, **read and follow** the conven
 - it lives in the matching domain folder (`vision/ game/ engine/ ui/ decisions/ sparks/`);
 - add its line to the map of content in [`docs/README.md`](./docs/README.md).
 - see `docs/templates/doc-template`
+- **no manual line wrapping in prose** — write one logical paragraph as one line and let the editor soft-wrap. Hard-wrapping mid-paragraph (inserting newlines at ~80–95 cols) renders fine but fights Obsidian's editor, which treats one newline as a soft break and expects paragraph = line. Hard breaks belong only where markdown needs them (list items, headings, code fences, table rows).
 
 Maturity is a frontmatter `status` (`spark → exploring → decided → superseded/shipped/nogo`), never the folder. Resolve conflicts with a `decisions/` record — don't spawn a rival doc.
 

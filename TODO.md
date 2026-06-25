@@ -4,12 +4,12 @@
 ## scratchpad (humans start here)
 
 ### TBD
-- [ ] write a spark for standardising the mutations into a "skill" like system for the LLM to interact with the graph db
+- [ ] unique map exploration and coherency per player
 - [ ] improve stat reportings, i.e. the stats page should perhaps go into more detail of the base value and how items or character builder influences it.
 - [ ] char creater should show for each race/class/etc what stats are important and how it modifies them.
 - [ ] rest shows on /hi after it has been pressed (or not?)
 - [ ] often forgets too move people...
-- [x] pressing custom button on action-daily work should dismiss the old message. — Custom… now deletes the day-job menu on press, not on modal submit.
+- [?] pressing custom button on action-daily work should dismiss the old message. — Custom… now deletes the day-job menu on press, not on modal submit.
 - [ ] duplicate NPCs for warden. The hooded figure and The Warden
   - action button should not have showed, instead sleep. also my stamina was still showing the value before the deduction.
 - [ ] implement menu framework coupled to views (standardise views/command/message terminology)
