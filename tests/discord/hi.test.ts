@@ -80,14 +80,14 @@ const mockDayJobs = [
 ];
 
 describe("formatCharacterHeader", () => {
-  it("shows status: name, class, HP, stamina, rolls, and wealth", () => {
+  it("shows status: name, class, HP, stamina, rolls, and wealth (emoji-only, no labels)", () => {
     const result = formatCharacterHeader(makeChar());
     expect(result).toContain("Aldric");
     expect(result).toContain("Warrior");
-    expect(result).toContain("❤️ HP: 10/12");
-    expect(result).toContain("⚡ Stamina: 8/");
-    expect(result).toContain("🎲 Rolls: 2");
-    expect(result).toContain("💰 Wealth: 15");
+    expect(result).toContain("❤️ 10/12");
+    expect(result).toContain("⚡ 8/");
+    expect(result).toContain("🎲 2");
+    expect(result).toContain("💰 15");
   });
 
   it("shows the rolls count without the word 'remaining'", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildComponentPayload, getNavButtons, classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
+import { buildComponentPayload, getNavButtons, navResponseMode, classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
 
 const CONTAINER = 17;
 const TEXT_DISPLAY = 10;
@@ -155,5 +155,20 @@ describe("getNavButtons — view buttons (look/stats/backpack)", () => {
         for (const row of rows) expect(row.components.length).toBeLessThanOrEqual(5);
       }
     }
+  });
+});
+
+describe("navResponseMode — update vs reply (Discord 50035 guard)", () => {
+  it("edits in place only for a Components-V2 ephemeral source (the nav views)", () => {
+    expect(navResponseMode({ ephemeral: true, componentsV2: true })).toBe("update");
+  });
+
+  it("replies fresh from a legacy-embed ephemeral source (the action outcome) — can't toggle into V2", () => {
+    expect(navResponseMode({ ephemeral: true, componentsV2: false })).toBe("reply");
+  });
+
+  it("replies fresh from a public message — never overwrites the shared copy", () => {
+    expect(navResponseMode({ ephemeral: false, componentsV2: true })).toBe("reply");
+    expect(navResponseMode({ ephemeral: false, componentsV2: false })).toBe("reply");
   });
 });
