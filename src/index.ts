@@ -83,10 +83,9 @@ import {
   makeHiCommand,
   getDayJobActions,
   getWorkplaceLocation,
-  dayJobEmoji,
   type DayJobDef,
 } from "./discord/commands/hi.js";
-import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons } from "./discord/format.js";
+import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, dayJobEmoji, registerEmoji } from "./discord/format.js";
 import { announceCollapse, setCollapseBroadcaster } from "./discord/collapse.js";
 import {
   pickWeeklyThreat,
@@ -1054,6 +1053,10 @@ async function main() {
 
   // 2. YAML assets (fail-fast before any runtime code)
   const assets = loadCharCreationAssets();
+  // Seed the name→emoji lookups read by /stats, /hi, /action and outcome broadcasts
+  // (surfaces that hold only a class/job name, not the loaded defs).
+  registerEmoji("class", assets.classes as Array<{ name: string; emoji?: string }>);
+  registerEmoji("dayJob", assets.dayJobs as Array<{ name: string; emoji?: string }>);
   console.log(
     c.green(
       `[assets] Loaded ${assets.classes.length} classes, ` +

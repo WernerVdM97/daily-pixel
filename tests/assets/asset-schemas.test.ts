@@ -129,6 +129,11 @@ describe("validators reject malformed entries", () => {
     expect(problems.some((p) => p.includes("charisma"))).toBe(true);
   });
 
+  it("flags an entry missing its emoji", () => {
+    const bad = { name: "Glyphless", description: "x", modifiers: { physical: 1, wisdom: 0, intelligence: 0, charisma: 0 } };
+    expect(validateStatDef(bad, 0).some((p) => p.includes("emoji"))).toBe(true);
+  });
+
   it("loadAndValidate throws AssetSchemaError naming file + field", () => {
     expect(() => loadAndValidate(cc("classes.yml"), () => ["forced problem"])).toThrow(/forced problem/);
   });

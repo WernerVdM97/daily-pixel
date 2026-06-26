@@ -20,8 +20,8 @@ import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterD
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
-import { getDayJobActions, dayJobEmoji, type DayJobDef } from './hi.js';
-import { getNavButtons, getOutcomeServiceButtons, classEmoji } from '../format.js';
+import { getDayJobActions, type DayJobDef } from './hi.js';
+import { getNavButtons, getOutcomeServiceButtons, classEmoji, dayJobEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 

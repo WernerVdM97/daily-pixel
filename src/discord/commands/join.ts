@@ -14,7 +14,6 @@ import {
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import type { WizardSession, WizardState } from "../WizardSession.js";
 import { OAK_IMAGE, imageFiles, hasImage } from "../images.js";
-import { CLASS_EMOJI } from "../format.js";
 
 // ── Custom IDs ──
 
@@ -33,6 +32,7 @@ function choiceCid(step: number, value: string): string {
 export interface NamedDef {
   name: string;
   description?: string;
+  emoji: string;
 }
 /** A starting-kit entry from item-sets.yml. */
 export interface ItemSetDef {
@@ -264,9 +264,16 @@ async function safeNotify(
 
 // ── Message builders ──
 
-// Step → emoji shown on its progress line.
-const STEP_ICONS: Record<number, string> = {
-  1: "📝", 2: "🛡️", 3: "🌱", 4: "🧬", 5: "⚖️", 6: "🔧", 7: "🎒",
+// Per-step metadata: progress-ledger icon + section heading. Single source for both
+// the ledger lines and the option-block heading (steps 2-7; step 1 is the name modal).
+const STEPS: Record<number, { icon: string; heading: string }> = {
+  1: { icon: "📝", heading: "Name" },
+  2: { icon: "🛡️", heading: "Class" },
+  3: { icon: "🌱", heading: "Upbringing" },
+  4: { icon: "🧬", heading: "Race" },
+  5: { icon: "⚖️", heading: "Alignment" },
+  6: { icon: "🔧", heading: "Day Job" },
+  7: { icon: "🎒", heading: "Starting Kit" },
 };
 
 function buildStepMessage(state: WizardState): {
@@ -284,19 +291,15 @@ function buildStepMessage(state: WizardState): {
     1: state.name, 2: state.class, 3: state.upbringing, 4: state.race,
     5: titleCase(state.alignment), 6: state.dayJob, 7: state.itemSet,
   };
-  const stepLine = (n: number, label: string) => {
-    const icon = STEP_ICONS[n] ?? "•";
+  const stepLine = (n: number) => {
+    const { icon, heading } = STEPS[n];
     const value = chosen[n];
-    if (state.step === n) return `${icon} **${label}** ◀`;
-    if (value) return `${icon} ~~${label}~~ → **${value}**`;
-    return `${icon} ${label}`;
+    if (state.step === n) return `${icon} **${heading}** ◀`;
+    if (value) return `${icon} ~~${heading}~~ → **${value}**`;
+    return `${icon} ${heading}`;
   };
 
-  const ledger = [
-    stepLine(1, "Name"), stepLine(2, "Class"), stepLine(3, "Upbringing"),
-    stepLine(4, "Race"), stepLine(5, "Alignment"), stepLine(6, "Day Job"),
-    stepLine(7, "Starting Kit"),
-  ].join("\n");
+  const ledger = [1, 2, 3, 4, 5, 6, 7].map(stepLine).join("\n");
 
   const blocks: string[] = [ledger];
   const components: ActionRowBuilder<ButtonBuilder>[] = [];
@@ -318,7 +321,7 @@ function buildStepMessage(state: WizardState): {
 
   if (state.step >= 2 && state.step <= 7) {
     const opts = buildStepOptions(state.step, _defs, state.class);
-    const heading = STEP_HEADINGS[state.step] ?? "";
+    const heading = STEPS[state.step]?.heading ?? "";
 
     // Options block: emoji + bold name + description, one per line.
     const list = opts
@@ -412,9 +415,7 @@ function buildNameModal(): ModalBuilder {
 }
 
 // ── Step option building (data-driven from YAML) ──
-// The wizard renders whatever assets/char-creation/*.yml contains. Only emoji are
-// mapped here (per step, since names like "Merchant" recur across steps); unmapped
-// names fall back to a neutral bullet.
+// The wizard renders whatever assets/char-creation/*.yml contains, emoji and all.
 
 interface OptionDef {
   /** Button label and bold body name. */
@@ -426,47 +427,24 @@ interface OptionDef {
   description: string;
 }
 
-const STEP_HEADINGS: Record<number, string> = {
-  2: "Class", 3: "Upbringing", 4: "Race", 5: "Alignment", 6: "Day Job", 7: "Starting Kit",
-};
-
 const FALLBACK_EMOJI = "🔹";
 
-const UPBRINGING_EMOJI: Record<string, string> = {
-  Soldier: "🎖️", Merchant: "⚖️", Scholar: "📚", "Folk Hero": "🌟", Outcast: "🏚️", Noble: "👑",
-  Artisan: "🪚", Farmstead: "🌾", "Temple-Raised": "⛪", Urchin: "🗝️", Entertainer: "🎭", Scout: "🧭",
-};
-const RACE_EMOJI: Record<string, string> = {
-  Human: "🧑", Dwarf: "🪓", Elf: "🧝", Halfling: "🍀", "Half-Elf": "🌗", "Half-Orc": "💪", "Dúnedain": "🏔️",
-};
-const ALIGNMENT_EMOJI: Record<string, string> = {
-  "Lawful Good": "😇", "Neutral Good": "🕊️", "Chaotic Good": "🔥",
-  "Lawful Neutral": "📏", "True Neutral": "⚖️", "Chaotic Neutral": "🎲",
-  "Lawful Evil": "🗡️", "Neutral Evil": "🐍", "Chaotic Evil": "💀",
-};
-/** Single source of day-job → emoji (fallback 🔨), reused by /hi and the /action
- *  day-job menu so those surfaces don't hardcode a glyph. */
-export const DAYJOB_EMOJI: Record<string, string> = {
-  "Town Guard": "🛡️", Blacksmith: "🔨", Hunter: "🏹", Scribe: "📜", Herbalist: "🌿",
-  Minstrel: "🎶", Merchant: "💰", Acolyte: "🕯️", Wanderer: "🚶",
-};
-
-/** Options for a step, built from the YAML defs (emoji mapped here). Exported for tests. */
+/** Options for a step, built from the YAML defs (emoji read straight off each entry). Exported for tests. */
 export function buildStepOptions(step: number, defs: CharDefs, chosenClass?: string): OptionDef[] {
-  const toOption = (d: NamedDef, emoji: Record<string, string>, value?: string): OptionDef => ({
+  const toOption = (d: NamedDef, value?: string): OptionDef => ({
     label: d.name,
     value: value ?? d.name,
-    emoji: emoji[d.name] ?? FALLBACK_EMOJI,
+    emoji: d.emoji || FALLBACK_EMOJI,
     description: d.description ?? "",
   });
 
   switch (step) {
-    case 2: return defs.classes.map(d => toOption(d, CLASS_EMOJI));
-    case 3: return defs.backgrounds.map(d => toOption(d, UPBRINGING_EMOJI));
-    case 4: return defs.races.map(d => toOption(d, RACE_EMOJI));
+    case 2: return defs.classes.map(d => toOption(d));
+    case 3: return defs.backgrounds.map(d => toOption(d));
+    case 4: return defs.races.map(d => toOption(d));
     // Alignment value stays lowercase ("lawful good") — the format stored & sent to the LLM.
-    case 5: return defs.alignments.map(d => toOption(d, ALIGNMENT_EMOJI, d.name.toLowerCase()));
-    case 6: return defs.dayJobs.map(d => toOption(d, DAYJOB_EMOJI));
+    case 5: return defs.alignments.map(d => toOption(d, d.name.toLowerCase()));
+    case 6: return defs.dayJobs.map(d => toOption(d));
     case 7: return defs.itemSets
       .filter(kit => kit.for_classes.includes(chosenClass ?? ""))
       .map(kit => ({ label: kit.name, value: kit.name, emoji: "🎒", description: kit.description }));

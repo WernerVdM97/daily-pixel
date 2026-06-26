@@ -1,29 +1,36 @@
 # Character races — loaded by /join wizard
 
 - name: Human
+  emoji: "🧑"
   description: The most common folk. Adaptable, ambitious, everywhere.
   modifiers: { physical: 0, wisdom: 0, intelligence: 0, charisma: 1 }
 
 - name: Dwarf
+  emoji: "🪓"
   description: Stone and steel. Stocky, stubborn, unshakeable.
   modifiers: { physical: 1, wisdom: 1, intelligence: 0, charisma: -2 }
 
 - name: Elf
+  emoji: "🧝"
   description: Grace and age. You've seen centuries. The Oak was a sapling when you were young.
   modifiers: { physical: -1, wisdom: 1, intelligence: 1, charisma: 0 }
 
 - name: Halfling
+  emoji: "🍀"
   description: Small and lucky. The world is big — you've learned to slip through the cracks.
   modifiers: { physical: -2, wisdom: 0, intelligence: 0, charisma: 2 }
 
 - name: Half-Elf
+  emoji: "🌗"
   description: Two bloodlines, one heart. You walk between worlds — welcome in neither, at home in both.
   modifiers: { physical: -1, wisdom: 1, intelligence: 1, charisma: 0 }
 
 - name: Half-Orc
+  emoji: "💪"
   description: Two bloods, one fist. You carry the strength of one world and the rejection of both.
   modifiers: { physical: 2, wisdom: -1, intelligence: 0, charisma: -1 }
 
 - name: Dúnedain
+  emoji: "🏔️"
   description: Blood of the West. Your people have guarded the borders for so long the villages forgot you exist.
   modifiers: { physical: 1, wisdom: 1, intelligence: 0, charisma: -1 }

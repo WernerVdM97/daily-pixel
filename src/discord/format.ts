@@ -16,19 +16,38 @@ export const SEPARATOR = '━━━━━━━━━━━━━━━━━━
 
 /** Fallback emoji for an unknown class. */
 export const CLASS_EMOJI_FALLBACK = '🔹';
+/** Fallback emoji for an unknown day job. */
+export const DAYJOB_EMOJI_FALLBACK = '🔨';
 
-/** Player-class → emoji. Shared by char creation (join) and outcome broadcasts. */
-export const CLASS_EMOJI: Record<string, string> = {
-  Warrior: '⚔️',
-  Ranger: '🏹',
-  Wizard: '🔮',
-  Bard: '🎵',
-  Priest: '✝️',
-};
+/**
+ * name→emoji lookups, populated once at boot from the YAML defs via `registerEmoji`.
+ * Surfaces that hold only a character row (a class/job name, not the loaded defs) —
+ * /stats, /hi, /action, outcome broadcasts — read their glyph from here instead of
+ * duplicating the asset catalog in a hardcoded map. The /join wizard reads emoji
+ * straight off the defs, so it doesn't depend on this.
+ */
+const emojiByName = {
+  class: new Map<string, string>(),
+  dayJob: new Map<string, string>(),
+} as const;
+
+export type EmojiCategory = keyof typeof emojiByName;
+
+/** Seed a category's name→emoji lookup from loaded YAML defs (called at boot). */
+export function registerEmoji(category: EmojiCategory, defs: Array<{ name: string; emoji?: string }>): void {
+  const map = emojiByName[category];
+  map.clear();
+  for (const d of defs) if (d.emoji) map.set(d.name, d.emoji);
+}
 
 /** Emoji for a player class, falling back to a neutral marker for unknown classes. */
 export function classEmoji(charClass: string | null | undefined): string {
-  return (charClass && CLASS_EMOJI[charClass]) || CLASS_EMOJI_FALLBACK;
+  return (charClass && emojiByName.class.get(charClass)) || CLASS_EMOJI_FALLBACK;
+}
+
+/** Emoji for a day job, hammer fallback for unmapped jobs. */
+export function dayJobEmoji(job: string | null | undefined): string {
+  return (job && emojiByName.dayJob.get(job)) || DAYJOB_EMOJI_FALLBACK;
 }
 
 /** Components V2 type constants. */

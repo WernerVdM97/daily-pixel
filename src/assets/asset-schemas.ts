@@ -41,6 +41,10 @@ function isNonEmptyString(v: unknown): v is string {
 function labelOf(rec: Record<string, unknown>): string {
   return typeof rec.name === "string" && rec.name.trim() !== "" ? rec.name : "(unnamed)";
 }
+/** The glyph shown for an option in the /join wizard (and class/day-job surfaces). */
+function checkEmoji(rec: Record<string, unknown>, i: number): string[] {
+  return isNonEmptyString(rec.emoji) ? [] : [`[${i}] "${labelOf(rec)}": "emoji" must be a non-empty string`];
+}
 
 /** A per-entry validator: returns a (possibly empty) list of problem strings. */
 export type EntryValidator = (entry: unknown, index: number) => string[];
@@ -68,6 +72,7 @@ export const validateStatDef: EntryValidator = (entry, i) => {
   const errs: string[] = [];
   if (!isNonEmptyString(entry.name)) errs.push(`[${i}]: "name" must be a non-empty string`);
   if (!isNonEmptyString(entry.description)) errs.push(`[${i}] "${labelOf(entry)}": "description" must be a non-empty string`);
+  errs.push(...checkEmoji(entry, i));
   errs.push(...checkModifiers(entry, i));
   return errs;
 };
@@ -78,6 +83,7 @@ export const validateAlignment: EntryValidator = (entry, i) => {
   const errs: string[] = [];
   if (!isNonEmptyString(entry.name)) errs.push(`[${i}]: "name" must be a non-empty string`);
   if (!isNonEmptyString(entry.description)) errs.push(`[${i}] "${labelOf(entry)}": "description" must be a non-empty string`);
+  errs.push(...checkEmoji(entry, i));
   const axis = entry.axis;
   const ok =
     Array.isArray(axis) &&
@@ -98,6 +104,7 @@ export const validateDayJob: EntryValidator = (entry, i) => {
   const errs: string[] = [];
   const name = labelOf(entry);
   if (!isNonEmptyString(entry.name)) errs.push(`[${i}]: "name" must be a non-empty string`);
+  errs.push(...checkEmoji(entry, i));
 
   const dep = entry.depends_on;
   if (!Array.isArray(dep) || dep.length === 0 || !dep.every((s) => (STATS as readonly string[]).includes(s as string))) {

@@ -1,11 +1,5 @@
 import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
-import { SEPARATOR, classEmoji } from "../format.js";
-import { DAYJOB_EMOJI } from "./join.js";
-
-/** Day-job emoji, hammer fallback for unmapped jobs. Shared with the /action menu. */
-export function dayJobEmoji(job: string): string {
-  return DAYJOB_EMOJI[job] ?? "🔨";
-}
+import { SEPARATOR, classEmoji, dayJobEmoji } from "../format.js";
 
 // ── Day job types (day-jobs.yml shape) ──
 
