@@ -538,10 +538,14 @@ export class WorldEngineImpl implements WorldEngine {
             result.description ??
             "An uncharted place beyond the known map.";
           const isSafe = result.is_safe ?? 0;
-          const updated = this.locationRepo.enrichProvisional(name, { isSafe, description });
+          const updated = this.locationRepo.enrichProvisional(name, {
+            isSafe,
+            description,
+            tags: result.tags ?? null,
+          });
           if (updated) {
             console.log(
-              `[cartographer] charted "${name}" (is_safe=${isSafe}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
+              `[cartographer] charted "${name}" (is_safe=${isSafe}${result.tags ? `, tags=${result.tags}` : ""}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
             );
           }
         } catch (err) {

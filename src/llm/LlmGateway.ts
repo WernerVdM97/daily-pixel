@@ -139,6 +139,8 @@ export interface CartographerResult {
   is_safe?: 0 | 1;
   /** A proper one-paragraph description to replace the placeholder. */
   description?: string;
+  /** Comma-separated scene tags (drawn from the palette) used to pick the location's ASCII art. */
+  tags?: string;
 }
 
 /**

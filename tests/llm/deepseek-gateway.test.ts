@@ -564,6 +564,33 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
     expect(result.is_safe).toBe(1);
   });
 
+  it('parses tags from a comma-separated string (normalized, deduped, lowercased)', async () => {
+    const gw = new DeepseekLlmGateway({
+      apiKey: 'x',
+      fetch: enrichFetch({ is_safe: 0, description: 'A drowned hall.', tags: 'Swamp, bog ,bog, WET' }),
+    });
+    const result = await gw.enrich({ newName: 'The Drowned Hall', existingNames: [], narrative: 'a swamp' });
+    expect(result.tags).toBe('swamp,bog,wet');
+  });
+
+  it('parses tags from an array form too', async () => {
+    const gw = new DeepseekLlmGateway({
+      apiKey: 'x',
+      fetch: enrichFetch({ is_safe: 0, description: 'Ruins.', tags: ['ruins', 'ancient', 'stone'] }),
+    });
+    const result = await gw.enrich({ newName: 'The Old Keep', existingNames: [], narrative: 'ruins' });
+    expect(result.tags).toBe('ruins,ancient,stone');
+  });
+
+  it('omits tags when none are supplied or all are blank', async () => {
+    const gw = new DeepseekLlmGateway({
+      apiKey: 'x',
+      fetch: enrichFetch({ is_safe: 0, description: 'Nowhere.', tags: ' , ' }),
+    });
+    const result = await gw.enrich({ newName: 'Nowhere', existingNames: [], narrative: '' });
+    expect(result.tags).toBeUndefined();
+  });
+
   it('returns an empty result (never throws) on a non-200 / malformed response', async () => {
     const bad = vi.fn().mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom'), json: () => Promise.resolve({}) }) as unknown as typeof fetch;
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: bad });

@@ -60,12 +60,15 @@ Decide:
 - Is this genuinely a NEW place, or is the new name just a synonym for one already in the known list (e.g. "The Temple" for "The Shrine of the First Flame")? If it is a duplicate, set "matchesExisting" to the EXACT existing name.
 - Is it safe (a settlement, sanctuary, indoors-with-people) or wild (wilderness, ruins, open road, anywhere danger roams)? Off-map places are usually wild.
 - Write a vivid one-paragraph description (2-3 sentences) in the game's grim tone that fits the narrative and the name.
+- Choose 3-6 scene tags that capture the place's terrain and feel, used to pick its artwork. PREFER tags from this palette, picking the closest matches; add a plainer descriptive word only if nothing fits:
+  oak, interior, fire, sanctuary, warden, forest, trees, wilderness, dark, canopy, edge, field, boundary, river, water, stream, crossing, bank, bridge, stone, arch, road, travel, open, path, horizon, ruins, ancient, broken, old, shrine, temple, holy, quiet, town, square, buildings, cobblestone, market, shop, village, goods, trade, tavern, crowd, drink, forge, smithy, building, library, study, scrolls, cave, entrance, rock, opening, underground, mountain, pass, rocky, high, narrow, coast, shore, lake, farm, crops, rural, swamp, bog, wet, mist, marsh, tower, watch, lookout, smoke, east, threat, ash, danger, campfire, rest, night, safe.
 
 Return ONLY valid JSON, no markdown fences:
 {
   "matchesExisting": "<exact existing name, or omit if genuinely new>",
   "is_safe": 0 or 1,
-  "description": "<2-3 sentence description>"
+  "description": "<2-3 sentence description>",
+  "tags": "<3-6 comma-separated lowercase tags>"
 }`;
 
 /** System prompt for the weekly recap — a terse, evocative chronicler. */
@@ -353,6 +356,8 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       if (typeof parsed.description === 'string' && parsed.description.trim() !== '') {
         result.description = stripCR(parsed.description.trim());
       }
+      const tags = normalizeTags(parsed.tags);
+      if (tags) result.tags = tags;
       return result;
     } catch (err) {
       console.warn(c.yellow('[cartographer] enrich failed'), err instanceof Error ? err.message : String(err));
@@ -689,4 +694,23 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
 /** Strip carriage returns from LLM-authored prose so they don't render as `␍` in Discord. */
 function stripCR(s: string): string {
   return s.replace(/\r/g, '');
+}
+
+/**
+ * Normalize cartographer tags (a string "a, b" or an array ["a","b"]) into the canonical
+ * comma-separated lowercase form the DB and TagResolver expect. Returns undefined if empty.
+ */
+function normalizeTags(raw: unknown): string | undefined {
+  const parts = Array.isArray(raw)
+    ? raw
+    : typeof raw === 'string'
+      ? raw.split(',')
+      : [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    if (typeof p !== 'string') continue;
+    const t = p.trim().toLowerCase();
+    if (t !== '') seen.add(t);
+  }
+  return seen.size > 0 ? [...seen].join(',') : undefined;
 }
