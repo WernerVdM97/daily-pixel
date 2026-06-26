@@ -40,6 +40,7 @@ The POC pattern: one LLM call per decision, JSON in/out, the LLM picks the stat,
 - [I] **Multiple short agent calls / a chain** instead of one big chat per action — distinct steps (distil intent → offer choices → resolve → narrate) may each be cheaper and more reliable than one mega-prompt.
 - [I] **Prompt simulation harness** — run scripted player inputs through the prompt to find where the LLM digresses, before testers do.
 - [p] **Captured calls as test fixtures** — the `llm_calls` rows (real prompts + responses, incl. failures) become mocks for dev and unit tests; no live API needed to reproduce a bad outcome.
+- [I] **End-to-end flow tests — mocked LLM + scripted button presses.** Map the core flows (`/join` → `/hi` → custom/preset `/action` → decision steps → roll/skip → outcome) and drive them in tests with a `MockLlmGateway` returning canned responses *and* simulated Discord interactions (button clicks, modal submits), so UI-layer regressions (loading envelopes, terminal-state rendering, nav buttons) are caught before testers hit them. Worth **pulling forward into the POC** — most of the live UI bugs (decision-head emoji, the custom-action thinking screen) are flow-rendering issues a mocked end-to-end harness would surface. Builds on the captured-call fixtures above.
 
 ## Open questions
 

@@ -129,6 +129,7 @@ Two inputs decide how hard an encounter is:
 - [I] **World Tier raises the floor for everyone.** As weeks pass, even baseline encounters drift
   up — the east darkens regardless of who walks it. Player-scaling sits *on top of* that rising
   floor.
+- [I] **Pull players toward the danger with rumours/hints (the carrot for the geography).** Scaling only matters if players *go* to the unsafe, unexplored places. Surface global hints of treasure or rumours that nudge players into the dangerous spots that haven't been charted yet (the caves, the off-map wilds from [[roll-economy-timeouts-and-world-growth]]) — the reward-scaling above is the payoff once they arrive. On the map side this lands as a `reveal_location` "rumoured, uncharted" leaf ([[per-player-map-exploration]] notes the hook); the prompt/world-growth side is what *authors* the rumour and ties it to a tier-scaled reward. Keep it from reading as spam — a global beat on a cadence, not per-action chatter.
 - [p] Engine math barely moves: `resolveRoll` / the d20 / `dc.ts` are **untouched**. The change is
   in how the target DC band and foe strength are *chosen* — computed from (player strength, tier)
   and handed to the LLM, which authors a scene/foe to match. This is where Thread C's `combatState`

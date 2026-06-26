@@ -3,34 +3,19 @@
 
 ## scratchpad (humans start here)
 
-### TBD
-- [ ] should ANY non-decision action be a no-op refund? Not just ones that do not modify stamina or health (since those shouldnt happen anymore?)
-- [ ] derived actions should immediately by shown next to the decision head in emoji form
-- [ ] std thinking screen. Custom action shows three loading dots and says thinking (not embeded grey version with hourglass)
-- [ ] the welcome screen after join does not show hi as a button.
-- [ ] the footer
-  does not metion the loss of an additional 1 stamina for the auto teleport to my
-  workplace. It is also not hinted at at all. Lastly, a preset daily work item being
-  selected as an action should not show "Quest:..." in the action view. But "Work:..."
-  rather.
-  - map out some core flows and use better end to end testing with mocked LLM reponses and user button presses.
-- [ ] improve stat reportings, i.e. the stats page should perhaps go into more detail of the base value and how items or character builder influences it.
-  - it should be much prettier, see header and footer. What else makes sense here? levels? upskilling? traits? 
-  - char creater should show for each race/class/etc what stats are important and how it modifies them.
-- [ ] duplicate NPCs for warden. The hooded figure and The Warden
-- [ ] implement menu framework coupled to views (standardise views/command/message terminology)
-  - each message should be structured in a tab manner? with subtabs in mvp.
-- [ ] how to make wealth spendable or meaning full (same for stamina and health)?
-  - how do we handle death or 0 HP?
-- [ ] MVP: start capping rolls per action type... add short rest option
-  - check for hard coded roll caps
-  - players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
-- [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
-- [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other. globals messages on nat 1 or 20
-- [ ] add a weight to time, the world should evolve with progression. DC should become higher, new threats appear
+### TBD — POC polish (small UI wins, no spark warranted)
+- [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
+- [ ] custom (free-text) actions need a real "thinking" screen — three dots + "thinking…" as its own page. Preset day-job actions already show a ⏳ "Starting…" loading envelope (`action.ts:204`); the custom-modal path shows nothing before `engine.startAction`.
+- [ ] `/stats` — show how the character builder (race/class) shaped each base score, and make it prettier. The base+gear breakdown already ships (`+6 (+4 base, +2 🎒)`); levels/upskilling/traits and per-race/class char-creator guidance are deferred → MVP below.
+- [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
 
 ## MVP — deferred
 
+- [ ] menu framework coupled to views — standardise the views/command/message terminology and a tab/subtab layout per message. See [[discord-interaction-layer]] (the interaction-plumbing layer; subtabs are explicitly MVP there).
+- [ ] make wealth (and stamina, health) spendable/meaningful, and define death / 0 HP. The death track is deferred from the POC by design ([[the-poc]]); see [[mvp-progression]] (lifecycle/death), [[mvp-combat]] (HP stakes), [[mvp+npc-economy]] (wealth sink).
+- [ ] cap rolls per action type + add a short-rest option; reward slow build-up / daily-work play on subsequent actions instead of jumping straight in. Check for hard-coded roll caps. Extends [[roll-economy-timeouts-and-world-growth]].
+- [ ] character progression depth — levels, upskilling, traits; the char creator shows which stats matter per race/class and how each modifies them. See [[mvp-progression]], [[mvp-character-drivers]].
+- [ ] richer community feedback in chat — tag people (not too spammy), let players show off to each other. See [[mvp-social-model]], [[mvp-discord-ux]].
 - [ ] use both models differently, flash for generating quick responses and daily work, pro for decision trees.
 - [ ] saturday special event, spawn an "evil npc" somewhere with a hint. Incentivise hunting it/them and add npc death mutation
 - [ ] choose age
@@ -64,3 +49,10 @@
     (you dont sleep well or you get put in jail and must escape)
 - [>] `[[mvp-ascii-render-pipeline]]` — scrape prettier ascii art or images for converting with ascii image converter
 
+---
+
+## Triaged out of TBD (for provenance — 2026-06-26)
+
+- **Done / shipped (struck):** preset work labelled `Work:` not `🧭 Quest:` and commute `−1 stamina` shown on the thinking page; the no-op refund scope question (stamina-/roll-only "shrug" is again a refundable no-op — D1 follow-up). All in `[Unreleased]`.
+- **Working as designed (struck):** post-`/join` welcome shows no "Hi" button because that screen *is* the Hi screen (`getNavButtons` filters the current command — `format.ts:137`).
+- **Routed to sparks:** Warden NPC duplicates (hooded figure vs The Warden) → [[mutation-vocabulary-refinement]] §2 (NPC name-resolution); world evolves with time / rising DC / new threats → [[prompt-v10-scaling-and-pipeline]] Thread B (World Tier); global rumours pulling players toward dangerous unexplored locations → [[prompt-v10-scaling-and-pipeline]] Thread B + [[per-player-map-exploration]] (`reveal_location` leaf); end-to-end flow tests with mocked LLM + scripted button presses → [[mvp-llm-prompt-architecture]].

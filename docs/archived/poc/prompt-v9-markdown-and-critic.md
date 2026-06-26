@@ -1,7 +1,8 @@
 ---
 title: Decision Prompt v9 — Markdown Input & Coherence Critic
-status: spark
-domain: spark
+status: shipped
+domain: archived
+superseded_by: "implemented in code"
 phase: poc
 tags:
   - llm

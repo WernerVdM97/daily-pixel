@@ -21,7 +21,7 @@ A focused cleanup-plus-small-expansion of the **mutation vocabulary** — the ke
 
 This is a `0.2.x` candidate. It bumps the decision prompt (a new `decision-v<N>.md` + `PROMPT_VERSION`), so historical action rows stay attributable to the v8 vocabulary that produced them.
 
-- [!] **Sequencing against [[prompt-v9-markdown-and-critic]] is unresolved.** Both this and v9 bump the decision prompt. The prompt-version number (`vN`) is independent of the app version (`0.2.x`), so they can ship as separate sequential bumps (v9 = markdown+critic, then v10 = this) **or** fold into a single bump. Decide the order before either is implemented — see Open Questions.
+- [>] **Sequencing against [[prompt-v9-markdown-and-critic]] is now settled by reality: v9 shipped standalone** (`PROMPT_VERSION='v9'`, `decision-v9.md` + the critic are live). So this cleanup is a **separate, later bump**, not folded into v9. **Open naming collision** (resolve before implementing): the next decision prompt is `v10`, but [[prompt-v10-scaling-and-pipeline]] also claims the name "v10" for its 0.3.0 prompt *set*. Either this ships as `decision-v10` and the pipeline set becomes `v11`+, or this folds into the v10 set — pick one so two different things aren't both called v10.
 
 ## The current vocabulary (v8 baseline)
 
@@ -79,6 +79,7 @@ The `npcs` table already carries `description` and `location` (set at creation).
 - [<] **`disposition` / relationship tracking is explicitly deferred.** A `disposition` column is worthless unless it is also fed *back into* `LlmContext` when that NPC reappears — otherwise it is dead, write-only state. That is schema migration + context plumbing + prompt changes, which belongs with the 0.3.0 relationship/social work, not this cleanup.
 
 - [!] **NPC identity resolution.** `add_npc` addresses NPCs by `name`; `update_npc`/`remove_npc` must resolve a name back to an existing row. Resolve case-insensitively, scoped by the acting character's current location to disambiguate; on no-match, **warn + drop** (soft, consistent with §5). Define this precisely at implementation time.
+  - [c] **Live duplicate observed (the Warden case).** Today `spawn_npc` has no dedup (`npc.ts:26`, `WorldEngineImpl.ts:595` insert unconditionally) — so the seeded **The Warden** and an LLM-spawned **"The hooded figure"** become two rows for the same character, and the lore GM-note (the title-passed-across-centuries framing, [[prompt-v9-markdown-and-critic]]) can't bind them. This is the motivating bug for resolution-on-create: an `add_npc` whose name fuzzily matches an existing NPC at the location (or a known alias of a canonical figure like the Warden) should reuse/`update_npc` that row, not mint a duplicate. Exact-name reuse is solid; alias/fuzzy matching for canonical figures is the harder, deferrable part — at minimum stop the literal duplicate.
 
 ### 3. `set_location` split → `move_to` + `reveal_location`
 
@@ -133,7 +134,7 @@ The `category → expected-mutations` map lives in code as the **single source o
 
 ## Open questions
 
-- [?] **Version sequencing vs [[prompt-v9-markdown-and-critic]]** — separate sequential bumps (v9 then v10), or fold this into v9's bump? Resolve before implementation; the loser does not silently absorb the other.
+- [?] **Prompt-version number + collision with the v10 set** — v9 already shipped, so this is a later standalone bump; settle whether it takes `decision-v10` (pushing [[prompt-v10-scaling-and-pipeline]]'s prompt set to `v11`+) or folds into that set, so "v10" names exactly one thing.
 - [?] **NPC name-resolution precision** — exact rule for resolving `update_npc`/`remove_npc` by name within a location, and behaviour on ambiguity (multiple matches) vs no-match.
 - [?] **`reveal_location` reachability** — does a revealed-but-unvisited place behave any differently from a visited one in known-locations context, or is it identical minus the character's presence?
 
