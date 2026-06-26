@@ -4,6 +4,7 @@
 ## scratchpad (humans start here)
 
 ### TBD
+- [ ] should ANY non-decision action be a no-op refund? Not just ones that do not modify stamina or health (since those shouldnt happen anymore?)
 - [ ] check tag generation for new locations
 - [ ] derived actions should immediately by shown next to the decision head in emoji form
 - [ ] std thinking screen. Custom action shows three loading dots and says thinking (not embeded grey version with hourglass)

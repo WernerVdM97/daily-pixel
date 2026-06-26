@@ -1189,7 +1189,7 @@ async function main() {
     actionRepo,
     npcRepo,
     ...(cartographer ? { cartographer } : {}),
-    ...(process.env.ENABLE_COHERENCE_CRITIC === "true" && criticGateway ? { critic: criticGateway } : {}),
+    ...(criticEnabled && criticGateway ? { critic: criticGateway } : {}),
     classDefs: assets.classes as ClassDef[],
     upbringingDefs: assets.backgrounds as ModifierDef[],
     raceDefs: assets.races as ModifierDef[],
@@ -1207,8 +1207,10 @@ async function main() {
     }>,
   });
   console.log(c.green("[engine] WorldEngine initialized"));
-  if (process.env.ENABLE_COHERENCE_CRITIC === "true" && criticGateway) {
+  if (criticEnabled && criticGateway) {
     console.log(c.cyan("[llm] coherence critic ENABLED (decision + resolution beats; logged as call_kind=critic)"));
+  } else if (!criticEnabled) {
+    console.log(c.grey("[llm] coherence critic disabled (ENABLE_COHERENCE_CRITIC=false)"));
   }
 
   // 7. Command handlers
