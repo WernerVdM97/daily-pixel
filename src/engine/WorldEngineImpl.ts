@@ -1,4 +1,4 @@
-/** 30 minutes in ms — mid-action state auto-times out after this. */
+/** Mid-action state auto-times out after this (30 min). */
 const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 
 import type Database from "better-sqlite3";
@@ -56,13 +56,13 @@ import type {
   WeeklyActionSummary,
 } from "./WorldEngine.js";
 
-/** Daily action allotment granted at character creation and refreshed each tick. */
+/** Daily rolls granted at creation and refreshed each tick. */
 const DAILY_ROLL_ALLOWANCE = 3;
 
-/** Extra rolls everyone is granted on the Saturday tick (a weekend treat). */
+/** Extra rolls granted on the Saturday tick. */
 const SATURDAY_BONUS_ROLLS = 1;
 
-// ── Seeded RNG helpers (no external deps) ──
+// ── Seeded RNG helpers ──
 
 /** mulberry32 PRNG — deterministic, seedable. */
 function mulberry32(seed: number): () => number {
@@ -92,8 +92,7 @@ function locationTagsContain(tags: string | null, tag: string): boolean {
 
 // ── Mutation insight logging ──
 
-/** Net character-state change after `after` (mutated) is applied to a CharacterRow.
- *  Subset of CharacterRow we read for the before→after diff. */
+/** Subset of CharacterRow read for the before→after diff. */
 type AppliedStateView = {
   currentHealth: number;
   stamina: number;
@@ -103,8 +102,7 @@ type AppliedStateView = {
   location: string;
 };
 
-/** Compact, human-readable summary of one applied mutation, e.g. `wealth+5`,
- *  `→Town Square`, `+item:Rabbit Pelt`. */
+/** Compact summary of one mutation, e.g. `wealth+5`, `→Town Square`, `+item:Rabbit Pelt`. */
 function summariseMutation(m: WorldMutation): string {
   switch (m.type) {
     case "set_location":
@@ -142,9 +140,8 @@ function stateDeltas(before: CharacterRow, after: AppliedStateView): string {
   return parts.join(", ") || "no state change";
 }
 
-/** One concise, always-on line per resolved action: the mutations actually
- *  applied plus the net before→after state change. Makes anomalies (e.g. a roll
- *  handed back via modify_rolls_remaining) greppable from the live log. */
+/** One always-on log line per resolved action (mutations applied + net state delta),
+ *  so anomalies like a roll handed back via modify_rolls_remaining stay greppable. */
 function logAppliedMutations(
   characterId: number,
   outcome: ActionOutcome,
@@ -176,12 +173,11 @@ interface WorldEngineConfig {
   actionRepo: ActionRepository;
   npcRepo: NpcRepository;
   rollD20?: () => number;
-  /** D3 async world-builder. When present, a newly-created provisional location is
-   *  enriched (is_safe + description) off the player's critical path. Optional —
-   *  absent in tests / when no LLM key is configured; the row just stays provisional. */
+  /** D3 async world-builder: enriches new provisional locations (is_safe + description)
+   *  off the critical path. Absent in tests / without an LLM key — row stays provisional. */
   cartographer?: CartographerGateway;
-  /** Coherence critic (Thread 2, opt-in). When present, decision beats are critiqued via a
-   *  CritiquedLlmGateway wrapper and resolution beats via the machine hook. Absent = disabled. */
+  /** Coherence critic (Thread 2, opt-in): decision beats critiqued via CritiquedLlmGateway,
+   *  resolution beats via the machine hook. Absent = disabled. */
   critic?: CriticGateway;
   /** YAML asset data for stat computation. Injected so engine stays presentation-free. */
   classDefs?: ClassDef[];
@@ -251,7 +247,7 @@ export class WorldEngineImpl implements WorldEngine {
     this.itemSets = config.itemSets ?? [];
     this.cartographer = config.cartographer;
 
-    // Wrap LLM in fallback decorator (S4: two-tier retry → divine intervention)
+    // S4: two-tier retry → divine intervention
     const fallbackLlm = new FallbackLlmGateway(config.llm, {
       onTier2Fallback: () => {
         const current = this.metaRepo.get("llm_fallback_count");
@@ -286,14 +282,13 @@ export class WorldEngineImpl implements WorldEngine {
         return this.locationRepo.findAll().map((l) => l.name);
       },
       isLocationSafe: (location: string) => {
-        // Unknown/off-map locations default to wild (unsafe) — they're created that way.
+        // Unknown/off-map locations default to unsafe.
         return this.locationRepo.findByName(location)?.is_safe === 1;
       },
     };
 
-    // Coherence critic (Thread 2, opt-in). When present, wrap the gateway so DECISION beats are
-    // critiqued, and hand the same critic to the machine for the RESOLUTION-beat hook (which needs
-    // the post-applyOutcomeToMutations mutations). Absent → critic disabled, behaviour unchanged.
+    // Critic (opt-in): wrap gateway for DECISION beats; pass critic to the machine for the
+    // RESOLUTION-beat hook (needs post-applyOutcomeToMutations mutations). Absent → disabled.
     const decisionLlm = config.critic
       ? new CritiquedLlmGateway(fallbackLlm, config.critic)
       : fallbackLlm;
@@ -343,7 +338,6 @@ export class WorldEngineImpl implements WorldEngine {
       last_action_state: null,
     });
 
-    // Assign starting items from the chosen item set
     if (data.itemSetName) {
       const kit = this.itemSets.find((s) => s.name === data.itemSetName);
       if (kit) {
@@ -380,10 +374,10 @@ export class WorldEngineImpl implements WorldEngine {
 
   /**
    * Apply a resolved outcome: drop invalid mutations, apply char/item changes,
-   * write the action row (+ link the LLM audit row), spawn NPCs, and clear any
-   * mid-action state. Shared by stepAction and the startAction auto-finish path.
-   * Caller wraps this in a transaction. Mutates `outcome.mutations` to drop
-   * invalid entries so the renderer sees only what was applied (per spec).
+   * write the action row (+ link the LLM audit row), spawn NPCs, clear mid-action
+   * state. Shared by stepAction and the startAction auto-finish path. Caller wraps
+   * this in a transaction. Mutates `outcome.mutations` to drop invalid entries so the
+   * renderer sees only what was applied (per spec).
    */
   private applyResolution(
     characterId: number,
@@ -395,14 +389,11 @@ export class WorldEngineImpl implements WorldEngine {
     // Clear mid-action state (no-op for auto-finish, which never persisted)
     this.charRepo.update(characterId, { last_action_state: null });
 
-    // D3 lazy world growth: a resolved set_location naming a place not on the
-    // known map (case/trim-normalized) creates a PROVISIONAL stub row right now —
-    // is_safe=0 (off-map wilds are unsafe until charted), a placeholder
-    // description, enrichment_pending=1 — so the player lands somewhere valid and
-    // renderable immediately (the stranding bug dies regardless of LLM timing).
-    // An async cartographer (fired by the caller, off the critical path) fills in
-    // is_safe + a real description later. Matches reuse the existing row (the
-    // mutation validator/applier then snaps to canonical casing).
+    // D3 lazy world growth: a resolved set_location to a place not on the known map
+    // (case/trim-normalized) creates a PROVISIONAL stub now (is_safe=0, placeholder
+    // description, enrichment_pending=1) so the player lands somewhere renderable
+    // immediately regardless of LLM timing (kills the stranding bug). An async
+    // cartographer fills in is_safe + description later. Matches reuse the existing row.
     const knownLocations = this.locationRepo.findAll().map((l) => l.name);
     const provisionalLocations = this.ensureProvisionalLocations(
       outcome.mutations,
@@ -417,8 +408,8 @@ export class WorldEngineImpl implements WorldEngine {
       wealth: row.wealth,
       rollsRemaining: row.rolls_remaining,
       location: row.location,
-      // Now includes any just-created provisional names, so the set_location guard
-      // accepts them and applyMutations snaps to canonical casing.
+      // Include just-created provisional names so the set_location guard accepts them
+      // and applyMutations snaps to canonical casing.
       knownLocations: [...knownLocations, ...provisionalLocations],
     };
 
@@ -437,7 +428,6 @@ export class WorldEngineImpl implements WorldEngine {
 
     const applied = applyMutations(outcome.mutations, ctx);
 
-    // Apply character state changes
     const updates: Record<string, unknown> = {};
     if (applied.currentHealth !== row.health)
       updates.health = applied.currentHealth;
@@ -453,11 +443,10 @@ export class WorldEngineImpl implements WorldEngine {
     }
 
     // D1: did this resolution change the world? Drives the no-op roll refund in
-    // startAction. A meaningful delta — health, max_stamina, wealth, location, an
-    // item gained/lost, or an NPC spawned — counts. Stamina and rolls_remaining
-    // deltas DO NOT: stamina is just the cost of the effort and rolls are the
-    // turn economy itself, so a "shrug" outcome that merely tires the character or
-    // adjusts rolls is still a refundable no-op (the player got nothing for it).
+    // startAction. Health/max_stamina/wealth/location/item/NPC deltas count. Stamina
+    // and rolls_remaining DO NOT — stamina is the cost of effort and rolls are the turn
+    // economy itself, so a "shrug" that only tires or adjusts rolls is still a refundable
+    // no-op (the player got nothing for it).
     const worldChanged =
       updates.health !== undefined ||
       updates.max_stamina !== undefined ||
@@ -467,21 +456,17 @@ export class WorldEngineImpl implements WorldEngine {
       applied.itemsToRemove.length > 0 ||
       applied.npcsToSpawn.length > 0;
 
-    // Add items
     for (const item of applied.itemsToAdd) {
       this.itemRepo.create(characterId, item);
     }
 
-    // Remove items — decrement the stack so trading 1 of N leaves the rest
+    // Decrement the stack so trading 1 of N leaves the rest
     for (const { name, quantity } of applied.itemsToRemove) {
       this.itemRepo.decrementByName(characterId, name, quantity);
     }
 
-    // Insight log + audit: record the mutations actually applied (post-validation,
-    // post-failure-strip) and a one-line before→after summary of the net effect.
     logAppliedMutations(characterId, outcome, row, applied);
 
-    // Insert action record
     const actionRow = this.actionRepo.create({
       characterId,
       rawInput,
@@ -494,20 +479,18 @@ export class WorldEngineImpl implements WorldEngine {
       promptVersion: PROMPT_VERSION,
       appliedMutations:
         outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
-      // Save the LLM's outcome text as narrative for the journal
       narrative: (outcome.outcomeText ?? "").slice(0, 500) || null,
     });
 
-    // Link EVERY audit row this action produced — decision beats, narration, and critics — to the
-    // action (best-effort), so the full call chain is mineable. Falls back to the single resolution
-    // call id for older states that predate llmCallIds. De-duped to avoid double links.
+    // Link every audit row this action produced (decision/narration/critic) so the full
+    // call chain is mineable. Falls back to the single resolution call id for older states
+    // predating llmCallIds. De-duped to avoid double links.
     const callIdsToLink = new Set<number>(outcome.llmCallIds ?? []);
     if (outcome.llmCallId !== undefined) callIdsToLink.add(outcome.llmCallId);
     for (const callId of callIdsToLink) {
       this.llmCallRepo.linkAction(callId, actionRow.id);
     }
 
-    // Spawn NPCs
     for (const npc of applied.npcsToSpawn) {
       this.npcRepo.create({
         name: npc.name,
@@ -522,22 +505,20 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   /**
-   * D3 async cartographer — fire-and-forget. For each provisional location just
-   * created, ask the LLM (off the player's critical path) to chart it: fill
-   * is_safe + a real description and clear enrichment_pending, only while the row
-   * is STILL provisional (enrichProvisional guards on the flag, so a double-fire
-   * or a row already settled is a no-op). If the cartographer says the new name is
-   * really an existing place, we leave the provisional row alone (POC: no merge —
-   * the player may be standing on it) and just clear the flag with the LLM's
-   * verdict. Never awaited; never throws into the caller.
+   * D3 async cartographer (fire-and-forget). For each just-created provisional
+   * location, ask the LLM to chart it: fill is_safe + description and clear
+   * enrichment_pending, only while the row is STILL provisional (enrichProvisional
+   * guards on the flag, so a double-fire or settled row is a no-op). If the LLM says
+   * the name is really an existing place, leave the provisional row alone (POC: no
+   * merge — the player may be standing on it) and just clear the flag. Never awaited,
+   * never throws into the caller.
    */
   private fireCartographer(provisionalNames: string[], narrative: string): void {
     if (!this.cartographer || provisionalNames.length === 0) return;
     const cartographer = this.cartographer;
 
     for (const name of provisionalNames) {
-      // Existing names EXCLUDING this fresh provisional row, so the cartographer
-      // can flag it as a synonym of a real one.
+      // Existing names excluding this fresh row, so the LLM can flag it as a synonym.
       const existingNames = this.locationRepo
         .findAll()
         .map((l) => l.name)
@@ -557,7 +538,7 @@ export class WorldEngineImpl implements WorldEngine {
             );
           }
         } catch (err) {
-          // Best-effort: a failed enrichment just leaves the row provisional.
+          // Best-effort: a failed enrichment leaves the row provisional.
           console.warn(
             "[cartographer] enrichment failed for",
             name,
@@ -569,10 +550,9 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   /**
-   * D3 helper: for each `set_location` mutation whose name does not match (case/
-   * trim-normalized) any known location, create a provisional stub row and return
-   * the list of names actually created. A match reuses the existing row (no
-   * create). Names are de-duped within the call. The `locations.name UNIQUE`
+   * D3 helper: for each `set_location` whose name doesn't match (case/trim-normalized)
+   * a known location, create a provisional stub and return the names created; a match
+   * reuses the existing row. De-duped within the call; the `locations.name UNIQUE`
    * constraint + INSERT OR IGNORE make a racing create harmless.
    */
   private ensureProvisionalLocations(
@@ -608,7 +588,7 @@ export class WorldEngineImpl implements WorldEngine {
     rawInput: string,
     opts: { kind?: ActionKind; wage?: number } = {},
   ): Promise<ActionStartResult> {
-    // Guard: prevent concurrent or duplicate action starts
+    // Guard: concurrent/duplicate action starts
     if (this.processingActions.has(characterId)) {
       throw new Error(
         "An action is already being processed. Finish your current action first.",
@@ -639,7 +619,7 @@ export class WorldEngineImpl implements WorldEngine {
       const startResult = await this.machine.start(char, rawInput, items, opts.kind, opts.wage);
       const internalState = startResult.state;
 
-      // Divine intervention during start: drain roll, persist divine state, return single Resolve option
+      // Divine intervention during start: drain roll, persist state, return single Resolve option
       if (internalState.distilledType === DIVINE_INTERVENTION_TYPE) {
         // Drain roll (per spec: not refunded)
         this.charRepo.update(characterId, {
@@ -663,13 +643,13 @@ export class WorldEngineImpl implements WorldEngine {
       }
 
       // Auto-finish: the LLM resolved the action outright (e.g. travel/rest).
-      // D1 roll economy — a roll is the price of a resolved action that CHANGES
-      // the world or offers a real choice, never the price of merely starting one:
-      //   • world-changing (>=1 applied mutation) or the player rolled → charge.
-      //   • no-op (a `done` with no world change) → refund the roll, but only the
-      //     first no-op per character per day; later no-ops that day still cost it.
-      // applyResolution may itself adjust rolls_remaining (e.g. a +1 roll reward),
-      // so the charge/refund is applied as a delta on top of the post-resolution value.
+      // D1 roll economy — a roll is the price of a resolved action that CHANGES the
+      // world, never of merely starting one:
+      //   • world-changing or player rolled → charge.
+      //   • no-op (`done`, no change) → refund, but only the first no-op per char per
+      //     day; later no-ops that day still cost it.
+      // applyResolution may itself adjust rolls_remaining (e.g. +1 reward), so the
+      // charge/refund is a delta on top of the post-resolution value.
       if (startResult.resolved) {
         const today = this.currentDayNumber();
         let provisionalLocations: string[] = [];
@@ -684,7 +664,7 @@ export class WorldEngineImpl implements WorldEngine {
           provisionalLocations = res.provisionalLocations;
 
           const charged = startResult.outcome.playerRolled != null || res.worldChanged;
-          // No-op gets the free refund only if it hasn't already been used today.
+          // Free no-op refund only if not already used today.
           const noopAlreadyRefundedToday = row.last_noop_refund_day === today;
           const debit = charged || noopAlreadyRefundedToday;
 
@@ -695,7 +675,7 @@ export class WorldEngineImpl implements WorldEngine {
               rolls_remaining: Math.max(0, afterRes.rolls_remaining - 1),
             });
           } else {
-            // Free no-op refund granted — stamp the day so it's once-per-day.
+            // Free no-op refund — stamp the day so it's once-per-day.
             this.stampRefundDay(characterId, "last_noop_refund_day", today);
           }
         })();
@@ -739,9 +719,8 @@ export class WorldEngineImpl implements WorldEngine {
       row.last_action_state,
     ) as InternalActionState;
 
-    // D2 30-min timeout: if the state has gone stale, resolve it as an in-voice
-    // server-side timeout (refund the roll once per day) and return that outcome
-    // so the UI renders an explicit grey card instead of a bare error.
+    // D2 30-min timeout: resolve stale state as an in-voice server-side timeout (refund
+    // once/day) so the UI renders a grey card instead of a bare error.
     const timeout = this.resolveStaleTimeout(internalState, characterId);
     if (timeout) {
       return {
@@ -777,7 +756,7 @@ export class WorldEngineImpl implements WorldEngine {
     const result = await this.machine.step(internalState, choice, char, items);
 
     if (result.resolved) {
-      // Divine intervention (S4 tier-2): clear state but skip the action row + mutations
+      // Divine intervention (S4 tier-2): clear state, skip the action row + mutations
       if (result.outcome.distilledType === DIVINE_INTERVENTION_TYPE) {
         this.charRepo.update(characterId, { last_action_state: null });
         return {
@@ -809,7 +788,6 @@ export class WorldEngineImpl implements WorldEngine {
       };
     }
 
-    // Persist updated state for next step
     this.persistState(characterId, result.state);
 
     return {
@@ -828,9 +806,8 @@ export class WorldEngineImpl implements WorldEngine {
       row.last_action_state,
     ) as InternalActionState;
 
-    // D2 30-min timeout: resolve the stale state (refund once/day, no mutations)
-    // and surface the in-voice timeout message. The resume entry point can't return
-    // an outcome, so we throw the player-facing message for the caller to show.
+    // D2 30-min timeout: resolve stale state (refund once/day, no mutations). Resume
+    // can't return an outcome, so throw the player-facing message for the caller.
     const timeout = this.resolveStaleTimeout(internalState, characterId);
     if (timeout) {
       throw new Error(timeout.outcomeText);
@@ -964,14 +941,13 @@ export class WorldEngineImpl implements WorldEngine {
 
     this.updateLastPlayed(row.id);
 
-    // Stamp the rest on the current game day so the Rest nav button hides until
-    // the next tick (when day_number advances and resting is possible again).
+    // Stamp the rest on the current game day so the Rest nav button hides until the
+    // next tick (day_number advances and resting is possible again).
     const currentDay = Number(this.metaRepo.get("day_number") ?? "1");
 
     const oakName = "The Warden's Oak";
     if (row.location === oakName) {
-      // Already at the Oak — still record the rest and return the character so
-      // the command can flavour it.
+      // Already at the Oak — still record the rest and return the character.
       this.charRepo.update(row.id, { last_rested_day: currentDay });
       return this.rowToCharacterData({ ...row, last_rested_day: currentDay });
     }
@@ -1013,8 +989,7 @@ export class WorldEngineImpl implements WorldEngine {
 
     const might = chars
       .map((c) => {
-        // Rank on effective scores (base + gear), so a geared-up character's
-        // strongest ability — including item bonuses — is what's compared.
+        // Rank on effective scores (base + gear), so item bonuses count.
         const eff = effectiveStats(c.stats, this.getItems(c.id));
         const [stat, value] = (
           Object.entries(eff) as [string, number][]
@@ -1050,8 +1025,7 @@ export class WorldEngineImpl implements WorldEngine {
     let count = 0;
     for (const charRow of this.charRepo.findAll()) {
       const isSafe = safeByName.get(charRow.location);
-      // Unknown location (no matching row) is treated explicitly as unsafe —
-      // a soul standing somewhere we can't vouch for is "out in the wilds".
+      // Unknown location (no row) counts as unsafe — "out in the wilds".
       if (isSafe === undefined || isSafe === false) count++;
     }
     return count;
@@ -1081,7 +1055,7 @@ export class WorldEngineImpl implements WorldEngine {
     const rollAllowance =
       DAILY_ROLL_ALLOWANCE + (now.getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
 
-    // Cron idempotency: skip if last_cron_date is already today
+    // Cron idempotency: skip if already ticked today
     if (!isAdmin) {
       const lastCron = this.metaRepo.get("last_cron_date");
       if (lastCron === today) {
@@ -1096,8 +1070,7 @@ export class WorldEngineImpl implements WorldEngine {
       }
     }
 
-    // Wrap all writes in a transaction so a partial failure doesn't
-    // leave the world half-ticked and the cron date poisoned.
+    // Transaction so a partial failure can't half-tick the world and poison the cron date.
     return this.db.transaction((): TickResult => {
       // ── Advance day number ──
       const currentDayStr = this.metaRepo.get("day_number") ?? "1";
@@ -1123,16 +1096,14 @@ export class WorldEngineImpl implements WorldEngine {
           newStamina = Math.max(charRow.stamina - 1, 0);
         }
 
-        // Stamina just bottomed out from the unsafe drain — flag a public
-        // collapse announcement (by character name).
+        // Stamina just hit 0 from the unsafe drain — flag a public collapse announcement.
         if (charRow.stamina > 0 && newStamina === 0) {
           collapsedNames.push(charRow.name);
         }
 
-        // Five-day absence nudge: on the tick where a player crosses exactly
-        // 5 calendar days without interacting, collect their Discord id so the
-        // caller can DM a "danger is nearby" warning. No HP penalty — this is a
-        // soft, one-shot retention nudge (fires once, on day 5, not nightly).
+        // Five-day absence nudge: on the tick where a player crosses exactly 5 days
+        // without interacting, collect their Discord id for a DM warning. No HP penalty —
+        // a soft retention nudge that fires once, on day 5, not nightly.
         if (charRow.last_played_at) {
           const lastDate = charRow.last_played_at.slice(0, 10);
           const diffMs =
@@ -1175,8 +1146,7 @@ export class WorldEngineImpl implements WorldEngine {
           continue;
         }
 
-        // 80% chance to move, seeded by NPC.id + newDay
-        // Use multiplier to avoid seed collisions across NPCs.
+        // 80% chance to move; multiplier in seed avoids collisions across NPCs.
         const seed = npc.id * 100000 + newDay;
         const rng = mulberry32(seed);
         const shouldMove = rng() < 0.8;
@@ -1351,7 +1321,7 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   private persistState(characterId: number, state: InternalActionState): void {
-    // Stamp lastActionAt on every persist so the 30-min timeout hook has a basis
+    // Stamp lastActionAt on every persist as the basis for the 30-min timeout.
     state.lastActionAt = Date.now();
     this.charRepo.update(characterId, {
       last_action_state: JSON.stringify(state),
@@ -1363,11 +1333,7 @@ export class WorldEngineImpl implements WorldEngine {
     return Number(this.metaRepo.get("day_number") ?? "1");
   }
 
-  /**
-   * Stamp a per-day refund-grace column (`last_noop_refund_day` /
-   * `last_timeout_refund_day`) on a character. Routed through the repository's
-   * update whitelist like every other column write.
-   */
+  /** Stamp a per-day refund-grace column on a character (via the repo update whitelist). */
   private stampRefundDay(
     characterId: number,
     column: "last_noop_refund_day" | "last_timeout_refund_day",
@@ -1377,21 +1343,18 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   /**
-   * D2 timeout handling. If the stored action state has been idle past the 30-min
-   * timeout, atomically: clear the state, write a `timed_out` action row (no
-   * mutations — the intended travel does NOT occur), and refund the roll for the
-   * FIRST timeout per character per day (stamping `last_timeout_refund_day`); later
-   * timeouts that day keep the roll spent. Returns an in-voice `timed_out`
-   * ActionOutcome the caller surfaces for rendering, or null if the state is fresh.
-   *
-   * The timeout grace is separate from the D1 no-op grace — a server-side timeout
-   * (our slowness) must never burn the player's no-op allowance, and vice versa.
+   * D2 timeout. If the state has been idle past the 30-min timeout, atomically clear
+   * it, write a `timed_out` action row (no mutations — the intended travel does NOT
+   * occur), and refund the roll for the FIRST timeout per char per day; later timeouts
+   * that day keep the roll spent. Returns an in-voice `timed_out` ActionOutcome, or null
+   * if fresh. This grace is separate from the D1 no-op grace — a server-side timeout
+   * must never burn the player's no-op allowance, and vice versa.
    */
   private resolveStaleTimeout(
     state: InternalActionState,
     characterId: number,
   ): ActionOutcome | null {
-    // If the state predates lastActionAt (pre-S7 state), treat as not stale.
+    // Pre-S7 state (no lastActionAt) is treated as not stale.
     if (!state.lastActionAt) return null;
     if (Date.now() - state.lastActionAt < ACTION_TIMEOUT_MS) return null;
 
@@ -1413,8 +1376,8 @@ export class WorldEngineImpl implements WorldEngine {
       outcomeText: message,
     };
 
-    // Wrap all writes so a partial failure can't leave a timed_out row orphaned
-    // while last_action_state survives.
+    // Transaction so a partial failure can't orphan a timed_out row while
+    // last_action_state survives.
     this.db.transaction(() => {
       this.actionRepo.create({
         characterId,

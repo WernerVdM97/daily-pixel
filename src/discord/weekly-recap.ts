@@ -7,8 +7,7 @@ import { c } from "../util/colors.js";
 export const META_RECAP_THREAD_ID = "recap_thread_id";
 /** Current week's header message id — edited into the chronicle at finalize. */
 export const META_RECAP_HEADER_ID = "recap_header_msg_id";
-/** Timestamp the current week began ('YYYY-MM-DD HH:MM:SS' UTC, the rollover
- *  instant) — the digest window's lower bound. */
+/** When the current week began ('YYYY-MM-DD HH:MM:SS' UTC); the digest window's lower bound. */
 export const META_RECAP_WEEK_START = "recap_week_start";
 /** Incrementing "Week N" counter. */
 export const META_RECAP_WEEK_NUMBER = "recap_week_number";
@@ -16,22 +15,19 @@ export const META_RECAP_WEEK_NUMBER = "recap_week_number";
 export const META_LAST_RECAP_DATE = "last_recap_date";
 
 // ── thread liveness ──
-/** Discord REST error code for "Unknown Channel" — the only signal that a stored
- *  thread is genuinely gone (deleted). */
+/** Discord REST "Unknown Channel" — the only signal a stored thread is truly deleted. */
 export const DISCORD_UNKNOWN_CHANNEL = 10003;
 
 /**
- * True ONLY when a thread fetch failed because the thread is truly gone (Discord
- * answered Unknown Channel / 10003) — i.e. it is safe to recreate the week. Every
- * other failure (rate limit, 5xx, network blip, permission) is transient: the boot
- * path must keep the current week rather than spuriously roll it. Tolerates any
- * thrown value (Error, plain object, null/undefined).
+ * True ONLY when a fetch failed because the thread is truly gone (Unknown Channel / 10003)
+ * — the one case where recreating the week is safe. Every other failure (rate limit, 5xx,
+ * network, permission) is transient and must keep the current week. Tolerates any thrown value.
  */
 export function isThreadDeleted(err: unknown): boolean {
   return (err as { code?: unknown } | null | undefined)?.code === DISCORD_UNKNOWN_CHANNEL;
 }
 
-/** Discord hard cap on a message's content length. */
+/** Discord's per-message content cap. */
 const MAX_MSG = 2000;
 
 function clip(text: string): string {
@@ -39,9 +35,8 @@ function clip(text: string): string {
 }
 
 /**
- * The placeholder header posted at the start of a week, before its recap exists.
- * Players see this pinned with the live thread hanging off it; on the next Monday
- * it is edited in place into the finalized chronicle (see buildRecapHeader).
+ * Placeholder header posted at week start. Edited in place into the finalized
+ * chronicle next Monday (see buildRecapHeader).
  */
 export function buildPlaceholderHeader(weekNumber: number, startDate: string): string {
   return [
@@ -50,10 +45,7 @@ export function buildPlaceholderHeader(weekNumber: number, startDate: string): s
   ].join("\n");
 }
 
-/**
- * The finalized header: the week's digest + highlights, edited over the
- * placeholder. Clipped to Discord's 2000-char message cap.
- */
+/** Finalized header (digest + highlights) edited over the placeholder; clipped to MAX_MSG. */
 export function buildRecapHeader(
   weekNumber: number,
   startDate: string,
@@ -71,9 +63,8 @@ export function buildRecapHeader(
 }
 
 /**
- * Deterministic recap used when there's no LLM gateway or the call fails. Keeps
- * the Monday beat unblocked: a one-line count digest plus heuristic highlights
- * (the week's successes/failures, most recent first).
+ * Deterministic fallback (no gateway / call failed) so the Monday beat never blocks:
+ * a count digest plus the week's successes/failures, most recent first.
  */
 function deterministicRecap(actions: WeeklyActionSummary[]): RecapResult {
   if (actions.length === 0) {
@@ -91,22 +82,18 @@ function deterministicRecap(actions: WeeklyActionSummary[]): RecapResult {
 
 // ── prompt input cap ──
 /**
- * Max actions sent to the recap LLM in one call. At ~22 actions/player/week this
- * is ~9 fully-active players — comfortably above realistic scale — so it's a
- * safety valve against an unbounded prompt (cost/latency/context), not a routine
- * trim. Only the LLM path is capped; the deterministic digest still counts every
- * action so its "N actions across M souls" line stays truthful.
+ * Safety valve against an unbounded prompt (cost/latency/context), not a routine trim:
+ * ~9 fully-active players at ~22 actions/week, above realistic scale. Only the LLM path is
+ * capped; the deterministic digest still counts every action so its totals stay truthful.
  */
 export const MAX_RECAP_ACTIONS = 200;
-/** Max characters of each action's narrative forwarded to the LLM (~60 tokens).
- *  The chronicler only needs the gist to judge significance, not the full prose. */
+/** Per-action narrative chars sent to the LLM (~60 tokens) — enough gist to judge significance. */
 export const MAX_RECAP_NARRATIVE = 240;
 
 /**
- * Bound the recap prompt's input. Always truncates each narrative; if there are
- * more than MAX_RECAP_ACTIONS, keeps the notable beats (success/failure) plus the
- * most recent of the rest, returned in the original oldest-first order — so a
- * heavy week degrades gracefully instead of blindly dropping its early days.
+ * Bound the prompt input. Always truncates narratives; over MAX_RECAP_ACTIONS, keeps notable
+ * beats (success/failure) plus the most recent of the rest, in original oldest-first order —
+ * so a heavy week degrades gracefully instead of dropping its early days.
  */
 export function capRecapActions(actions: WeeklyActionSummary[]): WeeklyActionSummary[] {
   const trimmed = actions.map((a) =>
@@ -126,9 +113,8 @@ export function capRecapActions(actions: WeeklyActionSummary[]): WeeklyActionSum
 }
 
 /**
- * Produce the week's recap. Uses the LLM gateway when present, falling back to a
- * deterministic summary on any failure (or no gateway / no actions) so the header
- * always finalizes.
+ * Produce the week's recap via the gateway, falling back to a deterministic summary on
+ * any failure (or no gateway / no actions) so the header always finalizes.
  */
 export async function generateWeeklyDigest(
   actions: WeeklyActionSummary[],
@@ -153,7 +139,7 @@ export async function generateWeeklyDigest(
 
 // ── Outcome routing ──
 
-/** The public-broadcast payload shape shared by thread sends and channel followUps. */
+/** Payload shape shared by thread sends and channel followUps. */
 export interface OutcomePayload {
   content?: string;
   embeds?: unknown[];
@@ -171,9 +157,8 @@ function isSendable(channel: unknown): channel is Sendable {
 }
 
 /**
- * Post a public action outcome into the current week's recap thread. Falls back
- * to `fallback()` — the original channel followUp — when there is no thread id,
- * the thread can't be fetched, or it isn't sendable, so an outcome is never lost.
+ * Post an outcome into the week's recap thread, falling back to `fallback()` (the channel
+ * followUp) when there's no thread id, the fetch fails, or it isn't sendable — so nothing is lost.
  */
 export async function broadcastOutcome(opts: {
   client: ChannelFetcher;

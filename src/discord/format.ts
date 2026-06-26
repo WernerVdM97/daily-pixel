@@ -1,19 +1,14 @@
 /**
  * Shared Discord formatting utilities.
  *
- * Provides helpers to build Components V2 message payloads with the native
- * Separator component ({ type: 14 }) instead of text-based separator lines,
- * and optional navigation buttons at the bottom of command responses.
+ * Builds Components V2 payloads using the native Separator component ({ type: 14 })
+ * rather than text separator lines, plus optional nav buttons. Text is split on the
+ * SEPARATOR line into TextDisplay sections (Separators between) inside one Container;
+ * nav buttons become Action Rows below.
  *
  * Usage:
- *   const payload = buildComponentPayload(`section 1 text`, {
- *     navButtons: getNavButtons(char),
- *   });
+ *   const payload = buildComponentPayload(`section 1 text`, { navButtons: getNavButtons(char) });
  *   await interaction.reply(payload);
- *
- * The text is split by the SEPARATOR line into sections, each rendered as a
- * TextDisplay component with Separators between them inside a single Container.
- * Navigation buttons are appended as one or more Action Rows below the content.
  */
 
 /** Sentinel used in command output to mark section boundaries for splitting. */
@@ -36,7 +31,7 @@ export function classEmoji(charClass: string | null | undefined): string {
   return (charClass && CLASS_EMOJI[charClass]) || CLASS_EMOJI_FALLBACK;
 }
 
-/** Component type constants for Components V2. */
+/** Components V2 type constants. */
 const CT = {
   ACTION_ROW: 1,
   BUTTON: 2,
@@ -57,28 +52,23 @@ export const IS_COMPONENTS_V2 = 1 << 15; // 32768
 /** MessageFlags.Ephemeral. Set via `flags` (the `ephemeral` reply option is deprecated). */
 const EPHEMERAL = 1 << 6; // 64
 
-/**
- * Navigation button definitions.
- * Each entry: [customId suffix, label, emoji, showCondition?]
- * showCondition receives { rollsRemaining, hasPendingAction }.
- */
+/** Navigation button definition. */
 interface NavButtonDef {
   id: string;
   label: string;
   emoji: string;
-  /** If false, the button is omitted. Default: always shown. */
+  /** Returns false to omit the button. Default: always shown. */
   showIf?: (ctx: { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean }) => boolean;
   /**
-   * If set, the button only appears when the current page is in this list.
-   * Used for the "view" buttons (look/stats/backpack) so they cross-link
-   * among the info pages instead of cluttering every screen. Buttons without
-   * `showOnPages` are global (shown on every page, minus the current one).
+   * Restricts the button to these pages — used by the "view" buttons (look/stats/backpack)
+   * to cross-link among info pages instead of cluttering every screen. Buttons without
+   * `showOnPages` are global (every page minus the current one).
    */
   showOnPages?: string[];
 }
 
 const NAV_BUTTONS: NavButtonDef[] = [
-  // Global flow buttons — shown on every page (minus the current one).
+  // Global flow buttons — every page minus the current one.
   { id: 'hi',        label: 'Hi',        emoji: '🌅' },
   { id: 'journal',   label: 'Journal',   emoji: '📖' },
   {
@@ -89,32 +79,24 @@ const NAV_BUTTONS: NavButtonDef[] = [
     showIf: (ctx) => ctx.rollsRemaining > 0 || ctx.hasPendingAction,
   },
   {
-    // Internal id stays 'sleep' so the nav click still routes to the /sleep
-    // command; only the player-facing label/emoji read as "Rest".
+    // id stays 'sleep' to route to /sleep; only label/emoji read as "Rest".
     id: 'sleep',
     label: 'Rest',
     emoji: '🏕️',
-    // Shown once the day's actions are spent and you're idle — but only until
-    // you've actually rested today (then it hides until the next tick).
+    // Shown once actions are spent and idle — but hidden after resting until the next tick.
     showIf: (ctx) => ctx.rollsRemaining === 0 && !ctx.hasPendingAction && !ctx.hasRestedToday,
   },
-  // View buttons — the info pages (backpack/stats/journal/look) cross-link to
-  // each other; Look also appears on Hi. They stay off action/sleep/outcome views.
+  // View buttons — info pages cross-link to each other; Look also appears on Hi.
+  // They stay off action/sleep/outcome views.
   { id: 'look',     label: 'Look',     emoji: '👁️', showOnPages: ['hi', 'journal', 'backpack', 'stats'] },
   { id: 'stats',    label: 'Stats',    emoji: '📊', showOnPages: ['journal', 'backpack', 'look'] },
   { id: 'backpack', label: 'Backpack', emoji: '🎒', showOnPages: ['journal', 'stats', 'look'] },
 ];
 
 /**
- * Build Action Row(s) containing navigation buttons.
- *
- * Returns up to 2 rows (5 buttons max per row). Omits buttons whose
- * `showIf` condition returns false, and excludes the current command
- * (so the view you're on doesn't show its own nav button).
- *
- * @param char - Character data for roll/pending-action checks.
- * @param currentCommand - The command currently displayed (e.g. 'hi', 'look').
- *                         Its matching nav button is omitted.
+ * Build nav Action Row(s) — up to 2 rows, 5 buttons max each. Omits buttons whose
+ * `showIf` returns false and the button matching `currentCommand` (so a view never
+ * shows its own nav button).
  */
 export function getNavButtons(
   char: { rollsRemaining: number; lastActionState: unknown; hasRestedToday?: boolean },
@@ -133,8 +115,8 @@ export function getNavButtons(
     .filter(b =>
       (!b.showIf || b.showIf(ctx)) &&
       b.id !== currentCommand &&
-      // Page-scoped buttons only show on their listed pages (and never when
-      // there's no current page, e.g. public action-outcome broadcasts).
+      // Page-scoped buttons only on their listed pages — never when there's no
+      // current page (e.g. public action-outcome broadcasts).
       (!b.showOnPages || (currentCommand !== undefined && b.showOnPages.includes(currentCommand))),
     )
     .map(b => ({
@@ -147,7 +129,7 @@ export function getNavButtons(
 
   if (buttons.length === 0) return [];
 
-  // Split into rows of max 5
+  // Split into rows of max 5.
   const rows: Array<{
     type: number;
     components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }>;
@@ -175,12 +157,7 @@ export function getOutcomeServiceButtons(): Array<{
   }];
 }
 
-/**
- * Build a Components V2 payload from text, optionally appending nav buttons.
- *
- * @param text  - The raw text response from a command handler.
- * @param opts  - Options including ephemeral flag and navigation row data.
- */
+/** Build a Components V2 payload from text, optionally appending nav buttons. */
 export function buildComponentPayload(
   text: string,
   opts?: {
@@ -191,10 +168,9 @@ export function buildComponentPayload(
       components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }>;
     }>;
     /**
-     * Filename of an image to show at the top of the container as a MediaGallery.
-     * The caller MUST also pass the matching attachment in the reply's `files`
-     * (see `imageFiles` / `imageAttachment` in ./images). Referenced as
-     * `attachment://<image>`.
+     * Filename of a banner image (MediaGallery at top of container). Caller MUST also
+     * pass the matching attachment in the reply's `files` (see ./images); referenced
+     * as `attachment://<image>`.
      */
     image?: string;
   },
@@ -205,7 +181,7 @@ export function buildComponentPayload(
     | { type: number; components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }> }
   >;
 } {
-  // Split the text on SEPARATOR lines into sections.
+  // Split on SEPARATOR lines into sections.
   const sections = text
     .split(new RegExp(`\\n?${escapeRegex(SEPARATOR)}\\n?`))
     .map(s => s.trim())
@@ -213,7 +189,7 @@ export function buildComponentPayload(
 
   const contentComponents: Array<{ type: number; content?: string; items?: Array<{ media: { url: string } }> }> = [];
 
-  // Optional banner image at the top of the container.
+  // Optional banner image at top of container.
   if (opts?.image) {
     contentComponents.push({
       type: CT.MEDIA_GALLERY,
@@ -222,7 +198,6 @@ export function buildComponentPayload(
   }
 
   if (sections.length === 0) {
-    // Single section — wrap as one TextDisplay.
     contentComponents.push({ type: CT.TEXT_DISPLAY, content: text });
   } else {
     // Interleave TextDisplay and Separator components.
@@ -236,13 +211,12 @@ export function buildComponentPayload(
     flags: number;
     components: Array<unknown>;
   } = {
-    // Ephemeral is folded into the flags bitfield (the `ephemeral` reply option
-    // is deprecated, and a V2 message can't mix `flags` with a separate `ephemeral`).
+    // Ephemeral folded into flags — the `ephemeral` reply option is deprecated and a
+    // V2 message can't mix `flags` with a separate `ephemeral`.
     flags: IS_COMPONENTS_V2 | (opts?.ephemeral ? EPHEMERAL : 0),
     components: [{ type: CT.CONTAINER, components: contentComponents }],
   };
 
-  // Append nav button rows after the content container.
   if (opts?.navButtons && opts.navButtons.length > 0) {
     result.components.push(...opts.navButtons);
   }

@@ -66,6 +66,16 @@ When cutting a release:
 2. **Keep it non-technical.** Highlights are what's new and fun for players — not migrations, refactors, or internal plumbing. The changelog is the technical record; the notes file is the player's.
 3. **The filename tag must match the git tag exactly** (`v` prefix included), or the announcement won't fire.
 
+## Code comment conventions
+
+Comments earn their keep by explaining **why**, not restating **what**. Apply this to every code change:
+
+1. **No echo comments.** Delete any comment that just narrates the next line (`// loop over users` above an obvious loop). The code already says it.
+2. **Keep the why, cut the fluff.** Preserve genuine rationale — non-obvious decisions, edge cases, error-code meanings, idempotency/ordering caveats, API quirks, gotchas — but write it tight. One line beats six whenever the substance survives.
+3. **JSDoc adds info or goes.** Keep `@param`/`@returns` only when they say more than the signature already does. Collapse padded doc blocks to 1-2 lines.
+4. **Section dividers stay short.** `// ── Config ──`-style navigation markers are fine; keep them minimal.
+5. **Verbose only where necessary.** A long comment is justified when it carries load-bearing rationale that would be lost otherwise — not as default narration.
+
 ## Agent skills
 
 Project-tailored agent skills live in [`agent/skills/`](./agent/skills/). Expect them to be manually invoked.

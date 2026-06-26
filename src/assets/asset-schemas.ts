@@ -1,12 +1,12 @@
 /**
- * Runtime schemas for the shipped YAML assets — the guardrail described in
- * `docs/sparks/yaml-asset-schemas-and-tests.md`. `loadYamlFile` only checks
- * syntax + array-shape, then callers cast with `as`; nothing asserts an entry
- * actually carries the fields its consumer reads. A single omitted stat key in
- * `backgrounds.yml` once flowed unchecked through `computeStats` → NaN →
- * `null` ability scores on live characters. These hand-rolled validators (no
- * new deps) are the single source of truth used by both the boot-time loader
- * (`loadAndValidate`, fail-fast) and the asset tests.
+ * Runtime schemas for the shipped YAML assets (see
+ * `docs/sparks/yaml-asset-schemas-and-tests.md`). `loadYamlFile` only checks
+ * syntax + array-shape; callers then cast with `as`, so nothing asserts an entry
+ * carries the fields its consumer reads — a single omitted stat key in
+ * `backgrounds.yml` once flowed through `computeStats` → NaN → `null` ability
+ * scores on live characters. These hand-rolled validators (no new deps) are the
+ * source of truth for both the boot-time loader (`loadAndValidate`, fail-fast)
+ * and the asset tests.
  */
 import { loadYamlFile } from "./yaml-loader.js";
 
@@ -45,7 +45,7 @@ function labelOf(rec: Record<string, unknown>): string {
 /** A per-entry validator: returns a (possibly empty) list of problem strings. */
 export type EntryValidator = (entry: unknown, index: number) => string[];
 
-/** Assert `modifiers` carries all four stats as integers (the NaN-stat guard). */
+/** All four stats present as integers — the NaN-stat guard. */
 function checkModifiers(rec: Record<string, unknown>, i: number): string[] {
   const mods = rec.modifiers;
   if (!isRecord(mods)) {
@@ -174,10 +174,9 @@ export function validateReleaseNotes(obj: unknown, expectedTag?: string): string
 // ── loader ──
 
 /**
- * Load a YAML asset file and validate every entry against `validate`. Throws
- * AssetSchemaError listing file + entry index + field on any problem, so a bad
- * asset crashes boot loudly (caught by the deploy test/typecheck gate) instead
- * of producing a silent `null`/NaN downstream. Returns the validated rows.
+ * Load + validate every entry. Throws AssetSchemaError (file + index + field) so
+ * a bad asset crashes boot loudly instead of yielding a silent `null`/NaN
+ * downstream.
  */
 export function loadAndValidate<T>(filePath: string, validate: EntryValidator): T[] {
   const rows = loadYamlFile(filePath);
@@ -188,20 +187,16 @@ export function loadAndValidate<T>(filePath: string, validate: EntryValidator): 
 }
 
 // ── cross-file integrity (T4) ──
-// Unlike the per-file shape validators above (wired into the boot-time loader via
-// `loadAndValidate`, fail-fast), these cross-file checks run ONLY in the asset test
-// suite (the deploy gate), not in `index.ts`. They're the deploy-time guarantee, not a
-// runtime one — boot won't catch a kit-less class or an off-map workplace on its own.
+// Unlike the per-file validators above (fail-fast at boot), these run ONLY in the
+// asset test suite, not at runtime — a deploy-time guarantee. Boot won't catch a
+// kit-less class or an off-map workplace on its own.
 
 interface NamedItemSet {
   name: string;
   for_classes: string[];
 }
 
-/**
- * Every kit's `for_classes` ⊆ known class names, AND every class has at least
- * one kit (no class can finish /join kit-less).
- */
+/** Every kit's `for_classes` ⊆ known classes, and every class has ≥1 kit (no kit-less /join). */
 export function checkItemSetCoverage(itemSets: NamedItemSet[], classNames: string[]): string[] {
   const known = new Set(classNames);
   const covered = new Set<string>();

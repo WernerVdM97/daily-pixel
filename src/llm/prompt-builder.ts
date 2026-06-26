@@ -1,16 +1,13 @@
-// Prompt version — the single source of truth. Bump this ONE constant when the
-// system prompt changes; the prompt file is derived from it
-// (assets/prompts/decision-prompts/decision-<PROMPT_VERSION>.md). It's stamped on every
-// actions/llm_calls row so outcomes trace back to the prompt that produced them.
-//
-// To cut a new version: copy assets/prompts/decision-prompts/decision-<old>.md → decision-<new>.md,
-// edit the body, then change the string below. Keep old files for history.
-// After cutting, also copy the new file's content into current_source.md.
+// Single source of truth for the prompt version. Selects the prompt file
+// (decision-<PROMPT_VERSION>.md) and is stamped on every actions/llm_calls row so
+// outcomes trace back to the prompt that produced them.
+// To cut a new version: copy decision-<old>.md → decision-<new>.md, edit, bump this
+// string, keep old files, and mirror the new file into current_source.md.
 export const PROMPT_VERSION = 'v9';
 
-// Critic prompt version — independent of PROMPT_VERSION. Stamped on critic llm_calls rows as
-// `critic-<CRITIC_VERSION>` so a critic verdict traces to the exact critic prompt that produced it.
-// Bump it (and add assets/prompts/critic/critic-<N>.md) when the critic prompt changes.
+// Critic prompt version, independent of PROMPT_VERSION. Stamped on critic llm_calls
+// rows as `critic-<CRITIC_VERSION>` so a verdict traces to the prompt that produced it.
+// Bump it (and add critic-<N>.md) when the critic prompt changes.
 export const CRITIC_VERSION = 'v1';
 
 import { readFileSync } from 'node:fs';
@@ -20,30 +17,28 @@ import type { LlmContext, CriticInput } from './LlmGateway.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Active system prompt, loaded once at boot from the file matching PROMPT_VERSION. */
+/** System prompt, loaded once at boot from the file matching PROMPT_VERSION. */
 const _systemPrompt = readFileSync(
   path.join(__dirname, '..', '..', 'assets', 'prompts', 'decision-prompts', `decision-${PROMPT_VERSION}.md`),
   'utf-8',
 ).trim();
 
-/** Active critic system prompt, loaded once at boot from the file matching CRITIC_VERSION. */
+/** Critic system prompt, loaded once at boot from the file matching CRITIC_VERSION. */
 const _criticSystemPrompt = readFileSync(
   path.join(__dirname, '..', '..', 'assets', 'prompts', 'critic', `critic-${CRITIC_VERSION}.md`),
   'utf-8',
 ).trim();
 
-/** The active system prompt (assets/prompts/decision-prompts/decision-<PROMPT_VERSION>.md). */
 export function buildSystemPrompt(): string {
   return _systemPrompt;
 }
 
-/** The active critic system prompt (assets/prompts/critic/critic-<CRITIC_VERSION>.md). */
 export function buildCriticSystemPrompt(): string {
   return _criticSystemPrompt;
 }
 
-/** The user message handed to the coherence critic: the authored beat + the engine truths to
- *  anchor against. Markdown, like the decision briefing. */
+/** User message for the coherence critic: the authored beat + engine truths to anchor
+ *  against. Markdown, like the decision briefing. */
 export function buildCriticUserMessage(input: CriticInput): string {
   const out: string[] = [];
   out.push(`BEAT: ${input.beat}`);
@@ -54,11 +49,10 @@ export function buildCriticUserMessage(input: CriticInput): string {
   out.push('');
   out.push('## Authored output (JSON)');
   out.push('```json');
-  // Strip the transient/audit-only `_`-prefixed fields (_rawPrompt, _reasoning, _llmCallId, …)
-  // before serializing: they would otherwise re-embed the entire original prompt and the author's
-  // full chain-of-thought into the critic prompt — needless tokens, and the critic is meant to
-  // judge prose-vs-truth independently, not read (and rubber-stamp) the author's reasoning. The
-  // validator warnings it does need are surfaced cleanly under "## Validator warnings" below.
+  // Strip transient/audit-only `_`-prefixed fields (_rawPrompt, _reasoning, …): they'd
+  // re-embed the whole prompt and the author's chain-of-thought — wasted tokens, and the
+  // critic must judge prose-vs-truth independently, not rubber-stamp the author's reasoning.
+  // The validator warnings it needs are surfaced under "## Validator warnings" below.
   const authored = Object.fromEntries(
     Object.entries(input.decision).filter(([k]) => !k.startsWith('_')),
   );
@@ -84,31 +78,30 @@ export function buildCriticUserMessage(input: CriticInput): string {
   return out.join('\n');
 }
 
-/** The four ability stats in fixed display order — keeps the prompt prefix cache-stable. */
+/** Fixed display order — keeps the prompt prefix cache-stable. */
 const STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
 
-/** Quote untrusted player text as a markdown blockquote, line by line, so multi-line input
- *  stays fenced and can't break out of the block. The SECURITY RULE does the real defending. */
+/** Quote untrusted player text as a per-line blockquote so multi-line input stays fenced
+ *  and can't break out. The SECURITY RULE does the real defending. */
 function asBlockquote(s: string): string {
   return s.split('\n').map(line => `> ${line}`).join('\n');
 }
 
-/** Signed cell for a table: `+5`, `-2`, or `—` for zero. */
+/** Signed table cell: `+5`, `-2`, or `—` for zero. */
 function signed(n: number): string {
   return n === 0 ? '—' : `${n > 0 ? '+' : ''}${n}`;
 }
 
 /**
- * v9 markdown briefing. Renders the context as a scene the model reads, not a serialized
- * struct it must parse — keeping markdown's STRUCTURAL features (headings, tables, labels)
- * and skipping decorative bold/italic. Section order: control → you → scene → present →
- * story → reference → the ask. The response JSON contract is unchanged.
+ * v9 markdown briefing. Renders context as a scene to read, not a struct to parse — uses
+ * markdown's structural features (headings, tables, labels), skips decorative bold/italic.
+ * Section order: control → you → scene → present → story → reference → the ask.
  */
 export function buildUserMessage(ctx: LlmContext): string {
-  // Explicit loop phase so the model never has to infer game state from prose.
-  //   NEW_ACTION  — first beat; open a decision or resolve outright.
-  //   CONTINUE    — a prior choice exists but no verdict yet; produce the NEXT beat.
-  //   RESOLVE_ROLL — the dice have decided; narrate the attached ROLL RESULT only.
+  // Explicit loop phase so the model never infers game state from prose.
+  //   NEW_ACTION   — first beat; open a decision or resolve outright.
+  //   CONTINUE     — a prior choice exists but no verdict yet; produce the NEXT beat.
+  //   RESOLVE_ROLL — dice have decided; narrate the attached ROLL RESULT only.
   const phase = ctx.rollOutcome
     ? 'RESOLVE_ROLL'
     : (ctx.previousDecisions && ctx.previousDecisions.length > 0 ? 'CONTINUE' : 'NEW_ACTION');
@@ -130,7 +123,7 @@ export function buildUserMessage(ctx: LlmContext): string {
   for (const stat of STATS) {
     const score = c.stats[stat];
     const gear = ctx.itemBonuses?.[stat] ?? 0;
-    const bonus = score + gear; // what's actually added to the d20 — always shown signed, incl. +0
+    const bonus = score + gear; // what's added to the d20 — always shown signed, incl. +0
     const label = stat.charAt(0).toUpperCase() + stat.slice(1);
     out.push(`| ${label} | ${score} | ${signed(gear)} | ${bonus >= 0 ? '+' : ''}${bonus} |`);
   }
@@ -168,8 +161,8 @@ export function buildUserMessage(ctx: LlmContext): string {
     }
   }
 
-  // Warden lore — a fenced, out-of-character GM note, kept OUT of the NPC list so the model
-  // never renders it as scene data. Conditional on the Warden being present.
+  // Warden lore — out-of-character GM note, kept OUT of the NPC list so the model never
+  // renders it as scene data. Only when the Warden is present.
   if (ctx.nearbyNpcs.some(n => n.name === 'The Warden')) {
     out.push('');
     out.push('> GM note (out of character): The Warden is not one person — the title has passed across centuries, and the current Warden is the last. When they die, the Oak dies. Reveal only through fragments, one subtle hint every few in-game weeks. Imply, never explain.');
@@ -212,8 +205,8 @@ export function buildUserMessage(ctx: LlmContext): string {
     out.push(`ROLL RESULT: ${ctx.rollOutcome.toUpperCase()} — narrate this outcome and emit matching mutations. No decision options.`);
   }
 
-  // Re-decide pass: the coherence critic rejected the previous attempt. Engine directive (not
-  // in-world speech) — fix the named problem and produce a corrected beat.
+  // Re-decide pass: the critic rejected the previous attempt. Engine directive (not in-world
+  // speech) — fix the named problem and produce a corrected beat.
   if (ctx.criticNote) {
     out.push('');
     out.push('## Reviewer note');
@@ -224,11 +217,9 @@ export function buildUserMessage(ctx: LlmContext): string {
 }
 
 /**
- * Compact, query-friendly snapshot of the context for the audit log.
- *
- * Strips reconstructable boilerplate (NPC descriptions, full inventory/location
- * lists) and dedupes NPC names — keeping only the volatile signal. The exact
- * token cost of the real prompt is captured separately via the API's usage.
+ * Compact, query-friendly context snapshot for the audit log. Strips reconstructable
+ * boilerplate (NPC descriptions, full inventory/location lists) and dedupes NPC names,
+ * keeping only the volatile signal. Real prompt token cost comes from the API's usage.
  */
 export function buildContextDigest(ctx: LlmContext): string {
   return JSON.stringify({

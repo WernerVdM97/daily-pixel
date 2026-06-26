@@ -40,7 +40,7 @@ export interface ItemSetDef {
   description: string;
   for_classes: string[];
 }
-/** All char-creation option data, loaded from assets/char-creation/*.yml. */
+/** All char-creation option data from assets/char-creation/*.yml. */
 export interface CharDefs {
   classes: NamedDef[];
   backgrounds: NamedDef[];
@@ -50,12 +50,10 @@ export interface CharDefs {
   itemSets: ItemSetDef[];
 }
 
-// Char-creation data (from YAML) — the single source of truth for which options
-// exist. Set by makeJoinCommand; read when building each step's options.
+// Source of truth for which options exist; set by makeJoinCommand, read per step.
 let _defs: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
 
-/** Guards against double-clicks — a user ID is locked while one interaction is
- *  being processed. Subsequent interactions for the same user return early. */
+/** Double-click guard — user ID locked while an interaction processes; concurrent ones return early. */
 const _userInFlight = new Set<string>();
 
 function parseChoiceCid(
@@ -74,13 +72,11 @@ function parseChoiceCid(
 // ── Factory ──
 
 export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, defs: CharDefs) {
-  // Store the YAML-loaded option data for use across all steps.
   _defs = defs;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
-    // Defer immediately. The wizard's first screen carries the Oak PNG attachment,
-    // and uploading that as the initial reply can blow past Discord's 3s ack window
-    // (→ 10062 Unknown interaction) on slower hosts. A payload-free defer acks well
-    // within 3s; editReply below then has a 15-minute window for the heavy payload.
+    // Defer immediately: the first screen's Oak PNG can blow past Discord's 3s ack
+    // window (→ 10062) on slow hosts. A payload-free defer acks fast; editReply then
+    // has a 15-minute window for the heavy payload.
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     // Guard: already has a character?
@@ -96,7 +92,7 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
     try {
       state = wizards.start(interaction.user.id);
     } catch {
-      // Already in a wizard — resume
+      // Already in a wizard — resume (or restart if expired)
       const existing = wizards.getSession(interaction.user.id);
       if (!existing || wizards.isExpired(interaction.user.id)) {
         wizards.reset(interaction.user.id);
@@ -106,7 +102,6 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
       }
     }
 
-    // Show current step (ephemeral flag was set at defer time)
     await interaction.editReply(buildStepMessage(state));
     return "join_wizard_started";
   };
@@ -115,9 +110,8 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
 // ── Interaction handler ──
 
 /**
- * Builds the ephemeral `/hi` first-day screen for a freshly created character.
- * Injected from index.ts (where the command registry + payload builder live) so
- * `join` can show the player their opening view without importing those.
+ * Builds the ephemeral `/hi` first-day screen for a new character. Injected from
+ * index.ts so `join` can show the opening view without importing the registry/builder.
  * Returns a ready-to-send reply payload (Components V2, ephemeral).
  */
 export type RenderHiScreen = (userId: string) => unknown | Promise<unknown>;
@@ -148,7 +142,7 @@ export async function handleInteraction(
       return;
     }
 
-    // Modal submission for other modals (none yet, but safe to ignore)
+    // Other modals — none yet, ignore
     if (i.isModalSubmit()) return;
 
     // Button: open name modal
@@ -156,12 +150,12 @@ export async function handleInteraction(
       try {
         await i.showModal(buildNameModal());
       } catch {
-        /* stale interaction (10062) or already acked (40060) — silently ignored */
+        /* stale (10062) or already acked (40060) — ignore */
       }
       return;
     }
 
-    // Button: choice (steps 2-6)
+    // Button: choice (steps 2-7)
     const parsed = parseChoiceCid(i.customId);
     if (parsed) {
       const fieldMap: Record<
@@ -190,16 +184,14 @@ export async function handleInteraction(
 
     // Button: confirm
     if (i.customId === CID_CONFIRM) {
-      // Release early once the interaction is acknowledged so follow-ups (public
-      // announcement, /hi render) don't block other clicks on the same wizard.
+      // Release the in-flight lock early so follow-ups don't block other wizard clicks.
       const release = () => { _userInFlight.delete(userId); };
       try {
         await i.deferUpdate();
       const data = wizards.confirm(userId);
       engine.createCharacter(userId, data);
 
-      // Public announcement — posted to the whole channel even though the wizard
-      // ran in an ephemeral message, so the table sees a new hero arrive.
+      // Public channel announcement (the wizard itself ran ephemeral).
       const createdEmbed = new EmbedBuilder()
         .setTitle("✨ A new hero joins the Oak")
         .setDescription(
@@ -209,21 +201,19 @@ export async function handleInteraction(
         .setColor(0x2ecc71);
       if (hasImage(OAK_IMAGE)) createdEmbed.setImage(`attachment://${OAK_IMAGE}`);
 
-      // Release early — follow-ups can run concurrently with other interactions.
       release();
 
-      // Send the celebration to the channel (non-ephemeral followUp).
       await i.followUp({ embeds: [createdEmbed.toJSON()], files: imageFiles(OAK_IMAGE) }).catch(() => {});
 
-      // Then replace the finished wizard with the player's own ephemeral /hi screen.
+      // Replace the finished wizard with the player's ephemeral /hi screen.
       const hiPayload = renderHiScreen ? await renderHiScreen(userId) : undefined;
       if (hiPayload) {
-        // The wizard message is a classic embed; the /hi screen is Components V2,
-        // which can't be swapped in via edit — so drop the wizard and follow up.
+        // Wizard is a classic embed but /hi is Components V2, which can't be edited
+        // in — so drop the wizard and follow up instead.
         await i.deleteReply().catch(() => {});
         await i.followUp(hiPayload as Parameters<typeof i.followUp>[0]).catch(() => {});
       } else {
-        // No /hi renderer available — collapse the wizard to a short pointer.
+        // No /hi renderer — collapse the wizard to a short pointer.
         await i.editReply({
           content: `✨ **${data.name}** steps into the world. Type \`/hi\` to begin.`,
           embeds: [],
@@ -254,9 +244,8 @@ export async function handleInteraction(
 }
 
 /**
- * Tell the user about an error without ever throwing. The interaction may be dead
- * — token expired (10062) or already acknowledged (40060) — in which case there's
- * nothing to do but swallow it; a wizard button must never crash the handler.
+ * Notify the user of an error without ever throwing. The interaction may be dead
+ * (10062 expired / 40060 acked); swallow it — a wizard button must never crash the handler.
  */
 async function safeNotify(
   i: MessageComponentInteraction | ModalSubmitInteraction,
@@ -269,7 +258,7 @@ async function safeNotify(
       await i.reply({ content: message, flags: MessageFlags.Ephemeral });
     }
   } catch {
-    /* interaction is gone (expired/acked) — nothing more we can do */
+    /* interaction gone — nothing more we can do */
   }
 }
 
@@ -290,7 +279,7 @@ function buildStepMessage(state: WizardState): {
     .setColor(0xdaa520); // goldenrod
   if (hasImage(OAK_IMAGE)) embed.setThumbnail(`attachment://${OAK_IMAGE}`);
 
-  // ── Progress ledger — emoji per step, ▶ marks the current one, chosen values shown ──
+  // ── Progress ledger: emoji per step, ◀ marks current, chosen values shown ──
   const chosen: Record<number, string | undefined> = {
     1: state.name, 2: state.class, 3: state.upbringing, 4: state.race,
     5: titleCase(state.alignment), 6: state.dayJob, 7: state.itemSet,
@@ -331,15 +320,15 @@ function buildStepMessage(state: WizardState): {
     const opts = buildStepOptions(state.step, _defs, state.class);
     const heading = STEP_HEADINGS[state.step] ?? "";
 
-    // Options block: emoji + bold name + its description, one per line.
+    // Options block: emoji + bold name + description, one per line.
     const list = opts
       .map(o => `${o.emoji} **${o.label}** — ${o.description}`)
       .join("\n");
     blocks.push(`__**${heading}**__\n${list}`);
     embed.setFooter({ text: `Step ${state.step} of ${totalSteps} — ${heading}` });
 
-    // Buttons: emoji + short label only (descriptions are in the body above).
-    // Max 5 buttons per action row — chunk into multiple rows.
+    // Buttons carry emoji + label only (descriptions are in the body).
+    // Max 5 buttons per row — chunk into multiple rows.
     for (let i = 0; i < opts.length; i += 5) {
       const row = new ActionRowBuilder<ButtonBuilder>();
       for (const opt of opts.slice(i, i + 5)) {
@@ -354,9 +343,8 @@ function buildStepMessage(state: WizardState): {
     }
   }
 
-  // Steps 2-7 get a Start Over button at the bottom (nothing to reset on step 1;
-  // step 8 has its own, next to Confirm). Option steps use at most 3 rows, so +1
-  // stays within Discord's 5.
+  // Steps 2-7 get a Start Over button (step 1 has nothing to reset; step 8 pairs
+  // its own with Confirm). Option steps use ≤3 rows, so +1 stays within Discord's 5.
   if (state.step >= 2 && state.step <= 7) {
     components.push(buildStartOverRow());
   }
@@ -389,7 +377,7 @@ function buildStepMessage(state: WizardState): {
   };
 }
 
-/** A red "Start Over" button row, shown on every wizard step before the review. */
+/** Red "Start Over" button row, shown on every step before the review. */
 function buildStartOverRow(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -400,7 +388,7 @@ function buildStartOverRow(): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
-/** Title-case an alignment like "lawful good" → "Lawful Good" (passthrough for undefined). */
+/** Title-case "lawful good" → "Lawful Good"; passthrough for undefined. */
 function titleCase(s: string | undefined): string | undefined {
   return s ? s.replace(/\b\w/g, c => c.toUpperCase()) : s;
 }
@@ -424,19 +412,17 @@ function buildNameModal(): ModalBuilder {
 }
 
 // ── Step option building (data-driven from YAML) ──
-// The wizard renders whatever assets/char-creation/*.yml contains — add an option
-// there and it appears automatically. Emoji are presentation, mapped by name here
-// (per step, since the same name can recur across steps, e.g. "Merchant"); any
-// name without a mapping falls back to a neutral bullet.
+// The wizard renders whatever assets/char-creation/*.yml contains. Only emoji are
+// mapped here (per step, since names like "Merchant" recur across steps); unmapped
+// names fall back to a neutral bullet.
 
 interface OptionDef {
-  /** Short, human-readable name — the button label and the bold body name. */
+  /** Button label and bold body name. */
   label: string;
-  /** The value persisted to the character. */
+  /** Value persisted to the character. */
   value: string;
-  /** Emoji rendered on the button and beside the body description. */
   emoji: string;
-  /** One-line flavour shown in the embed body (from the YAML `description`). */
+  /** One-line flavour in the embed body (YAML `description`). */
   description: string;
 }
 
@@ -458,17 +444,14 @@ const ALIGNMENT_EMOJI: Record<string, string> = {
   "Lawful Neutral": "📏", "True Neutral": "⚖️", "Chaotic Neutral": "🎲",
   "Lawful Evil": "🗡️", "Neutral Evil": "🐍", "Chaotic Evil": "💀",
 };
-/** Single source of day-job → emoji, reused by /hi and the /action day-job menu
- *  (fallback 🔨 for unmapped jobs). Exported so those surfaces don't hardcode a glyph. */
+/** Single source of day-job → emoji (fallback 🔨), reused by /hi and the /action
+ *  day-job menu so those surfaces don't hardcode a glyph. */
 export const DAYJOB_EMOJI: Record<string, string> = {
   "Town Guard": "🛡️", Blacksmith: "🔨", Hunter: "🏹", Scribe: "📜", Herbalist: "🌿",
   Minstrel: "🎶", Merchant: "💰", Acolyte: "🕯️", Wanderer: "🚶",
 };
 
-/**
- * The options shown for a given step, built from the YAML defs. Names, descriptions,
- * and ordering come from the data; only the emoji is mapped here. Exported for tests.
- */
+/** Options for a step, built from the YAML defs (emoji mapped here). Exported for tests. */
 export function buildStepOptions(step: number, defs: CharDefs, chosenClass?: string): OptionDef[] {
   const toOption = (d: NamedDef, emoji: Record<string, string>, value?: string): OptionDef => ({
     label: d.name,

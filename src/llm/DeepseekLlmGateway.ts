@@ -1,6 +1,5 @@
-// Source: https://api-docs.deepseek.com/ — OpenAI-compatible API
-// Chat completions: POST /chat/completions with Bearer auth
-// JSON mode: response_format: { type: "json_object" } — https://api-docs.deepseek.com/guides/json_mode
+// DeepSeek: OpenAI-compatible chat completions with Bearer auth + JSON mode.
+// https://api-docs.deepseek.com/
 
 import type {
   LlmGateway,
@@ -39,21 +38,17 @@ export interface DeepseekConfig {
   verbose?: boolean;
   /** Optional audit sink — records every call attempt (success, failure, retry). */
   recorder?: LlmCallRecorder;
-  /**
-   * If true, persist the full LLM reasoning (thinking) on EVERY call, not just
-   * diagnostic/failed ones. POC toggle via LOG_LLM_THINKING_ALL — costs DB space.
-   */
+  /** Persist reasoning on EVERY call, not just diagnostic ones (costs DB space). Env: LOG_LLM_THINKING_ALL. */
   logThinkingAll?: boolean;
   /**
    * Always persist reasoning + raw prompt when `reasoning_chars` exceeds this, regardless of
-   * `logThinkingAll` — a long chain is itself a "spiral" signal worth keeping for mining. Defaults
-   * to {@link REASONING_SPIRAL_CHARS_DEFAULT} (~p90 of observed reasoning). Env: REASONING_SPIRAL_CHARS.
+   * `logThinkingAll` — a long chain is itself a "spiral" signal worth mining. Defaults to
+   * {@link REASONING_SPIRAL_CHARS_DEFAULT}. Env: REASONING_SPIRAL_CHARS.
    */
   reasoningSpiralChars?: number;
 }
 
-/** Default "spiral" threshold (chars of reasoning) past which thinking + prompt are always kept,
- *  even with LOG_LLM_THINKING_ALL off. ~p90 of observed reasoning lengths. */
+/** "Spiral" threshold (reasoning chars) past which thinking + prompt are always kept. ~p90 of observed lengths. */
 export const REASONING_SPIRAL_CHARS_DEFAULT = 6000;
 
 /** System prompt for the D3 cartographer — a tiny, focused world-builder. */
@@ -108,8 +103,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   }
 
   async decide(context: LlmContext): Promise<LlmDecision> {
-    // Audit fields, populated as the call progresses; recorded in `finally` so
-    // failures and retries are captured, not just the happy path.
+    // Audit fields recorded in `finally`, so failures and retries are captured too.
     const startedAt = Date.now();
     let httpStatus: number | null = null;
     let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
@@ -142,13 +136,11 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     } finally {
       if (this.recorder) {
         try {
-          // "Diagnostic" = the LLM call itself went wrong: a transport error, an
-          // empty/unparseable (malformed-format) response, or a fallback retry.
-          // Raw prompt + thinking are always captured for these.
+          // Diagnostic = the call went wrong (transport error, unparseable response, or a retry).
+          // Deep-capture (raw prompt + thinking) always fires for these; on well-formed calls it's
+          // opt-in via the env toggle, plus always on a "spiral" (over-long reasoning chain).
           const isDiagnostic = (context.attemptTier ?? 0) > 0 || errorMsg !== null || !parseOk;
-          // An over-long reasoning chain is a "spiral" worth keeping even when the call succeeded.
           const isSpiral = (reasoningChars ?? 0) > this.reasoningSpiralChars;
-          // Full prompt + thinking on every OTHER (well-formed) call are opt-in via the env toggle.
           const captureDeep = isDiagnostic || isSpiral || this.logThinkingAll;
           const callId = this.recorder.record({
             appVersion: APP_VERSION,
@@ -199,7 +191,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   ): Promise<LlmDecision> {
     const systemPrompt = buildSystemPrompt();
     const userMessage = buildUserMessage(context);
-    // Report the prompt up front so it's captured even if the request throws.
+    // Report up front so the prompt is captured even if the request throws.
     onProgress({ rawPrompt: userMessage });
 
     const requestBody = {
@@ -281,17 +273,16 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     const decision = this.parseDecision(parsed);
     const warnings = this.validateDecision(parsed, decision);
     onProgress({ warnings });
-    // Surface warnings on the decision so the coherence critic can gate on them (Thread 2).
+    // Surface warnings so the coherence critic can gate on them (Thread 2).
     decision._warnings = warnings;
-    // Hold the prompt + reasoning transiently on the decision so the critic can backfill this
-    // call's audit row if it flags the beat (even when deep-capture wasn't triggered at record time).
+    // Hold prompt + reasoning transiently so the critic can backfill this call's audit row if it
+    // flags the beat (even when deep-capture wasn't triggered at record time).
     decision._rawPrompt = userMessage;
     decision._reasoning = reasoningContent;
 
-    // D1: reject a completely empty turn — no options to choose, no mutations, no
-    // outcome text. There is nothing to resolve and nothing to decide, so surfacing
-    // it would burn a roll on a dead turn. Throw so the fallback gateway retries
-    // (and, failing that, hands the player divine intervention) instead.
+    // D1: reject a completely empty turn (no options, mutations, or outcome text) — there's nothing
+    // to resolve, so surfacing it would burn a roll. Throw so the fallback gateway retries (and,
+    // failing that, hands the player divine intervention).
     if (
       decision.decision.length === 0 &&
       decision.mutations === undefined &&
@@ -306,11 +297,8 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   }
 
   /**
-   * D3 cartographer call — reuses the same HTTP transport as `decide`, with a
-   * tiny focused prompt and structured schema. Best-effort: never throws on a
-   * parse/transport failure (returns an empty result so the caller leaves the
-   * provisional row as-is). Not audited via the decision recorder — it is a
-   * separate, off-critical-path concern.
+   * D3 cartographer call. Best-effort: never throws on parse/transport failure — returns an empty
+   * result so the caller leaves the provisional row as-is. Not audited (off-critical-path).
    */
   async enrich(input: CartographerInput): Promise<CartographerResult> {
     const userMessage = [
@@ -375,10 +363,8 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   }
 
   /**
-   * Weekly recap call — reuses the same HTTP transport, with the chronicler
-   * prompt and a JSON schema. Throws on transport/parse failure so the caller's
-   * deterministic fallback header takes over (the recap must never block the
-   * Monday beat). Not audited via the decision recorder — a reporting concern.
+   * Weekly recap call. Throws on transport/parse failure so the caller's deterministic fallback
+   * header takes over (the recap must never block the Monday beat). Not audited (a reporting concern).
    */
   async summarizeWeek(actions: RecapActionInput[]): Promise<RecapResult> {
     const userMessage = JSON.stringify(actions);
@@ -432,12 +418,10 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   }
 
   /**
-   * Coherence-critic call (Thread 2). Reviews one authored beat against the engine truths and
-   * returns a verdict. Reuses the same transport, and records to llm_calls tagged
-   * `call_kind='critic'` / `prompt_version='critic-<CRITIC_VERSION>'` — thinking + response are
-   * captured on diagnostic/failed calls and, when LOG_LLM_THINKING_ALL is set, on every call
-   * (mirrors `decide`). **Best-effort: never throws** — on any error it fails open to `ok`, so a
-   * critic outage can never block gameplay (the deterministic-safe original passes through).
+   * Coherence-critic call (Thread 2). Reviews one authored beat against engine truths, returns a
+   * verdict, and records to llm_calls tagged `call_kind='critic'` / `prompt_version='critic-<N>'`.
+   * Best-effort: never throws — on any error it fails open to `ok`, so a critic outage can't block
+   * gameplay (the deterministic-safe original passes through).
    */
   async critique(input: CriticInput): Promise<CriticVerdict> {
     const startedAt = Date.now();
@@ -501,9 +485,8 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       const parsed = JSON.parse(content) as Record<string, unknown>;
       parseOk = true;
       verdict = this.parseCriticVerdict(parsed);
-      // When the critic flags the beat, backfill the CRITIQUED decision's own audit row with its
-      // full prompt + reasoning (held transiently on the decision), so the rejected output is fully
-      // mineable on its own row — not just inferable from the critic's prompt. Best-effort.
+      // On a flag, backfill the CRITIQUED decision's own audit row with its prompt + reasoning (held
+      // transiently on the decision) so the rejected output is mineable on its own row. Best-effort.
       if (!verdict.ok && this.recorder && input.decision._llmCallId !== undefined) {
         try {
           this.recorder.promoteDeepCapture(input.decision._llmCallId, {
@@ -522,12 +505,11 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     } finally {
       if (this.recorder) {
         try {
-          // Diagnostic = the critic call itself went wrong (transport/parse). Full prompt + thinking
-          // are always captured for these; on a well-formed call they're opt-in via the env toggle.
+          // Diagnostic = the critic call went wrong (transport/parse). Deep-capture always fires for
+          // these; on a well-formed call it's opt-in via the env toggle, plus always on a spiral or a
+          // flag (a flag's prompt embeds the critiqued decision, mining output + reason together).
           const isDiagnostic = errorMsg !== null || !parseOk;
           const isSpiral = (reasoningChars ?? 0) > this.reasoningSpiralChars;
-          // When the critic flags an issue, always keep its thinking + prompt — the prompt embeds
-          // the critiqued decision, so the rejected output and the reason for rejection are mined together.
           const flagged = parseOk && !verdict.ok;
           const captureDeep = isDiagnostic || isSpiral || this.logThinkingAll || flagged;
           const callId = this.recorder.record({
@@ -563,8 +545,8 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     }
   }
 
-  /** Parse + clamp a critic verdict. Defaults to coherent; only honours a prose patch on a
-   *  minor defect (texture-only — `prompt` / `outcome_text`). */
+  /** Parse + clamp a critic verdict. Defaults to coherent; honours a prose patch only on a minor
+   *  defect (texture-only — `prompt` / `outcome_text`). */
   private parseCriticVerdict(raw: Record<string, unknown>): CriticVerdict {
     const ok = raw.ok !== false; // coherent unless explicitly false
     const severity: 'minor' | 'major' = raw.severity === 'major' ? 'major' : 'minor';
@@ -598,8 +580,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
             return {
               label: stripCR(String(opt.label ?? '')),
               dcModifier: opt.dc_modifier === null ? null : Number(opt.dc_modifier ?? 0),
-              // Only attach when the LLM supplied a valid stat — keeps the common
-              // (no-override) option shape exactly { label, dcModifier }.
+              // Attach only on a valid stat — keeps the common no-override shape exactly { label, dcModifier }.
               ...(optStat ? { stat: optStat } : {}),
             };
           })
@@ -629,9 +610,8 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     if (!Array.isArray(raw.decision)) {
       warnings.push('decision is not an array');
     } else if (d.decision.length === 0 && d.mutations === undefined && d.outcomeText === undefined) {
-      // Empty `decision` is the prompt's "resolve outright" signal (v7+ dropped
-      // the `done` flag), so it's only a problem when there's nothing to resolve
-      // WITH — no mutations and no outcome_text.
+      // Empty `decision` is the prompt's "resolve outright" signal (v7+ dropped `done`); only a
+      // problem when there's nothing to resolve WITH — no mutations and no outcome_text.
       warnings.push('decision array is empty with no mutations or outcome_text — nothing to resolve and no options');
     } else if (d.decision.length > 0) {
       for (let i = 0; i < d.decision.length; i++) {
@@ -657,10 +637,8 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       console.warn(c.yellow('[llm:validate] raw response:'), JSON.stringify(raw).slice(0, 500));
     }
 
-    // Rule 4b: a resolving turn — the v8 signal is an empty `decision` array, with
-    // the legacy `done` flag honoured as a backstop (E3) — whose mutations are only
-    // negative stamina/health with no reward. On a SUCCESS that reads as a failure
-    // reward. Kept as a quality warning under the settled contract.
+    // Rule 4b: a resolving turn (v8 signal = empty `decision`; legacy `done` honoured as a backstop,
+    // E3) whose mutations are only negative stamina/health reads as a failure on a SUCCESS. Quality warning.
     const isResolving = d.done || d.decision.length === 0;
     if (isResolving && Array.isArray(raw.mutations) && raw.mutations.length > 0) {
       const hasReward = (raw.mutations as Array<Record<string, unknown>>).some(m => {
@@ -682,7 +660,6 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       }
     }
 
-    // Check mutations is an array when present
     if (raw.mutations !== undefined && !Array.isArray(raw.mutations)) {
       warnings.push(`mutations is not an array (${typeof raw.mutations})`);
       console.warn(c.yellow('[llm:validate] mutations is not an array:'), typeof raw.mutations, JSON.stringify(raw.mutations).slice(0, 200));

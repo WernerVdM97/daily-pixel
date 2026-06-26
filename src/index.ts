@@ -1,15 +1,9 @@
 /**
  * The Warden's Oak — Discord bot entry point.
  *
- * Startup sequence:
- *   1. Load config from .env
- *   2. Init SQLite + run migrations
- *   3. Load YAML assets (classes, races, backgrounds, alignments, day-jobs, item-sets)
- *   4. Load ASCII scene files
- *   5. Init LLM gateway (with fallback chain)
- *   6. Init WorldEngine
- *   7. Init command handlers + register slash commands
- *   8. Login to Discord, attach interaction listener
+ * Startup: load config → init DB + migrate → load YAML assets + scenes →
+ * init LLM gateway (fallback chain) → init WorldEngine → register slash
+ * commands → login + attach interaction listener.
  */
 
 import { execSync } from "node:child_process";
@@ -147,8 +141,7 @@ const RELEASE_NOTES_DIR = path.join(ASSETS_DIR, "release-notes");
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN ?? "";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID ?? "";
-// A/B testing: override the LLM model (e.g. a pro vs flash comparison) without a
-// code change. Empty → the gateway's built-in default.
+// A/B testing: override the LLM model without a code change. Empty → gateway default.
 const LLM_MODEL = process.env.LLM_MODEL?.trim() || undefined;
 
 if (!DISCORD_TOKEN) {
@@ -171,9 +164,8 @@ const VERSION = APP_VERSION;
 
 // ── YAML asset loading (fail-fast) ──
 
-// Fail-fast: each file is validated against its schema at load time, so a
-// malformed asset (e.g. a background missing a stat key) crashes boot with a
-// file+entry+field message instead of silently producing a NaN/null downstream.
+// Each file is validated against its schema at load time, so a malformed asset
+// crashes boot with a file+entry+field message instead of a NaN/null downstream.
 function loadCharCreationAssets() {
   return {
     classes: loadAndValidate(path.join(CHAR_CREATION_DIR, "classes.yml"), validateStatDef),
@@ -193,10 +185,7 @@ function buildDayJobIncomeMap(dayJobs: DayJobDef[]): Record<string, number> {
   return map;
 }
 
-/**
- * Wrap a handler that expects a plain { user: { id }, text } object
- * into one that extracts `text` from Discord's slash command options.
- */
+/** Adapt a `{ user: { id }, text }` handler to extract `text` from slash command options. */
 function withTextOption(
   fn: (i: { user: { id: string }; text: string }) => Promise<string>,
 ): CommandHandler {
@@ -206,8 +195,6 @@ function withTextOption(
     return fn({ user: { id: cmd.user.id }, text });
   };
 }
-
-// ── Startup ──
 
 // ── Timestamp all console output ──
 const _origLog = console.log.bind(console);
@@ -225,10 +212,10 @@ let _client: Client | null = null;
 /**
  * True for a Discord interaction that can no longer be responded to:
  *   10062 = Unknown interaction (token expired, never acked within 3s, or already consumed),
- *   40060 = Interaction has already been acknowledged.
+ *   40060 = Interaction already acknowledged.
  * Both are expected on double-clicks and slow hosts — not incidents. These codes are
- * interaction-response-only (channel sends raise 10003/10008/50001 instead), so it's
- * safe to treat them as benign everywhere.
+ * interaction-response-only (channel sends raise 10003/10008/50001 instead), so they're
+ * safe to treat as benign everywhere.
  */
 function isDeadInteraction(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
@@ -240,8 +227,7 @@ function isDeadInteraction(err: unknown): boolean {
  * no ADMIN_USER_ID, or a failed DM just degrades to a console log.
  */
 async function notifyAdmin(label: string, err: unknown): Promise<void> {
-  // A dead interaction is expected, never an incident — don't log it red or DM the
-  // admin about it. Keep a quiet trace under VERBOSE so it's still discoverable.
+  // Dead interactions are expected — don't log red or DM. Quiet VERBOSE trace only.
   if (isDeadInteraction(err)) {
     if (VERBOSE) console.log(c.grey(`[verbose] ${label}: dead interaction — ignored`));
     return;
@@ -253,9 +239,9 @@ async function notifyAdmin(label: string, err: unknown): Promise<void> {
   // Discord messages cap at 2000 chars; leave room for the code fence + label.
   const body = `⚠️ **${label}**  ·  v${VERSION}\n\`\`\`\n${detail.slice(0, 1800)}\n\`\`\``;
 
-  // Prefer the live gateway client. Fall back to a REST DM when it isn't ready —
-  // boot-time failures (e.g. a rolled-back migration) happen before login, so the
-  // gateway path would silently degrade to a log and the admin would never hear.
+  // Prefer the live gateway client; fall back to a REST DM when it isn't ready.
+  // Boot-time failures happen before login, where the gateway path would silently
+  // degrade to a log and the admin would never hear.
   if (_client) {
     try {
       const admin = await _client.users.fetch(ADMIN_USER_ID);
@@ -286,9 +272,8 @@ const ABSENCE_WARNING =
   "you. Type `/hi` to step back in.";
 
 /**
- * Best-effort DM to an arbitrary user via the gateway client. Swallows every
- * failure (closed DMs, unknown user, client not ready) so one bad recipient
- * never derails a batch or takes the process down.
+ * Best-effort DM to a user via the gateway client. Swallows every failure (closed
+ * DMs, unknown user, client not ready) so one bad recipient never derails a batch.
  */
 async function dmUser(discordUserId: string, content: string): Promise<void> {
   if (!_client) return;
@@ -322,11 +307,10 @@ async function postToTickChannel(content: string): Promise<void> {
 }
 
 /**
- * Surface an error message to the user without ever throwing. Respects the
- * interaction's acknowledged state — `reply()` on an already-replied/deferred
- * interaction throws DiscordAPIError 40060 ("already acknowledged"), which is
- * exactly what crashed the bot, so we `followUp()` in that case and swallow any
- * failure (a dead interaction must not take the process down).
+ * Surface an error to the user without ever throwing. `reply()` on an
+ * already-replied/deferred interaction throws 40060 ("already acknowledged") —
+ * which is what crashed the bot — so we `followUp()` in that case, and swallow
+ * any failure (a dead interaction must not take the process down).
  */
 async function safeErrorReply(
   interaction: RepliableInteraction,
@@ -339,8 +323,7 @@ async function safeErrorReply(
       await interaction.reply({ content, flags: MessageFlags.Ephemeral });
     }
   } catch (e) {
-    // The interaction is already gone (the very thing we were trying to report on)
-    // — expected, not worth a warning. Anything else is a genuine surprise.
+    // Interaction already gone (the thing we were reporting on) — expected. Anything else is a surprise.
     if (isDeadInteraction(e)) return;
     console.warn(c.yellow("[error] could not surface error to user:"), e);
   }
@@ -348,11 +331,10 @@ async function safeErrorReply(
 
 /**
  * In-flight guard against double-clicks — the main cause of 10062 across buttons.
- * A second component/modal interaction whose key is still being processed is a
- * duplicate (the user double-clicked, or the host lagged): the source message has
- * often already been edited or deleted, so handling it would throw "Unknown
- * interaction". Keyed per (user, source-message) for buttons so unrelated buttons
- * never block one another, and per (user, customId) for modal submits.
+ * A second interaction whose key is still processing is a duplicate (double-click
+ * or host lag); the source message is often already edited/deleted, so handling it
+ * would throw "Unknown interaction". Keyed per (user, source-message) for buttons
+ * so unrelated buttons don't block each other, and per (user, customId) for modals.
  */
 const _interactionInFlight = new Set<string>();
 
@@ -366,9 +348,8 @@ function interactionGuardKey(interaction: Interaction): string | null {
   return null; // slash commands & autocomplete are inherently unique — not guarded
 }
 
-// Catch what the per-handler try/catches miss. A rejected promise in an async
-// interaction listener lands here; an uncaught exception is fatal (systemd
-// restarts us), so DM first, then exit.
+// Catch what per-handler try/catches miss. An uncaught exception is fatal
+// (systemd restarts us), so DM first, then exit.
 process.on("unhandledRejection", (reason) => {
   void notifyAdmin("Unhandled promise rejection", reason);
 });
@@ -384,13 +365,10 @@ process.on("uncaughtException", (err) => {
 // ── Nightly tick scheduler ──
 
 /**
- * Schedule the world tick to fire at 3:30 UTC daily.
- * Advances the game day — rolls, stamina, health, wealth, NPC movement —
- * and DMs the five-day absence warnings. The public morning and goodnight
- * announcements are handled by their own schedulers.
- *
+ * Schedule the world tick at 3:30 UTC daily: advances the game day (rolls,
+ * stamina, health, wealth, NPC movement) and DMs five-day absence warnings.
  * On Mondays it also rolls the weekly recap right after the tick, so the week
- * boundary lines up exactly with the daily action refresh (rather than noon).
+ * boundary lines up with the daily action refresh (rather than noon).
  */
 function scheduleTick(
   engine: WorldEngine,
@@ -423,7 +401,7 @@ function scheduleTick(
       );
 
       // Five-day absence nudge: DM each player who just crossed the mark.
-      // (Empty on the idempotent no-op tick, so this is naturally safe.)
+      // (Empty on the idempotent no-op tick, so naturally safe.)
       if (result.absentWarnings.length > 0) {
         console.log(
           c.grey(
@@ -435,7 +413,7 @@ function scheduleTick(
         }
       }
 
-      // Collapse: announce publicly who the wild drained to 0 stamina overnight.
+      // Announce who the wild drained to 0 stamina overnight.
       if (result.collapsedNames.length > 0) {
         console.log(
           c.grey(
@@ -450,12 +428,11 @@ function scheduleTick(
 
       // Monday — roll the weekly recap at the same instant the day refreshed, so
       // the week boundary aligns with the action reset. Idempotent per UTC day.
-      // The stamp is set AFTER runWeeklyRecap, which swallows its own errors — so a
-      // failed recap still stamps and won't retry-loop within the day. The one
-      // non-idempotent path is a process crash BETWEEN startNewWeek (inside
-      // runWeeklyRecap) and this setMeta: a restart that same Monday would roll the
-      // week again. Accepted — vanishingly rare, and the alternative (stamp-first)
-      // would skip the recap entirely on any mid-run restart.
+      // Stamp set AFTER runWeeklyRecap (which swallows its own errors), so a failed
+      // recap still stamps and won't retry-loop within the day. Only non-idempotent
+      // path: a crash BETWEEN startNewWeek and this setMeta would re-roll the week on
+      // a same-Monday restart. Accepted — rare, and stamp-first would skip the recap
+      // entirely on any mid-run restart.
       const todayStr = new Date().toISOString().slice(0, 10);
       if (new Date().getUTCDay() === 1 && engine.getMeta(META_LAST_RECAP_DATE) !== todayStr) {
         await runWeeklyRecap(engine, client, channelId, recap);
@@ -471,11 +448,9 @@ function scheduleTick(
 }
 
 /**
- * Post the public "goodnight" announcement — the evening bookend to the morning
- * message. Reads the unsafe-soul count LIVE (who's still out as night falls),
- * not the tick snapshot. Idempotent per UTC day; best-effort, never throws.
- *
- * @returns true if posted, false if skipped.
+ * Post the public "goodnight" announcement. Reads the unsafe-soul count LIVE (who's
+ * still out as night falls), not the tick snapshot. Idempotent per UTC day; never
+ * throws. Returns true if posted, false if skipped.
  */
 async function runGoodnightAnnouncement(
   engine: WorldEngine,
@@ -548,8 +523,8 @@ async function runGoodnightAnnouncement(
 }
 
 /**
- * Schedule the public goodnight announcement at 18:30 UTC daily.
- * On boot, if we're past today's 18:30 and it hasn't posted, fires immediately.
+ * Schedule the goodnight announcement at 18:30 UTC daily. On boot, if we're past
+ * today's 18:30 and it hasn't posted, fires immediately.
  */
 function scheduleGoodnightAnnouncement(
   engine: WorldEngine,
@@ -586,11 +561,8 @@ function scheduleGoodnightAnnouncement(
 }
 
 /**
- * Run the morning announcement body — post the day-transition message with a "/hi"
- * button to the configured Discord channel. Checks that the tick has completed today
- * before posting. Safe to call at any time (idempotent: won't re-post the same day).
- *
- * @returns true if the announcement was posted, false if skipped.
+ * Post the day-transition message with a "/hi" button. Gates on the tick having
+ * completed today. Idempotent per UTC day. Returns true if posted, false if skipped.
  */
 async function runMorningAnnouncement(
   engine: WorldEngine,
@@ -599,22 +571,20 @@ async function runMorningAnnouncement(
 ): Promise<boolean> {
   const today = new Date().toISOString().slice(0, 10);
 
-  // Idempotency: skip if already announced today
   const lastAnnouncement = engine.getMeta("last_announcement_date");
   if (lastAnnouncement === today) {
     console.log(c.grey("[cron] Announcement already sent today — skipping."));
     return false;
   }
 
-  // H3: gate on tick success — don't post stale stats if the tick hasn't completed today
+  // H3: gate on tick success — don't post stale stats if the tick hasn't completed today.
   const lastCron = engine.getMeta("last_cron_date");
   if (lastCron !== today) {
     console.log(
       c.grey("[cron] Tick did not complete today — skipping announcement."),
     );
-    // The world is stalled: the tick failed/never ran, so no day advanced and
-    // no announcement will post. Alert the admin so it doesn't sit silently
-    // until someone notices (recoverable via admin `/sleep`).
+    // World stalled: the tick failed/never ran, so no day advanced. Alert the
+    // admin so it doesn't sit silently (recoverable via admin `/sleep`).
     void notifyAdmin(
       "World stalled — announcement skipped",
       new Error(
@@ -693,10 +663,7 @@ async function runMorningAnnouncement(
 }
 
 /**
- * Schedule the morning announcement to fire at 5:30 UTC daily.
- * Reads post-tick state from the engine and posts the day-transition message
- * with a "/hi" button to the configured Discord channel.
- *
+ * Schedule the morning announcement at 5:30 UTC daily.
  * M1: on boot, if the tick already ran today but the announcement was missed
  * (e.g. restart between 03:30 and 05:30 UTC), runs it immediately.
  */
@@ -708,8 +675,7 @@ function scheduleMorningAnnouncement(
   const now = Date.now();
   const today = new Date().toISOString().slice(0, 10);
 
-  // M1: boot-time catch-up — if we're past today's 05:30 and the announcement
-  // hasn't fired but the tick ran, fire it now.
+  // M1: boot-time catch-up — past today's 05:30, announcement not fired, tick ran → fire now.
   const next = new Date();
   next.setUTCHours(5, 30, 0, 0);
   next.setUTCMinutes(30, 0, 0);
@@ -740,9 +706,8 @@ function scheduleMorningAnnouncement(
 
 // ── Afternoon beats (12:00 UTC) ──
 
-/** Post a plain channel announcement with a single "Hi" button. Best-effort.
- *  Returns the sent message (so the caller can pin it), or null if the channel
- *  wasn't usable. */
+/** Post a channel announcement with a single "Hi" button. Returns the sent
+ *  message (so the caller can pin it), or null if the channel wasn't usable. */
 async function postAnnouncement(
   client: Client,
   channelId: string,
@@ -804,9 +769,8 @@ async function runAfternoonBeat(
         location: threat.location,
       });
       // Stamp the idempotency meta on the irreversible side effect (the spawn),
-      // not on announcement success — otherwise a failed Discord post would let a
-      // later run pass the guard and spawn a second identical threat NPC. A failed
-      // announcement now just means no message that day, never a duplicate mob.
+      // not on announcement success — else a failed post lets a later run pass the
+      // guard and spawn a duplicate NPC. Failed post = no message, never a dupe mob.
       engine.setMeta("last_threat_date", dateStr);
       const threatMsg = await postAnnouncement(client, channelId, buildThreatAnnouncement(threat));
       if (threatMsg) {
@@ -829,7 +793,7 @@ async function runAfternoonBeat(
       const boardMsg = await postAnnouncement(client, channelId, buildLeaderboardAnnouncement(boards));
       if (boardMsg) {
         engine.setMeta("last_leaderboard_date", dateStr);
-        // Pin the latest board and unpin any older ones (only the newest stays).
+        // Pin the latest board, unpin older ones (only the newest stays).
         await pinReplacing(boardMsg, LEADERBOARD_MARKER, "leaderboard");
         console.log(c.green("[cron] Leaderboards posted."));
       }
@@ -870,12 +834,11 @@ function scheduleAfternoonBeat(
 
 /**
  * Current UTC time as a 'YYYY-MM-DD HH:MM:SS' string — the same format SQLite's
- * `datetime('now')` stamps on `actions.created_at`, so it compares lexically as
- * the recap window boundary. The week boundary is this exact rollover instant
- * (not a calendar date): outcomes route on `recap_thread_id`, which flips only
- * when the new week starts, so a single shared timestamp keeps the closing
- * week's window aligned with what actually landed in its thread — no gap, no
- * double-count across the Monday rollover.
+ * `datetime('now')` stamps on `actions.created_at`, so it compares lexically as the
+ * recap window boundary. The boundary is this exact rollover instant (not a calendar
+ * date): outcomes route on `recap_thread_id`, which flips only when the new week
+ * starts, so one shared timestamp keeps the closing week's window aligned with what
+ * landed in its thread — no gap, no double-count across the Monday rollover.
  */
 function nowDbTimestamp(): string {
   return new Date().toISOString().slice(0, 19).replace("T", " ");
@@ -896,8 +859,8 @@ function isGuildTextChannel(channel: unknown): channel is GuildTextChannel {
 
 /**
  * Edit the previous week's placeholder header into its finalized chronicle
- * (digest + highlights), computed from that week's actions. Best-effort; a
- * missing header/week (first ever run) or an unreachable message is a no-op.
+ * (digest + highlights) from that week's actions. A missing header/week (first
+ * run) or an unreachable message is a no-op.
  */
 async function finalizePreviousWeek(
   engine: WorldEngine,
@@ -912,7 +875,7 @@ async function finalizePreviousWeek(
 
   const weekNumber = Number(engine.getMeta(META_RECAP_WEEK_NUMBER) ?? "1");
   // Half-open [weekStart, boundaryTs): exactly the actions that landed in this
-  // week's thread (the boundary is the instant the thread id flips below).
+  // week's thread (the boundary is when the thread id flips below).
   const actions = engine.getActionsBetween(weekStart, boundaryTs);
   const recapResult = await generateWeeklyDigest(actions, recap);
   const headerText = buildRecapHeader(weekNumber, weekStart.slice(0, 10), recapResult);
@@ -955,23 +918,21 @@ async function startNewWeek(
 
   engine.setMeta(META_RECAP_THREAD_ID, thread.id);
   engine.setMeta(META_RECAP_HEADER_ID, header.id);
-  // Store the full rollover timestamp (the window lower bound), not just the date.
+  // Full rollover timestamp (the window lower bound), not just the date.
   engine.setMeta(META_RECAP_WEEK_START, startTs);
   engine.setMeta(META_RECAP_WEEK_NUMBER, String(weekNumber));
   console.log(c.green(`[recap] Started Week ${weekNumber} (thread ${thread.id}).`));
 }
 
 /** The Monday rollover: finalize last week, then begin this week — sharing one
- *  boundary timestamp so the two windows meet exactly with no gap or overlap.
+ *  boundary timestamp so the two windows meet with no gap or overlap.
  *
- *  Micro-race (accepted): `boundaryTs` is captured up front, but the thread id
- *  only flips at the END of startNewWeek. finalizePreviousWeek in between makes an
- *  LLM call that can take seconds, and an action resolving in that gap routes to the
- *  OLD thread (id not yet flipped) yet has created_at >= boundaryTs, so it's excluded
- *  from the closing week's window and counted in next week's instead. The window is
- *  tiny and self-healing (the action still appears, just in the following digest);
- *  finalize-before-flip is what keeps the two windows touching with no gap, so we
- *  accept the seam rather than hold a lock across the rollover. */
+ *  Micro-race (accepted): `boundaryTs` is captured up front but the thread id only
+ *  flips at the END of startNewWeek, and finalizePreviousWeek between them makes a
+ *  multi-second LLM call. An action resolving in that gap routes to the OLD thread
+ *  yet has created_at >= boundaryTs, so it's counted in next week's window instead.
+ *  Self-healing (it still appears, just in the following digest); finalize-before-flip
+ *  is what keeps the windows touching, so we accept the seam over a rollover-wide lock. */
 async function runWeeklyRecap(
   engine: WorldEngine,
   client: Client,
@@ -989,16 +950,14 @@ async function runWeeklyRecap(
 }
 
 /**
- * Boot-time guarantee that a current week thread exists, so action outcomes always
- * have somewhere to post before the first Monday.
+ * Boot-time guarantee that a current-week thread exists, so action outcomes have
+ * somewhere to post before the first Monday.
  *
- * Recreates the week ONLY when the stored thread is truly gone — no thread id was
- * ever set, or Discord answers Unknown Channel (10003). A TRANSIENT fetch failure
- * (rate limit, 5xx, network blip on boot) is deliberately left alone: rolling the
- * week on a hiccup would bump the counter, overwrite the header/start metadata, and
- * orphan the in-progress chronicle (its placeholder never finalizes). On a transient
- * error we keep the current week and try again on the next boot. Never throws into
- * caller.
+ * Recreates the week ONLY when the stored thread is truly gone — no id was ever set,
+ * or Discord answers Unknown Channel (10003). A TRANSIENT fetch failure (rate limit,
+ * 5xx, boot network blip) is left alone: rolling the week on a hiccup would bump the
+ * counter, overwrite the header/start metadata, and orphan the in-progress chronicle.
+ * On a transient error we keep the current week and retry next boot. Never throws.
  */
 async function ensureWeeklyThread(
   engine: WorldEngine,
@@ -1010,7 +969,7 @@ async function ensureWeeklyThread(
     if (threadId) {
       try {
         await client.channels.fetch(threadId);
-        return; // fetched without error → current thread is reachable; keep the week
+        return; // reachable → keep the week
       } catch (err) {
         if (!isThreadDeleted(err)) {
           // Transient failure — do NOT roll the week on a boot-time hiccup.
@@ -1020,7 +979,7 @@ async function ensureWeeklyThread(
           );
           return;
         }
-        // Unknown Channel → the thread was deleted; fall through to recreate.
+        // Unknown Channel → deleted; fall through to recreate.
         console.warn(c.yellow(`[recap] thread ${threadId} is gone (Unknown Channel) — starting a fresh week.`));
       }
     }
@@ -1036,10 +995,9 @@ async function ensureWeeklyThread(
 // ── Release notes (on version bump) ──
 
 /**
- * On boot, if the running tag (`v<VERSION>`) hasn't been announced yet and a
- * notes file exists for it, post the player-facing release notes — with a
- * feedback/request button — to the announcement channel, then stamp the meta so
- * it fires exactly once per tag. Best-effort; never throws.
+ * On boot, if the running tag (`v<VERSION>`) hasn't been announced and a notes file
+ * exists for it, post the player-facing release notes (with a feedback button) to
+ * the announcement channel, then stamp the meta so it fires once per tag. Never throws.
  */
 async function runReleaseAnnouncement(
   engine: WorldEngine,
@@ -1111,15 +1069,12 @@ async function main() {
 
   // 4. LLM gateway
   let llm: FallbackLlmGateway;
-  // D3 cartographer — the same DeepSeek transport, used for async location
-  // enrichment. Undefined when no API key (the mock path); the engine then just
-  // leaves provisional rows unenriched.
+  // D3 cartographer — same DeepSeek transport, for async location enrichment.
+  // Undefined on the mock path; the engine then leaves provisional rows unenriched.
   let cartographer: DeepseekLlmGateway | undefined;
-  // Weekly recap chronicler — same DeepSeek transport. Undefined on the mock path
-  // (the Monday recap then falls back to a deterministic count summary).
+  // Weekly recap chronicler. Undefined on the mock path (recap falls back to a count summary).
   let recapGateway: RecapGateway | undefined;
-  // Coherence critic (Thread 2) — same DeepSeek transport. On by default; set
-  // ENABLE_COHERENCE_CRITIC=false to opt out (e.g. to save the extra LLM pass).
+  // Coherence critic (Thread 2). On by default; ENABLE_COHERENCE_CRITIC=false opts out.
   const criticEnabled = process.env.ENABLE_COHERENCE_CRITIC !== "false";
   let criticGateway: CriticGateway | undefined;
   if (DEEPSEEK_API_KEY) {
@@ -1130,9 +1085,8 @@ async function main() {
       recorder: new LlmCallRepository(initDb()),
       // POC: failures always log thinking; set this to also log it on every call.
       logThinkingAll: process.env.LOG_LLM_THINKING_ALL === "true",
-      // Always keep thinking + prompt for "spiral" calls past this many reasoning chars.
-      // Only honour a positive numeric value; anything else (unset, empty, garbage → NaN, or ≤0)
-      // falls back to the gateway's built-in default rather than silently disabling/over-capturing.
+      // Keep thinking + prompt for "spiral" calls past this many reasoning chars. Only a
+      // positive number is honoured; anything else (unset/empty/NaN/≤0) uses the gateway default.
       ...(Number(process.env.REASONING_SPIRAL_CHARS) > 0
         ? { reasoningSpiralChars: Number(process.env.REASONING_SPIRAL_CHARS) }
         : {}),
@@ -1217,9 +1171,8 @@ async function main() {
   const dayJobs = assets.dayJobs as DayJobDef[];
   const registry = new CommandRegistry();
 
-  // Cast through unknown — handlers have stricter parameter types than
-  // CommandHandler expects ({ user: { id: string } } vs unknown).
-  // At runtime the interaction object always matches the expected shape.
+  // Cast through unknown — handlers take stricter param types than CommandHandler
+  // ({ user: { id } } vs unknown); at runtime the interaction matches the shape.
   const asHandler = (fn: unknown): CommandHandler => fn as CommandHandler;
 
   registry.register(
@@ -1279,12 +1232,10 @@ async function main() {
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   _client = client; // expose for the process-level error handlers (admin DMs)
 
-  // Collapse notices broadcast publicly to the announcement channel so the
-  // whole table sees who fell. No-op until TICK_CHANNEL_ID is configured.
+  // Collapse notices broadcast to the announcement channel. No-op until TICK_CHANNEL_ID is set.
   setCollapseBroadcaster((content) => postToTickChannel(content));
 
-  // An 'error' event with no listener makes EventEmitter throw → process crash.
-  // Listen so client/REST errors are reported, not fatal.
+  // An 'error' event with no listener makes EventEmitter throw → crash. Listen so it's reported, not fatal.
   client.on("error", (err) => {
     void notifyAdmin("Discord client error", err);
   });
@@ -1393,14 +1344,13 @@ ${headInfo}`);
       console.error(c.red(`[discord] Failed to register slash commands:`), err);
     }
 
-    // ── Nightly tick scheduler (3:30 UTC) ──
+    // ── Scheduled beats (require TICK_CHANNEL_ID) ──
     if (TICK_CHANNEL_ID) {
       scheduleTick(engine, readyClient, TICK_CHANNEL_ID, recapGateway);
       scheduleMorningAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleGoodnightAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleAfternoonBeat(engine, readyClient, TICK_CHANNEL_ID);
-      // Ensure a current week thread exists so action outcomes have a home before
-      // the first Monday rollover (boot-time catch-up; recreates if the thread is gone).
+      // Boot catch-up: ensure a current week thread exists before the first Monday rollover.
       void ensureWeeklyThread(engine, readyClient, TICK_CHANNEL_ID);
       // Announce release notes once if the bot just booted on a new tag.
       void runReleaseAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
@@ -1442,10 +1392,10 @@ ${headInfo}`);
 
       try {
         const result = await handler(interaction);
-        // If the handler already replied (join/action manage their own flow), skip
+        // join/action manage their own flow — skip if already replied.
         if (interaction.replied || interaction.deferred) return;
 
-        // Stamp last interaction time (not join — not a char yet)
+        // Stamp last interaction time (not join — no char yet).
         if (commandName !== "join") {
           const char = engine.getCharacter(interaction.user.id);
           if (char) engine.updateLastPlayed(char.id);
@@ -1473,11 +1423,10 @@ ${headInfo}`);
             interaction.user.id === ADMIN_USER_ID &&
             process.env.SLEEP_ADMIN_TICK === "true";
           if (!isAdminTick) {
-            // Good night message: nav buttons (Action auto-hidden by getNavButtons) + Feedback
+            // Goodnight message: nav buttons + a Feedback button row.
             const char = engine.getCharacter(interaction.user.id);
             if (char) {
               navButtons = getNavButtons(char, "sleep");
-              // Append the dedicated Feedback button row
               if (navButtons && navButtons.length > 0) {
                 navButtons = [
                   ...navButtons,
@@ -1547,8 +1496,8 @@ ${headInfo}`);
           ),
         );
       try {
-        // After confirm, join shows the player their first-day /hi view. Build it
-        // here where the registry + payload builder live, then hand it back.
+        // After confirm, join shows the first-day /hi view — built here where the
+        // registry + payload builder live, then handed back.
         const renderHiScreen = async (userId: string) => {
           const hiHandler = registry.get("hi");
           const result = hiHandler
@@ -1580,7 +1529,7 @@ ${headInfo}`);
       return;
     }
 
-    // ── Custom action button ── opens a modal for free-text input
+    // ── Custom action button — opens a modal for free-text input ──
     if (customId && customId === "action:dayjob:custom") {
       if (!interaction.isButton()) return;
       const modal = new ModalBuilder()
@@ -1596,14 +1545,12 @@ ${headInfo}`);
               .setPlaceholder("e.g. scout the northern ridge"),
           ),
         );
-      // showModal must be the first (and only) ack of this button interaction,
-      // so send it before touching anything else.
+      // showModal must be the first (and only) ack of this interaction — send it first.
       await interaction.showModal(modal);
 
-      // Dismiss the stale day-job menu now that the player has chosen "Custom…"
-      // — don't wait for the modal submit. The modal overlay survives its source
-      // message being deleted; consuming the entry also stops the submit handler
-      // from trying to delete it a second time.
+      // Dismiss the stale day-job menu now (don't wait for the modal submit). The
+      // modal overlay survives its source message being deleted; consuming the entry
+      // also stops the submit handler from deleting it a second time.
       const menuInfo = consumeMenuMessage(interaction.user.id);
       if (menuInfo) {
         const { WebhookClient } = await import("discord.js");
@@ -1616,14 +1563,14 @@ ${headInfo}`);
       return;
     }
 
-    // ── Custom action modal submission ── starts the action with typed text
+    // ── Custom action modal submission — starts the action with typed text ──
     if (customId && customId === "action:custom:modal") {
       if (!interaction.isModalSubmit()) return;
       const description = interaction.fields.getTextInputValue(
         "action:custom:input",
       );
 
-      // Profanity filter check — blocks matching custom actions before they reach the engine.
+      // Block profane custom actions before they reach the engine.
       const blocked = checkProfanity(description);
       if (blocked !== null) {
         await interaction.reply({
@@ -1636,7 +1583,7 @@ ${headInfo}`);
 
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-      // Delete the stale day-job menu message so only the action scene shows
+      // Delete the stale day-job menu so only the action scene shows.
       const menuInfo = consumeMenuMessage(interaction.user.id);
       if (menuInfo) {
         const { WebhookClient } = await import("discord.js");
@@ -1671,8 +1618,8 @@ ${headInfo}`);
         }
         const result = await engine.startAction(char.id, description);
         if (result.outcome) {
-          // Re-read AFTER startAction so the embed + nav reflect the spent roll
-          // and any applied mutations — `char` above is the pre-action snapshot.
+          // Re-read AFTER startAction so the embed + nav reflect the spent roll and
+          // mutations — `char` above is the pre-action snapshot.
           const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
           const embed = buildOutcomeEmbed(
             result.outcome,
@@ -1889,7 +1836,7 @@ ${headInfo}`);
           });
           return;
         }
-        engine.updateLastPlayed(char.id); // M2: stamp on day-job button clicks
+        engine.updateLastPlayed(char.id); // M2: stamp on day-job clicks
         const dayNumber = Number(engine.getMeta("day_number") ?? "1");
         const jobActions = getDayJobActions(char.dayJob, dayJobs, {
           characterId: char.id,
@@ -1905,10 +1852,8 @@ ${headInfo}`);
           });
           return;
         }
-        // Block daily work from unsafe ground — get to safety first. Unknown
-        // (procedural) locations are treated as unsafe, mirroring the
-        // unsafe-soul count. Freeform `/action` is unaffected — only quick
-        // day-job tasks are gated.
+        // Block daily work from unsafe ground (unknown/procedural locations count as
+        // unsafe, mirroring the unsafe-soul count). Freeform `/action` is unaffected.
         const here = engine.getLocation(char.location);
         if (!here?.isSafe) {
           await interaction.reply({
@@ -1917,7 +1862,7 @@ ${headInfo}`);
           });
           return;
         }
-        // Defer + immediately blank buttons to show loading
+        // Defer + blank buttons to show loading.
         const idleMsg = randomIdleMessage();
         await interaction.deferUpdate();
         await interaction.editReply({
@@ -1931,7 +1876,7 @@ _${idleMsg}_`)
           components: [],
         });
 
-        // ── Teleport from The Warden's Oak to workplace ──
+        // ── Commute from the Oak to the workplace ──
         if (char.location === "The Warden's Oak") {
           const workplace = getWorkplaceLocation(char.dayJob, dayJobs, {
             characterId: char.id,
@@ -1943,13 +1888,13 @@ _${idleMsg}_`)
               stamina: Math.max(0, char.stamina - 1),
               location: workplace,
             });
-            // Update the local char copy for the outcome renderer
+            // Update the local char copy for the outcome renderer.
             char.stamina = Math.max(0, char.stamina - 1);
             char.location = workplace;
 
             // Merge the commute INTO the loading page (don't replace it): the LLM call
-            // below still takes seconds, so keep the "thinking" indicator visible so the
-            // player can see work is being generated, not that the bot has stalled.
+            // below takes seconds, so keep the "thinking" indicator visible — the bot
+            // hasn't stalled, work is being generated.
             await interaction.editReply({
               embeds: [
                 new EmbedBuilder()
@@ -1965,16 +1910,15 @@ _${idleMsg}_`)
           }
         }
 
-        // The per-action `income` ("bonus for clicking", day-jobs.yml) rides the action as a
-        // guaranteed wage: the engine pays it into the RESOLVED outcome (after the failure-strip),
-        // so it shows in the outcome footer (💰) when the work finishes — not as a separate message
-        // before the player has made their choices. base_income is the separate nightly-tick wage.
+        // Per-action `income` (day-jobs.yml) rides the action as a guaranteed wage: paid
+        // into the RESOLVED outcome (after the failure-strip) so it shows in the footer (💰)
+        // when work finishes, not before. base_income is the separate nightly-tick wage.
         const result = await engine.startAction(char.id, hook, { kind: "work", wage });
 
         if (result.outcome) {
-          // Re-read AFTER startAction so the embed + nav reflect the spent roll
-          // and any applied mutations — `char` above is the pre-action snapshot
-          // (only patched locally for the commute stamina cost).
+          // Re-read AFTER startAction so the embed + nav reflect the spent roll and
+          // mutations — `char` above is the pre-action snapshot (only patched locally
+          // for the commute stamina cost).
           const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
           const embed = buildOutcomeEmbed(
             result.outcome,
@@ -2063,12 +2007,12 @@ _${idleMsg}_`)
 
       const navTarget = customId.slice(4); // 'hi', 'look', etc.
 
-      // M2: stamp on nav button clicks (before any handler logic)
+      // M2: stamp on nav clicks (before any handler logic).
       const clickerChar = engine.getCharacter(interaction.user.id);
       if (clickerChar) engine.updateLastPlayed(clickerChar.id);
 
-      // /action shows the day-job menu instead — can't route through the registry
-      // because the handler expects a ChatInputCommandInteraction with options.
+      // /action shows the day-job menu — can't route through the registry, whose
+      // handler expects a ChatInputCommandInteraction with options.
       if (navTarget === "action") {
         try {
           const char = engine.getCharacter(interaction.user.id);
@@ -2089,8 +2033,8 @@ _${idleMsg}_`)
             return;
           }
 
-          // Resume if mid-action — send a new ephemeral message (the old one
-          // was sent with Components V2 flags, so editing it can't use embeds).
+          // Resume mid-action via a NEW ephemeral message — the old one used
+          // Components V2 flags, so editing it can't use embeds.
           if (char.lastActionState) {
             try {
               const resumeResult = engine.resumeAction(char.id);
@@ -2136,7 +2080,7 @@ _${idleMsg}_`)
             return;
           }
 
-          // Show day-job menu — new ephemeral message (same reason: V2 flags)
+          // Show day-job menu — new ephemeral message (same V2-flags reason).
           const dayNumber = Number(engine.getMeta("day_number") ?? "1");
           const jobActions = getDayJobActions(char.dayJob, dayJobs, {
             characterId: char.id,
@@ -2168,9 +2112,8 @@ _${idleMsg}_`)
             components: [row.toJSON()],
             flags: MessageFlags.Ephemeral,
           });
-          // Stash this menu so the Custom… handler can delete it (same as the
-          // /action slash path). Without this, a Custom… action started from the
-          // nav-button menu leaves the stale menu message hanging on the screen.
+          // Stash this menu so the Custom… handler can delete it (as in the /action
+          // slash path); otherwise the stale menu hangs on screen.
           const menuMsg = await interaction.fetchReply();
           stashMenuMessage(interaction.user.id, {
             applicationId: interaction.applicationId,
@@ -2193,7 +2136,7 @@ _${idleMsg}_`)
         } as never);
 
         // No nav bar on /action (own buttons) or /sleep (global message);
-        // otherwise exclude the current command's own button
+        // otherwise exclude the current command's own button.
         const noNav = navTarget === "action" || navTarget === "sleep";
         const navButtons =
           noNav || !char ? undefined : getNavButtons(char, navTarget);
@@ -2203,8 +2146,8 @@ _${idleMsg}_`)
         });
 
         // Nav buttons live on both ephemeral views and the public /action outcome.
-        // From an ephemeral message we edit in place; from a public message we must
-        // NOT overwrite it — spawn a fresh ephemeral screen for the clicker instead.
+        // Edit an ephemeral message in place; from a public message, do NOT overwrite
+        // it — spawn a fresh ephemeral screen for the clicker.
         const fromEphemeral =
           interaction.message?.flags?.has(MessageFlags.Ephemeral) ?? false;
         if (fromEphemeral) {
@@ -2227,14 +2170,14 @@ _${idleMsg}_`)
     }
   };
 
-  // Single entry point for every interaction. The in-flight guard and
-  // dead-interaction handling live here so no individual handler can forget them.
+  // Single entry point for every interaction — the in-flight guard lives here so
+  // no individual handler can forget it.
   client.on(Events.InteractionCreate, async (interaction) => {
     const guardKey = interactionGuardKey(interaction);
     if (guardKey !== null) {
       if (_interactionInFlight.has(guardKey)) {
-        // Duplicate click while the first is still in flight: silently ack so
-        // Discord doesn't surface "interaction failed", then drop it.
+        // Duplicate click while the first is in flight: silently ack (so Discord
+        // doesn't surface "interaction failed") and drop it.
         if (interaction.isButton()) await interaction.deferUpdate().catch(() => {});
         return;
       }
@@ -2253,7 +2196,7 @@ _${idleMsg}_`)
 }
 
 main().catch((err) => {
-  // Best-effort DM (only lands if the client got far enough to log in), then exit.
+  // Best-effort DM (only lands if the client logged in), then exit.
   setTimeout(() => process.exit(1), 4000).unref();
   void notifyAdmin("FATAL startup error", err).finally(() => {
     closeDb();

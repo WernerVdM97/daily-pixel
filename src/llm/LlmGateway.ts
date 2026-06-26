@@ -3,47 +3,36 @@ export interface LlmContext {
     class: string;
     stats: { physical: number; wisdom: number; intelligence: number; charisma: number };
     health: number;
-    /** Health ceiling — lets the prompt render `health/maxHealth` (e.g. `7/10`). Optional:
-     *  the stripped retry context and bare test fixtures may omit it. */
+    /** Health ceiling for `health/maxHealth` render. Optional: stripped retry context / bare fixtures omit it. */
     maxHealth?: number;
     stamina: number;
-    /** Stamina ceiling — lets the prompt render `stamina/maxStamina`. Optional, as above. */
+    /** Stamina ceiling for `stamina/maxStamina`. Optional, as above. */
     maxStamina?: number;
     alignment: string;
     dayJob: string;
   };
-  /** `isSafe` lets the prompt tag the location safe/unsafe — the lever for danger pacing.
-   *  Optional: omitted by the stripped retry context and bare fixtures. */
+  /** `isSafe` drives danger pacing (safe/unsafe tag). Optional: omitted by stripped retry context / bare fixtures. */
   location: { name: string; isSafe?: boolean };
   nearbyNpcs: { name: string; description: string }[];
   nearbyPcs: { name: string; class: string }[];
   recentActions: { type: string; outcome: string; narrative?: string | null }[];
-  /** Every charted location name. Injected as a `KNOWN LOCATIONS` block (v8+) so the
-   *  LLM reuses real names for set_location and only invents for true off-map
-   *  exploration. Optional: the stripped retry context omits it. */
+  /** Charted location names, injected as a `KNOWN LOCATIONS` block (v8+) so the LLM reuses real
+   *  names for set_location and only invents for true off-map exploration. Optional: stripped retry context omits it. */
   knownLocations?: string[];
   rawInput: string;
   previousDecisions?: { prompt: string; chosen: string; dcModifier: number }[];
-  /** Per-stat summed item bonus (the `Gear` column of the v9 ability-checks table). Optional:
-   *  the stripped retry context and bare fixtures omit it. The legacy `scalingHint` string still
-   *  carries the same data for the audit digest. */
+  /** Per-stat summed item bonus (v9 ability-checks `Gear` column). Optional: stripped retry context / bare
+   *  fixtures omit it. Legacy `scalingHint` still carries the same data for the audit digest. */
   itemBonuses?: { physical: number; wisdom: number; intelligence: number; charisma: number };
-  /** Full inventory, structured — the v9 markdown `Inventory` list (and remove_item targets). */
+  /** Structured inventory — v9 markdown `Inventory` list and remove_item targets. */
   inventory?: { emoji: string; name: string; stat: string; modifier: number; quantity: number }[];
   scalingHint: string;
   /** Set by FallbackLlmGateway to tag retry attempts in the audit log (0 = primary, 1 = stripped retry). */
   attemptTier?: number;
-  /**
-   * Set on the second (narration) call of a rolled resolution: the dice have already
-   * decided this verdict, so the LLM must narrate THIS outcome and emit matching
-   * mutations (failure → costs only, no rewards). See machine.resolveWithRoll.
-   */
+  /** Second (narration) call of a rolled resolution: dice already decided, so the LLM narrates THIS
+   *  outcome with matching mutations (failure → costs only, no rewards). See machine.resolveWithRoll. */
   rollOutcome?: 'success' | 'failure';
-  /**
-   * Coherence-critic feedback for a single re-decide (Thread 2). When the critic flags a beat as a
-   * MAJOR defect, the engine re-calls decide() once with the critic's issues here so the author can
-   * produce a corrected beat. Absent on the normal first attempt.
-   */
+  /** Coherence-critic feedback (Thread 2) for a single re-decide on a MAJOR defect. Absent on first attempt. */
   criticNote?: string;
 }
 
@@ -59,15 +48,13 @@ export interface LlmDecision {
   outcomeText?: string;
   /** Id of the llm_calls audit row this decision came from (for action linkage). */
   _llmCallId?: number;
-  /** Id of the coherence-critic call made on THIS beat (set by CritiquedLlmGateway on a
-   *  decision beat), so it too can be linked to the action. */
+  /** Id of the coherence-critic call on THIS beat (set by CritiquedLlmGateway), for action linkage. */
   _critiqueCallId?: number;
-  /** Transient (in-memory only): the full prompt + reasoning that produced this decision, held so
-   *  the critic can backfill the decision's audit row if it flags the beat. Never persisted. */
+  /** Transient (in-memory only): full prompt + reasoning that produced this decision, so the critic
+   *  can backfill the audit row if it flags the beat. Never persisted. */
   _rawPrompt?: string;
   _reasoning?: string | null;
-  /** validateDecision warnings for this decision — surfaced so the coherence critic (Thread 2)
-   *  can gate on "the deterministic validator smelled smoke" and hand them over as its checklist.
+  /** validateDecision warnings, surfaced as the coherence critic's checklist of suspicions.
    *  Set by DeepseekLlmGateway.decide; absent on gateways that don't validate. */
   _warnings?: string[];
 }
@@ -75,13 +62,9 @@ export interface LlmDecision {
 export interface LlmDecisionOption {
   label: string;
   dcModifier: number | null; // null = bail
-  /**
-   * Optional per-option ability stat. When present, choosing this option makes it the
-   * stat the resolution roll tests (overriding the action's top-level `stat`). Lets a
-   * single decision offer genuinely different approaches — a clever (wisdom) option and a
-   * direct (physical) one — that test different attributes. See ADR
-   * [[per-option-stat-and-ability-checks]].
-   */
+  /** Per-option ability stat: when present, the resolution roll tests this stat (overriding the action's
+   *  top-level `stat`), letting one decision offer approaches that test different attributes —
+   *  clever (wisdom) vs direct (physical). See ADR [[per-option-stat-and-ability-checks]]. */
   stat?: 'physical' | 'wisdom' | 'intelligence' | 'charisma';
 }
 
@@ -90,9 +73,8 @@ export interface LlmGateway {
 }
 
 /**
- * What the coherence critic is asked to check (Thread 2). It sees the already
- * deterministically-normalised authored output plus the engine truths to anchor against —
- * never the player; its only job is to catch contradictions before the output is shown.
+ * What the coherence critic checks (Thread 2): the deterministically-normalised authored output
+ * plus engine truths to anchor against — never the player. Job: catch contradictions before display.
  */
 export interface CriticInput {
   /** 'decision' = an options beat (NEW_ACTION/CONTINUE); 'resolution' = a narrated verdict. */
@@ -101,11 +83,10 @@ export interface CriticInput {
   rollOutcome?: 'success' | 'failure';
   /** The authored decision/narration, after parse + deterministic normalisation. */
   decision: LlmDecision;
-  /** Final mutations after applyOutcomeToMutations (resolution beats) — the outcome_text must
-   *  reference these, and they must match the verdict. Omitted on decision beats. */
+  /** Final mutations after applyOutcomeToMutations (resolution beats); outcome_text must reference
+   *  these and they must match the verdict. Omitted on decision beats. */
   finalMutations?: unknown[];
-  /** Compact snapshot of the context the author saw (character/scene/story) — for the digest
-   *  and as the critic's against-context anchor. */
+  /** Compact snapshot of the context the author saw — the digest and the critic's anchor. */
   contextDigest: string;
   /** The original player input — recorded on the audit row for action linkage. */
   playerInput: string;
@@ -114,10 +95,9 @@ export interface CriticInput {
 }
 
 /**
- * The critic's verdict. It is a TEXTURE-corrector, not a truth-arbiter: any `patch` only
- * touches narrative prose (`prompt`, `outcomeText`) — never mutations, DC, stat, or roll. A
- * `major` defect (wrong intent, dead turn, structural) is signalled for a single re-decide
- * rather than patched. Whatever it returns is re-run through the deterministic normalisers.
+ * The critic's verdict. A TEXTURE-corrector, not a truth-arbiter: `patch` only touches narrative
+ * prose (`prompt`, `outcomeText`), never mutations/DC/stat/roll. A `major` defect (wrong intent,
+ * dead turn, structural) triggers a single re-decide rather than a patch. Output is re-normalised.
  */
 export interface CriticVerdict {
   /** true = coherent, pass through unchanged. */
@@ -158,9 +138,8 @@ export interface CartographerResult {
 }
 
 /**
- * Async world-builder for D3 lazy location creation — a focused, separate call
- * from the decision gateway (but reusing the same transport). Fills a provisional
- * location's is_safe + description off the player's critical path.
+ * Async world-builder for D3 lazy location creation — a separate call from the decision gateway
+ * (same transport), filling a provisional location's is_safe + description off the critical path.
  */
 export interface CartographerGateway {
   enrich(input: CartographerInput): Promise<CartographerResult>;
@@ -187,9 +166,8 @@ export interface RecapResult {
 }
 
 /**
- * The weekly-recap LLM call: given the week's resolved actions, judge what's
- * notable (ignoring bland/routine actions) and return a short world digest plus
- * a list of highlight lines. A reporting concern, separate from `decide`.
+ * Weekly-recap LLM call: from the week's resolved actions, judge what's notable (ignoring
+ * bland/routine) and return a short world digest plus highlight lines. Reporting, separate from `decide`.
  */
 export interface RecapGateway {
   summarizeWeek(actions: RecapActionInput[]): Promise<RecapResult>;
