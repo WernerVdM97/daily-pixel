@@ -79,8 +79,11 @@ export function runMigrations(db: Database.Database, migrations: Migration[] = M
 
 /**
  * The locations seeded into a fresh DB. Exported as the single source of truth
- * so asset validation (day-job `workplace_location` ⊆ seeded locations) checks
- * against the same list `seedLocations` writes.
+ * so the cross-file asset check (day-job `workplace_location` ⊆ seeded locations,
+ * `checkDayJobLocations`) validates against the same list `seedLocations` writes.
+ * NOTE: that cross-file check is a TEST-gate assertion, not boot fail-fast — it
+ * runs in `tests/assets/asset-schemas.test.ts`, not in `index.ts`. Only the
+ * per-file shape validators (`loadAndValidate`) run at boot.
  */
 export const SEEDED_LOCATIONS = [
     { name: "The Warden's Oak", description: 'A massive ancient oak tree that serves as the heart of the territory. Its branches stretch wide, offering shelter to all who gather beneath.', tags: 'oak,interior,fire,sanctuary', is_safe: 1 },

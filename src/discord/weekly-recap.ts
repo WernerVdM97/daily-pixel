@@ -15,6 +15,22 @@ export const META_RECAP_WEEK_NUMBER = "recap_week_number";
 /** Monday-beat idempotency stamp (mirrors last_leaderboard_date). */
 export const META_LAST_RECAP_DATE = "last_recap_date";
 
+// ── thread liveness ──
+/** Discord REST error code for "Unknown Channel" — the only signal that a stored
+ *  thread is genuinely gone (deleted). */
+export const DISCORD_UNKNOWN_CHANNEL = 10003;
+
+/**
+ * True ONLY when a thread fetch failed because the thread is truly gone (Discord
+ * answered Unknown Channel / 10003) — i.e. it is safe to recreate the week. Every
+ * other failure (rate limit, 5xx, network blip, permission) is transient: the boot
+ * path must keep the current week rather than spuriously roll it. Tolerates any
+ * thrown value (Error, plain object, null/undefined).
+ */
+export function isThreadDeleted(err: unknown): boolean {
+  return (err as { code?: unknown } | null | undefined)?.code === DISCORD_UNKNOWN_CHANNEL;
+}
+
 /** Discord hard cap on a message's content length. */
 const MAX_MSG = 2000;
 

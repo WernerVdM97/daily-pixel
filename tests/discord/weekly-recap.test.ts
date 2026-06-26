@@ -5,6 +5,8 @@ import {
   generateWeeklyDigest,
   broadcastOutcome,
   capRecapActions,
+  isThreadDeleted,
+  DISCORD_UNKNOWN_CHANNEL,
   MAX_RECAP_ACTIONS,
   MAX_RECAP_NARRATIVE,
 } from "../../src/discord/weekly-recap.js";
@@ -167,5 +169,26 @@ describe("broadcastOutcome", () => {
     await broadcastOutcome({ client, threadId: "weird", payload, fallback });
 
     expect(fallback).toHaveBeenCalledOnce();
+  });
+});
+
+describe("isThreadDeleted (boot-time week-roll guard)", () => {
+  it("is true only for the Unknown Channel code", () => {
+    expect(isThreadDeleted({ code: DISCORD_UNKNOWN_CHANNEL })).toBe(true);
+    expect(DISCORD_UNKNOWN_CHANNEL).toBe(10003);
+  });
+
+  it("is false for transient / other Discord error codes (week must be kept)", () => {
+    // 50001 Missing Access, 500x server errors, 429 rate limit, etc. — all transient.
+    for (const code of [50001, 500, 502, 429, 0]) {
+      expect(isThreadDeleted({ code })).toBe(false);
+    }
+  });
+
+  it("is false for a generic Error, a code-less object, and null/undefined", () => {
+    expect(isThreadDeleted(new Error("ECONNRESET"))).toBe(false);
+    expect(isThreadDeleted({})).toBe(false);
+    expect(isThreadDeleted(null)).toBe(false);
+    expect(isThreadDeleted(undefined)).toBe(false);
   });
 });

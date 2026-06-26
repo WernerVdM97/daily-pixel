@@ -105,6 +105,7 @@ import {
   buildPlaceholderHeader,
   buildRecapHeader,
   generateWeeklyDigest,
+  isThreadDeleted,
   META_RECAP_THREAD_ID,
   META_RECAP_HEADER_ID,
   META_RECAP_WEEK_START,
@@ -406,6 +407,12 @@ function scheduleTick(
 
       // Monday — roll the weekly recap at the same instant the day refreshed, so
       // the week boundary aligns with the action reset. Idempotent per UTC day.
+      // The stamp is set AFTER runWeeklyRecap, which swallows its own errors — so a
+      // failed recap still stamps and won't retry-loop within the day. The one
+      // non-idempotent path is a process crash BETWEEN startNewWeek (inside
+      // runWeeklyRecap) and this setMeta: a restart that same Monday would roll the
+      // week again. Accepted — vanishingly rare, and the alternative (stamp-first)
+      // would skip the recap entirely on any mid-run restart.
       const todayStr = new Date().toISOString().slice(0, 10);
       if (new Date().getUTCDay() === 1 && engine.getMeta(META_LAST_RECAP_DATE) !== todayStr) {
         await runWeeklyRecap(engine, client, channelId, recap);
@@ -912,7 +919,16 @@ async function startNewWeek(
 }
 
 /** The Monday rollover: finalize last week, then begin this week — sharing one
- *  boundary timestamp so the two windows meet exactly with no gap or overlap. */
+ *  boundary timestamp so the two windows meet exactly with no gap or overlap.
+ *
+ *  Micro-race (accepted): `boundaryTs` is captured up front, but the thread id
+ *  only flips at the END of startNewWeek. finalizePreviousWeek in between makes an
+ *  LLM call that can take seconds, and an action resolving in that gap routes to the
+ *  OLD thread (id not yet flipped) yet has created_at >= boundaryTs, so it's excluded
+ *  from the closing week's window and counted in next week's instead. The window is
+ *  tiny and self-healing (the action still appears, just in the following digest);
+ *  finalize-before-flip is what keeps the two windows touching with no gap, so we
+ *  accept the seam rather than hold a lock across the rollover. */
 async function runWeeklyRecap(
   engine: WorldEngine,
   client: Client,
@@ -930,9 +946,16 @@ async function runWeeklyRecap(
 }
 
 /**
- * Boot-time guarantee that a current week thread exists, so action outcomes
- * always have somewhere to post before the first Monday. If the stored thread is
- * gone (or none was ever set), start a fresh week. Never throws into caller.
+ * Boot-time guarantee that a current week thread exists, so action outcomes always
+ * have somewhere to post before the first Monday.
+ *
+ * Recreates the week ONLY when the stored thread is truly gone — no thread id was
+ * ever set, or Discord answers Unknown Channel (10003). A TRANSIENT fetch failure
+ * (rate limit, 5xx, network blip on boot) is deliberately left alone: rolling the
+ * week on a hiccup would bump the counter, overwrite the header/start metadata, and
+ * orphan the in-progress chronicle (its placeholder never finalizes). On a transient
+ * error we keep the current week and try again on the next boot. Never throws into
+ * caller.
  */
 async function ensureWeeklyThread(
   engine: WorldEngine,
@@ -942,8 +965,21 @@ async function ensureWeeklyThread(
   try {
     const threadId = engine.getMeta(META_RECAP_THREAD_ID);
     if (threadId) {
-      const existing = await client.channels.fetch(threadId).catch(() => null);
-      if (existing) return; // current thread still reachable
+      try {
+        await client.channels.fetch(threadId);
+        return; // fetched without error → current thread is reachable; keep the week
+      } catch (err) {
+        if (!isThreadDeleted(err)) {
+          // Transient failure — do NOT roll the week on a boot-time hiccup.
+          console.warn(
+            c.yellow(`[recap] thread ${threadId} unreachable (transient, code=${String((err as { code?: unknown }).code)}) — keeping current week:`),
+            err instanceof Error ? err.message : String(err),
+          );
+          return;
+        }
+        // Unknown Channel → the thread was deleted; fall through to recreate.
+        console.warn(c.yellow(`[recap] thread ${threadId} is gone (Unknown Channel) — starting a fresh week.`));
+      }
     }
     await startNewWeek(engine, client, channelId, nowDbTimestamp());
   } catch (err) {

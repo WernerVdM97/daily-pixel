@@ -188,6 +188,10 @@ export function loadAndValidate<T>(filePath: string, validate: EntryValidator): 
 }
 
 // ── cross-file integrity (T4) ──
+// Unlike the per-file shape validators above (wired into the boot-time loader via
+// `loadAndValidate`, fail-fast), these cross-file checks run ONLY in the asset test
+// suite (the deploy gate), not in `index.ts`. They're the deploy-time guarantee, not a
+// runtime one — boot won't catch a kit-less class or an off-map workplace on its own.
 
 interface NamedItemSet {
   name: string;
