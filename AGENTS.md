@@ -66,6 +66,17 @@ When cutting a release:
 2. **Keep it non-technical.** Highlights are what's new and fun for players — not migrations, refactors, or internal plumbing. The changelog is the technical record; the notes file is the player's.
 3. **The filename tag must match the git tag exactly** (`v` prefix included), or the announcement won't fire.
 
+## Changelog conventions
+
+`CHANGELOG.md` entries earn their keep by being **scannable**, not exhaustive — one tight line per change, like a good commit subject. The PR, commit, and any `docs/decisions/` record hold the full story; the changelog is the index. Apply this to every entry:
+
+1. **One bullet, one line.** Lead with a **bold subject** naming the change, then an em-dash and the gist in a sentence or two. If you need a paragraph, the detail belongs in the PR/decision doc — link it, don't inline it.
+2. **Say what changed and why it matters, not how it's wired.** Skip the play-by-play of helpers, call sites, and internal flow. Name the new column/env var/method when a reader needs it to act, not to narrate the diff.
+3. **Cut hedging and restatement.** No "previously…/instead of…" retelling of the old behaviour unless the contrast is the point. One clause of rationale beats six.
+4. **Group by Keep-a-Changelog kind** (`Added`/`Changed`/`Fixed`/`Chore`/`Internal`) and keep each bullet in its right group — don't bury a fix inside an Added blurb.
+
+**Verbose is justified only when the reader must *act* on the detail**, not as default narration. Keep the specifics for: required Discord permissions or env vars to set; migrations and schema changes (column names, idempotency, no-op-on-existing-DB caveats); breaking changes and contract shifts; security fixes; anything with an ordering/idempotency gotcha that bites if missed. When in doubt, ask "would a reader skimming the release have to do something because of this line?" — if yes, spell it out; if no, one line.
+
 ## Code comment conventions
 
 Comments earn their keep by explaining **why**, not restating **what**. Apply this to every code change:
