@@ -89,6 +89,7 @@ core game loop
 | 🌱 | [ASCII Render Pipeline](./sparks/mvp-ascii-render-pipeline.md) | `ascii-image-converter` pipeline. Deferred from POC |
 | 🌱 | [Discord UX — MVP+](./sparks/mvp-discord-ux.md) | Reactions, free text, select menus, batch strategy |
 | 🌱 | [Example Scenes — MVP](./sparks/mvp-example-scenes.md) | Co-op scouting, NPC talk, travel convergence |
+| 🌱 | [Per-Player Map & Exploration](./sparks/per-player-map-exploration.md) | A `/map` Discovery Tree backed by a per-player `character_locations` visited set (`discovered_from` → tree rooted at the Oak). Pure fog-of-war + "N places charted", fixes `/journal`'s global leak, backfills from scraping `actions.applied_mutations`. No adjacency graph; LLM context stays global. |
 
 ## 🚀 MVP+
 

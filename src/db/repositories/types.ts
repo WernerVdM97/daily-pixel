@@ -48,10 +48,6 @@ export interface ActionRow {
   app_version: string | null;
   prompt_version: string;
   narrative: string | null;
-  /** @deprecated superseded by the llm_calls table; unwritten since v4. */
-  llm_request: string | null;
-  /** @deprecated superseded by the llm_calls table; unwritten since v4. */
-  llm_response: string | null;
   /** JSON array of the world mutations actually applied (post-validation,
    *  post-failure-strip). NULL for rows written before this column existed. */
   applied_mutations: string | null;
@@ -63,6 +59,8 @@ export interface LlmCallRow {
   action_id: number | null;
   app_version: string | null;
   prompt_version: string;
+  call_kind: string;                  // 'decision' | 'critic'
+  critic_severity: string | null;     // 'ok' | 'minor' | 'major' (critic calls only)
   model: string;
   temperature: number | null;
   tier: number;

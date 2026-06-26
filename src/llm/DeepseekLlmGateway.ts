@@ -12,9 +12,20 @@ import type {
   RecapGateway,
   RecapActionInput,
   RecapResult,
+  CriticGateway,
+  CriticInput,
+  CriticVerdict,
 } from './LlmGateway.js';
 import type { LlmCallRecorder } from './LlmCallRecorder.js';
-import { buildSystemPrompt, buildUserMessage, buildContextDigest, PROMPT_VERSION } from './prompt-builder.js';
+import {
+  buildSystemPrompt,
+  buildUserMessage,
+  buildContextDigest,
+  buildCriticSystemPrompt,
+  buildCriticUserMessage,
+  PROMPT_VERSION,
+  CRITIC_VERSION,
+} from './prompt-builder.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
 
@@ -33,7 +44,17 @@ export interface DeepseekConfig {
    * diagnostic/failed ones. POC toggle via LOG_LLM_THINKING_ALL — costs DB space.
    */
   logThinkingAll?: boolean;
+  /**
+   * Always persist reasoning + raw prompt when `reasoning_chars` exceeds this, regardless of
+   * `logThinkingAll` — a long chain is itself a "spiral" signal worth keeping for mining. Defaults
+   * to {@link REASONING_SPIRAL_CHARS_DEFAULT} (~p90 of observed reasoning). Env: REASONING_SPIRAL_CHARS.
+   */
+  reasoningSpiralChars?: number;
 }
+
+/** Default "spiral" threshold (chars of reasoning) past which thinking + prompt are always kept,
+ *  even with LOG_LLM_THINKING_ALL off. ~p90 of observed reasoning lengths. */
+export const REASONING_SPIRAL_CHARS_DEFAULT = 6000;
 
 /** System prompt for the D3 cartographer — a tiny, focused world-builder. */
 const CARTOGRAPHER_SYSTEM_PROMPT = `You are the cartographer for The Warden's Oak, a dark-fantasy text RPG. A player's action just took them to a place that is NOT yet on the map, so a provisional entry was created. Your job is to chart it.
@@ -65,7 +86,7 @@ Return ONLY valid JSON, no markdown fences:
 
 Keep "highlights" to at most 12 lines, most significant first. Use only events present in the data — never invent.`;
 
-export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, RecapGateway {
+export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, RecapGateway, CriticGateway {
   private apiKey: string;
   private model: string;
   private temperature: number;
@@ -73,6 +94,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   private verbose: boolean;
   private recorder?: LlmCallRecorder;
   private logThinkingAll: boolean;
+  private reasoningSpiralChars: number;
 
   constructor(config: DeepseekConfig) {
     this.apiKey = config.apiKey;
@@ -82,6 +104,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     this.verbose = config.verbose ?? false;
     this.recorder = config.recorder;
     this.logThinkingAll = config.logThinkingAll ?? false;
+    this.reasoningSpiralChars = config.reasoningSpiralChars ?? REASONING_SPIRAL_CHARS_DEFAULT;
   }
 
   async decide(context: LlmContext): Promise<LlmDecision> {
@@ -123,18 +146,21 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
           // empty/unparseable (malformed-format) response, or a fallback retry.
           // Raw prompt + thinking are always captured for these.
           const isDiagnostic = (context.attemptTier ?? 0) > 0 || errorMsg !== null || !parseOk;
-          // Thinking on every OTHER (well-formed) call is opt-in via the env toggle.
-          const captureReasoning = isDiagnostic || this.logThinkingAll;
+          // An over-long reasoning chain is a "spiral" worth keeping even when the call succeeded.
+          const isSpiral = (reasoningChars ?? 0) > this.reasoningSpiralChars;
+          // Full prompt + thinking on every OTHER (well-formed) call are opt-in via the env toggle.
+          const captureDeep = isDiagnostic || isSpiral || this.logThinkingAll;
           const callId = this.recorder.record({
             appVersion: APP_VERSION,
             promptVersion: PROMPT_VERSION,
+            callKind: 'decision',
             model: this.model,
             temperature: this.temperature,
             tier: context.attemptTier ?? 0,
             playerInput: context.rawInput,
             contextDigest: buildContextDigest(context),
-            rawPrompt: isDiagnostic ? rawPrompt : null,
-            reasoning: captureReasoning ? reasoning : null,
+            rawPrompt: captureDeep ? rawPrompt : null,
+            reasoning: captureDeep ? reasoning : null,
             responseJson,
             parseOk,
             validationWarnings: warnings,
@@ -253,7 +279,14 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     }
 
     const decision = this.parseDecision(parsed);
-    onProgress({ warnings: this.validateDecision(parsed, decision) });
+    const warnings = this.validateDecision(parsed, decision);
+    onProgress({ warnings });
+    // Surface warnings on the decision so the coherence critic can gate on them (Thread 2).
+    decision._warnings = warnings;
+    // Hold the prompt + reasoning transiently on the decision so the critic can backfill this
+    // call's audit row if it flags the beat (even when deep-capture wasn't triggered at record time).
+    decision._rawPrompt = userMessage;
+    decision._reasoning = reasoningContent;
 
     // D1: reject a completely empty turn — no options to choose, no mutations, no
     // outcome text. There is nothing to resolve and nothing to decide, so surfacing
@@ -396,6 +429,159 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  /**
+   * Coherence-critic call (Thread 2). Reviews one authored beat against the engine truths and
+   * returns a verdict. Reuses the same transport, and records to llm_calls tagged
+   * `call_kind='critic'` / `prompt_version='critic-<CRITIC_VERSION>'` — thinking + response are
+   * captured on diagnostic/failed calls and, when LOG_LLM_THINKING_ALL is set, on every call
+   * (mirrors `decide`). **Best-effort: never throws** — on any error it fails open to `ok`, so a
+   * critic outage can never block gameplay (the deterministic-safe original passes through).
+   */
+  async critique(input: CriticInput): Promise<CriticVerdict> {
+    const startedAt = Date.now();
+    let httpStatus: number | null = null;
+    let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
+    let finishReason: string | null = null;
+    let reasoningChars: number | null = null;
+    let reasoning: string | null = null;
+    let responseJson: string | null = null;
+    let parseOk = false;
+    let errorMsg: string | null = null;
+
+    // Fail-open default: if anything goes wrong, the beat is deemed coherent (pass through).
+    let verdict: CriticVerdict = { ok: true, severity: 'minor', issues: [] };
+
+    const userMessage = buildCriticUserMessage(input);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { role: 'system' as const, content: buildCriticSystemPrompt() },
+            { role: 'user' as const, content: userMessage },
+          ],
+          response_format: { type: 'json_object' as const },
+          thinking: { type: 'enabled' as const },
+          temperature: this.temperature,
+          stream: false,
+        }),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
+
+      httpStatus = response.status;
+      if (!response.ok) {
+        throw new Error(`critic API error ${response.status}`);
+      }
+
+      const data = await response.json() as {
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string }; finish_reason?: string }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      };
+      const reasoningContent = data.choices?.[0]?.message?.reasoning_content ?? null;
+      reasoning = reasoningContent;
+      reasoningChars = reasoningContent?.length ?? null;
+      usage = data.usage;
+      finishReason = data.choices?.[0]?.finish_reason ?? null;
+
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new Error('critic returned empty content');
+      }
+      responseJson = content;
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      parseOk = true;
+      verdict = this.parseCriticVerdict(parsed);
+      // When the critic flags the beat, backfill the CRITIQUED decision's own audit row with its
+      // full prompt + reasoning (held transiently on the decision), so the rejected output is fully
+      // mineable on its own row — not just inferable from the critic's prompt. Best-effort.
+      if (!verdict.ok && this.recorder && input.decision._llmCallId !== undefined) {
+        try {
+          this.recorder.promoteDeepCapture(input.decision._llmCallId, {
+            rawPrompt: input.decision._rawPrompt ?? null,
+            reasoning: input.decision._reasoning ?? null,
+          });
+        } catch (promoteErr) {
+          console.error(c.red('[critic:audit] promoteDeepCapture failed'), promoteErr);
+        }
+      }
+      return verdict;
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : String(err);
+      console.warn(c.yellow('[critic] failed — failing open to ok'), errorMsg);
+      return verdict;
+    } finally {
+      if (this.recorder) {
+        try {
+          // Diagnostic = the critic call itself went wrong (transport/parse). Full prompt + thinking
+          // are always captured for these; on a well-formed call they're opt-in via the env toggle.
+          const isDiagnostic = errorMsg !== null || !parseOk;
+          const isSpiral = (reasoningChars ?? 0) > this.reasoningSpiralChars;
+          // When the critic flags an issue, always keep its thinking + prompt — the prompt embeds
+          // the critiqued decision, so the rejected output and the reason for rejection are mined together.
+          const flagged = parseOk && !verdict.ok;
+          const captureDeep = isDiagnostic || isSpiral || this.logThinkingAll || flagged;
+          const callId = this.recorder.record({
+            appVersion: APP_VERSION,
+            promptVersion: `critic-${CRITIC_VERSION}`,
+            callKind: 'critic',
+            criticSeverity: parseOk ? (verdict.ok ? 'ok' : verdict.severity) : null,
+            model: this.model,
+            temperature: this.temperature,
+            tier: 0,
+            playerInput: input.playerInput,
+            contextDigest: input.contextDigest,
+            rawPrompt: captureDeep ? userMessage : null,
+            reasoning: captureDeep ? reasoning : null,
+            responseJson,
+            parseOk,
+            validationWarnings: [],
+            error: errorMsg,
+            httpStatus,
+            promptTokens: usage?.prompt_tokens ?? null,
+            completionTokens: usage?.completion_tokens ?? null,
+            totalTokens: usage?.total_tokens ?? null,
+            reasoningChars,
+            latencyMs: Date.now() - startedAt,
+            finishReason,
+          });
+          // Surface the audit row id so the caller can link the critic call to the action.
+          verdict._llmCallId = callId;
+        } catch (recErr) {
+          console.error(c.red('[critic:audit] failed to record call'), recErr);
+        }
+      }
+    }
+  }
+
+  /** Parse + clamp a critic verdict. Defaults to coherent; only honours a prose patch on a
+   *  minor defect (texture-only — `prompt` / `outcome_text`). */
+  private parseCriticVerdict(raw: Record<string, unknown>): CriticVerdict {
+    const ok = raw.ok !== false; // coherent unless explicitly false
+    const severity: 'minor' | 'major' = raw.severity === 'major' ? 'major' : 'minor';
+    const issues = Array.isArray(raw.issues)
+      ? raw.issues.filter((i): i is string => typeof i === 'string')
+      : [];
+    const verdict: CriticVerdict = { ok, severity, issues };
+
+    if (!ok && severity === 'minor' && raw.patch && typeof raw.patch === 'object') {
+      const rawPatch = raw.patch as Record<string, unknown>;
+      const patch: { prompt?: string; outcomeText?: string } = {};
+      if (typeof rawPatch.prompt === 'string') patch.prompt = stripCR(rawPatch.prompt);
+      if (typeof rawPatch.outcome_text === 'string') patch.outcomeText = stripCR(rawPatch.outcome_text);
+      if (patch.prompt !== undefined || patch.outcomeText !== undefined) verdict.patch = patch;
+    }
+
+    return verdict;
   }
 
   private parseDecision(raw: Record<string, unknown>): LlmDecision {

@@ -67,10 +67,20 @@ export interface ActionDecisionRecord {
   distilledType?: string;
 }
 
+/** Whether an action was started as preset daily work or a freeform quest — drives the
+ *  story-thread label ("Work:" vs "Quest:"). Defaults to 'quest' when unset. */
+export type ActionKind = 'work' | 'quest';
+
 export interface ActionState {
   rawInput: string;
   decisions: ActionDecisionRecord[];
   accumulatedDc: number;
+  /** How the action was initiated. Set at start, carried through every beat. */
+  kind?: ActionKind;
+  /** A guaranteed reward (day-job wage) paid into the outcome when the action RESOLVES — added
+   *  to the outcome mutations after the failure-strip, so it survives a failed roll and shows in
+   *  the footer. Set at start; not paid if the player bails. */
+  wage?: number;
 }
 
 export interface WorldMutation {
@@ -107,8 +117,11 @@ export interface ActionOutcome {
   rollStat?: string;
   mutations: WorldMutation[];
   outcomeText: string;
-  /** Id of the llm_calls audit row this outcome came from. Linked to the action after insert. */
+  /** Id of the llm_calls audit row this outcome's resolution came from. Linked after insert. */
   llmCallId?: number;
+  /** EVERY llm_calls row id produced across this action (decision beats, narration, critics).
+   *  All are linked to the action row at resolution so the full call chain is mineable. */
+  llmCallIds?: number[];
 }
 
 export interface ActionResumeResult {
@@ -218,7 +231,7 @@ export interface WorldEngine {
   characterExists(discordUserId: string): boolean;
 
   // Action state machine (S3)
-  startAction(characterId: number, rawInput: string): Promise<ActionStartResult>;
+  startAction(characterId: number, rawInput: string, opts?: { kind?: ActionKind; wage?: number }): Promise<ActionStartResult>;
   stepAction(characterId: number, choice: string): Promise<ActionStepResult>;
   resumeAction(characterId: number): ActionResumeResult;
 

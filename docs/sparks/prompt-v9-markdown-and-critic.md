@@ -156,47 +156,96 @@ The Oak · Town · The Dark Pines · The Shrine of the First Flame
 
 A second, focused LLM call that reviews each authored decision/narration for **coherence** before it reaches the player, and repairs or flags it. New idea (not in the original rework), and the cheapest reliability win available — and a pure LLM-layer addition, no mechanics touched.
 
-- [p] **Architecturally trivial to add — decorator gateway.** The codebase already wraps gateways:
-  `FallbackLlmGateway` (`src/llm/FallbackLlmGateway.ts`) wraps an `LlmGateway`. v9 adds
-  `CritiquedLlmGateway implements LlmGateway` that wraps the Deepseek gateway: `decide()` →
-  `critique()` → (repair) → return. **Zero changes to `machine.ts`** — it still calls
-  `this.llm.decide(context)`.
-- [I] **Division of labour with the deterministic validator.** `validateDecision`
-  (`src/llm/DeepseekLlmGateway.ts:429`) already does cheap mechanical checks (DC range, reward-on-
-  success, empty turns). Push *more* mechanical checks down into it; reserve the **LLM** critic for
-  genuine coherence judgments it can't express as code:
-  - [I] narration contradicts its own mutations (a wound described, no `modify_health`);
-  - [I] a `SUCCESS` that reads as a loss, or a `FAILURE` that hands a reward;
-  - [I] the new beat contradicts `RECENT ACTIONS` / `PREVIOUS DECISIONS` (re-presents a standoff,
-    forgets a thread already resolved);
-  - [I] tone/lore breaks (states the Warden secret outright, `decision-v8.md:50`).
-- [!] **The critic IS a baby pipeline — file it as the first 30% of v10's Thread D, not as
-  orthogonal.** It is `decide → critique → correct`, a single extra stage. That's intentional: it's
-  the safest possible slice of decomposition, and it lets us measure the latency/quality trade-off
-  before committing to the full classify→decide→resolve rebuild.
-- [I] **Gate it — don't critique every beat.** Run the critic on ambiguous/resolution/combat beats;
-  skip pure travel/rest where the deterministic validator already suffices. Gate on the returned
-  `distilledType` / `required` / presence of `rollOutcome`. Keeps cost and the latency tail in check.
-- [c] **Its ceiling is capped until v10 brings ground truth.** Without scene-state the critic judges
-  coherence from the same prose the author saw — strong at "narration ≠ mutations" (both in one
-  response) and "contradicts recent actions" (in the context), weaker at "contradicts world truth"
-  (no deterministic fact to check against). v10's scene-state (e.g. enemy HP) is what lets the critic
-  catch drift against engine truth — so the critic *grows* with v10, but earns its keep in v9 on the
-  in-response checks alone.
-- [?] **Critic prompt asset layout.** Like the cartographer/recap prompts (inline consts in
-  `DeepseekLlmGateway.ts:39`/`:56`), or a versioned file? Recommend a **versioned**
-  `assets/prompts/critic/critic-v1.md` + a `CRITIC_VERSION` constant, so critic verdicts are
-  attributable in `llm_calls` exactly like decisions are (this mirrors, and stays inside, the
-  `AGENTS.md` system-prompt convention rather than breaking it).
-- [?] **Repair vs flag-and-retry.** Does the critic *rewrite* the offending decision, or return a
-  verdict that triggers a single bounded re-`decide`? Rewrite is one call; flag-and-retry is cleaner
-  to reason about but adds a call. Lean rewrite for cost; measure.
-- [?] **What does the critic see?** Minimum: the original context digest + the authored decision.
-  Decide whether it gets the full context or a slim handoff (a slim, typed handoff is the v10
-  pattern — prototype it small here).
-- [c] **+1 call per gated beat.** D5's stance (below) says latency is not the binding constraint, but
-  the extra call adds up — record critic calls in `llm_calls` (a new call-kind tag) and watch the
-  tail.
+### The governing principle
+
+- [!] **The critic is a texture-corrector, not a truth-arbiter.** When prose and engine-truth
+  disagree, *truth wins and the prose is rewritten* — never the mutations, verdict, DC, or roll. This
+  is the same split as roll-first narration: dice/engine own truth, the LLM owns texture. It means the
+  critic structurally **cannot corrupt state**, only reword it.
+- [!] **The deterministic layer is always downstream of the critic.** The engine already corrects
+  cheaply — `validateDecision` (`DeepseekLlmGateway.ts:429`, warnings), `applyOutcomeToMutations`
+  (`machine.ts:379`, strips rewards on a failed roll + adds the stamina penalty), `toActionDecision`
+  (`machine.ts:286`, clamps `dc_modifier`, strips/ensures bail), the empty-turn throw
+  (`DeepseekLlmGateway.ts:262`). **The critic does only what code can't** — it never re-litigates DC
+  range or overrides `applyOutcomeToMutations`.
+- [!] **The critic IS a baby pipeline** — `decide → critique → correct`, a single extra stage. File
+  it as the first 30% of v10's Thread D: the safest slice of decomposition, and the place we measure
+  the latency/quality trade-off before the full classify→decide→resolve rebuild.
+
+### 2a. When it kicks in — triggered, not blanket-applied
+
+Run the critic only when one of three triggers fires (OR'd). Most beats trip none → near-zero cost.
+
+- [I] **Always on the resolution beat** (`rollOutcome` present). This is the irreversible output —
+  `outcome_text` + mutations hit the world and the player. Highest stakes, always check.
+- [I] **When `validateDecision` already raised ≥1 warning.** The deterministic layer flags cheaply;
+  the critic only spins up where there's smoke, and adjudicates whether the warning is a real defect.
+  This is the main cost lever — clean beats never invoke it.
+- [I] **High-stakes authoring beats** — `required: true` / combat / detected intent-mismatch with
+  `rawInput`.
+- [-] Skip pure travel/rest decisions with no warnings.
+
+### 2b. What it references — anchor every check to engine truth
+
+The trap is a critic that just re-reads the prose and second-guesses the same model. To earn its
+latency it checks against facts the engine owns, in three tiers:
+
+- [I] **Hard anchors (engine truth — a mismatch is a defect):** the **roll verdict** (`rollOutcome`)
+  the narration must match; the **final mutations** (post-`applyOutcomeToMutations`) the
+  `outcome_text` must reference (the wound, the item, the journey); the **character/world state in
+  context** (don't narrate full HP at 2/10, don't cite an NPC absent from `nearbyNpcs`, don't grant
+  an item the player can't have); the player's **`rawInput`** (was intent honoured — v8 §0a, never
+  silently convert combat).
+- [I] **Soft anchors (rules from `decision-v9.md`):** no dead turn, success carries a reward, the
+  Warden secret is never stated outright, the security fence holds.
+- [I] **Self-consistency:** `outcome_text` ↔ mutations ↔ option set internally agree.
+- [I] **Hand the critic the validator's warnings as its checklist** — it adjudicates concrete
+  suspicions, not free associations.
+- [c] **Ceiling, honestly:** without v10 scene-state there's no `enemyHp` truth to anchor against, so
+  "boar near death stays near death across rounds" is **not** checkable in v9. The critic is strongest
+  on within-response and against-context checks now, and *grows* when v10 adds scene-state anchors.
+
+### 2c. How the corrected state is derived — the ladder
+
+Cheapest first, deterministic layer last, one pass only:
+
+```
+decide() → deterministic normalise (validate + applyOutcomeToMutations + toActionDecision)
+        → gate? ──no──────────────────────────────────────────► emit
+        → critic (sees: context digest + normalised decision + verdict + FINAL mutations + warnings)
+            ├─ ok ───────────────────────────────────────────► emit
+            ├─ minor → patch prose only (outcome_text / labels)
+            └─ major (wrong intent, dead turn, structural) → re-decide() once, issues as guidance
+                 → re-run deterministic normalise   ← critic output is NEVER trusted raw
+                 → still flagged? → emit the normalised original (safe, maybe slightly off)
+```
+
+- [I] **Critic contract:** returns `{ ok, severity, issues[], patch? }`. Prefer a **targeted patch**
+  (mostly `outcome_text`/labels) over a full rewrite — least collateral.
+- [!] **Re-normalise the critic's output.** Whatever it emits goes back through
+  `applyOutcomeToMutations` / `toActionDecision`, so it can never reintroduce a banned state (e.g.
+  sneak a reward onto a failure).
+- [!] **One pass, hard cap.** No critic-of-critic loop. If still flagged after one correction/retry,
+  emit the deterministic-safe original — incoherent prose beats an infinite spin or a fabricated
+  scene.
+- [I] **Bias to non-intervention.** The critic prompt corrects only on *confident, concrete*
+  contradictions; when in doubt, pass. Over-correction is pure latency + churn.
+
+### Wiring — the one `machine.ts` touch
+
+- [!] **A transparent decorator is not enough for the resolution beat.** `CritiquedLlmGateway`
+  (wrapping the Deepseek gateway like `FallbackLlmGateway` does) works cleanly for **decision-
+  authoring** beats. But the resolution critic must see the mutations *after*
+  `applyOutcomeToMutations` — and that stripping happens in `resolveWithRoll` (`machine.ts:248`),
+  downstream of the gateway. A pure decorator would critique pre-strip mutations and bless prose that
+  then mismatches the stripped set. So: keep the decorator for decision beats, and add **one explicit
+  critic hook inside `resolveWithRoll`, after `applyOutcomeToMutations`**, where the verdict and final
+  mutations both exist. Small, surgical — and necessary for correctness.
+- [?] **Critic prompt asset layout.** Recommend a **versioned** `assets/prompts/critic/critic-v1.md`
+  + a `CRITIC_VERSION` constant, so critic verdicts are attributable in `llm_calls` exactly like
+  decisions are (mirrors, and stays inside, the `AGENTS.md` system-prompt convention).
+- [c] **+1 call per gated beat** — record critic calls in `llm_calls` (a new call-kind tag) and watch
+  the tail.
 
 ### Cost stance (shared, from the original rework's D5)
 
@@ -216,8 +265,9 @@ A second, focused LLM call that reviews each authored decision/narration for **c
 - [>] **`buildUserMessage` (`prompt-builder.ts:29`)** owns the JSON→markdown input rewrite
   (Thread 1).
 - [>] **`CritiquedLlmGateway`** (new, wraps Deepseek) + `assets/prompts/critic/critic-v1.md` +
-  `CRITIC_VERSION` own Thread 2. Wired in wherever the gateway is constructed; `machine.ts` is
-  untouched.
+  `CRITIC_VERSION` own Thread 2's decision-beat path (wired in where the gateway is constructed).
+- [>] **`machine.resolveWithRoll`** (`machine.ts:231`) owns the resolution-beat critic hook — one
+  explicit call after `applyOutcomeToMutations`, so the critic sees the verdict + final mutations.
 
 ## Risks
 
@@ -233,13 +283,17 @@ A second, focused LLM call that reviews each authored decision/narration for **c
 - [ ] Captured prompts show pure-markdown input; the response JSON contract is unchanged and still
   validates at the gateway. All v8 rules (refunds, known-locations, no dead turns, security rule)
   verified present in v9.
-- [ ] The coherence critic runs on gated (resolution/ambiguous/combat) beats, repairs or re-rolls an
-  incoherent decision (narration ↔ mutations, success/failure framing, contradiction with recent
-  actions), and is skipped on pure travel/rest. Critic calls are recorded in `llm_calls` for mining.
+- [ ] The critic fires only on its triggers (resolution beat / validator-warning / high-stakes) and
+  is skipped on clean travel/rest. It corrects **prose only** against engine truth (verdict, final
+  mutations, context state, intent), its output is re-normalised through the deterministic layer, it
+  caps at one pass, and on an unresolved flag it falls back to the deterministic-safe original. Critic
+  calls are recorded in `llm_calls` for mining.
 
 ## Handoff checklist (suggested implementation order)
 
 1. [ ] **Thread 1** — markdown `buildUserMessage`; new `decision-v9.md` + `PROMPT_VERSION` bump +
    `current_source.md` mirror; diff v8 rules forward. Ship & measure alone.
-2. [ ] **Thread 2** — `CritiquedLlmGateway` decorator + `critic-v1.md` + `CRITIC_VERSION`; gate to
-   resolution/ambiguous beats; record critic calls.
+2. [ ] **Thread 2** — `CritiquedLlmGateway` decorator (decision beats) + the `resolveWithRoll` hook
+   (resolution beat, after `applyOutcomeToMutations`) + `critic-v1.md` + `CRITIC_VERSION`. Implement
+   the trigger set, the three reference tiers, the prose-only correction ladder (patch → re-decide
+   once → deterministic-safe fallback), and re-normalise critic output. Record critic calls.

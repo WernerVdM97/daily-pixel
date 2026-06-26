@@ -177,3 +177,65 @@ describe('buildOutcomeEmbed — quoted recap', () => {
     expect(desc).toContain('The stag falls.');
   });
 });
+
+describe('Work vs Quest story-thread label (ActionState.kind)', () => {
+  const outcome: ActionOutcome = {
+    distilledType: 'craft',
+    finalDc: 10,
+    playerRolled: 12,
+    outcome: 'success',
+    mutations: [{ type: 'modify_stamina', amount: -1 }],
+    outcomeText: 'You finish the batch.',
+  };
+
+  it('labels a preset day-job action as Work in the outcome', () => {
+    const embed: any = buildOutcomeEmbed(outcome, null, null, {
+      rawInput: 'You pace the streets and the wall.',
+      decisions: [],
+      kind: 'work',
+    });
+    expect(embed.description).toContain('🛠️ **Work:**');
+    expect(embed.description).not.toContain('🧭 **Quest:**');
+  });
+
+  it('labels a freeform action as Quest (default) in the outcome', () => {
+    const embed: any = buildOutcomeEmbed(outcome, null, null, {
+      rawInput: 'I hunt the white stag',
+      decisions: [],
+    });
+    expect(embed.description).toContain('🧭 **Quest:**');
+  });
+
+  it('labels a Work decision view too', () => {
+    const msg: any = buildDecisionMessage(
+      { prompt: 'A dispute brews.', options: [{ label: 'Step in', dcModifier: 0 }] },
+      0,
+      { rawInput: 'Raised voices spill from the tavern.', decisions: [], kind: 'work' },
+    );
+    expect(msg.embeds[0].description).toContain('🛠️ **Work:**');
+  });
+});
+
+describe('Work label uses the profession emoji', () => {
+  const outcome: ActionOutcome = {
+    distilledType: 'patrol', finalDc: 10, playerRolled: 12, outcome: 'success',
+    mutations: [{ type: 'modify_stamina', amount: -1 }], outcomeText: 'Rounds walked.',
+  };
+
+  it('tags a Work outcome with the day-job emoji (Town Guard → 🛡️)', () => {
+    const embed: any = buildOutcomeEmbed(outcome, { dayJob: 'Town Guard' } as any, null, {
+      rawInput: 'You hold the gate.', decisions: [], kind: 'work',
+    });
+    expect(embed.description).toContain('🛡️ **Work:**');
+  });
+
+  it('tags a Work decision view with the day-job emoji', () => {
+    const msg: any = buildDecisionMessage(
+      { prompt: 'A dispute brews.', options: [{ label: 'Step in', dcModifier: 0 }] },
+      0,
+      { rawInput: 'Raised voices.', decisions: [], kind: 'work' },
+      { stats: { physical: 1, wisdom: 1, intelligence: 1, charisma: 1 }, dayJob: 'Town Guard' } as any,
+    );
+    expect(msg.embeds[0].description).toContain('🛡️ **Work:**');
+  });
+});

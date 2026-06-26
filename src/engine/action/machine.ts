@@ -1,10 +1,12 @@
-import type { LlmGateway, LlmContext, LlmDecision } from '../../llm/LlmGateway.js';
+import type { LlmGateway, LlmContext, LlmDecision, CriticGateway } from '../../llm/LlmGateway.js';
+import { buildContextDigest } from '../../llm/prompt-builder.js';
 import type {
   ActionState,
   ActionDecision,
   ActionOption,
   ActionDecisionRecord,
   ActionOutcome,
+  ActionKind,
   WorldMutation,
   CharacterData,
   ItemData,
@@ -23,6 +25,8 @@ export interface WorldContextResolver {
   getRecentActions(characterId: number): Array<{ type: string; outcome: string; narrative?: string | null }>;
   /** All known location names — so the LLM can generate valid set_location mutations. */
   getKnownLocations(): string[];
+  /** Whether the named location is safe (true) or wild (false). Drives the scene safety tag. */
+  isLocationSafe(location: string): boolean;
 }
 
 /**
@@ -40,6 +44,9 @@ export interface InternalActionState extends ActionState {
   required: boolean;
   /** Epoch ms when this state was last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
+  /** Every llm_calls row id produced so far in this action (decisions + their critics). The
+   *  narration + resolution-critic ids are appended at resolve; the engine links them all. */
+  llmCallIds?: number[];
 }
 
 export class ActionStateMachine {
@@ -51,13 +58,20 @@ export class ActionStateMachine {
       getNearbyPcs: () => [],
       getRecentActions: () => [],
       getKnownLocations: () => [],
+      isLocationSafe: () => true,
     },
+    /** Optional coherence critic (Thread 2). When present, the resolution beat is critiqued after
+     *  applyOutcomeToMutations — where the final mutations exist — and a minor prose defect in the
+     *  outcome_text is rewritten to match the verdict/mutations. Absent = critic disabled. */
+    private critic?: CriticGateway,
   ) {}
 
   async start(
     char: CharacterData,
     rawInput: string,
     items: ItemData[],
+    kind: ActionKind = 'quest',
+    wage = 0,
   ): Promise<
     | { resolved: false; state: InternalActionState; firstDecision: ActionDecision }
     | { resolved: true; state: InternalActionState; outcome: ActionOutcome }
@@ -86,6 +100,7 @@ export class ActionStateMachine {
         `LLM returned ${decision.decision.length} option(s), 0 real (only step-back)` +
         `${decision.done ? '' : '; done:false → inferred from no options'} | input: "${rawInput}"`,
       );
+      const callIds = decisionCallIds(decision);
       const state: InternalActionState = {
         rawInput,
         decisions: [],
@@ -95,7 +110,14 @@ export class ActionStateMachine {
         rollStat: decision.stat,
         required: decision.required,
         lastActionAt: Date.now(),
+        kind,
+        wage,
+        llmCallIds: callIds,
       };
+      // The day-job wage is a guaranteed reward for completing the work — pay it into this
+      // auto-finished outcome so it lands in the footer (💰), not as a separate pre-work message.
+      const autoMutations: WorldMutation[] = Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [];
+      if (wage > 0) autoMutations.push({ type: 'modify_wealth', amount: wage });
       return {
         resolved: true,
         state,
@@ -104,9 +126,10 @@ export class ActionStateMachine {
           finalDc: decision.baseDc,
           playerRolled: null,
           outcome: 'done',
-          mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
+          mutations: autoMutations,
           outcomeText: decision.outcomeText ?? 'The moment passes.',
           ...(decision._llmCallId !== undefined ? { llmCallId: decision._llmCallId } : {}),
+          llmCallIds: callIds,
         },
       };
     }
@@ -122,6 +145,9 @@ export class ActionStateMachine {
       rollStat: decision.stat,
       required: decision.required,
       lastActionAt: Date.now(),
+      kind,
+      wage,
+      llmCallIds: decisionCallIds(decision),
     };
 
     return { resolved: false, state, firstDecision };
@@ -167,6 +193,7 @@ export class ActionStateMachine {
           outcome: 'bailed',
           mutations: [{ type: 'modify_stamina', amount: -BAIL_STAMINA_COST }],
           outcomeText: 'You step back from the situation, catching your breath.',
+          llmCallIds: state.llmCallIds ?? [],
         },
       };
     }
@@ -200,9 +227,12 @@ export class ActionStateMachine {
     // the primary "resolve now" signal; `done` is honoured as a backstop so a
     // model that still emits it resolves cleanly rather than dead-ending on a lone
     // "Step back". Roll FIRST, then narrate so the prose + mutations match the dice.
+    // Accumulate this beat's call id(s) onto the running chain.
+    const callIds = [...(state.llmCallIds ?? []), ...decisionCallIds(decision)];
+
     const realOptions = decision.decision.filter(o => o.dcModifier !== null);
     if (isLastDecision || decision.done || realOptions.length === 0) {
-      return this.resolveWithRoll(stateWithStat, char, items, newDc, newDecisions);
+      return this.resolveWithRoll({ ...stateWithStat, llmCallIds: callIds }, char, items, newDc, newDecisions);
     }
 
     // Continue — advance the current beat's distilled type to the new decision's.
@@ -213,6 +243,7 @@ export class ActionStateMachine {
       accumulatedDc: newDc,
       pendingDecision: nextDecision,
       distilledType: decision.distilledType || state.distilledType,
+      llmCallIds: callIds,
     };
 
     return {
@@ -249,12 +280,49 @@ export class ActionStateMachine {
       outcome,
       Array.isArray(narration.mutations) ? narration.mutations as WorldMutation[] : [],
     );
+    // Day-job wage — a guaranteed reward for completing the work. Added AFTER the failure-strip so
+    // it's paid win or lose, and shown in the outcome footer (💰) rather than a pre-work message.
+    if (state.wage && state.wage > 0) {
+      mutations.push({ type: 'modify_wealth', amount: state.wage });
+    }
+
+    let outcomeText = narration.outcomeText ?? (outcome === 'success'
+      ? `Your ${state.distilledType} succeeds.`
+      : `Your ${state.distilledType} fails.`);
+
+    // The narration is its own llm_call — add it to the chain to be linked to the action.
+    const callIds = [...(state.llmCallIds ?? []), ...decisionCallIds(narration)];
+
+    // Coherence critic (Thread 2): runs HERE, after applyOutcomeToMutations, so it sees the verdict
+    // and the FINAL mutations. The dice and engine own the truth; the critic may only rewrite the
+    // prose to match it. A minor defect patches outcome_text; anything else keeps the verdict-shaped
+    // text we already have. Best-effort — critique() never throws.
+    if (this.critic) {
+      const verdict = await this.critic.critique({
+        beat: 'resolution',
+        rollOutcome: outcome === 'success' ? 'success' : 'failure',
+        decision: narration,
+        finalMutations: mutations,
+        contextDigest: buildContextDigest(narrationCtx),
+        playerInput: state.rawInput,
+        warnings: narration._warnings ?? [],
+      });
+      if (verdict._llmCallId !== undefined) callIds.push(verdict._llmCallId);
+      if (!verdict.ok && verdict.severity === 'minor' && verdict.patch?.outcomeText) {
+        outcomeText = verdict.patch.outcomeText;
+      } else if (!verdict.ok && verdict.severity === 'major') {
+        // The dice + mutations are fixed; a structural defect can't be re-narrated safely, so keep
+        // the verdict-shaped text. Logged for mining (critic call itself is already recorded).
+        console.warn('[critic] major defect on resolution beat — keeping verdict-shaped text:', verdict.issues.join('; '));
+      }
+    }
 
     const finalState: InternalActionState = {
       ...state,
       decisions: newDecisions,
       accumulatedDc: newDc,
       pendingDecision: this.toActionDecision(narration, state.required),
+      llmCallIds: callIds,
     };
 
     return {
@@ -268,10 +336,9 @@ export class ActionStateMachine {
         rollStat: state.rollStat,
         outcome,
         mutations,
-        outcomeText: narration.outcomeText ?? (outcome === 'success'
-          ? `Your ${state.distilledType} succeeds.`
-          : `Your ${state.distilledType} fails.`),
+        outcomeText,
         ...(narration._llmCallId !== undefined ? { llmCallId: narration._llmCallId } : {}),
+        llmCallIds: callIds,
       },
     };
   }
@@ -337,28 +404,51 @@ export class ActionStateMachine {
     // scaling hint — see LlmContext.knownLocations and prompt-builder.
     const knownLocations = this.resolver.getKnownLocations();
 
+    // Structured item data for the v9 markdown prompt: per-stat summed bonus (the table's
+    // `Gear` column) and the full inventory list. The legacy `scalingHint` string above still
+    // carries the same data for the audit digest (buildContextDigest).
+    const itemBonusByStat = {
+      physical: itemStatModifier(items, 'physical'),
+      wisdom: itemStatModifier(items, 'wisdom'),
+      intelligence: itemStatModifier(items, 'intelligence'),
+      charisma: itemStatModifier(items, 'charisma'),
+    };
+
     return {
       character: {
         class: char.class,
         stats: char.stats,
         health: char.health,
+        maxHealth: char.maxHealth,
         stamina: char.stamina,
+        maxStamina: char.maxStamina,
         alignment: char.alignment,
         dayJob: char.dayJob,
       },
-      location: { name: char.location },
+      location: { name: char.location, isSafe: this.resolver.isLocationSafe(char.location) },
       nearbyNpcs: this.resolver.getNearbyNpcs(char.location),
       nearbyPcs: this.resolver.getNearbyPcs(char.location, char.id),
       recentActions: this.resolver.getRecentActions(char.id),
       knownLocations,
       rawInput,
       ...(previous.length > 0 ? { previousDecisions: previous } : {}),
+      itemBonuses: itemBonusByStat,
+      inventory: items.map(i => ({ emoji: i.emoji, name: i.name, stat: i.stat, modifier: i.modifier, quantity: i.quantity })),
       scalingHint: hintParts.join(' | ') || 'No relevant items',
     };
   }
 }
 
 // ── Module-level helpers ──
+
+/** The llm_calls row id(s) a decision spawned: its own decide call, plus any decision-beat
+ *  coherence-critic call attached by CritiquedLlmGateway. Used to link the full call chain. */
+function decisionCallIds(d: LlmDecision): number[] {
+  const ids: number[] = [];
+  if (d._llmCallId !== undefined) ids.push(d._llmCallId);
+  if (d._critiqueCallId !== undefined) ids.push(d._critiqueCallId);
+  return ids;
+}
 
 /** Stamina cost for bailing out of a real (consequential) decision. Skip/Finish cost nothing. */
 const BAIL_STAMINA_COST = 1;

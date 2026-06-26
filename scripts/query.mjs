@@ -50,6 +50,18 @@ FROM llm_calls ORDER BY id DESC LIMIT 15`,
 FROM llm_calls
 WHERE parse_ok = 0 OR error IS NOT NULL OR validation_warnings != '[]'
 ORDER BY id DESC LIMIT 20`,
+  // Every beat the coherence critic flagged, newest first, with the captured thinking/prompt.
+  critic_flags: `SELECT id, action_id, critic_severity,
+  CASE WHEN reasoning IS NOT NULL THEN length(reasoning) || ' chars' END as reasoning,
+  CASE WHEN raw_prompt IS NOT NULL THEN 'captured' END as raw_prompt,
+  created_at
+FROM llm_calls
+WHERE call_kind = 'critic' AND critic_severity IN ('minor','major')
+ORDER BY id DESC LIMIT 20`,
+  // How often the critic flags vs passes (ok/minor/major distribution).
+  critic_rate: `SELECT critic_severity, COUNT(*) n
+FROM llm_calls WHERE call_kind = 'critic'
+GROUP BY critic_severity ORDER BY n DESC`,
 };
 
 const input = process.argv[2];

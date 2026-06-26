@@ -19,7 +19,7 @@ import {
   type ChatInputCommandInteraction,
   type MessageComponentInteraction,
 } from 'discord.js';
-import type { WorldEngine, ActionDecision, ActionOutcome, CharacterData } from '../../engine/WorldEngine.js';
+import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
@@ -430,8 +430,13 @@ function buildStoryThread(
   rawInput: string,
   decisions: Array<{ prompt: string; chosen: string; dcModifier?: number }>,
   collapse = false,
+  kind: ActionKind = 'quest',
+  workEmoji = '🛠️',
 ): string {
-  const out = [`> 🧭 **Quest:** ${rawInput}`];
+  // Preset daily-work actions read as "Work:" (tagged with the profession's emoji);
+  // freeform actions as "Quest:".
+  const header = kind === 'work' ? `${workEmoji} **Work:**` : '🧭 **Quest:**';
+  const out = [`> ${header} ${rawInput}`];
   for (const d of decisions) {
     // A green/red arrow flags whether the choice was easier or harder (no raw DC).
     const arrow = dcArrow(d.dcModifier);
@@ -450,8 +455,8 @@ function buildStoryThread(
 export function buildDecisionMessage(
   decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
   decisionIdx: number,
-  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }>; accumulatedDc?: number },
-  char?: { stats: { physical: number; wisdom: number; intelligence: number; charisma: number } },
+  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }>; accumulatedDc?: number; kind?: ActionKind },
+  char?: { stats: { physical: number; wisdom: number; intelligence: number; charisma: number }; dayJob?: string },
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -468,9 +473,10 @@ export function buildDecisionMessage(
   // narration. The lettered options below are the only unquoted, actionable
   // text. Mirrors the outcome recap so the whole /action flow reads as one
   // continuous gamebook page. ──
+  const workEmoji = char?.dayJob ? dayJobEmoji(char.dayJob) : '🛠️';
   const blocks: string[] = [];
   if (state) {
-    blocks.push(buildStoryThread(state.rawInput, state.decisions));
+    blocks.push(buildStoryThread(state.rawInput, state.decisions, false, state.kind, workEmoji));
   }
   blocks.push(quoteLines(decision.prompt));
 
@@ -537,7 +543,7 @@ export function buildDecisionMessage(
   const optionsTail = optionLines.length > 0 ? `\n\n${optionLines.join('\n')}` : '';
   let truncated = blocks.join('\n\n') + optionsTail;
   if (truncated.length > MAX_EMBED_DESC && state) {
-    truncated = [buildStoryThread(state.rawInput, state.decisions, true), quoteLines(decision.prompt)]
+    truncated = [buildStoryThread(state.rawInput, state.decisions, true, state.kind, workEmoji), quoteLines(decision.prompt)]
       .join('\n\n') + optionsTail;
   }
   if (truncated.length > MAX_EMBED_DESC) truncated = clip(truncated, MAX_EMBED_DESC);
@@ -576,7 +582,7 @@ export function buildOutcomeEmbed(
   outcome: ActionOutcome,
   character: CharacterData | null | undefined,
   scene: string | null | undefined,
-  state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string }> },
+  state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string }>; kind?: ActionKind },
 ): ReturnType<EmbedBuilder['toJSON']> {
   const ctx: OutcomeRenderContext = {
     stamina: character?.stamina ?? 10,
@@ -595,6 +601,8 @@ export function buildOutcomeEmbed(
 
   const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
   const outcomeBlock = formatOutcome(outcome, ctx);
+  // Work actions are tagged with the character's profession emoji.
+  const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
   // Full gamebook recap: the action-type breadcrumb, the destination scene, then
   // the story thread (quest + each beat's DM prompt quoted, player choice bold),
@@ -605,7 +613,7 @@ export function buildOutcomeEmbed(
     const parts: string[] = [];
     if (breadcrumb) parts.push(breadcrumb);
     if (includeScene && sceneBlock) parts.push(sceneBlock);
-    parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory));
+    parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
     parts.push(outcomeBlock);
     return parts.join('\n\n');
   };

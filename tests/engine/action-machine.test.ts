@@ -660,3 +660,145 @@ describe('ActionStateMachine — dcModifier clamping', () => {
     expect(firstDecision.options[0].dcModifier).toBe(2);
   });
 });
+
+// ── Coherence critic hook (Thread 2) on the resolution beat ──
+
+import type { LlmGateway, CriticGateway, CriticInput } from '../../src/llm/LlmGateway.js';
+
+/** Drive an action through start → step → step to force resolveWithRoll, returning the outcome. */
+async function resolveWith(llm: LlmGateway, critic?: CriticGateway, wage = 0) {
+  // nat-1 roll → deterministic failure (resolveRoll: d20===1 is always failure).
+  const machine = new ActionStateMachine(llm, () => 1, undefined, critic);
+  const started = await machine.start(testChar(), 'hunt the boar', testItems, 'work', wage);
+  if (started.resolved) throw new Error('expected an open decision, not an auto-finish');
+  const step1 = await machine.step(started.state, 'Strike', testChar(), testItems);
+  if (step1.resolved) throw new Error('expected a second beat, not resolution');
+  const step2 = await machine.step(step1.state, 'Strike', testChar(), testItems);
+  if (!step2.resolved) throw new Error('expected resolution on the second step');
+  return step2.outcome;
+}
+
+describe('ActionStateMachine — day-job wage paid at resolution', () => {
+  it('pays the wage into the resolved outcome (even on a failed roll), as modify_wealth', async () => {
+    const outcome = await resolveWith(beatLlm, undefined, 5);
+    expect(outcome.outcome).toBe('failure'); // nat-1
+    const wealth = (outcome.mutations as Array<{ type: string; amount: number }>)
+      .filter(m => m.type === 'modify_wealth');
+    expect(wealth).toEqual([{ type: 'modify_wealth', amount: 5 }]);
+  });
+
+  it('adds no wage mutation when wage is 0', async () => {
+    const outcome = await resolveWith(beatLlm, undefined, 0);
+    expect((outcome.mutations as Array<{ type: string }>).some(m => m.type === 'modify_wealth')).toBe(false);
+  });
+
+  it('pays the wage into an auto-finished outcome', async () => {
+    const autoLlm: LlmGateway = {
+      decide: async () => ({
+        distilledType: 'craft', stat: 'physical', baseDc: 10, required: false, done: true,
+        decision: [], mutations: [{ type: 'modify_stamina', amount: -1 }], outcomeText: 'Done.',
+      }),
+    };
+    const machine = new ActionStateMachine(autoLlm, () => 12, undefined);
+    const started = await machine.start(testChar(), 'craft nails', testItems, 'work', 4);
+    if (!started.resolved) throw new Error('expected auto-finish');
+    const wealth = (started.outcome.mutations as Array<{ type: string; amount: number }>)
+      .filter(m => m.type === 'modify_wealth');
+    expect(wealth).toEqual([{ type: 'modify_wealth', amount: 4 }]);
+  });
+
+  it('does NOT pay the wage when the player bails', async () => {
+    const machine = new ActionStateMachine(beatLlm, () => 1, undefined);
+    const started = await machine.start(testChar(), 'hunt the boar', testItems, 'work', 5);
+    if (started.resolved) throw new Error('expected an open decision');
+    const bailed = await machine.step(started.state, 'Bail', testChar(), testItems);
+    if (!bailed.resolved) throw new Error('expected bail to resolve');
+    expect(bailed.outcome.outcome).toBe('bailed');
+    expect((bailed.outcome.mutations as Array<{ type: string }>).some(m => m.type === 'modify_wealth')).toBe(false);
+  });
+});
+
+const optionBeat: LlmDecision = {
+  distilledType: 'combat', stat: 'physical', baseDc: 12, required: false, done: false,
+  decision: [{ label: 'Strike', dcModifier: 0 }, { label: 'Bail', dcModifier: null }],
+};
+const narrationBeat: LlmDecision = {
+  distilledType: 'combat', stat: 'physical', baseDc: 12, required: false, done: false,
+  decision: [], mutations: [{ type: 'modify_stamina', amount: -1 }], outcomeText: 'You triumph over the boar!',
+};
+/** Returns option beats normally, the narration beat once the verdict is attached. */
+const beatLlm: LlmGateway = {
+  decide: async (ctx) => (ctx.rollOutcome ? narrationBeat : optionBeat),
+};
+
+describe('ActionStateMachine — resolution critic hook', () => {
+  it('rewrites outcome_text on a minor critic patch', async () => {
+    const critic: CriticGateway = {
+      critique: async () => ({
+        ok: false, severity: 'minor', issues: ['narration reads as a win but the roll FAILED'],
+        patch: { outcomeText: 'The boar crashes off into the bracken; you are left winded and empty-handed.' },
+      }),
+    };
+    const outcome = await resolveWith(beatLlm, critic);
+    expect(outcome.outcome).toBe('failure');
+    expect(outcome.outcomeText).toBe('The boar crashes off into the bracken; you are left winded and empty-handed.');
+  });
+
+  it('keeps the narration text when the critic says ok', async () => {
+    const critic: CriticGateway = { critique: async () => ({ ok: true, severity: 'minor', issues: [] }) };
+    const outcome = await resolveWith(beatLlm, critic);
+    expect(outcome.outcomeText).toBe('You triumph over the boar!');
+  });
+
+  it('passes beat=resolution + verdict + FINAL mutations (post-strip) to the critic', async () => {
+    let seen: CriticInput | undefined;
+    const critic: CriticGateway = {
+      critique: async (input) => { seen = input; return { ok: true, severity: 'minor', issues: [] }; },
+    };
+    await resolveWith(beatLlm, critic);
+    expect(seen?.beat).toBe('resolution');
+    expect(seen?.rollOutcome).toBe('failure');
+    // applyOutcomeToMutations adds the -2 failure stamina penalty alongside the kept -1 cost.
+    const stamina = (seen?.finalMutations as Array<{ type: string; amount: number }>).filter(m => m.type === 'modify_stamina');
+    expect(stamina).toEqual([{ type: 'modify_stamina', amount: -1 }, { type: 'modify_stamina', amount: -2 }]);
+  });
+
+  it('leaves outcome_text untouched when no critic is wired', async () => {
+    const outcome = await resolveWith(beatLlm); // no critic
+    expect(outcome.outcomeText).toBe('You triumph over the boar!');
+  });
+});
+
+describe('ActionStateMachine — llm_call chain linkage', () => {
+  it('accumulates every beat call id (+ resolution critic) onto the outcome', async () => {
+    let id = 0;
+    const llm: LlmGateway = {
+      decide: async (ctx) => ({ ...(ctx.rollOutcome ? narrationBeat : optionBeat), _llmCallId: ++id }),
+    };
+    const critic: CriticGateway = {
+      critique: async () => ({ ok: true, severity: 'minor', issues: [], _llmCallId: 99 }),
+    };
+    const machine = new ActionStateMachine(llm, () => 1, undefined, critic);
+    const started = await machine.start(testChar(), 'work the forge', testItems, 'work', 0);
+    if (started.resolved) throw new Error('expected an open decision');
+    const s1 = await machine.step(started.state, 'Strike', testChar(), testItems);
+    if (s1.resolved) throw new Error('expected a continue');
+    const s2 = await machine.step(s1.state, 'Strike', testChar(), testItems);
+    if (!s2.resolved) throw new Error('expected resolution');
+    // start(1), continue(2), resolve-trigger decide(3), narration(4), resolution critic(99)
+    expect(s2.outcome.llmCallIds).toEqual([1, 2, 3, 4, 99]);
+  });
+
+  it('carries the decision call id on an auto-finished outcome', async () => {
+    const llm: LlmGateway = {
+      decide: async () => ({
+        distilledType: 'rest', stat: 'wisdom', baseDc: 10, required: false, done: true,
+        decision: [], mutations: [{ type: 'modify_stamina', amount: 2 }], outcomeText: 'Rested.', _llmCallId: 7,
+      }),
+    };
+    const machine = new ActionStateMachine(llm, () => 12, undefined);
+    const started = await machine.start(testChar(), 'nap', testItems);
+    if (!started.resolved) throw new Error('expected auto-finish');
+    expect(started.outcome.llmCallIds).toEqual([7]);
+  });
+});

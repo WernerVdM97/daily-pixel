@@ -3,6 +3,7 @@ import type {
   CharCreateData,
   CharacterData,
   ActionStartResult,
+  ActionKind,
   ActionStepResult,
   ActionResumeResult,
   LocationInfo,
@@ -44,7 +45,7 @@ export class MockWorldEngine implements WorldEngine {
     createCharacter: { discordUserId: string; data: CharCreateData }[];
     getCharacter: string[];
     characterExists: string[];
-    startAction: { characterId: number; rawInput: string }[];
+    startAction: { characterId: number; rawInput: string; opts: { kind?: ActionKind; wage?: number } }[];
     stepAction: { characterId: number; choice: string }[];
     resumeAction: number[];
     getLocation: string[];
@@ -198,8 +199,9 @@ export class MockWorldEngine implements WorldEngine {
   async startAction(
     characterId: number,
     rawInput: string,
+    opts: { kind?: ActionKind; wage?: number } = {},
   ): Promise<ActionStartResult> {
-    this.calls.startAction.push({ characterId, rawInput });
+    this.calls.startAction.push({ characterId, rawInput, opts });
     if (!this._startActionResult) {
       throw new Error("MockWorldEngine.startAction: no canned result set");
     }

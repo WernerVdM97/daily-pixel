@@ -4,6 +4,17 @@
 ## scratchpad (humans start here)
 
 ### TBD
+- [ ] check tag generation for new locations
+- [ ] derived actions should immediately by shown next to the decision head in emoji form
+- [ ] std thinking screen. Custom action shows three loading dots and says thinking (not embeded grey version with hourglass)
+- [ ] the ephemeral action outcome views do not have buttons. The action outcomes in the oaks log should only have bug report or feedback buttons, not others
+- [ ] the welcome screen after join does not show hi as a button.
+- [ ] the footer
+  does not metion the loss of an additional 1 stamina for the auto teleport to my
+  workplace. It is also not hinted at at all. Lastly, a preset daily work item being
+  selected as an action should not show "Quest:..." in the action view. But "Work:..."
+  rather.
+  - map out some core flows and use better end to end testing with mocked LLM reponses and user button presses.
 - [ ] unique map exploration and coherency per player
 - [ ] improve stat reportings, i.e. the stats page should perhaps go into more detail of the base value and how items or character builder influences it.
 - [ ] char creater should show for each race/class/etc what stats are important and how it modifies them.

@@ -20,8 +20,7 @@ export class ActionRepository {
     appliedMutations?: string | null;
     narrative?: string | null;
   }): ActionRow {
-    // Per-call LLM audit now lives in the llm_calls table (linked via action_id);
-    // the legacy llm_request/llm_response columns are left NULL.
+    // Per-call LLM audit lives in the llm_calls table (linked via action_id).
     const stmt = this.db.prepare(`
       INSERT INTO actions (character_id, raw_input, type, decisions_json, final_dc, player_rolled, outcome, app_version, prompt_version, applied_mutations, narrative)
       VALUES (@character_id, @raw_input, @type, @decisions_json, @final_dc, @player_rolled, @outcome, @app_version, @prompt_version, @applied_mutations, @narrative)

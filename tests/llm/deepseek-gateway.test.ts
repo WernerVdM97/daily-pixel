@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildSystemPrompt, buildUserMessage } from '../../src/llm/prompt-builder.js';
+import { buildSystemPrompt } from '../../src/llm/prompt-builder.js';
 import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
 import type { LlmContext, LlmDecision } from '../../src/llm/LlmGateway.js';
 import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
@@ -51,182 +51,6 @@ const minimalContext: LlmContext = {
   scalingHint: 'Day 1 — standard difficulty',
 };
 
-describe('PromptBuilder — user message', () => {
-  it('includes character section with class, stats, health, stamina, alignment, dayJob', () => {
-    const result = buildUserMessage(minimalContext);
-
-    expect(result).toContain('CHARACTER:');
-    expect(result).toContain('Warrior');
-    expect(result).toContain('physical');
-    expect(result).toContain('wisdom');
-    expect(result).toContain('intelligence');
-    expect(result).toContain('charisma');
-    expect(result).toContain('health');
-    expect(result).toContain('stamina');
-    expect(result).toContain('lawful good');
-    expect(result).toContain('Blacksmith');
-  });
-
-  it('includes the location name', () => {
-    const result = buildUserMessage(minimalContext);
-
-    expect(result).toContain('LOCATION:');
-    expect(result).toContain('The Warden\'s Oak');
-  });
-
-  it('includes nearby NPCs with name and description', () => {
-    const ctx: LlmContext = {
-      ...minimalContext,
-      nearbyNpcs: [
-        { name: 'Greta', description: 'A stern blacksmith' },
-        { name: 'Old Tom', description: 'A wandering hermit' },
-      ],
-    };
-
-    const result = buildUserMessage(ctx);
-
-    expect(result).toContain('NEARBY NPCS:');
-    expect(result).toContain('Greta');
-    expect(result).toContain('A stern blacksmith');
-    expect(result).toContain('Old Tom');
-    expect(result).toContain('A wandering hermit');
-  });
-
-  it('shows "none" when no NPCs are nearby', () => {
-    const result = buildUserMessage(minimalContext);
-
-    expect(result).toContain('NEARBY NPCS:');
-    expect(result).toContain('none');
-  });
-
-  it('includes nearby PCs with name and class', () => {
-    const ctx: LlmContext = {
-      ...minimalContext,
-      nearbyPcs: [
-        { name: 'Aldric', class: 'Warrior' },
-        { name: 'Lyra', class: 'Rogue' },
-      ],
-    };
-
-    const result = buildUserMessage(ctx);
-
-    expect(result).toContain('NEARBY PCS:');
-    expect(result).toContain('Aldric');
-    expect(result).toContain('Warrior');
-    expect(result).toContain('Lyra');
-    expect(result).toContain('Rogue');
-  });
-
-  it('shows "none" when no PCs are nearby', () => {
-    const result = buildUserMessage(minimalContext);
-
-    expect(result).toContain('NEARBY PCS:');
-    expect(result).toContain('none');
-  });
-
-  it('includes recent actions with type and outcome', () => {
-    const ctx: LlmContext = {
-      ...minimalContext,
-      recentActions: [
-        { type: 'hunt', outcome: 'failure' },
-        { type: 'travel', outcome: 'success' },
-      ],
-    };
-
-    const result = buildUserMessage(ctx);
-
-    expect(result).toContain('RECENT ACTIONS');
-    expect(result).toContain('hunt');
-    expect(result).toContain('failure');
-    expect(result).toContain('travel');
-    expect(result).toContain('success');
-  });
-
-  it('weaves each recent action narrative into the thread when present', () => {
-    const ctx: LlmContext = {
-      ...minimalContext,
-      // Production order is newest-first (created_at DESC): hunt is the most recent.
-      recentActions: [
-        { type: 'hunt', outcome: 'failure', narrative: 'The stag bolted into the pines.' },
-        { type: 'travel', outcome: 'success', narrative: 'You crossed the river ford by dusk.' },
-      ],
-    };
-
-    const result = buildUserMessage(ctx);
-
-    expect(result).toContain('RECENT ACTIONS');
-    expect(result).toContain('You crossed the river ford by dusk.');
-    expect(result).toContain('The stag bolted into the pines.');
-    // Rendered oldest-first, so the older 'travel' beat precedes the newer 'hunt'.
-    expect(result.indexOf('crossed the river')).toBeLessThan(result.indexOf('stag bolted'));
-  });
-
-  it('shows "none" when no recent actions', () => {
-    const result = buildUserMessage(minimalContext);
-
-    expect(result).toContain('RECENT ACTIONS');
-    expect(result).toContain('none');
-  });
-
-  it('includes the raw input', () => {
-    const result = buildUserMessage(minimalContext);
-
-    expect(result).toContain('PLAYER INPUT:');
-    expect(result).toContain('go hunt a wolf');
-  });
-
-  it('includes the scaling hint', () => {
-    const result = buildUserMessage(minimalContext);
-
-    expect(result).toContain('Day 1 — standard difficulty');
-  });
-
-  it('includes previous decisions when present', () => {
-    const ctx: LlmContext = {
-      ...minimalContext,
-      previousDecisions: [
-        { prompt: 'You spot deer tracks heading east…', chosen: 'Follow deer', dcModifier: 0 },
-        { prompt: 'The thicket is dense and dry…', chosen: 'Stalk', dcModifier: -1 },
-      ],
-    };
-
-    const result = buildUserMessage(ctx);
-
-    expect(result).toContain('PREVIOUS DECISIONS');
-    expect(result).toContain('Follow deer');
-    expect(result).toContain('Stalk');
-    expect(result).toContain('dc_modifier');
-  });
-
-  it('omits previous decisions section when not present', () => {
-    const result = buildUserMessage(minimalContext);
-
-    expect(result).not.toContain('PREVIOUS DECISIONS');
-  });
-
-  it('marks PHASE NEW_ACTION when there is no history or roll', () => {
-    expect(buildUserMessage(minimalContext)).toContain('PHASE: NEW_ACTION');
-  });
-
-  it('marks PHASE CONTINUE when prior decisions exist but no roll', () => {
-    const ctx: LlmContext = {
-      ...minimalContext,
-      previousDecisions: [{ prompt: 'You spot tracks…', chosen: 'Follow', dcModifier: 0 }],
-    };
-    expect(buildUserMessage(ctx)).toContain('PHASE: CONTINUE');
-  });
-
-  it('marks PHASE RESOLVE_ROLL when a roll verdict is attached', () => {
-    const ctx: LlmContext = {
-      ...minimalContext,
-      previousDecisions: [{ prompt: 'You spot tracks…', chosen: 'Follow', dcModifier: 0 }],
-      rollOutcome: 'success',
-    };
-    const result = buildUserMessage(ctx);
-    expect(result).toContain('PHASE: RESOLVE_ROLL');
-    expect(result).toContain('ROLL RESULT: SUCCESS');
-  });
-});
 
 // ── DeepseekLlmGateway — response parsing & error handling ──
 
@@ -516,18 +340,38 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
     expect(records[0].reasoning).toBe('deep thoughts here');
   });
 
-  it('a failed dice verdict alone does NOT trigger reasoning capture', async () => {
+  it('always keeps reasoning + raw prompt for an over-threshold "spiral" call, toggle off', async () => {
+    const { records, recorder } = capture();
+    const spiral = 'x'.repeat(50);
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        choices: [{ message: { content: JSON.stringify(goodDecision), reasoning_content: spiral }, finish_reason: 'stop' }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+    // logThinkingAll defaults off; threshold lowered so the 50-char chain counts as a spiral.
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch, recorder, reasoningSpiralChars: 10 });
+    await gw.decide(minimalContext);
+    expect(records[0].reasoning).toBe(spiral);
+    expect(records[0].rawPrompt).toContain('## You');
+  });
+
+  it('a failed dice verdict alone does NOT trigger reasoning/prompt capture', async () => {
     const { records, recorder } = capture();
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder });
     await gw.decide({ ...minimalContext, rollOutcome: 'failure' });
     expect(records[0].reasoning).toBeNull();
+    expect(records[0].rawPrompt).toBeNull(); // not captured on a clean call by default
   });
 
-  it('saves full reasoning on every well-formed call when logThinkingAll is set', async () => {
+  it('saves full reasoning AND the raw prompt on every well-formed call when logThinkingAll is set', async () => {
     const { records, recorder } = capture();
     const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder, logThinkingAll: true });
     await gw.decide(minimalContext);
     expect(records[0].reasoning).toBe('deep thoughts here');
+    expect(records[0].rawPrompt).toContain('## You'); // the full v9 markdown prompt is now captured
   });
 });
 

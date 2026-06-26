@@ -2,7 +2,8 @@
 const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 
 import type Database from "better-sqlite3";
-import type { LlmGateway, CartographerGateway } from "../llm/LlmGateway.js";
+import type { LlmGateway, CartographerGateway, CriticGateway } from "../llm/LlmGateway.js";
+import { CritiquedLlmGateway } from "../llm/CritiquedLlmGateway.js";
 import type { UserRepository } from "../db/repositories/user.js";
 import type {
   CharacterRepository,
@@ -42,6 +43,7 @@ import type {
   ActionResumeResult,
   ActionOutcome,
   ActionDecisionRecord,
+  ActionKind,
   WorldMutation,
   NearbyEntity,
   LocationInfo,
@@ -178,6 +180,9 @@ interface WorldEngineConfig {
    *  enriched (is_safe + description) off the player's critical path. Optional —
    *  absent in tests / when no LLM key is configured; the row just stays provisional. */
   cartographer?: CartographerGateway;
+  /** Coherence critic (Thread 2, opt-in). When present, decision beats are critiqued via a
+   *  CritiquedLlmGateway wrapper and resolution beats via the machine hook. Absent = disabled. */
+  critic?: CriticGateway;
   /** YAML asset data for stat computation. Injected so engine stays presentation-free. */
   classDefs?: ClassDef[];
   upbringingDefs?: ModifierDef[];
@@ -280,12 +285,24 @@ export class WorldEngineImpl implements WorldEngine {
       getKnownLocations: () => {
         return this.locationRepo.findAll().map((l) => l.name);
       },
+      isLocationSafe: (location: string) => {
+        // Unknown/off-map locations default to wild (unsafe) — they're created that way.
+        return this.locationRepo.findByName(location)?.is_safe === 1;
+      },
     };
 
+    // Coherence critic (Thread 2, opt-in). When present, wrap the gateway so DECISION beats are
+    // critiqued, and hand the same critic to the machine for the RESOLUTION-beat hook (which needs
+    // the post-applyOutcomeToMutations mutations). Absent → critic disabled, behaviour unchanged.
+    const decisionLlm = config.critic
+      ? new CritiquedLlmGateway(fallbackLlm, config.critic)
+      : fallbackLlm;
+
     this.machine = new ActionStateMachine(
-      fallbackLlm,
+      decisionLlm,
       config.rollD20,
       contextResolver,
+      config.critic,
     );
   }
 
@@ -481,9 +498,13 @@ export class WorldEngineImpl implements WorldEngine {
       narrative: (outcome.outcomeText ?? "").slice(0, 500) || null,
     });
 
-    // Link the audit row to the action it produced (best-effort)
-    if (outcome.llmCallId !== undefined) {
-      this.llmCallRepo.linkAction(outcome.llmCallId, actionRow.id);
+    // Link EVERY audit row this action produced — decision beats, narration, and critics — to the
+    // action (best-effort), so the full call chain is mineable. Falls back to the single resolution
+    // call id for older states that predate llmCallIds. De-duped to avoid double links.
+    const callIdsToLink = new Set<number>(outcome.llmCallIds ?? []);
+    if (outcome.llmCallId !== undefined) callIdsToLink.add(outcome.llmCallId);
+    for (const callId of callIdsToLink) {
+      this.llmCallRepo.linkAction(callId, actionRow.id);
     }
 
     // Spawn NPCs
@@ -585,6 +606,7 @@ export class WorldEngineImpl implements WorldEngine {
   async startAction(
     characterId: number,
     rawInput: string,
+    opts: { kind?: ActionKind; wage?: number } = {},
   ): Promise<ActionStartResult> {
     // Guard: prevent concurrent or duplicate action starts
     if (this.processingActions.has(characterId)) {
@@ -614,7 +636,7 @@ export class WorldEngineImpl implements WorldEngine {
       const char = this.rowToCharacterData(row);
       const items = this.getItems(characterId);
 
-      const startResult = await this.machine.start(char, rawInput, items);
+      const startResult = await this.machine.start(char, rawInput, items, opts.kind, opts.wage);
       const internalState = startResult.state;
 
       // Divine intervention during start: drain roll, persist divine state, return single Resolve option
@@ -1426,11 +1448,13 @@ export class WorldEngineImpl implements WorldEngine {
     rawInput: string;
     decisions: ActionDecisionRecord[];
     accumulatedDc: number;
+    kind?: ActionKind;
   } {
     return {
       rawInput: internal.rawInput,
       decisions: internal.decisions,
       accumulatedDc: internal.accumulatedDc,
+      ...(internal.kind ? { kind: internal.kind } : {}),
     };
   }
 }

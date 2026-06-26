@@ -52,7 +52,7 @@ import { LlmCallRepository } from "./db/repositories/llm-call.js";
 import { WorldEngineImpl } from "./engine/WorldEngineImpl.js";
 import type { WorldEngine } from "./engine/WorldEngine.js";
 import type { ClassDef, ModifierDef } from "./engine/StatComputer.js";
-import type { LlmDecision, LlmContext, RecapGateway } from "./llm/LlmGateway.js";
+import type { LlmDecision, LlmContext, RecapGateway, CriticGateway } from "./llm/LlmGateway.js";
 import { DeepseekLlmGateway } from "./llm/DeepseekLlmGateway.js";
 import {
   FallbackLlmGateway,
@@ -1039,6 +1039,9 @@ async function main() {
   // Weekly recap chronicler — same DeepSeek transport. Undefined on the mock path
   // (the Monday recap then falls back to a deterministic count summary).
   let recapGateway: RecapGateway | undefined;
+  // Coherence critic (Thread 2) — same DeepSeek transport. Wired into the engine only when
+  // ENABLE_COHERENCE_CRITIC=true (opt-in feature flag, default off).
+  let criticGateway: CriticGateway | undefined;
   if (DEEPSEEK_API_KEY) {
     const deepseek = new DeepseekLlmGateway({
       apiKey: DEEPSEEK_API_KEY,
@@ -1047,6 +1050,12 @@ async function main() {
       recorder: new LlmCallRepository(initDb()),
       // POC: failures always log thinking; set this to also log it on every call.
       logThinkingAll: process.env.LOG_LLM_THINKING_ALL === "true",
+      // Always keep thinking + prompt for "spiral" calls past this many reasoning chars.
+      // Only honour a positive numeric value; anything else (unset, empty, garbage → NaN, or ≤0)
+      // falls back to the gateway's built-in default rather than silently disabling/over-capturing.
+      ...(Number(process.env.REASONING_SPIRAL_CHARS) > 0
+        ? { reasoningSpiralChars: Number(process.env.REASONING_SPIRAL_CHARS) }
+        : {}),
     });
     llm = new FallbackLlmGateway(deepseek, {
       onTier2Fallback: () => {
@@ -1057,6 +1066,7 @@ async function main() {
     });
     cartographer = deepseek;
     recapGateway = deepseek;
+    criticGateway = deepseek;
     console.log(
       c.cyan(
         `[llm] DeepSeek gateway initialized with fallback chain (model: ${LLM_MODEL ?? "default"})`,
@@ -1099,6 +1109,7 @@ async function main() {
     actionRepo,
     npcRepo,
     ...(cartographer ? { cartographer } : {}),
+    ...(process.env.ENABLE_COHERENCE_CRITIC === "true" && criticGateway ? { critic: criticGateway } : {}),
     classDefs: assets.classes as ClassDef[],
     upbringingDefs: assets.backgrounds as ModifierDef[],
     raceDefs: assets.races as ModifierDef[],
@@ -1116,6 +1127,9 @@ async function main() {
     }>,
   });
   console.log(c.green("[engine] WorldEngine initialized"));
+  if (process.env.ENABLE_COHERENCE_CRITIC === "true" && criticGateway) {
+    console.log(c.cyan("[llm] coherence critic ENABLED (decision + resolution beats; logged as call_kind=critic)"));
+  }
 
   // 7. Command handlers
   const dayJobs = assets.dayJobs as DayJobDef[];
@@ -1801,7 +1815,9 @@ ${headInfo}`);
           characterId: char.id,
           dayNumber,
         });
-        const hook = jobActions[idx]?.hook;
+        const jobAction = jobActions[idx];
+        const hook = jobAction?.hook;
+        const wage = jobAction?.income ?? 0;
         if (!hook) {
           await interaction.reply({
             content: "Invalid job action.",
@@ -1851,12 +1867,15 @@ _${idleMsg}_`)
             char.stamina = Math.max(0, char.stamina - 1);
             char.location = workplace;
 
+            // Merge the commute INTO the loading page (don't replace it): the LLM call
+            // below still takes seconds, so keep the "thinking" indicator visible so the
+            // player can see work is being generated, not that the bot has stalled.
             await interaction.editReply({
               embeds: [
                 new EmbedBuilder()
                   .setTitle("🚶 Daily Commute")
                   .setDescription(
-                    `**You head to the ${workplace}.**  \n⚡ -1 stamina`,
+                    `**You head to the ${workplace}.**  \n⚡ -1 stamina\n\n⏳ **Setting to work…**\n_${idleMsg}_`,
                   )
                   .setColor(0x95a5a6)
                   .toJSON(),
@@ -1866,7 +1885,12 @@ _${idleMsg}_`)
           }
         }
 
-        const result = await engine.startAction(char.id, hook);
+        // The per-action `income` ("bonus for clicking", day-jobs.yml) rides the action as a
+        // guaranteed wage: the engine pays it into the RESOLVED outcome (after the failure-strip),
+        // so it shows in the outcome footer (💰) when the work finishes — not as a separate message
+        // before the player has made their choices. base_income is the separate nightly-tick wage.
+        const result = await engine.startAction(char.id, hook, { kind: "work", wage });
+
         if (result.outcome) {
           // Re-read AFTER startAction so the embed + nav reflect the spent roll
           // and any applied mutations — `char` above is the pre-action snapshot
