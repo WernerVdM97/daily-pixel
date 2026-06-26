@@ -50,6 +50,10 @@ export interface LlmDecision {
   _llmCallId?: number;
   /** Id of the coherence-critic call on THIS beat (set by CritiquedLlmGateway), for action linkage. */
   _critiqueCallId?: number;
+  /** Id of a decision call this beat SUPERSEDED — the flagged decision discarded by a major
+   *  re-decide. Kept so its audit row still links to the action (the critic captured its
+   *  reasoning via promoteDeepCapture; without this its action_id would stay NULL). */
+  _supersededCallId?: number;
   /** Transient (in-memory only): full prompt + reasoning that produced this decision, so the critic
    *  can backfill the audit row if it flags the beat. Never persisted. */
   _rawPrompt?: string;

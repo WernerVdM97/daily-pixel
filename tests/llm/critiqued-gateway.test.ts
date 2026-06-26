@@ -115,6 +115,20 @@ describe('CritiquedLlmGateway', () => {
     expect(critic.critique).toHaveBeenCalledTimes(1); // the re-decide is NOT re-critiqued
   });
 
+  it('carries the superseded decision call id forward on a major re-decide (so it still links to the action)', async () => {
+    const inner = innerReturning(
+      decision({ prompt: 'first attempt', _llmCallId: 69 }),
+      decision({ prompt: 'corrected attempt', _llmCallId: 71 }),
+    );
+    const critic = criticReturning({ ok: false, severity: 'major', issues: ['x'], _llmCallId: 70 });
+    const gw = new CritiquedLlmGateway(inner, critic);
+
+    const result = await gw.decide(baseContext);
+    expect(result._llmCallId).toBe(71);          // the re-decided call
+    expect(result._critiqueCallId).toBe(70);     // the critic call
+    expect(result._supersededCallId).toBe(69);   // the discarded, flagged decision — must still link
+  });
+
   it('does not critique a re-decide pass (criticNote already set)', async () => {
     const inner = innerReturning(decision());
     const critic = criticReturning({ ok: false, severity: 'major', issues: ['x'] });

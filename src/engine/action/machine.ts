@@ -431,6 +431,8 @@ function decisionCallIds(d: LlmDecision): number[] {
   const ids: number[] = [];
   if (d._llmCallId !== undefined) ids.push(d._llmCallId);
   if (d._critiqueCallId !== undefined) ids.push(d._critiqueCallId);
+  // A major re-decide discards the flagged decision but keeps its call id here so it still links.
+  if (d._supersededCallId !== undefined) ids.push(d._supersededCallId);
   return ids;
 }
 

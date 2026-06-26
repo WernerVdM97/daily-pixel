@@ -62,7 +62,9 @@ export class CritiquedLlmGateway implements LlmGateway {
     if (verdict.severity === 'major') {
       const note = verdict.issues.join('; ') || 'incoherent with the scene';
       try {
-        return this.tag(await this.inner.decide({ ...context, criticNote: note }), cid);
+        // Carry the discarded decision's call id forward so it still links to the action — the
+        // critic captured its reasoning, but it's no longer the returned decision.
+        return this.tag(await this.inner.decide({ ...context, criticNote: note }), cid, decision._llmCallId);
       } catch (err) {
         console.warn(c.yellow('[critic] re-decide failed — keeping original'), err instanceof Error ? err.message : String(err));
         return this.tag(decision, cid);
@@ -73,8 +75,14 @@ export class CritiquedLlmGateway implements LlmGateway {
     return this.tag(decision, cid);
   }
 
-  /** Attach the decision-beat critic's audit-row id so it gets linked to the action. */
-  private tag(decision: LlmDecision, critiqueCallId: number | undefined): LlmDecision {
-    return critiqueCallId !== undefined ? { ...decision, _critiqueCallId: critiqueCallId } : decision;
+  /** Attach the decision-beat critic's audit-row id (and any superseded decision call) so they get
+   *  linked to the action. */
+  private tag(decision: LlmDecision, critiqueCallId: number | undefined, supersededCallId?: number): LlmDecision {
+    if (critiqueCallId === undefined && supersededCallId === undefined) return decision;
+    return {
+      ...decision,
+      ...(critiqueCallId !== undefined ? { _critiqueCallId: critiqueCallId } : {}),
+      ...(supersededCallId !== undefined ? { _supersededCallId: supersededCallId } : {}),
+    };
   }
 }
