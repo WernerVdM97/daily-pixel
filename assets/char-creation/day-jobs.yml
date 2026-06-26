@@ -179,9 +179,9 @@
     - label: Carry the news
       income: 4
       hook: Songs and stories travel faster than any rider. The word from the east has gone strangely thin.
-    - label: Work on a tune
+    - label: Compose to commission
       income: 2
-      hook: A melody's been turning in your head all morning — and you're not sure you're the one who wrote it.
+      hook: A patron pays for a song made to order — you turn a merchant's boasts into a verse that scans and flatters.
     - label: Trade in rumours
       income: 3
       hook: Loose tongues in a loud room. You listen between the verses and keep the useful bits.
