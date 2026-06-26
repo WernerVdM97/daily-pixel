@@ -227,13 +227,23 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
             ? { components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()] }
             : { components: getOutcomeServiceButtons() }),
         };
-        await broadcastOutcome({
-          client: interaction.client,
-          threadId: engine.getMeta(META_RECAP_THREAD_ID),
-          payload,
-          fallback: () => interaction.followUp(payload),
-        });
-        await announceCollapse(resolvedChar?.name ?? 'A soul', character, resolvedChar);
+        // The action already resolved and persisted, and the outcome is shown above. Isolate the
+        // public broadcast + collapse announce so a failure here can't fall through to the outer
+        // catch and repaint a successful action as "❌ Could not act".
+        try {
+          await broadcastOutcome({
+            client: interaction.client,
+            threadId: engine.getMeta(META_RECAP_THREAD_ID),
+            payload,
+            fallback: () => interaction.followUp(payload),
+          });
+          await announceCollapse(resolvedChar?.name ?? 'A soul', character, resolvedChar);
+        } catch (broadcastErr) {
+          console.warn(
+            '[action] outcome resolved but broadcast/announce failed:',
+            broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr),
+          );
+        }
         return 'action_autofinished';
       }
 

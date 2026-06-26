@@ -81,10 +81,13 @@ export function buildCriticUserMessage(input: CriticInput): string {
 /** Fixed display order — keeps the prompt prefix cache-stable. */
 const STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
 
-/** Quote untrusted player text as a per-line blockquote so multi-line input stays fenced
- *  and can't break out. The SECURITY RULE does the real defending. */
+/** Quote untrusted player text as a single-line blockquote. Newlines and whitespace runs are
+ *  collapsed to single spaces so multi-line input can't inject fake markdown sections or
+ *  impersonate engine/GM lines (the player's intent is one line anyway); the SECURITY RULE
+ *  backstops the rest. Empty input renders an explicit placeholder, not a dangling `> `. */
 function asBlockquote(s: string): string {
-  return s.split('\n').map(line => `> ${line}`).join('\n');
+  const oneLine = s.replace(/\s+/g, ' ').trim();
+  return oneLine ? `> ${oneLine}` : '> (no description given)';
 }
 
 /** Signed table cell: `+5`, `-2`, or `—` for zero. */

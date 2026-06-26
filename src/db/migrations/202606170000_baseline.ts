@@ -75,9 +75,9 @@ export const migration: Migration = {
 
     // v7: per-character max stamina ceiling (for training/endurance mutations)
     try { db.exec('ALTER TABLE player_characters ADD COLUMN max_stamina INTEGER NOT NULL DEFAULT 10'); } catch { /* already exists */ }
-
-    // v8: tag each llm_call by kind (decision|critic) so the coherence critic is minable separately
-    try { db.exec("ALTER TABLE llm_calls ADD COLUMN call_kind TEXT NOT NULL DEFAULT 'decision'"); } catch { /* already exists */ }
+    // NOTE: do NOT append new ALTERs here. This migration's id is already recorded on every
+    // existing DB, so the runner never re-runs its up() — anything added here only reaches
+    // fresh DBs. New columns need their own dated migration (see call_kind / critic_severity).
   },
 };
 

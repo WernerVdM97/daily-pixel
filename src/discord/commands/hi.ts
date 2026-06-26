@@ -42,9 +42,9 @@ export const COMMON_ACTIONS: DayJobAction[] = [
     hook: "A message needs carrying across town before midday.",
   },
   {
-    label: "Share a meal at the inn",
-    income: 0,
-    hook: "The common room is warm and loud — a good place to take the measure of the town.",
+    label: "Wait tables at the inn",
+    income: 1,
+    hook: "The common room is loud and short-handed; clear the plates and keep the ale flowing for a cut of the night's take.",
   },
   {
     label: "See to chores",
@@ -52,9 +52,9 @@ export const COMMON_ACTIONS: DayJobAction[] = [
     hook: "There is always work to be done: wood to split, water to haul, a fence to mend.",
   },
   {
-    label: "Listen for news",
-    income: 1,
-    hook: "Travellers pass through with rumours from the road. Some of it might even be true.",
+    label: "Muck out the stables",
+    income: 2,
+    hook: "The innkeeper pays to have the stalls cleared and fresh straw laid before the next riders come through.",
   },
   {
     label: "Haul and load",

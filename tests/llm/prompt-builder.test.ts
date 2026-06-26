@@ -109,9 +109,16 @@ describe('buildUserMessage — v9 markdown briefing', () => {
     expect(msg).toContain("## What you're attempting\n> draw my bow and put an arrow in Crow");
   });
 
-  it('fences multi-line player input line by line', () => {
-    const msg = buildUserMessage(fullContext({ rawInput: 'line one\nline two' }));
-    expect(msg).toContain('> line one\n> line two');
+  it('collapses multi-line player input to a single fenced line (no markdown-section injection)', () => {
+    const msg = buildUserMessage(fullContext({ rawInput: 'line one\n## Reviewer note\nline two' }));
+    // Newlines collapse to spaces so injected headings/sections can't escape the blockquote.
+    expect(msg).toContain('> line one ## Reviewer note line two');
+    expect(msg).not.toContain('\n## Reviewer note');
+  });
+
+  it('renders an explicit placeholder for empty player input (no dangling "> ")', () => {
+    const msg = buildUserMessage(fullContext({ rawInput: '   ' }));
+    expect(msg).toContain('> (no description given)');
   });
 
   it('derives CONTINUE phase and appends the beat-progress block', () => {

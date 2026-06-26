@@ -16,6 +16,7 @@ import {
   EmbedBuilder,
   Events,
   GatewayIntentBits,
+  ThreadAutoArchiveDuration,
   REST,
   Routes,
   ActionRowBuilder,
@@ -93,7 +94,7 @@ import {
   buildLeaderboardAnnouncement,
   LEADERBOARD_MARKER,
 } from "./discord/afternoon.js";
-import { pinMessage, pinReplacing } from "./discord/pin.js";
+import { pinMessage, pinReplacing, pinKeepingNewest } from "./discord/pin.js";
 import {
   broadcastOutcome,
   buildPlaceholderHeader,
@@ -378,7 +379,6 @@ function scheduleTick(
   const now = Date.now();
   const next = new Date();
   next.setUTCHours(3, 30, 0, 0);
-  next.setUTCMinutes(30, 0, 0);
   if (next.getTime() <= now) {
     next.setUTCDate(next.getUTCDate() + 1);
   }
@@ -831,6 +831,10 @@ function scheduleAfternoonBeat(
 
 // ── Weekly recap (Monday rollover) ──
 
+/** How many weekly headers stay pinned as an archive (older ones are unpinned, but their
+ *  messages + threads persist). Bounded to leave headroom under Discord's 50-pin channel cap. */
+const WEEKLY_HEADER_PINS_KEPT = 12;
+
 /**
  * Current UTC time as a 'YYYY-MM-DD HH:MM:SS' string — the same format SQLite's
  * `datetime('now')` stamps on `actions.created_at`, so it compares lexically as the
@@ -873,16 +877,29 @@ async function finalizePreviousWeek(
   if (!headerId || !weekStart) return; // nothing to finalize yet
 
   const weekNumber = Number(engine.getMeta(META_RECAP_WEEK_NUMBER) ?? "1");
+
+  const channel = await client.channels.fetch(channelId);
+  if (!isGuildTextChannel(channel)) return;
+
+  // Fetch the header BEFORE the (paid, multi-second) digest call — a deleted header means
+  // there's nothing to finalize, so don't spend an LLM call building a chronicle we'd discard.
+  let headerMsg: Message;
+  try {
+    headerMsg = await channel.messages.fetch(headerId);
+  } catch (err) {
+    console.warn(
+      c.yellow(`[recap] Could not fetch Week ${weekNumber} header (${headerId}) — skipping finalize:`),
+      err instanceof Error ? err.message : String(err),
+    );
+    return;
+  }
+
   // Half-open [weekStart, boundaryTs): exactly the actions that landed in this
   // week's thread (the boundary is when the thread id flips below).
   const actions = engine.getActionsBetween(weekStart, boundaryTs);
   const recapResult = await generateWeeklyDigest(actions, recap);
   const headerText = buildRecapHeader(weekNumber, weekStart.slice(0, 10), recapResult);
-
-  const channel = await client.channels.fetch(channelId);
-  if (!isGuildTextChannel(channel)) return;
   try {
-    const headerMsg = await channel.messages.fetch(headerId);
     await headerMsg.edit(headerText);
     console.log(c.green(`[recap] Finalized Week ${weekNumber} chronicle (${actions.length} actions).`));
   } catch (err) {
@@ -912,8 +929,15 @@ async function startNewWeek(
   }
 
   const header = await channel.send({ content: buildPlaceholderHeader(weekNumber, startTs.slice(0, 10)) });
-  await pinMessage(header, `Week ${weekNumber} header`);
-  const thread = await header.startThread({ name: `Week ${weekNumber} — the Oak's log` });
+  // Both placeholder and finalized headers start with "📜 **Week"; keep the newest few pinned as a
+  // browsable archive and trim older ones so the channel never hits Discord's 50-pin cap.
+  await pinKeepingNewest(header, "📜 **Week", WEEKLY_HEADER_PINS_KEPT, `Week ${weekNumber} header`);
+  // OneWeek so the thread doesn't auto-archive mid-week on a quiet day (which would bounce
+  // outcomes back to the channel); the guild may downgrade it if its boost tier is too low.
+  const thread = await header.startThread({
+    name: `Week ${weekNumber} — the Oak's log`,
+    autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+  });
 
   engine.setMeta(META_RECAP_THREAD_ID, thread.id);
   engine.setMeta(META_RECAP_HEADER_ID, header.id);
@@ -946,6 +970,49 @@ async function runWeeklyRecap(
     console.error(c.red("[recap] Weekly recap failed:"), err);
     void notifyAdmin("Weekly recap failed", err);
   }
+}
+
+/** UTC date (YYYY-MM-DD) of the most recent Monday at or before today. */
+function mostRecentMondayUtc(): string {
+  const d = new Date();
+  const daysSinceMonday = (d.getUTCDay() + 6) % 7; // Sun=0→6, Mon=1→0, …
+  d.setUTCDate(d.getUTCDate() - daysSinceMonday);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Boot-time catch-up for a MISSED Monday rollover. The rollover normally fires inside the
+ * 03:30 UTC tick (scheduleTick), but if the bot is down across that window — the most common
+ * failure mode, deploys and restarts — the week would otherwise never finalize: the placeholder
+ * header stays a placeholder forever and the week counter never advances until the *next* Monday
+ * (which then folds two weeks into one chronicle and skips a number).
+ *
+ * On boot, if a week is in progress and the most recent Monday hasn't been recapped yet, roll it
+ * now and stamp `META_LAST_RECAP_DATE` with that Monday — so the same-day scheduled trigger (which
+ * checks `!== todayStr`) won't double-fire. No week started yet → nothing to catch up
+ * (ensureWeeklyThread bootstraps Week 1). Never throws (runWeeklyRecap swallows its own errors).
+ * Returns true if it rolled the week.
+ */
+async function catchUpWeeklyRecap(
+  engine: WorldEngine,
+  client: Client,
+  channelId: string,
+  recap: RecapGateway | undefined,
+): Promise<boolean> {
+  const weekStart = engine.getMeta(META_RECAP_WEEK_START);
+  if (!weekStart) return false; // no week in progress
+  const monday = mostRecentMondayUtc();
+  // The current week must PREDATE this Monday for a rollover to have been due. A week that began
+  // on/after this Monday (e.g. bootstrapped mid-week) hasn't missed anything — don't roll it early.
+  if (weekStart.slice(0, 10) >= monday) return false;
+  const lastRecap = engine.getMeta(META_LAST_RECAP_DATE);
+  if (lastRecap && lastRecap >= monday) return false; // already recapped this week
+  console.log(
+    c.yellow(`[recap] Boot catch-up: missed Monday rollover (weekStart=${weekStart.slice(0, 10)}, last=${lastRecap ?? "never"}, monday=${monday}) — rolling now.`),
+  );
+  await runWeeklyRecap(engine, client, channelId, recap);
+  engine.setMeta(META_LAST_RECAP_DATE, monday);
+  return true;
 }
 
 /**
@@ -1272,6 +1339,7 @@ async function main() {
             description:
               "What do you want to do? (Leave blank to resume mid-action)",
             required: false,
+            max_length: 300, // cap free-text — one action intent, also bounds prompt-injection surface
           },
         ],
       },
@@ -1353,8 +1421,12 @@ ${headInfo}`);
       scheduleMorningAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleGoodnightAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
       scheduleAfternoonBeat(engine, readyClient, TICK_CHANNEL_ID);
-      // Boot catch-up: ensure a current week thread exists before the first Monday rollover.
-      void ensureWeeklyThread(engine, readyClient, TICK_CHANNEL_ID);
+      // Boot catch-up: first finalize a Monday rollover missed while the bot was down, then
+      // ensure a current-week thread exists (a no-op if the catch-up just started a fresh week).
+      void (async () => {
+        await catchUpWeeklyRecap(engine, readyClient, TICK_CHANNEL_ID, recapGateway);
+        await ensureWeeklyThread(engine, readyClient, TICK_CHANNEL_ID);
+      })();
       // Announce release notes once if the bot just booted on a new tag.
       void runReleaseAnnouncement(engine, readyClient, TICK_CHANNEL_ID);
     } else {
@@ -1545,6 +1617,7 @@ ${headInfo}`);
               .setLabel("What do you want to do?")
               .setStyle(TextInputStyle.Short)
               .setRequired(true)
+              .setMaxLength(300)
               .setPlaceholder("e.g. scout the northern ridge"),
           ),
         );
@@ -1913,10 +1986,15 @@ _${idleMsg}_`)
           }
         }
 
+        // Lead the prompt with the task label so the LLM always gets the concrete, payable
+        // task ("Walk the rounds") up front, with the hook as flavour — the hook alone reads
+        // as atmosphere and can bury what the player is actually doing.
+        const workPrompt = `${jobAction.label} — ${hook}`;
+
         // Per-action `income` (day-jobs.yml) rides the action as a guaranteed wage: paid
         // into the RESOLVED outcome (after the failure-strip) so it shows in the footer (💰)
         // when work finishes, not before. base_income is the separate nightly-tick wage.
-        const result = await engine.startAction(char.id, hook, { kind: "work", wage });
+        const result = await engine.startAction(char.id, workPrompt, { kind: "work", wage });
 
         if (result.outcome) {
           // Re-read AFTER startAction so the embed + nav reflect the spent roll and

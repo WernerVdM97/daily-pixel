@@ -284,7 +284,9 @@ export class ActionStateMachine {
     // and FINAL mutations. Dice + engine own the truth; the critic may only rewrite prose to match.
     // A minor defect patches outcome_text; anything else keeps the verdict-shaped text. Best-effort
     // — critique() never throws.
-    if (this.critic) {
+    // Skip the critic when the narration call fell back to canned divine-intervention text —
+    // it carries no real mutations and can't be improved, so a critic pass just wastes a call.
+    if (this.critic && narration.distilledType !== DIVINE_INTERVENTION_TYPE) {
       const verdict = await this.critic.critique({
         beat: 'resolution',
         rollOutcome: outcome === 'success' ? 'success' : 'failure',

@@ -447,21 +447,28 @@ export class WorldEngineImpl implements WorldEngine {
     // and rolls_remaining DO NOT — stamina is the cost of effort and rolls are the turn
     // economy itself, so a "shrug" that only tires or adjusts rolls is still a refundable
     // no-op (the player got nothing for it).
+    // Item changes count only if they REALLY touch inventory: an add of a real (qty>0) item, or
+    // a remove of an item the character actually owns. A hallucinated remove_item for an unowned
+    // item is a repo no-op, so it must NOT flag worldChanged and deny the no-op roll refund.
+    const ownedNames = new Set(this.itemRepo.findByCharacterId(characterId).map((i) => i.name));
+    const itemsAdded = applied.itemsToAdd.filter((i) => i.quantity > 0);
+    const itemsRemoved = applied.itemsToRemove.filter((r) => ownedNames.has(r.name));
+
     const worldChanged =
       updates.health !== undefined ||
       updates.max_stamina !== undefined ||
       updates.wealth !== undefined ||
       updates.location !== undefined ||
-      applied.itemsToAdd.length > 0 ||
-      applied.itemsToRemove.length > 0 ||
+      itemsAdded.length > 0 ||
+      itemsRemoved.length > 0 ||
       applied.npcsToSpawn.length > 0;
 
-    for (const item of applied.itemsToAdd) {
+    for (const item of itemsAdded) {
       this.itemRepo.create(characterId, item);
     }
 
     // Decrement the stack so trading 1 of N leaves the rest
-    for (const { name, quantity } of applied.itemsToRemove) {
+    for (const { name, quantity } of itemsRemoved) {
       this.itemRepo.decrementByName(characterId, name, quantity);
     }
 
@@ -1393,12 +1400,13 @@ export class WorldEngineImpl implements WorldEngine {
       });
       this.charRepo.update(characterId, { last_action_state: null });
       if (refunded && row) {
-        // Hand the spent roll back (capped at the daily allowance) and stamp the day.
+        // Hand the spent roll back and stamp the day. Cap at the day's ACTUAL allowance
+        // (incl. the Saturday bonus) — capping at the bare weekday allowance would silently
+        // eat a Saturday bonus roll from a player who'd already used it before timing out.
+        const allowance =
+          DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
         this.charRepo.update(characterId, {
-          rolls_remaining: Math.min(
-            DAILY_ROLL_ALLOWANCE,
-            row.rolls_remaining + 1,
-          ),
+          rolls_remaining: Math.min(allowance, row.rolls_remaining + 1),
         });
         this.stampRefundDay(characterId, "last_timeout_refund_day", today);
       }
