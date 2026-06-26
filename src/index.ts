@@ -34,6 +34,7 @@ import {
 } from "discord.js";
 import type {
   ChatInputCommandInteraction,
+  Interaction,
   RepliableInteraction,
   Message,
 } from "discord.js";
@@ -222,10 +223,29 @@ console.error = (...args: unknown[]) => _origError(`[${_ts()}]`, ...args);
 let _client: Client | null = null;
 
 /**
+ * True for a Discord interaction that can no longer be responded to:
+ *   10062 = Unknown interaction (token expired, never acked within 3s, or already consumed),
+ *   40060 = Interaction has already been acknowledged.
+ * Both are expected on double-clicks and slow hosts — not incidents. These codes are
+ * interaction-response-only (channel sends raise 10003/10008/50001 instead), so it's
+ * safe to treat them as benign everywhere.
+ */
+function isDeadInteraction(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 10062 || code === 40060;
+}
+
+/**
  * Log an error and best-effort DM it to the admin. Always safe to call — no client,
  * no ADMIN_USER_ID, or a failed DM just degrades to a console log.
  */
 async function notifyAdmin(label: string, err: unknown): Promise<void> {
+  // A dead interaction is expected, never an incident — don't log it red or DM the
+  // admin about it. Keep a quiet trace under VERBOSE so it's still discoverable.
+  if (isDeadInteraction(err)) {
+    if (VERBOSE) console.log(c.grey(`[verbose] ${label}: dead interaction — ignored`));
+    return;
+  }
   console.error(c.red(`[error] ${label}:`), err);
   if (!ADMIN_USER_ID) return;
   const detail =
@@ -319,8 +339,31 @@ async function safeErrorReply(
       await interaction.reply({ content, flags: MessageFlags.Ephemeral });
     }
   } catch (e) {
+    // The interaction is already gone (the very thing we were trying to report on)
+    // — expected, not worth a warning. Anything else is a genuine surprise.
+    if (isDeadInteraction(e)) return;
     console.warn(c.yellow("[error] could not surface error to user:"), e);
   }
+}
+
+/**
+ * In-flight guard against double-clicks — the main cause of 10062 across buttons.
+ * A second component/modal interaction whose key is still being processed is a
+ * duplicate (the user double-clicked, or the host lagged): the source message has
+ * often already been edited or deleted, so handling it would throw "Unknown
+ * interaction". Keyed per (user, source-message) for buttons so unrelated buttons
+ * never block one another, and per (user, customId) for modal submits.
+ */
+const _interactionInFlight = new Set<string>();
+
+function interactionGuardKey(interaction: Interaction): string | null {
+  if (interaction.isButton()) {
+    return `${interaction.user.id}:${interaction.message.id}`;
+  }
+  if (interaction.isModalSubmit()) {
+    return `${interaction.user.id}:${interaction.customId}`;
+  }
+  return null; // slash commands & autocomplete are inherently unique — not guarded
 }
 
 // Catch what the per-handler try/catches miss. A rejected promise in an async
@@ -1075,8 +1118,9 @@ async function main() {
   // Weekly recap chronicler — same DeepSeek transport. Undefined on the mock path
   // (the Monday recap then falls back to a deterministic count summary).
   let recapGateway: RecapGateway | undefined;
-  // Coherence critic (Thread 2) — same DeepSeek transport. Wired into the engine only when
-  // ENABLE_COHERENCE_CRITIC=true (opt-in feature flag, default off).
+  // Coherence critic (Thread 2) — same DeepSeek transport. On by default; set
+  // ENABLE_COHERENCE_CRITIC=false to opt out (e.g. to save the extra LLM pass).
+  const criticEnabled = process.env.ENABLE_COHERENCE_CRITIC !== "false";
   let criticGateway: CriticGateway | undefined;
   if (DEEPSEEK_API_KEY) {
     const deepseek = new DeepseekLlmGateway({
@@ -1368,7 +1412,7 @@ ${headInfo}`);
   });
 
   // Handle all interactions
-  client.on(Events.InteractionCreate, async (interaction) => {
+  const dispatchInteraction = async (interaction: Interaction): Promise<void> => {
     // ── Slash commands ──
     if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
@@ -1520,10 +1564,8 @@ ${headInfo}`);
         );
         if (VERBOSE) console.log(c.grey("[verbose] join: done"));
       } catch (err) {
-        // 10062 (Unknown interaction) happens on double-clicks — not a real failure.
-        if ((err as Record<string, unknown>)?.code !== 10062) {
-          void notifyAdmin("Join interaction failed", err);
-        }
+        // notifyAdmin already ignores dead interactions (double-clicks etc.).
+        void notifyAdmin("Join interaction failed", err);
         if ("reply" in interaction) {
           await (interaction as { reply: Function })
             .reply({
@@ -2180,6 +2222,26 @@ _${idleMsg}_`)
         }
       }
       return;
+    }
+  };
+
+  // Single entry point for every interaction. The in-flight guard and
+  // dead-interaction handling live here so no individual handler can forget them.
+  client.on(Events.InteractionCreate, async (interaction) => {
+    const guardKey = interactionGuardKey(interaction);
+    if (guardKey !== null) {
+      if (_interactionInFlight.has(guardKey)) {
+        // Duplicate click while the first is still in flight: silently ack so
+        // Discord doesn't surface "interaction failed", then drop it.
+        if (interaction.isButton()) await interaction.deferUpdate().catch(() => {});
+        return;
+      }
+      _interactionInFlight.add(guardKey);
+    }
+    try {
+      await dispatchInteraction(interaction);
+    } finally {
+      if (guardKey !== null) _interactionInFlight.delete(guardKey);
     }
   });
 
