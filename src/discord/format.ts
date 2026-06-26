@@ -162,16 +162,33 @@ export function getNavButtons(
   return rows;
 }
 
-/** Service buttons for action outcomes: feedback + bug report. */
-export function getOutcomeServiceButtons(): Array<{
+/**
+ * Extract the trailing numeric action id from an outcome custom_id — works for both the button
+ * (`outcome:bug:42`) and modal (`outcome:bug:modal:42`) forms, and returns undefined when absent
+ * (`outcome:bug`, `outcome:bug:modal`). Inverse of the suffix `getOutcomeServiceButtons` appends.
+ */
+export function parseOutcomeActionId(customId: string): number | undefined {
+  const last = customId.split(':').pop();
+  const n = Number(last);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+/**
+ * Service buttons for action outcomes: feedback + bug report. When `actionId` is given it's
+ * appended to each custom_id (`outcome:feedback:<id>` / `outcome:bug:<id>`) so a report can be
+ * attributed to the action whose outcome the button was on. Omitted → bare `outcome:feedback`
+ * (off-action surfaces, or older messages the handlers still accept).
+ */
+export function getOutcomeServiceButtons(actionId?: number): Array<{
   type: number;
   components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }>;
 }> {
+  const suffix = actionId !== undefined ? `:${actionId}` : '';
   return [{
     type: CT.ACTION_ROW,
     components: [
-      { type: CT.BUTTON, custom_id: 'outcome:feedback', label: 'Feedback', emoji: { name: '💬' }, style: BS.SECONDARY },
-      { type: CT.BUTTON, custom_id: 'outcome:bug', label: 'Bug Report', emoji: { name: '🐛' }, style: BS.SECONDARY },
+      { type: CT.BUTTON, custom_id: `outcome:feedback${suffix}`, label: 'Feedback', emoji: { name: '💬' }, style: BS.SECONDARY },
+      { type: CT.BUTTON, custom_id: `outcome:bug${suffix}`, label: 'Bug Report', emoji: { name: '🐛' }, style: BS.SECONDARY },
     ],
   }];
 }

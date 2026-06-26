@@ -86,7 +86,7 @@ import {
   getWorkplaceLocation,
   type DayJobDef,
 } from "./discord/commands/hi.js";
-import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, navResponseMode, dayJobEmoji, registerEmoji } from "./discord/format.js";
+import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, navResponseMode, parseOutcomeActionId, dayJobEmoji, registerEmoji } from "./discord/format.js";
 import { announceCollapse, setCollapseBroadcaster } from "./discord/collapse.js";
 import {
   pickWeeklyThreat,
@@ -1703,14 +1703,15 @@ ${headInfo}`);
             getCurrentScene(interaction.user.id),
             result.state,
           );
+          const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
           await interaction.editReply({
             embeds: [embed],
-            components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
+            components: [...getNavButtons(resolvedChar), ...serviceButtons],
           });
           const payload = {
             content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
             embeds: [embed],
-            components: getOutcomeServiceButtons(),
+            components: serviceButtons,
           };
           await broadcastOutcome({
             client: interaction.client,
@@ -1826,11 +1827,12 @@ ${headInfo}`);
       return;
     }
 
-    // ── Outcome feedback button ── opens a modal
-    if (customId && customId === "outcome:feedback") {
-      if (!interaction.isButton()) return;
+    // ── Outcome feedback button ── opens a modal, carrying the action id through so the
+    // submission can attribute the feedback to the action whose outcome the button was on.
+    if (customId && interaction.isButton() && (customId === "outcome:feedback" || customId.startsWith("outcome:feedback:"))) {
+      const actionId = parseOutcomeActionId(customId);
       const modal = new ModalBuilder()
-        .setCustomId("outcome:feedback:modal")
+        .setCustomId(`outcome:feedback:modal${actionId !== undefined ? `:${actionId}` : ""}`)
         .setTitle("Share Feedback")
         .addComponents(
           new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -1847,29 +1849,29 @@ ${headInfo}`);
     }
 
     // ── Outcome feedback modal submission ──
-    if (customId && customId === "outcome:feedback:modal") {
-      if (!interaction.isModalSubmit()) return;
+    if (customId && interaction.isModalSubmit() && (customId === "outcome:feedback:modal" || customId.startsWith("outcome:feedback:modal:"))) {
       const text = interaction.fields.getTextInputValue(
         "outcome:feedback:input",
       );
+      const actionId = parseOutcomeActionId(customId);
       await interaction.reply({
         content: "🙏 Thanks. The warden listens.",
         flags: MessageFlags.Ephemeral,
       });
       try {
         const char = engine.getCharacter(interaction.user.id);
-        if (char) engine.submitFeedback(char.id, text);
+        if (char) engine.submitFeedback(char.id, text, actionId);
       } catch (err) {
         void notifyAdmin("Outcome feedback failed", err);
       }
       return;
     }
 
-    // ── Outcome bug-report button ── opens a modal
-    if (customId && customId === "outcome:bug") {
-      if (!interaction.isButton()) return;
+    // ── Outcome bug-report button ── opens a modal, carrying the action id through.
+    if (customId && interaction.isButton() && (customId === "outcome:bug" || customId.startsWith("outcome:bug:"))) {
+      const actionId = parseOutcomeActionId(customId);
       const modal = new ModalBuilder()
-        .setCustomId("outcome:bug:modal")
+        .setCustomId(`outcome:bug:modal${actionId !== undefined ? `:${actionId}` : ""}`)
         .setTitle("Report a Bug")
         .addComponents(
           new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -1886,16 +1888,16 @@ ${headInfo}`);
     }
 
     // ── Outcome bug-report modal submission ──
-    if (customId && customId === "outcome:bug:modal") {
-      if (!interaction.isModalSubmit()) return;
+    if (customId && interaction.isModalSubmit() && (customId === "outcome:bug:modal" || customId.startsWith("outcome:bug:modal:"))) {
       const text = interaction.fields.getTextInputValue("outcome:bug:input");
+      const actionId = parseOutcomeActionId(customId);
       await interaction.reply({
         content: "🐛 Bug noted. The warden will investigate.",
         flags: MessageFlags.Ephemeral,
       });
       try {
         const char = engine.getCharacter(interaction.user.id);
-        if (char) engine.submitBug(char.id, text);
+        if (char) engine.submitBug(char.id, text, actionId);
       } catch (err) {
         void notifyAdmin("Outcome bug report failed", err);
       }
@@ -2010,14 +2012,15 @@ _${idleMsg}_`)
             getCurrentScene(interaction.user.id),
             result.state,
           );
+          const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
           await interaction.webhook.editMessage(interaction.message.id, {
             embeds: [embed],
-            components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
+            components: [...getNavButtons(resolvedChar), ...serviceButtons],
           });
           const payload = {
             content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
             embeds: [embed],
-            components: getOutcomeServiceButtons(),
+            components: serviceButtons,
           };
           await broadcastOutcome({
             client: interaction.client,

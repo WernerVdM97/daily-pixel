@@ -82,6 +82,33 @@ function firstDecision(baseDc: number): LlmDecision {
   };
 }
 
+/** A decision with no real options → start() auto-finishes it outright. With no world-changing
+ *  mutations it's a refundable no-op (e.g. a "look"). */
+function autoFinishNoop(): LlmDecision {
+  return {
+    prompt: 'You glance at the old key.',
+    distilledType: 'inspect',
+    stat: 'wisdom',
+    baseDc: 10,
+    required: false,
+    done: true,
+    decision: [],
+    mutations: [],
+    outcomeText: 'Nothing of note.',
+  };
+}
+
+/** An auto-finished action that GRANTS a roll (e.g. a "rest"). A roll gain is world-changing,
+ *  so the action is charged — the grant nets against the cost rather than stacking on a refund. */
+function autoFinishRollGrant(): LlmDecision {
+  return {
+    ...autoFinishNoop(),
+    distilledType: 'rest',
+    mutations: [{ type: 'modify_rolls_remaining', amount: 1 }],
+    outcomeText: 'You rest a moment.',
+  };
+}
+
 /** Resolving beat: done + the rolled outcome's mutations/prose (serves both the
  *  decision-beat and the narration call). */
 function resolveDecision(over: Partial<LlmDecision>): LlmDecision {
@@ -189,6 +216,77 @@ describe('decision pipeline — WorldEngineImpl integration', () => {
     expect(after.rollsRemaining).toBe(2); // charged — the player rolled
 
     expect(ctx.actionRepo.findRecentByCharacterId(ctx.charId, 1)[0].outcome).toBe('failure');
+  });
+
+  it('surfaces the persisted action id so a bug/feedback report links to it as a valid FK', async () => {
+    ctx = setup(() => 18);
+
+    ctx.llm.setDecision(firstDecision(10));
+    await ctx.engine.startAction(ctx.charId, 'hunt the wolf');
+    ctx.llm.setDecision(resolveDecision({ outcomeText: 'Done.' }));
+    const step = await ctx.engine.stepAction(ctx.charId, 'Press the attack');
+
+    expect(step.resolved).toBe(true);
+    if (!step.resolved) return;
+
+    // The outcome carries the row id that was just written.
+    const actionRow = ctx.actionRepo.findRecentByCharacterId(ctx.charId, 1)[0];
+    expect(step.outcome.actionId).toBe(actionRow.id);
+
+    // A report submitted from that outcome stores the FK.
+    ctx.engine.submitBug(ctx.charId, 'wolf clipped through the wall', step.outcome.actionId);
+    const bug = getDb()
+      .prepare('SELECT character_id, text, action_id FROM bug_reports ORDER BY id DESC LIMIT 1')
+      .get() as { character_id: number; text: string; action_id: number | null };
+    expect(bug.action_id).toBe(actionRow.id);
+    expect(bug.character_id).toBe(ctx.charId);
+
+    // An off-action report (no id) leaves the FK NULL.
+    ctx.engine.submitFeedback(ctx.charId, 'general thoughts');
+    const fb = getDb()
+      .prepare('SELECT action_id FROM feedback ORDER BY id DESC LIMIT 1')
+      .get() as { action_id: number | null };
+    expect(fb.action_id).toBeNull();
+  });
+
+  it('refunds the roll on an auto-finished no-op and flags it for the footer', async () => {
+    ctx = setup(() => 15);
+    const before = ctx.engine.getCharacter(USER_ID)!;
+
+    ctx.llm.setDecision(autoFinishNoop());
+    const first = await ctx.engine.startAction(ctx.charId, 'look at the key');
+
+    expect(first.outcome).toBeDefined();
+    if (!first.outcome) return;
+    expect(first.outcome.outcome).toBe('done');
+    // Free no-op: roll kept, flagged so the footer can say "(refunded)".
+    expect(first.outcome.rollRefunded).toBe(true);
+    expect(first.outcome.rollsDelta).toBe(0);
+    expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining);
+
+    // Second no-op the same day: the daily grace is spent, so it's charged — and reported as such.
+    ctx.llm.setDecision(autoFinishNoop());
+    const second = await ctx.engine.startAction(ctx.charId, 'look again');
+    if (!second.outcome) return;
+    expect(second.outcome.rollRefunded).toBe(false);
+    expect(second.outcome.rollsDelta).toBe(-1);
+    expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining - 1);
+  });
+
+  it('charges an action that grants a roll, so a +1 grant nets to zero (not a free roll)', async () => {
+    ctx = setup(() => 15);
+    const before = ctx.engine.getCharacter(USER_ID)!;
+
+    ctx.llm.setDecision(autoFinishRollGrant());
+    const res = await ctx.engine.startAction(ctx.charId, 'rest a moment');
+
+    expect(res.outcome).toBeDefined();
+    if (!res.outcome) return;
+    // A roll gain is world-changing → charged, not refunded.
+    expect(res.outcome.rollRefunded).toBe(false);
+    // +1 grant offset by the −1 action charge → net 0.
+    expect(res.outcome.rollsDelta).toBe(0);
+    expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining);
   });
 
   it('resumeAction rehydrates the pending decision from the DB without a new LLM call', async () => {

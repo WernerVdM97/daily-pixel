@@ -52,8 +52,8 @@ export class MockWorldEngine implements WorldEngine {
     getItems: number[];
     getNearbyEntities: number[];
     getJournal: number[];
-    submitFeedback: { characterId: number; text: string }[];
-    submitBug: { characterId: number; text: string }[];
+    submitFeedback: { characterId: number; text: string; actionId?: number }[];
+    submitBug: { characterId: number; text: string; actionId?: number }[];
     updateLastPlayed: number[];
     modifyHealth: { discordUserId: string; amount: number }[];
     countSoulsInUnsafe: void[];
@@ -262,12 +262,12 @@ export class MockWorldEngine implements WorldEngine {
     );
   }
 
-  submitFeedback(characterId: number, text: string): void {
-    this.calls.submitFeedback.push({ characterId, text });
+  submitFeedback(characterId: number, text: string, actionId?: number): void {
+    this.calls.submitFeedback.push({ characterId, text, actionId });
   }
 
-  submitBug(characterId: number, text: string): void {
-    this.calls.submitBug.push({ characterId, text });
+  submitBug(characterId: number, text: string, actionId?: number): void {
+    this.calls.submitBug.push({ characterId, text, actionId });
   }
 
   spawnNpc(data: {

@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS feedback (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   character_id  INTEGER NOT NULL REFERENCES player_characters(id),
   text          TEXT    NOT NULL,
+  action_id     INTEGER REFERENCES actions(id),  -- the action whose outcome the button was on; NULL off-action
   created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -122,6 +123,7 @@ CREATE TABLE IF NOT EXISTS bug_reports (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   character_id  INTEGER NOT NULL REFERENCES player_characters(id),
   text          TEXT    NOT NULL,
+  action_id     INTEGER REFERENCES actions(id),  -- the action whose outcome the button was on; NULL off-action
   created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

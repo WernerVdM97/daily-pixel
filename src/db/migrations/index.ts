@@ -7,6 +7,7 @@ import { migration as rollRefundAndEnrichment } from './202606210000_roll_refund
 import { migration as dropLegacyActionLlmColumns } from './202606250000_drop_legacy_action_llm_columns.js';
 import { migration as llmCallKind } from './202606250001_llm_call_kind.js';
 import { migration as llmCallCriticSeverity } from './202606260000_llm_call_critic_severity.js';
+import { migration as feedbackBugActionId } from './202606260001_feedback_bug_action_id.js';
 
 /**
  * All migrations in apply order. Append new ones at the end — the runner applies
@@ -22,4 +23,5 @@ export const MIGRATIONS: Migration[] = [
   dropLegacyActionLlmColumns,
   llmCallKind,
   llmCallCriticSeverity,
+  feedbackBugActionId,
 ];

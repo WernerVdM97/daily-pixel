@@ -198,10 +198,16 @@ export function formatOutcome(
   // Stamina — always
   stats.push(`⚡ ${ctx.stamina}/${ctx.maxStamina}${formatDelta(d.staminaDelta)}`);
   // Rolls — no fixed denominator (daily allowance varies: 3, Saturday 4), so the old
-  // `/2` printed an over-full fraction. Starting an action debits one roll via an engine
-  // decrement (not a mutation), so a resolved roll shows (−1) plus any modify_rolls_remaining.
+  // `/2` printed an over-full fraction. Prefer the engine's actual net change when it reports
+  // one (the auto-finish no-op refund/charge, which the renderer can't infer); otherwise infer:
+  // a resolved roll debits one (−1) plus any modify_rolls_remaining mutation. A no-op refund
+  // shows "(refunded)" — without it, the unchanged count reads as a bug (see player report).
   const rollsSpent = outcome.playerRolled !== null ? -1 : 0;
-  stats.push(`🎲 ${ctx.rollsRemaining}${formatDelta(d.rollsDelta + rollsSpent)}`);
+  const rollsDelta = outcome.rollsDelta ?? d.rollsDelta + rollsSpent;
+  // "(refunded)" only for a genuine net-zero refund; if a mutation also moved rolls, show the
+  // real delta instead so a grant/loss isn't mislabelled as a refund.
+  const rollsSuffix = outcome.rollRefunded && rollsDelta === 0 ? ' (refunded)' : formatDelta(rollsDelta);
+  stats.push(`🎲 ${ctx.rollsRemaining}${rollsSuffix}`);
   // Wealth — only when changed
   if (d.wealthDelta !== 0) {
     stats.push(`💰 ${ctx.wealth}${formatDelta(d.wealthDelta)}`);

@@ -112,6 +112,17 @@ export interface ActionOutcome {
   /** Every llm_calls row id across this action (decisions, narration, critics), linked at
    *  resolution so the full call chain is mineable. */
   llmCallIds?: number[];
+  /** Id of the persisted `actions` row this outcome wrote — set by the engine after insert,
+   *  so the Feedback/Bug buttons on this outcome can attribute a report to its action.
+   *  Undefined when no row is written (e.g. divine intervention). */
+  actionId?: number;
+  /** Actual net change to rollsRemaining the engine applied, set where the renderer can't infer
+   *  it (the auto-finish no-op refund/charge). Undefined elsewhere — the renderer then infers
+   *  −1 per resolved roll plus any modify_rolls_remaining mutation. */
+  rollsDelta?: number;
+  /** True when a no-op refund returned the roll (nothing changed, so the action was free). Drives
+   *  the footer's "(refunded)" tag so an unchanged roll count isn't mistaken for a bug. */
+  rollRefunded?: boolean;
 }
 
 export interface ActionResumeResult {
@@ -238,9 +249,10 @@ export interface WorldEngine {
   // Journal
   getJournal(characterId: number): JournalData;
 
-  // Feedback & bugs
-  submitFeedback(characterId: number, text: string): void;
-  submitBug(characterId: number, text: string): void;
+  // Feedback & bugs — actionId links the report to the action whose outcome the button was
+  // on (undefined for the /feedback, /bug slash commands and the nightly/release prompts).
+  submitFeedback(characterId: number, text: string, actionId?: number): void;
+  submitBug(characterId: number, text: string, actionId?: number): void;
 
   // Rest & recovery
   restAtOak(discordUserId: string): CharacterData | null;

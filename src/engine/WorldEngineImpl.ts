@@ -385,7 +385,7 @@ export class WorldEngineImpl implements WorldEngine {
     outcome: ActionOutcome,
     rawInput: string,
     decisions: ActionDecisionRecord[],
-  ): { worldChanged: boolean; provisionalLocations: string[] } {
+  ): { worldChanged: boolean; provisionalLocations: string[]; actionId: number } {
     // Clear mid-action state (no-op for auto-finish, which never persisted)
     this.charRepo.update(characterId, { last_action_state: null });
 
@@ -443,16 +443,18 @@ export class WorldEngineImpl implements WorldEngine {
     }
 
     // D1: did this resolution change the world? Drives the no-op roll refund in
-    // startAction. Health/max_stamina/wealth/location/item/NPC deltas count. Stamina
-    // and rolls_remaining DO NOT — stamina is the cost of effort and rolls are the turn
-    // economy itself, so a "shrug" that only tires or adjusts rolls is still a refundable
-    // no-op (the player got nothing for it).
+    // startAction. Health/max_stamina/wealth/location/item/NPC deltas count. Spending stamina or
+    // rolls does NOT — those are the costs of effort/turns, so a "shrug" that only tires you or
+    // burns rolls is still a refundable no-op (you got nothing for it). But GAINING rolls is
+    // getting something: the action is charged like any other, so a granted roll nets against the
+    // action's own cost instead of stacking free on top of the refund.
     // Item changes count only if they REALLY touch inventory: an add of a real (qty>0) item, or
     // a remove of an item the character actually owns. A hallucinated remove_item for an unowned
     // item is a repo no-op, so it must NOT flag worldChanged and deny the no-op roll refund.
     const ownedNames = new Set(this.itemRepo.findByCharacterId(characterId).map((i) => i.name));
     const itemsAdded = applied.itemsToAdd.filter((i) => i.quantity > 0);
     const itemsRemoved = applied.itemsToRemove.filter((r) => ownedNames.has(r.name));
+    const rollsGained = applied.rollsRemaining > row.rolls_remaining;
 
     const worldChanged =
       updates.health !== undefined ||
@@ -461,7 +463,8 @@ export class WorldEngineImpl implements WorldEngine {
       updates.location !== undefined ||
       itemsAdded.length > 0 ||
       itemsRemoved.length > 0 ||
-      applied.npcsToSpawn.length > 0;
+      applied.npcsToSpawn.length > 0 ||
+      rollsGained;
 
     for (const item of itemsAdded) {
       this.itemRepo.create(characterId, item);
@@ -508,7 +511,7 @@ export class WorldEngineImpl implements WorldEngine {
       });
     }
 
-    return { worldChanged, provisionalLocations };
+    return { worldChanged, provisionalLocations, actionId: actionRow.id };
   }
 
   /**
@@ -673,6 +676,8 @@ export class WorldEngineImpl implements WorldEngine {
             internalState.decisions,
           );
           provisionalLocations = res.provisionalLocations;
+          // Link the persisted action row so the outcome's Feedback/Bug buttons can attribute to it.
+          startResult.outcome.actionId = res.actionId;
 
           const charged = startResult.outcome.playerRolled != null || res.worldChanged;
           // Free no-op refund only if not already used today.
@@ -681,14 +686,19 @@ export class WorldEngineImpl implements WorldEngine {
 
           // Re-read: applyResolution may have written a mutation-driven roll change.
           const afterRes = this.charRepo.findById(characterId)!;
+          const finalRolls = debit
+            ? Math.max(0, afterRes.rolls_remaining - 1)
+            : afterRes.rolls_remaining;
           if (debit) {
-            this.charRepo.update(characterId, {
-              rolls_remaining: Math.max(0, afterRes.rolls_remaining - 1),
-            });
+            this.charRepo.update(characterId, { rolls_remaining: finalRolls });
           } else {
             // Free no-op refund — stamp the day so it's once-per-day.
             this.stampRefundDay(characterId, "last_noop_refund_day", today);
           }
+          // Surface the real roll accounting so the footer reflects it instead of guessing:
+          // a no-op refund keeps the roll (delta 0, flagged); a charge spent one.
+          startResult.outcome.rollsDelta = finalRolls - row.rolls_remaining;
+          startResult.outcome.rollRefunded = !debit;
         })();
 
         // D3: enrich any just-created provisional locations off the critical path.
@@ -787,6 +797,8 @@ export class WorldEngineImpl implements WorldEngine {
           result.state.decisions,
         );
         provisionalLocations = res.provisionalLocations;
+        // Link the persisted action row so the outcome's Feedback/Bug buttons can attribute to it.
+        result.outcome.actionId = res.actionId;
       })();
 
       // D3: enrich any just-created provisional locations off the critical path.
@@ -930,16 +942,16 @@ export class WorldEngineImpl implements WorldEngine {
 
   // ── Feedback & bugs ──
 
-  submitFeedback(characterId: number, text: string): void {
+  submitFeedback(characterId: number, text: string, actionId?: number): void {
     this.db
-      .prepare("INSERT INTO feedback (character_id, text) VALUES (?, ?)")
-      .run(characterId, text);
+      .prepare("INSERT INTO feedback (character_id, text, action_id) VALUES (?, ?, ?)")
+      .run(characterId, text, actionId ?? null);
   }
 
-  submitBug(characterId: number, text: string): void {
+  submitBug(characterId: number, text: string, actionId?: number): void {
     this.db
-      .prepare("INSERT INTO bug_reports (character_id, text) VALUES (?, ?)")
-      .run(characterId, text);
+      .prepare("INSERT INTO bug_reports (character_id, text, action_id) VALUES (?, ?, ?)")
+      .run(characterId, text, actionId ?? null);
   }
 
   // ── Rest & recovery ──
