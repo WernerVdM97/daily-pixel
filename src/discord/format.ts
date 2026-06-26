@@ -176,6 +176,17 @@ export function getOutcomeServiceButtons(): Array<{
   }];
 }
 
+/**
+ * How a nav-button click should respond, given the source message's flags. Edit in place
+ * ONLY when the source is itself a Components-V2 ephemeral: `update()` is a partial edit,
+ * so on a legacy embed message (the action outcome) it would preserve the embeds and clash
+ * with the V2 flag — and a legacy message can't be toggled into V2 anyway (Discord 50035).
+ * Legacy-ephemeral and public messages both spawn a fresh per-clicker ephemeral instead.
+ */
+export function navResponseMode(source: { ephemeral: boolean; componentsV2: boolean }): 'update' | 'reply' {
+  return source.ephemeral && source.componentsV2 ? 'update' : 'reply';
+}
+
 /** Build a Components V2 payload from text, optionally appending nav buttons. */
 export function buildComponentPayload(
   text: string,

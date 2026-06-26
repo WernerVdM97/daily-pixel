@@ -86,7 +86,7 @@ import {
   getWorkplaceLocation,
   type DayJobDef,
 } from "./discord/commands/hi.js";
-import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, dayJobEmoji, registerEmoji } from "./discord/format.js";
+import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, navResponseMode, dayJobEmoji, registerEmoji } from "./discord/format.js";
 import { announceCollapse, setCollapseBroadcaster } from "./discord/collapse.js";
 import {
   pickWeeklyThreat,
@@ -2230,16 +2230,14 @@ _${idleMsg}_`)
         });
 
         // Nav buttons live on V2 ephemeral views, the legacy-embed action outcome, and
-        // the public /action outcome. Edit in place ONLY when the source is itself a
-        // Components-V2 ephemeral message: update() is a partial edit, so on a legacy
-        // embed message (the outcome) it would preserve the embeds and clash with the V2
-        // flag — and a legacy message can't be toggled into V2 anyway. The outcome and
-        // public messages both fall through to a fresh per-clicker ephemeral.
+        // the public /action outcome — see navResponseMode for why only the first edits
+        // in place and the rest spawn a fresh per-clicker ephemeral.
         const msgFlags = interaction.message?.flags;
-        const fromV2Ephemeral =
-          (msgFlags?.has(MessageFlags.Ephemeral) ?? false) &&
-          (msgFlags?.has(MessageFlags.IsComponentsV2) ?? false);
-        if (fromV2Ephemeral) {
+        const mode = navResponseMode({
+          ephemeral: msgFlags?.has(MessageFlags.Ephemeral) ?? false,
+          componentsV2: msgFlags?.has(MessageFlags.IsComponentsV2) ?? false,
+        });
+        if (mode === 'update') {
           await interaction.update(payload);
         } else {
           await interaction.reply(payload);
