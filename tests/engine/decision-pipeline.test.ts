@@ -165,6 +165,7 @@ describe('decision pipeline — WorldEngineImpl integration', () => {
     if (!step.resolved) return;
     expect(step.outcome.outcome).toBe('success');
     expect(step.outcome.playerRolled).toBe(18);
+    expect(step.outcome.rollsDelta).toBe(-1); // the action spent its start-drained roll
 
     // Persisted character state.
     const after = ctx.engine.getCharacter(USER_ID)!;
@@ -287,6 +288,23 @@ describe('decision pipeline — WorldEngineImpl integration', () => {
     // +1 grant offset by the −1 action charge → net 0.
     expect(res.outcome.rollsDelta).toBe(0);
     expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining);
+  });
+
+  it('reports the spent roll on a bail (drained at start, never refunded)', async () => {
+    ctx = setup(() => 15);
+    const before = ctx.engine.getCharacter(USER_ID)!;
+
+    ctx.llm.setDecision(firstDecision(12));
+    await ctx.engine.startAction(ctx.charId, 'investigate the noise');
+    const step = await ctx.engine.stepAction(ctx.charId, 'Step back');
+
+    expect(step.resolved).toBe(true);
+    if (!step.resolved) return;
+    expect(step.outcome.outcome).toBe('bailed');
+    // The footer must show the −1 (previously omitted for playerRolled-null bails).
+    expect(step.outcome.rollsDelta).toBe(-1);
+    expect(step.outcome.rollRefunded).toBeFalsy();
+    expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining - 1);
   });
 
   it('resumeAction rehydrates the pending decision from the DB without a new LLM call', async () => {

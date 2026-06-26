@@ -385,7 +385,7 @@ export class WorldEngineImpl implements WorldEngine {
     outcome: ActionOutcome,
     rawInput: string,
     decisions: ActionDecisionRecord[],
-  ): { worldChanged: boolean; provisionalLocations: string[]; actionId: number } {
+  ): { worldChanged: boolean; provisionalLocations: string[]; actionId: number; rollsMutationDelta: number } {
     // Clear mid-action state (no-op for auto-finish, which never persisted)
     this.charRepo.update(characterId, { last_action_state: null });
 
@@ -511,7 +511,14 @@ export class WorldEngineImpl implements WorldEngine {
       });
     }
 
-    return { worldChanged, provisionalLocations, actionId: actionRow.id };
+    // Net roll change from this resolution's mutations alone (excludes the start-drain, which the
+    // caller folds in). Lets stepAction report a true rolls delta instead of the renderer guessing.
+    return {
+      worldChanged,
+      provisionalLocations,
+      actionId: actionRow.id,
+      rollsMutationDelta: applied.rollsRemaining - row.rolls_remaining,
+    };
   }
 
   /**
@@ -770,6 +777,8 @@ export class WorldEngineImpl implements WorldEngine {
           outcome: "failure",
           mutations: [],
           outcomeText: DIVINE_MESSAGE,
+          // The roll was drained when the action started and isn't refunded — report it.
+          rollsDelta: -1,
         },
       };
     }
@@ -780,6 +789,8 @@ export class WorldEngineImpl implements WorldEngine {
       // Divine intervention (S4 tier-2): clear state, skip the action row + mutations
       if (result.outcome.distilledType === DIVINE_INTERVENTION_TYPE) {
         this.charRepo.update(characterId, { last_action_state: null });
+        // The roll was drained when the action started and isn't refunded — report it.
+        result.outcome.rollsDelta = -1;
         return {
           resolved: true,
           state: this.toPublicState(result.state),
@@ -797,6 +808,10 @@ export class WorldEngineImpl implements WorldEngine {
           result.state.decisions,
         );
         provisionalLocations = res.provisionalLocations;
+        // The action drained one roll at start; fold that into the mutation delta so the footer
+        // reports the true change (covers bail and rolled resolutions alike — playerRolled-null
+        // bails no longer silently omit the −1).
+        result.outcome.rollsDelta = -1 + res.rollsMutationDelta;
         // Link the persisted action row so the outcome's Feedback/Bug buttons can attribute to it.
         result.outcome.actionId = res.actionId;
       })();
@@ -1397,6 +1412,9 @@ export class WorldEngineImpl implements WorldEngine {
       outcome: "timed_out",
       mutations: [],
       outcomeText: message,
+      // The roll was drained at start; the timeout either hands it back (net 0) or keeps it spent.
+      rollsDelta: refunded ? 0 : -1,
+      rollRefunded: refunded,
     };
 
     // Transaction so a partial failure can't orphan a timed_out row while
