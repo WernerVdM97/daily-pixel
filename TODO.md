@@ -5,10 +5,8 @@
 
 ### TBD
 - [ ] should ANY non-decision action be a no-op refund? Not just ones that do not modify stamina or health (since those shouldnt happen anymore?)
-- [ ] check tag generation for new locations
 - [ ] derived actions should immediately by shown next to the decision head in emoji form
 - [ ] std thinking screen. Custom action shows three loading dots and says thinking (not embeded grey version with hourglass)
-- [ ] the ephemeral action outcome views do not have buttons. The action outcomes in the oaks log should only have bug report or feedback buttons, not others
 - [ ] the welcome screen after join does not show hi as a button.
 - [ ] the footer
   does not metion the loss of an additional 1 stamina for the auto teleport to my
@@ -16,23 +14,17 @@
   selected as an action should not show "Quest:..." in the action view. But "Work:..."
   rather.
   - map out some core flows and use better end to end testing with mocked LLM reponses and user button presses.
-- [ ] unique map exploration and coherency per player
 - [ ] improve stat reportings, i.e. the stats page should perhaps go into more detail of the base value and how items or character builder influences it.
-- [ ] char creater should show for each race/class/etc what stats are important and how it modifies them.
-- [ ] rest shows on /hi after it has been pressed (or not?)
-- [ ] often forgets too move people...
-- [?] pressing custom button on action-daily work should dismiss the old message. — Custom… now deletes the day-job menu on press, not on modal submit.
+  - it should be much prettier, see header and footer. What else makes sense here? levels? upskilling? traits? 
+  - char creater should show for each race/class/etc what stats are important and how it modifies them.
 - [ ] duplicate NPCs for warden. The hooded figure and The Warden
-  - action button should not have showed, instead sleep. also my stamina was still showing the value before the deduction.
 - [ ] implement menu framework coupled to views (standardise views/command/message terminology)
   - each message should be structured in a tab manner? with subtabs in mvp.
-- [ ] the /join options should be loaded from the yaml, not injected in code. merge the hard coded options into the yamls in assets/
 - [ ] how to make wealth spendable or meaning full (same for stamina and health)?
   - how do we handle death or 0 HP?
 - [ ] MVP: start capping rolls per action type... add short rest option
+  - check for hard coded roll caps
   - players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
-  - pacing should not be done by the llm but by the bot before hand. If every fourth encounter should be dangerous, that must be tracked in the bot
-  this links to refacotring the prompting. the pacing outcome can be injected into the prompt.
 - [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
 - [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other. globals messages on nat 1 or 20
 - [ ] add a weight to time, the world should evolve with progression. DC should become higher, new threats appear

@@ -86,10 +86,10 @@ export function formatCharacterHeader(char: CharacterData): string {
   lines.push(`${classEmoji(char.class)}  **${char.name}** — ${char.class}`);
   lines.push(SEPARATOR);
 
-  // Vitals (not ability scores): HP, Stamina, Rolls, Wealth.
+  // Vitals (not ability scores): HP, Stamina, Rolls, Wealth — emoji-only, no labels.
   lines.push(
-    `❤️ HP: ${char.health}/${char.maxHealth}  ┃  ⚡ Stamina: ${char.stamina}/${char.maxStamina}  ┃  ` +
-      `🎲 Rolls: ${char.rollsRemaining}  ┃  💰 Wealth: ${char.wealth}`,
+    `❤️ ${char.health}/${char.maxHealth}  ┃  ⚡ ${char.stamina}/${char.maxStamina}  ┃  ` +
+      `🎲 ${char.rollsRemaining}  ┃  💰 ${char.wealth}`,
   );
   if (char.health / char.maxHealth < 0.34) {
     lines.push("⚠️ **low health!**");

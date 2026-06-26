@@ -219,13 +219,16 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         const resolvedChar = engine.getCharacter(interaction.user.id);
         const scene = getCurrentScene(interaction.user.id);
         const embed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
-        await interaction.editReply({ embeds: [embed], components: [] });
+        await interaction.editReply({
+          embeds: [embed],
+          components: resolvedChar
+            ? [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()]
+            : getOutcomeServiceButtons(),
+        });
         const payload = {
           content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
           embeds: [embed],
-          ...(resolvedChar
-            ? { components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()] }
-            : { components: getOutcomeServiceButtons() }),
+          components: getOutcomeServiceButtons(),
         };
         // The action already resolved and persisted, and the outcome is shown above. Isolate the
         // public broadcast + collapse announce so a failure here can't fall through to the outer
@@ -360,18 +363,17 @@ async function applyActionResult(
 
     await i.webhook.editMessage(i.message.id, {
       embeds: [outcomeEmbed],
-      components: [],
+      components: character
+        ? [...getNavButtons(character), ...getOutcomeServiceButtons()]
+        : getOutcomeServiceButtons(),
     });
 
-    // Public copy with nav buttons that spawn a fresh ephemeral screen per clicker
-    // (handled in the nav: dispatcher).
+    // Public copy carries only the feedback/bug-report buttons — no nav.
     const charName = character?.name ?? 'Unknown';
     const payload = {
       content: `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}`,
       embeds: [outcomeEmbed],
-      ...(character
-        ? { components: [...getNavButtons(character), ...getOutcomeServiceButtons()] }
-        : { components: getOutcomeServiceButtons() }),
+      components: getOutcomeServiceButtons(),
     };
     await broadcastOutcome({
       client: i.client,

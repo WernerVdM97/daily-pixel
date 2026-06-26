@@ -1703,11 +1703,14 @@ ${headInfo}`);
             getCurrentScene(interaction.user.id),
             result.state,
           );
-          await interaction.editReply({ embeds: [embed], components: [] });
+          await interaction.editReply({
+            embeds: [embed],
+            components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
+          });
           const payload = {
             content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
             embeds: [embed],
-            components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
+            components: getOutcomeServiceButtons(),
           };
           await broadcastOutcome({
             client: interaction.client,
@@ -2009,12 +2012,12 @@ _${idleMsg}_`)
           );
           await interaction.webhook.editMessage(interaction.message.id, {
             embeds: [embed],
-            components: [],
+            components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
           });
           const payload = {
             content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
             embeds: [embed],
-            components: [...getNavButtons(resolvedChar), ...getOutcomeServiceButtons()],
+            components: getOutcomeServiceButtons(),
           };
           await broadcastOutcome({
             client: interaction.client,
@@ -2226,12 +2229,17 @@ _${idleMsg}_`)
           navButtons,
         });
 
-        // Nav buttons live on both ephemeral views and the public /action outcome.
-        // Edit an ephemeral message in place; from a public message, do NOT overwrite
-        // it — spawn a fresh ephemeral screen for the clicker.
-        const fromEphemeral =
-          interaction.message?.flags?.has(MessageFlags.Ephemeral) ?? false;
-        if (fromEphemeral) {
+        // Nav buttons live on V2 ephemeral views, the legacy-embed action outcome, and
+        // the public /action outcome. Edit in place ONLY when the source is itself a
+        // Components-V2 ephemeral message: update() is a partial edit, so on a legacy
+        // embed message (the outcome) it would preserve the embeds and clash with the V2
+        // flag — and a legacy message can't be toggled into V2 anyway. The outcome and
+        // public messages both fall through to a fresh per-clicker ephemeral.
+        const msgFlags = interaction.message?.flags;
+        const fromV2Ephemeral =
+          (msgFlags?.has(MessageFlags.Ephemeral) ?? false) &&
+          (msgFlags?.has(MessageFlags.IsComponentsV2) ?? false);
+        if (fromV2Ephemeral) {
           await interaction.update(payload);
         } else {
           await interaction.reply(payload);
