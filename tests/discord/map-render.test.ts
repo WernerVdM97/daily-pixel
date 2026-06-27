@@ -27,9 +27,10 @@ describe('renderMap', () => {
     expect(renderMap('Kael', VALE)).toContain("🗺️ **Kael's Map** — 4 charted · 1 road into the unknown");
   });
 
-  it('marks the current location and groups under the home region', () => {
+  it('marks the current location and groups under the home region (separator + bold label)', () => {
     const out = renderMap('Kael', VALE);
-    expect(out).toContain('── THE VALE (home) ──');
+    expect(out).toContain('━━━'); // Discord separator between sections
+    expect(out).toContain('**The Vale** (home)');
     expect(out).toMatch(/🌳🛡️ The Warden's Oak {2}◀ you are here/);
   });
 
@@ -55,10 +56,14 @@ describe('renderMap', () => {
     expect(prefixLen(forge)).toBeGreaterThan(prefixLen(square));
   });
 
-  it('surfaces frontier exits under a "roads not yet walked" section', () => {
+  it('surfaces frontier exits under "Unexplored paths", grouped by from-location with rails', () => {
     const out = renderMap('Kael', VALE);
-    expect(out).toContain('── ROADS NOT YET WALKED ──');
-    expect(out).toContain('🧭 S the deep woods swallow the trail   ??? (from The Forest Edge)');
+    expect(out).toContain('**Unexplored paths**');
+    // Grouped: the from-location on its own line, then each path under a rail connector.
+    const lines = out.split('\n');
+    const fromIdx = lines.findIndex((l) => l.includes('🌿 The Forest Edge') && !l.includes('◀'));
+    expect(fromIdx).toBeGreaterThan(-1);
+    expect(lines[fromIdx + 1]).toBe('└─ S the deep woods swallow the trail');
   });
 
   it('orders siblings most-recently-visited first', () => {
@@ -101,9 +106,9 @@ describe('renderMap', () => {
       frontiers: [],
     };
     const out = renderMap('Kael', g, 'The Ashen Reach');
-    expect(out).toContain('── THE ASHEN REACH ──');
+    expect(out).toContain('**The Ashen Reach**');
     expect(out).toContain('Eastvale');
-    expect(out).not.toContain('── THE VALE');
+    expect(out).not.toContain('**The Vale**');
   });
 
   it('reports no match for an unknown focus', () => {

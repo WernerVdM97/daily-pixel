@@ -1,4 +1,5 @@
 import type { DiscoveredGraph, DiscoveredNode } from "../engine/WorldEngine.js";
+import { SEPARATOR } from "./format.js";
 
 /** Effort glyph from an incoming edge's difficulty band (§5). */
 const EFFORT = ["", "🚶", "🏃", "🧗"] as const;
@@ -131,9 +132,10 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
 
   for (const region of regions) {
     const nodes = byRegion.get(region) ?? [];
-    const label = region.toUpperCase() + (region === HOME_REGION ? " (home)" : "");
-    out.push("");
-    out.push(`── ${label} ──`);
+    // Discord separator between sections (buildComponentPayload turns the SEPARATOR
+    // line into a real divider component); then a bold region label.
+    out.push(SEPARATOR);
+    out.push(`**${region}**${region === HOME_REGION ? " (home)" : ""}`);
 
     // Render as a tree with box-drawing connectors (├─ │ └─) so levels read on
     // mobile: region roots first, DFS, siblings by recency.
@@ -174,14 +176,24 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
     }
   }
 
-  // Frontier exits — the invitation to explore (only when not drilled into a region,
-  // or when the focus region owns them). Show direction + teaser.
+  // Unexplored paths — the invitation to explore, grouped by the place they leave
+  // from (only when not drilled into a region).
   if (graph.frontiers.length > 0 && !focusNorm) {
-    out.push("");
-    out.push("── ROADS NOT YET WALKED ──");
+    out.push(SEPARATOR);
+    out.push("**Unexplored paths**");
+    const byFrom = new Map<string, typeof graph.frontiers>();
     for (const f of graph.frontiers) {
-      const teaser = f.teaser ? ` ${f.teaser}` : "";
-      out.push(`🧭 ${f.direction}${teaser}   ??? (from ${f.from})`);
+      if (!byFrom.has(f.from)) byFrom.set(f.from, []);
+      byFrom.get(f.from)!.push(f);
+    }
+    for (const [from, paths] of byFrom) {
+      const emoji = byName.get(from)?.emoji ?? "📍";
+      out.push(`${emoji} ${from}`);
+      paths.forEach((f, i) => {
+        const connector = i === paths.length - 1 ? "└─ " : "├─ ";
+        const teaser = f.teaser ? ` ${f.teaser}` : "";
+        out.push(`${connector}${f.direction}${teaser}`);
+      });
     }
   }
 
