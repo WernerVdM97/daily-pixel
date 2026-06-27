@@ -1,6 +1,11 @@
 /** Mid-action state auto-times out after this (30 min). */
 const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 
+/** The home region every new player starts having discovered (§3). Matches the
+ *  `region` the seed world (assets/world/locations.yml) gives the Vale. New
+ *  ground gets other regions and stays fogged until explored. */
+const HOME_REGION = "The Vale";
+
 import type Database from "better-sqlite3";
 import type { LlmGateway, CartographerGateway, CriticGateway } from "../llm/LlmGateway.js";
 import { CritiquedLlmGateway } from "../llm/CritiquedLlmGateway.js";
@@ -13,7 +18,10 @@ import type { ItemRepository } from "../db/repositories/item.js";
 import type { ActionRepository } from "../db/repositories/action.js";
 import type { NpcRepository } from "../db/repositories/npc.js";
 import { LocationRepository } from "../db/repositories/location.js";
+import { LocationEdgeRepository } from "../db/repositories/locationEdge.js";
+import { CharacterLocationRepository } from "../db/repositories/characterLocation.js";
 import { MetaRepository } from "../db/repositories/meta.js";
+import { findRoute } from "./geography.js";
 import { LlmCallRepository } from "../db/repositories/llm-call.js";
 import {
   FallbackLlmGateway,
@@ -49,6 +57,8 @@ import type {
   LocationInfo,
   ItemData,
   JournalData,
+  DiscoveredGraph,
+  TravelRoute,
   TickResult,
   NpcMovement,
   StatBlock,
@@ -207,6 +217,8 @@ export class WorldEngineImpl implements WorldEngine {
   private actionRepo: ActionRepository;
   private npcRepo: NpcRepository;
   private locationRepo: LocationRepository;
+  private edgeRepo: LocationEdgeRepository;
+  private charLocRepo: CharacterLocationRepository;
   private metaRepo: MetaRepository;
   private llmCallRepo: LlmCallRepository;
   private machine: ActionStateMachine;
@@ -238,6 +250,8 @@ export class WorldEngineImpl implements WorldEngine {
     this.actionRepo = config.actionRepo;
     this.npcRepo = config.npcRepo;
     this.locationRepo = new LocationRepository(config.db);
+    this.edgeRepo = new LocationEdgeRepository(config.db);
+    this.charLocRepo = new CharacterLocationRepository(config.db);
     this.metaRepo = new MetaRepository(config.db);
     this.llmCallRepo = new LlmCallRepository(config.db);
     this.classDefs = config.classDefs ?? [];
@@ -285,6 +299,17 @@ export class WorldEngineImpl implements WorldEngine {
         // Unknown/off-map locations default to unsafe.
         return this.locationRepo.findByName(location)?.is_safe === 1;
       },
+      getLocalGeography: (location: string) => ({
+        region: this.locationRepo.findByName(location)?.region ?? null,
+        // Immediate charted exits you can see from where you stand (move targets);
+        // and the uncharted roads radiating outward (cross_frontier invitations).
+        neighbours: this.edgeRepo
+          .neighbours(location)
+          .map((n) => ({ name: n.name, direction: n.direction, difficulty: n.difficulty })),
+        frontiers: this.edgeRepo
+          .frontierExits(location)
+          .map((f) => ({ direction: f.direction, teaser: f.teaser, difficulty: f.difficulty })),
+      }),
     };
 
     // Critic (opt-in): wrap gateway for DECISION beats; pass critic to the machine for the
@@ -353,7 +378,21 @@ export class WorldEngineImpl implements WorldEngine {
       }
     }
 
+    this.seedHomeClusterDiscovery(row.id);
+
     return this.rowToCharacterData(row);
+  }
+
+  /** Every new player starts already knowing the home Vale — nobody "discovers"
+   *  their own workplace (§1, §3). The home cluster is the seeded home region;
+   *  new ground (other regions) stays fogged until explored. */
+  private seedHomeClusterDiscovery(characterId: number): void {
+    const home = this.locationRepo
+      .findAll()
+      .filter((l) => l.region === HOME_REGION || l.name === "The Warden's Oak");
+    for (const loc of home) {
+      this.charLocRepo.recordVisit(characterId, loc.name);
+    }
   }
 
   getCharacter(discordUserId: string): CharacterData | null {
@@ -389,16 +428,15 @@ export class WorldEngineImpl implements WorldEngine {
     // Clear mid-action state (no-op for auto-finish, which never persisted)
     this.charRepo.update(characterId, { last_action_state: null });
 
-    // D3 lazy world growth: a resolved set_location to a place not on the known map
-    // (case/trim-normalized) creates a PROVISIONAL stub now (is_safe=0, placeholder
-    // description, enrichment_pending=1) so the player lands somewhere renderable
-    // immediately regardless of LLM timing (kills the stranding bug). An async
-    // cartographer fills in is_safe + description later. Matches reuse the existing row.
+    // Geographic resolution (per-player-map-exploration §2): movement is now
+    // engine-validated against the shared graph. `set_location` must reach a charted
+    // node; `cross_frontier` mints new ground ONLY by crossing a real frontier exit.
+    // Illegal moves are dropped (no lazy-create-from-thin-air). Returns the names
+    // minted this turn — fed to the async cartographer to chart their geometry.
     const knownLocations = this.locationRepo.findAll().map((l) => l.name);
-    const provisionalLocations = this.ensureProvisionalLocations(
-      outcome.mutations,
-      knownLocations,
-    );
+    const geo = this.applyGeography(row.location, outcome.mutations, knownLocations);
+    outcome.mutations = geo.mutations;
+    const provisionalLocations = geo.minted;
 
     const ctx = {
       currentHealth: row.health,
@@ -408,7 +446,7 @@ export class WorldEngineImpl implements WorldEngine {
       wealth: row.wealth,
       rollsRemaining: row.rolls_remaining,
       location: row.location,
-      // Include just-created provisional names so the set_location guard accepts them
+      // Include just-minted names so the set_location/cross_frontier guard accepts them
       // and applyMutations snaps to canonical casing.
       knownLocations: [...knownLocations, ...provisionalLocations],
     };
@@ -440,6 +478,12 @@ export class WorldEngineImpl implements WorldEngine {
     if (applied.location !== row.location) updates.location = applied.location;
     if (Object.keys(updates).length > 0) {
       this.charRepo.update(characterId, updates);
+    }
+
+    // Fog-of-war: discovering (or revisiting) the place you end up. Recency on a
+    // revisit drives the /map ordering (§5). The ORIGIN was already discovered.
+    if (updates.location !== undefined) {
+      this.charLocRepo.recordVisit(characterId, applied.location);
     }
 
     // D1: did this resolution change the world? Drives the no-op roll refund in
@@ -490,6 +534,10 @@ export class WorldEngineImpl implements WorldEngine {
       appliedMutations:
         outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
       narrative: (outcome.outcomeText ?? "").slice(0, 500) || null,
+      // Origin snapshot: where the character stood when they acted (§6). For
+      // travel this is the start, not the destination — the narrative carries
+      // the destination, and "from the Oak, set out east" reads naturally.
+      locationName: row.location,
     });
 
     // Link every audit row this action produced (decision/narration/critic) so the full
@@ -509,6 +557,14 @@ export class WorldEngineImpl implements WorldEngine {
         description: npc.description,
         createdByActionId: actionRow.id,
       });
+    }
+
+    // Stamp provenance on any place minted this turn (which action grew the world).
+    // Done post-create because the action id doesn't exist until the row is written.
+    for (const name of provisionalLocations) {
+      this.db
+        .prepare('UPDATE locations SET created_by_action_id = ? WHERE name = ? AND created_by_action_id IS NULL')
+        .run(actionRow.id, name);
     }
 
     // Net roll change from this resolution's mutations alone (excludes the start-drain, which the
@@ -571,37 +627,89 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   /**
-   * D3 helper: for each `set_location` whose name doesn't match (case/trim-normalized)
-   * a known location, create a provisional stub and return the names created; a match
-   * reuses the existing row. De-duped within the call; the `locations.name UNIQUE`
-   * constraint + INSERT OR IGNORE make a racing create harmless.
+   * Engine-owned geographic resolution (per-player-map-exploration §2). Replaces the
+   * old lazy-create-on-any-set_location with graph-validated movement:
+   *
+   * - `set_location` is kept only if the target is the current node or a charted node
+   *   reachable on the shared graph (`routeBetween`). An unreachable/unknown target is
+   *   DROPPED (the player simply doesn't move) — no more minting from thin air.
+   * - `cross_frontier { direction, name }` is the ONLY mint path. If `direction` is a
+   *   real **unbound** frontier exit on the current node, mint the named destination
+   *   (provisional, enrichment_pending → cartographer charts the rest) and bind the
+   *   exit (shared thereafter). If the exit is **already bound** (a prior crosser got
+   *   there first), arrive at that shared destination instead of minting a duplicate.
+   *   No matching frontier → dropped.
+   *
+   * Returns the filtered mutation list (cross_frontier normalized to the resolved
+   * destination name) and the names minted this turn (for the async cartographer).
    */
-  private ensureProvisionalLocations(
+  private applyGeography(
+    currentLocation: string,
     mutations: WorldMutation[],
     knownLocations: string[],
-  ): string[] {
+  ): { mutations: WorldMutation[]; minted: string[] } {
     const known = new Set(knownLocations.map((n) => n.trim().toLowerCase()));
-    const created: string[] = [];
+    const currentNorm = currentLocation.trim().toLowerCase();
+    const minted: string[] = [];
+    const kept: WorldMutation[] = [];
 
     for (const m of mutations) {
-      if (m.type !== "set_location") continue;
-      const name = typeof m.name === "string" ? m.name.trim() : "";
-      if (name === "") continue;
-      const norm = name.toLowerCase();
-      if (known.has(norm)) continue; // snap-to-canonical handled downstream
-
-      this.locationRepo.create({
-        name,
-        description: "An uncharted place, newly set foot upon. (Mapping…)",
-        isSafe: 0,
-        enrichmentPending: 1,
-      });
-      known.add(norm); // dedupe within this resolution
-      created.push(name);
-      console.log(`[location] provisional row created: "${name}" (enrichment pending)`);
+      if (m.type === "set_location") {
+        const name = typeof m.name === "string" ? m.name.trim() : "";
+        if (name === "") {
+          kept.push(m); // shape-invalid — let validateMutations report/drop it
+          continue;
+        }
+        const norm = name.toLowerCase();
+        // Canonicalize to the known casing so the (case-sensitive) graph route resolves
+        // an LLM-lowercased name like "town square".
+        const canonical = knownLocations.find((l) => l.trim().toLowerCase() === norm) ?? name;
+        const reachable =
+          norm === currentNorm ||
+          (known.has(norm) && this.routeBetween(currentLocation, canonical) !== null);
+        if (!reachable) {
+          console.warn(
+            `[engine] dropping set_location to unreachable/unknown "${name}" — movement is graph-validated (no lazy-create)`,
+          );
+          continue;
+        }
+        kept.push(m);
+      } else if (m.type === "cross_frontier") {
+        const direction = typeof m.direction === "string" ? m.direction.trim().toUpperCase() : "";
+        const proposed = typeof m.name === "string" ? m.name.trim() : "";
+        const edge = direction ? this.edgeRepo.find(currentLocation, direction) : undefined;
+        if (!edge) {
+          console.warn(`[engine] dropping cross_frontier ${direction} from "${currentLocation}" — no such exit`);
+          continue;
+        }
+        if (edge.to_location !== null) {
+          // A prior crosser already bound this exit — arrive at the shared place,
+          // ignoring the LLM's proposed name (we never re-mint or rename).
+          kept.push({ type: "set_location", name: edge.to_location });
+          continue;
+        }
+        if (proposed === "") {
+          console.warn(`[engine] dropping cross_frontier ${direction} from "${currentLocation}" — no destination name`);
+          continue;
+        }
+        // First crosser: mint the destination + bind the frontier (shared thereafter).
+        this.locationRepo.create({
+          name: proposed,
+          description: "An uncharted place, newly crossed into. (Mapping…)",
+          isSafe: 0,
+          enrichmentPending: 1,
+        });
+        this.edgeRepo.bindFrontier(currentLocation, direction, proposed);
+        minted.push(proposed);
+        known.add(proposed.toLowerCase());
+        kept.push({ type: "cross_frontier", direction, name: proposed });
+        console.log(`[location] frontier crossed: minted "${proposed}" (${direction} of "${currentLocation}")`);
+      } else {
+        kept.push(m);
+      }
     }
 
-    return created;
+    return { mutations: kept, minted };
   }
 
   async startAction(
@@ -953,6 +1061,57 @@ export class WorldEngineImpl implements WorldEngine {
         narrative: r.narrative,
       })),
     };
+  }
+
+  // ── Map: fog-of-war over the shared graph ──
+
+  /** The player's discovered subgraph: discovered nodes, charted edges between
+   *  them, and frontier exits radiating from them. Adjacency is shared truth; the
+   *  mask is per-player (§1). */
+  getDiscoveredGraph(characterId: number): DiscoveredGraph {
+    const charRow = this.charRepo.findById(characterId);
+    const current = charRow?.location ?? "The Warden's Oak";
+
+    const visits = this.charLocRepo.findByCharacter(characterId);
+    const lastVisited = new Map(visits.map((v) => [v.location_name, v.last_visited_at]));
+    const discovered = new Set(lastVisited.keys());
+    // The current location is always part of your own view, even pre-record.
+    discovered.add(current);
+
+    const nodes: DiscoveredGraph["nodes"] = [];
+    for (const name of discovered) {
+      const loc = this.locationRepo.findByName(name);
+      if (!loc) continue;
+      nodes.push({
+        name: loc.name,
+        emoji: loc.emoji,
+        isSafe: loc.is_safe === 1,
+        nodeTier: loc.node_tier,
+        region: loc.region,
+        lastVisitedAt: lastVisited.get(name) ?? "",
+      });
+    }
+
+    const edges: DiscoveredGraph["edges"] = [];
+    const frontiers: DiscoveredGraph["frontiers"] = [];
+    for (const e of this.edgeRepo.all()) {
+      if (!discovered.has(e.from_location)) continue;
+      if (e.to_location === null) {
+        frontiers.push({ from: e.from_location, direction: e.direction, teaser: e.teaser, difficulty: e.difficulty });
+      } else if (discovered.has(e.to_location)) {
+        edges.push({ from: e.from_location, to: e.to_location, direction: e.direction, difficulty: e.difficulty, flavour: e.flavour });
+      }
+    }
+
+    return { current, nodes, edges, frontiers };
+  }
+
+  /** Least-cost route over the shared graph (Dijkstra on edge difficulty). The
+   *  cost is the Σ-difficulty stamina price; null when unreachable (§2). */
+  routeBetween(from: string, to: string): TravelRoute | null {
+    return findRoute(from, to, (name) =>
+      this.edgeRepo.neighbours(name).map((n) => ({ name: n.name, difficulty: n.difficulty })),
+    );
   }
 
   // ── Feedback & bugs ──

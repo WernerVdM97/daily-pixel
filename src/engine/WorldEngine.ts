@@ -77,7 +77,7 @@ export interface ActionState {
 }
 
 export interface WorldMutation {
-  type: 'set_location' | 'modify_health' | 'modify_stamina'
+  type: 'set_location' | 'cross_frontier' | 'modify_health' | 'modify_stamina'
       | 'modify_wealth' | 'modify_rolls_remaining'
       | 'modify_max_stamina'
       | 'add_item' | 'remove_item' | 'spawn_npc';
@@ -167,6 +167,47 @@ export interface JournalAction {
   narrative?: string | null;
 }
 
+/** A discovered node in a player's fog-of-war view of the shared graph (§5). */
+export interface DiscoveredNode {
+  name: string;
+  emoji: string | null;
+  isSafe: boolean;
+  nodeTier: number;
+  region: string | null;
+  lastVisitedAt: string;
+}
+
+/** A charted edge between two discovered nodes. */
+export interface DiscoveredEdge {
+  from: string;
+  to: string;
+  direction: string;
+  difficulty: number;
+  flavour: string | null;
+}
+
+/** An unexplored frontier exit radiating from a discovered node. */
+export interface DiscoveredFrontier {
+  from: string;
+  direction: string;
+  teaser: string | null;
+  difficulty: number;
+}
+
+/** A player's discovered subgraph — the masked view `/map` renders (§5). */
+export interface DiscoveredGraph {
+  current: string;
+  nodes: DiscoveredNode[];
+  edges: DiscoveredEdge[];
+  frontiers: DiscoveredFrontier[];
+}
+
+/** Result of routing between two charted nodes (§2). */
+export interface TravelRoute {
+  path: string[];
+  cost: number;
+}
+
 export interface NpcMovement {
   npcId: number;
   npcName: string;
@@ -248,6 +289,13 @@ export interface WorldEngine {
 
   // Journal
   getJournal(characterId: number): JournalData;
+
+  // Map — the player's fog-of-war view of the shared graph (§5).
+  getDiscoveredGraph(characterId: number): DiscoveredGraph;
+
+  /** Least-cost route (Dijkstra over edge difficulty) between two charted nodes;
+   *  cost is the Σ-difficulty stamina price. Null when unreachable (§2). */
+  routeBetween(from: string, to: string): TravelRoute | null;
 
   // Feedback & bugs — actionId links the report to the action whose outcome the button was
   // on (undefined for the /feedback, /bug slash commands and the nightly/release prompts).

@@ -1,0 +1,100 @@
+# The seed world — the home Vale around the Warden's Oak.
+#
+# This is the authoritative geography for a FRESH instance: every node's tier,
+# region, emoji and safety. The migration's prod backfill is a one-shot for the
+# soon-offlined POC DB; THIS file is the going-forward source of truth.
+#
+# node_tier: 0 = the Oak (super-hub root) · 1 = district hub · 2 = leaf location.
+# is_safe:   1 = sanctuary (no danger tick) · 0 = wild.
+# emoji:     the first glyph on every /map line (fallback 📍 if ever missing).
+#
+# Edges between these nodes live in edges.yml. Day-job `workplace_location`
+# values (char-creation/day-jobs.yml) must all be names that appear here.
+
+- name: "The Warden's Oak"
+  node_tier: 0
+  region: "The Vale"
+  emoji: "🌳"
+  is_safe: 1
+  tags: "oak,interior,fire,sanctuary"
+  description: "A massive ancient oak tree that serves as the heart of the territory. Its branches stretch wide, offering shelter to all who gather beneath."
+
+- name: "Town Square"
+  node_tier: 1
+  region: "The Vale"
+  emoji: "🏛️"
+  is_safe: 1
+  tags: "town,square,buildings,cobblestone,market"
+  description: "Cobblestones gleaming with last night's rain. Market stalls crowd the edges — fish, cloth, old copper. A fountain gurgles in the centre."
+
+- name: "The Town Forge"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "🔥"
+  is_safe: 1
+  tags: "forge,smithy,town,fire,building"
+  description: "Heat and iron. A stone smithy near the square where the bellows never rest. The walls are black with years of soot."
+
+- name: "The Weary Lantern Inn"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "🍺"
+  is_safe: 1
+  tags: "tavern,interior,fire,crowd,drink"
+  description: "Smoke-stained beams and a fire that never quite warms the corners. The barman pours before you ask. Someone in the far booth is watching."
+
+- name: "The Warden's Library"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "📚"
+  is_safe: 1
+  tags: "library,study,scrolls,quiet,building"
+  description: "Shelves climb the walls of a round stone room. Dust motes float in the lantern light. Not all the books are in a language you know."
+
+- name: "The Shrine of the First Flame"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "⛪"
+  is_safe: 1
+  tags: "shrine,temple,holy,stone,quiet"
+  description: "A low stone temple at the edge of town. One candle burns in the alcove — it has never gone out. The silence here is heavier than it should be."
+
+- name: "The Forest Edge"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "🌿"
+  is_safe: 0
+  tags: "forest,edge,trees,field,boundary,wilderness"
+  description: "Where the farmland yields to the treeline. The Oak is still visible behind you, but the canopy ahead swallows the light."
+
+- name: "The Dark Pines"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "🌲"
+  is_safe: 0
+  tags: "forest,trees,wilderness,dark,canopy"
+  description: "Dense ancient forest where the canopy blocks the sky. Roots twist like old bones. Something moves between the trunks — too large for a deer."
+
+- name: "The River Crossing"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "🌊"
+  is_safe: 0
+  tags: "river,water,stream,crossing,bank,wilderness"
+  description: "A broad, shallow ford where the Stonebrook runs clear over worn pebbles. Tracks of every creature that drinks here press into the soft bank."
+
+- name: "The East Road"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "🛤️"
+  is_safe: 0
+  tags: "road,travel,open,path,horizon"
+  description: "A dirt track running east from the Oak, past farmland and into the treeline. The ruts are deeper than last season. Fewer carts come back."
+
+- name: "The Broken Keep"
+  node_tier: 2
+  region: "The Vale"
+  emoji: "🏚️"
+  is_safe: 0
+  tags: "ruins,ancient,stone,broken,old,wilderness"
+  description: "Ruins of something older than the Oak. Walls lean at angles that shouldn't hold. Locals say the stones whisper on moonless nights."

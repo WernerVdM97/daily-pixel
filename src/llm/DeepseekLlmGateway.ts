@@ -649,7 +649,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       const hasReward = (raw.mutations as Array<Record<string, unknown>>).some(m => {
         if (!m || typeof m !== 'object') return false;
         const type = String(m.type ?? '');
-        if (['add_item', 'spawn_npc', 'set_location'].includes(type)) return true;
+        if (['add_item', 'spawn_npc', 'set_location', 'cross_frontier'].includes(type)) return true;
         if (['modify_wealth', 'modify_rolls_remaining'].includes(type)) return Number(m.amount ?? 0) > 0;
         return false;
       });

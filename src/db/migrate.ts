@@ -1,6 +1,33 @@
 import type Database from 'better-sqlite3';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { MIGRATIONS } from './migrations/index.js';
 import type { Migration } from './migrations/types.js';
+import { loadAndValidate, validateLocationSeed, validateEdgeSeed } from '../assets/asset-schemas.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const WORLD_DIR = path.join(__dirname, '..', '..', 'assets', 'world');
+
+/** A seed location node (assets/world/locations.yml). */
+export interface LocationSeed {
+  name: string;
+  description: string;
+  tags: string;
+  is_safe: 0 | 1;
+  node_tier: 0 | 1 | 2;
+  region: string;
+  emoji: string;
+}
+
+/** A seed edge (assets/world/edges.yml); `to: null` is a frontier exit. */
+export interface EdgeSeed {
+  from: string;
+  to: string | null;
+  direction: string;
+  difficulty: 1 | 2 | 3;
+  flavour?: string | null;
+  teaser?: string | null;
+}
 
 /** Thrown when a migration batch fails and is rolled back. Carries the original
  *  error as `cause` and names it in the message so the admin alert is actionable. */
@@ -18,12 +45,30 @@ export class MigrationError extends Error {
 export function migrate(db: Database.Database): void {
   runMigrations(db);
 
-  // Seed locations and NPCs (skip in test environments to avoid collision with
-  // test fixtures). The Oak location + meta keys are seeded by schema.sql itself.
+  // Seed the world (locations + edges) and NPCs (skip in test environments to
+  // avoid collision with fixtures). The Oak row + meta keys are seeded by
+  // schema.sql; seedWorld layers geometry + edges on top idempotently.
   if (!process.env.VITEST) {
     seedLocations(db);
     seedNpcs(db);
+
+    // One-shot prod backfill: must run AFTER seedWorld so the home-cluster
+    // geometry + names exist to distinguish seed nodes from legacy off-map ones.
+    // Idempotent in effect, but meta-flagged so it scrapes the action log only
+    // once (and never re-flags an enriched node). On a fresh DB it's a clean
+    // no-op (no characters/actions) and simply records the flag.
+    if (!isWorldBackfillDone(db)) {
+      backfillLegacyWorld(db, SEEDED_LOCATIONS.map((l) => l.name));
+      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('world_backfill_done', '1')").run();
+    }
   }
+}
+
+function isWorldBackfillDone(db: Database.Database): boolean {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'world_backfill_done'").get() as
+    | { value: string }
+    | undefined;
+  return row?.value === '1';
 }
 
 /**
@@ -78,39 +123,159 @@ export function runMigrations(db: Database.Database, migrations: Migration[] = M
 }
 
 /**
- * The locations seeded into a fresh DB. Exported as the single source of truth
- * so the cross-file asset check (day-job `workplace_location` ⊆ seeded locations,
- * `checkDayJobLocations`) validates against the same list `seedLocations` writes.
- * NOTE: that cross-file check is a TEST-gate assertion, not boot fail-fast — it
- * runs in `tests/assets/asset-schemas.test.ts`, not in `index.ts`. Only the
- * per-file shape validators (`loadAndValidate`) run at boot.
+ * The seed world, loaded + validated from `assets/world/*.yml` at module load.
+ * Exported as the single source of truth so the cross-file asset checks
+ * (`checkDayJobLocations`, `checkEdgeReferences`) validate against the same data
+ * `seedWorld` writes. The eager load is fail-fast: a malformed asset throws at
+ * import, crashing boot loudly rather than seeding a broken world.
+ *
+ * NOTE: the cross-file checks are TEST-gate assertions, not boot fail-fast — they
+ * run in `tests/assets/asset-schemas.test.ts`. Only the per-file shape validators
+ * (`loadAndValidate`) run at boot/import.
  */
-export const SEEDED_LOCATIONS = [
-    { name: "The Warden's Oak", description: 'A massive ancient oak tree that serves as the heart of the territory. Its branches stretch wide, offering shelter to all who gather beneath.', tags: 'oak,interior,fire,sanctuary', is_safe: 1 },
-    { name: 'The Forest Edge', description: 'Where the farmland yields to the treeline. The Oak is still visible behind you, but the canopy ahead swallows the light.', tags: 'forest,edge,trees,field,boundary,wilderness', is_safe: 0 },
-    { name: 'The Dark Pines', description: 'Dense ancient forest where the canopy blocks the sky. Roots twist like old bones. Something moves between the trunks — too large for a deer.', tags: 'forest,trees,wilderness,dark,canopy', is_safe: 0 },
-    { name: 'The River Crossing', description: 'A broad, shallow ford where the Stonebrook runs clear over worn pebbles. Tracks of every creature that drinks here press into the soft bank.', tags: 'river,water,stream,crossing,bank,wilderness', is_safe: 0 },
-    { name: 'Town Square', description: 'Cobblestones gleaming with last night\'s rain. Market stalls crowd the edges — fish, cloth, old copper. A fountain gurgles in the centre.', tags: 'town,square,buildings,cobblestone,market', is_safe: 1 },
-    { name: 'The Shrine of the First Flame', description: 'A low stone temple at the edge of town. One candle burns in the alcove — it has never gone out. The silence here is heavier than it should be.', tags: 'shrine,temple,holy,stone,quiet', is_safe: 1 },
-    { name: 'The Broken Keep', description: 'Ruins of something older than the Oak. Walls lean at angles that shouldn\'t hold. Locals say the stones whisper on moonless nights.', tags: 'ruins,ancient,stone,broken,old,wilderness', is_safe: 0 },
-    { name: 'The East Road', description: 'A dirt track running east from the Oak, past farmland and into the treeline. The ruts are deeper than last season. Fewer carts come back.', tags: 'road,travel,open,path,horizon', is_safe: 0 },
-    { name: 'The Weary Lantern Inn', description: 'Smoke-stained beams and a fire that never quite warms the corners. The barman pours before you ask. Someone in the far booth is watching.', tags: 'tavern,interior,fire,crowd,drink', is_safe: 1 },
-    { name: 'The Town Forge', description: 'Heat and iron. A stone smithy near the square where the bellows never rest. The walls are black with years of soot.', tags: 'forge,smithy,town,fire,building', is_safe: 1 },
-    { name: "The Warden's Library", description: "Shelves climb the walls of a round stone room. Dust motes float in the lantern light. Not all the books are in a language you know.", tags: 'library,study,scrolls,quiet,building', is_safe: 1 },
-] as const;
+export const SEEDED_LOCATIONS = loadAndValidate<LocationSeed>(
+  path.join(WORLD_DIR, 'locations.yml'),
+  validateLocationSeed,
+);
+export const SEEDED_EDGES = loadAndValidate<EdgeSeed>(
+  path.join(WORLD_DIR, 'edges.yml'),
+  validateEdgeSeed,
+);
 
-function seedLocations(db: Database.Database): void {
-  const stmt = db.prepare(`
-    INSERT OR IGNORE INTO locations (name, description, tags, is_safe)
-    VALUES (@name, @description, @tags, @is_safe)
+/**
+ * Seed the shared world graph idempotently. New rows get full geometry; existing
+ * rows (the Oak from schema.sql, or prod locations) get their geometry columns
+ * set without clobbering enriched `description`/`is_safe`. Edges are INSERT OR
+ * IGNORE on PK `(from_location, direction)` — so a frontier exit already bound by
+ * a crosser is never reset back to NULL.
+ *
+ * Pure over its inputs (no fs) so tests can drive it with fixtures.
+ */
+export function seedWorld(db: Database.Database, nodes: LocationSeed[], edges: EdgeSeed[]): void {
+  const insertNode = db.prepare(`
+    INSERT OR IGNORE INTO locations (name, description, tags, is_safe, node_tier, region, emoji)
+    VALUES (@name, @description, @tags, @is_safe, @node_tier, @region, @emoji)
+  `);
+  const setGeometry = db.prepare(
+    'UPDATE locations SET node_tier = @node_tier, region = @region, emoji = @emoji WHERE name = @name',
+  );
+  const insertEdge = db.prepare(`
+    INSERT OR IGNORE INTO location_edges (from_location, to_location, direction, flavour, teaser, difficulty)
+    VALUES (@from, @to, @direction, @flavour, @teaser, @difficulty)
   `);
 
   const seed = db.transaction(() => {
-    for (const loc of SEEDED_LOCATIONS) {
-      stmt.run(loc);
+    for (const n of nodes) {
+      insertNode.run(n);
+      setGeometry.run({ name: n.name, node_tier: n.node_tier, region: n.region, emoji: n.emoji });
+    }
+    for (const e of edges) {
+      insertEdge.run({
+        from: e.from,
+        to: e.to ?? null,
+        direction: e.direction,
+        flavour: e.flavour ?? null,
+        teaser: e.teaser ?? null,
+        difficulty: e.difficulty,
+      });
     }
   });
   seed();
+}
+
+function seedLocations(db: Database.Database): void {
+  seedWorld(db, SEEDED_LOCATIONS, SEEDED_EDGES);
+}
+
+/** Cardinal pool for arbitrary backfill directions (the real direction is unknown). */
+const BACKFILL_CARDINALS = ['N', 'E', 'S', 'W', 'NE', 'NW', 'SE', 'SW'] as const;
+
+/**
+ * One-shot backfill for the soon-offlined POC prod DB. Brings legacy data into
+ * the geographic model without an LLM pass; everything self-corrects on real
+ * visits going forward (spec §8). THREE tiers of confidence:
+ *
+ *  1. Off-map legacy locations (any row not in the seed set) → `node_tier = 2`,
+ *     a placeholder `emoji`, and `enrichment_pending = 1` so the existing
+ *     cartographer fills `region`/proper geometry on next visit.
+ *  2. Shared edges scraped from each character's `set_location` history
+ *     (oldest-first, starting at the Oak). Direction is genuinely unknown, so we
+ *     assign an arbitrary free cardinal per node (the PK is `(from, direction)`
+ *     and the Oak fans out to many nodes — a literal `'unknown'` would collide).
+ *     Already-connected pairs and saturated nodes (>8 neighbours) are skipped.
+ *  3. Per-player discovery: every existing character is seeded with the home
+ *     cluster + their current location + their scraped visited set.
+ *
+ * Honest caveat: the home spine is exact (YAML); these off-map edges/regions are
+ * approximate and self-correct as real visits record real direction/difficulty.
+ *
+ * Pure over its inputs (takes the seed name list) so tests can drive it with a
+ * fixture action log.
+ */
+export function backfillLegacyWorld(db: Database.Database, seedNames: string[]): void {
+  const SEED = new Set(seedNames);
+  const OAK = "The Warden's Oak";
+
+  const stubGeometry = db.prepare(
+    "UPDATE locations SET node_tier = 2, emoji = COALESCE(emoji, '📍'), enrichment_pending = 1 WHERE name = @name",
+  );
+  const visit = db.prepare(
+    'INSERT OR IGNORE INTO character_locations (character_id, location_name) VALUES (@cid, @name)',
+  );
+  const actionsOf = db.prepare(
+    'SELECT applied_mutations FROM actions WHERE character_id = ? ORDER BY id ASC',
+  );
+  const edgeExists = db.prepare(
+    'SELECT 1 FROM location_edges WHERE (from_location = @a AND to_location = @b) OR (from_location = @b AND to_location = @a) LIMIT 1',
+  );
+  const dirsUsed = db.prepare('SELECT direction FROM location_edges WHERE from_location = ?');
+  const insertEdge = db.prepare(
+    'INSERT OR IGNORE INTO location_edges (from_location, to_location, direction, difficulty) VALUES (@from, @to, @dir, 1)',
+  );
+
+  const recordEdge = (from: string, to: string): void => {
+    if (from === to) return;
+    if (edgeExists.get({ a: from, b: to })) return;
+    const used = new Set((dirsUsed.all(from) as { direction: string }[]).map((d) => d.direction));
+    const dir = BACKFILL_CARDINALS.find((c) => !used.has(c));
+    if (!dir) return; // node already has 8 edges — skip (approximate)
+    insertEdge.run({ from, to, dir });
+  };
+
+  const run = db.transaction(() => {
+    for (const loc of db.prepare('SELECT name FROM locations').all() as { name: string }[]) {
+      if (!SEED.has(loc.name)) stubGeometry.run({ name: loc.name });
+    }
+
+    const chars = db.prepare('SELECT id, location FROM player_characters').all() as
+      { id: number; location: string | null }[];
+
+    for (const ch of chars) {
+      for (const name of seedNames) visit.run({ cid: ch.id, name }); // home cluster, pre-discovered
+      if (ch.location) visit.run({ cid: ch.id, name: ch.location });
+
+      let prev = OAK;
+      for (const r of actionsOf.all(ch.id) as { applied_mutations: string | null }[]) {
+        if (!r.applied_mutations) continue;
+        let muts: unknown;
+        try {
+          muts = JSON.parse(r.applied_mutations);
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(muts)) continue;
+        for (const m of muts) {
+          if (m && m.type === 'set_location' && typeof m.name === 'string' && m.name.trim()) {
+            const to = m.name.trim();
+            visit.run({ cid: ch.id, name: to });
+            recordEdge(prev, to);
+            prev = to;
+          }
+        }
+      }
+    }
+  });
+  run();
 }
 
 function seedNpcs(db: Database.Database): void {

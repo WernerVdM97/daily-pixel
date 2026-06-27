@@ -11,14 +11,23 @@ export interface LlmContext {
     alignment: string;
     dayJob: string;
   };
-  /** `isSafe` drives danger pacing (safe/unsafe tag). Optional: omitted by stripped retry context / bare fixtures. */
-  location: { name: string; isSafe?: boolean };
+  /** `isSafe` drives danger pacing (safe/unsafe tag); `region` groups the map. Optional: omitted by stripped retry context / bare fixtures. */
+  location: { name: string; isSafe?: boolean; region?: string | null };
   nearbyNpcs: { name: string; description: string }[];
   nearbyPcs: { name: string; class: string }[];
   recentActions: { type: string; outcome: string; narrative?: string | null }[];
-  /** Charted location names, injected as a `KNOWN LOCATIONS` block (v8+) so the LLM reuses real
-   *  names for set_location and only invents for true off-map exploration. Optional: stripped retry context omits it. */
+  /** Charted location names. Pre-v10 this rode a global `KNOWN LOCATIONS` block; v10 replaced
+   *  that with the local `localGeography` exits block. Retained for the audit digest + stripped
+   *  retry context. Optional. */
   knownLocations?: string[];
+  /** v10 "here + exits": the current node's charted exits (legal `set_location`/`move_to`
+   *  targets) and frontier exits (`cross_frontier` invitations). Replaces the global location
+   *  list so movement is local and geographic (per-player-map-exploration §4). Optional: stripped
+   *  retry context / bare fixtures omit it. */
+  localGeography?: {
+    neighbours: { name: string; direction: string; difficulty: number }[];
+    frontiers: { direction: string; teaser: string | null; difficulty: number }[];
+  };
   rawInput: string;
   previousDecisions?: { prompt: string; chosen: string; dcModifier: number }[];
   /** Per-stat summed item bonus (v9 ability-checks `Gear` column). Optional: stripped retry context / bare

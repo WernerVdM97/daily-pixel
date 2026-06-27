@@ -1,0 +1,79 @@
+# Shared edges of the seed world. One coherent place — everyone agrees A connects
+# to B. Stored once per connection (parent → child); routing treats adjacency as
+# symmetric (you can walk a road back). The (from, direction) pair is unique.
+#
+# direction:  canonical cardinal — N S E W NE NW SE SW.
+# difficulty: terrain band, the stamina weight (§2) and /map effort glyph (§5):
+#             1 = road (🚶) · 2 = trail/wild (🏃) · 3 = harsh/ridge (🧗).
+# flavour:    optional prose hint so it doesn't read like a chessboard.
+#
+# A FRONTIER EXIT has `to: null` and a `teaser` — a road that radiates outward
+# with no node on the far side yet. Crossing one mints the destination (shared
+# thereafter). The three named exits below are local lore everyone's heard of.
+
+# ── Spokes off the Oak ──
+- from: "The Warden's Oak"
+  to: "Town Square"
+  direction: "N"
+  difficulty: 1
+  flavour: "up the market road"
+- from: "The Warden's Oak"
+  to: "The Warden's Library"
+  direction: "NW"
+  difficulty: 1
+- from: "The Warden's Oak"
+  to: "The Shrine of the First Flame"
+  direction: "NE"
+  difficulty: 1
+- from: "The Warden's Oak"
+  to: "The Forest Edge"
+  direction: "S"
+  difficulty: 2
+  flavour: "out past the last fields"
+- from: "The Warden's Oak"
+  to: "The River Crossing"
+  direction: "W"
+  difficulty: 2
+- from: "The Warden's Oak"
+  to: "The East Road"
+  direction: "E"
+  difficulty: 1
+
+# ── Off Town Square ──
+- from: "Town Square"
+  to: "The Town Forge"
+  direction: "E"
+  difficulty: 1
+- from: "Town Square"
+  to: "The Weary Lantern Inn"
+  direction: "W"
+  difficulty: 1
+
+# ── Wild reaches ──
+- from: "The Forest Edge"
+  to: "The Dark Pines"
+  direction: "S"
+  difficulty: 3
+  flavour: "deeper under the canopy"
+- from: "The East Road"
+  to: "The Broken Keep"
+  direction: "E"
+  difficulty: 3
+  flavour: "off the ruts, toward the ruin"
+
+# ── The three named frontier exits (uncharted) ──
+- from: "The East Road"
+  to: null
+  direction: "NE"
+  difficulty: 2
+  teaser: "the road runs on to the eastern town"
+- from: "The Dark Pines"
+  to: null
+  direction: "S"
+  difficulty: 3
+  teaser: "the trees never thin — the deep woods swallow the trail"
+- from: "The River Crossing"
+  to: null
+  direction: "W"
+  difficulty: 3
+  teaser: "downriver the banks close in, and caves breathe cold air"

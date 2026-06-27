@@ -2,13 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
 import { MockLlmGateway } from '../../src/llm/MockLlmGateway.js';
 import { initDb, closeDb, getDb } from '../../src/db/connection.js';
-import { migrate } from '../../src/db/migrate.js';
+import { migrate, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { UserRepository } from '../../src/db/repositories/user.js';
 import { CharacterRepository } from '../../src/db/repositories/character.js';
 import { ItemRepository } from '../../src/db/repositories/item.js';
 import { ActionRepository } from '../../src/db/repositories/action.js';
 import { NpcRepository } from '../../src/db/repositories/npc.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
+import { LocationEdgeRepository } from '../../src/db/repositories/locationEdge.js';
 import type { LlmDecision } from '../../src/llm/LlmGateway.js';
 
 // RED: tests fail because WorldEngineImpl doesn't exist yet
@@ -97,6 +98,7 @@ describe('WorldEngineImpl — action state machine integration', () => {
   beforeEach(() => {
     initDb(':memory:');
     migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES); // VITEST skips auto-seed; movement is now graph-validated
     llm = new MockLlmGateway();
     userRepo = new UserRepository(getDb());
     charRepo = new CharacterRepository(getDb());
@@ -237,31 +239,49 @@ describe('WorldEngineImpl — action state machine integration', () => {
       });
     });
 
-    // ── D3 lazy world growth: a set_location to an unseeded name creates a
-    //    provisional row so the player is never stranded (ADR §D3) ──
-    describe('D3 lazy location creation', () => {
+    // ── Graph-validated movement (per-player-map-exploration §2): set_location only
+    //    reaches charted nodes; new ground is born ONLY via cross_frontier. No
+    //    lazy-create from arbitrary names anymore. ──
+    describe('graph-validated movement', () => {
       let locationRepo: LocationRepository;
       beforeEach(() => {
         locationRepo = new LocationRepository(getDb());
       });
 
-      it('creates a provisional row for an unknown set_location and moves the player there', async () => {
+      it('drops a set_location to an unknown/unreachable name — no row, no move', async () => {
         llm.setDecision({
           distilledType: 'travel', stat: 'physical', baseDc: 10,
           required: false, done: true, decision: [],
-          mutations: [{ type: 'set_location', name: 'The Hidden Grotto' }],
+          mutations: [{ type: 'set_location', name: 'The Hidden Grotto' }], // not on the graph
           outcomeText: 'You push past the falls into a hidden grotto.',
         });
 
         await engine.startAction(characterId, 'explore behind the waterfall');
 
-        const loc = locationRepo.findByName('The Hidden Grotto');
+        // No lazy-create: the phantom name never becomes a row…
+        expect(locationRepo.findByName('The Hidden Grotto')).toBeUndefined();
+        // …and the player stays put (the illegal move was dropped).
+        expect(charRepo.findById(characterId)!.location).toBe("The Warden's Oak");
+      });
+
+      it('mints new ground via cross_frontier across a real frontier exit', async () => {
+        charRepo.update(characterId, { location: 'The East Road' }); // has the NE frontier
+        llm.setDecision({
+          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }],
+          outcomeText: 'The road crests a rise and Eastvale opens below.',
+        });
+
+        await engine.startAction(characterId, 'follow the road east');
+
+        const loc = locationRepo.findByName('Eastvale');
         expect(loc).toBeDefined();
-        expect(loc!.is_safe).toBe(0);                 // off-map wilds unsafe until charted
-        expect(loc!.enrichment_pending).toBe(1);      // awaiting the cartographer
-        expect(loc!.description).toBeTruthy();         // placeholder, not null
-        // The player actually landed there (renderable, not phantom).
-        expect(charRepo.findById(characterId)!.location).toBe('The Hidden Grotto');
+        expect(loc!.enrichment_pending).toBe(1);     // awaiting the cartographer
+        expect(charRepo.findById(characterId)!.location).toBe('Eastvale');
+        // The frontier exit is now bound (shared thereafter).
+        const edge = new LocationEdgeRepository(getDb()).find('The East Road', 'NE');
+        expect(edge!.to_location).toBe('Eastvale');
       });
 
       it('reuses an existing location (case-insensitive) — no new row, snaps to canonical', async () => {
@@ -587,6 +607,7 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
   function setup(cartographer?: { enrich: (i: { newName: string; existingNames: string[]; narrative: string }) => Promise<unknown> }) {
     initDb(':memory:');
     migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES); // need the seeded frontier exits to cross
     llm = new MockLlmGateway();
     const userRepo = new UserRepository(getDb());
     charRepo = new CharacterRepository(getDb());
@@ -601,14 +622,18 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
       ...(cartographer ? { cartographer: cartographer as any } : {}),
     });
     characterId = createTestChar(userRepo, charRepo).characterId;
+    // Stand at a node with an unbound frontier exit so cross_frontier can mint.
+    charRepo.update(characterId, { location: 'The East Road' });
   }
 
   afterEach(() => { closeDb(); });
 
+  // Crossing the NE frontier off The East Road mints "The Sunken Vault" — the new
+  // ground the cartographer then charts. (The LLM coins the name on arrival.)
   const travelToNovelPlace = (): LlmDecision => ({
     distilledType: 'travel', stat: 'physical', baseDc: 10,
     required: false, done: true, decision: [],
-    mutations: [{ type: 'set_location', name: 'The Sunken Vault' }],
+    mutations: [{ type: 'cross_frontier', direction: 'NE', name: 'The Sunken Vault' }],
     outcomeText: 'You descend a flooded stair into a sunken vault.',
   });
 

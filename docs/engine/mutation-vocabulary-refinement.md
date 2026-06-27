@@ -66,8 +66,11 @@ Rename table (changes in **bold**):
 | `spawn_npc` | **`add_npc`** | Aligns NPC creation with `add_item` |
 | — | **`update_npc`** | New — see §2 |
 | — | **`remove_npc`** | New — death/departure |
-| `set_location` | **`move_to`** | "Relocate the character." Unknown name still lazily creates the place |
+| `set_location` | **`move_to`** | "Relocate the character" to a **known, reachable** node. (v11 rename; until then `set_location` carries this.) |
+| — | **`cross_frontier`** | New — the **exploration verb**: cross a dangling frontier exit `{ direction, name }`, minting + binding the place on the far side. Ships in **v10** with the map (the map is inert without it). See §3. |
 | — | **`reveal_location`** | New — a place exists / is learned of, **without** moving there |
+
+- [>] **Update 2026-06-27 — frontier crossing is its own verb (`cross_frontier`), not folded into `move_to`.** Building [[per-player-map-exploration]] surfaced that a `move_to {name}` cannot express *which* frontier a new name binds to: a frontier exit is identified by **direction** (e.g. "NE from The East Road") and is unnamed until crossed, so a node with >1 frontier is ambiguous. Overloading `move_to` to mean both "go to a known node" and "mint new ground" re-creates the exact `set_location` overload this spark set out to kill. Resolution: **`cross_frontier { direction, name }`** — the LLM names the place it's walking into (narrative-facing naming stays with the decision LLM, per the map spec §3) and states the `direction`; the engine binds that exact exit (`bindFrontier`), mints the destination, and fires the cartographer for the *rest* of the geometry (region/tier/emoji/onward teasers). `move_to` is then cleanly "known reachable node only." Because the map (`v10`) cannot function without a crossing mechanism, `cross_frontier` ships **with the map in v10**; the `set_location → move_to` rename + `reveal_location` + the NPC verbs remain the `v11` cleanup.
 
 - [p] Old v8 action-row JSON keeps its vocabulary and stays attributable to `decision-v8` — those rows are audit data, never re-applied, so the validator only ever sees fresh v-next output. The rename is clean.
 
@@ -101,7 +104,7 @@ A name is a weak key: it false-**merges** (two `Bandit`s, two `Grey Wolf`s are d
 ### 3. `set_location` split → `move_to` + `reveal_location`
 
 - [!] **Coordinate with the *decided* [[per-player-map-exploration]] — it changes the substrate `move_to` sits on.** That rework makes movement **engine-validated against a shared hub-and-spoke graph**: a resolved `move_to`/`set_location` must target a graph-reachable node or a **frontier exit being crossed**, which **closes the "move to any unknown name → lazy-create" hole** this section assumes (`per-player-map-exploration` §2). The verb *rename* is unaffected; the lazy-create *semantics* defer to the map model. Whichever ships first dictates `move_to`'s behaviour.
-- [I] **`move_to { location }`** — relocates the character (verb rename of `set_location`). Lazy-create-on-unknown-name applies **only pre-map-rework**; once [[per-player-map-exploration]] lands, `move_to` is graph-validated (reachable node or frontier crossing) and no longer mints arbitrary names.
+- [I] **`move_to { location }`** — relocates the character to a **known, reachable** node (verb rename of `set_location`, v11). Lazy-create-on-unknown-name applied **only pre-map-rework**; once [[per-player-map-exploration]] lands, `move_to` is graph-validated and **no longer mints** — minting new ground is `cross_frontier`'s job (above), not `move_to`'s. An illegal `move_to` (unreachable, non-frontier) is rejected.
 - [I] **`reveal_location { name, is_safe?, description? }`** — introduces/describes a place on the map **without** moving the character there ("you spot a watchtower on the ridge"). Resolves the v8 overload: knowing a place exists is now distinct from being there.
 - [I] Both `move_to` (on a novel name) and `reveal_location` may optionally carry `is_safe`/`description` so a freshly-discovered place isn't always defaulted unsafe + async-guessed.
 - [>] **Location provenance — `created_by_action_id` on `locations` — is now OWNED by the *decided* [[per-player-map-exploration]]** (its geography migration adds it alongside `node_tier`/`region`/`emoji`); this spark **cedes** the column there rather than re-proposing it. The rationale below stands as *why* it matters. `npcs` already records which action spawned it (`schema.sql:71` + `idx_npcs_created_by_action`), but `locations` has no such column — a lazily-created place (D3, [[roll-economy-timeouts-and-world-growth]]) loses the action that birthed it. Add a nullable `created_by_action_id INTEGER REFERENCES actions(id)` to `locations` and stamp it when `move_to`/`reveal_location` creates a new row (NULL for the seeded starter map, exactly like seeded NPCs). Pure provenance/data-mining symmetry — it makes "which actions grew the world, and what prompted each new place" queryable, and pairs with the per-player `discovered_from` tree in [[per-player-map-exploration]] (that's *who reached it*; this is *what created it*). Additive guarded migration; no behaviour change.
@@ -117,7 +120,7 @@ The category set, derived from `decision-v9.md` §4 (the old v8 §4a) and rounde
 | `category` | Covers | Signature mutations |
 |---|---|---|
 | `combat` | fights, encounters | stamina− · health− · loot (`add_item`) · `update_npc`(hostile)/`remove_npc`(slain) |
-| `travel` | moving, exploring | **`move_to`** · stamina− · `add_npc`(met on road) · found item |
+| `travel` | moving, exploring | **`move_to`** (known node) · **`cross_frontier`** (explore new ground) · stamina− · `add_npc`(met on road) · found item |
 | `social` | talk, persuade, barter, intimidate | wealth± · `add_npc`(contact) · `update_npc` · gift/trade items |
 | `skill` | train, practice, craft, perform | stamina− · max_stamina+ · rolls+ |
 | `search` | scavenge, forage, loot, investigate | `add_item` · stamina− |

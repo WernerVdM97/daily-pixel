@@ -5,6 +5,17 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+### Added
+- **Shared hub-and-spoke world graph + per-player fog-of-war (map foundation)** — the flat location list becomes one coherent, edge-connected map (`location_edges`), masked per player by what they've discovered (`character_locations`). Locations gain `node_tier`/`region`/`emoji`/`created_by_action_id`. The seed world (the home Vale + 3 named frontier exits) now loads from `assets/world/locations.yml` + `edges.yml` (validated at boot) for fresh instances; a guarded migration (`202606270000_geography`) adds the schema and one-shot-backfills the existing prod DB (off-map nodes from the `set_location` history, per-player visited sets). See [[per-player-map-exploration]].
+- **Deterministic, engine-owned travel** — `routeBetween` (Dijkstra over edge `difficulty`) and `getDiscoveredGraph` power movement and the upcoming `/map`. Stamina cost is `Σ(edge difficulty)`; the LLM never emits the number.
+- **`cross_frontier` mutation — the exploration verb** — crossing a frontier exit `{ direction, name }` is the ONLY way new ground is born: it mints the destination, binds the exit (shared for everyone after), and fires the cartographer to chart it. A failed roll doesn't break new ground.
+
+### Changed
+- **Movement is graph-validated (decision prompt → v10)** — `set_location` now only reaches a charted, reachable node (unknown/unreachable targets are dropped — no more teleport-anywhere / lazy-create-from-thin-air). The decision prompt swaps the global `Known locations` list for a local **"Exits from here"** block (charted exits to travel to · uncharted frontiers to cross) and teaches `set_location` vs `cross_frontier`. `PROMPT_VERSION` → `v10` (`decision-v10.md` + `current_source.md`). New players start with the home Vale already discovered.
+- **`actions.location_name`** — each action snapshots the origin location the character acted from (audit/provenance; deliberately a name snapshot, not an FK).
+
+### Internal
+- New repos `locationEdge` / `characterLocation`; `geography.ts` pure routing; `applyGeography` replaces the lazy-create path in the engine. Frontier-crossing protocol recorded in [[mutation-vocabulary-refinement]] (`cross_frontier` is a distinct verb; the `set_location → move_to` rename stays v11).
 
 ## [0.2.5] - 2026-06-27
 ### Added

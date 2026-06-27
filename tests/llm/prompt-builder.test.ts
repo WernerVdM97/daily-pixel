@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildUserMessage } from '../../src/llm/prompt-builder.js';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildUserMessage, PROMPT_VERSION } from '../../src/llm/prompt-builder.js';
+
+const PROMPTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets', 'prompts', 'decision-prompts');
 import type { LlmContext } from '../../src/llm/LlmGateway.js';
 
 /** A fully-populated v9 context for the markdown briefing. */
@@ -141,5 +146,58 @@ describe('buildUserMessage — v9 markdown briefing', () => {
     expect(msg).toContain('## Reviewer note');
     expect(msg).toContain('rejected for incoherence: narration says you win but the roll FAILED');
     expect(msg).not.toContain('> narration says you win'); // a directive, not in-world speech
+  });
+});
+
+describe('buildUserMessage — v10 here & exits block', () => {
+  const withGeo = (overrides = {}) => fullContext({
+    location: { name: 'The East Road', isSafe: false, region: 'The Vale' },
+    localGeography: {
+      neighbours: [
+        { name: 'The Warden\'s Oak', direction: 'W', difficulty: 1 },
+        { name: 'The Broken Keep', direction: 'E', difficulty: 3 },
+      ],
+      frontiers: [{ direction: 'NE', teaser: 'the road runs on to the eastern town', difficulty: 2 }],
+    },
+    ...overrides,
+  });
+
+  it('renders region on the Scene line', () => {
+    expect(buildUserMessage(withGeo())).toContain('Location: The East Road · The Vale — unsafe');
+  });
+
+  it('lists charted exits as named travel targets with effort', () => {
+    const msg = buildUserMessage(withGeo());
+    expect(msg).toContain('### Exits from here');
+    expect(msg).toContain('Charted (travel here by name):');
+    expect(msg).toContain("- W → The Warden's Oak (effort 1)");
+    expect(msg).toContain('- E → The Broken Keep (effort 3)');
+  });
+
+  it('lists frontier exits as cross_frontier invitations with direction + teaser', () => {
+    const msg = buildUserMessage(withGeo());
+    expect(msg).toContain('Uncharted frontier (cross to explore — emit cross_frontier with the direction):');
+    expect(msg).toContain('- NE — the road runs on to the eastern town (effort 2)');
+  });
+
+  it('omits the section entirely when there are no exits', () => {
+    const msg = buildUserMessage(fullContext({ localGeography: { neighbours: [], frontiers: [] } }));
+    expect(msg).not.toContain('### Exits from here');
+  });
+
+  it('no longer renders a global "Known locations" block', () => {
+    expect(buildUserMessage(withGeo())).not.toContain('### Known locations');
+  });
+});
+
+describe('prompt version + current_source mirror (AGENTS.md convention)', () => {
+  it('current_source.md is byte-identical to the active decision-<PROMPT_VERSION>.md', () => {
+    const active = readFileSync(path.join(PROMPTS_DIR, `decision-${PROMPT_VERSION}.md`), 'utf-8');
+    const mirror = readFileSync(path.join(PROMPTS_DIR, 'current_source.md'), 'utf-8');
+    expect(mirror).toBe(active);
+  });
+
+  it('the map foundation runs on v10+', () => {
+    expect(PROMPT_VERSION).toBe('v10');
   });
 });

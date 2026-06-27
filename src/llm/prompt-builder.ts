@@ -3,7 +3,7 @@
 // outcomes trace back to the prompt that produced them.
 // To cut a new version: copy decision-<old>.md → decision-<new>.md, edit, bump this
 // string, keep old files, and mirror the new file into current_source.md.
-export const PROMPT_VERSION = 'v9';
+export const PROMPT_VERSION = 'v10';
 
 // Critic prompt version, independent of PROMPT_VERSION. Stamped on critic llm_calls
 // rows as `critic-<CRITIC_VERSION>` so a verdict traces to the prompt that produced it.
@@ -148,7 +148,8 @@ export function buildUserMessage(ctx: LlmContext): string {
   const safety = ctx.location.isSafe === undefined
     ? ''
     : (ctx.location.isSafe ? ' — safe (sanctuary)' : ' — unsafe (wilds; danger roams)');
-  out.push(`Location: ${ctx.location.name}${safety}`);
+  const region = ctx.location.region ? ` · ${ctx.location.region}` : '';
+  out.push(`Location: ${ctx.location.name}${region}${safety}`);
 
   // ── Present — NPCs and other players, separate labelled lists ──
   if (ctx.nearbyNpcs.length > 0 || ctx.nearbyPcs.length > 0) {
@@ -181,11 +182,26 @@ export function buildUserMessage(ctx: LlmContext): string {
     }
   }
 
-  // ── Known locations — reference for set_location reuse (inline, not a list) ──
-  if (ctx.knownLocations && ctx.knownLocations.length > 0) {
+  // ── Here & exits (v10) — the local, geographic travel menu. Charted exits are
+  // legal move targets (set_location); frontier exits are the cross_frontier
+  // invitations (direction + teaser, no node yet). Replaces the global location list. ──
+  const geo = ctx.localGeography;
+  if (geo && (geo.neighbours.length > 0 || geo.frontiers.length > 0)) {
     out.push('');
-    out.push('### Known locations');
-    out.push(ctx.knownLocations.join(' · '));
+    out.push('### Exits from here');
+    if (geo.neighbours.length > 0) {
+      out.push('Charted (travel here by name):');
+      for (const n of geo.neighbours) {
+        out.push(`- ${n.direction} → ${n.name} (effort ${n.difficulty})`);
+      }
+    }
+    if (geo.frontiers.length > 0) {
+      out.push('Uncharted frontier (cross to explore — emit cross_frontier with the direction):');
+      for (const f of geo.frontiers) {
+        const teaser = f.teaser ? ` — ${f.teaser}` : '';
+        out.push(`- ${f.direction}${teaser} (effort ${f.difficulty})`);
+      }
+    }
   }
 
   // ── The ask — the player's intent, fenced as in-world speech, placed last ──
@@ -233,6 +249,8 @@ export function buildContextDigest(ctx: LlmContext): string {
     recent: ctx.recentActions.map(a => `${a.type}:${a.outcome}`),
     has_scaling: Boolean(ctx.scalingHint),
     known_locations: ctx.knownLocations?.length ?? 0,  // count only — names are reconstructable
+    exits: ctx.localGeography?.neighbours.length ?? 0,
+    frontiers: ctx.localGeography?.frontiers.length ?? 0,
     prev_decisions: ctx.previousDecisions?.length ?? 0,
   });
 }

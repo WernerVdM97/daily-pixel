@@ -25,9 +25,11 @@ describe('migrate', () => {
     expect(names).toEqual([
       'actions',
       'bug_reports',
+      'character_locations',
       'feedback',
       'items',
       'llm_calls',
+      'location_edges',
       'locations',
       'meta',
       'npcs',

@@ -13,15 +13,20 @@ import {
   checkItemSetCoverage,
   checkDayJobLocations,
   checkAlignmentUniqueness,
+  checkEdgeReferences,
+  validateLocationSeed,
+  validateEdgeSeed,
   STATS,
 } from "../../src/assets/asset-schemas.js";
 import { computeStats, type ClassDef, type ModifierDef } from "../../src/engine/StatComputer.js";
-import { SEEDED_LOCATIONS } from "../../src/db/migrate.js";
+import { SEEDED_LOCATIONS, SEEDED_EDGES } from "../../src/db/migrate.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CC = path.join(ROOT, "assets", "char-creation");
 const RN = path.join(ROOT, "assets", "release-notes");
+const WORLD = path.join(ROOT, "assets", "world");
 const cc = (name: string) => path.join(CC, name);
+const world = (name: string) => path.join(WORLD, name);
 
 // ── T1 · the real shipped files satisfy their schema ──
 describe("T1 — real asset files satisfy their schema", () => {
@@ -31,6 +36,8 @@ describe("T1 — real asset files satisfy their schema", () => {
   it("alignments.yml", () => expect(() => loadAndValidate(cc("alignments.yml"), validateAlignment)).not.toThrow());
   it("day-jobs.yml", () => expect(() => loadAndValidate(cc("day-jobs.yml"), validateDayJob)).not.toThrow());
   it("item-sets.yml", () => expect(() => loadAndValidate(cc("item-sets.yml"), validateItemSet)).not.toThrow());
+  it("world/locations.yml", () => expect(() => loadAndValidate(world("locations.yml"), validateLocationSeed)).not.toThrow());
+  it("world/edges.yml", () => expect(() => loadAndValidate(world("edges.yml"), validateEdgeSeed)).not.toThrow());
 });
 
 // ── T2 · every class/background/race carries all four integer stat modifiers ──
@@ -83,6 +90,10 @@ describe("T4 — cross-file integrity", () => {
   it("alignment law×moral cells are unique", () => {
     const alignments = loadAndValidate<{ name: string; axis: [string, string] }>(cc("alignments.yml"), validateAlignment);
     expect(checkAlignmentUniqueness(alignments)).toEqual([]);
+  });
+
+  it("every edge endpoint is a seeded location and (from, direction) is unique", () => {
+    expect(checkEdgeReferences(SEEDED_EDGES, SEEDED_LOCATIONS.map((l) => l.name))).toEqual([]);
   });
 });
 

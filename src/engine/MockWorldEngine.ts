@@ -10,6 +10,8 @@ import type {
   ItemData,
   NearbyEntity,
   JournalData,
+  DiscoveredGraph,
+  TravelRoute,
   TickResult,
   StatBlock,
   Leaderboards,
@@ -33,6 +35,8 @@ export class MockWorldEngine implements WorldEngine {
   private _items: ItemData[] = [];
   private _nearbyEntities: NearbyEntity[] = [];
   private _journal: JournalData | null = null;
+  private _discoveredGraph: DiscoveredGraph | null = null;
+  private _route: TravelRoute | null = null;
   private _tickResult: TickResult | null = null;
   private _soulsInUnsafe = 0;
   private _leaderboards: Leaderboards = { wealth: [], might: [] };
@@ -114,6 +118,14 @@ export class MockWorldEngine implements WorldEngine {
   }
   setJournal(journal: JournalData): void {
     this._journal = journal;
+  }
+
+  setDiscoveredGraph(graph: DiscoveredGraph): void {
+    this._discoveredGraph = graph;
+  }
+
+  setRoute(route: TravelRoute | null): void {
+    this._route = route;
   }
   setSoulsInUnsafe(count: number): void {
     this._soulsInUnsafe = count;
@@ -260,6 +272,14 @@ export class MockWorldEngine implements WorldEngine {
         recentActions: [],
       }
     );
+  }
+
+  getDiscoveredGraph(_characterId: number): DiscoveredGraph {
+    return this._discoveredGraph ?? { current: "The Warden's Oak", nodes: [], edges: [], frontiers: [] };
+  }
+
+  routeBetween(_from: string, _to: string): TravelRoute | null {
+    return this._route ?? null;
   }
 
   submitFeedback(characterId: number, text: string, actionId?: number): void {

@@ -22,10 +22,17 @@ export interface WorldContextResolver {
   getNearbyNpcs(location: string): Array<{ name: string; description: string }>;
   getNearbyPcs(location: string, excludeCharId: number): Array<{ name: string; class: string }>;
   getRecentActions(characterId: number): Array<{ type: string; outcome: string; narrative?: string | null }>;
-  /** All known location names — so the LLM can generate valid set_location mutations. */
+  /** All known location names — retained for the audit digest + stripped retry context. */
   getKnownLocations(): string[];
   /** Whether the named location is safe (true) or wild (false). Drives the scene safety tag. */
   isLocationSafe(location: string): boolean;
+  /** v10 "here + exits": the current node's region + charted exits (move targets) and frontier
+   *  exits (cross_frontier invitations), so travel is local and geographic. */
+  getLocalGeography(location: string): {
+    region: string | null;
+    neighbours: { name: string; direction: string; difficulty: number }[];
+    frontiers: { direction: string; teaser: string | null; difficulty: number }[];
+  };
 }
 
 /** ActionState plus internal fields stored in the JSON column, not on the public interface. */
@@ -54,6 +61,7 @@ export class ActionStateMachine {
       getRecentActions: () => [],
       getKnownLocations: () => [],
       isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
     },
     /** Optional coherence critic (Thread 2). When present, the resolution beat is critiqued after
      *  applyOutcomeToMutations (where final mutations exist) and a minor outcome_text defect is
@@ -388,8 +396,10 @@ export class ActionStateMachine {
       hintParts.push(`inventory: ${items.map(i => `${i.emoji} ${i.name} (${i.stat}+${i.modifier}, qty ${i.quantity})`).join(', ')}`);
     }
 
-    // Known locations ride their own KNOWN LOCATIONS block (v8+), not the scaling hint.
+    // Known locations: retained for the digest + stripped retry. The PROMPT now renders the
+    // local "here + exits" block (v10) from localGeography instead of this global list.
     const knownLocations = this.resolver.getKnownLocations();
+    const localGeography = this.resolver.getLocalGeography(char.location);
 
     // Structured item data for the v9 markdown prompt: per-stat summed bonus (table `Gear` column)
     // and inventory list. The legacy `scalingHint` above carries the same data for the audit digest.
@@ -411,11 +421,12 @@ export class ActionStateMachine {
         alignment: char.alignment,
         dayJob: char.dayJob,
       },
-      location: { name: char.location, isSafe: this.resolver.isLocationSafe(char.location) },
+      location: { name: char.location, isSafe: this.resolver.isLocationSafe(char.location), region: localGeography.region },
       nearbyNpcs: this.resolver.getNearbyNpcs(char.location),
       nearbyPcs: this.resolver.getNearbyPcs(char.location, char.id),
       recentActions: this.resolver.getRecentActions(char.id),
       knownLocations,
+      localGeography: { neighbours: localGeography.neighbours, frontiers: localGeography.frontiers },
       rawInput,
       ...(previous.length > 0 ? { previousDecisions: previous } : {}),
       itemBonuses: itemBonusByStat,
@@ -464,6 +475,8 @@ export function applyOutcomeToMutations(outcome: string, mutations: WorldMutatio
         return Number(m.amount ?? 0) < 0; // keep only costs, drop gains
       case 'add_item':
         return false; // no rewards on a failed action
+      case 'cross_frontier':
+        return false; // a failed roll doesn't break new ground (per the v10 prompt); fall back instead
       default:
         return true; // set_location, remove_item, spawn_npc stay
     }

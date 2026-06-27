@@ -19,11 +19,13 @@ export class ActionRepository {
     /** JSON array of the mutations actually applied (post-validation, post-failure-strip). */
     appliedMutations?: string | null;
     narrative?: string | null;
+    /** Snapshot of where the character stood when they acted (origin, §6). */
+    locationName?: string | null;
   }): ActionRow {
     // Per-call LLM audit lives in the llm_calls table (linked via action_id).
     const stmt = this.db.prepare(`
-      INSERT INTO actions (character_id, raw_input, type, decisions_json, final_dc, player_rolled, outcome, app_version, prompt_version, applied_mutations, narrative)
-      VALUES (@character_id, @raw_input, @type, @decisions_json, @final_dc, @player_rolled, @outcome, @app_version, @prompt_version, @applied_mutations, @narrative)
+      INSERT INTO actions (character_id, raw_input, type, decisions_json, final_dc, player_rolled, outcome, app_version, prompt_version, applied_mutations, narrative, location_name)
+      VALUES (@character_id, @raw_input, @type, @decisions_json, @final_dc, @player_rolled, @outcome, @app_version, @prompt_version, @applied_mutations, @narrative, @location_name)
     `);
     const result = stmt.run({
       character_id: data.characterId,
@@ -37,6 +39,7 @@ export class ActionRepository {
       prompt_version: data.promptVersion ?? 'v1',
       applied_mutations: data.appliedMutations ?? null,
       narrative: data.narrative ?? null,
+      location_name: data.locationName ?? null,
     });
     const row = this.db
       .prepare('SELECT * FROM actions WHERE id = ?')
