@@ -66,6 +66,7 @@ export class MockWorldEngine implements WorldEngine {
     spawnNpc: { name: string; location: string }[];
     getLeaderboards: number[];
     getMeta: string[];
+    recordVisit: { characterId: number; locationName: string }[];
   } = {
     createCharacter: [],
     getCharacter: [],
@@ -87,6 +88,7 @@ export class MockWorldEngine implements WorldEngine {
     spawnNpc: [],
     getLeaderboards: [],
     getMeta: [],
+    recordVisit: [],
   };
 
   // ── Setters for canned responses ──
@@ -280,6 +282,10 @@ export class MockWorldEngine implements WorldEngine {
 
   routeBetween(_from: string, _to: string): TravelRoute | null {
     return this._route ?? null;
+  }
+
+  recordVisit(characterId: number, locationName: string): void {
+    this.calls.recordVisit.push({ characterId, locationName });
   }
 
   submitFeedback(characterId: number, text: string, actionId?: number): void {

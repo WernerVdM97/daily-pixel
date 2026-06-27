@@ -138,9 +138,16 @@ export interface CartographerInput {
   existingNames: string[];
   /** The narrative that produced the move — the fiction the place should fit. */
   narrative: string;
+  /** Existing region labels — reuse one rather than coin a near-duplicate (map §4 dedup). */
+  knownRegions?: string[];
+  /** The charted node the player crossed FROM (the new place's parent on the graph). */
+  fromLocation?: string;
+  /** That parent's region — the natural default when the new place sits just past it. */
+  fromRegion?: string | null;
 }
 
-/** Structured result from the cartographer. All fields optional/defaulted by the caller. */
+/** Structured result from the cartographer. All fields optional/defaulted by the caller; the
+ *  engine validates structural fields (never trusts the LLM for hierarchy — map §4). */
 export interface CartographerResult {
   /** If set, the new name is really an existing location (a synonym) — caller may skip enrichment. */
   matchesExisting?: string;
@@ -150,6 +157,15 @@ export interface CartographerResult {
   description?: string;
   /** Comma-separated scene tags (drawn from the palette) used to pick the location's ASCII art. */
   tags?: string;
+  /** Region label — reuse an existing grouping or a new one (e.g. "The Ashen Reach"). */
+  region?: string;
+  /** A single emoji for the /map glyph (engine falls back to 📍). */
+  emoji?: string;
+  /** 1 = district hub · 2 = leaf. Engine validates + defaults to 2. */
+  node_tier?: 1 | 2;
+  /** 1–3 onward frontier exits radiating from the new place — the next invitations to explore.
+   *  Direction is assigned by the engine (a free cardinal); difficulty is the terrain band. */
+  onwardFrontiers?: Array<{ teaser: string; difficulty: 1 | 2 | 3 }>;
 }
 
 /**

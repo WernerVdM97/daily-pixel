@@ -587,15 +587,19 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
     is_safe?: 0 | 1;
     description?: string;
     tags?: string;
+    region?: string;
+    emoji?: string;
+    node_tier?: 1 | 2;
+    onwardFrontiers?: Array<{ teaser: string; difficulty: 1 | 2 | 3 }>;
   }) {
-    const calls: Array<{ newName: string; existingNames: string[]; narrative: string }> = [];
+    const calls: Array<{ newName: string; existingNames: string[]; narrative: string; knownRegions?: string[]; fromLocation?: string; fromRegion?: string | null }> = [];
     let resolveDone!: () => void;
     const done = new Promise<void>((r) => { resolveDone = r; });
     return {
       calls,
       done,
       gateway: {
-        enrich: async (input: { newName: string; existingNames: string[]; narrative: string }) => {
+        enrich: async (input: { newName: string; existingNames: string[]; narrative: string; knownRegions?: string[]; fromLocation?: string; fromRegion?: string | null }) => {
           calls.push(input);
           resolveDone();
           return result;
@@ -698,5 +702,81 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
 
     const loc = locationRepo.findByName('The Sunken Vault')!;
     expect(loc.enrichment_pending).toBe(1); // left provisional, no crash
+  });
+
+  it('charts geometry: region/emoji/node_tier written, with the crossing context passed', async () => {
+    const stub = makeStubCartographer({
+      is_safe: 0, description: 'A drowned hall.', region: 'The Ashen Reach', emoji: '🏚️', node_tier: 1,
+    });
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await stub.done; await Promise.resolve();
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.region).toBe('The Ashen Reach');
+    expect(loc.emoji).toBe('🏚️');
+    expect(loc.node_tier).toBe(1);
+    // The crossing context was handed to the cartographer (parent = The East Road / The Vale).
+    expect(stub.calls[0].fromLocation).toBe('The East Road');
+    expect(stub.calls[0].fromRegion).toBe('The Vale');
+    expect(stub.calls[0].knownRegions).toContain('The Vale');
+  });
+
+  it('falls back to 📍 + the crossing region + tier 2 when the cartographer omits geometry', async () => {
+    const stub = makeStubCartographer({ is_safe: 0, description: 'A bare place.' }); // no region/emoji/tier
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await stub.done; await Promise.resolve();
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.emoji).toBe('📍');
+    expect(loc.region).toBe('The Vale'); // inherited from the crossing node
+    expect(loc.node_tier).toBe(2);
+  });
+
+  it('authors onward frontier exits from the charted place', async () => {
+    const stub = makeStubCartographer({
+      is_safe: 0, description: 'A drowned hall.',
+      onwardFrontiers: [
+        { teaser: 'a stair descends into black water', difficulty: 3 },
+        { teaser: 'a dry tunnel breathes warm air', difficulty: 2 },
+      ],
+    });
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await stub.done; await Promise.resolve();
+
+    const edges = new LocationEdgeRepository(getDb());
+    const onward = edges.frontierExits('The Sunken Vault');
+    expect(onward).toHaveLength(2);
+    expect(onward.map((f) => f.teaser)).toEqual(
+      expect.arrayContaining(['a stair descends into black water', 'a dry tunnel breathes warm air']),
+    );
+    expect(onward.map((f) => f.direction).length).toBe(new Set(onward.map((f) => f.direction)).size); // distinct dirs
+  });
+
+  it('spoke cap: never grows a node past 5 total outgoing spokes', async () => {
+    const stub = makeStubCartographer({
+      is_safe: 0, description: 'A hub.',
+      // 3 onward (capped to ≤3 by parse) — the new node has 0 outgoing edges, so all 3 fit (< 5).
+      onwardFrontiers: [
+        { teaser: 'road A', difficulty: 1 }, { teaser: 'road B', difficulty: 1 }, { teaser: 'road C', difficulty: 1 },
+      ],
+    });
+    setup(stub.gateway);
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await stub.done; await Promise.resolve();
+
+    const edges = new LocationEdgeRepository(getDb());
+    const outgoing = edges.directionsFrom('The Sunken Vault');
+    expect(outgoing.length).toBeLessThanOrEqual(5); // cap respected
+    expect(outgoing.length).toBe(3); // all 3 fit under the cap here
   });
 });

@@ -77,6 +77,7 @@ import { makeBackpackCommand } from "./discord/commands/backpack.js";
 import { makeHelpCommand } from "./discord/commands/help.js";
 import { makeLookCommand } from "./discord/commands/look.js";
 import { makeJournalCommand } from "./discord/commands/journal.js";
+import { makeMapCommand } from "./discord/commands/map.js";
 import { makeFeedbackCommand } from "./discord/commands/feedback.js";
 import { makeBugCommand } from "./discord/commands/bug.js";
 import { makeSleepCommand } from "./discord/commands/sleep.js";
@@ -1274,6 +1275,12 @@ async function main() {
     ),
   );
   registry.register("journal", asHandler(makeJournalCommand(engine)));
+  const mapCommand = makeMapCommand(engine);
+  registry.register("map", async (interaction: unknown) => {
+    const cmd = interaction as ChatInputCommandInteraction;
+    const focus = cmd.options.getString("region") ?? undefined;
+    return mapCommand({ user: { id: cmd.user.id }, focus });
+  });
   registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
   registry.register("bug", withTextOption(makeBugCommand(engine)));
   registry.register("sleep", asHandler(makeSleepCommand(engine, dayJobs)));
@@ -1328,6 +1335,19 @@ async function main() {
       {
         name: "journal",
         description: "Browse known locations, NPCs, and recent actions",
+      },
+      {
+        name: "map",
+        description: "Your map of the world — charted places and roads yet unwalked",
+        options: [
+          {
+            type: 3, // STRING
+            name: "region",
+            description: "Drill into a region or place (e.g. The Vale)",
+            required: false,
+            max_length: 60,
+          },
+        ],
       },
       {
         name: "action",
@@ -1969,6 +1989,10 @@ _${idleMsg}_`)
               stamina: Math.max(0, char.stamina - 1),
               location: workplace,
             });
+            // Fog-of-war: the commute is a non-engine movement path, so record the
+            // visit here. The workplace is a seeded home-cluster node already wired,
+            // so no edge is minted — just discovery/recency.
+            engine.recordVisit(char.id, workplace);
             // Update the local char copy for the outcome renderer.
             char.stamina = Math.max(0, char.stamina - 1);
             char.location = workplace;

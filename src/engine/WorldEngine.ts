@@ -165,6 +165,9 @@ export interface JournalAction {
   outcome: string;
   createdAt: string;
   narrative?: string | null;
+  /** Where the action happened (origin snapshot, §6) + its map glyph, for the chronicle. */
+  location?: string | null;
+  locationEmoji?: string | null;
 }
 
 /** A discovered node in a player's fog-of-war view of the shared graph (§5). */
@@ -296,6 +299,11 @@ export interface WorldEngine {
   /** Least-cost route (Dijkstra over edge difficulty) between two charted nodes;
    *  cost is the Σ-difficulty stamina price. Null when unreachable (§2). */
   routeBetween(from: string, to: string): TravelRoute | null;
+
+  /** Mark a location discovered (fog-of-war). For non-engine movement paths (the
+   *  daily-work commute) that set location directly — the resolution path records
+   *  visits itself. The target is a seeded node, so no edge is minted. */
+  recordVisit(characterId: number, locationName: string): void;
 
   // Feedback & bugs — actionId links the report to the action whose outcome the button was
   // on (undefined for the /feedback, /bug slash commands and the nightly/release prompts).

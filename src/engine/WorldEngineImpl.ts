@@ -6,6 +6,10 @@ const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
  *  ground gets other regions and stays fogged until explored. */
 const HOME_REGION = "The Vale";
 
+/** Map §4 spoke cap: a node never sprouts more than this many outgoing spokes
+ *  (charted edges + frontier exits), so the graph can't fan out without bound. */
+const SPOKE_CAP = 5;
+
 import type Database from "better-sqlite3";
 import type { LlmGateway, CartographerGateway, CriticGateway } from "../llm/LlmGateway.js";
 import { CritiquedLlmGateway } from "../llm/CritiquedLlmGateway.js";
@@ -578,13 +582,13 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   /**
-   * D3 async cartographer (fire-and-forget). For each just-created provisional
-   * location, ask the LLM to chart it: fill is_safe + description and clear
-   * enrichment_pending, only while the row is STILL provisional (enrichProvisional
-   * guards on the flag, so a double-fire or settled row is a no-op). If the LLM says
-   * the name is really an existing place, leave the provisional row alone (POC: no
-   * merge — the player may be standing on it) and just clear the flag. Never awaited,
-   * never throws into the caller.
+   * Async cartographer (fire-and-forget). For each freshly-minted location, ask the
+   * LLM to chart it: fill is_safe + description + tags AND the geometry — region,
+   * emoji, node_tier — then author 1–3 onward frontier exits so exploration
+   * continues. Only writes while the row is STILL provisional (enrichProvisional
+   * guards on the flag → double-fire/settled-row safe). The engine validates the
+   * structural fields (never trusts the LLM for hierarchy — map §4): emoji falls
+   * back to 📍, region to the crossing region, tier to 2. Never awaited/throws.
    */
   private fireCartographer(provisionalNames: string[], narrative: string): void {
     if (!this.cartographer || provisionalNames.length === 0) return;
@@ -596,22 +600,44 @@ export class WorldEngineImpl implements WorldEngine {
         .findAll()
         .map((l) => l.name)
         .filter((n) => n !== name);
+      const knownRegions = [
+        ...new Set(
+          this.locationRepo
+            .findAll()
+            .map((l) => l.region)
+            .filter((r): r is string => !!r),
+        ),
+      ];
+      // The node it was crossed from is its parent on the graph (the inbound edge).
+      const inbound = this.edgeRepo.all().find((e) => e.to_location === name);
+      const fromLocation = inbound?.from_location;
+      const fromRegion = fromLocation ? this.locationRepo.findByName(fromLocation)?.region ?? null : null;
 
       void (async () => {
         try {
-          const result = await cartographer.enrich({ newName: name, existingNames, narrative });
-          const description =
-            result.description ??
-            "An uncharted place beyond the known map.";
+          const result = await cartographer.enrich({
+            newName: name,
+            existingNames,
+            narrative,
+            knownRegions,
+            fromLocation,
+            fromRegion,
+          });
+          const description = result.description ?? "An uncharted place beyond the known map.";
           const isSafe = result.is_safe ?? 0;
           const updated = this.locationRepo.enrichProvisional(name, {
             isSafe,
             description,
             tags: result.tags ?? null,
+            // Geometry — validated/defaulted here, never trusted blind.
+            region: result.region?.trim() || fromRegion || HOME_REGION,
+            emoji: result.emoji?.trim() || "📍",
+            nodeTier: result.node_tier === 1 ? 1 : 2,
           });
           if (updated) {
+            this.authorOnwardFrontiers(name, result.onwardFrontiers ?? []);
             console.log(
-              `[cartographer] charted "${name}" (is_safe=${isSafe}${result.tags ? `, tags=${result.tags}` : ""}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
+              `[cartographer] charted "${name}" (is_safe=${isSafe}, tier=${result.node_tier ?? 2}, region=${result.region ?? fromRegion ?? HOME_REGION}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
             );
           }
         } catch (err) {
@@ -623,6 +649,26 @@ export class WorldEngineImpl implements WorldEngine {
           );
         }
       })();
+    }
+  }
+
+  /**
+   * Author the cartographer's onward frontier exits from a newly-charted node,
+   * each on a free cardinal direction. SPOKE CAP (map §4): a node never sprouts
+   * more than SPOKE_CAP total spokes (charted edges + frontier exits) — once it's
+   * full, further onward exits are dropped so the map can't fan out without bound.
+   */
+  private authorOnwardFrontiers(
+    from: string,
+    frontiers: Array<{ teaser: string; difficulty: 1 | 2 | 3 }>,
+  ): void {
+    const CARDINALS = ["N", "E", "S", "W", "NE", "NW", "SE", "SW"];
+    for (const f of frontiers) {
+      const used = new Set(this.edgeRepo.directionsFrom(from));
+      if (used.size >= SPOKE_CAP) break; // node is full — stop growing it
+      const dir = CARDINALS.find((c) => !used.has(c));
+      if (!dir) break;
+      this.edgeRepo.recordEdge({ from, to: null, direction: dir, difficulty: f.difficulty, teaser: f.teaser });
     }
   }
 
@@ -1059,6 +1105,10 @@ export class WorldEngineImpl implements WorldEngine {
         outcome: r.outcome,
         createdAt: r.created_at,
         narrative: r.narrative,
+        location: r.location_name,
+        locationEmoji: r.location_name
+          ? this.locationRepo.findByName(r.location_name)?.emoji ?? "📍"
+          : null,
       })),
     };
   }
@@ -1112,6 +1162,11 @@ export class WorldEngineImpl implements WorldEngine {
     return findRoute(from, to, (name) =>
       this.edgeRepo.neighbours(name).map((n) => ({ name: n.name, difficulty: n.difficulty })),
     );
+  }
+
+  /** Public visit-recorder for non-engine movement paths (the daily-work commute). */
+  recordVisit(characterId: number, locationName: string): void {
+    this.charLocRepo.recordVisit(characterId, locationName);
   }
 
   // ── Feedback & bugs ──

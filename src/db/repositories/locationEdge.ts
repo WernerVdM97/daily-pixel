@@ -53,6 +53,15 @@ export class LocationEdgeRepository {
     return this.db.prepare('SELECT * FROM location_edges').all() as LocationEdgeRow[];
   }
 
+  /** Directions already used on edges OUT of this node — for free-direction
+   *  assignment and the per-node spoke cap. */
+  directionsFrom(name: string): string[] {
+    return (
+      this.db.prepare('SELECT direction FROM location_edges WHERE from_location = ?').all(name) as
+        { direction: string }[]
+    ).map((d) => d.direction);
+  }
+
   /** The full edge row for one direction off a node (incl. an unbound frontier). */
   find(fromLocation: string, direction: string): LocationEdgeRow | undefined {
     return this.db

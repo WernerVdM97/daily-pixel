@@ -554,6 +554,31 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
     expect(result.matchesExisting).toBeUndefined(); // empty string dropped
   });
 
+  it('parses geometry fields: region, emoji, node_tier, onwardFrontiers (clamped to 3, bad difficulty → 2)', async () => {
+    const gw = new DeepseekLlmGateway({
+      apiKey: 'x',
+      fetch: enrichFetch({
+        is_safe: 0, description: 'A reach of ash.', region: 'The Ashen Reach', emoji: '🌋', node_tier: 1,
+        onwardFrontiers: [
+          { teaser: 'a smoking ridge', difficulty: 3 },
+          { teaser: 'a cracked road', difficulty: 9 }, // invalid → 2
+          { teaser: 'a ravine' },                        // missing → 2
+          { teaser: 'a fourth — dropped', difficulty: 1 },
+          { teaser: '', difficulty: 1 },                 // empty → dropped
+        ],
+      }),
+    });
+    const result = await gw.enrich({ newName: 'Cinderhold', existingNames: [], narrative: 'ash', knownRegions: ['The Vale'] });
+    expect(result.region).toBe('The Ashen Reach');
+    expect(result.emoji).toBe('🌋');
+    expect(result.node_tier).toBe(1);
+    expect(result.onwardFrontiers).toEqual([
+      { teaser: 'a smoking ridge', difficulty: 3 },
+      { teaser: 'a cracked road', difficulty: 2 },
+      { teaser: 'a ravine', difficulty: 2 },
+    ]); // clamped to 3, empties dropped, bad/missing difficulty → 2
+  });
+
   it('flags a duplicate via matchesExisting', async () => {
     const gw = new DeepseekLlmGateway({
       apiKey: 'x',

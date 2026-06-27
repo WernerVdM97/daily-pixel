@@ -11,24 +11,26 @@ export function makeJournalCommand(engine: WorldEngine) {
     const journal = engine.getJournal(character.id);
     const lines: string[] = [];
 
-    lines.push("📖 **Journal**");
+    // /journal owns TIME (a chronicle of what you did, where); /map owns SPACE.
+    lines.push(`📖 **${character.name}'s Journal**`);
     lines.push(SEPARATOR);
 
-    // Known locations
+    // Chronicle — recent actions, each tagged with the place it happened in.
     lines.push("");
-    lines.push("**Known Locations:**");
-    if (journal.knownLocations.length === 0) {
-      lines.push("  *You know of no locations yet.*");
+    if (journal.recentActions.length === 0) {
+      lines.push("*No actions recorded yet — your story is unwritten.*");
     } else {
-      for (const loc of journal.knownLocations) {
-        const locInfo = engine.getLocation(loc);
-        const safetyEmoji = locInfo?.isSafe ? '🛡️' : '⚠️';
-        const marker = loc === journal.currentLocation ? " ←" : "";
-        lines.push(`  • ${safetyEmoji} ${loc}${marker}`);
+      for (const action of journal.recentActions) {
+        const glyph = action.outcome === "success" ? " ✓" : action.outcome === "failure" ? " ✗" : "";
+        const where = action.location ? `${action.locationEmoji ?? "📍"} ${action.location}` : "🧭 (on the road)";
+        const what = action.narrative
+          ? (action.narrative.length > 140 ? action.narrative.slice(0, 137) + "…" : action.narrative)
+          : action.type;
+        lines.push(`${where} · ${what}${glyph}`);
       }
     }
 
-    // NPCs encountered
+    // NPCs encountered — who you've crossed paths with.
     lines.push("");
     lines.push("**NPCs Encountered:**");
     if (journal.npcsEncountered.length === 0) {
@@ -41,22 +43,8 @@ export function makeJournalCommand(engine: WorldEngine) {
       }
     }
 
-    // Recent actions
     lines.push("");
-    lines.push("**Recent Actions:**");
-    if (journal.recentActions.length === 0) {
-      lines.push("  *No actions recorded yet.*");
-    } else {
-      for (const action of journal.recentActions) {
-        lines.push(`  • **${action.type}** — ${action.outcome}`);
-        if (action.narrative) {
-          const snippet = action.narrative.length > 150
-            ? action.narrative.slice(0, 147) + '...'
-            : action.narrative;
-          lines.push(`    > ${snippet}`);
-        }
-      }
-    }
+    lines.push("*Use `/map` to see where you've been.*");
 
     return lines.join("\n");
   };
