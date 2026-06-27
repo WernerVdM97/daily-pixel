@@ -122,7 +122,6 @@ function seedNpcs(db: Database.Database): void {
     { name: 'The Caravan Master', class: 'Merchant', race: 'Human', description: 'A woman with quick hands and quicker eyes. She\'s been trying to offload cargo all week — says she\'s "travelling light," but her hands shake when she says "east."', location: 'Town Square' },
     { name: 'Brother Aldric', class: 'Acolyte', race: 'Human', description: 'Young, earnest, and fighting a crisis of faith. The candle in the shrine alcove won\'t go out — and he doesn\'t know if that\'s a blessing or a warning.', location: 'The Shrine of the First Flame' },
     { name: 'Grey Wolf', class: 'Beast', race: null, description: 'A massive she-wolf, grey as storm-light, limping from a wound in her flank. Her eyes track you with an intelligence that feels wrong.', location: 'The Forest Edge' },
-    { name: 'A Hooded Figure', class: 'Wanderer', race: null, description: 'Face lost in a deep cowl. Pays in old copper no one\'s minted in generations. Never speaks above a whisper. Always sits with their back to the wall.', location: 'The Weary Lantern Inn' },
     { name: 'Shadow Stag', class: 'Beast', race: null, description: 'A stag of impossible size, its antlers tangled with mist that doesn\'t burn off in sunlight. Hunters speak of it in whispers. No one has drawn a bow.', location: 'The Dark Pines' },
   ];
 

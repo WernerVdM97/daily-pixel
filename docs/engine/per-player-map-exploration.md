@@ -8,7 +8,7 @@ related:
   - "[[world-setting]]"
   - "[[daily-work-teleport]]"
   - "[[roll-economy-timeouts-and-world-growth]]"
-  - "[[prompt-v10-scaling-and-pipeline]]"
+  - "[[prompt-v12-scaling-and-pipeline]]"
   - "[[mvp-llm-prompt-architecture]]"
   - "[[mutation-vocabulary-refinement]]"
   - "[[mvp-data-model]]"
@@ -31,7 +31,7 @@ This rework makes the world **one shared, coherent place** that **governs moveme
 - [I] **A frontier that pulls outward** — pre-seeded "unexplored exits" (direction + teaser) are the invitation; crossing one mints the place on the far side, shared thereafter.
 - [I] **`/map`** renders your discovered subgraph (paginated, region/hub drill-in); **`/journal`** becomes a true chronicle of recent actions and where you did them.
 
-**Scope stance — Path 2 (decided with Werner).** Build the **deterministic, engine-owned foundation now** (`0.2.x`): the geography data model, routing, stamina, edge-validated `set_location`, the local-exits prompt, `/map`, `/journal`. **Defer the LLM-pipeline elegance to `0.3.0`/v10** ([[prompt-v10-scaling-and-pipeline]] Thread D): the classify→decide→resolve split and the dedicated *resolve* LLM slot *on top of* an engine that is already geographic. None of the foundation is throwaway — v10 plugs its `travel` per-type template into these same tables. This is forward-compatible with v10, not rivalrous.
+**Scope stance — Path 2 (decided with Werner).** Build the **deterministic, engine-owned foundation now** (`0.2.x`): the geography data model, routing, stamina, edge-validated `set_location`, the local-exits prompt, `/map`, `/journal`. **Defer the LLM-pipeline elegance to `0.3.0`/v12** ([[prompt-v12-scaling-and-pipeline]] Thread D): the classify→decide→resolve split and the dedicated *resolve* LLM slot *on top of* an engine that is already geographic. None of the foundation is throwaway — v12 plugs its `travel` per-type template into these same tables. This is forward-compatible with v12, not rivalrous.
 
 ## The gap (why rework)
 
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS character_locations (
 ## 2. Travel mechanics — deterministic, engine-owned
 
 - [I] **Named-destination routing is the primary travel verb.** You say *where* you want to go; the engine computes the least-cost path over the shared graph (Dijkstra on `difficulty` weights — trivial at this node count), moves the character, and drains the cost. **One action, one roll** regardless of hops (a roll is the price of a resolved world-changing action, not per-hop — consistent with [[roll-economy-timeouts-and-world-growth]] D1).
-- [!] **Stamina = `Σ(edge difficulty)` along the route.** Oak→Town→Blacksmith = `1 + 1 = 2`; an Oak→Town→ridge-shrine trip = `1 + 3 = 4`. Engine computes it; the LLM **never emits the number** (the [[prompt-v10-scaling-and-pipeline]] D1 thesis: the engine owns the cheatable truth).
+- [!] **Stamina = `Σ(edge difficulty)` along the route.** Oak→Town→Blacksmith = `1 + 1 = 2`; an Oak→Town→ridge-shrine trip = `1 + 3 = 4`. Engine computes it; the LLM **never emits the number** (the [[prompt-v12-scaling-and-pipeline]] D1 thesis: the engine owns the cheatable truth).
 - [I] **Frontier crossing is the exploration verb** — one hop down a dangling exit, minting the destination via the cartographer; stamina = that one edge's `difficulty`. This is the *only* way tier-1 hubs and new ground are born.
 - [!] **`set_location` validation moves into the engine.** A resolved `set_location` must be either (a) a node reachable on the shared graph from the current location, or (b) the bound destination of a frontier exit being crossed. Anything else is rejected/retried — closing the D3 "accept unknown location" hole.
 - [I] **Stamina exhaustion refuses the trip.** If a route costs more than the player has, the engine declines with an in-voice "too far to reach in your state" and suggests resting or a closer hop. No negative stamina, no partial teleport.
@@ -126,13 +126,13 @@ CREATE TABLE IF NOT EXISTS character_locations (
 |---|---|---|
 | **Cartographer** (async, exists from D3) | new-place metadata from **constrained menus**: `region` (reuse-or-new), `parent_hub` (pick from enumerated hubs), `node_tier`, each edge's `direction` + `difficulty`, `emoji`, and **1–3 onward frontier teasers** | extend it |
 | **Decision LLM** (exists) | narrate, offer travel **only along the current node's exits**, author non-travel mutations | constrain it |
-| **Resolve LLM** | mutations + outcome text from a structured verdict | **deferred → v10 Thread D** |
+| **Resolve LLM** | mutations + outcome text from a structured verdict | **deferred → v12 Thread D** |
 | **Engine** (deterministic) | `set_location` edge-validation, graph routing, stamina math, roll economy, spoke cap | now |
 
 - [I] **Decision prompt swaps global `KNOWN LOCATIONS` for a local "here + exits" block** — current node (name, region, safe/wild), discovered neighbours (legal move targets), and frontier exits (direction + teaser). This is the change the old spark explicitly *avoided*; Tier 2 needs it because movement is now geographic.
 - [I] **Dedup moves to the cartographer.** The global list existed for anti-dupe name reuse (D3); since the decision LLM no longer sees it, the **cartographer** inherits dedup — handed the known names (especially same-region siblings) and told to reuse rather than coin a near-dupe. `name UNIQUE` + normalized-match remains the hard backstop.
 - [!] **Structure is code-enforced, not LLM-trusted.** The two things an LLM does *badly* are pinned in code: (a) the **parent-hub classification** is a pick from an enumerated list, defaulting to the current hub if unsure — never free-form "infer the hierarchy"; (b) the **spoke cap is 5** — a tier-1 hub past 5 tier-2 leaves stops accepting children; further intent reuses the nearest existing leaf or routes to a frontier exit. The prompt *encourages* reuse; the engine *enforces* the ceiling.
-- [>] **`manner` (walk/run/ride) is not modelled in the foundation at all** — introduced and owned by v10's Stage-1 classifier, when time-tracking gives it a payoff (§7). The `/map` effort glyph is *terrain demand*, not a manner choice, so it stands alone now.
+- [>] **`manner` (walk/run/ride) is not modelled in the foundation at all** — introduced and owned by v12's Stage-1 classifier, when time-tracking gives it a payoff (§7). The `/map` effort glyph is *terrain demand*, not a manner choice, so it stands alone now.
 
 ---
 
@@ -194,7 +194,7 @@ The Vale · /map reach → the Ashen Reach
 ## 7. Deferred to `0.3.0`+ (documented, not built) — the time/manner triad
 
 - [<] **`distance` + `manner` + time become a real mechanic together.** Once in-game time is tracked, introduce `time = Σ(distance) ÷ manner_speed`; *then* `manner` becomes a genuine **stamina↔time trade** — run = arrive sooner, pay more stamina (and on `difficulty`≥wild edges, more risk); ride = sooner *and* cheaper, but needs a mount.
-- [!] **They are inseparable and gated on time-tracking.** Shipping `manner` cost now (running drains more stamina) with no time payoff makes running a dominated choice nobody picks. So `distance` ships as a dormant column, `manner` is left to v10's classifier entirely, and the trade lands when time does.
+- [!] **They are inseparable and gated on time-tracking.** Shipping `manner` cost now (running drains more stamina) with no time payoff makes running a dominated choice nobody picks. So `distance` ships as a dormant column, `manner` is left to v12's classifier entirely, and the trade lands when time does.
 
 ---
 
@@ -208,7 +208,7 @@ The Vale · /map reach → the Ashen Reach
   - [!] **Honest caveat (state it in the migration comment):** the home spine is exact; off-map edges/regions are approximate and **self-correct going forward** as real visits record real direction/difficulty.
 - [ ] `src/db/repositories/` — a `locationEdge` repo (`neighbours(name)`, `frontierExits(name)`, `recordEdge`, `bindFrontier`) and a `characterLocation` repo (`recordVisit`, `findByCharacter`); extend `locationRepo` for the new columns.
 - [ ] `src/engine/WorldEngineImpl.ts` — graph routing + stamina (`Σ difficulty`), `set_location` edge-validation, frontier-crossing mint, spoke-cap enforcement, `recordVisit` on location change, stamp `actions.location_name`, expose `getDiscoveredGraph(characterId)` for the view.
-- [ ] `src/llm/prompt-builder.ts` — swap global `KNOWN LOCATIONS` for the local "here + exits" block; bump `PROMPT_VERSION` (per `AGENTS.md`: new `decision-v<N>.md` + mirror to `current_source.md`).
+- [ ] `src/llm/prompt-builder.ts` — swap global `KNOWN LOCATIONS` for the local "here + exits" block; bump `PROMPT_VERSION` to **`decision-v10`** (the first of the two `0.2.x` bumps; per `AGENTS.md`: new `decision-v10.md` + mirror to `current_source.md`). The vocabulary cleanup ([[mutation-vocabulary-refinement]]) is the second bump, `decision-v11`.
 - [ ] **Cartographer prompt/schema** — extend its structured output with `region`/`parent_hub`/`node_tier`/`emoji`/edge `direction`+`difficulty`/frontier teasers, all constrained; the engine validates + writes the geometry.
 - [ ] `src/index.ts` — record the visit (`recordVisit`) on the daily-work teleport path; it targets a home-cluster node already wired by the seed, so no new edge is minted — already a non-engine path per [[daily-work-teleport]].
 - [ ] `src/discord/commands/map.ts` (new) — build + render the paginated, region/hub-drill-in tree; pure, unit-testable tree-render + clip helper.
@@ -218,17 +218,17 @@ The Vale · /map reach → the Ashen Reach
 ## 9. Scope boundaries
 
 - [-] **No full travel-cost economy beyond `Σ difficulty`.** Pathfinding is Dijkstra over the small node set; no fuel/provisions model.
-- [>] **Pipeline split (classify→decide→resolve) + the resolve LLM** → [[prompt-v10-scaling-and-pipeline]] Thread D. The geography slots under v10's future `travel` template.
-- [>] **Travel-risk DC** (a real mishap roll on harsh edges, feeding off `difficulty`) → v10 Thread B ("danger is geographic").
-- [<] **`manner`/`distance`/time trade** → §7, gated on time-tracking; owned by v10.
+- [>] **Pipeline split (classify→decide→resolve) + the resolve LLM** → [[prompt-v12-scaling-and-pipeline]] Thread D. The geography slots under v12's future `travel` template.
+- [>] **Travel-risk DC** (a real mishap roll on harsh edges, feeding off `difficulty`) → v12 Thread B ("danger is geographic").
+- [<] **`manner`/`distance`/time trade** → §7, gated on time-tracking; owned by v12.
 - [<] **A 4th "gated/blocked" difficulty band** — an edge impassable without a required item (a key, climbing gear, a guide). Cool, but MVP territory, and **links cleanly to an items refactor** — defer until items can gate traversal.
 - [<] **Fast-travel-to-any-visited** → its own action/command later.
-- [<] **`reveal_location`** ([[mutation-vocabulary-refinement]]) — a *rumoured, uncharted* leaf known without being visited, plus the rumour/treasure carrot → v10 Thread B. Clean interaction point: a frontier exit whose teaser is authored by a rumour rather than seeded.
+- [<] **`reveal_location`** ([[mutation-vocabulary-refinement]]) — a *rumoured, uncharted* leaf known without being visited, plus the rumour/treasure carrot → v12 Thread B. Clean interaction point: a frontier exit whose teaser is authored by a rumour rather than seeded.
 - [-] **NPC `/map` annotations**, cross-link-heavy rendering, and the `actions`→FK location normalisation (root `TODO.md`) — all later.
 
 ## Open questions
 
-- [I] None blocking — the build-time calls are settled: **spoke cap = 5**, **3 difficulty bands**, **clip orders by most-recently-visited**, **`manner` deferred to v10**. Revisit the spoke cap and band thresholds on prod data once the map ships.
+- [I] None blocking — the build-time calls are settled: **spoke cap = 5**, **3 difficulty bands**, **clip orders by most-recently-visited**, **`manner` deferred to v12**. Revisit the spoke cap and band thresholds on prod data once the map ships.
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-title: Decision Prompt v10 — First-Class Combat, World Scaling & Multi-Stage Pipeline
+title: Decision Prompt v12 — First-Class Combat, World Scaling & Multi-Stage Pipeline
 status: spark
 domain: spark
 phase: poc
@@ -27,29 +27,31 @@ related:
   - "[[prod-data-review-v0.2.3]]"
 ---
 
-# Decision Prompt v10 — First-Class Combat, World Scaling & Multi-Stage Pipeline
+# Decision Prompt v12 — First-Class Combat, World Scaling & Multi-Stage Pipeline
 
 > *The kickoff for **POC round 2 (`0.3.0`)** — the deep, structural half of the original `decision-v8 → v-next` rework, building **on top of** what v9 ships. [[prompt-v9-markdown-and-critic]] (the next `0.2.x` patch) lands the LLM-layer changes — markdown input and a coherence critic — first. This doc carries the three threads that need real engine work: **(C)** combat as a frequent, long, high-reward mode in the wilds, backed by engine scene-state; **(B)** the world scales around each player — stronger players meet tougher foes for bigger rewards, climbing week by week; and **(D)** decompose the single mega-call into a multi-stage LLM pipeline (classify → decide → resolve) over graph-shaped scene-state. Raw — capture, don't build yet.*
 
-**The thesis (shared with v9):** deepen *immersion* by **balancing probabilistic and deterministic mechanics** — let the dice rule what should be uncertain, let the engine deterministically own what players would feel cheated by if it drifted, let the LLM dress it. v9 takes the first, absorbable, LLM-only steps; v10 is where the mechanically-heavy ideas land: **combat** (a real fight mode with a tracked enemy spine), **scaling** (the world sized to the soul facing it), and **pipelining** (a chain of focused, type-specific LLM sessions over real scene-state). The coherence critic shipped in v9 is the deliberate first slice of (D) — v10 grows it into the full pipeline.
+> [!] **Renumber (decided 2026-06-27): this prompt *set* is `v12`.** Two single-file `0.2.x` bumps land first and take the next numbers — `decision-v10` is the [[per-player-map-exploration]] prompt change (KNOWN LOCATIONS → local "here + exits" block) and `decision-v11` is the [[mutation-vocabulary-refinement]] vocabulary cleanup. This `0.3.0` multi-file template *set* forks from the latest single file (v11) and ships as **`v12`** (it was drafted as "v10"; all references below now read v12). The `category` enum the v11 cleanup introduces is the **seed of Thread D's Stage-1 classifier `type`** — adopt that one vocabulary here, don't fork a parallel set.
 
-**Sequencing.** v9 ships first because it's absorbable without any engine change. v10 then slots **on top**: its `## World State` tier block (B) and its per-type templates (D) extend the v9 prompt — which by then is a single `decision-v9.md`. v10 turns that single file into a **versioned prompt set** (see Thread D's [!]). Combat (C) is where the engine first grows scene-state, so it and the pipeline (D) are deeply entwined — C's enemy spine *is* a slice of D1/D2.
+**The thesis (shared with v9):** deepen *immersion* by **balancing probabilistic and deterministic mechanics** — let the dice rule what should be uncertain, let the engine deterministically own what players would feel cheated by if it drifted, let the LLM dress it. v9 takes the first, absorbable, LLM-only steps; v12 is where the mechanically-heavy ideas land: **combat** (a real fight mode with a tracked enemy spine), **scaling** (the world sized to the soul facing it), and **pipelining** (a chain of focused, type-specific LLM sessions over real scene-state). The coherence critic shipped in v9 is the deliberate first slice of (D) — v12 grows it into the full pipeline.
+
+**Sequencing.** v9 ships first because it's absorbable without any engine change. Two `0.2.x` single-file bumps follow — `decision-v10` (map / local-exits) and `decision-v11` (mutation vocabulary). v12 then slots **on top**: its `## World State` tier block (B) and its per-type templates (D) extend the latest single-file prompt (v11). v12 turns that single file into a **versioned prompt set** (see Thread D's [!]). Combat (C) is where the engine first grows scene-state, so it and the pipeline (D) are deeply entwined — C's enemy spine *is* a slice of D1/D2.
 
 ---
 
 ## Threads shipped in v9 (forwarded — not repeated here)
 
-- [>] **Markdown input** (was Thread A) → shipped in [[prompt-v9-markdown-and-critic]]. v10's
+- [>] **Markdown input** (was Thread A) → shipped in [[prompt-v9-markdown-and-critic]]. v12's
   per-type templates inherit the markdown framing rather than re-deriving it.
 - [>] **Coherence critic** (new in v9) → the `decide → critique → correct` decorator is the first
-  stage of v10's pipeline (Thread D). v10 generalises it into classify → decide → resolve, and the
+  stage of v12's pipeline (Thread D). v12 generalises it into classify → decide → resolve, and the
   critic gains ground truth to check against once C/D bring scene-state.
 
 ## Thread C — Combat as a first-class mode
 
 This is the heart of the spark. Combat today is a generic `/action` roll the prompt actively pushes to *end fast* (`decision-v8.md:44`, "prefer resolving in two or three beats"). For a survival game with a rising Threat that is backwards. Combat should be **frequent in the wilds, long, and richly rewarded** — see [[mvp-combat]] for the locked constraint (roll-resolution, never twitch).
 
-**Why this needs v10, not v9 (the honest scoping call):** the rich version of combat — bounded severity bands, a no-one-shot floor, "a boar near death *stays* near death" — **cannot** be done with prompt rules alone. The engine has no enemy and no scene-state: `InternalActionState` (`src/engine/action/machine.ts:32`) tracks `accumulatedDc` and `decisions`, nothing else, and `modify_health` only ever hits the *player*. Real combat therefore needs engine scene-state — which *is* a slice of Thread D1 below — so it lives here in v10 with the pipeline, not in the LLM-only v9.
+**Why this needs v12, not v9 (the honest scoping call):** the rich version of combat — bounded severity bands, a no-one-shot floor, "a boar near death *stays* near death" — **cannot** be done with prompt rules alone. The engine has no enemy and no scene-state: `InternalActionState` (`src/engine/action/machine.ts:32`) tracks `accumulatedDc` and `decisions`, nothing else, and `modify_health` only ever hits the *player*. Real combat therefore needs engine scene-state — which *is* a slice of Thread D1 below — so it lives here in v12 with the pipeline, not in the LLM-only v9.
 
 ### C-a. Prompt-level rules (the combat template)
 
@@ -75,7 +77,7 @@ This is the heart of the spark. Combat today is a generic `/action` roll the pro
   rounds**, hard-capped so one fight can't eat a player's whole session.
 - [ ] **A `combatState` scene object** carried across rounds — `enemyName`, `enemyHp`, `enemyMaxHp`,
   `round`, `savedOnce`. This is the deterministic spine: the engine owns `enemyHp`, the LLM only ever
-  *narrates* it. In v10 this is modelled as graph-shaped, persistent state (Thread D1/D2) rather than
+  *narrates* it. In v12 this is modelled as graph-shaped, persistent state (Thread D1/D2) rather than
   a throwaway blob, so a fled enemy can be remembered and a co-op fight is just multiple edges.
 - [ ] **Contested roll + severity bands** (extend `src/engine/action/dc.ts`). Each round the player
   rolls `d20 + stat + item` (unchanged, `dc.ts:72`) **and the enemy rolls an engine-side d20**. The
@@ -196,7 +198,7 @@ The biggest structural change, and the **backbone** Thread B slots into. Today o
 - [!] **This breaks the one-file prompt-versioning convention.** `AGENTS.md` assumes a single
   `decision-v<N>.md` + `PROMPT_VERSION` stamped on every row. A pipeline has *several* templates
   (classify, per-type decide, resolve). The convention must extend — e.g. a **versioned prompt
-  set** (`decision-prompts/v10/{classify,combat,travel,…,resolve}.md`) stamped together so an
+  set** (`decision-prompts/v12/{classify,combat,travel,…,resolve}.md`) stamped together so an
   outcome still traces to the exact set that produced it. Settle the asset layout + `PROMPT_VERSION`
   shape *before* building.
 - [?] Is Stage 1 even an LLM call, or cheap heuristics (verb/keyword match) for the obvious cases
@@ -312,7 +314,7 @@ Two ways to make the check structured (the second is the real fix):
 - [I] **B2 — make the location structured at the source (recommended).** Add a `scene_location` field to the decision JSON contract: the model declares, as data, the location name the beat is set in. The check becomes a clean equality, not a guess: `normalize(scene_location) !== normalize(character.location) && !mutations.some(set_location)` → structural incoherence. This converts "parse English" (impossible deterministically) into "compare two strings" (trivially deterministic). It relies on the model to *populate* `scene_location`, but emitting a location name is far more constrained than getting the whole scene right — and a contradictory value (forest while at the Forge, no travel) **is** the deterministic signal. Cost: a prompt/contract version bump and re-parse.
 - [!] **Detection ≠ remedy.** The check above is only the *trigger*. The durable fix pairs it with a stronger remedy than "re-decide and hope": the engine **synthesises the missing travel beat itself** (deterministically inject a `set_location`-first decision so the character actually arrives before the encounter), or the re-decide note is made **binding and re-checked once**. The detector says a travel step is missing; injecting it is what actually fixes the case.
 
-How this folds into the v10 threads (it isn't a new thread, it's a coherence property of the pipeline):
+How this folds into the v12 threads (it isn't a new thread, it's a coherence property of the pipeline):
 
 - [>] **Stage 1 Classify (Thread D) is the natural home for the trigger.** Classifying *"go to the woods and brawl"* should route it as **travel→fight** (or flag `needs_travel` when intent names a place the player isn't), so the decide stage authors the travel beat first by construction — the structured `scene_location`/`set_location` check (B2) then becomes the deterministic backstop the resolve/critic stage enforces.
 - [>] **D1/D2 make location a deterministic spine.** Once scene-state is engine-owned and graph-shaped, "where the character is" is a node the engine controls, and a beat that narrates elsewhere without a `set_location` edge is a hard, checkable contradiction — the same shape as the `enemyHp` spine, applied to position.
@@ -320,11 +322,11 @@ How this folds into the v10 threads (it isn't a new thread, it's a coherence pro
 
 ---
 
-## How the three threads compose (v10 ownership)
+## How the three threads compose (v12 ownership)
 
-Thread D reframes C and B: they stop being edits to *one* prompt file and become properties of a **versioned prompt set**. Per `AGENTS.md` the move is still "new version, bump `PROMPT_VERSION` (`prompt-builder.ts:9`), mirror to `current_source.md`" — but `v10` is now a *set of templates*, not a single file (see Thread D's [!]).
+Thread D reframes C and B: they stop being edits to *one* prompt file and become properties of a **versioned prompt set**. Per `AGENTS.md` the move is still "new version, bump `PROMPT_VERSION` (`prompt-builder.ts:9`), mirror to `current_source.md`" — but `v12` is now a *set of templates*, not a single file (see Thread D's [!]).
 
-- [>] **The `v10` prompt set owns** the per-type templates (classify / combat / travel / trade /
+- [>] **The `v12` prompt set owns** the per-type templates (classify / combat / travel / trade /
   talk / resolve), each inheriting v9's markdown framing — including the combat template's
   unsafe-location frequency + long-combat rules (Thread C) and the `## World State` tier block the
   decide/resolve templates read (Thread B).
@@ -344,10 +346,10 @@ Thread D reframes C and B: they stop being edits to *one* prompt file and become
 
 ## Open questions (cross-cutting)
 
-- [?] Ship C, B and D together as one `v10`, or stage them (D pipeline first — it's the backbone;
+- [?] Ship C, B and D together as one `v12`, or stage them (D pipeline first — it's the backbone;
   then C combat on its scene-state; then B scaling on top)? Staging makes regressions attributable.
 - [!] Every prior data-driven fix lives in v8/v9 (refund rules, `KNOWN LOCATIONS`, no dead turns,
-  the security rule, the markdown framing). v10 must **carry all of it forward** — a prompt-set
+  the security rule, the markdown framing). v12 must **carry all of it forward** — a prompt-set
   rewrite is the easiest place to silently drop a hard-won rule.
 
 ## Risks
@@ -376,7 +378,7 @@ Thread D reframes C and B: they stop being edits to *one* prompt file and become
   World Tier is observable on top of Thread C's within-encounter scaling.
 - [ ] An action runs the chain: a typed classification routes to the right template, the decide
   stage emits options only, and a fresh resolve stage produces mutations from a structured handoff —
-  every row stamped with the exact `v10` prompt-set version that produced it.
+  every row stamped with the exact `v12` prompt-set version that produced it.
 - [ ] Scene-state survives across beats as **graph-shaped, persistent** state (Thread C's
   `combatState` generalised): enemy HP / NPC disposition / puzzle clues persist; the engine applies
   only whitelisted, clamped graph-deltas — the LLM never emits SQL. A boar near death stays near
