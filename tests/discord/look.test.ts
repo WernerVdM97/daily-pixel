@@ -59,9 +59,11 @@ describe("/look", () => {
 		expect(result).toContain("The Warden's Oak");
 		expect(result).toContain("A massive ancient oak.");
 		expect(result).toContain(",@@@@@@,");
-		// Header shows the location's own emoji, not a hardcoded house.
-		expect(result).toContain("🌳 🛡️ **The Warden's Oak**");
+		// Header shows the location's own emoji, not a hardcoded house, and no
+		// safety emoji (that's already in the safe/unsafe line below the description).
+		expect(result).toContain("🌳 **The Warden's Oak**");
 		expect(result).not.toContain("🏠");
+		expect(result).not.toContain("🌳 🛡️");
 	});
 
 	it("lists the location's exits — charted neighbours and uncharted frontiers", async () => {

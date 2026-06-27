@@ -79,8 +79,7 @@ export function makeLookCommand(
     lines.push(ascii);
     lines.push('```');
     lines.push("");
-    const safeEmoji = location.isSafe ? '🛡️' : '⚠️';
-    lines.push(`${location.emoji ?? '📍'} ${safeEmoji} **${location.name}**`);
+    lines.push(`${location.emoji ?? '📍'} **${location.name}**`);
     lines.push(SEPARATOR);
     lines.push(location.description);
 
