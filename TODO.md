@@ -5,6 +5,8 @@
 
 ### TBD — POC polish (small UI wins, no spark warranted)
 - [ ] establish POC polish scope game doc
+- [ ] hints on action message
+  - one action remaining, low stamina, unsafe location
 - [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
 - [ ] custom (free-text) actions need a real "thinking" screen — three dots + "thinking…" as its own page. Preset day-job actions already show a ⏳ "Starting…" loading envelope (`action.ts:204`); the custom-modal path shows nothing before `engine.startAction`.
 - [ ] `/stats` — show how the character builder (race/class) shaped each base score, and make it prettier. The base+gear breakdown already ships (`+6 (+4 base, +2 🎒)`); levels/upskilling/traits and per-race/class char-creator guidance are deferred → MVP below.
