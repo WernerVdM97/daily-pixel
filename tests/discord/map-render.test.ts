@@ -115,4 +115,17 @@ describe('renderMap', () => {
   it('reports no match for an unknown focus', () => {
     expect(renderMap('Kael', VALE, 'Atlantis')).toContain('No charted region or place matches "Atlantis"');
   });
+
+  it('groups a region-less visited place under "Elsewhere", not "Uncharted"', () => {
+    const g: DiscoveredGraph = {
+      current: 'Training Grounds',
+      nodes: [node('Training Grounds', { region: null, emoji: '⚔️', isSafe: true })],
+      edges: [],
+      frontiers: [],
+    };
+    const out = renderMap('Kael', g);
+    expect(out).toContain('**Elsewhere**');
+    expect(out).not.toContain('Uncharted'); // never collide with frontier wording
+    expect(out).toContain('⚔️🛡️ Training Grounds');
+  });
 });

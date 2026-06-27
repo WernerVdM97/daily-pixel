@@ -278,6 +278,7 @@ describe('WorldEngineImpl — action state machine integration', () => {
         const loc = locationRepo.findByName('Eastvale');
         expect(loc).toBeDefined();
         expect(loc!.enrichment_pending).toBe(1);     // awaiting the cartographer
+        expect(loc!.region).toBe('The Vale');         // seeded from the crossing region (never region-less)
         expect(charRepo.findById(characterId)!.location).toBe('Eastvale');
         // The frontier exit is now bound (shared thereafter).
         const edge = new LocationEdgeRepository(getDb()).find('The East Road', 'NE');

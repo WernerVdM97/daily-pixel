@@ -111,7 +111,9 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
   // Group discovered nodes by region.
   const byRegion = new Map<string, DiscoveredNode[]>();
   for (const n of graph.nodes) {
-    const r = n.region ?? "Uncharted";
+    // A visited place with no region yet (legacy/unenriched) — grouped under a
+    // neutral catch-all, NOT "uncharted" (that word is for unwalked frontier edges).
+    const r = n.region ?? "Elsewhere";
     if (!byRegion.has(r)) byRegion.set(r, []);
     byRegion.get(r)!.push(n);
   }

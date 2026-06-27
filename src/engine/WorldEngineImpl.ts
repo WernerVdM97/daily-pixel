@@ -740,11 +740,16 @@ export class WorldEngineImpl implements WorldEngine {
           continue;
         }
         // First crosser: mint the destination + bind the frontier (shared thereafter).
+        // Seed its region from the place it was crossed from (fallback the home region)
+        // so it's never region-less on /map even before the cartographer charts it; the
+        // cartographer may reassign a new region on enrichment if the fiction moves on.
+        const fromRegion = this.locationRepo.findByName(currentLocation)?.region ?? HOME_REGION;
         this.locationRepo.create({
           name: proposed,
           description: "An uncharted place, newly crossed into. (Mapping…)",
           isSafe: 0,
           enrichmentPending: 1,
+          region: fromRegion,
         });
         this.edgeRepo.bindFrontier(currentLocation, direction, proposed);
         minted.push(proposed);
