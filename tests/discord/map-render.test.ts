@@ -63,7 +63,8 @@ describe('renderMap', () => {
     const lines = out.split('\n');
     const fromIdx = lines.findIndex((l) => l.includes('🌿 The Forest Edge') && !l.includes('◀'));
     expect(fromIdx).toBeGreaterThan(-1);
-    expect(lines[fromIdx + 1]).toBe('└─ S the deep woods swallow the trail');
+    // Connector, then leading difficulty (🧗 for band 3), then the compass arrow (⬇️ = S), then teaser.
+    expect(lines[fromIdx + 1]).toBe('└─ 🧗 ⬇️ the deep woods swallow the trail');
   });
 
   it('orders siblings most-recently-visited first', () => {

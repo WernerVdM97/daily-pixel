@@ -80,8 +80,10 @@ describe("/look", () => {
 		const result = await handler({ user: { id: "user-1" } } as never);
 
 		expect(result).toContain("🧭 Paths");
-		expect(result).toContain("⬆️ N → Town Square 🚶");
-		expect(result).toContain("➡️ E → *uncharted* — _the road to the eastern town_ 🏃");
+		// Difficulty leads, then the compass arrow only (no letter / → arrow).
+		expect(result).toContain("🚶 ⬆️ Town Square");
+		expect(result).toContain("🏃 ➡️ *uncharted* — _the road to the eastern town_");
+		expect(result).not.toMatch(/⬆️ N\b/); // no direction letter
 	});
 
 	it("orders paths clockwise from north (N, E, S, W)", async () => {

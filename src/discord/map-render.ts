@@ -1,5 +1,5 @@
 import type { DiscoveredGraph, DiscoveredNode } from "../engine/WorldEngine.js";
-import { SEPARATOR } from "./format.js";
+import { SEPARATOR, directionArrow, directionRank } from "./format.js";
 
 /** Effort glyph from an incoming edge's difficulty band (§5). */
 const EFFORT = ["", "🚶", "🏃", "🧗"] as const;
@@ -189,10 +189,12 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
     for (const [from, paths] of byFrom) {
       const emoji = byName.get(from)?.emoji ?? "📍";
       out.push(`${emoji} ${from}`);
-      paths.forEach((f, i) => {
-        const connector = i === paths.length - 1 ? "└─ " : "├─ ";
+      const ordered = [...paths].sort((a, b) => directionRank(a.direction) - directionRank(b.direction));
+      ordered.forEach((f, i) => {
+        const connector = i === ordered.length - 1 ? "└─ " : "├─ ";
+        // Difficulty leads, then the compass arrow (no letter), then the teaser.
         const teaser = f.teaser ? ` ${f.teaser}` : "";
-        out.push(`${connector}${f.direction}${teaser}`);
+        out.push(`${connector}${EFFORT[f.difficulty] ?? ""} ${directionArrow(f.direction)}${teaser}`);
       });
     }
   }

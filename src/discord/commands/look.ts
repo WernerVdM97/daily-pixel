@@ -1,5 +1,5 @@
 import type { WorldEngine, NearbyEntity } from "../../engine/WorldEngine.js";
-import { SEPARATOR } from "../format.js";
+import { SEPARATOR, directionArrow, directionRank } from "../format.js";
 
 export type SceneLookupFn = (tags: string[]) => {
   sceneName: string;
@@ -8,16 +8,6 @@ export type SceneLookupFn = (tags: string[]) => {
 
 /** Effort glyph by terrain difficulty band (matches /map): 🚶 road · 🏃 trail · 🧗 harsh. */
 const EFFORT = ["", "🚶", "🏃", "🧗"] as const;
-
-/** Compass arrow per direction, and a clockwise order (N, NE, E … NW) to sort by. */
-const DIR_ARROW: Record<string, string> = {
-  N: "⬆️", NE: "↗️", E: "➡️", SE: "↘️", S: "⬇️", SW: "↙️", W: "⬅️", NW: "↖️",
-};
-const DIR_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-const dirRank = (d: string): number => {
-  const i = DIR_ORDER.indexOf(d);
-  return i === -1 ? DIR_ORDER.length : i;
-};
 
 /** Emoji for an NPC based on their class/type. */
 function npcEmoji(classOrType: string): string {
@@ -111,15 +101,15 @@ export function makeLookCommand(
         difficulty: f.difficulty,
         dest: f.teaser ? `*uncharted* — _${f.teaser}_` : "*uncharted*",
       })),
-    ].sort((a, b) => dirRank(a.direction) - dirRank(b.direction));
+    ].sort((a, b) => directionRank(a.direction) - directionRank(b.direction));
 
     if (paths.length > 0) {
       lines.push("");
       lines.push(SEPARATOR);
       lines.push("**🧭 Paths**");
       for (const p of paths) {
-        const arrow = DIR_ARROW[p.direction] ?? "🧭";
-        lines.push(`  ${arrow} ${p.direction} → ${p.dest} ${EFFORT[p.difficulty] ?? ""}`.trimEnd());
+        // Difficulty leads, then the compass arrow (no letter / ASCII arrow), then where it goes.
+        lines.push(`  ${EFFORT[p.difficulty] ?? ""} ${directionArrow(p.direction)} ${p.dest}`.trimEnd());
       }
     }
 
