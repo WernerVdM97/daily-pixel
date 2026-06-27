@@ -5,6 +5,8 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [0.2.5] - 2026-06-27
 ### Added
 - **Feedback & bug reports capture the action they came from** — the Feedback/Bug buttons on an action outcome now thread that action's id through the button → modal → submission, and `submitFeedback`/`submitBug` store it in a new nullable `action_id` FK on `feedback` and `bug_reports` 
 - **Markdown LLM input + coherence critic (decision prompt v9)** — decision context is now a markdown briefing (pre-joined `Score + Gear = Bonus` ability-check table, structured inventory, scene safety tag, split NPC/player lists, story-so-far, known locations, player input as a blockquote; Warden lore moved to an out-of-character GM note) instead of a `key=value`/JSON dump. Response JSON contract unchanged. Adds a coherence critic (on by default; `ENABLE_COHERENCE_CRITIC=false` to disable): a second pass that rewrites only the prose to match engine truth — never mutations/DC/rolls — and fails open. Critic calls audited in `llm_calls` as `call_kind=critic`.

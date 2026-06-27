@@ -2,13 +2,10 @@
 # Keep it non-technical — what's new and fun, not migrations/refactors.
 # Posted automatically to the announcement channel the first time the bot
 # boots on this tag. One file per tag: assets/release-notes/<tag>.yml.
-#
-# DRAFT / dormant: authored ahead of the v0.2.5 cut. Add `date:` and finalise
-# the highlights when VERSION is bumped to 0.2.5. Nothing posts until the bot
-# boots on the matching v0.2.5 tag.
 
 tag: "v0.2.5"
 title: "The Weekly Chronicle"
+date: "2026-06-27"
 
 highlights:
   - "📜 **Every week now has its own thread.** Each Monday a fresh **Week N** thread opens at the Oak, and all the day's deeds are gathered there — one running log of the table's story instead of a scattered feed."
