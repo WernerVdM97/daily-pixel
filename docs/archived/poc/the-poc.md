@@ -1,8 +1,9 @@
 ---
 title: The POC — One-Week Proof of Concept
-status: decided
-domain: game
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code"
 tags:
 - poc
 - scope

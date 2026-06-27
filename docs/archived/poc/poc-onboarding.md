@@ -1,8 +1,9 @@
 ---
 title: Onboarding — Character Creation Wizard
-status: decided
-domain: game
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code"
 tags:
 - characters
 - game-design

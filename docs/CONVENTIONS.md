@@ -45,6 +45,8 @@ Use Obsidian task markers to signal the *kind* of item in a list — not just it
 
 NEVER USE PLAIN BULLET STYLE LISTS, always add flavour. Mix different flavours in a single list. When in doubt, default to  `[I]`.
 
+NEVER USE TICKED `[x]` CHECK BOXES FOR SPARKS, these should only be used to track code implementations.
+
 **Decision-making (use in any doc):**
 
 | Marker | Meaning | Example |
