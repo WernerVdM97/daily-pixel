@@ -107,9 +107,10 @@ const NAV_BUTTONS: NavButtonDef[] = [
   },
   // View buttons — info pages cross-link to each other; Look also appears on Hi.
   // They stay off action/sleep/outcome views.
-  { id: 'look',     label: 'Look',     emoji: '👁️', showOnPages: ['hi', 'journal', 'backpack', 'stats'] },
-  { id: 'stats',    label: 'Stats',    emoji: '📊', showOnPages: ['journal', 'backpack', 'look'] },
-  { id: 'backpack', label: 'Backpack', emoji: '🎒', showOnPages: ['journal', 'stats', 'look'] },
+  { id: 'look',     label: 'Look',     emoji: '👁️', showOnPages: ['hi', 'journal', 'backpack', 'stats', 'map'] },
+  { id: 'stats',    label: 'Stats',    emoji: '📊', showOnPages: ['journal', 'backpack', 'look', 'map'] },
+  { id: 'backpack', label: 'Backpack', emoji: '🎒', showOnPages: ['journal', 'stats', 'look', 'map'] },
+  { id: 'map',      label: 'Map',      emoji: '🗺️', showOnPages: ['hi', 'journal', 'backpack', 'stats', 'look'] },
 ];
 
 /**

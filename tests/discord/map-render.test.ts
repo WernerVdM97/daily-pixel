@@ -43,12 +43,16 @@ describe('renderMap', () => {
     expect(out).toContain('🌿⚠️🏃 The Forest Edge');
   });
 
-  it('indents children under their parent (Forge under the Square)', () => {
+  it('draws box-drawing connectors so levels read on mobile (Forge nested under the Square)', () => {
     const lines = renderMap('Kael', VALE).split('\n');
     const square = lines.find((l) => l.includes('Town Square'))!;
     const forge = lines.find((l) => l.includes('The Town Forge'))!;
-    const indent = (s: string) => s.length - s.trimStart().length;
-    expect(indent(forge)).toBeGreaterThan(indent(square));
+    // Children carry a ├─/└─ connector; a deeper child carries a leading │ rail.
+    expect(square).toMatch(/^[├└]─ /);
+    expect(forge).toMatch(/^│\s+└─ /);
+    // Prefix (everything before the node emoji) is longer for the deeper node.
+    const prefixLen = (s: string) => s.search(/[^│├└─\s]/);
+    expect(prefixLen(forge)).toBeGreaterThan(prefixLen(square));
   });
 
   it('surfaces frontier exits under a "roads not yet walked" section', () => {

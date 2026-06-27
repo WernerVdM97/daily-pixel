@@ -1278,7 +1278,12 @@ async function main() {
   const mapCommand = makeMapCommand(engine);
   registry.register("map", async (interaction: unknown) => {
     const cmd = interaction as ChatInputCommandInteraction;
-    const focus = cmd.options.getString("region") ?? undefined;
+    // Reads `region` from the slash command; a nav-button click has no options
+    // (the dispatcher passes a bare `{ user }`), so default to the full map.
+    const focus =
+      typeof cmd.options?.getString === "function"
+        ? cmd.options.getString("region") ?? undefined
+        : undefined;
     return mapCommand({ user: { id: cmd.user.id }, focus });
   });
   registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
@@ -1500,6 +1505,7 @@ ${headInfo}`);
           "stats",
           "backpack",
           "journal",
+          "map",
           "bug",
           "feedback",
           "help",

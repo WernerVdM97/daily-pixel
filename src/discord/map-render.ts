@@ -73,13 +73,19 @@ function regionOrder(regions: string[], currentRegion: string | null): string[] 
   return [...new Set([...head, ...rest])];
 }
 
-function nodeLine(node: DiscoveredNode, tree: TreeInfo, current: string, indent: number): string {
-  const pad = "  ".repeat(indent);
+/** The emoji run for a node line: place · safe/wild · effort (effort omitted at a root). */
+function nodeGlyphs(node: DiscoveredNode, tree: TreeInfo, isRoot: boolean): string {
   const safe = node.isSafe ? "🛡️" : "⚠️";
-  const effort = indent === 0 ? "" : effortGlyph(tree.incomingDifficulty.get(node.name));
-  const marker = node.name === current ? "  ◀ you are here" : "";
-  const glyphs = [node.emoji ?? "📍", safe, effort].filter(Boolean).join("");
-  return `${pad}${glyphs} ${node.name}${marker}`;
+  const effort = isRoot ? "" : effortGlyph(tree.incomingDifficulty.get(node.name));
+  return [node.emoji ?? "📍", safe, effort].filter(Boolean).join("");
+}
+
+/** The continuation prefix beneath a node, given the connector that drew it.
+ *  `├─ ` siblings keep a `│  ` rail; `└─ ` (last) and roots go blank. */
+function continuation(connector: string): string {
+  if (connector === "├─ ") return "│  ";
+  if (connector === "└─ ") return "   ";
+  return ""; // root
 }
 
 /**
@@ -129,28 +135,34 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
     out.push("");
     out.push(`── ${label} ──`);
 
-    // Render as a tree: region roots (shallowest depth) first, DFS, siblings by recency.
+    // Render as a tree with box-drawing connectors (├─ │ └─) so levels read on
+    // mobile: region roots first, DFS, siblings by recency.
     const inRegion = new Set(nodes.map((n) => n.name));
     const rendered = new Set<string>();
-    const renderSubtree = (name: string, indent: number, lines: string[]) => {
+    const renderSubtree = (name: string, prefix: string, connector: string, isRoot: boolean, lines: string[]) => {
       const node = byName.get(name);
       if (!node || rendered.has(name)) return;
       rendered.add(name);
-      lines.push(nodeLine(node, tree, graph.current, indent));
+      const marker = name === graph.current ? "  ◀ you are here" : "";
+      lines.push(`${prefix}${connector}${nodeGlyphs(node, tree, isRoot)} ${node.name}${marker}`);
+      const childPrefix = prefix + continuation(connector);
       const kids = (tree.childrenOf.get(name) ?? [])
         .filter((c) => inRegion.has(c))
         .map((c) => byName.get(c)!)
         .sort(recency);
-      for (const kid of kids) renderSubtree(kid.name, indent + 1, lines);
+      kids.forEach((kid, i) => {
+        const last = i === kids.length - 1;
+        renderSubtree(kid.name, childPrefix, last ? "└─ " : "├─ ", false, lines);
+      });
     };
 
     const regionLines: string[] = [];
     const roots = nodes
       .filter((n) => !tree.parent.has(n.name) || !inRegion.has(tree.parent.get(n.name)!))
       .sort((a, b) => (tree.depth.get(a.name) ?? 0) - (tree.depth.get(b.name) ?? 0) || recency(a, b));
-    for (const root of roots) renderSubtree(root.name, 0, regionLines);
+    for (const root of roots) renderSubtree(root.name, "", "", true, regionLines);
     // Any node not reached from a region root (odd disconnections) — append by recency.
-    for (const n of [...nodes].sort(recency)) if (!rendered.has(n.name)) renderSubtree(n.name, 0, regionLines);
+    for (const n of [...nodes].sort(recency)) if (!rendered.has(n.name)) renderSubtree(n.name, "", "", true, regionLines);
 
     if (regionLines.length > REGION_CAP) {
       const shown = regionLines.slice(0, REGION_CAP);
