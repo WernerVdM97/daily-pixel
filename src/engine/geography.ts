@@ -1,8 +1,10 @@
 /**
- * Deterministic, engine-owned travel maths over the shared world graph
- * (docs/engine/per-player-map-exploration.md §2). Pure — no DB, no LLM. The
- * engine owns the cheatable truth: stamina cost is `Σ(edge difficulty)` along
- * the least-cost route, never a number the LLM emits.
+ * Pure routing over the shared world graph (docs/engine/per-player-map-exploration.md
+ * §2) — no DB, no LLM. Today this gates movement: a `set_location` is legal only if a
+ * route exists (reachability). The `Σ(edge difficulty)` cost is computed too, but is NOT
+ * yet charged as stamina — automatic travel-stamina is deferred to the future fast-travel
+ * feature (§9); travel stamina stays LLM-authored for now. The cost is the foundation that
+ * feature plugs into.
  */
 
 /** A traversable neighbour and the difficulty (weight) of the edge to it. */
@@ -16,7 +18,8 @@ export type NeighboursOf = (name: string) => WeightedNeighbour[];
 export interface RouteResult {
   /** Ordered nodes from origin to destination, inclusive. */
   path: string[];
-  /** Σ(edge difficulty) along the path — the stamina cost of the trip. */
+  /** Σ(edge difficulty) along the path. The intended travel-stamina cost — computed
+   *  now, charged later (deferred to fast-travel, §9). Used today only to prove a route exists. */
   cost: number;
 }
 

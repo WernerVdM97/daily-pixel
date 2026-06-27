@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderMap } from '../../src/discord/map-render.js';
+import { renderMap, resolveMapFocus } from '../../src/discord/map-render.js';
 import type { DiscoveredGraph, DiscoveredNode } from '../../src/engine/WorldEngine.js';
 
 function node(name: string, over: Partial<DiscoveredNode> = {}): DiscoveredNode {
@@ -114,6 +114,50 @@ describe('renderMap', () => {
 
   it('reports no match for an unknown focus', () => {
     expect(renderMap('Kael', VALE, 'Atlantis')).toContain('No charted region or place matches "Atlantis"');
+  });
+
+  it('focuses a place to its own roads (fuzzy "town" → Town Square, neighbours by reversed heading)', () => {
+    const out = renderMap('Kael', VALE, 'town');
+    // Header still present, then the place line with region.
+    expect(out).toContain("🏛️🛡️ **Town Square** · The Vale");
+    // The Oak is NORTH of Town Square in the seed (Oak→N→Town Square), so from the Square
+    // the Oak reads SOUTH (⬇️); the Forge sits east (➡️). No region tree, no other regions' nodes.
+    expect(out).toContain("⬇️ The Warden's Oak");
+    expect(out).toContain("➡️ The Town Forge");
+    expect(out).not.toContain('**The Vale** (home)'); // node view, not the region tree
+    expect(out).not.toContain('The Forest Edge'); // not connected to Town Square
+  });
+
+  it("a place focus surfaces that node's own frontier exits", () => {
+    const out = renderMap('Kael', VALE, 'forest edge');
+    expect(out).toContain('🌿⚠️ **The Forest Edge**');
+    expect(out).toContain('**Unexplored paths**');
+    expect(out).toContain('the deep woods swallow the trail');
+  });
+
+  it('a drilled-in region renders uncapped (no "+K more" self-loop — Finding 3)', () => {
+    const nodes: DiscoveredNode[] = [node('Hub', { nodeTier: 0, region: 'Big', lastVisitedAt: '2026-06-30' })];
+    const edges = [];
+    for (let i = 0; i < 20; i++) {
+      nodes.push(node(`Leaf ${String(i).padStart(2, '0')}`, { region: 'Big', lastVisitedAt: `2026-06-${String(i + 1).padStart(2, '0')}` }));
+      edges.push({ from: 'Hub', to: `Leaf ${String(i).padStart(2, '0')}`, direction: 'N', difficulty: 1, flavour: null });
+    }
+    const out = renderMap('Kael', { current: 'Hub', nodes, edges, frontiers: [] }, 'Big');
+    expect(out).not.toMatch(/\+\d+ more/);
+    expect(out).toContain('Leaf 19'); // the tail that would have been collapsed is shown
+  });
+
+  describe('resolveMapFocus', () => {
+    it('prefers an exact/prefix place hit and tolerates typos & casing', () => {
+      expect(resolveMapFocus('Town Square', VALE)).toEqual({ kind: 'node', name: 'Town Square' });
+      expect(resolveMapFocus('town', VALE)).toEqual({ kind: 'node', name: 'Town Square' }); // whole-string prefix beats word-prefix
+      expect(resolveMapFocus('twn square', VALE)).toEqual({ kind: 'node', name: 'Town Square' }); // typo
+    });
+
+    it('resolves a region by a word, and returns none for noise', () => {
+      expect(resolveMapFocus('vale', VALE)).toEqual({ kind: 'region', name: 'The Vale' });
+      expect(resolveMapFocus('Atlantis', VALE)).toEqual({ kind: 'none' });
+    });
   });
 
   it('groups a region-less visited place under "Elsewhere", not "Uncharted"', () => {

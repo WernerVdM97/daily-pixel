@@ -2,8 +2,9 @@ import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { renderMap } from "../map-render.js";
 
 /**
- * `/map [region|hub]` — render the player's discovered subgraph (fog-of-war over
- * the shared world graph, §5). Optional argument drills into a region or hub.
+ * `/map [region|place]` — render the player's discovered subgraph (fog-of-war over
+ * the shared world graph, §5). The optional argument fuzzily drills into a region or
+ * zooms to a place's own roads (typos/casing tolerated — see resolveMapFocus).
  */
 export function makeMapCommand(engine: WorldEngine) {
   return async (interaction: { user: { id: string }; focus?: string }): Promise<string> => {

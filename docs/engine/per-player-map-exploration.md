@@ -27,7 +27,7 @@ A reworking that pulls the world-setting's original ambition — *"the graph DB 
 This rework makes the world **one shared, coherent place** that **governs movement** (full Tier 2), while staying **monospace-text friendly** for Discord. The spine:
 
 - [I] A **shared hub-and-spoke graph** rooted at the Oak — real connections, identical for everyone, fog-of-war masked per player.
-- [I] **Deterministic, engine-owned travel** — routing + stamina are computed by the engine from the graph; the LLM never does the arithmetic.
+- [I] **Deterministic, engine-owned routing** — the engine validates movement against the graph (a `set_location` must be reachable). Engine-*charged* travel stamina (`Σ difficulty`) is the intended end-state but is **deferred to fast-travel** (§9); the POC build wires routing/validation only, and travel stamina stays LLM-authored for now.
 - [I] **A frontier that pulls outward** — pre-seeded "unexplored exits" (direction + teaser) are the invitation; crossing one mints the place on the far side, shared thereafter.
 - [I] **`/map`** renders your discovered subgraph (paginated, region/hub drill-in); **`/journal`** becomes a true chronicle of recent actions and where you did them.
 
@@ -101,12 +101,11 @@ CREATE TABLE IF NOT EXISTS character_locations (
 
 ## 2. Travel mechanics — deterministic, engine-owned
 
-- [I] **Named-destination routing is the primary travel verb.** You say *where* you want to go; the engine computes the least-cost path over the shared graph (Dijkstra on `difficulty` weights — trivial at this node count), moves the character, and drains the cost. **One action, one roll** regardless of hops (a roll is the price of a resolved world-changing action, not per-hop — consistent with [[roll-economy-timeouts-and-world-growth]] D1).
-- [!] **Stamina = `Σ(edge difficulty)` along the route.** Oak→Town→Blacksmith = `1 + 1 = 2`; an Oak→Town→ridge-shrine trip = `1 + 3 = 4`. Engine computes it; the LLM **never emits the number** (the [[prompt-v12-scaling-and-pipeline]] D1 thesis: the engine owns the cheatable truth).
-- [I] **Frontier crossing is the exploration verb** — one hop down a dangling exit, minting the destination via the cartographer; stamina = that one edge's `difficulty`. This is the *only* way tier-1 hubs and new ground are born.
-- [!] **`set_location` validation moves into the engine.** A resolved `set_location` must be either (a) a node reachable on the shared graph from the current location, or (b) the bound destination of a frontier exit being crossed. Anything else is rejected/retried — closing the D3 "accept unknown location" hole.
-- [I] **Stamina exhaustion refuses the trip.** If a route costs more than the player has, the engine declines with an in-voice "too far to reach in your state" and suggests resting or a closer hop. No negative stamina, no partial teleport.
-- [I] **Two stamina sources, no overlap.** *Travel* stamina is engine-derived (above). *Situational* stamina (a failed climb, hauling a load) stays **LLM-authored** via the existing `modify_stamina` mutation. The rule: travel cost is deterministic; exertion is narrative.
+- [I] **Named-destination routing is the primary travel verb.** You say *where* you want to go; the engine computes the least-cost path over the shared graph (Dijkstra on `difficulty` weights — trivial at this node count) and moves the character. **One action, one roll** regardless of hops (a roll is the price of a resolved world-changing action, not per-hop — consistent with [[roll-economy-timeouts-and-world-growth]] D1).
+- [<] **Stamina = `Σ(edge difficulty)` is the intended model — DEFERRED, not wired in the POC build.** Oak→Town→Blacksmith *would* be `1 + 1 = 2`; an Oak→Town→ridge-shrine trip `1 + 3 = 4`. The engine computes the route cost but does **not** charge it yet — travel stamina stays LLM-authored (the travel recipe's `modify_stamina`), and `difficulty` is shown on `/map`/`/look` as terrain-demand flavour only. Automatic engine-charged travel cost (the "engine owns the cheatable truth" thesis) lands with **fast-travel** (§9), where routing-to-any-visited makes a deterministic cost essential.
+- [I] **Frontier crossing is the exploration verb** — one hop down a dangling exit, minting the destination via the cartographer. This is the *only* way tier-1 hubs and new ground are born.
+- [!] **`set_location` validation moves into the engine.** A resolved `set_location` must be either (a) a node reachable on the shared graph from the current location, or (b) the bound destination of a frontier exit being crossed. Anything else is rejected/retried — closing the D3 "accept unknown location" hole. **This is built** (it's the reachability use of the route, independent of the deferred stamina charge).
+- [<] **Stamina exhaustion refusing the trip** — declining a route that costs more than the player has — ships with the deferred travel-stamina charge (fast-travel, §9), since there's no engine-charged cost to compare against until then.
 - [-] **Fast-travel-to-any-visited is out of scope** — deferred as its own action/command (§9). For now *all* travel routes from the current position, so distance always costs honestly.
 
 ---
@@ -127,7 +126,7 @@ CREATE TABLE IF NOT EXISTS character_locations (
 | **Cartographer** (async, exists from D3) | new-place metadata from **constrained menus**: `region` (reuse-or-new), `parent_hub` (pick from enumerated hubs), `node_tier`, each edge's `direction` + `difficulty`, `emoji`, and **1–3 onward frontier teasers** | extend it |
 | **Decision LLM** (exists) | narrate, offer travel **only along the current node's exits**, author non-travel mutations | constrain it |
 | **Resolve LLM** | mutations + outcome text from a structured verdict | **deferred → v12 Thread D** |
-| **Engine** (deterministic) | `set_location` edge-validation, graph routing, stamina math, roll economy, spoke cap | now |
+| **Engine** (deterministic) | `set_location` edge-validation, graph routing, roll economy, spoke cap (travel **stamina math** deferred → fast-travel, §9) | now |
 
 - [I] **Decision prompt swaps global `KNOWN LOCATIONS` for a local "here + exits" block** — current node (name, region, safe/wild), discovered neighbours (legal move targets), and frontier exits (direction + teaser). This is the change the old spark explicitly *avoided*; Tier 2 needs it because movement is now geographic.
 - [I] **Dedup moves to the cartographer.** The global list existed for anti-dupe name reuse (D3); since the decision LLM no longer sees it, the **cartographer** inherits dedup — handed the known names (especially same-region siblings) and told to reuse rather than coin a near-dupe. `name UNIQUE` + normalized-match remains the hard backstop.
@@ -222,7 +221,7 @@ The Vale · /map reach → the Ashen Reach
 - [>] **Travel-risk DC** (a real mishap roll on harsh edges, feeding off `difficulty`) → v12 Thread B ("danger is geographic").
 - [<] **`manner`/`distance`/time trade** → §7, gated on time-tracking; owned by v12.
 - [<] **A 4th "gated/blocked" difficulty band** — an edge impassable without a required item (a key, climbing gear, a guide). Cool, but MVP territory, and **links cleanly to an items refactor** — defer until items can gate traversal.
-- [<] **Fast-travel-to-any-visited** → its own action/command later.
+- [<] **Fast-travel-to-any-visited + engine-charged travel stamina** → its own action/command later. The POC ships routing/reachability only; the route's `Σ(edge difficulty)` **cost is computed but not charged**. Automatic engine-owned travel stamina (and the "too far in your state" exhaustion refusal) rides in with fast-travel, where routing to any visited node — not just an adjacent hop — makes a deterministic, non-LLM cost essential (and closes the "phrase travel to dodge the stamina hit" hole). Until then travel stamina is LLM-authored via `modify_stamina`, and `difficulty` is purely the immersive terrain-demand glyph on `/map`/`/look`.
 - [<] **`reveal_location`** ([[mutation-vocabulary-refinement]]) — a *rumoured, uncharted* leaf known without being visited, plus the rumour/treasure carrot → v12 Thread B. Clean interaction point: a frontier exit whose teaser is authored by a rumour rather than seeded.
 - [-] **NPC `/map` annotations**, cross-link-heavy rendering, and the `actions`→FK location normalisation (root `TODO.md`) — all later.
 

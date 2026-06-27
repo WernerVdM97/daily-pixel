@@ -1278,11 +1278,11 @@ async function main() {
   const mapCommand = makeMapCommand(engine);
   registry.register("map", async (interaction: unknown) => {
     const cmd = interaction as ChatInputCommandInteraction;
-    // Reads `region` from the slash command; a nav-button click has no options
+    // Reads `place` from the slash command; a nav-button click has no options
     // (the dispatcher passes a bare `{ user }`), so default to the full map.
     const focus =
       typeof cmd.options?.getString === "function"
-        ? cmd.options.getString("region") ?? undefined
+        ? cmd.options.getString("place") ?? undefined
         : undefined;
     return mapCommand({ user: { id: cmd.user.id }, focus });
   });
@@ -1347,8 +1347,8 @@ async function main() {
         options: [
           {
             type: 3, // STRING
-            name: "region",
-            description: "Drill into a region or place (e.g. The Vale)",
+            name: "place",
+            description: "Zoom to a region or place — fuzzy, e.g. town, vale, the forge",
             required: false,
             max_length: 60,
           },

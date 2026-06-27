@@ -30,6 +30,15 @@ export function directionRank(dir: string): number {
   return i === -1 ? DIRECTION_ORDER.length : i;
 }
 
+const OPPOSITE_DIRECTION: Record<string, string> = {
+  N: 'S', S: 'N', E: 'W', W: 'E', NE: 'SW', SW: 'NE', NW: 'SE', SE: 'NW',
+};
+/** The reverse heading of an edge — edges store one canonical direction, so a node on the
+ *  `to` side sees its neighbour in the opposite direction. Unknowns pass through unchanged. */
+export function oppositeDirection(dir: string): string {
+  return OPPOSITE_DIRECTION[dir] ?? dir;
+}
+
 /** Fallback emoji for an unknown class. */
 export const CLASS_EMOJI_FALLBACK = '🔹';
 /** Fallback emoji for an unknown day job. */

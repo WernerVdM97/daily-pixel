@@ -19,10 +19,11 @@ import type { Migration } from './types.js';
  *   stood when they acted (§6); the schema keys locations by name and `actions`
  *   is an audit table, so a rename must not rewrite history.
  *
- * Structural + idempotent here; the home-cluster GEOMETRY is seeded from
- * `assets/world/*.yml` by `migrate.ts` (authoritative for fresh instances). The
- * one-shot prod backfill (off-map edges scraped from `applied_mutations` +
- * per-player discovery) runs at the end of this `up()` — see the backfill block.
+ * This migration is structural + idempotent ONLY. The home-cluster GEOMETRY is seeded
+ * from `assets/world/*.yml` by `seedWorld` in `migrate.ts`, and the one-shot prod backfill
+ * (off-map edges scraped from `applied_mutations` + per-player discovery) runs there too —
+ * in `migrate()`, AFTER seeding and gated by the `world_backfill_done` meta flag, NOT in
+ * this `up()`. (It needs the seeded names to tell seed nodes from legacy off-map ones.)
  */
 
 function addColumn(db: Database.Database, table: string, columnDdl: string): void {

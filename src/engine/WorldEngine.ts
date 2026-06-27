@@ -308,8 +308,9 @@ export interface WorldEngine {
    *  /look shows: the roads you can see from where you stand. */
   getExits(location: string): LocationExits;
 
-  /** Least-cost route (Dijkstra over edge difficulty) between two charted nodes;
-   *  cost is the Σ-difficulty stamina price. Null when unreachable (§2). */
+  /** Least-cost route (Dijkstra over edge difficulty) between two charted nodes; null
+   *  when unreachable (§2). Used today to validate movement reachability — the cost is
+   *  computed but not yet charged as stamina (deferred to fast-travel, §9). */
   routeBetween(from: string, to: string): TravelRoute | null;
 
   /** Mark a location discovered (fog-of-war). For non-engine movement paths (the

@@ -1175,8 +1175,9 @@ export class WorldEngineImpl implements WorldEngine {
     return { current, nodes, edges, frontiers };
   }
 
-  /** Least-cost route over the shared graph (Dijkstra on edge difficulty). The
-   *  cost is the Σ-difficulty stamina price; null when unreachable (§2). */
+  /** Least-cost route over the shared graph (Dijkstra on edge difficulty); null when
+   *  unreachable (§2). The cost is computed but not charged as stamina yet — that's
+   *  deferred to fast-travel (§9). Used today to validate movement reachability. */
   routeBetween(from: string, to: string): TravelRoute | null {
     return findRoute(from, to, (name) =>
       this.edgeRepo.neighbours(name).map((n) => ({ name: n.name, difficulty: n.difficulty })),
