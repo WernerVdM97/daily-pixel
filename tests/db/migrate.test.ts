@@ -139,6 +139,45 @@ describe('roll-refund + enrichment migration — existing DB backfill', () => {
   });
 });
 
+describe('llm_calls call_kind / critic_severity — existing-DB backfill (v0.2.4 → v9)', () => {
+  it('adds call_kind via a standalone migration even though baseline is already recorded', () => {
+    // Reproduce a v0.2.4 prod DB: baseline (and earlier) recorded, but the v9 columns absent.
+    // Regression guard: call_kind must NOT live only in baseline.up() — baseline never re-runs
+    // once recorded, so the column would be missing on every upgraded DB and every llm_calls
+    // INSERT would throw "no such column: call_kind".
+    const old = new Database(':memory:');
+    runMigrations(old);
+
+    // Roll back to the pre-v9 state: forget the three newest migrations and drop their columns.
+    old.exec(`DELETE FROM schema_migrations WHERE id IN (
+      '202606250000_drop_legacy_action_llm_columns',
+      '202606250001_llm_call_kind',
+      '202606260000_llm_call_critic_severity'
+    )`);
+    old.exec('ALTER TABLE llm_calls DROP COLUMN call_kind');
+    old.exec('ALTER TABLE llm_calls DROP COLUMN critic_severity');
+
+    const before = (old.prepare("PRAGMA table_info('llm_calls')").all() as { name: string }[]).map(c => c.name);
+    expect(before).not.toContain('call_kind');
+
+    // The upgrade: baseline stays skipped (already recorded); the standalone migrations run.
+    runMigrations(old);
+
+    const after = (old.prepare("PRAGMA table_info('llm_calls')").all() as { name: string }[]).map(c => c.name);
+    expect(after).toContain('call_kind');
+    expect(after).toContain('critic_severity');
+
+    // The INSERT the repo issues must now succeed.
+    expect(() =>
+      old
+        .prepare("INSERT INTO llm_calls (prompt_version, call_kind, model, parse_ok) VALUES ('v9','decision','deepseek',1)")
+        .run(),
+    ).not.toThrow();
+
+    old.close();
+  });
+});
+
 describe('runMigrations — atomic batch', () => {
   it('rolls the whole batch back when any migration throws', () => {
     const fresh = new Database(':memory:');

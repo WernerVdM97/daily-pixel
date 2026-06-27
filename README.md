@@ -25,8 +25,8 @@ It draws from **MUD** (text-rendered multi-user dungeon), **Frieren** (time as t
 
 | Phase    .            | What                                                                         | Status  |
 | --------------------- | ---------------------------------------------------------------------------- | ------- |
-| **Phase 1<br>Design** | Explore mechanics, engine, UX, and world.                                    | Ongoing |
-| **Phase 2<br>POC**    | A bot that rolls dice and shows an ASCII tree.                               | Next    |
+| **Phase 1<br>Design** | Explore mechanics, engine, UX, and world.                                    | Done    |
+| **Phase 2<br>POC**    | A bot that rolls dice and shows an ASCII tree.                               | Ongoing |
 | **Phase 3<br>MVP**    | Daily decision leading up to rolls, co-op, NPC basics, weekly rhythm.        | Planned |
 | **Phase 4<br>MVP+**   | Year-long campaign. NPC economy, moral drift, LLM narratives, finall climax. | Distant |
 
@@ -128,9 +128,20 @@ npm install
 npx tsx src/index.ts
 ```
 
-SQLite lives at `./data/daily-pixel.db` (auto-created). No build step — `tsx` runs TypeScript directly.
+SQLite lives at `./data/warden.db` (auto-created). No build step — `tsx` runs TypeScript directly.
+
+> The bare `npx tsx src/index.ts` does **not** load `.env` — pass it explicitly:
+> `npx tsx --env-file=.env src/index.ts` (Node 20.6+ / 22).
 
 ### Podman (dev container)
+
+> **Bind-mount permissions (`:U`).** The image runs as a non-root user (`USER bot` in the
+> `Containerfile`). Under rootless podman your host UID maps to the container's *root*, so the
+> `bot` process can't write to a host-owned bind mount — SQLite then fails to open the db with
+> `SQLITE_CANTOPEN`. The **`:U`** flag tells podman to chown the mounted `./data` to the container
+> user, fixing it. Caveat: `:U` flips `./data`'s ownership to a subuid on the host, so don't
+> alternate between podman and local (`tsx`) runs against the same `./data` — the ownership will
+> ping-pong. Pick one mode; for a quick test loop, local is simplest.
 
 **Build:**
 ```bash
@@ -140,7 +151,7 @@ podman build -t daily-pixel-dev .
 **Run (foreground — logs stream to terminal):**
 ```bash
 podman run --rm -it \
-  -v $(pwd)/data:/app/data \
+  -v $(pwd)/data:/app/data:U \
   --env-file .env \
   daily-pixel-dev
 ```
@@ -148,7 +159,7 @@ podman run --rm -it \
 **Run (detached — runs in background):**
 ```bash
 podman run -d --name daily-pixel \
-  -v $(pwd)/data:/app/data \
+  -v $(pwd)/data:/app/data:U \
   --env-file .env \
   daily-pixel-dev
 ```
@@ -160,7 +171,7 @@ podman logs -f daily-pixel
 
 **Rebuild & restart (one-liner):**
 ```bash
-podman stop daily-pixel 2>/dev/null; podman rm daily-pixel 2>/dev/null; podman build -t daily-pixel-dev . && podman run -d --name daily-pixel -v $(pwd)/data:/app/data --env-file .env daily-pixel-dev && podman logs -f daily-pixel
+podman stop daily-pixel 2>/dev/null; podman rm daily-pixel 2>/dev/null; podman build -t daily-pixel-dev . && podman run -d --name daily-pixel -v $(pwd)/data:/app/data:U --env-file .env daily-pixel-dev && podman logs -f daily-pixel
 ```
 
 **Stop and remove detached container:**

@@ -30,10 +30,11 @@ export function formatStats(char: CharacterData, items: ItemData[] = []): string
 
   // Stats — show the effective score (base + gear); break out the gear bonus
   // when items contribute, since that's the number that actually drives rolls.
-  const pad = { physical: ' ', wisdom: '      ', intelligence: ' ', charisma: '    ' };
+  // Labels (formatStatLabel) are all equal width, so a single separator aligns them —
+  // and Discord renders this as proportional text anyway, so space-padding is moot.
   lines.push("**Stats:**");
   for (const stat of ['physical', 'wisdom', 'intelligence', 'charisma'] as const) {
-    lines.push(`  ${formatStatLabel(stat)} ${pad[stat]}${formatStatWithGear(char.stats[stat], itemStatModifier(items, stat))}`);
+    lines.push(`  ${formatStatLabel(stat)}  ${formatStatWithGear(char.stats[stat], itemStatModifier(items, stat))}`);
   }
   lines.push("");
 

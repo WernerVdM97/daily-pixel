@@ -160,6 +160,9 @@ describe('30-min action timeout', () => {
       expect(result.outcome.mutations).toEqual([]); // no mutations applied
       expect(result.outcome.outcomeText).toMatch(/slipped away/i);
       expect(result.outcome.outcomeText).toMatch(/refunded/i);
+      // Refunded → net zero, footer shows "(refunded)".
+      expect(result.outcome.rollRefunded).toBe(true);
+      expect(result.outcome.rollsDelta).toBe(0);
     }
 
     const recent = actionRepo.findRecentByCharacterId(characterId, 1);
@@ -190,6 +193,9 @@ describe('30-min action timeout', () => {
     if (result.resolved) {
       expect(result.outcome.outcome).toBe('timed_out');
       expect(result.outcome.outcomeText).toMatch(/spent/i);
+      // Not refunded → the start-drained roll stays spent, reported as −1.
+      expect(result.outcome.rollRefunded).toBe(false);
+      expect(result.outcome.rollsDelta).toBe(-1);
     }
     // No refund this time.
     expect(charRepo.findById(characterId)!.rolls_remaining).toBe(spentAgain);

@@ -1,16 +1,17 @@
 ---
 title: POC Build Plan
 status: superseded
-domain: engine
+domain: archived
 phase: poc
 tags:
-- poc
-- build-plan
-superseded_by: '[[poc-build-poa]]'
+  - poc
+  - build-plan
+  - engine
+superseded_by: "[[poc-build-poa]]"
 related:
-- '[[poc-build-poa]]'
-- '[[poc-tech-stack]]'
-- '[[poc-spec-reconciliation]]'
+  - "[[poc-build-poa]]"
+  - "[[poc-tech-stack]]"
+  - "[[poc-spec-reconciliation]]"
 ---
 
 # POC Build Plan

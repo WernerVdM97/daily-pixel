@@ -1,14 +1,15 @@
-This repo is the design vault for **The Warden's Oak**.
+This repo is the source code for **The Warden's Oak**.
 
-When creating or editing ANY doc under `docs/`, **read and follow** the conventions in
+When creating or editing ANY files under `docs/`, **read and follow** the conventions in
 **[docs/CONVENTIONS.md](./docs/CONVENTIONS.md)** — most importantly:
 
 - every doc carries frontmatter (`title`, `status`, `domain` required);
 - it lives in the matching domain folder (`vision/ game/ engine/ ui/ decisions/ sparks/`);
 - add its line to the map of content in [`docs/README.md`](./docs/README.md).
 - see `docs/templates/doc-template`
+- **no manual line wrapping in prose** — write one logical paragraph as one line and let the editor soft-wrap. Hard-wrapping mid-paragraph (inserting newlines at ~80–95 cols) renders fine but fights Obsidian's editor, which treats one newline as a soft break and expects paragraph = line. Hard breaks belong only where markdown needs them (list items, headings, code fences, table rows).
 
-Maturity is a frontmatter `status` (`spark → exploring → decided → superseded`), never the folder. Resolve conflicts with a `decisions/` record — don't spawn a rival doc.
+Maturity is a frontmatter `status` (`spark → exploring → decided → superseded/shipped/nogo`), never the folder. Resolve conflicts with a `decisions/` record — don't spawn a rival doc.
 
 ---
 
@@ -64,6 +65,27 @@ When cutting a release:
 1. **Add a notes file matching the new tag** (`v0.2.x.yml`) with `tag`, `title`, and a non-empty `highlights` list (optional `date`, `notes`). No file → nothing is posted (and the meta is left untouched, so adding one later still fires on the next boot).
 2. **Keep it non-technical.** Highlights are what's new and fun for players — not migrations, refactors, or internal plumbing. The changelog is the technical record; the notes file is the player's.
 3. **The filename tag must match the git tag exactly** (`v` prefix included), or the announcement won't fire.
+
+## Changelog conventions
+
+`CHANGELOG.md` entries earn their keep by being **scannable**, not exhaustive — one tight line per change, like a good commit subject. The PR, commit, and any `docs/decisions/` record hold the full story; the changelog is the index. Apply this to every entry:
+
+1. **One bullet, one line.** Lead with a **bold subject** naming the change, then an em-dash and the gist in a sentence or two. If you need a paragraph, the detail belongs in the PR/decision doc — link it, don't inline it.
+2. **Say what changed and why it matters, not how it's wired.** Skip the play-by-play of helpers, call sites, and internal flow. Name the new column/env var/method when a reader needs it to act, not to narrate the diff.
+3. **Cut hedging and restatement.** No "previously…/instead of…" retelling of the old behaviour unless the contrast is the point. One clause of rationale beats six.
+4. **Group by Keep-a-Changelog kind** (`Added`/`Changed`/`Fixed`/`Chore`/`Internal`) and keep each bullet in its right group — don't bury a fix inside an Added blurb.
+
+**Verbose is justified only when the reader must *act* on the detail**, not as default narration. Keep the specifics for: required Discord permissions or env vars to set; migrations and schema changes (column names, idempotency, no-op-on-existing-DB caveats); breaking changes and contract shifts; security fixes; anything with an ordering/idempotency gotcha that bites if missed. When in doubt, ask "would a reader skimming the release have to do something because of this line?" — if yes, spell it out; if no, one line.
+
+## Code comment conventions
+
+Comments earn their keep by explaining **why**, not restating **what**. Apply this to every code change:
+
+1. **No echo comments.** Delete any comment that just narrates the next line (`// loop over users` above an obvious loop). The code already says it.
+2. **Keep the why, cut the fluff.** Preserve genuine rationale — non-obvious decisions, edge cases, error-code meanings, idempotency/ordering caveats, API quirks, gotchas — but write it tight. One line beats six whenever the substance survives.
+3. **JSDoc adds info or goes.** Keep `@param`/`@returns` only when they say more than the signature already does. Collapse padded doc blocks to 1-2 lines.
+4. **Section dividers stay short.** `// ── Config ──`-style navigation markers are fine; keep them minimal.
+5. **Verbose only where necessary.** A long comment is justified when it carries load-bearing rationale that would be lost otherwise — not as default narration.
 
 ## Agent skills
 

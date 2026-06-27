@@ -3,6 +3,7 @@ import type {
   CharCreateData,
   CharacterData,
   ActionStartResult,
+  ActionKind,
   ActionStepResult,
   ActionResumeResult,
   LocationInfo,
@@ -12,6 +13,7 @@ import type {
   TickResult,
   StatBlock,
   Leaderboards,
+  WeeklyActionSummary,
 } from "./WorldEngine.js";
 
 /**
@@ -34,6 +36,7 @@ export class MockWorldEngine implements WorldEngine {
   private _tickResult: TickResult | null = null;
   private _soulsInUnsafe = 0;
   private _leaderboards: Leaderboards = { wealth: [], might: [] };
+  private _weeklyActions: WeeklyActionSummary[] = [];
   private _meta: Map<string, string> = new Map();
 
   // ── Call tracking ──
@@ -42,15 +45,15 @@ export class MockWorldEngine implements WorldEngine {
     createCharacter: { discordUserId: string; data: CharCreateData }[];
     getCharacter: string[];
     characterExists: string[];
-    startAction: { characterId: number; rawInput: string }[];
+    startAction: { characterId: number; rawInput: string; opts: { kind?: ActionKind; wage?: number } }[];
     stepAction: { characterId: number; choice: string }[];
     resumeAction: number[];
     getLocation: string[];
     getItems: number[];
     getNearbyEntities: number[];
     getJournal: number[];
-    submitFeedback: { characterId: number; text: string }[];
-    submitBug: { characterId: number; text: string }[];
+    submitFeedback: { characterId: number; text: string; actionId?: number }[];
+    submitBug: { characterId: number; text: string; actionId?: number }[];
     updateLastPlayed: number[];
     modifyHealth: { discordUserId: string; amount: number }[];
     countSoulsInUnsafe: void[];
@@ -122,6 +125,10 @@ export class MockWorldEngine implements WorldEngine {
   setLeaderboards(result: Leaderboards): void {
     this._leaderboards = result;
   }
+
+  setWeeklyActions(actions: WeeklyActionSummary[]): void {
+    this._weeklyActions = actions;
+  }
   setMeta(key: string, value: string): void {
     this._meta.set(key, value);
   }
@@ -192,8 +199,9 @@ export class MockWorldEngine implements WorldEngine {
   async startAction(
     characterId: number,
     rawInput: string,
+    opts: { kind?: ActionKind; wage?: number } = {},
   ): Promise<ActionStartResult> {
-    this.calls.startAction.push({ characterId, rawInput });
+    this.calls.startAction.push({ characterId, rawInput, opts });
     if (!this._startActionResult) {
       throw new Error("MockWorldEngine.startAction: no canned result set");
     }
@@ -254,12 +262,12 @@ export class MockWorldEngine implements WorldEngine {
     );
   }
 
-  submitFeedback(characterId: number, text: string): void {
-    this.calls.submitFeedback.push({ characterId, text });
+  submitFeedback(characterId: number, text: string, actionId?: number): void {
+    this.calls.submitFeedback.push({ characterId, text, actionId });
   }
 
-  submitBug(characterId: number, text: string): void {
-    this.calls.submitBug.push({ characterId, text });
+  submitBug(characterId: number, text: string, actionId?: number): void {
+    this.calls.submitBug.push({ characterId, text, actionId });
   }
 
   spawnNpc(data: {
@@ -275,6 +283,10 @@ export class MockWorldEngine implements WorldEngine {
   getLeaderboards(limit: number): Leaderboards {
     this.calls.getLeaderboards.push(limit);
     return this._leaderboards;
+  }
+
+  getActionsBetween(_startIso: string, _endIso: string): WeeklyActionSummary[] {
+    return this._weeklyActions;
   }
 
   tick(isAdmin: boolean): TickResult {

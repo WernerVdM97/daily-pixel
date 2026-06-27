@@ -63,6 +63,8 @@ export class FallbackLlmGateway implements LlmGateway {
   /**
    * Build a stripped context for tier-1 retry.
    * Keeps only character basics (class, stats, health, stamina) + rawInput.
+   * Carries `rollOutcome`/`criticNote` through: a critic major re-decide retries via this gateway,
+   * and dropping them would re-decide blind — losing the exact corrective signal the retry exists for.
    */
   private stripContext(ctx: LlmContext): LlmContext {
     return {
@@ -81,6 +83,8 @@ export class FallbackLlmGateway implements LlmGateway {
       rawInput: ctx.rawInput,
       scalingHint: '',
       attemptTier: 1,
+      ...(ctx.rollOutcome !== undefined ? { rollOutcome: ctx.rollOutcome } : {}),
+      ...(ctx.criticNote !== undefined ? { criticNote: ctx.criticNote } : {}),
     };
   }
 

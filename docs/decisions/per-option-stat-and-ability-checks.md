@@ -16,11 +16,7 @@ related:
 
 # Per-Option Stat & Ability-Check Rolls
 
-> Resolves a contradiction between the `/action` decision prompt (Rule 5 — "mix clever /
-> direct / social options") and the roll engine (a single global `stat`, locked before the
-> player chooses, that taps **only** item bonuses and never the character's own ability).
-> Surfaced while diagnosing LLM reasoning digressions via
-> `scripts/llm-thinking-analysis.mjs` — see [[SPEC-action-prompt-optimization]].
+> Resolves a contradiction between the `/action` decision prompt (Rule 5 — "mix clever / direct / social options") and the roll engine (a single global `stat`, locked before the player chooses, that taps **only** item bonuses and never the character's own ability). Surfaced while diagnosing LLM reasoning digressions via `scripts/llm-thinking-analysis.mjs` — see [[SPEC-action-prompt-optimization]].
 
 ---
 
@@ -43,10 +39,7 @@ Two findings from the thinking-analysis pass collided:
   yet the model already *assumes* it's an ability check (call ID 86 reasoned "wisdom 2 + item +2").
   Prompt and engine disagree about what a roll even is.
 
-These interact: per-option stat is cosmetic while `stat` only toggles item bonuses (most
-characters carry few items, so most options resolve identically). It becomes meaningful
-only once the ability score enters the roll — then "haggle" leans on your charisma and
-"inspect" on your wisdom, and your build genuinely shapes which approach is strong for you.
+These interact: per-option stat is cosmetic while `stat` only toggles item bonuses (most characters carry few items, so most options resolve identically). It becomes meaningful only once the ability score enters the roll — then "haggle" leans on your charisma and "inspect" on your wisdom, and your build genuinely shapes which approach is strong for you.
 
 ## Options considered
 

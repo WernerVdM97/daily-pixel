@@ -77,8 +77,15 @@ export function runMigrations(db: Database.Database, migrations: Migration[] = M
   for (const m of pending) console.log(`[migrate] applied ${m.id}`);
 }
 
-function seedLocations(db: Database.Database): void {
-  const locations = [
+/**
+ * The locations seeded into a fresh DB. Exported as the single source of truth
+ * so the cross-file asset check (day-job `workplace_location` ⊆ seeded locations,
+ * `checkDayJobLocations`) validates against the same list `seedLocations` writes.
+ * NOTE: that cross-file check is a TEST-gate assertion, not boot fail-fast — it
+ * runs in `tests/assets/asset-schemas.test.ts`, not in `index.ts`. Only the
+ * per-file shape validators (`loadAndValidate`) run at boot.
+ */
+export const SEEDED_LOCATIONS = [
     { name: "The Warden's Oak", description: 'A massive ancient oak tree that serves as the heart of the territory. Its branches stretch wide, offering shelter to all who gather beneath.', tags: 'oak,interior,fire,sanctuary', is_safe: 1 },
     { name: 'The Forest Edge', description: 'Where the farmland yields to the treeline. The Oak is still visible behind you, but the canopy ahead swallows the light.', tags: 'forest,edge,trees,field,boundary,wilderness', is_safe: 0 },
     { name: 'The Dark Pines', description: 'Dense ancient forest where the canopy blocks the sky. Roots twist like old bones. Something moves between the trunks — too large for a deer.', tags: 'forest,trees,wilderness,dark,canopy', is_safe: 0 },
@@ -90,15 +97,16 @@ function seedLocations(db: Database.Database): void {
     { name: 'The Weary Lantern Inn', description: 'Smoke-stained beams and a fire that never quite warms the corners. The barman pours before you ask. Someone in the far booth is watching.', tags: 'tavern,interior,fire,crowd,drink', is_safe: 1 },
     { name: 'The Town Forge', description: 'Heat and iron. A stone smithy near the square where the bellows never rest. The walls are black with years of soot.', tags: 'forge,smithy,town,fire,building', is_safe: 1 },
     { name: "The Warden's Library", description: "Shelves climb the walls of a round stone room. Dust motes float in the lantern light. Not all the books are in a language you know.", tags: 'library,study,scrolls,quiet,building', is_safe: 1 },
-  ];
+] as const;
 
+function seedLocations(db: Database.Database): void {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO locations (name, description, tags, is_safe)
     VALUES (@name, @description, @tags, @is_safe)
   `);
 
   const seed = db.transaction(() => {
-    for (const loc of locations) {
+    for (const loc of SEEDED_LOCATIONS) {
       stmt.run(loc);
     }
   });

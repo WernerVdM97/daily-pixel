@@ -2,49 +2,61 @@
 # How you grew up. Shapes your stats, not your current job.
 
 - name: Soldier
+  emoji: "🎖️"
   description: Raised in a military family. Discipline was your first language. The scars are your father's.
   modifiers: { physical: 1, wisdom: 0, intelligence: -1, charisma: 0 }
 
 - name: Merchant
+  emoji: "⚖️"
   description: Grew up behind a counter. You could read a ledger before you could read a story.
   modifiers: { physical: -1, wisdom: 0, intelligence: 1, charisma: 1 }
 
 - name: Scholar
+  emoji: "📚"
   description: Books over breakfast. Your parents taught you the old tongues — some of them true.
   modifiers: { physical: -1, wisdom: 0, intelligence: 2, charisma: -1 }
 
 - name: Folk Hero
+  emoji: "🌟"
   description: Common blood, uncommon courage. Your village still tells stories about the fire you pulled them from.
   modifiers: { physical: 0, wisdom: 0, intelligence: 0, charisma: 1 }
 
 - name: Outcast
+  emoji: "🏚️"
   description: You grew up on the edge of things. The forest taught you what people wouldn't.
   modifiers: { physical: 0, wisdom: 1, intelligence: 0, charisma: -1 }
 
 - name: Noble
+  emoji: "👑"
   description: Manor-born. You learned poise, politics, and how to make a room listen.
   modifiers: { physical: -1, wisdom: -1, intelligence: 1, charisma: 2 }
 
 - name: Artisan
+  emoji: "🪚"
   description: Your hands know wood, stone, or metal before your mind knows letters.
   modifiers: { physical: 1, wisdom: 1, intelligence: -1, charisma: -1 }
 
 - name: Farmstead
+  emoji: "🌾"
   description: You read weather, soil, and seasons like others read books.
   modifiers: { physical: 1, wisdom: 1, intelligence: 0, charisma: -1 }
 
 - name: Temple-Raised
+  emoji: "⛪"
   description: Given to the old faith as a child. The hymns are still in your bones.
   modifiers: { physical: 0, wisdom: 2, intelligence: -1, charisma: -1 }
 
 - name: Urchin
+  emoji: "🗝️"
   description: The gutter taught you everything. Pockets, roofs, escape routes.
   modifiers: { physical: 1, wisdom: 1, intelligence: 0, charisma: -2 }
 
 - name: Entertainer
+  emoji: "🎭"
   description: You travelled with a troupe. You learned to read a room before you learned to read a page.
   modifiers: { physical: -1, wisdom: 0, intelligence: -1, charisma: 2 }
 
 - name: Scout
+  emoji: "🧭"
   description: Range-born. Your family kept the borders, watched the roads, knew when something changed.
   modifiers: { physical: 1, wisdom: 2, intelligence: 0, charisma: -2 }

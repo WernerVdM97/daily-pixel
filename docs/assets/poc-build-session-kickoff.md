@@ -1,7 +1,6 @@
 # POC Build — Session Kickoff Reference
 
-> Reference asset for [[poc-build-poa]]. How to start a fresh build session: what to load
-> into context first, and the paste-ready kickoff prompt. Not a vault doc — a working aid.
+> Reference asset for [[poc-build-poa]]. How to start a fresh build session: what to load into context first, and the paste-ready kickoff prompt. Not a vault doc — a working aid.
 
 ---
 

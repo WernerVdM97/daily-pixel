@@ -1,109 +1,228 @@
-// Prompt version — the single source of truth. Bump this ONE constant when the
-// system prompt changes; the prompt file is derived from it
-// (assets/prompts/decision-prompts/decision-<PROMPT_VERSION>.md). It's stamped on every
-// actions/llm_calls row so outcomes trace back to the prompt that produced them.
-//
-// To cut a new version: copy assets/prompts/decision-prompts/decision-<old>.md → decision-<new>.md,
-// edit the body, then change the string below. Keep old files for history.
-// After cutting, also copy the new file's content into current_source.md.
-export const PROMPT_VERSION = 'v8';
+// Single source of truth for the prompt version. Selects the prompt file
+// (decision-<PROMPT_VERSION>.md) and is stamped on every actions/llm_calls row so
+// outcomes trace back to the prompt that produced them.
+// To cut a new version: copy decision-<old>.md → decision-<new>.md, edit, bump this
+// string, keep old files, and mirror the new file into current_source.md.
+export const PROMPT_VERSION = 'v9';
+
+// Critic prompt version, independent of PROMPT_VERSION. Stamped on critic llm_calls
+// rows as `critic-<CRITIC_VERSION>` so a verdict traces to the prompt that produced it.
+// Bump it (and add critic-<N>.md) when the critic prompt changes.
+export const CRITIC_VERSION = 'v1';
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { LlmContext } from './LlmGateway.js';
+import type { LlmContext, CriticInput } from './LlmGateway.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Active system prompt, loaded once at boot from the file matching PROMPT_VERSION. */
+/** System prompt, loaded once at boot from the file matching PROMPT_VERSION. */
 const _systemPrompt = readFileSync(
   path.join(__dirname, '..', '..', 'assets', 'prompts', 'decision-prompts', `decision-${PROMPT_VERSION}.md`),
   'utf-8',
 ).trim();
 
-/** The active system prompt (assets/prompts/decision-prompts/decision-<PROMPT_VERSION>.md). */
+/** Critic system prompt, loaded once at boot from the file matching CRITIC_VERSION. */
+const _criticSystemPrompt = readFileSync(
+  path.join(__dirname, '..', '..', 'assets', 'prompts', 'critic', `critic-${CRITIC_VERSION}.md`),
+  'utf-8',
+).trim();
+
 export function buildSystemPrompt(): string {
   return _systemPrompt;
 }
 
-export function buildUserMessage(ctx: LlmContext): string {
-  const lines: string[] = [];
+export function buildCriticSystemPrompt(): string {
+  return _criticSystemPrompt;
+}
 
-  // Explicit loop phase so the model never has to infer game state from prose.
-  //   NEW_ACTION  — first beat; open a decision or resolve outright.
-  //   CONTINUE    — a prior choice exists but no verdict yet; produce the NEXT beat.
-  //   RESOLVE_ROLL — the dice have decided; narrate the attached ROLL RESULT only.
+/** User message for the coherence critic: the authored beat + engine truths to anchor
+ *  against. Markdown, like the decision briefing. */
+export function buildCriticUserMessage(input: CriticInput): string {
+  const out: string[] = [];
+  out.push(`BEAT: ${input.beat}`);
+  if (input.rollOutcome) {
+    out.push(`ROLL VERDICT: ${input.rollOutcome.toUpperCase()}`);
+  }
+
+  out.push('');
+  out.push('## Authored output (JSON)');
+  out.push('```json');
+  // Strip transient/audit-only `_`-prefixed fields (_rawPrompt, _reasoning, …): they'd
+  // re-embed the whole prompt and the author's chain-of-thought — wasted tokens, and the
+  // critic must judge prose-vs-truth independently, not rubber-stamp the author's reasoning.
+  // The validator warnings it needs are surfaced under "## Validator warnings" below.
+  const authored = Object.fromEntries(
+    Object.entries(input.decision).filter(([k]) => !k.startsWith('_')),
+  );
+  out.push(JSON.stringify(authored, null, 2));
+  out.push('```');
+
+  if (input.finalMutations !== undefined) {
+    out.push('');
+    out.push('## Final mutations (engine-applied — outcome_text must match these)');
+    out.push('```json');
+    out.push(JSON.stringify(input.finalMutations, null, 2));
+    out.push('```');
+  }
+
+  out.push('');
+  out.push('## Validator warnings');
+  out.push(input.warnings.length > 0 ? input.warnings.map(w => `- ${w}`).join('\n') : '- none');
+
+  out.push('');
+  out.push('## Context the author saw');
+  out.push(input.contextDigest);
+
+  return out.join('\n');
+}
+
+/** Fixed display order — keeps the prompt prefix cache-stable. */
+const STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
+
+/** Quote untrusted player text as a single-line blockquote. Newlines and whitespace runs are
+ *  collapsed to single spaces so multi-line input can't inject fake markdown sections or
+ *  impersonate engine/GM lines (the player's intent is one line anyway); the SECURITY RULE
+ *  backstops the rest. Empty input renders an explicit placeholder, not a dangling `> `. */
+function asBlockquote(s: string): string {
+  const oneLine = s.replace(/\s+/g, ' ').trim();
+  return oneLine ? `> ${oneLine}` : '> (no description given)';
+}
+
+/** Signed table cell: `+5`, `-2`, or `—` for zero. */
+function signed(n: number): string {
+  return n === 0 ? '—' : `${n > 0 ? '+' : ''}${n}`;
+}
+
+/**
+ * v9 markdown briefing. Renders context as a scene to read, not a struct to parse — uses
+ * markdown's structural features (headings, tables, labels), skips decorative bold/italic.
+ * Section order: control → you → scene → present → story → reference → the ask.
+ */
+export function buildUserMessage(ctx: LlmContext): string {
+  // Explicit loop phase so the model never infers game state from prose.
+  //   NEW_ACTION   — first beat; open a decision or resolve outright.
+  //   CONTINUE     — a prior choice exists but no verdict yet; produce the NEXT beat.
+  //   RESOLVE_ROLL — dice have decided; narrate the attached ROLL RESULT only.
   const phase = ctx.rollOutcome
     ? 'RESOLVE_ROLL'
     : (ctx.previousDecisions && ctx.previousDecisions.length > 0 ? 'CONTINUE' : 'NEW_ACTION');
-  lines.push(`PHASE: ${phase}`);
 
-  lines.push(`CHARACTER: class=${ctx.character.class}, stats=${JSON.stringify(ctx.character.stats)}, health=${ctx.character.health}, stamina=${ctx.character.stamina}, alignment=${ctx.character.alignment}, dayJob=${ctx.character.dayJob}`);
-  lines.push(`LOCATION: ${ctx.location.name}`);
+  const out: string[] = [];
+  out.push(`PHASE: ${phase}`);
 
-  if (ctx.nearbyNpcs.length > 0) {
-    lines.push(`NEARBY NPCS: ${ctx.nearbyNpcs.map(n => `${n.name} (${n.description})`).join(', ')}`);
+  // ── You — identity, resources, the ability-checks table (Score + Gear = Bonus) ──
+  const c = ctx.character;
+  out.push('');
+  out.push(`## You — ${c.class} · ${c.alignment} · ${c.dayJob}`);
+  const hp = c.maxHealth !== undefined ? `${c.health}/${c.maxHealth}` : `${c.health}`;
+  const sta = c.maxStamina !== undefined ? `${c.stamina}/${c.maxStamina}` : `${c.stamina}`;
+  out.push(`Health ${hp} · Stamina ${sta}`);
+  out.push('');
+  out.push('### Ability checks (roll = d20 + Bonus ≥ DC)');
+  out.push('| Stat | Score | Gear | Bonus |');
+  out.push('|------|-------|------|-------|');
+  for (const stat of STATS) {
+    const score = c.stats[stat];
+    const gear = ctx.itemBonuses?.[stat] ?? 0;
+    const bonus = score + gear; // what's added to the d20 — always shown signed, incl. +0
+    const label = stat.charAt(0).toUpperCase() + stat.slice(1);
+    out.push(`| ${label} | ${score} | ${signed(gear)} | ${bonus >= 0 ? '+' : ''}${bonus} |`);
+  }
 
-    // The Warden lore — only injected when The Warden is nearby.
-    // Know the secret, never state it directly. Drip-feed fragments over the year.
-    if (ctx.nearbyNpcs.some(n => n.name === 'The Warden')) {
-      lines.push('WARDEN LORE (KNOW THIS, NEVER STATE DIRECTLY): The Warden is not one person. The title has passed across centuries. The current Warden is the last. When they die, the Oak dies. Reveal only through fragments scattered across the year — one subtle hint every few in-game weeks. Imply, never explain.');
+  // ── Inventory — names/emoji/qty for narration, remove_item, and consumption ──
+  if (ctx.inventory && ctx.inventory.length > 0) {
+    out.push('');
+    out.push('### Inventory');
+    for (const it of ctx.inventory) {
+      const qty = it.quantity > 1 ? ` ×${it.quantity}` : '';
+      const bonus = it.modifier !== 0 ? ` — ${it.stat} ${signed(it.modifier)}` : '';
+      out.push(`- ${it.emoji} ${it.name}${qty}${bonus}`);
     }
-  } else {
-    lines.push('NEARBY NPCS: none');
   }
 
-  if (ctx.nearbyPcs.length > 0) {
-    lines.push(`NEARBY PCS: ${ctx.nearbyPcs.map(p => `${p.name} (${p.class})`).join(', ')}`);
-  } else {
-    lines.push('NEARBY PCS: none');
+  // ── Scene — location + safety tag (the danger-pacing lever) ──
+  out.push('');
+  out.push('## Scene');
+  const safety = ctx.location.isSafe === undefined
+    ? ''
+    : (ctx.location.isSafe ? ' — safe (sanctuary)' : ' — unsafe (wilds; danger roams)');
+  out.push(`Location: ${ctx.location.name}${safety}`);
+
+  // ── Present — NPCs and other players, separate labelled lists ──
+  if (ctx.nearbyNpcs.length > 0 || ctx.nearbyPcs.length > 0) {
+    out.push('');
+    out.push('### Present');
+    if (ctx.nearbyNpcs.length > 0) {
+      out.push('NPCs:');
+      for (const n of ctx.nearbyNpcs) out.push(`- ${n.name} — ${n.description}`);
+    }
+    if (ctx.nearbyPcs.length > 0) {
+      out.push('Other players:');
+      for (const p of ctx.nearbyPcs) out.push(`- ${p.name} (${p.class})`);
+    }
   }
 
+  // Warden lore — out-of-character GM note, kept OUT of the NPC list so the model never
+  // renders it as scene data. Only when the Warden is present.
+  if (ctx.nearbyNpcs.some(n => n.name === 'The Warden')) {
+    out.push('');
+    out.push('> GM note (out of character): The Warden is not one person — the title has passed across centuries, and the current Warden is the last. When they die, the Oak dies. Reveal only through fragments, one subtle hint every few in-game weeks. Imply, never explain.');
+  }
+
+  // ── Story so far — recent beats, oldest first so the model reads forward ──
   if (ctx.recentActions.length > 0) {
-    // Oldest→newest so the LLM reads the story forward. Each beat carries its
-    // narrative (the prior DM outcome text) when we have it, for continuity.
-    lines.push(`RECENT ACTIONS (last ${ctx.recentActions.length}, oldest first):`);
+    out.push('');
+    out.push('### Story so far (oldest first)');
     for (const a of [...ctx.recentActions].reverse()) {
       const thread = a.narrative ? `: ${a.narrative}` : '';
-      lines.push(`- ${a.type} (${a.outcome})${thread}`);
+      out.push(`- ${a.type} (${a.outcome})${thread}`);
     }
-  } else {
-    lines.push('RECENT ACTIONS: none');
   }
 
-  // KNOWN LOCATIONS (v8+) — the charted map. The LLM prefers an exact name here
-  // for set_location and only invents for genuine off-map exploration (D3).
+  // ── Known locations — reference for set_location reuse (inline, not a list) ──
   if (ctx.knownLocations && ctx.knownLocations.length > 0) {
-    lines.push(`KNOWN LOCATIONS: ${ctx.knownLocations.join(', ')}`);
+    out.push('');
+    out.push('### Known locations');
+    out.push(ctx.knownLocations.join(' · '));
   }
 
-  lines.push(`PLAYER INPUT: ${ctx.rawInput}`);
+  // ── The ask — the player's intent, fenced as in-world speech, placed last ──
+  out.push('');
+  out.push("## What you're attempting");
+  out.push(asBlockquote(ctx.rawInput));
 
-  if (ctx.scalingHint) {
-    lines.push(`DAILY SCALING: ${ctx.scalingHint}`);
-  }
-
+  // ── CONTINUE / RESOLVE_ROLL additions ──
   if (ctx.previousDecisions && ctx.previousDecisions.length > 0) {
-    lines.push('PREVIOUS DECISIONS:');
+    out.push('');
+    out.push('### So far this beat');
     for (const d of ctx.previousDecisions) {
-      lines.push(`- ${d.prompt} → ${d.chosen} (dc_modifier: ${d.dcModifier})`);
+      out.push(`- ${d.prompt} → ${d.chosen} (dc_modifier: ${d.dcModifier})`);
     }
   }
 
   // Narration pass: the dice have already decided. Narrate THIS verdict.
   if (ctx.rollOutcome) {
-    lines.push(`ROLL RESULT: ${ctx.rollOutcome.toUpperCase()} — narrate this outcome and emit matching mutations. No decision options.`);
+    out.push('');
+    out.push(`ROLL RESULT: ${ctx.rollOutcome.toUpperCase()} — narrate this outcome and emit matching mutations. No decision options.`);
   }
 
-  return lines.join('\n');
+  // Re-decide pass: the critic rejected the previous attempt. Engine directive (not in-world
+  // speech) — fix the named problem and produce a corrected beat.
+  if (ctx.criticNote) {
+    out.push('');
+    out.push('## Reviewer note');
+    out.push(`Your previous attempt was rejected for incoherence: ${ctx.criticNote}. Produce a corrected beat that fixes this, consistent with the context above.`);
+  }
+
+  return out.join('\n');
 }
 
 /**
- * Compact, query-friendly snapshot of the context for the audit log.
- *
- * Strips reconstructable boilerplate (NPC descriptions, full inventory/location
- * lists) and dedupes NPC names — keeping only the volatile signal. The exact
- * token cost of the real prompt is captured separately via the API's usage.
+ * Compact, query-friendly context snapshot for the audit log. Strips reconstructable
+ * boilerplate (NPC descriptions, full inventory/location lists) and dedupes NPC names,
+ * keeping only the volatile signal. Real prompt token cost comes from the API's usage.
  */
 export function buildContextDigest(ctx: LlmContext): string {
   return JSON.stringify({

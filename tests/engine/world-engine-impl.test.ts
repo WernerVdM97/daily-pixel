@@ -566,6 +566,7 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
     matchesExisting?: string;
     is_safe?: 0 | 1;
     description?: string;
+    tags?: string;
   }) {
     const calls: Array<{ newName: string; existingNames: string[]; narrative: string }> = [];
     let resolveDone!: () => void;
@@ -631,6 +632,20 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
     expect(loc.description).toMatch(/drowned hall/i);
     expect(loc.is_safe).toBe(0);
     expect(loc.enrichment_pending).toBe(0); // flag cleared after enrichment
+  });
+
+  it('persists cartographer-supplied tags onto the enriched row', async () => {
+    const stub = makeStubCartographer({ is_safe: 0, description: 'A flooded vault.', tags: 'cave,underground,water,dark' });
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+
+    await stub.done;
+    await Promise.resolve();
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.tags).toBe('cave,underground,water,dark');
   });
 
   it('does not fire the cartographer when no provisional location was created', async () => {

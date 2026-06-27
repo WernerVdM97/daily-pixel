@@ -1,9 +1,10 @@
 ---
 title: Polish Pass — v0.2.4
-status: spark
-domain: spark
+status: shipped
+domain: archived
 phase: poc
 tags: [bugs, polish, coherency, thematic, release, footer, emoji, prompt]
+superseded_by: "implemented in code"
 related:
   - "[[bug-analysis-v0.2.2]]"
   - "[[handover-code-review-post-pr14]]"
@@ -18,10 +19,7 @@ The punch list for the **v0.2.4** patch. Scope is deliberately narrow: **bug-fix
 
 > **Two sweeps:** §A below is the original hot-path review (`src/discord` frontend, `src/engine`/`index.ts` mechanics, `src/llm`). **§B (2026-06-21)** is a follow-up sweep over every source file the first pass had *not* opened — peripheral Discord, all DB repositories/migrations, engine internals, LLM/scene/asset loaders, the char-creation YAML, and the ops/scripts/config layer. Every `file:line` in both was opened and confirmed.
 
-> **Division of labour — this doc and [[prod-data-review-v0.2.3]] are executed by separate agents.** To keep them from editing the same files:
-> - **This doc (polish-pass) owns the *code-tidy & data-fix* work:** cosmetic/coherency/thematic fixes and the §B data/ops bugs. It makes **no edits to the decision prompt files** and **no edits to the auto-resolve / resolution path** (`machine.ts` auto-finish, `WorldEngineImpl.startAction` roll-debit, the gateway empty-decision handling).
-> - **[[prod-data-review-v0.2.3]] owns the *decision/resolution/roll-economy/prompt-behaviour* domain** — its §C1 (auto-resolve eats a roll), §C2 (timeout), §G–§Q items, **and the `decision-v8.md` prompt bump** (into which the cosmetic prompt fixes below have been relocated).
-> - Items here that touched that domain (former **E3**, **E4**, **P1**, **P2**) are now **deferred** to that doc; the footer fix (**F1**) stays here and prod-data §G1 defers to it. The only file both agents touch is `WorldEngineImpl.ts` — but in **different functions** (`countSoulsInUnsafe` here vs `startAction`/`isStateStale` there), so they don't collide.
+> **Division of labour — this doc and [[prod-data-review-v0.2.3]] are executed by separate agents.** To keep them from editing the same files: - **This doc (polish-pass) owns the *code-tidy & data-fix* work:** cosmetic/coherency/thematic fixes and the §B data/ops bugs. It makes **no edits to the decision prompt files** and **no edits to the auto-resolve / resolution path** (`machine.ts` auto-finish, `WorldEngineImpl.startAction` roll-debit, the gateway empty-decision handling). - **[[prod-data-review-v0.2.3]] owns the *decision/resolution/roll-economy/prompt-behaviour* domain** — its §C1 (auto-resolve eats a roll), §C2 (timeout), §G–§Q items, **and the `decision-v8.md` prompt bump** (into which the cosmetic prompt fixes below have been relocated). - Items here that touched that domain (former **E3**, **E4**, **P1**, **P2**) are now **deferred** to that doc; the footer fix (**F1**) stays here and prod-data §G1 defers to it. The only file both agents touch is `WorldEngineImpl.ts` — but in **different functions** (`countSoulsInUnsafe` here vs `startAction`/`isStateStale` there), so they don't collide.
 
 ---
 

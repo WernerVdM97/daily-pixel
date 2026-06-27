@@ -190,7 +190,7 @@ describe('E2E — full happy path', () => {
     // Character header
     expect(result).toContain('Aldric');
     expect(result).toContain('Warrior');
-    expect(result).toContain('Stamina');
+    expect(result).toContain('⚡'); // stamina vital — emoji-only, no label
 
     // Day-job actions — 3 surfaced at random from the job + common pool
     expect(result).toContain('Blacksmith');

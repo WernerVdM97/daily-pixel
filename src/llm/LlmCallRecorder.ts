@@ -8,6 +8,12 @@ export interface LlmCallRecord {
   /** App build (VERSION) that produced this call. */
   appVersion: string;
   promptVersion: string;
+  /** Which pipeline stage produced this call: 'decision' (default) or 'critic'. Lets the
+   *  coherence critic be mined separately from the decision call. */
+  callKind?: string;
+  /** Critic verdict for a critic call: 'ok' | 'minor' | 'major'. NULL/absent on decision calls
+   *  and on critic calls that failed before producing a verdict. */
+  criticSeverity?: string | null;
   model: string;
   temperature: number;
   /** 0 = primary call, 1 = stripped-context retry (FallbackLlmGateway tier 1). */
@@ -39,4 +45,10 @@ export interface LlmCallRecord {
 export interface LlmCallRecorder {
   /** Persist one call attempt and return its row id (for action linkage). */
   record(rec: LlmCallRecord): number;
+  /**
+   * Backfill `raw_prompt` / `reasoning` on an already-recorded call — used when the coherence
+   * critic flags a beat that wasn't deep-captured at record time. Only fills NULL columns
+   * (never erases an existing capture). Best-effort; passing a null leaves that column as-is.
+   */
+  promoteDeepCapture(callId: number, fields: { rawPrompt?: string | null; reasoning?: string | null }): void;
 }

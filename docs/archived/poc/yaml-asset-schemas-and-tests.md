@@ -1,23 +1,25 @@
 ---
 title: YAML Asset Schemas & Test Coverage
-status: spark
-domain: spark
+status: shipped
+domain: archived
 phase: poc
 tags: [testing, assets, yaml, validation, schema, char-creation, release-notes]
+superseded_by: "implemented in code"
 related:
   - "[[polish-pass-v0.2.4]]"
   - "[[prod-data-review-v0.2.3]]"
   - "[[handover-code-review-post-pr14]]"
 ---
 
+> **✅ Shipped** (`feat/yaml-asset-schemas`, commit `899b24e`). Hand-rolled validators (no new deps) per the decision below. - **Module:** `src/assets/asset-schemas.ts` — per-asset validators + `loadAndValidate<T>(file, validator)` (throws `AssetSchemaError` with file + entry index + field) + cross-file checks (`checkItemSetCoverage`, `checkDayJobLocations`, `checkAlignmentUniqueness`). - **Fail-fast boot:** `index.ts` `loadCharCreationAssets()` now routes every file through `loadAndValidate`. `migrate.ts` exports `SEEDED_LOCATIONS` as the single source of truth for the `workplace_location` cross-check. - **Tests:** `tests/assets/asset-schemas.test.ts` — T1–T5, golden entry counts, and malformed-data rejection cases (603 suite green). - **Not done (deliberately):** the per-call `as` casts at the consumption sites were left in place (now casting already-validated data — harmless); stripping them was the lowest-priority "related suggestion".
+>
+> The code is the living artifact; this doc is kept for history.
+
 Every gameplay constant the bot ships — classes, backgrounds, races, alignments, day-jobs, item-sets, release-notes — is a YAML file loaded through `src/assets/yaml-loader.ts` and then **cast (`as`) into a type with no runtime check**. The loader validates *syntax and array-shape only*; nothing asserts an entry actually carries the fields its consumer reads. This spark defines a **canonical template per asset type** and a **test layer that validates the real files against it** — so a malformed asset fails loudly in CI instead of silently at a player.
 
 > **Motivating proof:** `backgrounds.yml` has **5** entries missing a stat key (Farmstead·Temple-Raised·Urchin·Entertainer·Scout), `computeStats` sums them unguarded → `NaN` → persisted as `null`. **5 of 8 live prod characters already have a `null` ability score** (Flikker's `wisdom`, etc.). A manual sweep ([[polish-pass-v0.2.4]] §B1) counted **4** and missed Entertainer — the exact failure mode automated validation removes. *This spark is the guardrail; the data fix itself stays with polish §B1.*
 
-> **Division of labour — disjoint from the other two sparks.**
-> - **This spark owns:** a new validation module (`src/assets/asset-schemas.ts`) and new tests under `tests/assets/`, plus the templates below. It **absorbs/expands [[polish-pass-v0.2.4]] §B7** (the "loader does no completeness check" nit) into a systematic layer.
-> - **Defers to [[polish-pass-v0.2.4]] §B1:** the `backgrounds.yml` *data* edit. The repair of the 5 already-corrupted live characters is a **one-off scriptfix, not a migration** — see "Repairing the corrupted live characters" below.
-> - **Does NOT touch:** mock-fixture fidelity (polish §B8/B9), UI-handler tests (polish §C1–C3), or anything in [[prod-data-review-v0.2.3]] (resolution/prompt domain). No file overlap.
+> **Division of labour — disjoint from the other two sparks.** - **This spark owns:** a new validation module (`src/assets/asset-schemas.ts`) and new tests under `tests/assets/`, plus the templates below. It **absorbs/expands [[polish-pass-v0.2.4]] §B7** (the "loader does no completeness check" nit) into a systematic layer. - **Defers to [[polish-pass-v0.2.4]] §B1:** the `backgrounds.yml` *data* edit. The repair of the 5 already-corrupted live characters is a **one-off scriptfix, not a migration** — see "Repairing the corrupted live characters" below. - **Does NOT touch:** mock-fixture fidelity (polish §B8/B9), UI-handler tests (polish §C1–C3), or anything in [[prod-data-review-v0.2.3]] (resolution/prompt domain). No file overlap.
 
 ---
 
@@ -68,15 +70,15 @@ These templates are authoritative; the commented headers already in each file sh
 
 The current suite tests the *generic loader* (`yaml-loader.test.ts`, synthetic data) and *display fields* (`join-options.test.ts`) — it never asserts the real assets' data integrity. Add:
 
-- [ ] **T1 · Real-file schema validation.** For every shipped asset file, load and validate against its template above. Replaces the synthetic-only coverage. Catches missing/extra/mistyped fields on the actual files.
-- [ ] **T2 · Modifier completeness.** Every `classes`/`backgrounds`/`races` entry has all four `STAT` keys, integer-valued. *(Catches all 5 broken backgrounds — the one a human count missed included.)*
-- [ ] **T3 · `computeStats` finite round-trip (the killer test).** For **every** `class × background × race` combination, assert all four resulting stats are finite integers. One loop turns the silent-`NaN` class of bug into a red test.
-- [ ] **T4 · Cross-file integrity.**
+- [x] **T1 · Real-file schema validation.** For every shipped asset file, load and validate against its template above. Replaces the synthetic-only coverage. Catches missing/extra/mistyped fields on the actual files.
+- [x] **T2 · Modifier completeness.** Every `classes`/`backgrounds`/`races` entry has all four `STAT` keys, integer-valued. *(Catches all 5 broken backgrounds — the one a human count missed included.)*
+- [x] **T3 · `computeStats` finite round-trip (the killer test).** For **every** `class × background × race` combination, assert all four resulting stats are finite integers. One loop turns the silent-`NaN` class of bug into a red test.
+- [x] **T4 · Cross-file integrity.**
   - [I] `item-sets.for_classes` ⊆ class names, **and every class has ≥ 1 kit** (no class can finish `/join` kit-less).
   - [I] `item.stat ∈ STAT`; `item.modifier` integer; `quantity ≥ 1` when present.
   - [I] `day-jobs.depends_on ⊆ STAT`; `workplace_location` is `null` or a **seeded location name** — locks the invariant [[polish-pass-v0.2.4]] verified as currently-true so it can't silently break.
   - [I] `alignments.axis` values legal; 9 unique law×moral combos.
-- [ ] **T5 · release-notes sweep.** Validate **every** file in `assets/release-notes/`, not just `v0.2.3` (a future malformed file currently degrades to a silent "no notes" at boot — `loadReleaseNotes` warns but nothing tests it). Assert `tag` matches the filename.
+- [x] **T5 · release-notes sweep.** Validate **every** file in `assets/release-notes/`, not just `v0.2.3` (a future malformed file currently degrades to a silent "no notes" at boot — `loadReleaseNotes` warns but nothing tests it). Assert `tag` matches the filename.
 - [x] **Keep:** `join-options.test.ts` (every YAML option surfaces with non-empty label/description/emoji) — fold it under this umbrella rather than duplicate.
 
 ---
@@ -85,7 +87,7 @@ The current suite tests the *generic loader* (`yaml-loader.test.ts`, synthetic d
 
 - [I] **A typed validate-on-load helper.** Add `loadAndValidate<T>(file, schema): T[]` over `loadYamlFile`, used at boot in `loadCharCreationAssets()`. On a bad entry it throws with **file + entry index + field name** — so a future omission crashes boot loudly (and the deploy `tsc`/test gate catches it) instead of producing a `null` stat. Removes every `as` cast in `index.ts`.
 - [I] **Single source of truth.** Put the schemas in one `src/assets/asset-schemas.ts`; both the runtime validator (above) and the tests import them, and the templates in this doc derive from them.
-- [?] **Dependency call:** hand-roll the validators (zero new deps, fine for 6 small schemas) **or** adopt a tiny schema lib (e.g. zod) for richer messages. POC-default: hand-roll. Decide before building.
+- [x] **Dependency call — resolved: hand-rolled** (zero new deps, fine for 6 small schemas), as the POC-default suggested. Adopting zod was not needed for the message quality achieved.
 - [I] **Golden count snapshot.** A test asserting the number of entries per file, so adding/removing an option is a deliberate, reviewed diff rather than an accident.
 - [I] **CI:** these are plain `vitest` tests — they run in the existing `test` gate (`.github`), no new pipeline needed.
 - [-] **Out of scope:** mock-fixture drift (polish §B8/B9); UI-flow tests (polish §C1–C3).
@@ -105,8 +107,8 @@ The current suite tests the *generic loader* (`yaml-loader.test.ts`, synthetic d
 
 ## Suggested order
 
-1. [ ] **T3 + T2** — the finite round-trip and completeness checks. Highest value; would have caught the live corruption. Pairs with polish §B1 landing the data fix (red → green).
-2. [ ] **`asset-schemas.ts` + T1** — the schema module and real-file validation; the foundation the rest import.
-3. [ ] **T4** — cross-file integrity (kit coverage, workplace locations, stat enums).
-4. [ ] **`loadAndValidate` at boot** — fail-fast wiring; drop the `as` casts.
-5. [ ] **T5 + golden counts** — release-notes sweep and snapshot guards.
+1. [x] **T3 + T2** — the finite round-trip and completeness checks. Highest value; would have caught the live corruption. Pairs with polish §B1 landing the data fix (red → green).
+2. [x] **`asset-schemas.ts` + T1** — the schema module and real-file validation; the foundation the rest import.
+3. [x] **T4** — cross-file integrity (kit coverage, workplace locations, stat enums).
+4. [x] **`loadAndValidate` at boot** — fail-fast wiring. *(The `as` casts were left as-is — now harmless over validated data.)*
+5. [x] **T5 + golden counts** — release-notes sweep and snapshot guards.

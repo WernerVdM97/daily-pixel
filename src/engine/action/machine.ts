@@ -1,10 +1,12 @@
-import type { LlmGateway, LlmContext, LlmDecision } from '../../llm/LlmGateway.js';
+import type { LlmGateway, LlmContext, LlmDecision, CriticGateway } from '../../llm/LlmGateway.js';
+import { buildContextDigest } from '../../llm/prompt-builder.js';
 import type {
   ActionState,
   ActionDecision,
   ActionOption,
   ActionDecisionRecord,
   ActionOutcome,
+  ActionKind,
   WorldMutation,
   CharacterData,
   ItemData,
@@ -13,9 +15,8 @@ import { accumulateDc, itemStatModifier, abilityCheckBonus, resolveRoll, validat
 import { DIVINE_INTERVENTION_TYPE } from '../../llm/FallbackLlmGateway.js';
 
 /**
- * Injectable resolver for world context — NPCs, other PCs, and recent actions.
- * Passed to ActionStateMachine so it can populate the LLM context with live world state
- * without coupling to specific repositories.
+ * Injectable resolver for world context — decouples ActionStateMachine from specific
+ * repositories while letting it populate the LLM context with live world state.
  */
 export interface WorldContextResolver {
   getNearbyNpcs(location: string): Array<{ name: string; description: string }>;
@@ -23,23 +24,24 @@ export interface WorldContextResolver {
   getRecentActions(characterId: number): Array<{ type: string; outcome: string; narrative?: string | null }>;
   /** All known location names — so the LLM can generate valid set_location mutations. */
   getKnownLocations(): string[];
+  /** Whether the named location is safe (true) or wild (false). Drives the scene safety tag. */
+  isLocationSafe(location: string): boolean;
 }
 
-/**
- * Extends ActionState with internal fields stored in the JSON column
- * but not exposed on the public ActionState interface.
- */
+/** ActionState plus internal fields stored in the JSON column, not on the public interface. */
 export interface InternalActionState extends ActionState {
-  /** The current pending decision (for resume). Stored in last_action_state JSON. */
+  /** Current pending decision, for resume. */
   pendingDecision: ActionDecision;
-  /** The distilled action type from the LLM. */
   distilledType: string;
-  /** The stat used for this action's roll. */
+  /** Stat tested by this action's roll. */
   rollStat: string;
-  /** Whether this is a reactive action — bail is not allowed. */
+  /** Reactive action — bail not allowed. */
   required: boolean;
-  /** Epoch ms when this state was last persisted. Used by the 30-min timeout hook. */
+  /** Epoch ms last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
+  /** All llm_calls ids in this action (decisions + critics); narration + resolution-critic
+   *  ids are appended at resolve, then the engine links them all. */
+  llmCallIds?: number[];
 }
 
 export class ActionStateMachine {
@@ -51,13 +53,20 @@ export class ActionStateMachine {
       getNearbyPcs: () => [],
       getRecentActions: () => [],
       getKnownLocations: () => [],
+      isLocationSafe: () => true,
     },
+    /** Optional coherence critic (Thread 2). When present, the resolution beat is critiqued after
+     *  applyOutcomeToMutations (where final mutations exist) and a minor outcome_text defect is
+     *  rewritten to match the verdict/mutations. Absent = disabled. */
+    private critic?: CriticGateway,
   ) {}
 
   async start(
     char: CharacterData,
     rawInput: string,
     items: ItemData[],
+    kind: ActionKind = 'quest',
+    wage = 0,
   ): Promise<
     | { resolved: false; state: InternalActionState; firstDecision: ActionDecision }
     | { resolved: true; state: InternalActionState; outcome: ActionOutcome }
@@ -69,12 +78,10 @@ export class ActionStateMachine {
     const context = this.buildContext(char, rawInput, [], items);
     const decision = await this.llm.decide(context);
 
-    // Auto-finish: the action has no real choices and isn't a forced reaction
-    // (e.g. travel/rest). We *infer* completion from the absence of real options
-    // rather than trusting the LLM's `done` flag — if it omits `done` but also
-    // gives nothing to choose, the only alternative is a lone red "Step back"
-    // dead-end, so resolve it immediately as a neutral `done`. Divine intervention
-    // is excluded — it has its own handling in the engine (no action row).
+    // Auto-finish: no real choices and not a forced reaction (e.g. travel/rest). Infer completion
+    // from the absence of real options rather than trusting the LLM's `done` flag — without it the
+    // only alternative is a lone "Step back" dead-end, so resolve immediately as neutral `done`.
+    // Divine intervention is excluded — the engine handles it separately (no action row).
     const realOptions = decision.decision.filter(o => o.dcModifier !== null);
     if (
       !decision.required &&
@@ -86,6 +93,7 @@ export class ActionStateMachine {
         `LLM returned ${decision.decision.length} option(s), 0 real (only step-back)` +
         `${decision.done ? '' : '; done:false → inferred from no options'} | input: "${rawInput}"`,
       );
+      const callIds = decisionCallIds(decision);
       const state: InternalActionState = {
         rawInput,
         decisions: [],
@@ -95,7 +103,14 @@ export class ActionStateMachine {
         rollStat: decision.stat,
         required: decision.required,
         lastActionAt: Date.now(),
+        kind,
+        wage,
+        llmCallIds: callIds,
       };
+      // Day-job wage is guaranteed for completing work — pay it into this outcome so it lands in
+      // the footer (💰), not as a separate pre-work message.
+      const autoMutations: WorldMutation[] = Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [];
+      if (wage > 0) autoMutations.push({ type: 'modify_wealth', amount: wage });
       return {
         resolved: true,
         state,
@@ -104,9 +119,10 @@ export class ActionStateMachine {
           finalDc: decision.baseDc,
           playerRolled: null,
           outcome: 'done',
-          mutations: Array.isArray(decision.mutations) ? decision.mutations as WorldMutation[] : [],
+          mutations: autoMutations,
           outcomeText: decision.outcomeText ?? 'The moment passes.',
           ...(decision._llmCallId !== undefined ? { llmCallId: decision._llmCallId } : {}),
+          llmCallIds: callIds,
         },
       };
     }
@@ -122,6 +138,9 @@ export class ActionStateMachine {
       rollStat: decision.stat,
       required: decision.required,
       lastActionAt: Date.now(),
+      kind,
+      wage,
+      llmCallIds: decisionCallIds(decision),
     };
 
     return { resolved: false, state, firstDecision };
@@ -156,7 +175,7 @@ export class ActionStateMachine {
         pendingDecision: state.pendingDecision,
       };
 
-      // Genuine bail — the player retreats from a real decision. Costs stamina.
+      // Genuine bail — retreating from a real decision costs stamina.
       return {
         resolved: true,
         state: nextState,
@@ -167,6 +186,7 @@ export class ActionStateMachine {
           outcome: 'bailed',
           mutations: [{ type: 'modify_stamina', amount: -BAIL_STAMINA_COST }],
           outcomeText: 'You step back from the situation, catching your breath.',
+          llmCallIds: state.llmCallIds ?? [],
         },
       };
     }
@@ -182,30 +202,29 @@ export class ActionStateMachine {
     const newDecisions = [...state.decisions, record];
     const newDc = accumulateDc(state.accumulatedDc, [option.dcModifier]);
 
-    // The chosen approach selects which stat the roll tests. A per-option `stat`
-    // overrides the action default; the last choice wins on a multi-step action.
-    // See ADR per-option-stat-and-ability-checks.
+    // Chosen approach selects the stat tested. Per-option `stat` overrides the action default;
+    // last choice wins on a multi-step action. See ADR per-option-stat-and-ability-checks.
     const chosenStat = option.stat ?? state.rollStat;
     const stateWithStat: InternalActionState = { ...state, rollStat: chosenStat };
 
     const isLastDecision = state.decisions.length >= 1; // third+ decision capped
 
-    // Call LLM to determine next step
     const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items);
     const decision = await this.llm.decide(context);
 
-    // Resolve — at the decision cap, when the LLM still sets the legacy `done`
-    // flag, or (the canonical v8 signal) when it returns no real options
-    // (empty / all-bail `decision`). E3 contract: an empty real-options array is
-    // the primary "resolve now" signal; `done` is honoured as a backstop so a
-    // model that still emits it resolves cleanly rather than dead-ending on a lone
-    // "Step back". Roll FIRST, then narrate so the prose + mutations match the dice.
+    // Resolve at the decision cap, on the legacy `done` flag, or (canonical v8 signal) when no real
+    // options are returned. E3 contract: empty real-options is the primary "resolve now" signal;
+    // `done` is a backstop so a model still emitting it resolves cleanly rather than dead-ending on
+    // a lone "Step back". Roll FIRST, then narrate so prose + mutations match the dice. Accumulate
+    // this beat's call id(s) onto the running chain.
+    const callIds = [...(state.llmCallIds ?? []), ...decisionCallIds(decision)];
+
     const realOptions = decision.decision.filter(o => o.dcModifier !== null);
     if (isLastDecision || decision.done || realOptions.length === 0) {
-      return this.resolveWithRoll(stateWithStat, char, items, newDc, newDecisions);
+      return this.resolveWithRoll({ ...stateWithStat, llmCallIds: callIds }, char, items, newDc, newDecisions);
     }
 
-    // Continue — advance the current beat's distilled type to the new decision's.
+    // Continue — adopt the new decision's distilled type.
     const nextDecision = this.toActionDecision(decision, state.required);
     const nextState: InternalActionState = {
       ...stateWithStat,
@@ -213,6 +232,7 @@ export class ActionStateMachine {
       accumulatedDc: newDc,
       pendingDecision: nextDecision,
       distilledType: decision.distilledType || state.distilledType,
+      llmCallIds: callIds,
     };
 
     return {
@@ -223,10 +243,9 @@ export class ActionStateMachine {
   }
 
   /**
-   * Roll-first resolution: roll d20 + item bonus vs the accumulated DC to decide
-   * the verdict, THEN make a second LLM call telling it that verdict so the
-   * narration and mutations match the dice. `applyOutcomeToMutations` still guards
-   * the failure case (strips any stray rewards, adds the stamina penalty).
+   * Roll-first resolution: roll d20 + bonus vs the accumulated DC for the verdict, THEN a second
+   * LLM call narrating with that verdict so prose + mutations match the dice. applyOutcomeToMutations
+   * still guards the failure case (strips stray rewards, adds the stamina penalty).
    */
   private async resolveWithRoll(
     state: InternalActionState,
@@ -236,11 +255,11 @@ export class ActionStateMachine {
     newDecisions: ActionDecisionRecord[],
   ): Promise<{ resolved: true; state: InternalActionState; outcome: ActionOutcome }> {
     const d20 = this.rollD20();
-    // Ability check: d20 + character's own stat + item bonus for that stat.
+    // Ability check: d20 + character's stat + item bonus for that stat.
     const bonus = abilityCheckBonus(char.stats, items, state.rollStat);
     const outcome = resolveRoll(d20, bonus, newDc);
 
-    // Narration call — same gateway, with the verdict attached to the context.
+    // Narration call — same gateway, verdict attached to the context.
     const narrationCtx = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items);
     narrationCtx.rollOutcome = outcome === 'success' ? 'success' : 'failure';
     const narration = await this.llm.decide(narrationCtx);
@@ -249,12 +268,50 @@ export class ActionStateMachine {
       outcome,
       Array.isArray(narration.mutations) ? narration.mutations as WorldMutation[] : [],
     );
+    // Day-job wage — added AFTER the failure-strip so it's paid win or lose, shown in the footer (💰).
+    if (state.wage && state.wage > 0) {
+      mutations.push({ type: 'modify_wealth', amount: state.wage });
+    }
+
+    let outcomeText = narration.outcomeText ?? (outcome === 'success'
+      ? `Your ${state.distilledType} succeeds.`
+      : `Your ${state.distilledType} fails.`);
+
+    // The narration is its own llm_call — add it to the chain.
+    const callIds = [...(state.llmCallIds ?? []), ...decisionCallIds(narration)];
+
+    // Coherence critic (Thread 2): runs HERE, after applyOutcomeToMutations, so it sees the verdict
+    // and FINAL mutations. Dice + engine own the truth; the critic may only rewrite prose to match.
+    // A minor defect patches outcome_text; anything else keeps the verdict-shaped text. Best-effort
+    // — critique() never throws.
+    // Skip the critic when the narration call fell back to canned divine-intervention text —
+    // it carries no real mutations and can't be improved, so a critic pass just wastes a call.
+    if (this.critic && narration.distilledType !== DIVINE_INTERVENTION_TYPE) {
+      const verdict = await this.critic.critique({
+        beat: 'resolution',
+        rollOutcome: outcome === 'success' ? 'success' : 'failure',
+        decision: narration,
+        finalMutations: mutations,
+        contextDigest: buildContextDigest(narrationCtx),
+        playerInput: state.rawInput,
+        warnings: narration._warnings ?? [],
+      });
+      if (verdict._llmCallId !== undefined) callIds.push(verdict._llmCallId);
+      if (!verdict.ok && verdict.severity === 'minor' && verdict.patch?.outcomeText) {
+        outcomeText = verdict.patch.outcomeText;
+      } else if (!verdict.ok && verdict.severity === 'major') {
+        // Dice + mutations are fixed; a structural defect can't be re-narrated safely, so keep the
+        // verdict-shaped text. Logged for mining (the critic call is already recorded).
+        console.warn('[critic] major defect on resolution beat — keeping verdict-shaped text:', verdict.issues.join('; '));
+      }
+    }
 
     const finalState: InternalActionState = {
       ...state,
       decisions: newDecisions,
       accumulatedDc: newDc,
       pendingDecision: this.toActionDecision(narration, state.required),
+      llmCallIds: callIds,
     };
 
     return {
@@ -268,10 +325,9 @@ export class ActionStateMachine {
         rollStat: state.rollStat,
         outcome,
         mutations,
-        outcomeText: narration.outcomeText ?? (outcome === 'success'
-          ? `Your ${state.distilledType} succeeds.`
-          : `Your ${state.distilledType} fails.`),
+        outcomeText,
         ...(narration._llmCallId !== undefined ? { llmCallId: narration._llmCallId } : {}),
+        llmCallIds: callIds,
       },
     };
   }
@@ -284,12 +340,12 @@ export class ActionStateMachine {
   }
 
   private toActionDecision(llm: LlmDecision, required = false): ActionDecision {
-    // Enforce required: strip bail options when action is reactive
+    // Reactive actions strip bail options.
     let options = required
       ? llm.decision.filter(o => o.dcModifier !== null)
       : [...llm.decision];
 
-    // Validate dcModifier range on non-bail options, clamp out-of-range
+    // Clamp out-of-range dcModifier on non-bail options.
     options = options.map(o => {
       if (o.dcModifier !== null && !validateDcModifier(o.dcModifier)) {
         return { ...o, dcModifier: Math.max(-5, Math.min(5, o.dcModifier)) };
@@ -297,9 +353,8 @@ export class ActionStateMachine {
       return o;
     });
 
-    // When the beat resolves outright and the LLM supplied outcome text, show that
-    // as the prompt. The resolve signal is "no rollable options" (the v8 contract)
-    // OR the legacy `done` flag (E3 backstop) — kept consistent with step()/start().
+    // On outright resolve with outcome text supplied, use it as the prompt. Resolve signal is
+    // "no rollable options" (v8) OR the legacy `done` flag (E3 backstop) — consistent with step()/start().
     const hasRealOption = options.some(o => o.dcModifier !== null);
     const prompt = (llm.done || !hasRealOption) && llm.outcomeText
       ? llm.outcomeText
@@ -319,46 +374,69 @@ export class ActionStateMachine {
   ): LlmContext {
     const hintParts: string[] = [];
 
-    // Item bonuses for every stat — the LLM authors per-option stats and needs to
-    // see which approaches the player's gear favours. Character ability scores are
-    // already in the CHARACTER line. See ADR per-option-stat-and-ability-checks.
+    // Item bonuses per stat — the LLM authors per-option stats and needs to see which approaches
+    // the player's gear favours. Ability scores are already in the CHARACTER line.
+    // See ADR per-option-stat-and-ability-checks.
     const itemBonuses = ALL_STATS
       .map(s => ({ s, b: itemStatModifier(items, s) }))
       .filter(x => x.b !== 0)
       .map(x => `${x.s} ${x.b >= 0 ? '+' : ''}${x.b}`);
     hintParts.push(itemBonuses.length > 0 ? `item bonuses: ${itemBonuses.join(', ')}` : 'no item stat bonuses');
 
-    // Full inventory — lets the LLM decide remove_item targets and avoid duplicate add_item
+    // Full inventory — for remove_item targets and avoiding duplicate add_item.
     if (items.length > 0) {
       hintParts.push(`inventory: ${items.map(i => `${i.emoji} ${i.name} (${i.stat}+${i.modifier}, qty ${i.quantity})`).join(', ')}`);
     }
 
-    // Known locations now ride their own KNOWN LOCATIONS block (v8+), not the
-    // scaling hint — see LlmContext.knownLocations and prompt-builder.
+    // Known locations ride their own KNOWN LOCATIONS block (v8+), not the scaling hint.
     const knownLocations = this.resolver.getKnownLocations();
+
+    // Structured item data for the v9 markdown prompt: per-stat summed bonus (table `Gear` column)
+    // and inventory list. The legacy `scalingHint` above carries the same data for the audit digest.
+    const itemBonusByStat = {
+      physical: itemStatModifier(items, 'physical'),
+      wisdom: itemStatModifier(items, 'wisdom'),
+      intelligence: itemStatModifier(items, 'intelligence'),
+      charisma: itemStatModifier(items, 'charisma'),
+    };
 
     return {
       character: {
         class: char.class,
         stats: char.stats,
         health: char.health,
+        maxHealth: char.maxHealth,
         stamina: char.stamina,
+        maxStamina: char.maxStamina,
         alignment: char.alignment,
         dayJob: char.dayJob,
       },
-      location: { name: char.location },
+      location: { name: char.location, isSafe: this.resolver.isLocationSafe(char.location) },
       nearbyNpcs: this.resolver.getNearbyNpcs(char.location),
       nearbyPcs: this.resolver.getNearbyPcs(char.location, char.id),
       recentActions: this.resolver.getRecentActions(char.id),
       knownLocations,
       rawInput,
       ...(previous.length > 0 ? { previousDecisions: previous } : {}),
+      itemBonuses: itemBonusByStat,
+      inventory: items.map(i => ({ emoji: i.emoji, name: i.name, stat: i.stat, modifier: i.modifier, quantity: i.quantity })),
       scalingHint: hintParts.join(' | ') || 'No relevant items',
     };
   }
 }
 
 // ── Module-level helpers ──
+
+/** The llm_calls ids a decision spawned: its own decide call plus any decision-beat
+ *  coherence-critic call attached by CritiquedLlmGateway. */
+function decisionCallIds(d: LlmDecision): number[] {
+  const ids: number[] = [];
+  if (d._llmCallId !== undefined) ids.push(d._llmCallId);
+  if (d._critiqueCallId !== undefined) ids.push(d._critiqueCallId);
+  // A major re-decide discards the flagged decision but keeps its call id here so it still links.
+  if (d._supersededCallId !== undefined) ids.push(d._supersededCallId);
+  return ids;
+}
 
 /** Stamina cost for bailing out of a real (consequential) decision. Skip/Finish cost nothing. */
 const BAIL_STAMINA_COST = 1;
@@ -367,14 +445,12 @@ const BAIL_STAMINA_COST = 1;
 const FAILURE_STAMINA_PENALTY = 2;
 
 /**
- * Shape an outcome's mutations to its roll result. A failed action yields no
- * reward: beneficial mutations (positive stat/wealth/roll deltas, gained items)
- * are dropped, costs and world changes (set_location, remove_item, spawn_npc)
- * are kept, and a flat stamina penalty is added. Success passes through unchanged.
+ * Shape an outcome's mutations to its roll result. On failure: drop beneficial mutations (positive
+ * stat/wealth/roll deltas, gained items), keep costs and world changes (set_location, remove_item,
+ * spawn_npc), add a flat stamina penalty. Success passes through unchanged.
  *
- * NOTE: the LLM's outcome_text is still written before the roll, so on a failure
- * the narration may read as a partial success — the deeper fix is rolling before
- * the flavour is generated (see [[mvp-llm-prompt-architecture]]).
+ * NOTE: outcome_text is still written before the roll, so on failure the narration may read as a
+ * partial success — the deeper fix is rolling before flavour (see [[mvp-llm-prompt-architecture]]).
  */
 export function applyOutcomeToMutations(outcome: string, mutations: WorldMutation[]): WorldMutation[] {
   if (outcome !== 'failure') return mutations;

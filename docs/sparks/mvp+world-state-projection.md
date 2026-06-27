@@ -219,8 +219,7 @@ This gives the COS "see the whole world at a glance" property — browse in Obsi
 
 ## POC field notes — sleep & location consequences
 
-The POC `/sleep` lets a player end the day from anywhere, which breaks the fiction. Both
-fixes below need the world-state this doc projects (location safety, distance, faction).
+The POC `/sleep` lets a player end the day from anywhere, which breaks the fiction. Both fixes below need the world-state this doc projects (location safety, distance, faction).
 
 - [!] **No teleport-out via sleep.** Players shouldn't end their day in safety from an unsafe or distant location — sleeping should be tied to *being* somewhere safe (ideally the Warden's Oak), not a free escape from danger.
 - [I] **Ending the day in an unsafe location has consequences.** Poor rest (reduced recovery), or a complication — captured and must escape, harried through the night, gear lost. Driven by the location's hostility state (see [[mvp-data-model]] POC field notes).

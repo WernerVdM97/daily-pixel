@@ -387,6 +387,44 @@ describe('OutcomeRenderer — rolls delta', () => {
     expect(result).toContain('🎲 3');
     expect(result).not.toContain('🎲 3 (');
   });
+
+  it('tags a no-op refund so the unchanged roll count is not mistaken for a bug', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      playerRolled: null,
+      outcome: 'done',
+      rollsDelta: 0,
+      rollRefunded: true,
+    };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
+    expect(result).toContain('🎲 2 (refunded)');
+  });
+
+  it('shows the real delta (not "refunded") when a mutation also moved rolls', () => {
+    // rollRefunded set, but a roll mutation made the net non-zero — must not mislabel as a refund.
+    const outcome: ActionOutcome = {
+      ...base,
+      playerRolled: null,
+      outcome: 'done',
+      rollsDelta: -1,
+      rollRefunded: true,
+    };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
+    expect(result).toContain('🎲 2 (-1)');
+    expect(result).not.toContain('refunded');
+  });
+
+  it('uses the engine-reported delta over the heuristic for a charged no-op', () => {
+    // Auto-finish that was charged (2nd no-op of the day): no roll made, but a roll WAS spent.
+    const outcome: ActionOutcome = {
+      ...base,
+      playerRolled: null,
+      outcome: 'done',
+      rollsDelta: -1,
+    };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 1 }));
+    expect(result).toContain('🎲 1 (-1)');
+  });
 });
 
 // ── spawn_npc is ignored (narrated by LLM in outcome_text) ──

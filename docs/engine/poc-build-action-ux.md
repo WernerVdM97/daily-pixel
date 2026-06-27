@@ -16,14 +16,11 @@ related:
 
 # POC Build — Action UX Refinements (Spec)
 
-> Implementation spec for the decision record [[poc-action-ux-refinements]] +
-> the [[poc-build-polish]] §7 bug fixes. The decision record is the *what/why*;
-> this is the *how*. Status `exploring` until reviewed → flip to `decided`.
+> Implementation spec for the decision record [[poc-action-ux-refinements]] + the [[poc-build-polish]] §7 bug fixes. The decision record is the *what/why*; this is the *how*. Status `exploring` until reviewed → flip to `decided`.
 
 ## Objective
 
-Make the `/action` flow read cleanly on mobile and stop mislabelling outcomes, so
-the POC week collects coherent play and uncorrupted data. Two tracks:
+Make the `/action` flow read cleanly on mobile and stop mislabelling outcomes, so the POC week collects coherent play and uncorrupted data. Two tracks:
 
 - **A. Bug fixes** (state-corrupting / mislabelling — do first):
   1. Bail resolves as green **Success** instead of neutral.
@@ -66,9 +63,7 @@ Query DB:  node scripts/query.mjs <shorthand|SQL>
 
 ## Code style
 
-Match surrounding code: 2-space indent, named factory functions, pure renderers
-(`OutcomeRenderer` takes data, returns string — no Discord types). Constants over
-magic numbers, e.g.:
+Match surrounding code: 2-space indent, named factory functions, pure renderers (`OutcomeRenderer` takes data, returns string — no Discord types). Constants over magic numbers, e.g.:
 
 ```ts
 // engine/action/mutations.ts

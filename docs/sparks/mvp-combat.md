@@ -16,12 +16,9 @@ phase: mvp
 
 # Combat — Core Mechanic
 
-> *The POC has no combat. A survival game about a rising Threat needs one. Roll-resolution,
-> never twitch — per [[hazard-map]] ("Real-time combat: Discord latency + mobile = terrible UX").*
+> *The POC has no combat. A survival game about a rising Threat needs one. Roll-resolution, never twitch — per [[hazard-map]] ("Real-time combat: Discord latency + mobile = terrible UX").*
 
-The core loop already says players "scout, fight, talk" ([[mvp-core-loop]]), but there is
-no fighting mechanic — encounters resolve as generic `/action` rolls. Combat should be a
-first-class, recognisable mode, not a reskinned skill check.
+The core loop already says players "scout, fight, talk" ([[mvp-core-loop]]), but there is no fighting mechanic — encounters resolve as generic `/action` rolls. Combat should be a first-class, recognisable mode, not a reskinned skill check.
 
 ## Constraints (locked by vision)
 

@@ -229,12 +229,9 @@ Bot starts immediately. Timer checks every hour (±2 min jitter) and restarts if
 
 > **Welcome to The Warden's Oak.**
 >
-> You are the last to arrive at the Oak — a sanctuary in a world slowly
-> unraveling. Each day you'll wake, take actions, make choices, and see
-> how your decisions ripple through the world.
+> You are the last to arrive at the Oak — a sanctuary in a world slowly unraveling. Each day you'll wake, take actions, make choices, and see how your decisions ripple through the world.
 >
-> **Commands:** `/join` to create your character. `/hi` to begin.
-> `/help` for everything else.
+> **Commands:** `/join` to create your character. `/hi` to begin. `/help` for everything else.
 >
 > This is a POC. Things will break. Use `/bug` and `/feedback` liberally.
 

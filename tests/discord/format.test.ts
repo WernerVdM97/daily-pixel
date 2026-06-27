@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildComponentPayload, getNavButtons, classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
+import { buildComponentPayload, getNavButtons, navResponseMode, getOutcomeServiceButtons, parseOutcomeActionId, classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
 
 const CONTAINER = 17;
 const TEXT_DISPLAY = 10;
@@ -155,5 +155,60 @@ describe("getNavButtons — view buttons (look/stats/backpack)", () => {
         for (const row of rows) expect(row.components.length).toBeLessThanOrEqual(5);
       }
     }
+  });
+});
+
+describe("getOutcomeServiceButtons — action-id custom_ids", () => {
+  const ids = (actionId?: number) =>
+    getOutcomeServiceButtons(actionId)[0].components.map((b) => b.custom_id);
+
+  it("emits bare custom_ids when no action id is given (off-action surfaces)", () => {
+    expect(ids()).toEqual(["outcome:feedback", "outcome:bug"]);
+  });
+
+  it("appends the action id so a report can be attributed to its action", () => {
+    expect(ids(42)).toEqual(["outcome:feedback:42", "outcome:bug:42"]);
+  });
+
+  it("always yields exactly the two service buttons", () => {
+    expect(getOutcomeServiceButtons(7)[0].components).toHaveLength(2);
+  });
+});
+
+describe("parseOutcomeActionId — inverse of the custom_id suffix", () => {
+  it("returns undefined for bare button/modal custom_ids", () => {
+    expect(parseOutcomeActionId("outcome:feedback")).toBeUndefined();
+    expect(parseOutcomeActionId("outcome:bug")).toBeUndefined();
+    expect(parseOutcomeActionId("outcome:feedback:modal")).toBeUndefined();
+    expect(parseOutcomeActionId("outcome:bug:modal")).toBeUndefined();
+  });
+
+  it("extracts the id from both button and modal forms", () => {
+    expect(parseOutcomeActionId("outcome:feedback:42")).toBe(42);
+    expect(parseOutcomeActionId("outcome:bug:modal:99")).toBe(99);
+  });
+
+  it("ignores a non-positive trailing segment (action ids start at 1)", () => {
+    expect(parseOutcomeActionId("outcome:bug:0")).toBeUndefined();
+  });
+
+  it("round-trips with getOutcomeServiceButtons", () => {
+    const id = getOutcomeServiceButtons(123)[0].components[0].custom_id;
+    expect(parseOutcomeActionId(id)).toBe(123);
+  });
+});
+
+describe("navResponseMode — update vs reply (Discord 50035 guard)", () => {
+  it("edits in place only for a Components-V2 ephemeral source (the nav views)", () => {
+    expect(navResponseMode({ ephemeral: true, componentsV2: true })).toBe("update");
+  });
+
+  it("replies fresh from a legacy-embed ephemeral source (the action outcome) — can't toggle into V2", () => {
+    expect(navResponseMode({ ephemeral: true, componentsV2: false })).toBe("reply");
+  });
+
+  it("replies fresh from a public message — never overwrites the shared copy", () => {
+    expect(navResponseMode({ ephemeral: false, componentsV2: true })).toBe("reply");
+    expect(navResponseMode({ ephemeral: false, componentsV2: false })).toBe("reply");
   });
 });

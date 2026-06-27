@@ -3,37 +3,19 @@
 
 ## scratchpad (humans start here)
 
-### TBD
-- [ ] std stats, i.e. the rankigns message does not add items. the stats page as well. the stats page should perhaps go into more detail of the base value and how items or character builder influences it.
-- [ ] often forgets too move people...
-- [x] player facing release notes message with feedabck button for requests. loaded from yaml — one file per tag (`assets/release-notes/<tag>.yml`); auto-posts on boot when the tag changes, with a Request/Feedback button. `v0.2.3.yml` authored (dormant until VERSION is bumped at release).
-- [x] rest button should only be visible on any screen if the player has not rested yet. and rename sleep to `rest` with camp emoji — Rest button (🏕️) hides once rested today via `last_rested_day`; nav id kept as `sleep` for routing.
-- [x] more messages: — all on a 12:00 UTC afternoon beat, idempotent per day.
-  - [x] hint at an unexplored location and threat on saturday afternoon and spawn a npc there to engage — rotates the wilderness locations weekly, spawns a themed hostile NPC.
-  - [x] weekend bonus rolls announcement on ~~friday~~ saturday afternoon — dropped the Friday bonus-rolls mechanic per decision; instead bumped flat rolls 2→3, added a Saturday +1 bonus roll, and the Saturday threat beat announces it.
-  - [x] character hits 0 hp/stamina — public collapse notice broadcast to the announcement channel (action/rest, and a batched overnight-tick announcement).
-  - [x] wealth/stat leaderboards on wednesdays and sunday afternoon — two boards (richest by wealth, mightiest by top stat).
-- [x] pressing custom button on action-daily work should dismiss the old message. — Custom… now deletes the day-job menu on press, not on modal submit.
-- [ ] duplicate NPCs for warden. The hooded figure and The Warden
-  - action button should not have showed, instead sleep. also my stamina was still showing the value before the deduction.
-  - I sent a long prompt for the action but it didnt give me any decisions ...
-  - **root cause:** custom-modal + day-job handlers rendered the outcome from the pre-action `char` snapshot (stale rolls/stamina, wrong Action/Sleep button). Fixed by re-reading after `startAction`. NOTE: the "no decisions" part is the LLM auto-finish (no real options) → belongs to the prompt refactor; and surfacing the spent roll as a `(−1)` in the footer is a deferred UX nicety (see below).
-- [ ] surface the spent roll in the outcome footer — taking an action costs a roll via the engine (not a mutation), so the footer shows `🎲 0/2` with no `(−1)`, reading as "free". Add a roll-spend indicator (touches `OutcomeRenderer.formatOutcome`, affects all outcome views).
-- [ ] implement menu framework coupled to views (standardise views/command/message terminology)
-  - each message should be structured in a tab manner? with subtabs in mvp.
-- [ ] the /join options should be loaded from the yaml, not injected in code. merge the hard coded options into the yamls in assets/
-- [ ] how to make wealth spendable or meaning full (same for stamina and health)?
-  - how do we handle death or 0 HP?
-- [ ] MVP: start capping rolls per action type... add short rest option
-  - players should be rewarded for slow build up play or daily work on subsequent actions instead of jumping straight into it
-  - pacing should not be done by the llm but by the bot before hand. If every fourth encounter should be dangerous, that must be tracked in the bot
-  this links to refacotring the prompting. the pacing outcome can be injected into the prompt.
-- [ ] add global hints of treasure or rumours to move players into dangerous locations that havent been explored yet, like the caves.
-- [ ] better community feedback in chat, like tagging people (but not too spammy) or just showing off stuf to each other. globals messages on nat 1 or 20
-- [ ] add a weight to time, the world should evolve with progression. DC should become higher, new threats appear
+### TBD — POC polish (small UI wins, no spark warranted)
+- [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
+- [ ] custom (free-text) actions need a real "thinking" screen — three dots + "thinking…" as its own page. Preset day-job actions already show a ⏳ "Starting…" loading envelope (`action.ts:204`); the custom-modal path shows nothing before `engine.startAction`.
+- [ ] `/stats` — show how the character builder (race/class) shaped each base score, and make it prettier. The base+gear breakdown already ships (`+6 (+4 base, +2 🎒)`); levels/upskilling/traits and per-race/class char-creator guidance are deferred → MVP below.
+- [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
 
 ## MVP — deferred
 
+- [ ] menu framework coupled to views — standardise the views/command/message terminology and a tab/subtab layout per message. See [[discord-interaction-layer]] (the interaction-plumbing layer; subtabs are explicitly MVP there).
+- [ ] make wealth (and stamina, health) spendable/meaningful, and define death / 0 HP. The death track is deferred from the POC by design ([[the-poc]]); see [[mvp-progression]] (lifecycle/death), [[mvp-combat]] (HP stakes), [[mvp+npc-economy]] (wealth sink).
+- [ ] cap rolls per action type + add a short-rest option; reward slow build-up / daily-work play on subsequent actions instead of jumping straight in. Check for hard-coded roll caps. Extends [[roll-economy-timeouts-and-world-growth]].
+- [ ] character progression depth — levels, upskilling, traits; the char creator shows which stats matter per race/class and how each modifies them. See [[mvp-progression]], [[mvp-character-drivers]].
+- [ ] richer community feedback in chat — tag people (not too spammy), let players show off to each other. See [[mvp-social-model]], [[mvp-discord-ux]].
 - [ ] use both models differently, flash for generating quick responses and daily work, pro for decision trees.
 - [ ] saturday special event, spawn an "evil npc" somewhere with a hint. Incentivise hunting it/them and add npc death mutation
 - [ ] choose age
@@ -67,3 +49,10 @@
     (you dont sleep well or you get put in jail and must escape)
 - [>] `[[mvp-ascii-render-pipeline]]` — scrape prettier ascii art or images for converting with ascii image converter
 
+---
+
+## Triaged out of TBD (for provenance — 2026-06-26)
+
+- **Done / shipped (struck):** preset work labelled `Work:` not `🧭 Quest:` and commute `−1 stamina` shown on the thinking page; the no-op refund scope question (stamina-/roll-only "shrug" is again a refundable no-op — D1 follow-up). All in `[Unreleased]`.
+- **Working as designed (struck):** post-`/join` welcome shows no "Hi" button because that screen *is* the Hi screen (`getNavButtons` filters the current command — `format.ts:137`).
+- **Routed to sparks:** Warden NPC duplicates (hooded figure vs The Warden) → [[mutation-vocabulary-refinement]] §2 (NPC name-resolution); world evolves with time / rising DC / new threats → [[prompt-v10-scaling-and-pipeline]] Thread B (World Tier); global rumours pulling players toward dangerous unexplored locations → [[prompt-v10-scaling-and-pipeline]] Thread B + [[per-player-map-exploration]] (`reveal_location` leaf); end-to-end flow tests with mocked LLM + scripted button presses → [[mvp-llm-prompt-architecture]].

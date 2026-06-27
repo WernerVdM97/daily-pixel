@@ -6,14 +6,11 @@ Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain f
 
 Read **[CONVENTIONS](./CONVENTIONS.md)** first.
 
-> **Maintenance:** 
-> When you add a doc, add its row to the right table.
-> When status or phase changes, update the badge and table.
-> If a file exists that isn't listed, it's drifting toward slop.
+> **Maintenance:**  When you add a doc, add its row to the right table. When status or phase changes, update the badge and table. If a file exists that isn't listed, it's drifting toward slop.
 
 ---
 
-🌱 `spark` · 🔭 `exploring` · ✅ `decided` · 🪦 `superseded` · 🚫 `nogo`
+🌱 `spark` · 🔭 `exploring` · ✅ `decided` · 🪦 `superseded` · 🚫 `nogo` · 🚀 `shipped`
 
 ---
 
@@ -71,9 +68,8 @@ resolved cross-cutting trade-offs (ADRs)
 
 | Status | Doc | Summary |
 |---|---|---|
-| 🌱 | [Polish Pass — v0.2.4](./sparks/polish-pass-v0.2.4.md) | Two-sweep bug/coherency/thematic punch list for the next patch. Highs: 5 `/join` backgrounds yield `NaN` stats; stale `/2` roll footer. Plus duplicate-threat-NPC race, class/job emoji, `/stats` stamina, prompt typo, `done`-flag drift, ops nits. No features. |
-| 🌱 | [Prod Data Review — v0.2.3](./sparks/prod-data-review-v0.2.3.md) | Player-voice + LLM-telemetry mining of the live prod DB (8 players, 67 actions, 216 LLM calls). Critical: auto-resolve (`done`) eats a roll for no agency (28% of v0.2.3 actions, worsening); timeout drops travel + keeps roll + ghost-renders. Core-loop gaps: leaky roll economy, invisible unsafe-rest HP rule, world can't grow new locations. Confirms & upgrades polish-pass §E4 with prod evidence. |
-| 🌱 | [YAML Asset Schemas & Test Coverage](./sparks/yaml-asset-schemas-and-tests.md) | Canonical template per YAML asset (char-creation + release-notes) and a test layer that validates the real files: modifier completeness, a `computeStats` finite round-trip, cross-file integrity (kits/locations/stat enums). Guardrail for the `NaN`-stat class of bug (5/8 live chars corrupted); expands polish §B7, defers the data fix to §B1. |
+| 🌱 | [Decision Prompt v10 — Combat, World Scaling & Multi-Stage Pipeline](./sparks/prompt-v10-scaling-and-pipeline.md) | **POC round 2 (`0.3.0`) kickoff**, builds on the shipped v9 (markdown input + coherence critic, now in `archived/poc/`). The engine-heavy half: (C) combat as a long, frequent, high-reward wilds mode backed by engine scene-state (`combatState`, contested rolls, severity bands, no-one-shot floor); (B) the world scales around the player via a week-indexed World Tier; (D) decompose the mega-call into a classify → decide → resolve pipeline of per-type templates over graph-shaped scene-state (the v9 critic is its first stage). Sim harness is a prerequisite. |
+| 🌱 | [Mutation Vocabulary Refinement](./sparks/mutation-vocabulary-refinement.md) | **`0.2.x` candidate, prompt bump.** Tidies the LLM mutation keywords into one verb scheme (`modify_`/`add-update-remove_`/`move_to`), splits the overloaded `set_location` → `move_to` + `reveal_location`, gives NPCs a lifecycle (`add/update/remove_npc`, disposition deferred), and adds a closed `category` enum + soft `category → expected-mutations` map (warn + telemetry, apply anyway). Stepping stone to v10's two-pass dynamic injection. |
 
 ## 🔥 MVP 
 
@@ -91,7 +87,9 @@ core game loop
 | 🌱 | [Social Model](./sparks/mvp-social-model.md) | Sentiment, bonds, relationships — three axes |
 | 🌱 | [ASCII Render Pipeline](./sparks/mvp-ascii-render-pipeline.md) | `ascii-image-converter` pipeline. Deferred from POC |
 | 🌱 | [Discord UX — MVP+](./sparks/mvp-discord-ux.md) | Reactions, free text, select menus, batch strategy |
+| 🌱 | [Discord Interaction Layer](./sparks/discord-interaction-layer.md) | Standardise & optimise the interaction *plumbing* (ack/defer, loading envelope, shared component+embed builders, error funnel, in-flight guard) into one shared layer so correctness is by-construction, not per-button. `DiscordAPIError[10062]` is the symptom that exposed it; the crash-stop slice is an ASAP bug report, this is the MVP layer underneath. Orthogonal to *Discord UX — MVP+* (that's input modalities; this is plumbing). |
 | 🌱 | [Example Scenes — MVP](./sparks/mvp-example-scenes.md) | Co-op scouting, NPC talk, travel convergence |
+| 🌱 | [Per-Player Map & Exploration](./sparks/per-player-map-exploration.md) | A `/map` Discovery Tree backed by a per-player `character_locations` visited set (`discovered_from` → tree rooted at the Oak). Pure fog-of-war + "N places charted", fixes `/journal`'s global leak, backfills from scraping `actions.applied_mutations`. No adjacency graph; LLM context stays global. |
 
 ## 🚀 MVP+
 

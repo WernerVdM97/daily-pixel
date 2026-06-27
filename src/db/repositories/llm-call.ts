@@ -15,12 +15,12 @@ export class LlmCallRepository implements LlmCallRecorder {
     const result = this.db
       .prepare(`
         INSERT INTO llm_calls (
-          app_version, prompt_version, model, temperature, tier, player_input, context_digest,
+          app_version, prompt_version, call_kind, critic_severity, model, temperature, tier, player_input, context_digest,
           raw_prompt, reasoning, response_json, parse_ok, validation_warnings,
           error, http_status, prompt_tokens, completion_tokens, total_tokens,
           reasoning_chars, latency_ms, finish_reason
         ) VALUES (
-          @app_version, @prompt_version, @model, @temperature, @tier, @player_input, @context_digest,
+          @app_version, @prompt_version, @call_kind, @critic_severity, @model, @temperature, @tier, @player_input, @context_digest,
           @raw_prompt, @reasoning, @response_json, @parse_ok, @validation_warnings,
           @error, @http_status, @prompt_tokens, @completion_tokens, @total_tokens,
           @reasoning_chars, @latency_ms, @finish_reason
@@ -29,6 +29,8 @@ export class LlmCallRepository implements LlmCallRecorder {
       .run({
         app_version: rec.appVersion,
         prompt_version: rec.promptVersion,
+        call_kind: rec.callKind ?? 'decision',
+        critic_severity: rec.criticSeverity ?? null,
         model: rec.model,
         temperature: rec.temperature,
         tier: rec.tier,
@@ -56,5 +58,18 @@ export class LlmCallRepository implements LlmCallRecorder {
     this.db
       .prepare('UPDATE llm_calls SET action_id = ? WHERE id = ?')
       .run(actionId, callId);
+  }
+
+  /** Backfill raw_prompt/reasoning on an existing call (critic flagged a beat that wasn't deep-
+   *  captured at record time). COALESCE only fills NULLs — never erases an existing capture. */
+  promoteDeepCapture(callId: number, fields: { rawPrompt?: string | null; reasoning?: string | null }): void {
+    this.db
+      .prepare(
+        `UPDATE llm_calls
+           SET raw_prompt = COALESCE(@raw_prompt, raw_prompt),
+               reasoning  = COALESCE(@reasoning, reasoning)
+         WHERE id = @id`,
+      )
+      .run({ id: callId, raw_prompt: fields.rawPrompt ?? null, reasoning: fields.reasoning ?? null });
   }
 }

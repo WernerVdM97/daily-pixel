@@ -1,24 +1,17 @@
 import type { WorldEngine, CharacterData } from "../../engine/WorldEngine.js";
-import { SEPARATOR, classEmoji } from "../format.js";
-import { DAYJOB_EMOJI } from "./join.js";
+import { SEPARATOR, classEmoji, dayJobEmoji } from "../format.js";
 
-/** Day-job emoji with a sensible blacksmith-hammer fallback for unmapped jobs.
- *  Exported so the /action day-job menu uses the same single source. */
-export function dayJobEmoji(job: string): string {
-  return DAYJOB_EMOJI[job] ?? "🔨";
-}
-
-// ── Day job types (from day-jobs.yml shape) ──
+// ── Day job types (day-jobs.yml shape) ──
 
 export interface DayJobDef {
   name: string;
   depends_on: string[];
   base_income: number;
-  /** Where the character teleports when starting a daily-work action from The Warden's Oak.
+  /** Teleport target when starting daily work from The Warden's Oak.
    *  Null for Wanderer (seeded random safe location). */
   workplace_location: string | null;
   description: string;
-  /** The job's action pool. `getDayJobActions` surfaces 3 at random (job pool + COMMON_ACTIONS). */
+  /** Action pool; `getDayJobActions` surfaces 3 at random (this pool + COMMON_ACTIONS). */
   actions: DayJobAction[];
 }
 
@@ -29,8 +22,8 @@ export interface DayJobAction {
 }
 
 /**
- * Generic, cross-job "hybrid" actions mixed into every day-job's pool so the 3
- * surfaced each day vary and don't read as a fixed, over-specific rota.
+ * Cross-job actions mixed into every day-job's pool so the 3 surfaced each day
+ * vary instead of reading as a fixed rota.
  */
 export const COMMON_ACTIONS: DayJobAction[] = [
   {
@@ -49,9 +42,9 @@ export const COMMON_ACTIONS: DayJobAction[] = [
     hook: "A message needs carrying across town before midday.",
   },
   {
-    label: "Share a meal at the inn",
-    income: 0,
-    hook: "The common room is warm and loud — a good place to take the measure of the town.",
+    label: "Wait tables at the inn",
+    income: 1,
+    hook: "The common room is loud and short-handed; clear the plates and keep the ale flowing for a cut of the night's take.",
   },
   {
     label: "See to chores",
@@ -59,9 +52,9 @@ export const COMMON_ACTIONS: DayJobAction[] = [
     hook: "There is always work to be done: wood to split, water to haul, a fence to mend.",
   },
   {
-    label: "Listen for news",
-    income: 1,
-    hook: "Travellers pass through with rumours from the road. Some of it might even be true.",
+    label: "Muck out the stables",
+    income: 2,
+    hook: "The innkeeper pays to have the stalls cleared and fresh straw laid before the next riders come through.",
   },
   {
     label: "Haul and load",
@@ -93,10 +86,10 @@ export function formatCharacterHeader(char: CharacterData): string {
   lines.push(`${classEmoji(char.class)}  **${char.name}** — ${char.class}`);
   lines.push(SEPARATOR);
 
-  // Status line — current vitals, not ability scores: HP, Stamina, Rolls, Wealth.
+  // Vitals (not ability scores): HP, Stamina, Rolls, Wealth — emoji-only, no labels.
   lines.push(
-    `❤️ HP: ${char.health}/${char.maxHealth}  ┃  ⚡ Stamina: ${char.stamina}/${char.maxStamina}  ┃  ` +
-      `🎲 Rolls: ${char.rollsRemaining}  ┃  💰 Wealth: ${char.wealth}`,
+    `❤️ ${char.health}/${char.maxHealth}  ┃  ⚡ ${char.stamina}/${char.maxStamina}  ┃  ` +
+      `🎲 ${char.rollsRemaining}  ┃  💰 ${char.wealth}`,
   );
   if (char.health / char.maxHealth < 0.34) {
     lines.push("⚠️ **low health!**");
@@ -106,10 +99,9 @@ export function formatCharacterHeader(char: CharacterData): string {
 }
 
 /**
- * Surface 3 daily-work actions, sampled from the job's pool + COMMON_ACTIONS.
- * The pick is seeded by (characterId, dayNumber) so /hi, the /action buttons, and
- * the button-click handler all agree within a day, and refresh each game day.
- * With no opts the seed is 0 (deterministic) — handy for tests.
+ * Surface 3 daily-work actions sampled from the job's pool + COMMON_ACTIONS.
+ * Seeded by (characterId, dayNumber) so /hi, the /action buttons, and the click
+ * handler agree within a day and refresh each game day. No opts → seed 0 (for tests).
  */
 export function getDayJobActions(
   dayJobName: string,
@@ -150,13 +142,10 @@ export const WANDERER_SPOTS: string[] = [
 ];
 
 /**
- * Resolve the workplace location for a character's day job.
- * Returns `null` for jobs without a fixed workplace (Wanderer teleport destination
- * is computed at call time, not stored in the YAML).
- *
- * For Wanderer: picks a seeded deterministic safe location using the same
- * mulberry32 PRNG as `getDayJobActions`, so `/hi` and the action stay consistent
- * within a day. Candidates are all safe locations except The Warden's Oak.
+ * Resolve a day job's workplace location.
+ * Wanderer has no fixed workplace in the YAML: pick a seeded safe location using
+ * the same mulberry32 PRNG as `getDayJobActions`, so `/hi` and the action agree
+ * within a day. Returns `null` only when the job is unknown.
  */
 export function getWorkplaceLocation(
   jobName: string,
@@ -170,7 +159,7 @@ export function getWorkplaceLocation(
     return job.workplace_location;
   }
 
-  // Wanderer: seeded random safe location
+  // Wanderer: seeded safe location
   const seed = opts.characterId * 1000 + opts.dayNumber;
   const rng = mulberry32(seed);
   const idx = Math.floor(rng() * WANDERER_SPOTS.length);
@@ -186,7 +175,6 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
       return "You don't have a character yet. Type `/join` to create one.";
     }
 
-    // Character + location header
     const header = formatCharacterHeader(character);
     const location = engine.getLocation(character.location);
     const locEmoji = location?.isSafe ? "🛡️" : "⚠️";
@@ -194,7 +182,7 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
       ? `🏠 ${locEmoji} **${location.name}** — Use \`look\` for the full scene.`
       : `🏠 **${character.location}** — Use \`look\` for the full scene.`;
 
-    // Determine day-job actions or weekend hooks
+    // Weekend hooks, otherwise day-job actions
     const weekend = isWeekend();
     let actionLines: string[] = [];
     if (weekend) {
@@ -238,7 +226,7 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
       }
     }
 
-    // Resumption — show the pending decision prompt instead of the greeting
+    // Pending action: show its decision prompt instead of the greeting
     if (character.lastActionState) {
       const resumeResult = engine.resumeAction(character.id);
       const prompt = resumeResult.nextDecision.prompt;

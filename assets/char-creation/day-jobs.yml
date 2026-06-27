@@ -7,6 +7,7 @@
 # base_income: daily tick income (automatic). action income: bonus for clicking.
 
 - name: Town Guard
+  emoji: "🛡️"
   depends_on: [physical]
   base_income: 10
   workplace_location: Town Square
@@ -38,6 +39,7 @@
       hook: Pickpockets work the crowd on busy days. You keep your eyes moving and your purse closer.
 
 - name: Blacksmith
+  emoji: "🔨"
   depends_on: [physical]
   base_income: 10
   workplace_location: The Town Forge
@@ -69,6 +71,7 @@
       hook: Tend the coals and work the bellows. A forge is only ever as good as its heat.
 
 - name: Hunter
+  emoji: "🏹"
   depends_on: [physical, wisdom]
   base_income: 8
   workplace_location: The Forest Edge
@@ -100,6 +103,7 @@
       hook: Something wounded passed this way. Not your arrow — but worth knowing where it went, and what stopped it.
 
 - name: Scribe
+  emoji: "📜"
   depends_on: [intelligence]
   base_income: 12
   workplace_location: The Warden's Library
@@ -131,6 +135,7 @@
       hook: A farmer's daughter wants her letters. She learns quick, and asks harder questions than her age should allow.
 
 - name: Herbalist
+  emoji: "🌿"
   depends_on: [wisdom]
   base_income: 8
   workplace_location: The Forest Edge
@@ -162,6 +167,7 @@
       hook: Someone brings you a plant you don't recognise. It weeps a pale sap and wilts nothing nearby.
 
 - name: Minstrel
+  emoji: "🎶"
   depends_on: [charisma]
   base_income: 9
   workplace_location: The Weary Lantern Inn
@@ -173,9 +179,9 @@
     - label: Carry the news
       income: 4
       hook: Songs and stories travel faster than any rider. The word from the east has gone strangely thin.
-    - label: Work on a tune
+    - label: Compose to commission
       income: 2
-      hook: A melody's been turning in your head all morning — and you're not sure you're the one who wrote it.
+      hook: A patron pays for a song made to order — you turn a merchant's boasts into a verse that scans and flatters.
     - label: Trade in rumours
       income: 3
       hook: Loose tongues in a loud room. You listen between the verses and keep the useful bits.
@@ -193,6 +199,7 @@
       hook: An old woman knows verses no one's written down. You trade her a meal for the words.
 
 - name: Merchant
+  emoji: "💰"
   depends_on: [charisma, intelligence]
   base_income: 14
   workplace_location: Town Square
@@ -224,6 +231,7 @@
       hook: A regular's short this week. Lend wisely and you buy loyalty; lend poorly and you buy trouble.
 
 - name: Acolyte
+  emoji: "🕯️"
   depends_on: [wisdom, charisma]
   base_income: 7
   workplace_location: The Shrine of the First Flame
@@ -255,6 +263,7 @@
       hook: The candle gutters east three nights running. The old book has thoughts on that.
 
 - name: Wanderer
+  emoji: "🚶"
   depends_on: [charisma]
   base_income: 2
   workplace_location:

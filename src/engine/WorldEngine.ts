@@ -28,8 +28,7 @@ export interface CharacterData {
   location: string;
   wealth: number;
   lastActionState: ActionState | null;
-  /** True when the player has already rested at the Oak on the current game day
-   *  (last_rested_day === day_number). Drives the Rest nav button's visibility. */
+  /** Already rested at the Oak today (last_rested_day === day_number). Drives Rest button visibility. */
   hasRestedToday: boolean;
   createdAt: string;
 }
@@ -49,12 +48,8 @@ export interface ActionDecision {
 export interface ActionOption {
   label: string;
   dcModifier: number | null; // signed -5..+5; null = bail
-  /**
-   * The ability stat this approach tests (physical/wisdom/intelligence/charisma).
-   * Optional override: when present, choosing this option makes it the action's roll
-   * stat; when absent, the option inherits the action's top-level stat. See ADR
-   * [[per-option-stat-and-ability-checks]].
-   */
+  /** Per-option override of the roll stat; absent = inherit the action's top-level stat.
+   *  See ADR [[per-option-stat-and-ability-checks]]. */
   stat?: string;
 }
 
@@ -67,10 +62,18 @@ export interface ActionDecisionRecord {
   distilledType?: string;
 }
 
+/** Drives the story-thread label ("Work:" vs "Quest:"). Defaults to 'quest' when unset. */
+export type ActionKind = 'work' | 'quest';
+
 export interface ActionState {
   rawInput: string;
   decisions: ActionDecisionRecord[];
   accumulatedDc: number;
+  /** How the action was initiated. Set at start, carried through every beat. */
+  kind?: ActionKind;
+  /** Day-job wage paid on RESOLVE, added after the failure-strip so it survives a failed roll.
+   *  Set at start; not paid if the player bails. */
+  wage?: number;
 }
 
 export interface WorldMutation {
@@ -84,11 +87,8 @@ export interface WorldMutation {
 export interface ActionStartResult {
   state: ActionState;
   firstDecision: ActionDecision;
-  /**
-   * Present when the LLM resolved the action immediately (done, non-required, no
-   * options) — an auto-finish. The mutations are already applied and an action
-   * row written; the caller renders the outcome instead of showing buttons.
-   */
+  /** Present on auto-finish (LLM resolved immediately): mutations already applied and
+   *  action row written; caller renders the outcome instead of showing buttons. */
   outcome?: ActionOutcome;
 }
 
@@ -107,8 +107,22 @@ export interface ActionOutcome {
   rollStat?: string;
   mutations: WorldMutation[];
   outcomeText: string;
-  /** Id of the llm_calls audit row this outcome came from. Linked to the action after insert. */
+  /** Id of the llm_calls audit row this outcome's resolution came from. Linked after insert. */
   llmCallId?: number;
+  /** Every llm_calls row id across this action (decisions, narration, critics), linked at
+   *  resolution so the full call chain is mineable. */
+  llmCallIds?: number[];
+  /** Id of the persisted `actions` row this outcome wrote — set by the engine after insert,
+   *  so the Feedback/Bug buttons on this outcome can attribute a report to its action.
+   *  Undefined when no row is written (e.g. divine intervention). */
+  actionId?: number;
+  /** Actual net change to rollsRemaining the engine applied, set where the renderer can't infer
+   *  it (the auto-finish no-op refund/charge). Undefined elsewhere — the renderer then infers
+   *  −1 per resolved roll plus any modify_rolls_remaining mutation. */
+  rollsDelta?: number;
+  /** True when a no-op refund returned the roll (nothing changed, so the action was free). Drives
+   *  the footer's "(refunded)" tag so an unchanged roll count isn't mistaken for a bug. */
+  rollRefunded?: boolean;
 }
 
 export interface ActionResumeResult {
@@ -164,17 +178,11 @@ export interface TickResult {
   dayNumber: number;
   playersAffected: number;
   npcMovements: NpcMovement[];
-  /**
-   * Discord user ids of players who crossed exactly 5 calendar days of absence
-   * on this tick. The caller DMs each a "danger is nearby" warning. Empty on
-   * idempotent (already-ticked-today) returns.
-   */
+  /** Discord ids of players crossing exactly 5 calendar days of absence on this tick;
+   *  caller DMs each a "danger is nearby" warning. Empty on idempotent returns. */
   absentWarnings: string[];
-  /**
-   * Character names whose stamina dropped to 0 on this tick (from
-   * resting/lingering in unsafe locations). The caller announces these
-   * publicly. Empty on idempotent (already-ticked-today) returns.
-   */
+  /** Names whose stamina hit 0 this tick (lingering in unsafe locations); caller
+   *  announces publicly. Empty on idempotent returns. */
   collapsedNames: string[];
 }
 
@@ -201,6 +209,14 @@ export interface Leaderboards {
   might: LeaderboardEntry[];
 }
 
+/** One resolved action flattened for the weekly recap (character name + outcome). */
+export interface WeeklyActionSummary {
+  character: string;
+  type: string;
+  outcome: string;
+  narrative: string;
+}
+
 // ── The one cohesive interface ──
 
 export interface WorldEngine {
@@ -210,7 +226,7 @@ export interface WorldEngine {
   characterExists(discordUserId: string): boolean;
 
   // Action state machine (S3)
-  startAction(characterId: number, rawInput: string): Promise<ActionStartResult>;
+  startAction(characterId: number, rawInput: string, opts?: { kind?: ActionKind; wage?: number }): Promise<ActionStartResult>;
   stepAction(characterId: number, choice: string): Promise<ActionStepResult>;
   resumeAction(characterId: number): ActionResumeResult;
 
@@ -226,18 +242,17 @@ export interface WorldEngine {
   /** Stamp the current time as the player's last interaction. */
   updateLastPlayed(characterId: number): void;
 
-  /**
-   * Count player characters currently at unsafe locations. Read live by the
-   * evening "goodnight" announcement (souls still out as night falls).
-   */
+  /** Player characters currently at unsafe locations. Read live by the evening
+   *  "goodnight" announcement (souls still out as night falls). */
   countSoulsInUnsafe(): number;
 
   // Journal
   getJournal(characterId: number): JournalData;
 
-  // Feedback & bugs
-  submitFeedback(characterId: number, text: string): void;
-  submitBug(characterId: number, text: string): void;
+  // Feedback & bugs — actionId links the report to the action whose outcome the button was
+  // on (undefined for the /feedback, /bug slash commands and the nightly/release prompts).
+  submitFeedback(characterId: number, text: string, actionId?: number): void;
+  submitBug(characterId: number, text: string, actionId?: number): void;
 
   // Rest & recovery
   restAtOak(discordUserId: string): CharacterData | null;
@@ -245,10 +260,8 @@ export interface WorldEngine {
   /** Apply a flat health delta (signed, clamped 0..max). Returns updated char or null. */
   modifyHealth(discordUserId: string, amount: number): CharacterData | null;
 
-  /**
-   * Introduce an NPC at a location from engine-driven events (scheduled threats,
-   * not the LLM mutation path). The NPC has no `created_by_action_id`.
-   */
+  /** Introduce an NPC from engine-driven events (scheduled threats, not the LLM
+   *  mutation path). The NPC has no `created_by_action_id`. */
   spawnNpc(data: {
     name: string;
     class?: string;
@@ -257,11 +270,14 @@ export interface WorldEngine {
     location: string;
   }): void;
 
-  /**
-   * Top-N leaderboards across all player characters: richest by wealth and
-   * mightiest by highest single ability score. Used by the Wed/Sun announcements.
-   */
+  /** Top-N richest (wealth) and mightiest (highest single ability) characters.
+   *  Used by the Wed/Sun announcements. */
   getLeaderboards(limit: number): Leaderboards;
+
+  /** Resolved actions in the half-open window [startIso, endIso), joined to character
+   *  name, oldest first; feeds the weekly recap. Bounds compare lexically against
+   *  `actions.created_at` ('YYYY-MM-DD HH:MM:SS' UTC), so 'YYYY-MM-DD' boundaries work. */
+  getActionsBetween(startIso: string, endIso: string): WeeklyActionSummary[];
 
   // World tick (S5)
   tick(isAdmin: boolean): TickResult;

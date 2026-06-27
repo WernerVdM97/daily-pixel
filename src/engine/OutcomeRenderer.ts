@@ -1,7 +1,6 @@
 // ── OutcomeRenderer ── pure function, no dependencies
 // Formats action outcomes for Discord display per S4 spec.
-// Change indicators are derived from outcome.mutations (not caller-provided flags)
-// so the caller never has to pre-compute diffs.
+// Change indicators are derived from outcome.mutations, so the caller never pre-computes diffs.
 
 import type { ActionOutcome, WorldMutation } from './WorldEngine.js';
 import { STAT_LABELS } from './stat-format.js';
@@ -67,14 +66,14 @@ function deriveFromMutations(mutations: WorldMutation[]): MutationDeltas {
       case 'set_location':
         d.newLocation = String(m.name ?? '');
         break;
-      // spawn_npc is deliberately ignored — NPCs are narrated in outcome_text
+      // spawn_npc ignored — NPCs are narrated in outcome_text
     }
   }
 
   return d;
 }
 
-/** Format a signed delta for display, e.g. " (−2)" or " (+3)". Returns empty string when zero. */
+/** Format a signed delta, e.g. " (+3)"; empty string when zero. */
 function formatDelta(delta: number): string {
   if (delta === 0) return '';
   const sign = delta > 0 ? '+' : '';
@@ -83,8 +82,8 @@ function formatDelta(delta: number): string {
 
 // ── Distilled-action → emoji (for the decision breadcrumb) ──
 
-// Matched by keyword-substring so variants (combat/fight/duel) share an emoji.
-// distilled_type is a free-form lowercase word, so unknowns fall back to ✴️.
+// Keyword-substring match so variants (combat/fight/duel) share an emoji.
+// distilled_type is free-form lowercase; unknowns fall back to ✴️.
 const DISTILLED_EMOJI: Array<[string, string]> = [
   ['combat', '⚔️'], ['fight', '⚔️'], ['duel', '⚔️'], ['attack', '⚔️'], ['ambush', '⚔️'],
   ['hunt', '🏹'], ['shoot', '🏹'],
@@ -100,7 +99,7 @@ const DISTILLED_EMOJI: Array<[string, string]> = [
   ['steal', '🗝️'], ['sneak', '🥷'], ['gather', '🌿'], ['fish', '🎣'],
 ];
 
-/** Emoji for a distilled action type, for the decision breadcrumb. Unknown → ✴️. */
+/** Emoji for a distilled action type (decision breadcrumb). Unknown → ✴️. */
 export function distilledActionEmoji(type: string): string {
   const t = (type ?? '').toLowerCase();
   for (const [keyword, emoji] of DISTILLED_EMOJI) {
@@ -124,10 +123,8 @@ const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {
 
 /**
  * Format an action outcome into a display string.
- *
- * Change detection (items gained/lost, location, stat deltas) is derived
- * from `outcome.mutations` — the caller only provides current post-mutation
- * values so the renderer can print the up-to-date totals.
+ * Change detection (items, location, stat deltas) is derived from `outcome.mutations`;
+ * the caller supplies only current post-mutation values for the printed totals.
  */
 export function formatOutcome(
   outcome: ActionOutcome,
@@ -142,24 +139,23 @@ export function formatOutcome(
     const bonus = outcome.rollBonus ?? 0;
     const total = outcome.playerRolled + bonus;
 
-    // Stat emoji prefix
     const statEmoji = outcome.rollStat
       ? (STAT_LABELS[outcome.rollStat]?.emoji ?? '🎲') + ' '
       : '';
 
-    // Roll expression: 20 + 7 = 27
+    // Roll expression, e.g. 20 + 7 = 27
     const isCrit = outcome.playerRolled === 20 || outcome.playerRolled === 1;
     let rollExpr: string;
     if (bonus === 0) {
       rollExpr = `${outcome.playerRolled}`;
     } else {
       const sign = bonus > 0 ? '+' : '−';
-      // Only bold the total when it won't be double-wrapped by crit bold
+      // Don't bold the total when crit bold will already wrap it
       const totalExpr = isCrit ? `${total}` : `**${total}**`;
       rollExpr = `${outcome.playerRolled} ${sign} ${Math.abs(bonus)} = ${totalExpr}`;
     }
 
-    // Critical highlight
+    // Critical highlight prefix
     const prefix = outcome.playerRolled === 20
       ? '🌟'
       : outcome.playerRolled === 1
@@ -195,20 +191,24 @@ export function formatOutcome(
 
   // ── Stat footer — standardised emoji glyphs ──
   const stats: string[] = [];
-  // Health — only when it changed
+  // Health — only when changed
   if (d.healthDelta !== 0) {
     stats.push(`❤️ ${ctx.health}/${ctx.maxHealth}${formatDelta(d.healthDelta)}`);
   }
   // Stamina — always
   stats.push(`⚡ ${ctx.stamina}/${ctx.maxStamina}${formatDelta(d.staminaDelta)}`);
-  // Rolls — always. No fixed denominator (the daily allowance varies: 3, Saturday 4),
-  // so the old `/2` printed a nonsensical over-full fraction. Surface the roll spent
-  // on this action: starting an action debits one roll (an engine decrement, not a
-  // mutation), so a resolved roll shows as (−1), combined with any explicit
-  // modify_rolls_remaining mutation.
+  // Rolls — no fixed denominator (daily allowance varies: 3, Saturday 4), so the old
+  // `/2` printed an over-full fraction. Prefer the engine's actual net change when it reports
+  // one (the auto-finish no-op refund/charge, which the renderer can't infer); otherwise infer:
+  // a resolved roll debits one (−1) plus any modify_rolls_remaining mutation. A no-op refund
+  // shows "(refunded)" — without it, the unchanged count reads as a bug (see player report).
   const rollsSpent = outcome.playerRolled !== null ? -1 : 0;
-  stats.push(`🎲 ${ctx.rollsRemaining}${formatDelta(d.rollsDelta + rollsSpent)}`);
-  // Wealth — only when it changed
+  const rollsDelta = outcome.rollsDelta ?? d.rollsDelta + rollsSpent;
+  // "(refunded)" only for a genuine net-zero refund; if a mutation also moved rolls, show the
+  // real delta instead so a grant/loss isn't mislabelled as a refund.
+  const rollsSuffix = outcome.rollRefunded && rollsDelta === 0 ? ' (refunded)' : formatDelta(rollsDelta);
+  stats.push(`🎲 ${ctx.rollsRemaining}${rollsSuffix}`);
+  // Wealth — only when changed
   if (d.wealthDelta !== 0) {
     stats.push(`💰 ${ctx.wealth}${formatDelta(d.wealthDelta)}`);
   }
@@ -216,7 +216,7 @@ export function formatOutcome(
   if (changes.length > 0) {
     lines.push(changes.join('  '));
   }
-  // Stats footer in monospace — clean visual break without a manual separator
+  // Stats footer in monospace — clean break without a manual separator
   lines.push('`' + stats.join('  ┃  ') + '`');
 
   return lines.join('\n');

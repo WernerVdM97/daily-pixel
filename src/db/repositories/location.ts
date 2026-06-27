@@ -48,18 +48,29 @@ export class LocationRepository {
    * `enrichment_pending = 1` so it only ever overwrites a row that is STILL
    * provisional — never one a later edit or a real seed already settled, and
    * never twice (idempotent / double-fire safe). Returns true if a row was updated.
+   *
+   * `tags` is only written when the cartographer supplied some — a null/undefined
+   * leaves the existing value untouched (COALESCE) rather than wiping it.
    */
   enrichProvisional(
     name: string,
-    data: { isSafe: number; description: string },
+    data: { isSafe: number; description: string; tags?: string | null },
   ): boolean {
     const result = this.db
       .prepare(
         `UPDATE locations
-           SET is_safe = @is_safe, description = @description, enrichment_pending = 0
+           SET is_safe = @is_safe,
+               description = @description,
+               tags = COALESCE(@tags, tags),
+               enrichment_pending = 0
          WHERE name = @name AND enrichment_pending = 1`,
       )
-      .run({ name, is_safe: data.isSafe, description: data.description });
+      .run({
+        name,
+        is_safe: data.isSafe,
+        description: data.description,
+        tags: data.tags ?? null,
+      });
     return result.changes > 0;
   }
 }

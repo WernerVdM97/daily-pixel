@@ -42,8 +42,7 @@ CREATE TABLE IF NOT EXISTS actions (
   outcome         TEXT    NOT NULL,  -- success|failure|skipped|timed_out
   app_version     TEXT,              -- app build (VERSION file) that produced this row
   prompt_version  TEXT    NOT NULL DEFAULT 'v1',
-  llm_request     TEXT,             -- full user prompt sent to LLM (for audit)
-  llm_response    TEXT,             -- raw JSON response from LLM (for audit)
+  -- Per-call LLM audit lives in the llm_calls table (linked via action_id), not here.
   created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -80,6 +79,8 @@ CREATE TABLE IF NOT EXISTS llm_calls (
   action_id            INTEGER REFERENCES actions(id),  -- linked after resolution (NULL for failures/retries)
   app_version          TEXT,                             -- app build (VERSION) that produced this row
   prompt_version       TEXT    NOT NULL,
+  call_kind            TEXT    NOT NULL DEFAULT 'decision', -- 'decision' | 'critic' — for mining the critic separately
+  critic_severity      TEXT,                             -- critic verdict: 'ok'|'minor'|'major' (NULL on decision calls)
   model                TEXT    NOT NULL,
   temperature          REAL,
   tier                 INTEGER NOT NULL DEFAULT 0,       -- 0 = primary, 1 = stripped retry
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS feedback (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   character_id  INTEGER NOT NULL REFERENCES player_characters(id),
   text          TEXT    NOT NULL,
+  action_id     INTEGER REFERENCES actions(id),  -- the action whose outcome the button was on; NULL off-action
   created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -121,6 +123,7 @@ CREATE TABLE IF NOT EXISTS bug_reports (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   character_id  INTEGER NOT NULL REFERENCES player_characters(id),
   text          TEXT    NOT NULL,
+  action_id     INTEGER REFERENCES actions(id),  -- the action whose outcome the button was on; NULL off-action
   created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
