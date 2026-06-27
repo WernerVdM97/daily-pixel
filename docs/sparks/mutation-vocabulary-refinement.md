@@ -68,14 +68,14 @@ Rename table (changes in **bold**):
 | `set_location` | **`move_to`** | "Relocate the character." Unknown name still lazily creates the place |
 | — | **`reveal_location`** | New — a place exists / is learned of, **without** moving there |
 
-- [x] Old v8 action-row JSON keeps its vocabulary and stays attributable to `decision-v8` — those rows are audit data, never re-applied, so the validator only ever sees fresh v-next output. The rename is clean.
+- [p] Old v8 action-row JSON keeps its vocabulary and stays attributable to `decision-v8` — those rows are audit data, never re-applied, so the validator only ever sees fresh v-next output. The rename is clean.
 
 ### 2. NPC lifecycle (free fields now, disposition deferred)
 
 The `npcs` table already carries `description` and `location` (set at creation). So the lifecycle additions that need **no schema change** ship now:
 
-- [x] **`update_npc { name, description?, location? }`** — an NPC's prose and whereabouts can evolve ("now scarred from the duel," "moved to the docks").
-- [x] **`remove_npc { name }`** — death or departure.
+- [I] **`update_npc { name, description?, location? }`** — an NPC's prose and whereabouts can evolve ("now scarred from the duel," "moved to the docks").
+- [I] **`remove_npc { name }`** — death or departure.
 - [<] **`disposition` / relationship tracking is explicitly deferred.** A `disposition` column is worthless unless it is also fed *back into* `LlmContext` when that NPC reappears — otherwise it is dead, write-only state. That is schema migration + context plumbing + prompt changes, which belongs with the 0.3.0 relationship/social work, not this cleanup.
 
 - [!] **NPC identity resolution.** `add_npc` addresses NPCs by `name`; `update_npc`/`remove_npc` must resolve a name back to an existing row. Resolve case-insensitively, scoped by the acting character's current location to disambiguate; on no-match, **warn + drop** (soft, consistent with §5). Define this precisely at implementation time.
@@ -83,8 +83,8 @@ The `npcs` table already carries `description` and `location` (set at creation).
 
 ### 3. `set_location` split → `move_to` + `reveal_location`
 
-- [x] **`move_to { location }`** — relocates the character. Unknown name → keep the existing lazy-create + async-enrich behaviour.
-- [x] **`reveal_location { name, is_safe?, description? }`** — introduces/describes a place on the map **without** moving the character there ("you spot a watchtower on the ridge"). Resolves the v8 overload: knowing a place exists is now distinct from being there.
+- [I] **`move_to { location }`** — relocates the character. Unknown name → keep the existing lazy-create + async-enrich behaviour.
+- [I] **`reveal_location { name, is_safe?, description? }`** — introduces/describes a place on the map **without** moving the character there ("you spot a watchtower on the ridge"). Resolves the v8 overload: knowing a place exists is now distinct from being there.
 - [I] Both `move_to` (on a novel name) and `reveal_location` may optionally carry `is_safe`/`description` so a freshly-discovered place isn't always defaulted unsafe + async-guessed.
 - [<] **Stamp location provenance — `created_by_action_id` on `locations`, mirroring `npcs`.** `npcs` already records which action spawned it (`schema.sql:71` + `idx_npcs_created_by_action`), but `locations` has no such column — a lazily-created place (D3, [[roll-economy-timeouts-and-world-growth]]) loses the action that birthed it. Add a nullable `created_by_action_id INTEGER REFERENCES actions(id)` to `locations` and stamp it when `move_to`/`reveal_location` creates a new row (NULL for the seeded starter map, exactly like seeded NPCs). Pure provenance/data-mining symmetry — it makes "which actions grew the world, and what prompted each new place" queryable, and pairs with the per-player `discovered_from` tree in [[per-player-map-exploration]] (that's *who reached it*; this is *what created it*). Additive guarded migration; no behaviour change.
 
@@ -92,7 +92,7 @@ The `npcs` table already carries `description` and `location` (set at creation).
 
 A dictionary cannot be keyed on a free string the LLM invents (`"hunt"` vs `"hunting"` vs `"stalk the boar"` would all miss). So:
 
-- [x] Add a **closed `category` enum** to the decision schema, *alongside* the existing free `distilled_type`. Each field does one job: `category` = machine key (map + telemetry + failure-filter), `distilled_type` = the player-facing flavour label already shown in broadcasts.
+- [I] Add a **closed `category` enum** to the decision schema, *alongside* the existing free `distilled_type`. Each field does one job: `category` = machine key (map + telemetry + failure-filter), `distilled_type` = the player-facing flavour label already shown in broadcasts.
 
 The category set, derived from `decision-v8.md` §4a and rounded out for a normal session, each with a distinct mutation signature:
 
@@ -113,8 +113,8 @@ The category set, derived from `decision-v8.md` §4a and rounded out for a norma
 
 The `category → expected-mutations` map lives in code as the **single source of truth**, and:
 
-- [x] It is **injected into the prompt**, replacing the hand-written §4a recipe prose so the two cannot drift.
-- [x] At runtime, a mutation outside its category's expected set is **flagged "unexpected," logged for data-mining, but still applied**.
+- [I] It is **injected into the prompt**, replacing the hand-written §4a recipe prose so the two cannot drift.
+- [I] At runtime, a mutation outside its category's expected set is **flagged "unexpected," logged for data-mining, but still applied**.
 - [-] **Not** hard-dropped. D&D is emergent — a `social` turn can erupt into a stabbing, and the LLM then legitimately needs `modify_health`. Hard-dropping would break emergent scenes and largely duplicates the failure-filter.
 - [p] Payoff: prompt + filter generated from one definition (no drift) **and** a balancing signal ("the LLM keeps emitting `modify_wealth` on `combat`") without constraining play.
 
