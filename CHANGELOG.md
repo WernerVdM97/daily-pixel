@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`cross_frontier` mutation — the exploration verb** — crossing a frontier exit `{ direction, name }` is the ONLY way new ground is born: it mints the destination, binds the exit (shared for everyone after), and fires the cartographer to chart it. A failed roll doesn't break new ground.
 
 ### Changed
+- **`/look` shows the location's own emoji and its exits** — the header used a hardcoded 🏠; it now shows the place's map glyph (📍 fallback), and a new **🧭 Exits** section lists the charted neighbours (direction → name + effort) and uncharted frontier exits you can see from where you stand. New `engine.getExits` + `emoji` on `LocationInfo`.
 - **Movement is graph-validated (decision prompt → v10)** — `set_location` now only reaches a charted, reachable node (unknown/unreachable targets are dropped — no more teleport-anywhere / lazy-create-from-thin-air). The decision prompt swaps the global `Known locations` list for a local **"Exits from here"** block (charted exits to travel to · uncharted frontiers to cross) and teaches `set_location` vs `cross_frontier`. `PROMPT_VERSION` → `v10` (`decision-v10.md` + `current_source.md`). New players start with the home Vale already discovered.
 - **`actions.location_name`** — each action snapshots the origin location the character acted from (audit/provenance; deliberately a name snapshot, not an FK).
 

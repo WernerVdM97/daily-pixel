@@ -50,6 +50,7 @@ describe("/look", () => {
 			description: "A massive ancient oak.",
 			tags: ["oak", "interior", "fire", "sanctuary"],
 			isSafe: true,
+			emoji: "🌳",
 		});
 
 		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
@@ -58,6 +59,27 @@ describe("/look", () => {
 		expect(result).toContain("The Warden's Oak");
 		expect(result).toContain("A massive ancient oak.");
 		expect(result).toContain(",@@@@@@,");
+		// Header shows the location's own emoji, not a hardcoded house.
+		expect(result).toContain("🌳 🛡️ **The Warden's Oak**");
+		expect(result).not.toContain("🏠");
+	});
+
+	it("lists the location's exits — charted neighbours and uncharted frontiers", async () => {
+		engine.setCharacter(MockWorldEngine.defaultCharacter({ location: "The Warden's Oak" }));
+		engine.setLocation({
+			name: "The Warden's Oak", description: "The oak.", tags: ["oak"], isSafe: true, emoji: "🌳",
+		});
+		engine.setExits({
+			neighbours: [{ name: "Town Square", direction: "N", difficulty: 1 }],
+			frontiers: [{ direction: "E", teaser: "the road to the eastern town", difficulty: 2 }],
+		});
+
+		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const result = await handler({ user: { id: "user-1" } } as never);
+
+		expect(result).toContain("🧭 Exits");
+		expect(result).toContain("N → Town Square 🚶");
+		expect(result).toContain("E → *uncharted* — _the road to the eastern town_ 🏃");
 	});
 
 	it("falls back to unknown scene when location tags match nothing", async () => {

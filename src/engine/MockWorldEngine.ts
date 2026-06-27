@@ -12,6 +12,7 @@ import type {
   JournalData,
   DiscoveredGraph,
   TravelRoute,
+  LocationExits,
   TickResult,
   StatBlock,
   Leaderboards,
@@ -37,6 +38,7 @@ export class MockWorldEngine implements WorldEngine {
   private _journal: JournalData | null = null;
   private _discoveredGraph: DiscoveredGraph | null = null;
   private _route: TravelRoute | null = null;
+  private _exits: LocationExits | null = null;
   private _tickResult: TickResult | null = null;
   private _soulsInUnsafe = 0;
   private _leaderboards: Leaderboards = { wealth: [], might: [] };
@@ -128,6 +130,10 @@ export class MockWorldEngine implements WorldEngine {
 
   setRoute(route: TravelRoute | null): void {
     this._route = route;
+  }
+
+  setExits(exits: LocationExits): void {
+    this._exits = exits;
   }
   setSoulsInUnsafe(count: number): void {
     this._soulsInUnsafe = count;
@@ -254,9 +260,14 @@ export class MockWorldEngine implements WorldEngine {
         description: "A mock location.",
         tags: ["mock"],
         isSafe: true,
+        emoji: "📍",
       };
     }
     return this._location;
+  }
+
+  getExits(_location: string): LocationExits {
+    return this._exits ?? { neighbours: [], frontiers: [] };
   }
 
   getItems(characterId: number): ItemData[] {

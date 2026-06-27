@@ -6,6 +6,9 @@ export type SceneLookupFn = (tags: string[]) => {
   ascii: string;
 };
 
+/** Effort glyph by terrain difficulty band (matches /map): 🚶 road · 🏃 trail · 🧗 harsh. */
+const EFFORT = ["", "🚶", "🏃", "🧗"] as const;
+
 /** Emoji for an NPC based on their class/type. */
 function npcEmoji(classOrType: string): string {
   const t = (classOrType ?? '').toLowerCase();
@@ -76,8 +79,8 @@ export function makeLookCommand(
     lines.push(ascii);
     lines.push('```');
     lines.push("");
-    const locEmoji = location.isSafe ? '🛡️' : '⚠️';
-    lines.push(`🏠 ${locEmoji} **${location.name}**`);
+    const safeEmoji = location.isSafe ? '🛡️' : '⚠️';
+    lines.push(`${location.emoji ?? '📍'} ${safeEmoji} **${location.name}**`);
     lines.push(SEPARATOR);
     lines.push(location.description);
 
@@ -87,6 +90,21 @@ export function makeLookCommand(
     } else {
       lines.push("");
       lines.push("⚠️ This location is **unsafe**. Danger may be near.");
+    }
+
+    // Exits — the roads you can see from where you stand (charted + frontier).
+    const exits = engine.getExits(character.location);
+    if (exits.neighbours.length > 0 || exits.frontiers.length > 0) {
+      lines.push("");
+      lines.push(SEPARATOR);
+      lines.push("**🧭 Exits**");
+      for (const n of exits.neighbours) {
+        lines.push(`  ${n.direction} → ${n.name} ${EFFORT[n.difficulty] ?? ''}`.trimEnd());
+      }
+      for (const f of exits.frontiers) {
+        const teaser = f.teaser ? ` — _${f.teaser}_` : '';
+        lines.push(`  ${f.direction} → *uncharted*${teaser} ${EFFORT[f.difficulty] ?? ''}`.trimEnd());
+      }
     }
 
     // Nearby entities

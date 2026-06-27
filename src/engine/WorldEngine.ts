@@ -135,6 +135,14 @@ export interface LocationInfo {
   description: string;
   tags: string[];
   isSafe: boolean;
+  /** Map glyph for the location (fallback 📍 at render). */
+  emoji: string | null;
+}
+
+/** The edges leaving a location — charted neighbours + unexplored frontier exits. */
+export interface LocationExits {
+  neighbours: { name: string; direction: string; difficulty: number }[];
+  frontiers: { direction: string; teaser: string | null; difficulty: number }[];
 }
 
 export interface ItemData {
@@ -295,6 +303,10 @@ export interface WorldEngine {
 
   // Map — the player's fog-of-war view of the shared graph (§5).
   getDiscoveredGraph(characterId: number): DiscoveredGraph;
+
+  /** The edges leaving a location (charted neighbours + frontier exits) — what
+   *  /look shows: the roads you can see from where you stand. */
+  getExits(location: string): LocationExits;
 
   /** Least-cost route (Dijkstra over edge difficulty) between two charted nodes;
    *  cost is the Σ-difficulty stamina price. Null when unreachable (§2). */

@@ -63,6 +63,7 @@ import type {
   JournalData,
   DiscoveredGraph,
   TravelRoute,
+  LocationExits,
   TickResult,
   NpcMovement,
   StatBlock,
@@ -1023,6 +1024,19 @@ export class WorldEngineImpl implements WorldEngine {
       description: row.description ?? "",
       tags: row.tags ? row.tags.split(",").map((t) => t.trim()) : [],
       isSafe: row.is_safe === 1,
+      emoji: row.emoji,
+    };
+  }
+
+  /** Edges leaving a location — charted neighbours + frontier exits (for /look). */
+  getExits(location: string): LocationExits {
+    return {
+      neighbours: this.edgeRepo
+        .neighbours(location)
+        .map((n) => ({ name: n.name, direction: n.direction, difficulty: n.difficulty })),
+      frontiers: this.edgeRepo
+        .frontierExits(location)
+        .map((f) => ({ direction: f.direction, teaser: f.teaser, difficulty: f.difficulty })),
     };
   }
 
