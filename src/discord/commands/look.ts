@@ -9,6 +9,16 @@ export type SceneLookupFn = (tags: string[]) => {
 /** Effort glyph by terrain difficulty band (matches /map): 🚶 road · 🏃 trail · 🧗 harsh. */
 const EFFORT = ["", "🚶", "🏃", "🧗"] as const;
 
+/** Compass arrow per direction, and a clockwise order (N, NE, E … NW) to sort by. */
+const DIR_ARROW: Record<string, string> = {
+  N: "⬆️", NE: "↗️", E: "➡️", SE: "↘️", S: "⬇️", SW: "↙️", W: "⬅️", NW: "↖️",
+};
+const DIR_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const dirRank = (d: string): number => {
+  const i = DIR_ORDER.indexOf(d);
+  return i === -1 ? DIR_ORDER.length : i;
+};
+
 /** Emoji for an NPC based on their class/type. */
 function npcEmoji(classOrType: string): string {
   const t = (classOrType ?? '').toLowerCase();
@@ -91,18 +101,25 @@ export function makeLookCommand(
       lines.push("⚠️ This location is **unsafe**. Danger may be near.");
     }
 
-    // Paths — the roads you can see from where you stand (charted + frontier).
+    // Paths — the roads you can see from where you stand (charted + frontier),
+    // ordered clockwise from north so the compass reads naturally.
     const exits = engine.getExits(character.location);
-    if (exits.neighbours.length > 0 || exits.frontiers.length > 0) {
+    const paths = [
+      ...exits.neighbours.map((n) => ({ direction: n.direction, difficulty: n.difficulty, dest: n.name })),
+      ...exits.frontiers.map((f) => ({
+        direction: f.direction,
+        difficulty: f.difficulty,
+        dest: f.teaser ? `*uncharted* — _${f.teaser}_` : "*uncharted*",
+      })),
+    ].sort((a, b) => dirRank(a.direction) - dirRank(b.direction));
+
+    if (paths.length > 0) {
       lines.push("");
       lines.push(SEPARATOR);
       lines.push("**🧭 Paths**");
-      for (const n of exits.neighbours) {
-        lines.push(`  ${n.direction} → ${n.name} ${EFFORT[n.difficulty] ?? ''}`.trimEnd());
-      }
-      for (const f of exits.frontiers) {
-        const teaser = f.teaser ? ` — _${f.teaser}_` : '';
-        lines.push(`  ${f.direction} → *uncharted*${teaser} ${EFFORT[f.difficulty] ?? ''}`.trimEnd());
+      for (const p of paths) {
+        const arrow = DIR_ARROW[p.direction] ?? "🧭";
+        lines.push(`  ${arrow} ${p.direction} → ${p.dest} ${EFFORT[p.difficulty] ?? ""}`.trimEnd());
       }
     }
 
