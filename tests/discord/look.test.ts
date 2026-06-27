@@ -79,7 +79,7 @@ describe("/look", () => {
 		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 
-		expect(result).toContain("🧭 Exits");
+		expect(result).toContain("🧭 Paths");
 		expect(result).toContain("N → Town Square 🚶");
 		expect(result).toContain("E → *uncharted* — _the road to the eastern town_ 🏃");
 	});

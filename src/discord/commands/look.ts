@@ -91,12 +91,12 @@ export function makeLookCommand(
       lines.push("⚠️ This location is **unsafe**. Danger may be near.");
     }
 
-    // Exits — the roads you can see from where you stand (charted + frontier).
+    // Paths — the roads you can see from where you stand (charted + frontier).
     const exits = engine.getExits(character.location);
     if (exits.neighbours.length > 0 || exits.frontiers.length > 0) {
       lines.push("");
       lines.push(SEPARATOR);
-      lines.push("**🧭 Exits**");
+      lines.push("**🧭 Paths**");
       for (const n of exits.neighbours) {
         lines.push(`  ${n.direction} → ${n.name} ${EFFORT[n.difficulty] ?? ''}`.trimEnd());
       }
