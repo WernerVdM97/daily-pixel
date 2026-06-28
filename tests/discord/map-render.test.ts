@@ -113,7 +113,12 @@ describe('renderMap', () => {
   });
 
   it('reports no match for an unknown focus', () => {
-    expect(renderMap('Kael', VALE, 'Atlantis')).toContain('No charted region or place matches "Atlantis"');
+    expect(renderMap('Kael', VALE, 'Atlantis')).toContain('No charted region or place matches `Atlantis`');
+  });
+
+  it('renders a markdown-laden focus query literally in the no-match message', () => {
+    const out = renderMap('Kael', VALE, '**boom**');
+    expect(out).toContain('matches `**boom**`');
   });
 
   it('focuses a place to its own roads (fuzzy "town" → Town Square, neighbours by reversed heading)', () => {

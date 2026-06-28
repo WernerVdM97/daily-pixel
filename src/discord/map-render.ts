@@ -238,7 +238,10 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
   // region focus drills into the region (uncapped — the user asked for it).
   const focusRes = focus?.trim() ? resolveMapFocus(focus, graph) : undefined;
   if (focusRes?.kind === "none") {
-    return `${out[0]}\n\n*No charted region or place matches "${focus}".*`;
+    // Wrap the user's raw query in an inline-code span so markdown in it (e.g. `/map **x**`)
+    // renders literally instead of formatting the error line.
+    const shown = focus?.trim().replace(/`/g, "ʼ") ?? "";
+    return `${out[0]}\n\n*No charted region or place matches \`${shown}\`.*`;
   }
   if (focusRes?.kind === "node") {
     return renderNodeFocus(out[0], graph, byName, focusRes.name);

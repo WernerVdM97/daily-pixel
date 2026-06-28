@@ -29,8 +29,12 @@ import type { Migration } from './types.js';
 function addColumn(db: Database.Database, table: string, columnDdl: string): void {
   try {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDdl}`);
-  } catch {
-    /* column already exists — idempotent on production DBs that predate this */
+  } catch (err) {
+    // Swallow ONLY the already-exists case (idempotent on prod DBs that predate this).
+    // Anything else — locked DB, disk full, permission, a typo'd DDL — must surface, not
+    // be silently masked as "already migrated".
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/duplicate column name/i.test(msg)) throw err;
   }
 }
 

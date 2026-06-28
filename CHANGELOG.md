@@ -18,8 +18,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Movement is graph-validated (decision prompt → v10)** — `set_location` now only reaches a charted, reachable node (unknown/unreachable targets are dropped — no more teleport-anywhere / lazy-create-from-thin-air). The decision prompt swaps the global `Known locations` list for a local **"Exits from here"** block (charted exits to travel to · uncharted frontiers to cross) and teaches `set_location` vs `cross_frontier`. `PROMPT_VERSION` → `v10` (`decision-v10.md` + `current_source.md`). New players start with the home Vale already discovered.
 - **`actions.location_name`** — each action snapshots the origin location the character acted from (audit/provenance; deliberately a name snapshot, not an FK).
 
+### Fixed
+- **LLM-authored place names, regions, and frontier teasers are sanitized before they're stored** — a coined name like `**The** ## Void` is stripped of markdown/section/mention control chars, whitespace-collapsed, and length-capped (`sanitizeAuthored`) at the mint/cartographer boundary, so it can't break `/map` layout or inject a fake section into the decision prompt. Teasers also gain a hard length cap so they can't bloat every future prompt from that node.
+- **`/map`'s "no match" message renders an unknown query literally** — a markdown-laden `/map <arg>` (e.g. `**boom**`) now shows inside an inline-code span instead of formatting the error line.
+- **Same-action `cross_frontier` + `set_location` to the just-minted place no longer depends on emit order** — `applyGeography` resolves frontier crossings in a first pass, so a follow-up `set_location` to the new place validates regardless of order.
+- **Geography migration surfaces real `ALTER TABLE` failures** — the idempotent `addColumn` now swallows only the duplicate-column case; a locked DB / disk-full / permission error throws instead of being masked as "already migrated".
+
 ### Internal
-- New repos `locationEdge` / `characterLocation`; `geography.ts` pure routing; `applyGeography` replaces the lazy-create path in the engine. Frontier-crossing protocol recorded in [[mutation-vocabulary-refinement]] (`cross_frontier` is a distinct verb; the `set_location → move_to` rename stays v11).
+- New repos `locationEdge` / `characterLocation`; `geography.ts` pure routing; `applyGeography` replaces the lazy-create path in the engine (now two-pass, with a `resolveCrossFrontier` helper that guards the frontier-bind result). Frontier-crossing protocol recorded in [[mutation-vocabulary-refinement]] (`cross_frontier` is a distinct verb; the `set_location → move_to` rename stays v11).
 
 ## [0.2.5] - 2026-06-27
 ### Added
