@@ -11,6 +11,7 @@ import { NpcRepository } from '../../src/db/repositories/npc.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
 import { LocationEdgeRepository } from '../../src/db/repositories/locationEdge.js';
 import type { LlmDecision } from '../../src/llm/LlmGateway.js';
+import { APP_VERSION } from '../../src/version.js';
 
 // RED: tests fail because WorldEngineImpl doesn't exist yet
 
@@ -570,6 +571,27 @@ describe('WorldEngineImpl — action state machine integration', () => {
       llm.setDecision(huntFinalDecision());
       const r2 = await engine.stepAction(characterId, 'Stalk');  // from huntSecondDecision
       expect(r2.resolved).toBe(true);
+    });
+  });
+
+  describe('feedback & bug reports', () => {
+    it('stamps the app version on a submitted feedback row', () => {
+      engine.submitFeedback(characterId, 'The warden is wise');
+      const row = getDb()
+        .prepare('SELECT character_id, text, action_id, app_version FROM feedback ORDER BY id DESC LIMIT 1')
+        .get() as { character_id: number; text: string; action_id: number | null; app_version: string | null };
+      expect(row.character_id).toBe(characterId);
+      expect(row.text).toBe('The warden is wise');
+      expect(row.action_id).toBeNull(); // off-action /feedback — no link
+      expect(row.app_version).toBe(APP_VERSION);
+    });
+
+    it('stamps the app version on a submitted bug row', () => {
+      engine.submitBug(characterId, 'crash on /look');
+      const row = getDb()
+        .prepare('SELECT app_version FROM bug_reports ORDER BY id DESC LIMIT 1')
+        .get() as { app_version: string | null };
+      expect(row.app_version).toBe(APP_VERSION);
     });
   });
 });

@@ -1241,14 +1241,14 @@ export class WorldEngineImpl implements WorldEngine {
 
   submitFeedback(characterId: number, text: string, actionId?: number): void {
     this.db
-      .prepare("INSERT INTO feedback (character_id, text, action_id) VALUES (?, ?, ?)")
-      .run(characterId, text, actionId ?? null);
+      .prepare("INSERT INTO feedback (character_id, text, action_id, app_version) VALUES (?, ?, ?, ?)")
+      .run(characterId, text, actionId ?? null, APP_VERSION);
   }
 
   submitBug(characterId: number, text: string, actionId?: number): void {
     this.db
-      .prepare("INSERT INTO bug_reports (character_id, text, action_id) VALUES (?, ?, ?)")
-      .run(characterId, text, actionId ?? null);
+      .prepare("INSERT INTO bug_reports (character_id, text, action_id, app_version) VALUES (?, ?, ?, ?)")
+      .run(characterId, text, actionId ?? null, APP_VERSION);
   }
 
   // ── Rest & recovery ──

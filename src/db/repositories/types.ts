@@ -147,6 +147,8 @@ export interface FeedbackRow {
   id: number;
   character_id: number;
   text: string;
+  action_id: number | null;
+  app_version: string | null;
   created_at: string;
 }
 
@@ -154,6 +156,8 @@ export interface BugReportRow {
   id: number;
   character_id: number;
   text: string;
+  action_id: number | null;
+  app_version: string | null;
   created_at: string;
 }
 

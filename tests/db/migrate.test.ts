@@ -112,6 +112,34 @@ describe('migrate', () => {
     const row = db.prepare("SELECT enrichment_pending FROM locations WHERE name = ?").get("The Warden's Oak") as { enrichment_pending: number };
     expect(row.enrichment_pending).toBe(0);
   });
+
+  it('adds the app_version column to feedback and bug_reports', () => {
+    for (const table of ['feedback', 'bug_reports']) {
+      const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+      expect(cols).toContain('app_version');
+    }
+  });
+});
+
+describe('feedback/bug app_version migration — existing DB backfill', () => {
+  it('adds app_version to a DB that predates it, idempotently (guarded ALTER)', async () => {
+    const old = new Database(':memory:');
+    runMigrations(old);
+    old.exec('ALTER TABLE feedback DROP COLUMN app_version');
+    old.exec('ALTER TABLE bug_reports DROP COLUMN app_version');
+
+    const { migration } = await import('../../src/db/migrations/202606280000_feedback_bug_app_version.js');
+    migration.up(old);
+
+    for (const table of ['feedback', 'bug_reports']) {
+      const cols = (old.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+      expect(cols).toContain('app_version');
+    }
+    // Re-running is a clean no-op (the PRAGMA guard skips the ALTER).
+    expect(() => migration.up(old)).not.toThrow();
+
+    old.close();
+  });
 });
 
 describe('roll-refund + enrichment migration — existing DB backfill', () => {
