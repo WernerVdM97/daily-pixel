@@ -36,7 +36,6 @@ how it runs
 
 | Status | Doc | Summary |
 |---|---|---|
-| ✅ | [Map & Exploration — Shared Hub-and-Spoke Geography](./engine/per-player-map-exploration.md) | Full Tier-2 rework: a **shared** hub-and-spoke graph rooted at the Oak (`location_edges` + `node_tier` + `region`), fog-of-war masked per player. Deterministic engine-owned travel (routing + `stamina = Σ edge difficulty`), edge-validated `set_location`, frontier exits that mint shared places on first crossing. `/map` paginated with region/hub drill-in; `/journal` rechronicled via `actions.location_name`. Path 2 — geography foundation in POC (prompt bump = `decision-v10`), LLM pipeline split deferred to v12. |
 | ✅ | [Mutation Vocabulary Refinement](./engine/mutation-vocabulary-refinement.md) | **`0.2.x` candidate → ships as `decision-v11`** (after the map doc's `decision-v10`). Tidies the LLM mutation keywords into one verb scheme (`modify_` deltas · `add/update/remove_` entity CRUD · `move_to`), splits the overloaded `set_location` → `move_to` + `reveal_location`, gives NPCs a lifecycle (`add/update/remove_npc`, disposition deferred), and adds a closed `category` enum + soft `category → expected-mutations` map (warn + telemetry, apply anyway). Stepping stone to v12's two-pass dynamic injection; `move_to`/`reveal_location` defer to the map graph, and `locations.created_by_action_id` is ceded to that doc. |
 
 _POC engine specs (tech stack, action-UX) shipped → `archived/poc/`._
