@@ -5,6 +5,8 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [0.2.6] - 2026-06-28
 ### Added
 - **Feedback & bug reports record the app build that produced them** — `feedback` and `bug_reports` gain a nullable `app_version` column (the `VERSION` build), stamped on every `/feedback`/`/bug` submission for the same data-mining attribution `actions`/`llm_calls` already carry. Guarded migration `202606280000_feedback_bug_app_version`; pre-existing rows stay NULL.
 - **`/map` — your map of the world** — an ephemeral, region-grouped hub-and-spoke tree drawn with box-drawing connectors (`├─ │ └─`) so levels read on mobile, sections divided by Discord separators, and an **Unexplored paths** section listing frontier exits grouped by where they leave from. Each node line carries an `emoji · safe/wild · effort` glyph row. Progress is a count ("N charted · M roads into the unknown"), never a fraction; `/map <region|place>` drills in with **fuzzy matching** (tolerates typos/casing — `/map town` finds Town Square, focusing on the roads connected to it); over-long maps collapse a region tail into `+K more` and never silently truncate. A 🗺️ **Map** button cross-links from the other info pages (Hi/Journal/Stats/Backpack/Look).
