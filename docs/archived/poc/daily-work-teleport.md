@@ -1,8 +1,9 @@
 ---
 title: Daily-Work Teleport — Commute to the Job
-status: decided
-domain: game
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code"
 tags: [daily-job, teleport, workplace, travel, stamina]
 related:
   - "[[the-poc]]"

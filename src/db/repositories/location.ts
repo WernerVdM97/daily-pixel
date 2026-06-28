@@ -24,10 +24,14 @@ export class LocationRepository {
     tags?: string;
     isSafe?: number;
     enrichmentPending?: number;
+    nodeTier?: number;
+    region?: string | null;
+    emoji?: string | null;
+    createdByActionId?: number | null;
   }): LocationRow {
     const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO locations (name, description, tags, is_safe, enrichment_pending)
-      VALUES (@name, @description, @tags, @is_safe, @enrichment_pending)
+      INSERT OR IGNORE INTO locations (name, description, tags, is_safe, enrichment_pending, node_tier, region, emoji, created_by_action_id)
+      VALUES (@name, @description, @tags, @is_safe, @enrichment_pending, @node_tier, @region, @emoji, @created_by_action_id)
     `);
     stmt.run({
       name: data.name,
@@ -35,6 +39,10 @@ export class LocationRepository {
       tags: data.tags ?? null,
       is_safe: data.isSafe ?? 0,
       enrichment_pending: data.enrichmentPending ?? 0,
+      node_tier: data.nodeTier ?? 2,
+      region: data.region ?? null,
+      emoji: data.emoji ?? null,
+      created_by_action_id: data.createdByActionId ?? null,
     });
     // Return the row (may already exist — INSERT OR IGNORE makes this idempotent)
     return this.db
@@ -54,7 +62,14 @@ export class LocationRepository {
    */
   enrichProvisional(
     name: string,
-    data: { isSafe: number; description: string; tags?: string | null },
+    data: {
+      isSafe: number;
+      description: string;
+      tags?: string | null;
+      region?: string | null;
+      emoji?: string | null;
+      nodeTier?: number | null;
+    },
   ): boolean {
     const result = this.db
       .prepare(
@@ -62,6 +77,9 @@ export class LocationRepository {
            SET is_safe = @is_safe,
                description = @description,
                tags = COALESCE(@tags, tags),
+               region = COALESCE(@region, region),
+               emoji = COALESCE(@emoji, emoji),
+               node_tier = COALESCE(@node_tier, node_tier),
                enrichment_pending = 0
          WHERE name = @name AND enrichment_pending = 1`,
       )
@@ -70,6 +88,9 @@ export class LocationRepository {
         is_safe: data.isSafe,
         description: data.description,
         tags: data.tags ?? null,
+        region: data.region ?? null,
+        emoji: data.emoji ?? null,
+        node_tier: data.nodeTier ?? null,
       });
     return result.changes > 0;
   }

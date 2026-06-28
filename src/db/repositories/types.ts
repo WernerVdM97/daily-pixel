@@ -51,6 +51,9 @@ export interface ActionRow {
   /** JSON array of the world mutations actually applied (post-validation,
    *  post-failure-strip). NULL for rows written before this column existed. */
   applied_mutations: string | null;
+  /** Snapshot of the origin location the character stood at when acting (§6).
+   *  Deliberately a name snapshot, not an FK. NULL for rows predating the column. */
+  location_name: string | null;
   created_at: string;
 }
 
@@ -115,12 +118,37 @@ export interface LocationRow {
   is_safe: number;            // 0|1
   /** 1 while a provisional (D3) location awaits async cartographer enrichment. */
   enrichment_pending: number; // 0|1
+  /** 0 = the Oak root · 1 = district hub · 2 = leaf. Defaults 2 for legacy rows. */
+  node_tier: number;
+  region: string | null;      // flat grouping label ("The Vale"); cartographer-assigned
+  emoji: string | null;       // first /map glyph; fallback 📍 at render
+  created_by_action_id: number | null;
+}
+
+export interface LocationEdgeRow {
+  from_location: string;
+  to_location: string | null;       // NULL = unexplored frontier exit
+  direction: string;                // canonical cardinal
+  flavour: string | null;
+  teaser: string | null;            // frontier vibe before crossing
+  difficulty: number;               // 1/2/3 — stamina weight
+  distance: number;                 // dormant placeholder
+  created_by_action_id: number | null;
+}
+
+export interface CharacterLocationRow {
+  character_id: number;
+  location_name: string;
+  first_visited_at: string;
+  last_visited_at: string;
 }
 
 export interface FeedbackRow {
   id: number;
   character_id: number;
   text: string;
+  action_id: number | null;
+  app_version: string | null;
   created_at: string;
 }
 
@@ -128,6 +156,8 @@ export interface BugReportRow {
   id: number;
   character_id: number;
   text: string;
+  action_id: number | null;
+  app_version: string | null;
   created_at: string;
 }
 

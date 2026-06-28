@@ -15,7 +15,7 @@ describe("/journal", () => {
     expect(result).toContain("character");
   });
 
-  it("shows known locations with current location marked", async () => {
+  it("no longer lists known locations (that's /map's job now)", async () => {
     engine.setJournal({
       knownLocations: ["The Warden's Oak", "Dark Forest", "Stone Bridge"],
       currentLocation: "Dark Forest",
@@ -24,12 +24,25 @@ describe("/journal", () => {
     });
     const handler = makeJournalCommand(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
-    expect(result).toContain("The Warden's Oak");
-    expect(result).toContain("Dark Forest");
-    expect(result).toContain("Stone Bridge");
-    // Current location marked
-    expect(result).toContain("←");
-    expect(result).toMatch(/Dark Forest.*←/);
+    expect(result).not.toContain("Known Locations");
+    expect(result).not.toContain("Stone Bridge"); // the location list is gone
+    expect(result).toContain("/map"); // points the player at the map instead
+  });
+
+  it("renders a chronicle: each action tagged with where it happened + outcome glyph", async () => {
+    engine.setJournal({
+      knownLocations: [],
+      currentLocation: "Wolf Hollow",
+      npcsEncountered: [],
+      recentActions: [
+        { type: "combat", outcome: "success", createdAt: "2026-01-02T12:00:00Z", narrative: "drove off a starving wolf", location: "Wolf Hollow", locationEmoji: "🐺" },
+        { type: "search", outcome: "failure", createdAt: "2026-01-01T12:00:00Z", narrative: "searched the broken shrine", location: "The Sunken Road", locationEmoji: "🪨" },
+      ],
+    });
+    const handler = makeJournalCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+    expect(result).toContain("🐺 Wolf Hollow · drove off a starving wolf ✓");
+    expect(result).toContain("🪨 The Sunken Road · searched the broken shrine ✗");
   });
 
   it("shows NPCs encountered with name, class, and location", async () => {
@@ -63,27 +76,22 @@ describe("/journal", () => {
     expect(result).toContain("Stranger");
   });
 
-  it("shows recent actions with type and outcome", async () => {
+  it("falls back to the action type + outcome glyph when there's no narrative or location", async () => {
     engine.setJournal({
       knownLocations: [],
       currentLocation: "The Warden's Oak",
       npcsEncountered: [],
       recentActions: [
         { type: "hunt", outcome: "success", createdAt: "2026-01-01T12:00:00Z" },
-        {
-          type: "travel",
-          outcome: "failure",
-          createdAt: "2026-01-01T10:00:00Z",
-        },
+        { type: "travel", outcome: "failure", createdAt: "2026-01-01T10:00:00Z" },
       ],
     });
     const handler = makeJournalCommand(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
 
-    expect(result).toContain("hunt");
-    expect(result).toContain("success");
-    expect(result).toContain("travel");
-    expect(result).toContain("failure");
+    expect(result).toContain("hunt ✓");
+    expect(result).toContain("travel ✗");
+    expect(result).toContain("(on the road)"); // no location → placeholder
   });
 
   it("handles empty journal gracefully", async () => {
@@ -97,8 +105,7 @@ describe("/journal", () => {
     const result = await handler({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("Journal");
-    expect(result).toContain("no locations");
     expect(result).toContain("no NPCs");
-    expect(result).toContain("No actions");
+    expect(result).toContain("No actions recorded yet");
   });
 });

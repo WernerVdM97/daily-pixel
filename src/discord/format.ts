@@ -14,6 +14,31 @@
 /** Sentinel used in command output to mark section boundaries for splitting. */
 export const SEPARATOR = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
 
+/** Compass emoji per canonical direction — the sole direction indicator on /look and
+ *  /map paths (no letter, no ASCII arrow). */
+const DIRECTION_ARROW: Record<string, string> = {
+  N: '⬆️', NE: '↗️', E: '➡️', SE: '↘️', S: '⬇️', SW: '↙️', W: '⬅️', NW: '↖️',
+};
+const DIRECTION_ORDER = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+export function directionArrow(dir: string): string {
+  return DIRECTION_ARROW[dir] ?? '🧭';
+}
+/** Clockwise-from-north sort key (N, NE, E … NW); unknowns sort last. */
+export function directionRank(dir: string): number {
+  const i = DIRECTION_ORDER.indexOf(dir);
+  return i === -1 ? DIRECTION_ORDER.length : i;
+}
+
+const OPPOSITE_DIRECTION: Record<string, string> = {
+  N: 'S', S: 'N', E: 'W', W: 'E', NE: 'SW', SW: 'NE', NW: 'SE', SE: 'NW',
+};
+/** The reverse heading of an edge — edges store one canonical direction, so a node on the
+ *  `to` side sees its neighbour in the opposite direction. Unknowns pass through unchanged. */
+export function oppositeDirection(dir: string): string {
+  return OPPOSITE_DIRECTION[dir] ?? dir;
+}
+
 /** Fallback emoji for an unknown class. */
 export const CLASS_EMOJI_FALLBACK = '🔹';
 /** Fallback emoji for an unknown day job. */
@@ -107,9 +132,10 @@ const NAV_BUTTONS: NavButtonDef[] = [
   },
   // View buttons — info pages cross-link to each other; Look also appears on Hi.
   // They stay off action/sleep/outcome views.
-  { id: 'look',     label: 'Look',     emoji: '👁️', showOnPages: ['hi', 'journal', 'backpack', 'stats'] },
-  { id: 'stats',    label: 'Stats',    emoji: '📊', showOnPages: ['journal', 'backpack', 'look'] },
-  { id: 'backpack', label: 'Backpack', emoji: '🎒', showOnPages: ['journal', 'stats', 'look'] },
+  { id: 'look',     label: 'Look',     emoji: '👁️', showOnPages: ['hi', 'journal', 'backpack', 'stats', 'map'] },
+  { id: 'stats',    label: 'Stats',    emoji: '📊', showOnPages: ['journal', 'backpack', 'look', 'map'] },
+  { id: 'backpack', label: 'Backpack', emoji: '🎒', showOnPages: ['journal', 'stats', 'look', 'map'] },
+  { id: 'map',      label: 'Map',      emoji: '🗺️', showOnPages: ['hi', 'journal', 'backpack', 'stats', 'look'] },
 ];
 
 /**

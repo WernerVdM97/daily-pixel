@@ -50,6 +50,7 @@ describe("/look", () => {
 			description: "A massive ancient oak.",
 			tags: ["oak", "interior", "fire", "sanctuary"],
 			isSafe: true,
+			emoji: "🌳",
 		});
 
 		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
@@ -58,6 +59,50 @@ describe("/look", () => {
 		expect(result).toContain("The Warden's Oak");
 		expect(result).toContain("A massive ancient oak.");
 		expect(result).toContain(",@@@@@@,");
+		// Header shows the location's own emoji, not a hardcoded house, and no
+		// safety emoji (that's already in the safe/unsafe line below the description).
+		expect(result).toContain("🌳 **The Warden's Oak**");
+		expect(result).not.toContain("🏠");
+		expect(result).not.toContain("🌳 🛡️");
+	});
+
+	it("lists the location's exits — charted neighbours and uncharted frontiers", async () => {
+		engine.setCharacter(MockWorldEngine.defaultCharacter({ location: "The Warden's Oak" }));
+		engine.setLocation({
+			name: "The Warden's Oak", description: "The oak.", tags: ["oak"], isSafe: true, emoji: "🌳",
+		});
+		engine.setExits({
+			neighbours: [{ name: "Town Square", direction: "N", difficulty: 1 }],
+			frontiers: [{ direction: "E", teaser: "the road to the eastern town", difficulty: 2 }],
+		});
+
+		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const result = await handler({ user: { id: "user-1" } } as never);
+
+		expect(result).toContain("🧭 Paths");
+		// Difficulty leads, then the compass arrow only (no letter / → arrow).
+		expect(result).toContain("🚶 ⬆️ Town Square");
+		expect(result).toContain("🏃 ➡️ *uncharted* — _the road to the eastern town_");
+		expect(result).not.toMatch(/⬆️ N\b/); // no direction letter
+	});
+
+	it("orders paths clockwise from north (N, E, S, W)", async () => {
+		engine.setCharacter(MockWorldEngine.defaultCharacter({ location: "The Warden's Oak" }));
+		engine.setLocation({ name: "The Warden's Oak", description: "The oak.", tags: ["oak"], isSafe: true, emoji: "🌳" });
+		engine.setExits({
+			neighbours: [
+				{ name: "Westward", direction: "W", difficulty: 1 },
+				{ name: "Southward", direction: "S", difficulty: 1 },
+				{ name: "Eastward", direction: "E", difficulty: 1 },
+				{ name: "Northward", direction: "N", difficulty: 1 },
+			],
+			frontiers: [],
+		});
+
+		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const result = await handler({ user: { id: "user-1" } } as never);
+		const order = ["Northward", "Eastward", "Southward", "Westward"].map((n) => result.indexOf(n));
+		expect(order).toEqual([...order].sort((a, b) => a - b)); // strictly increasing → N,E,S,W
 	});
 
 	it("falls back to unknown scene when location tags match nothing", async () => {

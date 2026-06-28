@@ -163,6 +163,46 @@ export const validateItemSet: EntryValidator = (entry, i) => {
   return errs;
 };
 
+// ── world geography (assets/world/*.yml) ──
+
+/** Canonical cardinal directions an edge may carry (render maps these to arrows). */
+export const DIRECTIONS = ["N", "S", "E", "W", "NE", "NW", "SE", "SW"] as const;
+/** Node tiers: 0 = the Oak root · 1 = district hub · 2 = leaf. */
+export const NODE_TIERS = [0, 1, 2] as const;
+/** Terrain difficulty bands (edge weight + /map effort glyph). */
+export const DIFFICULTIES = [1, 2, 3] as const;
+
+/** locations.yml — a seed node with geometry (tier/region/emoji) + the base fields. */
+export const validateLocationSeed: EntryValidator = (entry, i) => {
+  if (!isRecord(entry)) return [`[${i}] entry is not an object`];
+  const errs: string[] = [];
+  const name = labelOf(entry);
+  if (!isNonEmptyString(entry.name)) errs.push(`[${i}]: "name" must be a non-empty string`);
+  if (!isNonEmptyString(entry.description)) errs.push(`[${i}] "${name}": "description" must be a non-empty string`);
+  if (!isNonEmptyString(entry.tags)) errs.push(`[${i}] "${name}": "tags" must be a non-empty string`);
+  errs.push(...checkEmoji(entry, i));
+  if (!isNonEmptyString(entry.region)) errs.push(`[${i}] "${name}": "region" must be a non-empty string`);
+  if (entry.is_safe !== 0 && entry.is_safe !== 1) errs.push(`[${i}] "${name}": "is_safe" must be 0 or 1 (got ${JSON.stringify(entry.is_safe)})`);
+  if (!(NODE_TIERS as readonly unknown[]).includes(entry.node_tier)) errs.push(`[${i}] "${name}": "node_tier" must be one of ${NODE_TIERS.join("|")} (got ${JSON.stringify(entry.node_tier)})`);
+  return errs;
+};
+
+/** edges.yml — a shared edge, or a frontier exit when `to` is null (needs a teaser). */
+export const validateEdgeSeed: EntryValidator = (entry, i) => {
+  if (!isRecord(entry)) return [`[${i}] entry is not an object`];
+  const errs: string[] = [];
+  const label = isNonEmptyString(entry.from) ? `${entry.from} ${entry.direction ?? "?"}` : "(unnamed edge)";
+  if (!isNonEmptyString(entry.from)) errs.push(`[${i}]: "from" must be a non-empty string`);
+  if (!(DIRECTIONS as readonly unknown[]).includes(entry.direction)) errs.push(`[${i}] "${label}": "direction" must be one of ${DIRECTIONS.join("|")} (got ${JSON.stringify(entry.direction)})`);
+  if (!(DIFFICULTIES as readonly unknown[]).includes(entry.difficulty)) errs.push(`[${i}] "${label}": "difficulty" must be one of ${DIFFICULTIES.join("|")} (got ${JSON.stringify(entry.difficulty)})`);
+  const isFrontier = entry.to === null || entry.to === undefined;
+  if (!isFrontier && !isNonEmptyString(entry.to)) errs.push(`[${i}] "${label}": "to" must be a non-empty string or null (frontier)`);
+  if (isFrontier && !isNonEmptyString(entry.teaser)) errs.push(`[${i}] "${label}": a frontier exit (to: null) needs a non-empty "teaser"`);
+  if (entry.flavour !== undefined && entry.flavour !== null && typeof entry.flavour !== "string") errs.push(`[${i}] "${label}": "flavour" must be a string when present`);
+  if (entry.teaser !== undefined && entry.teaser !== null && typeof entry.teaser !== "string") errs.push(`[${i}] "${label}": "teaser" must be a string when present`);
+  return errs;
+};
+
 /** release-notes/<tag>.yml — a single object, not an array. */
 export function validateReleaseNotes(obj: unknown, expectedTag?: string): string[] {
   if (!isRecord(obj)) return ["release notes file is not an object"];
@@ -232,6 +272,28 @@ export function checkDayJobLocations(
     if (wl != null && !known.has(wl)) {
       errs.push(`day-job "${job.name}" workplace_location "${wl}" is not a seeded location`);
     }
+  }
+  return errs;
+}
+
+interface EdgeSeed {
+  from: string;
+  to: string | null;
+  direction: string;
+}
+
+/** Every edge endpoint is a known seed location, and (from, direction) is unique
+ *  (the shared `location_edges` primary key — a clash would silently drop a road). */
+export function checkEdgeReferences(edges: EdgeSeed[], locationNames: string[]): string[] {
+  const known = new Set(locationNames);
+  const seen = new Set<string>();
+  const errs: string[] = [];
+  for (const e of edges) {
+    if (!known.has(e.from)) errs.push(`edge "from" references unknown location "${e.from}"`);
+    if (e.to != null && !known.has(e.to)) errs.push(`edge "${e.from} → ${e.to}" references unknown destination "${e.to}"`);
+    const key = `${e.from}|${e.direction}`;
+    if (seen.has(key)) errs.push(`duplicate edge (from, direction): ${key}`);
+    seen.add(key);
   }
   return errs;
 }

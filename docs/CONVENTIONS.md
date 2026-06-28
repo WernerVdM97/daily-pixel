@@ -43,7 +43,9 @@ That's the whole template. No required body sections — write the body in whate
 
 Use Obsidian task markers to signal the *kind* of item in a list — not just its completion state. Grouped by when you'd reach for them.
 
-NEVER USE PLAIN BULLET STYLE LISTS, always add flavour. Mix different flavours in a single list. When in doubt, default to  `[I]`.
+NEVER USE PLAIN BULLET STYLE LISTS, always add flavour. Mix different flavours in a single list. When in doubt, default to  `[I]`, `[p]`, or `[/]`.
+
+NEVER USE TICKED `[x]` CHECK BOXES FOR SPARKS, these should only be used to track code implementations.
 
 **Decision-making (use in any doc):**
 

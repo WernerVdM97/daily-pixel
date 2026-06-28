@@ -10,6 +10,9 @@ import type {
   ItemData,
   NearbyEntity,
   JournalData,
+  DiscoveredGraph,
+  TravelRoute,
+  LocationExits,
   TickResult,
   StatBlock,
   Leaderboards,
@@ -33,6 +36,9 @@ export class MockWorldEngine implements WorldEngine {
   private _items: ItemData[] = [];
   private _nearbyEntities: NearbyEntity[] = [];
   private _journal: JournalData | null = null;
+  private _discoveredGraph: DiscoveredGraph | null = null;
+  private _route: TravelRoute | null = null;
+  private _exits: LocationExits | null = null;
   private _tickResult: TickResult | null = null;
   private _soulsInUnsafe = 0;
   private _leaderboards: Leaderboards = { wealth: [], might: [] };
@@ -62,6 +68,7 @@ export class MockWorldEngine implements WorldEngine {
     spawnNpc: { name: string; location: string }[];
     getLeaderboards: number[];
     getMeta: string[];
+    recordVisit: { characterId: number; locationName: string }[];
   } = {
     createCharacter: [],
     getCharacter: [],
@@ -83,6 +90,7 @@ export class MockWorldEngine implements WorldEngine {
     spawnNpc: [],
     getLeaderboards: [],
     getMeta: [],
+    recordVisit: [],
   };
 
   // ── Setters for canned responses ──
@@ -114,6 +122,18 @@ export class MockWorldEngine implements WorldEngine {
   }
   setJournal(journal: JournalData): void {
     this._journal = journal;
+  }
+
+  setDiscoveredGraph(graph: DiscoveredGraph): void {
+    this._discoveredGraph = graph;
+  }
+
+  setRoute(route: TravelRoute | null): void {
+    this._route = route;
+  }
+
+  setExits(exits: LocationExits): void {
+    this._exits = exits;
   }
   setSoulsInUnsafe(count: number): void {
     this._soulsInUnsafe = count;
@@ -240,9 +260,14 @@ export class MockWorldEngine implements WorldEngine {
         description: "A mock location.",
         tags: ["mock"],
         isSafe: true,
+        emoji: "📍",
       };
     }
     return this._location;
+  }
+
+  getExits(_location: string): LocationExits {
+    return this._exits ?? { neighbours: [], frontiers: [] };
   }
 
   getItems(characterId: number): ItemData[] {
@@ -260,6 +285,18 @@ export class MockWorldEngine implements WorldEngine {
         recentActions: [],
       }
     );
+  }
+
+  getDiscoveredGraph(_characterId: number): DiscoveredGraph {
+    return this._discoveredGraph ?? { current: "The Warden's Oak", nodes: [], edges: [], frontiers: [] };
+  }
+
+  routeBetween(_from: string, _to: string): TravelRoute | null {
+    return this._route ?? null;
+  }
+
+  recordVisit(characterId: number, locationName: string): void {
+    this.calls.recordVisit.push({ characterId, locationName });
   }
 
   submitFeedback(characterId: number, text: string, actionId?: number): void {

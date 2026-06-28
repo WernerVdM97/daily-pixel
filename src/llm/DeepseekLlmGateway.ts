@@ -56,19 +56,29 @@ const CARTOGRAPHER_SYSTEM_PROMPT = `You are the cartographer for The Warden's Oa
 
 You are given the NEW place's name, the list of ALREADY-KNOWN locations, and the narrative that led the player there.
 
+You are also given the region the player crossed FROM and the list of KNOWN REGIONS.
+
 Decide:
 - Is this genuinely a NEW place, or is the new name just a synonym for one already in the known list (e.g. "The Temple" for "The Shrine of the First Flame")? If it is a duplicate, set "matchesExisting" to the EXACT existing name.
 - Is it safe (a settlement, sanctuary, indoors-with-people) or wild (wilderness, ruins, open road, anywhere danger roams)? Off-map places are usually wild.
 - Write a vivid one-paragraph description (2-3 sentences) in the game's grim tone that fits the narrative and the name.
 - Choose 3-6 scene tags that capture the place's terrain and feel, used to pick its artwork. PREFER tags from this palette, picking the closest matches; add a plainer descriptive word only if nothing fits:
   oak, interior, fire, sanctuary, warden, forest, trees, wilderness, dark, canopy, edge, field, boundary, river, water, stream, crossing, bank, bridge, stone, arch, road, travel, open, path, horizon, ruins, ancient, broken, old, shrine, temple, holy, quiet, town, square, buildings, cobblestone, market, shop, village, goods, trade, tavern, crowd, drink, forge, smithy, building, library, study, scrolls, cave, entrance, rock, opening, underground, mountain, pass, rocky, high, narrow, coast, shore, lake, farm, crops, rural, swamp, bog, wet, mist, marsh, tower, watch, lookout, smoke, east, threat, ash, danger, campfire, rest, night, safe.
+- "region": which land this place belongs to. REUSE an exact name from KNOWN REGIONS when it fits (especially the region it was crossed from); coin a NEW evocative region only when the fiction has genuinely moved into different country.
+- "emoji": a single emoji that best represents the place (a glyph on the map).
+- "node_tier": 1 if this is a notable hub others would route through (a town, a district); 2 for an ordinary leaf place (a glade, a ruin, a cave). Default to 2 — most places are leaves.
+- "onwardFrontiers": 1-3 roads leading further out from this new place — each a short evocative teaser (and a difficulty 1 easy / 2 rough / 3 harsh). These become the next uncharted exits. Keep them few; not every place needs three.
 
 Return ONLY valid JSON, no markdown fences:
 {
   "matchesExisting": "<exact existing name, or omit if genuinely new>",
   "is_safe": 0 or 1,
   "description": "<2-3 sentence description>",
-  "tags": "<3-6 comma-separated lowercase tags>"
+  "tags": "<3-6 comma-separated lowercase tags>",
+  "region": "<region name>",
+  "emoji": "<one emoji>",
+  "node_tier": 1 or 2,
+  "onwardFrontiers": [ { "teaser": "<short road teaser>", "difficulty": 1 } ]
 }`;
 
 /** System prompt for the weekly recap — a terse, evocative chronicler. */
@@ -307,6 +317,8 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     const userMessage = [
       `NEW LOCATION NAME: ${input.newName}`,
       `KNOWN LOCATIONS: ${input.existingNames.join(', ') || 'none'}`,
+      `KNOWN REGIONS: ${input.knownRegions?.join(', ') || 'none'}`,
+      `CROSSED FROM: ${input.fromLocation ?? '(unknown)'}${input.fromRegion ? ` (region: ${input.fromRegion})` : ''}`,
       `NARRATIVE: ${input.narrative || '(none given)'}`,
     ].join('\n');
 
@@ -358,6 +370,31 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       }
       const tags = normalizeTags(parsed.tags);
       if (tags) result.tags = tags;
+      if (typeof parsed.region === 'string' && parsed.region.trim() !== '') {
+        result.region = parsed.region.trim();
+      }
+      if (typeof parsed.emoji === 'string' && parsed.emoji.trim() !== '') {
+        result.emoji = parsed.emoji.trim();
+      }
+      if (parsed.node_tier === 1 || parsed.node_tier === 2) {
+        result.node_tier = parsed.node_tier;
+      }
+      if (Array.isArray(parsed.onwardFrontiers)) {
+        const fronts = parsed.onwardFrontiers
+          .map((f) => {
+            if (!f || typeof f !== 'object') return null;
+            const teaser = typeof (f as Record<string, unknown>).teaser === 'string'
+              ? ((f as Record<string, unknown>).teaser as string).trim()
+              : '';
+            if (teaser === '') return null;
+            const d = (f as Record<string, unknown>).difficulty;
+            const difficulty: 1 | 2 | 3 = d === 1 || d === 2 || d === 3 ? d : 2;
+            return { teaser, difficulty };
+          })
+          .filter((f): f is { teaser: string; difficulty: 1 | 2 | 3 } => f !== null)
+          .slice(0, 3); // never author more than 3 onward exits
+        if (fronts.length > 0) result.onwardFrontiers = fronts;
+      }
       return result;
     } catch (err) {
       console.warn(c.yellow('[cartographer] enrich failed'), err instanceof Error ? err.message : String(err));
@@ -649,7 +686,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       const hasReward = (raw.mutations as Array<Record<string, unknown>>).some(m => {
         if (!m || typeof m !== 'object') return false;
         const type = String(m.type ?? '');
-        if (['add_item', 'spawn_npc', 'set_location'].includes(type)) return true;
+        if (['add_item', 'spawn_npc', 'set_location', 'cross_frontier'].includes(type)) return true;
         if (['modify_wealth', 'modify_rolls_remaining'].includes(type)) return Number(m.amount ?? 0) > 0;
         return false;
       });

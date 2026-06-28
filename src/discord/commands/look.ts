@@ -1,10 +1,13 @@
 import type { WorldEngine, NearbyEntity } from "../../engine/WorldEngine.js";
-import { SEPARATOR } from "../format.js";
+import { SEPARATOR, directionArrow, directionRank } from "../format.js";
 
 export type SceneLookupFn = (tags: string[]) => {
   sceneName: string;
   ascii: string;
 };
+
+/** Effort glyph by terrain difficulty band (matches /map): 🚶 road · 🏃 trail · 🧗 harsh. */
+const EFFORT = ["", "🚶", "🏃", "🧗"] as const;
 
 /** Emoji for an NPC based on their class/type. */
 function npcEmoji(classOrType: string): string {
@@ -76,8 +79,7 @@ export function makeLookCommand(
     lines.push(ascii);
     lines.push('```');
     lines.push("");
-    const locEmoji = location.isSafe ? '🛡️' : '⚠️';
-    lines.push(`🏠 ${locEmoji} **${location.name}**`);
+    lines.push(`${location.emoji ?? '📍'} **${location.name}**`);
     lines.push(SEPARATOR);
     lines.push(location.description);
 
@@ -87,6 +89,28 @@ export function makeLookCommand(
     } else {
       lines.push("");
       lines.push("⚠️ This location is **unsafe**. Danger may be near.");
+    }
+
+    // Paths — the roads you can see from where you stand (charted + frontier),
+    // ordered clockwise from north so the compass reads naturally.
+    const exits = engine.getExits(character.location);
+    const paths = [
+      ...exits.neighbours.map((n) => ({ direction: n.direction, difficulty: n.difficulty, dest: n.name })),
+      ...exits.frontiers.map((f) => ({
+        direction: f.direction,
+        difficulty: f.difficulty,
+        dest: f.teaser ? `*uncharted* — _${f.teaser}_` : "*uncharted*",
+      })),
+    ].sort((a, b) => directionRank(a.direction) - directionRank(b.direction));
+
+    if (paths.length > 0) {
+      lines.push("");
+      lines.push(SEPARATOR);
+      lines.push("**🧭 Paths**");
+      for (const p of paths) {
+        // Difficulty leads, then the compass arrow (no letter / ASCII arrow), then where it goes.
+        lines.push(`  ${EFFORT[p.difficulty] ?? ""} ${directionArrow(p.direction)} ${p.dest}`.trimEnd());
+      }
     }
 
     // Nearby entities

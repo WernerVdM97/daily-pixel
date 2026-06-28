@@ -127,13 +127,14 @@ describe("getNavButtons — view buttons (look/stats/backpack)", () => {
     expect(ids).not.toContain("backpack");
   });
 
-  it("cross-links the four info pages to each other", () => {
-    // On each info page, the OTHER three of {backpack, stats, journal, look} appear.
+  it("cross-links the info pages (incl. map) to each other", () => {
+    // On each info page, the OTHER info buttons of {backpack, stats, journal, look, map} appear.
     for (const [page, others] of [
-      ["backpack", ["stats", "journal", "look"]],
-      ["stats", ["backpack", "journal", "look"]],
-      ["journal", ["backpack", "stats", "look"]],
-      ["look", ["backpack", "stats", "journal"]],
+      ["backpack", ["stats", "journal", "look", "map"]],
+      ["stats", ["backpack", "journal", "look", "map"]],
+      ["journal", ["backpack", "stats", "look", "map"]],
+      ["look", ["backpack", "stats", "journal", "map"]],
+      ["map", ["backpack", "stats", "journal", "look"]],
     ] as const) {
       const ids = navIds(char, page);
       for (const other of others) expect(ids).toContain(other);
@@ -149,7 +150,7 @@ describe("getNavButtons — view buttons (look/stats/backpack)", () => {
   });
 
   it("never exceeds 5 buttons per action row (Discord cap)", () => {
-    for (const page of ["hi", "journal", "look", "stats", "backpack"]) {
+    for (const page of ["hi", "journal", "look", "stats", "backpack", "map"]) {
       for (const rolls of [0, 2]) {
         const rows = getNavButtons({ rollsRemaining: rolls, lastActionState: null }, page);
         for (const row of rows) expect(row.components.length).toBeLessThanOrEqual(5);

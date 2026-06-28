@@ -2,14 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
 import { MockLlmGateway } from '../../src/llm/MockLlmGateway.js';
 import { initDb, closeDb, getDb } from '../../src/db/connection.js';
-import { migrate } from '../../src/db/migrate.js';
+import { migrate, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { UserRepository } from '../../src/db/repositories/user.js';
 import { CharacterRepository } from '../../src/db/repositories/character.js';
 import { ItemRepository } from '../../src/db/repositories/item.js';
 import { ActionRepository } from '../../src/db/repositories/action.js';
 import { NpcRepository } from '../../src/db/repositories/npc.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
+import { LocationEdgeRepository } from '../../src/db/repositories/locationEdge.js';
 import type { LlmDecision } from '../../src/llm/LlmGateway.js';
+import { APP_VERSION } from '../../src/version.js';
 
 // RED: tests fail because WorldEngineImpl doesn't exist yet
 
@@ -97,6 +99,7 @@ describe('WorldEngineImpl — action state machine integration', () => {
   beforeEach(() => {
     initDb(':memory:');
     migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES); // VITEST skips auto-seed; movement is now graph-validated
     llm = new MockLlmGateway();
     userRepo = new UserRepository(getDb());
     charRepo = new CharacterRepository(getDb());
@@ -237,31 +240,50 @@ describe('WorldEngineImpl — action state machine integration', () => {
       });
     });
 
-    // ── D3 lazy world growth: a set_location to an unseeded name creates a
-    //    provisional row so the player is never stranded (ADR §D3) ──
-    describe('D3 lazy location creation', () => {
+    // ── Graph-validated movement (per-player-map-exploration §2): set_location only
+    //    reaches charted nodes; new ground is born ONLY via cross_frontier. No
+    //    lazy-create from arbitrary names anymore. ──
+    describe('graph-validated movement', () => {
       let locationRepo: LocationRepository;
       beforeEach(() => {
         locationRepo = new LocationRepository(getDb());
       });
 
-      it('creates a provisional row for an unknown set_location and moves the player there', async () => {
+      it('drops a set_location to an unknown/unreachable name — no row, no move', async () => {
         llm.setDecision({
           distilledType: 'travel', stat: 'physical', baseDc: 10,
           required: false, done: true, decision: [],
-          mutations: [{ type: 'set_location', name: 'The Hidden Grotto' }],
+          mutations: [{ type: 'set_location', name: 'The Hidden Grotto' }], // not on the graph
           outcomeText: 'You push past the falls into a hidden grotto.',
         });
 
         await engine.startAction(characterId, 'explore behind the waterfall');
 
-        const loc = locationRepo.findByName('The Hidden Grotto');
+        // No lazy-create: the phantom name never becomes a row…
+        expect(locationRepo.findByName('The Hidden Grotto')).toBeUndefined();
+        // …and the player stays put (the illegal move was dropped).
+        expect(charRepo.findById(characterId)!.location).toBe("The Warden's Oak");
+      });
+
+      it('mints new ground via cross_frontier across a real frontier exit', async () => {
+        charRepo.update(characterId, { location: 'The East Road' }); // has the NE frontier
+        llm.setDecision({
+          distilledType: 'travel', stat: 'physical', baseDc: 10,
+          required: false, done: true, decision: [],
+          mutations: [{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }],
+          outcomeText: 'The road crests a rise and Eastvale opens below.',
+        });
+
+        await engine.startAction(characterId, 'follow the road east');
+
+        const loc = locationRepo.findByName('Eastvale');
         expect(loc).toBeDefined();
-        expect(loc!.is_safe).toBe(0);                 // off-map wilds unsafe until charted
-        expect(loc!.enrichment_pending).toBe(1);      // awaiting the cartographer
-        expect(loc!.description).toBeTruthy();         // placeholder, not null
-        // The player actually landed there (renderable, not phantom).
-        expect(charRepo.findById(characterId)!.location).toBe('The Hidden Grotto');
+        expect(loc!.enrichment_pending).toBe(1);     // awaiting the cartographer
+        expect(loc!.region).toBe('The Vale');         // seeded from the crossing region (never region-less)
+        expect(charRepo.findById(characterId)!.location).toBe('Eastvale');
+        // The frontier exit is now bound (shared thereafter).
+        const edge = new LocationEdgeRepository(getDb()).find('The East Road', 'NE');
+        expect(edge!.to_location).toBe('Eastvale');
       });
 
       it('reuses an existing location (case-insensitive) — no new row, snaps to canonical', async () => {
@@ -551,6 +573,27 @@ describe('WorldEngineImpl — action state machine integration', () => {
       expect(r2.resolved).toBe(true);
     });
   });
+
+  describe('feedback & bug reports', () => {
+    it('stamps the app version on a submitted feedback row', () => {
+      engine.submitFeedback(characterId, 'The warden is wise');
+      const row = getDb()
+        .prepare('SELECT character_id, text, action_id, app_version FROM feedback ORDER BY id DESC LIMIT 1')
+        .get() as { character_id: number; text: string; action_id: number | null; app_version: string | null };
+      expect(row.character_id).toBe(characterId);
+      expect(row.text).toBe('The warden is wise');
+      expect(row.action_id).toBeNull(); // off-action /feedback — no link
+      expect(row.app_version).toBe(APP_VERSION);
+    });
+
+    it('stamps the app version on a submitted bug row', () => {
+      engine.submitBug(characterId, 'crash on /look');
+      const row = getDb()
+        .prepare('SELECT app_version FROM bug_reports ORDER BY id DESC LIMIT 1')
+        .get() as { app_version: string | null };
+      expect(row.app_version).toBe(APP_VERSION);
+    });
+  });
 });
 
 // ── B6 · D3 async cartographer enrichment ──
@@ -567,15 +610,19 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
     is_safe?: 0 | 1;
     description?: string;
     tags?: string;
+    region?: string;
+    emoji?: string;
+    node_tier?: 1 | 2;
+    onwardFrontiers?: Array<{ teaser: string; difficulty: 1 | 2 | 3 }>;
   }) {
-    const calls: Array<{ newName: string; existingNames: string[]; narrative: string }> = [];
+    const calls: Array<{ newName: string; existingNames: string[]; narrative: string; knownRegions?: string[]; fromLocation?: string; fromRegion?: string | null }> = [];
     let resolveDone!: () => void;
     const done = new Promise<void>((r) => { resolveDone = r; });
     return {
       calls,
       done,
       gateway: {
-        enrich: async (input: { newName: string; existingNames: string[]; narrative: string }) => {
+        enrich: async (input: { newName: string; existingNames: string[]; narrative: string; knownRegions?: string[]; fromLocation?: string; fromRegion?: string | null }) => {
           calls.push(input);
           resolveDone();
           return result;
@@ -587,6 +634,7 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
   function setup(cartographer?: { enrich: (i: { newName: string; existingNames: string[]; narrative: string }) => Promise<unknown> }) {
     initDb(':memory:');
     migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES); // need the seeded frontier exits to cross
     llm = new MockLlmGateway();
     const userRepo = new UserRepository(getDb());
     charRepo = new CharacterRepository(getDb());
@@ -601,14 +649,18 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
       ...(cartographer ? { cartographer: cartographer as any } : {}),
     });
     characterId = createTestChar(userRepo, charRepo).characterId;
+    // Stand at a node with an unbound frontier exit so cross_frontier can mint.
+    charRepo.update(characterId, { location: 'The East Road' });
   }
 
   afterEach(() => { closeDb(); });
 
+  // Crossing the NE frontier off The East Road mints "The Sunken Vault" — the new
+  // ground the cartographer then charts. (The LLM coins the name on arrival.)
   const travelToNovelPlace = (): LlmDecision => ({
     distilledType: 'travel', stat: 'physical', baseDc: 10,
     required: false, done: true, decision: [],
-    mutations: [{ type: 'set_location', name: 'The Sunken Vault' }],
+    mutations: [{ type: 'cross_frontier', direction: 'NE', name: 'The Sunken Vault' }],
     outcomeText: 'You descend a flooded stair into a sunken vault.',
   });
 
@@ -673,5 +725,81 @@ describe('WorldEngineImpl — D3 cartographer enrichment', () => {
 
     const loc = locationRepo.findByName('The Sunken Vault')!;
     expect(loc.enrichment_pending).toBe(1); // left provisional, no crash
+  });
+
+  it('charts geometry: region/emoji/node_tier written, with the crossing context passed', async () => {
+    const stub = makeStubCartographer({
+      is_safe: 0, description: 'A drowned hall.', region: 'The Ashen Reach', emoji: '🏚️', node_tier: 1,
+    });
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await stub.done; await Promise.resolve();
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.region).toBe('The Ashen Reach');
+    expect(loc.emoji).toBe('🏚️');
+    expect(loc.node_tier).toBe(1);
+    // The crossing context was handed to the cartographer (parent = The East Road / The Vale).
+    expect(stub.calls[0].fromLocation).toBe('The East Road');
+    expect(stub.calls[0].fromRegion).toBe('The Vale');
+    expect(stub.calls[0].knownRegions).toContain('The Vale');
+  });
+
+  it('falls back to 📍 + the crossing region + tier 2 when the cartographer omits geometry', async () => {
+    const stub = makeStubCartographer({ is_safe: 0, description: 'A bare place.' }); // no region/emoji/tier
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await stub.done; await Promise.resolve();
+
+    const loc = locationRepo.findByName('The Sunken Vault')!;
+    expect(loc.emoji).toBe('📍');
+    expect(loc.region).toBe('The Vale'); // inherited from the crossing node
+    expect(loc.node_tier).toBe(2);
+  });
+
+  it('authors onward frontier exits from the charted place', async () => {
+    const stub = makeStubCartographer({
+      is_safe: 0, description: 'A drowned hall.',
+      onwardFrontiers: [
+        { teaser: 'a stair descends into black water', difficulty: 3 },
+        { teaser: 'a dry tunnel breathes warm air', difficulty: 2 },
+      ],
+    });
+    setup(stub.gateway);
+
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await stub.done; await Promise.resolve();
+
+    const edges = new LocationEdgeRepository(getDb());
+    const onward = edges.frontierExits('The Sunken Vault');
+    expect(onward).toHaveLength(2);
+    expect(onward.map((f) => f.teaser)).toEqual(
+      expect.arrayContaining(['a stair descends into black water', 'a dry tunnel breathes warm air']),
+    );
+    expect(onward.map((f) => f.direction).length).toBe(new Set(onward.map((f) => f.direction)).size); // distinct dirs
+  });
+
+  it('spoke cap: never grows a node past 5 total outgoing spokes', async () => {
+    const stub = makeStubCartographer({
+      is_safe: 0, description: 'A hub.',
+      // 3 onward (capped to ≤3 by parse) — the new node has 0 outgoing edges, so all 3 fit (< 5).
+      onwardFrontiers: [
+        { teaser: 'road A', difficulty: 1 }, { teaser: 'road B', difficulty: 1 }, { teaser: 'road C', difficulty: 1 },
+      ],
+    });
+    setup(stub.gateway);
+    llm.setDecision(travelToNovelPlace());
+    await engine.startAction(characterId, 'explore the flooded stair');
+    await stub.done; await Promise.resolve();
+
+    const edges = new LocationEdgeRepository(getDb());
+    const outgoing = edges.directionsFrom('The Sunken Vault');
+    expect(outgoing.length).toBeLessThanOrEqual(5); // cap respected
+    expect(outgoing.length).toBe(3); // all 3 fit under the cap here
   });
 });

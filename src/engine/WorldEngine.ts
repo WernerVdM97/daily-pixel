@@ -77,7 +77,7 @@ export interface ActionState {
 }
 
 export interface WorldMutation {
-  type: 'set_location' | 'modify_health' | 'modify_stamina'
+  type: 'set_location' | 'cross_frontier' | 'modify_health' | 'modify_stamina'
       | 'modify_wealth' | 'modify_rolls_remaining'
       | 'modify_max_stamina'
       | 'add_item' | 'remove_item' | 'spawn_npc';
@@ -135,6 +135,14 @@ export interface LocationInfo {
   description: string;
   tags: string[];
   isSafe: boolean;
+  /** Map glyph for the location (fallback 📍 at render). */
+  emoji: string | null;
+}
+
+/** The edges leaving a location — charted neighbours + unexplored frontier exits. */
+export interface LocationExits {
+  neighbours: { name: string; direction: string; difficulty: number }[];
+  frontiers: { direction: string; teaser: string | null; difficulty: number }[];
 }
 
 export interface ItemData {
@@ -165,6 +173,50 @@ export interface JournalAction {
   outcome: string;
   createdAt: string;
   narrative?: string | null;
+  /** Where the action happened (origin snapshot, §6) + its map glyph, for the chronicle. */
+  location?: string | null;
+  locationEmoji?: string | null;
+}
+
+/** A discovered node in a player's fog-of-war view of the shared graph (§5). */
+export interface DiscoveredNode {
+  name: string;
+  emoji: string | null;
+  isSafe: boolean;
+  nodeTier: number;
+  region: string | null;
+  lastVisitedAt: string;
+}
+
+/** A charted edge between two discovered nodes. */
+export interface DiscoveredEdge {
+  from: string;
+  to: string;
+  direction: string;
+  difficulty: number;
+  flavour: string | null;
+}
+
+/** An unexplored frontier exit radiating from a discovered node. */
+export interface DiscoveredFrontier {
+  from: string;
+  direction: string;
+  teaser: string | null;
+  difficulty: number;
+}
+
+/** A player's discovered subgraph — the masked view `/map` renders (§5). */
+export interface DiscoveredGraph {
+  current: string;
+  nodes: DiscoveredNode[];
+  edges: DiscoveredEdge[];
+  frontiers: DiscoveredFrontier[];
+}
+
+/** Result of routing between two charted nodes (§2). */
+export interface TravelRoute {
+  path: string[];
+  cost: number;
 }
 
 export interface NpcMovement {
@@ -248,6 +300,23 @@ export interface WorldEngine {
 
   // Journal
   getJournal(characterId: number): JournalData;
+
+  // Map — the player's fog-of-war view of the shared graph (§5).
+  getDiscoveredGraph(characterId: number): DiscoveredGraph;
+
+  /** The edges leaving a location (charted neighbours + frontier exits) — what
+   *  /look shows: the roads you can see from where you stand. */
+  getExits(location: string): LocationExits;
+
+  /** Least-cost route (Dijkstra over edge difficulty) between two charted nodes; null
+   *  when unreachable (§2). Used today to validate movement reachability — the cost is
+   *  computed but not yet charged as stamina (deferred to fast-travel, §9). */
+  routeBetween(from: string, to: string): TravelRoute | null;
+
+  /** Mark a location discovered (fog-of-war). For non-engine movement paths (the
+   *  daily-work commute) that set location directly — the resolution path records
+   *  visits itself. The target is a seeded node, so no edge is minted. */
+  recordVisit(characterId: number, locationName: string): void;
 
   // Feedback & bugs — actionId links the report to the action whose outcome the button was
   // on (undefined for the /feedback, /bug slash commands and the nightly/release prompts).

@@ -1,0 +1,21 @@
+# Player-facing release notes for tag v0.2.6.
+# Keep it non-technical — what's new and fun, not migrations/refactors.
+# Posted automatically to the announcement channel the first time the bot
+# boots on this tag. One file per tag: assets/release-notes/<tag>.yml.
+
+tag: "v0.2.6"
+title: "Charting the World"
+date: "2026-06-28"
+
+highlights:
+  - "🗺️ **The world now has a map — and it's yours to fill in.** The new `/map` draws everywhere you've been as a branching tree: regions, the roads between them, and the **unexplored paths** still calling from the edges. Try `/map town` to zoom in on a place (typos forgiven)."
+  - "🧭 **Leave the map and break new ground.** Cross one of those unexplored frontiers and you discover somewhere brand new — named, placed, and added to the shared world for everyone who comes after you. The map keeps unfolding the further you roam."
+  - "👀 **`/look` knows where you stand.** Each place now shows its own emoji and lists the paths leading out — where they go and how hard the going is — so you always know your options."
+  - "📓 **`/journal` is now your story, not a list.** It drops the locations roll-call (that's the map's job now) and shows your recent deeds tagged with where each happened and whether it went your way."
+  - "🌍 **Travel that makes sense.** The Warden can no longer whisk you somewhere you've never heard of — you move along roads you've actually charted, and the wilds open up one frontier at a time."
+
+notes: >
+  This update turns a scattered list of places into a real world you explore
+  and chart together. Wander to the edges, cross into the unknown, and watch
+  the map grow — every new road you open is there for the whole table. Tell us
+  where you'd like to go next.

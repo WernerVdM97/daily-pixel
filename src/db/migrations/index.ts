@@ -8,6 +8,8 @@ import { migration as dropLegacyActionLlmColumns } from './202606250000_drop_leg
 import { migration as llmCallKind } from './202606250001_llm_call_kind.js';
 import { migration as llmCallCriticSeverity } from './202606260000_llm_call_critic_severity.js';
 import { migration as feedbackBugActionId } from './202606260001_feedback_bug_action_id.js';
+import { migration as geography } from './202606270000_geography.js';
+import { migration as feedbackBugAppVersion } from './202606280000_feedback_bug_app_version.js';
 
 /**
  * All migrations in apply order. Append new ones at the end — the runner applies
@@ -24,4 +26,6 @@ export const MIGRATIONS: Migration[] = [
   llmCallKind,
   llmCallCriticSeverity,
   feedbackBugActionId,
+  geography,
+  feedbackBugAppVersion,
 ];

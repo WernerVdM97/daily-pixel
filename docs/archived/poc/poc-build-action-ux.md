@@ -1,8 +1,9 @@
 ---
 title: 'POC Build — Action UX Refinements (Spec)'
-status: decided
-domain: engine
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code"
 tags:
 - poc
 - ui

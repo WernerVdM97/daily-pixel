@@ -1,8 +1,9 @@
 ---
 title: Example Scenes — POC
-status: decided
-domain: ui
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code"
 tags:
 - discord
 - ascii

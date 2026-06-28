@@ -32,6 +32,7 @@ interface AppliedState extends MutationContext {
 
 const MUTATION_TYPES = new Set([
   'set_location',
+  'cross_frontier',
   'modify_health',
   'modify_stamina',
   'modify_max_stamina',
@@ -162,6 +163,18 @@ function validateOne(
       }
       return null;
     }
+    case 'cross_frontier': {
+      // Shape only — the engine (applyGeography) does the graph-level validation
+      // (that this direction is a real unbound frontier on the current node) and
+      // mints/binds before this runs, normalizing name/direction.
+      if (typeof m.direction !== 'string' || m.direction.trim() === '') {
+        return { index, message: 'cross_frontier requires a non-empty "direction" string' };
+      }
+      if (typeof m.name !== 'string' || m.name.trim() === '') {
+        return { index, message: 'cross_frontier requires a non-empty "name" string' };
+      }
+      return null;
+    }
   }
 
   return null;
@@ -180,7 +193,11 @@ export function applyMutations(
 
   for (const m of mutations) {
     switch (m.type) {
-      case 'set_location': {
+      case 'set_location':
+      case 'cross_frontier': {
+        // Both relocate the character. By the time this runs, the engine
+        // (applyGeography) has already minted + bound any frontier destination and
+        // normalized the name, so cross_frontier resolves identically to set_location.
         const requested = String(m.name ?? ctx.location);
         // Snap to the canonical casing of a known location so the (case-sensitive)
         // DB lookup in getLocation resolves. Falls back to the requested string.
