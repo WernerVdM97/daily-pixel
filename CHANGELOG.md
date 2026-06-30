@@ -17,10 +17,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Saturday threat warned at dawn** — the wilderness-threat heads-up folds into the 05:30 morning message (place + hint); the full reveal and NPC spawn still happen at the 12:00 beat.
 
 ### Fixed
+- **Backpack no longer reads past its capacity** — `BACKPACK_CAPACITY` raised `10 → 40` and the slot grid wraps at 10 per row (a tidy 10×4 grid), so a full-ish pack stops showing nonsense like `12/10`. The cap stays soft for now; enforcement + item depth tracked in [[improved-item-features]].
 - **Degenerate decision beats no longer reach the player** — a beat that would present ≤1 real option (no real choice) is retried once; if still degenerate it resolves as a refundable no-op (the roll is free, no grace consumed) rather than a dead-end single-button "decision". The degenerate first call is always logged to `llm_calls.validation_warnings`. Universal shape guard from [[mutation-vocabulary-refinement]] §5a, shipped standalone ahead of the v11 framework.
 
 ### Internal
 - **`ActionOutcome.systemRefund`** — engine flag marking a system-fault no-op (degenerate decision shape) that always hands the roll back, independent of the per-day no-op/timeout/bail graces. The per-turn **stamina clamp** (polish-v0.2.7 Feedback #1) is deferred to v11 — per-action-type caps key off the `category` enum the mutation refactor introduces.
+- **Agent conventions folded into auto-discovered skills** — moved the per-task sections of `AGENTS.md` (git/releasing, changelog, prompt-versioning, docs) into `.claude/skills/` and migrated the game-dev skills from `agent/skills/` (flattened so Claude Code auto-discovers them). `AGENTS.md` now keeps only always-on guardrails + a skills index.
 
 ## [0.2.6] - 2026-06-28
 ### Added
