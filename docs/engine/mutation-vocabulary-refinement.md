@@ -139,7 +139,7 @@ The `category → expected-mutations` map lives in code as the **single source o
 - [-] **Not** hard-dropped. D&D is emergent — a `social` turn can erupt into a stabbing, and the LLM then legitimately needs `modify_health`. Hard-dropping would break emergent scenes and largely duplicates the failure-filter.
 - [p] Payoff: prompt + filter generated from one definition (no drift) **and** a balancing signal ("the LLM keeps emitting `modify_wealth` on `combat`") without constraining play.
 
-### 5a. Per-category deterministic guards (generalises §5) — added 2026-06-30
+### 5a. Per-category deterministic guards (generalises §5) — added 2026-06-30; scoped 2026-06-30
 
 §5's "unexpected mutation" flag is the **first instance of a broader pattern**: each `category` carries its own set of **deterministic guards** over the resolved decision, because what counts as a malformed result differs by action type. This is the home for the validation ideas surfaced by the dev-DB review in [[polish-v0.2.7]] — folding them here rather than scattering one-off checks.
 
@@ -162,7 +162,7 @@ Additional evidence (prod snapshot — warden-2026-06-30):
 - [c] **Mutations on a DECISION beat (pre-roll side effects)** — the v9 critic flagged this as `major` in 2 of its 3 total major findings (prod calls #392 and #459, 2026-06-28). Both are DECISION beats (`done=false`) carrying a non-empty `mutations[]` array, meaning the world is side-effected before the player makes any choice or dice are thrown. Both also had empty `decision[]` arrays — zero options — so both defects co-occurred: the player could make no choice *and* the world had already changed beneath them. Structural guard (category-agnostic, universal bucket): a beat with `done=false` and non-empty `mutations[]` → **flag + retry once**. The shape guard shipped in `0.2.7` covers ≤1 real option; this is the complementary pre-roll side-effect check. Both are symptoms of the same CONTINUE-phase beat-type confusion.
 - [c] **NPC hallucination confirmed in prod — §2a field evidence** — critic major call #440 (2026-06-28) found NPC "Otto" referenced in the outcome text but absent from context (active NPCs: The Warden, Foreman Ivor). The resolve stage invented a name from training data with no handle to validate against; the final mutations also carried an extra −2 stamina not in the authored set. This is the false-split case §2a was designed to prevent: without handle-keyed references, the resolve stage freelances NPC names. The critic's structured `issues[]` confirmed this is a real, fielded defect, not a theoretical one. Cross-reference §2a — the handle contract is load-bearing.
 
-- [>] **Sequencing.** The guard *framework* needs the `category` enum (§4), so it rides the **v11** bump. The two evidence items above are category-agnostic clamps/shape-checks, so [[polish-v0.2.7]] may ship them standalone (log + clamp) ahead of v11, then re-home them under this framework once the enum lands.
+- [>] **Sequencing and scope (scoped 2026-06-30).** The guard *framework* (enum + unexpected-mutation telemetry + stacked-delta clamp) rides the **v11** bump. Of the three specific guards: the **stacked-delta clamp** (guard 1) ships now; the **pre-roll side-effect guard** (guard 2 — DECISION beat with mutations) is implemented as **log-only** in v11 (no retry), with the retry deferred to v12 once telemetry confirms frequency; the **Rule 4b success-no-reward guard** (guard 3) remains **flag-only** (the warning already fires in `validateDecision`) — retry deferred for the same reason. Both deferred retries will re-home naturally under this framework when they ship.
 
 ### 6. Forward note → 0.3.0 two-pass prompt (ties to [[prompt-v12-scaling-and-pipeline]], the **v12** set)
 
@@ -173,20 +173,29 @@ Additional evidence (prod snapshot — warden-2026-06-30):
 
 ## Implementation touch-points
 
-- [ ] **Migration** (additive, guarded) — add `home_location TEXT` to `npcs` (§2a). `tags` deferred; `locations.created_by_action_id` is owned by [[per-player-map-exploration]]; widening the `npcs` unique index to spawned rows stays optional (collision is handled by detection, not a hard constraint).
-- [ ] `assets/prompts/decision-prompts/decision-v11.md` (new) + `current_source.md` mirror + `PROMPT_VERSION` bump in `src/llm/prompt-builder.ts`. New vocabulary, the `category` field, the v9 §4 recipes generated from the map, and the `### Present` block surfacing each NPC with its ephemeral `[N1]` handle (§2a).
-- [ ] `src/llm/prompt-builder.ts` — assign ephemeral `[N1]…[Nk]` handles to present/known NPCs when building the briefing and keep the handle→row map for parsing the response.
-- [ ] `src/llm/LlmGateway.ts` — add `category` to `LlmDecision`; `update_npc`/`remove_npc` carry an NPC **handle** (not a free name). `src/llm/DeepseekLlmGateway.ts` — parse/validate `category` + the handle refs.
-- [ ] `src/engine/action/mutations.ts` — rename keywords in `MUTATION_TYPES` + validators; add `add_npc` (create-only), `update_npc`/`remove_npc` (handle-keyed), `move_to`, `reveal_location`.
-- [ ] `src/engine/action/machine.ts` — keep the failure-filter switch aligned with the renamed keywords (sign-based; no `rest` coupling — §4).
-- [ ] `src/engine/WorldEngineImpl.ts` — resolve NPC handles → rows; apply `update_npc`/`remove_npc`; `add_npc` inserts new **+ deterministic name+location collision detection → `_warning` + telemetry (never auto-merge)**; `reveal_location` authors a frontier exit (or, pre-map-rework, a provisional row); the category→map definition + the "unexpected mutation" telemetry log. (`move_to` graph-validation is owned by the map doc.)
-- [ ] Tests — `tests/engine/action-mutations.test.ts` and friends: renamed-keyword validation, handle-based `update_npc`/`remove_npc` resolution (+ no-match warn), `add_npc` collision-warning path, `reveal_location`, category-deviation warning, `home_location` round-trip.
+**Handle resolution approach (decided 2026-06-30):** `update_npc`/`remove_npc` handles are resolved to `npcId: number` inside `DeepseekLlmGateway` at parse time (using `ctx.nearbyNpcs` with id), so the engine sees resolved ids — it never handles raw `[N1]` tokens. `nearbyNpcs` gains an `id` field throughout the chain.
+
+**`reveal_location` approach (decided 2026-06-30):** `{ name, is_safe?, description?, direction? }` — authors a frontier exit (`to_location=NULL`) at the character's current location. `direction` is optional; if omitted, the engine auto-assigns from the first unused cardinal/ordinal at that node. Does NOT create a location row upfront (the destination row is minted when `cross_frontier` binds it, as normal). Does NOT move the character.
+
+**Guard scope (decided 2026-06-30):** stacked-delta clamp ships now; pre-roll side-effect and Rule 4b guards are **log-only** in v11 (retries deferred to v12 — see §5a).
+
+| Task | Status | File(s) |
+|---|---|---|
+| T1 · Types — extend `WorldMutation`, `LlmDecision`, `LlmContext`, `WorldContextResolver` | [ ] | `WorldEngine.ts`, `LlmGateway.ts`, `machine.ts` |
+| T2 · DB migration — `npcs.home_location TEXT` | [ ] | `src/db/migrations/` |
+| T3 · `mutations.ts` — rename + new types + stacked-delta guard | [ ] | `src/engine/action/mutations.ts` |
+| T4 · `prompt-builder.ts` — NPC handles + category map injection | [ ] | `src/llm/prompt-builder.ts` |
+| T5 · `DeepseekLlmGateway.ts` — parse category + resolve handles + pre-roll guard (log) | [ ] | `src/llm/DeepseekLlmGateway.ts` |
+| T6 · `WorldEngineImpl.ts` — resolver id + apply new mutations + collision detection + `reveal_location` frontier | [ ] | `src/engine/WorldEngineImpl.ts` |
+| T7 · `machine.ts` — failure-filter rename + stacked-delta integration | [ ] | `src/engine/action/machine.ts` |
+| T8 · `decision-v11.md` + `PROMPT_VERSION` bump | [ ] | `assets/prompts/`, `src/llm/prompt-builder.ts` |
+| T9 · Tests — mutations, handles, guards, collision, reveal_location, category | [ ] | `tests/` |
 
 ## Resolved questions
 
 - [>] **Prompt-version numbering — RESOLVED:** ships as `decision-v11` (after the map doc's `decision-v10`); the pipeline set is `v12` (see the resolved note under "What this is").
 - [>] **NPC identity resolution — DECIDED (§2a):** handle-based references via **ephemeral per-prompt `[N1]` tags**, `add_npc` create-only (never auto-merged), deterministic name+location collision *detection* → warn + telemetry, **add `home_location`** (defer `tags`); fuzzy/alias resolution and any dedicated resolver LLM stage deferred to v12 (the handle contract is the stepping stone).
-- [>] **`reveal_location` reachability — ANSWERED by the *decided* [[per-player-map-exploration]].** Under the shared hub-and-spoke graph a revealed-but-unvisited place **is a frontier exit** — a `location_edges` row with `to_location IS NULL` (direction + teaser), known to a player who has no `character_locations` (fog-of-war) entry for it. It is therefore **not a reachable node**: crossing the exit is what *mints and binds* the destination. So "revealed" is structurally distinct from "visited" (teaser vs charted node) and from "reachable" (you must cross to arrive). The rumour/treasure-carrot flavour defers to the pipeline set's Thread B (a frontier teaser authored by a rumour). → `reveal_location` here should **author a frontier exit**, not a free-floating provisional row.
+- [>] **`reveal_location` reachability — ANSWERED by the *decided* [[per-player-map-exploration]].** Under the shared hub-and-spoke graph a revealed-but-unvisited place **is a frontier exit** — a `location_edges` row with `to_location IS NULL` (direction + teaser), known to a player who has no `character_locations` (fog-of-war) entry for it. It is therefore **not a reachable node**: crossing the exit is what *mints and binds* the destination. So "revealed" is structurally distinct from "visited" (teaser vs charted node) and from "reachable" (you must cross to arrive). → **Implementation (decided 2026-06-30):** `reveal_location` authors a frontier exit (`location_edges` row, `to_location IS NULL`) at the character's current location. `direction` is optional in the mutation; if absent, the engine auto-assigns from unused cardinals. No location row is pre-created — the row is minted at `cross_frontier` time as normal.
 
 ## Out of scope
 

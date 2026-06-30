@@ -8,7 +8,7 @@ export interface MutationContext {
   wealth: number;
   rollsRemaining: number;
   location: string;
-  /** Known location names. When provided and non-empty, set_location is
+  /** Known location names. When provided and non-empty, move_to is
    *  rejected unless its name matches one of these exactly (case-insensitive).
    *  Omit to skip the check (e.g. in unit tests with synthetic locations). */
   knownLocations?: string[];
@@ -24,14 +24,23 @@ export interface ValidationResult {
   errors: MutationError[];
 }
 
-interface AppliedState extends MutationContext {
+export interface AppliedState extends MutationContext {
   itemsToAdd: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity: number }>;
   itemsToRemove: Array<{ name: string; quantity: number }>;
-  npcsToSpawn: Array<{ name: string; class?: string; description?: string; race?: string }>;
+  /** v11: add_npc (create-only). Legacy spawn_npc maps here. */
+  npcsToAdd: Array<{ name: string; class?: string; description?: string; race?: string; homeLocation?: string }>;
+  /** v11: update_npc — handle already resolved to npcId by the gateway. */
+  npcsToUpdate: Array<{ npcId: number; description?: string; location?: string; class?: string; race?: string }>;
+  /** v11: remove_npc — handle already resolved to npcId by the gateway. */
+  npcsToRemove: Array<{ npcId: number }>;
+  /** v11: reveal_location — authors a frontier exit at the current location. */
+  locationsToReveal: Array<{ name: string; direction?: string; isSafe?: number; description?: string }>;
 }
 
+/** v11 vocabulary — active types accepted by the validator. */
 const MUTATION_TYPES = new Set([
-  'set_location',
+  'move_to',
+  'set_location',   // legacy alias — accepted, treated identically to move_to
   'cross_frontier',
   'modify_health',
   'modify_stamina',
@@ -40,8 +49,50 @@ const MUTATION_TYPES = new Set([
   'modify_rolls_remaining',
   'add_item',
   'remove_item',
-  'spawn_npc',
+  'add_npc',
+  'spawn_npc',      // legacy alias — accepted, treated identically to add_npc
+  'update_npc',
+  'remove_npc',
+  'reveal_location',
 ]);
+
+/** Per-axis stacked-delta caps (§5a guard 1). Applied by collapseStackedDeltas. */
+const STAMINA_DELTA_CAP = -5;
+const HEALTH_DELTA_CAP = -4;
+
+/**
+ * Collapse same-axis scalar deltas into a single mutation (§5a stacked-delta guard).
+ * Multiple modify_stamina mutations in one resolution are summed and capped so a bad
+ * LLM pass can't stack unlimited costs. Non-scalar mutations pass through unchanged.
+ *
+ * Call this BEFORE validateMutations so the validator sees already-collapsed input.
+ */
+export function collapseStackedDeltas(mutations: WorldMutation[]): WorldMutation[] {
+  const COLLAPSIBLE = ['modify_stamina', 'modify_health', 'modify_wealth', 'modify_rolls_remaining', 'modify_max_stamina'] as const;
+  type CollapsibleType = typeof COLLAPSIBLE[number];
+  const isCollapsible = (t: string): t is CollapsibleType => (COLLAPSIBLE as readonly string[]).includes(t);
+
+  const sums = new Map<CollapsibleType, number>();
+  const pass: WorldMutation[] = [];
+
+  for (const m of mutations) {
+    if (isCollapsible(m.type)) {
+      const prev = sums.get(m.type) ?? 0;
+      sums.set(m.type, prev + Number(m.amount ?? 0));
+    } else {
+      pass.push(m);
+    }
+  }
+
+  for (const [type, raw] of sums) {
+    let amount = raw;
+    if (type === 'modify_stamina') amount = Math.max(STAMINA_DELTA_CAP, Math.min(0, amount) || amount);
+    if (type === 'modify_health') amount = Math.max(HEALTH_DELTA_CAP, Math.min(0, amount) || amount);
+    pass.push({ type, amount });
+  }
+
+  return pass;
+}
 
 export function validateMutations(
   mutations: WorldMutation[],
@@ -68,10 +119,11 @@ function validateOne(
   }
 
   switch (m.type) {
+    case 'move_to':
     case 'set_location': {
       const name = m.name;
       if (typeof name !== 'string' || name.trim() === '') {
-        return { index, message: 'set_location requires a non-empty "name" string' };
+        return { index, message: `${m.type} requires a non-empty "name" string` };
       }
       // Reject locations the world doesn't know about — moving the player to a
       // phantom location leaves /hi and scene lookup with nothing to render.
@@ -79,7 +131,7 @@ function validateOne(
         const target = name.trim().toLowerCase();
         const match = ctx.knownLocations.some(l => l.trim().toLowerCase() === target);
         if (!match) {
-          return { index, message: `set_location names an unknown location: "${name}"` };
+          return { index, message: `${m.type} names an unknown location: "${name}"` };
         }
       }
       return null;
@@ -157,9 +209,28 @@ function validateOne(
       }
       return null;
     }
+    case 'add_npc':
     case 'spawn_npc': {
       if (typeof m.name !== 'string' || m.name.trim() === '') {
-        return { index, message: 'spawn_npc requires a non-empty "name" string' };
+        return { index, message: `${m.type} requires a non-empty "name" string` };
+      }
+      return null;
+    }
+    case 'update_npc': {
+      if (typeof m.npcId !== 'number' || !Number.isInteger(m.npcId) || m.npcId <= 0) {
+        return { index, message: 'update_npc requires a positive integer "npcId" (resolved from handle by gateway; 0 means unknown handle)' };
+      }
+      return null;
+    }
+    case 'remove_npc': {
+      if (typeof m.npcId !== 'number' || !Number.isInteger(m.npcId) || m.npcId <= 0) {
+        return { index, message: 'remove_npc requires a positive integer "npcId" (resolved from handle by gateway; 0 means unknown handle)' };
+      }
+      return null;
+    }
+    case 'reveal_location': {
+      if (typeof m.name !== 'string' || m.name.trim() === '') {
+        return { index, message: 'reveal_location requires a non-empty "name" string' };
       }
       return null;
     }
@@ -188,16 +259,20 @@ export function applyMutations(
     ...ctx,
     itemsToAdd: [],
     itemsToRemove: [],
-    npcsToSpawn: [],
+    npcsToAdd: [],
+    npcsToUpdate: [],
+    npcsToRemove: [],
+    locationsToReveal: [],
   };
 
   for (const m of mutations) {
     switch (m.type) {
+      case 'move_to':
       case 'set_location':
       case 'cross_frontier': {
-        // Both relocate the character. By the time this runs, the engine
+        // All three relocate the character. By the time this runs, the engine
         // (applyGeography) has already minted + bound any frontier destination and
-        // normalized the name, so cross_frontier resolves identically to set_location.
+        // normalized the name, so cross_frontier resolves identically to move_to.
         const requested = String(m.name ?? ctx.location);
         // Snap to the canonical casing of a known location so the (case-sensitive)
         // DB lookup in getLocation resolves. Falls back to the requested string.
@@ -240,12 +315,34 @@ export function applyMutations(
           quantity: Math.max(1, Number(m.quantity ?? 1)),
         });
         break;
+      case 'add_npc':
       case 'spawn_npc':
-        state.npcsToSpawn.push({
+        state.npcsToAdd.push({
           name: String(m.name ?? ''),
           ...(m.class !== undefined ? { class: String(m.class) } : {}),
           ...(m.description !== undefined ? { description: String(m.description) } : {}),
           ...(m.race !== undefined ? { race: String(m.race) } : {}),
+          ...(m.homeLocation !== undefined ? { homeLocation: String(m.homeLocation) } : {}),
+        });
+        break;
+      case 'update_npc':
+        state.npcsToUpdate.push({
+          npcId: Number(m.npcId),
+          ...(m.description !== undefined ? { description: String(m.description) } : {}),
+          ...(m.location !== undefined ? { location: String(m.location) } : {}),
+          ...(m.class !== undefined ? { class: String(m.class) } : {}),
+          ...(m.race !== undefined ? { race: String(m.race) } : {}),
+        });
+        break;
+      case 'remove_npc':
+        state.npcsToRemove.push({ npcId: Number(m.npcId) });
+        break;
+      case 'reveal_location':
+        state.locationsToReveal.push({
+          name: String(m.name ?? ''),
+          ...(m.direction !== undefined ? { direction: String(m.direction) } : {}),
+          ...(m.isSafe !== undefined ? { isSafe: Number(m.isSafe) } : {}),
+          ...(m.description !== undefined ? { description: String(m.description) } : {}),
         });
         break;
     }

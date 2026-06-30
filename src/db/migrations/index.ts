@@ -11,6 +11,7 @@ import { migration as feedbackBugActionId } from './202606260001_feedback_bug_ac
 import { migration as geography } from './202606270000_geography.js';
 import { migration as feedbackBugAppVersion } from './202606280000_feedback_bug_app_version.js';
 import { migration as playerLastBailRefundDay } from './202606300000_player_last_bail_refund_day.js';
+import { migration as npcHomeLocation } from './202606300001_npc_home_location.js';
 
 /**
  * All migrations in apply order. Append new ones at the end — the runner applies
@@ -30,4 +31,5 @@ export const MIGRATIONS: Migration[] = [
   geography,
   feedbackBugAppVersion,
   playerLastBailRefundDay,
+  npcHomeLocation,
 ];

@@ -109,6 +109,7 @@ export interface NpcRow {
   stamina: number | null;
   wealth: number;
   location: string | null;
+  home_location: string | null;
   description: string | null;
   created_by_action_id: number | null;
 }

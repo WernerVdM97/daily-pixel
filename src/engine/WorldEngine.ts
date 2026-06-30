@@ -77,10 +77,12 @@ export interface ActionState {
 }
 
 export interface WorldMutation {
-  type: 'set_location' | 'cross_frontier' | 'modify_health' | 'modify_stamina'
-      | 'modify_wealth' | 'modify_rolls_remaining'
-      | 'modify_max_stamina'
-      | 'add_item' | 'remove_item' | 'spawn_npc';
+  type: 'move_to' | 'set_location' | 'cross_frontier'
+      | 'modify_health' | 'modify_stamina' | 'modify_wealth'
+      | 'modify_rolls_remaining' | 'modify_max_stamina'
+      | 'add_item' | 'remove_item'
+      | 'add_npc' | 'update_npc' | 'remove_npc' | 'spawn_npc'
+      | 'reveal_location';
   [key: string]: unknown;
 }
 
@@ -98,6 +100,9 @@ export type ActionStepResult =
 
 export interface ActionOutcome {
   distilledType: string;
+  /** v11 closed category enum — machine key for mutation-map deviation telemetry. Optional: absent
+   *  pre-v11 or when the LLM omits it. Typed as string here; validated as ActionCategory by the engine. */
+  category?: string;
   finalDc: number;
   playerRolled: number | null;
   outcome: 'success' | 'failure' | 'skipped' | 'bailed' | 'done' | 'timed_out';

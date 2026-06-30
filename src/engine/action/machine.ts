@@ -19,7 +19,7 @@ import { DIVINE_INTERVENTION_TYPE } from '../../llm/FallbackLlmGateway.js';
  * repositories while letting it populate the LLM context with live world state.
  */
 export interface WorldContextResolver {
-  getNearbyNpcs(location: string): Array<{ name: string; description: string }>;
+  getNearbyNpcs(location: string): Array<{ id: number; name: string; description: string }>;
   getNearbyPcs(location: string, excludeCharId: number): Array<{ name: string; class: string }>;
   getRecentActions(characterId: number): Array<{ type: string; outcome: string; narrative?: string | null }>;
   /** All known location names — retained for the audit digest + stripped retry context. */
@@ -369,6 +369,7 @@ export class ActionStateMachine {
       state: finalState,
       outcome: {
         distilledType: state.distilledType,
+        ...(narration.category !== undefined ? { category: narration.category } : {}),
         finalDc: newDc,
         playerRolled: d20,
         rollBonus: bonus,
@@ -551,8 +552,9 @@ const FAILURE_STAMINA_PENALTY = 2;
 
 /**
  * Shape an outcome's mutations to its roll result. On failure: drop beneficial mutations (positive
- * stat/wealth/roll deltas, gained items), keep costs and world changes (set_location, remove_item,
- * spawn_npc), add a flat stamina penalty. Success passes through unchanged.
+ * stat/wealth/roll deltas, gained items), keep costs and world changes (move_to/set_location,
+ * remove_item, add_npc/spawn_npc, update_npc, remove_npc), add a flat stamina penalty.
+ * Success passes through unchanged.
  *
  * NOTE: outcome_text is still written before the roll, so on failure the narration may read as a
  * partial success — the deeper fix is rolling before flavour (see [[mvp-llm-prompt-architecture]]).
@@ -570,9 +572,19 @@ export function applyOutcomeToMutations(outcome: string, mutations: WorldMutatio
       case 'add_item':
         return false; // no rewards on a failed action
       case 'cross_frontier':
-        return false; // a failed roll doesn't break new ground (per the v10 prompt); fall back instead
+        return false; // a failed roll doesn't break new ground; fall back to known location instead
+      case 'reveal_location':
+        return false; // a failed roll doesn't reveal new places
+      case 'move_to':
+      case 'set_location':
+      case 'remove_item':
+      case 'add_npc':
+      case 'spawn_npc':
+      case 'update_npc':
+      case 'remove_npc':
+        return true; // world changes survive failure
       default:
-        return true; // set_location, remove_item, spawn_npc stay
+        return true;
     }
   });
   kept.push({ type: 'modify_stamina', amount: -FAILURE_STAMINA_PENALTY });

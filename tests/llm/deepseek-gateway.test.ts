@@ -668,3 +668,114 @@ describe('DeepseekLlmGateway — summarizeWeek (weekly recap)', () => {
     await expect(gw.summarizeWeek([])).rejects.toThrow();
   });
 });
+
+// ── v11 vocabulary additions ──
+
+function decideResponse(payload: Record<string, unknown>): typeof fetch {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({
+      choices: [{ message: { content: JSON.stringify(payload) }, finish_reason: 'stop' }],
+    }),
+    text: () => Promise.resolve(''),
+  }) as unknown as typeof fetch;
+}
+
+const baseDecision = {
+  distilled_type: 'travel',
+  stat: 'physical',
+  base_dc: 10,
+  required: false,
+  done: false,
+  decision: [],
+  mutations: [{ type: 'move_to', name: 'The Dark Pines' }],
+  outcome_text: 'You head north.',
+};
+
+describe('DeepseekLlmGateway — v11 category field', () => {
+  it('parses a valid category value', async () => {
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: 'travel' }) });
+    const result = await gw.decide(minimalContext);
+    expect(result.category).toBe('travel');
+  });
+
+  it('parses all valid category values without error', async () => {
+    const CATS = ['combat', 'travel', 'social', 'skill', 'search', 'rest', 'other'] as const;
+    for (const cat of CATS) {
+      const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: cat }) });
+      const result = await gw.decide(minimalContext);
+      expect(result.category).toBe(cat);
+    }
+  });
+
+  it('ignores unknown category values (undefined, not thrown)', async () => {
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: 'teleport' }) });
+    const result = await gw.decide(minimalContext);
+    expect(result.category).toBeUndefined();
+  });
+
+  it('omits category when absent from the response', async () => {
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(baseDecision) });
+    const result = await gw.decide(minimalContext);
+    expect(result.category).toBeUndefined();
+  });
+});
+
+describe('DeepseekLlmGateway — v11 NPC handle resolution', () => {
+  const ctxWithNpcs: LlmContext = {
+    ...minimalContext,
+    nearbyNpcs: [
+      { id: 7, name: 'Crow', description: 'a lean rider' },
+      { id: 12, name: 'Greta', description: 'the blacksmith' },
+    ],
+  };
+
+  it('resolves [N1] handle to first NPC id in update_npc and removes the handle key', async () => {
+    const payload = {
+      ...baseDecision,
+      mutations: [{ type: 'update_npc', handle: '[N1]', description: 'Crow stiffens.' }],
+    };
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
+    const result = await gw.decide(ctxWithNpcs);
+    const mut = result.mutations![0] as Record<string, unknown>;
+    expect(mut.npcId).toBe(7);
+    // handle must be truly absent — spreading `handle: undefined` leaves the key present.
+    expect('handle' in mut).toBe(false);
+  });
+
+  it('resolves [N2] handle to second NPC id in remove_npc', async () => {
+    const payload = {
+      ...baseDecision,
+      mutations: [{ type: 'remove_npc', handle: '[N2]' }],
+    };
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
+    const result = await gw.decide(ctxWithNpcs);
+    const mut = result.mutations![0] as Record<string, unknown>;
+    expect(mut.npcId).toBe(12);
+    expect(mut.handle).toBeUndefined();
+  });
+
+  it('falls back to npcId: 0 for an unknown handle (unknown [N3] when only 2 NPCs present)', async () => {
+    const payload = {
+      ...baseDecision,
+      mutations: [{ type: 'update_npc', handle: '[N3]', description: 'Changed.' }],
+    };
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
+    const result = await gw.decide(ctxWithNpcs);
+    const mut = result.mutations![0] as Record<string, unknown>;
+    expect(mut.npcId).toBe(0);
+  });
+
+  it('leaves add_npc mutations untouched (no handle involved)', async () => {
+    const payload = {
+      ...baseDecision,
+      mutations: [{ type: 'add_npc', name: 'Nikolai', class: 'Ranger', description: 'A hunter.' }],
+    };
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
+    const result = await gw.decide(ctxWithNpcs);
+    const mut = result.mutations![0] as Record<string, unknown>;
+    expect(mut.name).toBe('Nikolai');
+    expect(mut.npcId).toBeUndefined();
+  });
+});
