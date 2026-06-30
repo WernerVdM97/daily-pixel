@@ -6,10 +6,12 @@ phase: mvp               # poc | mvp | mvp+
 tags: []
 related: []
 ---
----
-
-start here
+_brief and concise description of the entire doc, idea, findings, or plan_
 
 ---
 
-footer
+_body_
+
+---
+
+_unresolved points, next steps, linked docs, or further reading_
