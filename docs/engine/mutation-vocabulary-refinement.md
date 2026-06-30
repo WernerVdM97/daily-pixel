@@ -167,7 +167,7 @@ Additional evidence (prod snapshot — warden-2026-06-30):
 ### 6. Forward note → 0.3.0 two-pass prompt (ties to [[prompt-v12-scaling-and-pipeline]], the **v12** set)
 
 - [>] Today's soft map is a **stepping stone**. In the larger prompt refactor (v12 thread D — *classify → decide → resolve pipeline*), move to a **two-pass flow**: derive the `category` first, then **dynamically inject only that category's mutation sub-vocabulary** into the second prompt. A smaller, focused mutation menu per call should sharpen adherence and shrink the prompt. The soft map built here becomes the data source that two-pass flow reads from.
-- [!] **One classification vocabulary, not two.** The `category` enum added here (`combat · travel · social · skill · search · rest · other`) **is the seed of v12's Stage-1 classifier `type`** — v12 currently sketches a *different* 5-value set (`fight · travel · trade · talk · other`). They must converge on **one** enum so the classifier inherits this map's keys instead of forking a parallel taxonomy: v12 should adopt (and may extend) this `category` set, not invent its own.
+- [>] **One classification vocabulary — RESOLVED.** The `category` enum added here (`combat · travel · social · skill · search · rest · other`) **is the seed of v12's Stage-1 classifier `type`**, and [[prompt-v12-scaling-and-pipeline]] now standardises on this exact set throughout (its earlier 5-value `fight · travel · trade · talk · other` sketch is retired). v11 ships first, so this enum is canonical; v12 inherits it (and may extend), never forks a parallel taxonomy.
 
 ---
 
