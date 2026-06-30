@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8"><!-- base href="https://2f0c7f91-41d1-4e5d-a7b8-e127abbcb566.frame.claudeusercontent.com/_f/1782835547-636c/" --><script>(function(){"use strict";const P="modulepreload",S=function(e){return"/"+e},M={},h=function(n,r,i){let s=Promise.resolve();function a(o){const t=new Event("vite:preloadError",{cancelable:!0});if(t.payload=o,window.dispatchEvent(t),!t.defaultPrevented)throw o}return s.then(o=>{for(const t of o||[])t.status==="rejected"&&a(t.reason);return n().catch(a)})};function v(e){if(e==null||typeof e!="object")return!1;const n=e.__frame_init;return n!=null&&typeof n=="object"}function p(e){if(window===top||e.type==="auxclick"&&e.button!==1)return;const n=e.composedPath?e.composedPath():[e.target];let r=null;for(let o=0;o<n.length;o++){const t=n[o];if(t&&t.matches&&t.matches("a[href],area[href]")){r=t;break}}if(!r&&e.target&&e.target.closest&&(r=e.target.closest("a[href],area[href]")),!r)return;const i=r.getAttribute("href");if(!i)return;let s,a;try{s=new URL(i,document.baseURI),a=new URL(document.baseURI).origin}catch{return}(s.protocol==="http:"||s.protocol==="https:")&&s.origin!==a&&(e.preventDefault(),parent.postMessage({__frame_nav:!0,url:s.href},"*"))}const f={};function u(e){if(window===top)return;const n=Date.now();n-(f[e]||0)<500||(f[e]=n,parent.postMessage({__frame_engaged:!0,kind:e},"*"))}function w(){addEventListener("click",p,!0),addEventListener("auxclick",p,!0)}function _(){addEventListener("scroll",()=>u("scroll"),{capture:!0,passive:!0}),addEventListener("pointermove",()=>u("pointer"),{capture:!0,passive:!0}),addEventListener("click",()=>u("click"),{capture:!0,passive:!0})}function E(e,n){const r=new Set(e.changes??[]),i=new Map;for(const s of r){const a=n[s];a&&i.set(s,a)}return{contract:e.contract,changes:r,flags:new Set(e.flags??[]),transforms:i}}var b={};const y=1e4,L=Object.freeze([...window.__FRAME_PREAMBLE?.origins??["https://claude.ai","https://preview.claude.ai"]]);function k(e,n,r){try{Object.defineProperty(e,n,{value:r,writable:!1,configurable:!1,enumerable:!0})}catch{}}const d=Object.getOwnPropertyDescriptor(window,"claude");if(window!==top&&!(d&&d.configurable===!1)){w(),_(),k(window,"claude",d?.value??{});let e=null,n=null,r=null,i=0;const s=t=>{t.source!==parent||!L.includes(t.origin)||v(t.data)&&(e=t.data.__frame_init,n=t.origin,removeEventListener("message",s),clearTimeout(i),r?.())};addEventListener("message",s),parent.postMessage({__frame_connect:!0},"*");const a=new Promise(t=>{r=t,i=setTimeout(()=>{removeEventListener("message",s),t()},y)}),o=document.readyState==="loading"?new Promise(t=>document.addEventListener("DOMContentLoaded",()=>t(),{once:!0})):Promise.resolve();a.then(async()=>{if(!e||!n)return;const t=c=>h(()=>import("/_runtime/"+c),void 0),m=Object.keys(e.capabilities??{}).map(c=>b[c]).filter(c=>!!c),[l]=await Promise.allSettled([t("_transforms.DYk1Ltlh.js"),...m.map(t)]);E(e,l.status==="fulfilled"&&l.value?.TRANSFORMS||{}),await o,parent.postMessage({__frame_ready:!0},n)})}})();</script><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<title>Warden's Oak — DB Analysis · 2026-06-30</title>
+<style>
+:root {
+  --bg:        #111714;
+  --surface:   #182019;
+  --surface-2: #1f2820;
+  --border:    #2d3a2a;
+  --text:      #d2dac6;
+  --muted:     #768470;
+  --faint:     #3a4738;
+  --accent:    #74c08e;
+  --ok:        #52b268;
+  --minor:     #c8a040;
+  --major:     #bf4838;
+  --fd:        Georgia, 'Times New Roman', serif;
+  --fm:        'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--fm);
+  font-size: 13px;
+  line-height: 1.65;
+  padding: 2.5rem 1.25rem 6rem;
+}
+
+.wrap { max-width: 860px; margin: 0 auto; }
+
+/* ── HEADER ────────────────────────────────────────────── */
+.rh {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1.75rem;
+  margin-bottom: 2.75rem;
+}
+.rh-eye {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+.rh-title {
+  font-family: var(--fd);
+  font-size: 1.9rem;
+  font-weight: normal;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-wrap: balance;
+  margin-bottom: 1.1rem;
+}
+.rh-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.75rem;
+  font-size: 11px;
+  color: var(--muted);
+}
+.rh-meta strong { color: var(--text); font-weight: 600; }
+
+/* ── SECTION ───────────────────────────────────────────── */
+.sec { margin-bottom: 3.25rem; }
+
+.sec-lbl {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 1.25rem;
+}
+.sec-lbl::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.sec-title {
+  font-family: var(--fd);
+  font-size: 1.2rem;
+  font-weight: normal;
+  color: var(--text);
+  margin-bottom: 1.1rem;
+}
+
+/* ── STAT GRID ─────────────────────────────────────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 1.75rem;
+}
+.stat {
+  background: var(--surface);
+  padding: 0.9rem 1rem;
+}
+.stat-lbl {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+.stat-val {
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: var(--accent);
+}
+.stat-val.ok    { color: var(--ok); }
+.stat-val.warn  { color: var(--minor); }
+.stat-val.crit  { color: var(--major); }
+.stat-val.dim   { color: var(--muted); }
+.stat-sub {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+/* ── TABLE ─────────────────────────────────────────────── */
+.tbl-wrap { overflow-x: auto; margin-bottom: 1.75rem; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+thead th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0.7rem;
+  white-space: nowrap;
+}
+tbody tr { border-bottom: 1px solid var(--faint); }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--surface-2); }
+td { padding: 0.45rem 0.7rem; vertical-align: top; }
+.rn  { text-align: right; font-variant-numeric: tabular-nums; }
+.dim { color: var(--muted); }
+.hl  { color: var(--accent); }
+
+/* ── LATENCY BARS ──────────────────────────────────────── */
+.lat-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 1.75rem;
+}
+.lat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 11px;
+}
+.lat-lbl  { width: 56px; text-align: right; color: var(--muted); flex-shrink: 0; }
+.lat-wrap { flex: 1; height: 16px; background: var(--surface); border-radius: 2px; overflow: hidden; }
+.lat-fill { height: 100%; background: var(--accent); border-radius: 2px; opacity: 0.7; }
+.lat-n    { width: 30px; text-align: right; color: var(--text); flex-shrink: 0; }
+.lat-pct  { width: 38px; text-align: right; color: var(--muted); flex-shrink: 0; font-size: 10px; }
+
+/* ── WARNING LIST ──────────────────────────────────────── */
+.warn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 1.75rem;
+}
+.warn-item {
+  background: var(--surface);
+  padding: 0.7rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.warn-item.active { border-left: 3px solid var(--major); }
+.warn-item.fixed  { border-left: 3px solid var(--faint);  opacity: 0.7; }
+
+.warn-txt { font-size: 12px; flex: 1; }
+.warn-txt code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 0.1em 0.35em;
+  border-radius: 2px;
+  font-size: 11px;
+  color: var(--text);
+}
+.warn-r { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; flex-shrink: 0; }
+.warn-n { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.warn-n.crit { color: var(--major); }
+.warn-n.warn { color: var(--minor); }
+.warn-n.dim  { color: var(--muted); }
+.badge {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.15em 0.55em;
+  border-radius: 99px;
+}
+.badge.active { background: color-mix(in srgb, var(--major) 16%, transparent); color: var(--major); }
+.badge.fixed  { background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); }
+
+/* ── VERSION TREND ─────────────────────────────────────── */
+.ver-chart { display: flex; align-items: flex-end; gap: 4px; height: 72px; margin-bottom: 0.35rem; }
+.ver-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; justify-content: flex-end; }
+.ver-fill { width: 100%; border-radius: 2px 2px 0 0; min-height: 2px; }
+.ver-tick { font-size: 9px; color: var(--muted); }
+.ver-chart-note { font-size: 10px; color: var(--muted); margin-bottom: 1.75rem; }
+
+/* ── CRITIC SUMMARY ────────────────────────────────────── */
+.crit-sum {
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 1.75rem;
+}
+.crit-band { flex: 1; padding: 1rem; background: var(--surface); text-align: center; }
+.crit-n { font-size: 2.1rem; font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1.1; }
+.crit-n.ok    { color: var(--ok);    }
+.crit-n.minor { color: var(--minor); }
+.crit-n.major { color: var(--major); }
+.crit-lbl { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 0.2rem; }
+.crit-pct { font-size: 11px; color: var(--muted); margin-top: 0.1rem; }
+
+/* ── INCIDENT CARDS ────────────────────────────────────── */
+.incidents { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.75rem; }
+
+.incident { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.incident.major { border-left: 3px solid var(--major); }
+.incident.minor { border-left: 3px solid var(--minor); }
+
+.inc-head {
+  background: var(--surface);
+  padding: 0.65rem 1rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.inc-id   { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.inc-ts   { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.inc-input { font-size: 12px; color: var(--text); flex: 1; min-width: 180px; }
+.inc-badge { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.2em 0.6em; border-radius: 99px; flex-shrink: 0; }
+.inc-badge.major { background: color-mix(in srgb, var(--major) 16%, transparent); color: var(--major); }
+.inc-badge.minor { background: color-mix(in srgb, var(--minor) 16%, transparent); color: var(--minor); }
+
+.inc-body {
+  background: var(--surface-2);
+  padding: 0.75rem 1rem;
+}
+.inc-issues { list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
+.inc-issues li { font-size: 12px; display: flex; gap: 0.5rem; line-height: 1.55; }
+.inc-issues li::before { content: '—'; color: var(--major); flex-shrink: 0; }
+.inc-issues.minor li::before { color: var(--minor); }
+
+.inc-reason {
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  background: var(--surface);
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.7;
+  max-height: 110px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* ── CALLOUT ────────────────────────────────────────────── */
+.callout {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.75rem;
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  line-height: 1.75;
+}
+.callout strong { color: var(--accent); }
+.callout.warn-callout { border-left-color: var(--minor); }
+.callout.warn-callout strong { color: var(--minor); }
+
+/* ── OUTCOME PILLS ──────────────────────────────────────── */
+.outcome-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.75rem; }
+.pill {
+  display: flex; flex-direction: column; align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.65rem 1rem;
+  min-width: 88px;
+}
+.pill-n { font-size: 1.4rem; font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1.1; }
+.pill-n.success { color: var(--ok);    }
+.pill-n.done    { color: var(--accent); }
+.pill-n.failure { color: var(--minor); }
+.pill-n.bad     { color: var(--major); }
+.pill-l { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 0.15rem; }
+.pill-p { font-size: 10px; color: var(--faint); margin-top: 0.1rem; }
+
+/* ── DAY CHART ──────────────────────────────────────────── */
+.day-wrap { margin-bottom: 0.5rem; }
+.day-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 72px;
+  padding-top: 4px;
+}
+.day-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 2px; cursor: default; }
+.day-bar { width: 100%; border-radius: 2px 2px 0 0; background: var(--accent); opacity: 0.6; transition: opacity 0.15s; }
+.day-col:hover .day-bar { opacity: 1; }
+.day-tick { font-size: 8px; color: var(--faint); }
+
+.day-labels { display: flex; gap: 3px; margin-top: 2px; }
+.day-labels span { flex: 1; text-align: center; font-size: 8px; color: var(--muted); }
+
+/* ── PLAYER TABLE ───────────────────────────────────────── */
+.hp-bar-wrap { width: 60px; height: 6px; background: var(--border); border-radius: 1px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 4px; }
+.hp-bar { height: 100%; background: var(--ok); border-radius: 1px; }
+
+/* ── FOOTER ─────────────────────────────────────────────── */
+.rf {
+  border-top: 1px solid var(--border);
+  padding-top: 0.85rem;
+  font-size: 10px;
+  color: var(--faint);
+  letter-spacing: 0.06em;
+}
+</style>
+
+<div class="wrap">
+
+  <!-- HEADER -->
+  <header class="rh">
+    <div class="rh-eye">The Warden's Oak · Prod DB Snapshot</div>
+    <h1 class="rh-title">LLM Reasoning, Validation &amp; Critic Analysis</h1>
+    <div class="rh-meta">
+      <span><strong>Snapshot</strong> 2026-06-30</span>
+      <span><strong>Latest release</strong> v0.2.6</span>
+      <span><strong>Game day</strong> 15</span>
+      <span><strong>Actions</strong> 154</span>
+      <span><strong>LLM calls</strong> 535</span>
+      <span><strong>Players</strong> 8</span>
+      <span><strong>Date range</strong> Jun 16 – Jun 30</span>
+      <span><strong>Model</strong> deepseek-v4-flash (all 535)</span>
+    </div>
+  </header>
+
+  <!-- ── SECTION 1: REASONING ── -->
+  <section class="sec">
+    <div class="sec-lbl">01 · LLM Reasoning</div>
+    <h2 class="sec-title">Heavy reasoning correlates directly with CONTINUE-phase calls</h2>
+
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="stat-lbl">Avg reasoning</div>
+        <div class="stat-val">3,154</div>
+        <div class="stat-sub">chars / call</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Max reasoning</div>
+        <div class="stat-val warn">17,323</div>
+        <div class="stat-sub">chars (call #399)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Avg latency</div>
+        <div class="stat-val">12.6s</div>
+        <div class="stat-sub">successful calls</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Max latency</div>
+        <div class="stat-val warn">47.5s</div>
+        <div class="stat-sub">call #399</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Parse failures</div>
+        <div class="stat-val ok">1</div>
+        <div class="stat-sub">of 535 (aborted)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Fallbacks used</div>
+        <div class="stat-val ok">0</div>
+        <div class="stat-sub">tier-1 never hit</div>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Date</th>
+            <th>pv</th>
+            <th class="rn">Reasoning</th>
+            <th class="rn">Latency</th>
+            <th class="rn">Tokens</th>
+            <th>Phase</th>
+            <th>Player input</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="dim">#399</td>
+            <td class="dim">Jun 27</td>
+            <td class="dim">v9</td>
+            <td class="rn hl">17,323</td>
+            <td class="rn warn">47.5s</td>
+            <td class="rn dim">9,726</td>
+            <td class="dim">CONTINUE</td>
+            <td>Prepare fireball spell and attack the ford lurker</td>
+          </tr>
+          <tr>
+            <td class="dim">#242</td>
+            <td class="dim">Jun 22</td>
+            <td class="dim">v8</td>
+            <td class="rn hl">15,323</td>
+            <td class="rn warn">37.3s</td>
+            <td class="rn dim">8,878</td>
+            <td class="dim">CONTINUE</td>
+            <td>Study the recently acquired warden's journal</td>
+          </tr>
+          <tr>
+            <td class="dim">#480</td>
+            <td class="dim">Jun 29</td>
+            <td class="dim">v10</td>
+            <td class="rn hl">13,991</td>
+            <td class="rn warn">32.4s</td>
+            <td class="rn dim">9,397</td>
+            <td class="dim">CONTINUE</td>
+            <td>Read the omens — candle gutters east three nights</td>
+          </tr>
+          <tr>
+            <td class="dim">#131</td>
+            <td class="dim">Jun 19</td>
+            <td class="dim">v7</td>
+            <td class="rn hl">13,826</td>
+            <td class="rn warn">41.2s</td>
+            <td class="rn dim">7,949</td>
+            <td class="dim">CONTINUE</td>
+            <td>A stall-keeper could use an extra pair of hands…</td>
+          </tr>
+          <tr>
+            <td class="dim">#391</td>
+            <td class="dim">Jun 27</td>
+            <td class="dim">v9</td>
+            <td class="rn hl">13,077</td>
+            <td class="rn warn">35.6s</td>
+            <td class="rn dim">8,725</td>
+            <td class="dim">CONTINUE</td>
+            <td>Invite temple workers to receive a blessing</td>
+          </tr>
+          <tr>
+            <td class="dim">#79</td>
+            <td class="dim">Jun 17</td>
+            <td class="dim">v6</td>
+            <td class="rn">12,868</td>
+            <td class="rn">37.8s</td>
+            <td class="rn dim">7,802</td>
+            <td class="dim">CONTINUE</td>
+            <td>The collection's a mess — order it, learn what's gone</td>
+          </tr>
+          <tr>
+            <td class="dim">#438</td>
+            <td class="dim">Jun 28</td>
+            <td class="dim">v10</td>
+            <td class="rn">12,727</td>
+            <td class="rn">30.5s</td>
+            <td class="rn dim">9,345</td>
+            <td class="dim">CONTINUE</td>
+            <td>After 2 gambling wins — seek a real challenge</td>
+          </tr>
+          <tr>
+            <td class="dim">#269</td>
+            <td class="dim">Jun 22</td>
+            <td class="dim">v8</td>
+            <td class="rn">12,527</td>
+            <td class="rn">36.0s</td>
+            <td class="rn dim">8,305</td>
+            <td class="dim">CONTINUE</td>
+            <td>Go into the woods and find the sacred tree…</td>
+          </tr>
+          <tr>
+            <td class="dim">#288</td>
+            <td class="dim">Jun 23</td>
+            <td class="dim">v8</td>
+            <td class="rn">11,735</td>
+            <td class="rn">36.5s</td>
+            <td class="rn dim">8,180</td>
+            <td class="dim">CONTINUE</td>
+            <td>Eat the meal, read the letter, continue east from watchtower</td>
+          </tr>
+          <tr>
+            <td class="dim">#70</td>
+            <td class="dim">Jun 17</td>
+            <td class="dim">v6</td>
+            <td class="rn">11,465</td>
+            <td class="rn">38.4s</td>
+            <td class="rn dim">7,306</td>
+            <td class="dim">CONTINUE</td>
+            <td>Go to camp and treat my wound on my arm</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <strong>Pattern:</strong> All 10 heaviest reasoning calls are 
+CONTINUE-phase — the model re-derives the full narrative context and 
+beat structure on each step rather than caching it, producing long 
+reasoning chains. High-token actions (7–10k total) cluster exclusively 
+in CONTINUE. Consider whether a condensed CONTINUE prompt could reduce 
+context re-derivation. The extreme outlier (#399 at 47.5s) is a combat 
+action with spell mechanics — the model reasons through DC calculation, 
+spell rules, and narrative branching simultaneously.
+    </div>
+
+    <h3 style="font-family:var(--fd); font-size:1rem; font-weight:normal; color:var(--muted); margin-bottom:0.85rem;">Latency distribution — all 535 calls</h3>
+    <div class="lat-bars">
+      <div class="lat-row">
+        <div class="lat-lbl">0–5s</div>
+        <div class="lat-wrap"><div class="lat-fill" style="width:4.9%"></div></div>
+        <div class="lat-n">26</div>
+        <div class="lat-pct">4.9%</div>
+      </div>
+      <div class="lat-row">
+        <div class="lat-lbl">5–10s</div>
+        <div class="lat-wrap"><div class="lat-fill" style="width:38.3%"></div></div>
+        <div class="lat-n">205</div>
+        <div class="lat-pct">38.3%</div>
+      </div>
+      <div class="lat-row">
+        <div class="lat-lbl" style="color:var(--minor);">10–20s</div>
+        <div class="lat-wrap"><div class="lat-fill" style="width:43.9%; background:var(--minor); opacity:0.65;"></div></div>
+        <div class="lat-n" style="color:var(--minor);">235</div>
+        <div class="lat-pct">43.9%</div>
+      </div>
+      <div class="lat-row">
+        <div class="lat-lbl">20–30s</div>
+        <div class="lat-wrap"><div class="lat-fill" style="width:9.2%; background:var(--major); opacity:0.6;"></div></div>
+        <div class="lat-n">49</div>
+        <div class="lat-pct">9.2%</div>
+      </div>
+      <div class="lat-row">
+        <div class="lat-lbl" style="color:var(--major);">30s+</div>
+        <div class="lat-wrap"><div class="lat-fill" style="width:3.7%; background:var(--major); opacity:0.85;"></div></div>
+        <div class="lat-n" style="color:var(--major);">20</div>
+        <div class="lat-pct">3.7%</div>
+      </div>
+    </div>
+    <p style="font-size:10px; color:var(--muted); margin-bottom:0;">
+      Median bucket: 10–20s (44% of calls). 13% of calls exceed 20s — 
+all correlated with high reasoning_chars. Zero tier-1 fallbacks 
+triggered in the snapshot window.
+    </p>
+  </section>
+
+  <!-- ── SECTION 2: VALIDATION WARNINGS ── -->
+  <section class="sec">
+    <div class="sec-lbl">02 · Validation Warnings</div>
+    <h2 class="sec-title">One warning type persists unresolved through v0.2.6 — prompt rule 4b</h2>
+
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="stat-lbl">Total calls with warnings</div>
+        <div class="stat-val warn">34</div>
+        <div class="stat-sub">of 535 calls (6.4%)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Distinct warning types</div>
+        <div class="stat-val">7</div>
+        <div class="stat-sub">across all versions</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Still active in v0.2.6</div>
+        <div class="stat-val crit">1</div>
+        <div class="stat-sub">warning type (17 hits)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Resolved warning types</div>
+        <div class="stat-val ok">4</div>
+        <div class="stat-sub">fixed across upgrades</div>
+      </div>
+    </div>
+
+    <div class="warn-list">
+
+      <div class="warn-item active">
+        <div class="warn-txt">
+          <code>resolving turn with only negative stamina/health mutations — SUCCESS must include a reward (prompt rule 4b)</code>
+          <div style="margin-top:0.35rem; font-size:11px; color:var(--muted);">Active
+ in v8 (pv=v8), v9 (pv=v9), v10 (pv=v10) — 17 occurrences across actions
+ with success outcomes that only cost the player. Affects a wide range 
+of action types: combat, social, exploration, prayer.</div>
+        </div>
+        <div class="warn-r">
+          <div class="warn-n crit">17</div>
+          <div class="badge active">active</div>
+        </div>
+      </div>
+
+      <div class="warn-item active">
+        <div class="warn-txt">
+          <code>base_dc 0 is outside expected range 10–18</code>
+          <div style="margin-top:0.35rem; font-size:11px; color:var(--muted);">Appeared
+ in v6–v8. A dc_0 causes auto-resolve to DONE (no roll), which players 
+experience as frustrating. Last seen in v8 (#336, #352, #364). Appears 
+resolved in v9+.</div>
+        </div>
+        <div class="warn-r">
+          <div class="warn-n warn">7</div>
+          <div class="badge active">v8 last</div>
+        </div>
+      </div>
+
+      <div class="warn-item fixed">
+        <div class="warn-txt">
+          <code>decision array is empty but done=false — player will have no options</code>
+          <div style="margin-top:0.35rem; font-size:11px; color:var(--muted);">7
+ occurrences in v6–v7. Fixed by v8. The model was resolving beats 
+without presenting choices, making actions unresponsive. Directly caused
+ several "done" auto-resolves players complained about.</div>
+        </div>
+        <div class="warn-r">
+          <div class="warn-n dim">7</div>
+          <div class="badge fixed">fixed v8</div>
+        </div>
+      </div>
+
+      <div class="warn-item fixed">
+        <div class="warn-txt">
+          <code>decision array is empty with no mutations or outcome_text — nothing to resolve</code>
+          <div style="margin-top:0.35rem; font-size:11px; color:var(--muted);">Single occurrence in v7 (#184, casino action). The entire beat was empty — no choices, no effect, no text.</div>
+        </div>
+        <div class="warn-r">
+          <div class="warn-n dim">1</div>
+          <div class="badge fixed">fixed v8</div>
+        </div>
+      </div>
+
+      <div class="warn-item fixed">
+        <div class="warn-txt">
+          <code>done:true with only negative stamina/health mutations — SUCCESS must include a reward</code>
+          <div style="margin-top:0.35rem; font-size:11px; color:var(--muted);">Earlier form of the rule-4b warning, in v6 only. Distinct from the active variant above.</div>
+        </div>
+        <div class="warn-r">
+          <div class="warn-n dim">1</div>
+          <div class="badge fixed">fixed v7</div>
+        </div>
+      </div>
+
+      <div class="warn-item fixed">
+        <div class="warn-txt">
+          <code>mutations is not an array (object)</code>
+          <div style="margin-top:0.35rem; font-size:11px; color:var(--muted);">Single occurrence in v6 (#41). Model returned mutations as an object rather than an array.</div>
+        </div>
+        <div class="warn-r">
+          <div class="warn-n dim">1</div>
+          <div class="badge fixed">fixed v7</div>
+        </div>
+      </div>
+
+      <div class="warn-item fixed">
+        <div class="warn-txt">
+          <code>distilled_type is empty</code>
+          <div style="margin-top:0.35rem; font-size:11px; color:var(--muted);">Single occurrence in v7 (#93).</div>
+        </div>
+        <div class="warn-r">
+          <div class="warn-n dim">1</div>
+          <div class="badge fixed">fixed v8</div>
+        </div>
+      </div>
+
+    </div>
+
+    <h3 style="font-family:var(--fd); font-size:1rem; font-weight:normal; color:var(--muted); margin-bottom:0.75rem;">Warning rate by app version (% of calls with ≥1 warning)</h3>
+    <div class="ver-chart">
+      <!-- Heights normalized to v0.2.2 peak of 24.4% = 64px -->
+      <div class="ver-col" title="v0.2.0 — 0 warnings / 36 calls (0%)">
+        <div class="ver-fill" style="height:2px; background:var(--faint);"></div>
+        <div class="ver-tick">0.2.0</div>
+      </div>
+      <div class="ver-col" title="v0.2.1 — 3 warnings / 48 calls (6.3%)">
+        <div class="ver-fill" style="height:17px; background:var(--minor); opacity:0.7;"></div>
+        <div class="ver-tick">0.2.1</div>
+      </div>
+      <div class="ver-col" title="v0.2.2 — 10 warnings / 41 calls (24.4%) — peak">
+        <div class="ver-fill" style="height:64px; background:var(--major); opacity:0.8;"></div>
+        <div class="ver-tick">0.2.2</div>
+      </div>
+      <div class="ver-col" title="v0.2.3 — 2 warnings / 91 calls (2.2%)">
+        <div class="ver-fill" style="height:6px; background:var(--minor); opacity:0.7;"></div>
+        <div class="ver-tick">0.2.3</div>
+      </div>
+      <div class="ver-col" title="v0.2.4 — 11 warnings / 156 calls (7.1%)">
+        <div class="ver-fill" style="height:19px; background:var(--minor); opacity:0.7;"></div>
+        <div class="ver-tick">0.2.4</div>
+      </div>
+      <div class="ver-col" title="v0.2.5 — 3 warnings / 39 calls (7.7%)">
+        <div class="ver-fill" style="height:20px; background:var(--minor); opacity:0.7;"></div>
+        <div class="ver-tick">0.2.5</div>
+      </div>
+      <div class="ver-col" title="v0.2.6 — 5 warnings / 124 calls (4.0%)">
+        <div class="ver-fill" style="height:11px; background:var(--minor); opacity:0.7;"></div>
+        <div class="ver-tick">0.2.6</div>
+      </div>
+    </div>
+    <p class="ver-chart-note">Red bar = peak (v0.2.2, 24.4%). The hard 
+drop at v0.2.3 coincides with the empty-decision fixes. v0.2.6 is the 
+lowest rate yet at 4.0%, but the rule-4b warning is entirely responsible
+ for that remaining tail.</p>
+
+    <div class="callout warn-callout">
+      <strong>Rule 4b is the only unresolved warning</strong> — it has 
+appeared in every prompt version from v8 through v10 (17 hits). The 
+model consistently produces SUCCESS beats that only subtract 
+stamina/health with no compensating item, gold, XP, or narrative gain. 
+It fires across combat, social, exploration, and prayer actions. The 
+warning text is present and clear; the model reads it but doesn't apply 
+it. Prompt reinforcement or a validator auto-patch may be needed.
+    </div>
+  </section>
+
+  <!-- ── SECTION 3: CRITIC ── -->
+  <section class="sec">
+    <div class="sec-lbl">03 · Critic (critic-v1)</div>
+    <h2 class="sec-title">38 critic calls since Jun 27 — 3 major structural defects, 6 outcome-text mismatches</h2>
+
+    <div class="crit-sum">
+      <div class="crit-band">
+        <div class="crit-n ok">29</div>
+        <div class="crit-lbl">OK</div>
+        <div class="crit-pct">76%</div>
+      </div>
+      <div class="crit-band">
+        <div class="crit-n minor">6</div>
+        <div class="crit-lbl">Minor</div>
+        <div class="crit-pct">16%</div>
+      </div>
+      <div class="crit-band">
+        <div class="crit-n major">3</div>
+        <div class="crit-lbl">Major</div>
+        <div class="crit-pct">8%</div>
+      </div>
+    </div>
+
+    <h3 style="font-family:var(--fd); font-size:1rem; font-weight:normal; margin-bottom:0.85rem; color:var(--text);">Major incidents</h3>
+    <div class="incidents">
+
+      <div class="incident major">
+        <div class="inc-head">
+          <span class="inc-id">#392</span>
+          <span class="inc-ts">Jun 27 07:15</span>
+          <span class="inc-input">Invite the people currently working on constructing the temple to come receive a blessing</span>
+          <span class="inc-badge major">Major</span>
+        </div>
+        <div class="inc-body">
+          <div class="inc-meta">pv=v9 · reasoning_chars=1,740 · latency=5.7s · critic-v1</div>
+          <ul class="inc-issues">
+            <li>Beat type is "decision" but contains no options (empty array), forcing a resolution without player choice.</li>
+            <li>Mutations applied directly without a dice roll, bypassing the decision mechanic entirely.</li>
+          </ul>
+          <div class="inc-reason">Critic reasoning: "The beat is a 
+'decision' type but no options are presented. The 'decision' array is 
+empty and mutations are applied as if it's a resolution. This is a 
+structural issue — it's a decision beat but no options presented. The 
+player cannot make a choice, and the narrative resolves without their 
+input. Major defect: the player cannot make a decision."</div>
+        </div>
+      </div>
+
+      <div class="incident major">
+        <div class="inc-head">
+          <span class="inc-id">#440</span>
+          <span class="inc-ts">Jun 28 19:06</span>
+          <span class="inc-input">After 2 decisive gambling wins it's time for a real challenge. Nothing lower than 50 gold.</span>
+          <span class="inc-badge major">Major</span>
+        </div>
+        <div class="inc-body">
+          <div class="inc-meta">pv=v10 · reasoning_chars=2,951 · latency=8.1s · critic-v1</div>
+          <ul class="inc-issues">
+            <li>NPC "Otto" referenced in outcome text but not present in context (active NPCs: The Warden, Foreman Ivor).</li>
+            <li>Final mutations include extra −2 stamina not in authored output; outcome_text only acknowledges minor drain, not total −3.</li>
+          </ul>
+          <div class="inc-reason">Critic reasoning: "NPC Otto is not 
+present in context. Final mutations include -2 stamina not in authored 
+mutations and not reflected in outcome_text. This is a clear context 
+contradiction: referencing an NPC not present. Additionally, the 
+outcome_text implies minor drain but actual stamina loss is 3 
+(significant) — mutation mismatch. Major defect."</div>
+        </div>
+      </div>
+
+      <div class="incident major">
+        <div class="inc-head">
+          <span class="inc-id">#459</span>
+          <span class="inc-ts">Jun 28 20:03</span>
+          <span class="inc-input">Preach at town square about the goodness of the god that looks after Ulrich's temple</span>
+          <span class="inc-badge major">Major</span>
+        </div>
+        <div class="inc-body">
+          <div class="inc-meta">pv=v10 · reasoning_chars=2,430 · latency=8.5s · critic-v1 · retry → minor (#462)</div>
+          <ul class="inc-issues">
+            <li>Decision beat has no options for the player to choose from (empty decision array).</li>
+            <li>Mutations field present on a decision beat — structurally incorrect, should only appear post-roll on resolution.</li>
+          </ul>
+          <div class="inc-reason">Critic reasoning: "A decision beat 
+must have options for the player. The beat is missing decision options. 
+The prompt ends with 'The moment hangs, waiting for your words to land.'
+ but no options provided — this beat is unplayable. Also, mutations on a
+ decision beat is unusual; mutations should be applied after a roll. 
+Since there are no options, this is unplayable — major defect."</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="callout" style="margin-bottom:1.75rem;">
+      <strong>Structural pattern across all 3 majors:</strong> Two of 
+the three (#392, #459) are DECISION beats with an empty decision array —
+ the model produced a beat that looks complete but gives the player 
+nothing to click. The third (#440) is a RESOLUTION beat with a 
+hallucinated NPC and a mutation mismatch. The common root: phase 
+confusion under complex social/religious action types. The critic retry 
+mechanism worked on #459 — the retry (#462) downgraded to minor 
+(outcome-text mismatch only), indicating the decision array was 
+populated on the second attempt.
+    </div>
+
+    <h3 style="font-family:var(--fd); font-size:1rem; font-weight:normal; margin-bottom:0.85rem; color:var(--text);">Minor incidents — all are outcome_text ↔ mutation mismatches</h3>
+    <div class="incidents">
+
+      <div class="incident minor">
+        <div class="inc-head">
+          <span class="inc-id">#425</span>
+          <span class="inc-ts">Jun 28</span>
+          <span class="inc-input">Play a song with the carved whistle</span>
+          <span class="inc-badge minor">Minor</span>
+        </div>
+        <div class="inc-body">
+          <ul class="inc-issues minor">
+            <li>Outcome text describes receiving a leaf (item) but final
+ mutations have no add_item — remove leaf reference to match only 
+modify_rolls_remaining.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="incident minor">
+        <div class="inc-head">
+          <span class="inc-id">#445</span>
+          <span class="inc-ts">Jun 28</span>
+          <span class="inc-input">Investigate the shadow antler</span>
+          <span class="inc-badge minor">Minor</span>
+        </div>
+        <div class="inc-body">
+          <ul class="inc-issues minor">
+            <li>Outcome text does not mention the stamina loss from mutations — player receives a cost with no narrative acknowledgement.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="incident minor">
+        <div class="inc-head">
+          <span class="inc-id">#462</span>
+          <span class="inc-ts">Jun 28</span>
+          <span class="inc-input">Preach at town square… (retry of major #459)</span>
+          <span class="inc-badge minor">Minor</span>
+        </div>
+        <div class="inc-body">
+          <ul class="inc-issues minor">
+            <li>Outcome text does not reflect full −3 stamina (two separate mutation hits) or the −1 wealth loss.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="incident minor">
+        <div class="inc-head">
+          <span class="inc-id">#468</span>
+          <span class="inc-ts">Jun 28</span>
+          <span class="inc-input">Set up my donation bowl and invite people to come for prayers</span>
+          <span class="inc-badge minor">Minor</span>
+        </div>
+        <div class="inc-body">
+          <ul class="inc-issues minor">
+            <li>Outcome text does not name the NPC "Mira" who is spawned in final mutations — narrative and world state diverge.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="incident minor">
+        <div class="inc-head">
+          <span class="inc-id">#500</span>
+          <span class="inc-ts">Jun 29</span>
+          <span class="inc-input">Give shadow stag antler and beast fang to the smith, ask to craft a dagger</span>
+          <span class="inc-badge minor">Minor</span>
+        </div>
+        <div class="inc-body">
+          <ul class="inc-issues minor">
+            <li>Outcome text does not reflect final mutations: stamina −3 and wealth −2 both unacknowledged.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="incident minor">
+        <div class="inc-head">
+          <span class="inc-id">#515</span>
+          <span class="inc-ts">Jun 29</span>
+          <span class="inc-input">Charm wealthy patron for 200 gold using the lute — Charisma MAX</span>
+          <span class="inc-badge minor">Minor</span>
+        </div>
+        <div class="inc-body">
+          <ul class="inc-issues minor">
+            <li>Outcome text does not mention stamina loss from final mutations — player appears to succeed at no cost.</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="callout warn-callout">
+      <strong>Minor pattern — final-mutation blindness:</strong> Every 
+minor issue is the same defect: the authored beat uses an earlier 
+mutation snapshot, and the engine applies additional mutations 
+(engine-side adjustments, stacking effects) that the outcome_text 
+doesn't know about. The critic is correctly catching the delta between 
+authored and final mutations. The fix is either to pass final mutations 
+to the output stage, or to have the critic's patch auto-update the 
+outcome_text (it already generates patches for all 6 minors — see 
+response_json).
+    </div>
+  </section>
+
+  <!-- ── SECTION 4: ENGAGEMENT ── -->
+  <section class="sec">
+    <div class="sec-lbl">04 · Engagement Signal</div>
+    <h2 class="sec-title">Steady 3–6 player daily engagement; auto-resolve at 18.8% remains a player friction point</h2>
+
+    <div class="outcome-row">
+      <div class="pill">
+        <div class="pill-n success">90</div>
+        <div class="pill-l">Success</div>
+        <div class="pill-p">58.4%</div>
+      </div>
+      <div class="pill">
+        <div class="pill-n done">29</div>
+        <div class="pill-l">Done</div>
+        <div class="pill-p">18.8%</div>
+      </div>
+      <div class="pill">
+        <div class="pill-n failure">27</div>
+        <div class="pill-l">Failure</div>
+        <div class="pill-p">17.5%</div>
+      </div>
+      <div class="pill">
+        <div class="pill-n bad">4</div>
+        <div class="pill-l">Timed out</div>
+        <div class="pill-p">2.6%</div>
+      </div>
+      <div class="pill">
+        <div class="pill-n bad">4</div>
+        <div class="pill-l">Bailed</div>
+        <div class="pill-p">2.6%</div>
+      </div>
+    </div>
+
+    <h3 style="font-family:var(--fd); font-size:1rem; font-weight:normal; margin-bottom:0.75rem; color:var(--muted);">Daily actions — Jun 16–30</h3>
+    <div class="day-wrap">
+      <div class="day-chart">
+        <!-- Heights normalized: max=17 actions (Jun 22) → 60px inner -->
+        <div class="day-col" title="Jun 16: 10 actions, 4 players">
+          <div class="day-bar" style="height:35px"></div>
+          <div class="day-tick">16</div>
+        </div>
+        <div class="day-col" title="Jun 17: 13 actions, 5 players">
+          <div class="day-bar" style="height:46px"></div>
+          <div class="day-tick">17</div>
+        </div>
+        <div class="day-col" title="Jun 18: 12 actions, 5 players">
+          <div class="day-bar" style="height:42px"></div>
+          <div class="day-tick">18</div>
+        </div>
+        <div class="day-col" title="Jun 19: 9 actions, 4 players">
+          <div class="day-bar" style="height:32px"></div>
+          <div class="day-tick">19</div>
+        </div>
+        <div class="day-col" title="Jun 20: 13 actions, 3 players">
+          <div class="day-bar" style="height:46px"></div>
+          <div class="day-tick">20</div>
+        </div>
+        <div class="day-col" title="Jun 21: 10 actions, 3 players">
+          <div class="day-bar" style="height:35px"></div>
+          <div class="day-tick">21</div>
+        </div>
+        <div class="day-col" title="Jun 22: 17 actions, 6 players — peak">
+          <div class="day-bar" style="height:60px; opacity:1;"></div>
+          <div class="day-tick" style="color:var(--accent);">22</div>
+        </div>
+        <div class="day-col" title="Jun 23: 9 actions, 3 players">
+          <div class="day-bar" style="height:32px"></div>
+          <div class="day-tick">23</div>
+        </div>
+        <div class="day-col" title="Jun 24: 6 actions, 2 players">
+          <div class="day-bar" style="height:21px"></div>
+          <div class="day-tick">24</div>
+        </div>
+        <div class="day-col" title="Jun 25: 12 actions, 3 players">
+          <div class="day-bar" style="height:42px"></div>
+          <div class="day-tick">25</div>
+        </div>
+        <div class="day-col" title="Jun 26: 5 actions, 1 player — low">
+          <div class="day-bar" style="height:18px; opacity:0.4;"></div>
+          <div class="day-tick">26</div>
+        </div>
+        <div class="day-col" title="Jun 27: 9 actions, 2 players">
+          <div class="day-bar" style="height:32px"></div>
+          <div class="day-tick">27</div>
+        </div>
+        <div class="day-col" title="Jun 28: 15 actions, 4 players">
+          <div class="day-bar" style="height:53px"></div>
+          <div class="day-tick">28</div>
+        </div>
+        <div class="day-col" title="Jun 29: 11 actions, 3 players">
+          <div class="day-bar" style="height:39px"></div>
+          <div class="day-tick">29</div>
+        </div>
+        <div class="day-col" title="Jun 30: 3 actions, 1 player — partial day">
+          <div class="day-bar" style="height:11px; opacity:0.4;"></div>
+          <div class="day-tick">30</div>
+        </div>
+      </div>
+    </div>
+    <p style="font-size:10px; color:var(--muted); margin-bottom:1.75rem;">Peak Jun 22 (17 actions, 6 players). Jun 26 low (5 actions, 1 player). Jun 30 partial day. Hover bars for player counts.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Character</th>
+            <th>Location</th>
+            <th>HP</th>
+            <th class="rn">Rolls left</th>
+            <th class="rn">Total actions</th>
+            <th>Last played</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>UlrichTheShort</td>
+            <td class="dim">The Shrine of the First Flame</td>
+            <td>
+              10/10
+              <span class="hp-bar-wrap"><span class="hp-bar" style="width:100%"></span></span>
+            </td>
+            <td class="rn warn">1</td>
+            <td class="rn hl">46</td>
+            <td class="dim">Jun 30</td>
+          </tr>
+          <tr>
+            <td>Warden's Apprentice</td>
+            <td class="dim">The Warden's Oak</td>
+            <td>
+              10/10
+              <span class="hp-bar-wrap"><span class="hp-bar" style="width:100%"></span></span>
+            </td>
+            <td class="rn">3</td>
+            <td class="rn hl">37</td>
+            <td class="dim">Jun 29</td>
+          </tr>
+          <tr>
+            <td>Flikker</td>
+            <td class="dim">The Warden's Oak</td>
+            <td>
+              10/10
+              <span class="hp-bar-wrap"><span class="hp-bar" style="width:100%"></span></span>
+            </td>
+            <td class="rn">3</td>
+            <td class="rn">27</td>
+            <td class="dim">Jun 29</td>
+          </tr>
+          <tr>
+            <td>Oom</td>
+            <td class="dim">The Warden's Oak</td>
+            <td>
+              10/10
+              <span class="hp-bar-wrap"><span class="hp-bar" style="width:100%"></span></span>
+            </td>
+            <td class="rn">3</td>
+            <td class="rn">26</td>
+            <td class="dim">Jun 29</td>
+          </tr>
+          <tr>
+            <td>SirAlexTheBrave</td>
+            <td class="dim">The Warden's Oak</td>
+            <td>
+              10/10
+              <span class="hp-bar-wrap"><span class="hp-bar" style="width:100%"></span></span>
+            </td>
+            <td class="rn">3</td>
+            <td class="rn">7</td>
+            <td class="dim">Jun 29</td>
+          </tr>
+          <tr>
+            <td>Otto</td>
+            <td class="dim">The Warden's Oak</td>
+            <td>
+              10/10
+              <span class="hp-bar-wrap"><span class="hp-bar" style="width:100%"></span></span>
+            </td>
+            <td class="rn">3</td>
+            <td class="rn dim">5</td>
+            <td class="dim">—</td>
+          </tr>
+          <tr>
+            <td>UlrichTheTall</td>
+            <td class="dim">The Dark Pines</td>
+            <td>
+              9/10
+              <span class="hp-bar-wrap"><span class="hp-bar" style="width:90%; background:var(--minor);"></span></span>
+            </td>
+            <td class="rn">3</td>
+            <td class="rn dim">4</td>
+            <td class="dim">Jun 22</td>
+          </tr>
+          <tr>
+            <td>Froggy</td>
+            <td class="dim">The Warden's Oak</td>
+            <td>
+              10/10
+              <span class="hp-bar-wrap"><span class="hp-bar" style="width:100%"></span></span>
+            </td>
+            <td class="rn">3</td>
+            <td class="rn dim">2</td>
+            <td class="dim">Jun 18</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-size:11px; color:var(--muted); line-height:1.65;">
+      UlrichTheShort (46 actions) and Warden's Apprentice (37 actions) 
+are the power users — most feedback and bug reports also come from 
+Warden's Apprentice. UlrichTheTall hasn't played since Jun 22. Froggy 
+and Otto are effectively inactive. UlrichTheShort has only 1 roll 
+remaining as of the snapshot.
+    </p>
+  </section>
+
+  <footer class="rf">
+    warden-2026-06-30.db · read-only · real player data — do not commit 
+or share &nbsp;·&nbsp; scripts: probe.mjs extract.mjs correlate.mjs
+  </footer>
+
+</div>
+
+</body></html>
