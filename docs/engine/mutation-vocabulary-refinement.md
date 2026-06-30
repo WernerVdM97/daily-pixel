@@ -1,6 +1,6 @@
 ---
 title: Mutation Vocabulary Refinement — Verb Cleanup, NPC Lifecycle & Action-Category Map
-status: decided
+status: shipped
 domain: engine
 phase: poc
 tags: [llm, mutations, engine, prompt, npc, taxonomy]
@@ -181,15 +181,15 @@ Additional evidence (prod snapshot — warden-2026-06-30):
 
 | Task | Status | File(s) |
 |---|---|---|
-| T1 · Types — extend `WorldMutation`, `LlmDecision`, `LlmContext`, `WorldContextResolver` | [ ] | `WorldEngine.ts`, `LlmGateway.ts`, `machine.ts` |
-| T2 · DB migration — `npcs.home_location TEXT` | [ ] | `src/db/migrations/` |
-| T3 · `mutations.ts` — rename + new types + stacked-delta guard | [ ] | `src/engine/action/mutations.ts` |
-| T4 · `prompt-builder.ts` — NPC handles + category map injection | [ ] | `src/llm/prompt-builder.ts` |
-| T5 · `DeepseekLlmGateway.ts` — parse category + resolve handles + pre-roll guard (log) | [ ] | `src/llm/DeepseekLlmGateway.ts` |
-| T6 · `WorldEngineImpl.ts` — resolver id + apply new mutations + collision detection + `reveal_location` frontier | [ ] | `src/engine/WorldEngineImpl.ts` |
-| T7 · `machine.ts` — failure-filter rename + stacked-delta integration | [ ] | `src/engine/action/machine.ts` |
-| T8 · `decision-v11.md` + `PROMPT_VERSION` bump | [ ] | `assets/prompts/`, `src/llm/prompt-builder.ts` |
-| T9 · Tests — mutations, handles, guards, collision, reveal_location, category | [ ] | `tests/` |
+| T1 · Types — extend `WorldMutation`, `LlmDecision`, `LlmContext`, `WorldContextResolver` | [x] | `WorldEngine.ts`, `LlmGateway.ts`, `machine.ts` |
+| T2 · DB migration — `npcs.home_location TEXT` | [x] | `src/db/migrations/202606300001_npc_home_location.ts` |
+| T3 · `mutations.ts` — rename + new types + stacked-delta guard | [x] | `src/engine/action/mutations.ts` |
+| T4 · `prompt-builder.ts` — NPC handles + category map injection | [x] | `src/llm/prompt-builder.ts` |
+| T5 · `DeepseekLlmGateway.ts` — parse category + resolve handles + pre-roll guard (log) | [x] | `src/llm/DeepseekLlmGateway.ts` |
+| T6 · `WorldEngineImpl.ts` — resolver id + apply new mutations + collision detection + `reveal_location` frontier | [x] | `src/engine/WorldEngineImpl.ts` |
+| T7 · `machine.ts` — failure-filter rename + stacked-delta integration | [x] | `src/engine/action/machine.ts` |
+| T8 · `decision-v11.md` + `PROMPT_VERSION` bump | [x] | `assets/prompts/decision-v11.md`, `src/llm/prompt-builder.ts` |
+| T9 · Tests — mutations, handles, guards, collision, reveal_location, category | [x] | `tests/` |
 
 ## Resolved questions
 
