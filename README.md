@@ -42,10 +42,9 @@ Start with
 
 ## Design principles
 
-- **Cheap by default.** Roll resolution, stat math, and templates run without touching an LLM.
 - **Lazy evaluation.** NPCs aren't alive until met. Locations are procedural until visited.
 - **Mobile-first Discord.** ~30 char wide ASCII scenes. One message per daily roll batch.
-- **Optimised for 8 players.** Thematic choice (a fellowship), not a technical limit.
+- **Optimised for ~8 players.** Thematic choice (a fellowship), not a technical limit.
 
 ## Codebase structure
 
