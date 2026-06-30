@@ -1,94 +1,33 @@
-This repo is the source code for **The Warden's Oak**.
+This repo is the source code for **The Warden's Oak** — an async, turn-based, text/ASCII Discord RPG.
 
-When creating or editing ANY files under `docs/`, **read and follow** the conventions in
-**[docs/CONVENTIONS.md](./docs/CONVENTIONS.md)** — most importantly:
+## Always-on guardrails
 
-- every doc carries frontmatter (`title`, `status`, `domain` required);
-- it lives in the matching domain folder (`vision/ game/ engine/ ui/ decisions/ sparks/`);
-- add its line to the map of content in [`docs/README.md`](./docs/README.md).
-- see `docs/templates/doc-template`
-- **no manual line wrapping in prose** — write one logical paragraph as one line and let the editor soft-wrap. Hard-wrapping mid-paragraph (inserting newlines at ~80–95 cols) renders fine but fights Obsidian's editor, which treats one newline as a soft break and expects paragraph = line. Hard breaks belong only where markdown needs them (list items, headings, code fences, table rows).
+These hold on every change, regardless of which skill is active:
 
-Maturity is a frontmatter `status` (`spark → exploring → decided → superseded/shipped/nogo`), never the folder. Resolve conflicts with a `decisions/` record — don't spawn a rival doc.
+- **Never commit directly to `main`** (and never push or checkout `main`/`master`/`dev`). All work lands on `dev` first.
+- **Keep the changelog current.** Every merge into `dev` adds to `[Unreleased]` (or promotes it on a release).
+- **No manual line wrapping in docs prose** — one paragraph = one line; let the editor soft-wrap.
 
----
+## Code comments
 
-## Git conventions
+Comments explain **why**, NOT **what**! omit echo comments that just narrate the next line; keep genuine rationale (edge cases, gotchas, ordering/idempotency caveats).
 
-These rules apply to every agent working on this repo.
+## Skills
 
-### Branch model
+Task- and tool-specific conventions live as auto-discovered skills in [`.claude/skills/`](./.claude/skills/)
 
-| Branch | Purpose |
-|--------|---------|
-| `main` | Production. Releases only. Protected — no direct commits. |
-| `dev`  | Integration. All work lands here first. Changelog must be kept up to date. |
+| Skill               | Use when                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `releasing`         | committing/branching,<br>merging (feat->dev or dev->main)                                                                        |
+| `changelog`         | editing `CHANGELOG.md`                                                                                                           |
+| `prompt-versioning` | editing any LLM prompt under `assets/prompts/` (decision, critic, …) or a `*_VERSION` constant                                   |
+| `docs-authoring`    | creating/editing anything under `docs/`<br>(wraps [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md))                                |
+| `game-development`  | building game systems: orchestrator routing to `game-design`, `multiplayer`, `game-art-static`, `game-art-dynamic`, `game-audio` |
 
-### Rules
+## Other Key files
 
-1. **Never commit directly to `main`.** All changes land on `dev` first.
-2. **`dev` must keep the changelog up to date.** Every merge into `dev` should either add to `[Unreleased]` or, when cutting a release, promote it to a versioned section.
-3. **Hotfixes on `main` must be merged back into `dev`.** If `main` ever receives a direct hotfix (bypassing the normal flow), merge `main` back into `dev` immediately so `dev` doesn't diverge.
-4. **Versioning — POC beta stays on `0.2.x`.** For the whole POC beta, **bump the patch only** (`0.2.2 → 0.2.3 → 0.2.4 → …`). Do **not** bump the minor (`0.3.x`) or major — `0.3.0` is reserved for the end of POC beta. `VERSION` holds the bare number (no `v`); tags and release-notes filenames carry the `v` prefix (`v0.2.x`).
-5. **Cutting a release:**
-   - Merge `dev` into `main` (`--no-ff`).
-   - Bump the **patch** in `VERSION` (e.g. `0.2.2` → `0.2.3`).
-   - Add a changelog entry for the new version (promote `[Unreleased]` → `[0.2.x]` with today's date).
-   - Add player-facing release notes at `assets/release-notes/v0.2.x.yml` matching the new tag (see **Release-notes conventions** below).
-   - Tag the release commit (`git tag -a v0.2.x -m "..."`).
-   - Push the tag (`git push origin v0.2.x`).
-6. **Merge strategy:** `--no-ff` (no fast-forward) on all merges into `main` so the merge commits are explicit.
-
-### Workflow
-
-```
-dev  ─── feature work ─── changelog ─── merge ─── feature work ───
-                                      \               /
-main ────────────────────────────────── v0.x.y ──────── tag
-```
-
-## System prompt conventions
-
-The LLM decision prompt is versioned: `assets/prompts/decision-prompts/decision-<version>.md`, selected by `PROMPT_VERSION` in `src/llm/prompt-builder.ts` (stamped on every action row for data mining).
-
-When modifying the system prompt:
-
-1. **Never edit a published version in place** — add a new `decision-v<N+1>.md` and bump `PROMPT_VERSION`, so historical action rows stay attributable to the prompt that produced them.
-2. **Always copy the latest prompt to `current_source.md`** in the same folder. It is the canonical "current" mirror — keep it byte-identical to the active versioned file.
-
-## Release-notes conventions
-
-Player-facing release notes live in `assets/release-notes/v<tag>.yml` — **one file per release tag** (e.g. `v0.2.3.yml`). On boot, if the running tag (`v<VERSION>`) differs from the stored `last_release_announced` meta and a matching file exists, the bot posts the notes to the announcement channel with a **Request / Feedback** button, then stamps the meta so it fires exactly once per tag.
-
-When cutting a release:
-
-1. **Add a notes file matching the new tag** (`v0.2.x.yml`) with `tag`, `title`, and a non-empty `highlights` list (optional `date`, `notes`). No file → nothing is posted (and the meta is left untouched, so adding one later still fires on the next boot).
-2. **Keep it non-technical.** Highlights are what's new and fun for players — not migrations, refactors, or internal plumbing. The changelog is the technical record; the notes file is the player's.
-3. **The filename tag must match the git tag exactly** (`v` prefix included), or the announcement won't fire.
-
-## Changelog conventions
-
-`CHANGELOG.md` entries earn their keep by being **scannable**, not exhaustive — one tight line per change, like a good commit subject. The PR, commit, and any `docs/decisions/` record hold the full story; the changelog is the index. Apply this to every entry:
-
-1. **One bullet, one line.** Lead with a **bold subject** naming the change, then an em-dash and the gist in a sentence or two. If you need a paragraph, the detail belongs in the PR/decision doc — link it, don't inline it.
-2. **Say what changed and why it matters, not how it's wired.** Skip the play-by-play of helpers, call sites, and internal flow. Name the new column/env var/method when a reader needs it to act, not to narrate the diff.
-3. **Cut hedging and restatement.** No "previously…/instead of…" retelling of the old behaviour unless the contrast is the point. One clause of rationale beats six.
-4. **Group by Keep-a-Changelog kind** (`Added`/`Changed`/`Fixed`/`Chore`/`Internal`) and keep each bullet in its right group — don't bury a fix inside an Added blurb.
-
-**Verbose is justified only when the reader must *act* on the detail**, not as default narration. Keep the specifics for: required Discord permissions or env vars to set; migrations and schema changes (column names, idempotency, no-op-on-existing-DB caveats); breaking changes and contract shifts; security fixes; anything with an ordering/idempotency gotcha that bites if missed. When in doubt, ask "would a reader skimming the release have to do something because of this line?" — if yes, spell it out; if no, one line.
-
-## Code comment conventions
-
-Comments earn their keep by explaining **why**, not restating **what**. Apply this to every code change:
-
-1. **No echo comments.** Delete any comment that just narrates the next line (`// loop over users` above an obvious loop). The code already says it.
-2. **Keep the why, cut the fluff.** Preserve genuine rationale — non-obvious decisions, edge cases, error-code meanings, idempotency/ordering caveats, API quirks, gotchas — but write it tight. One line beats six whenever the substance survives.
-3. **JSDoc adds info or goes.** Keep `@param`/`@returns` only when they say more than the signature already does. Collapse padded doc blocks to 1-2 lines.
-4. **Section dividers stay short.** `// ── Config ──`-style navigation markers are fine; keep them minimal.
-5. **Verbose only where necessary.** A long comment is justified when it carries load-bearing rationale that would be lost otherwise — not as default narration.
-
-## Agent skills
-
-Project-tailored agent skills live in [`agent/skills/`](./agent/skills/). Expect them to be manually invoked.
-
-- **[`game-development/`](./agent/skills/game-development/SKILL.md)** — orchestrator (`SKILL.md`) routing to sub-skills: `game-design`, `game-audio`, `game-art-static`, `game-art-dynamic`, `multiplayer`.
+| File                                             | What it is                                                                                 |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| [`TODO.md`](./TODO.md)                           | Running scratchpad of pending work.                                                        |
+| [`docs/README.md`](./docs/README.md)             | Map of content for the design vault — index of every design doc.                           |
+| [`db-backups/README.md`](./db-backups/README.md) | Read-only tooling for pulling & inspecting a prod DB snapshot (snapshots never committed). |

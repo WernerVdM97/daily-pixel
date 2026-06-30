@@ -1,6 +1,6 @@
 ---
 name: game-art-static
-description: Static game art principles. Visual style selection, colour/palette, asset organization, readability. For non-animated art (ASCII, sprites, key art).
+description: Static game art principles. Use when choosing visual style, colour/palette, composing ASCII scenes, organizing assets, or improving readability of non-animated art (ASCII, sprites, key art).
 allowed-tools: Read, Glob, Grep
 ---
 

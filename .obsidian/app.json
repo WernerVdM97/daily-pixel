@@ -6,9 +6,7 @@
   "newFileFolderPath": "docs/sparks",
   "attachmentFolderPath": "./assets/new",
   "trashOption": "local",
-  "userIgnoreFilters": [
-    "agent/"
-  ],
+  "userIgnoreFilters": null,
   "showUnsupportedFiles": true,
   "showLineNumber": true,
   "alwaysUpdateLinks": true

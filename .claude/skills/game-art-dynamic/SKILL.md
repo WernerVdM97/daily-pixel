@@ -1,6 +1,6 @@
 ---
 name: game-art-dynamic
-description: Game art principles. Visual style selection, asset pipeline, animation workflow.
+description: Dynamic game art principles. Use when working on animation, the asset pipeline, or dynamic/video rendering (the future MP4 path).
 allowed-tools: Read, Glob, Grep
 ---
 
