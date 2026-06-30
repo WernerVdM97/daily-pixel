@@ -64,7 +64,8 @@ function setup(rollD20: () => number): Ctx {
   return { engine, llm, actionRepo, charId: char.id };
 }
 
-/** First beat: real, rollable options so the action does not auto-finish. */
+/** First beat: two real rollable options (a genuine choice, not the degenerate ≤1-option shape)
+ *  so the action presents rather than auto-finishing or bailing. */
 function firstDecision(baseDc: number): LlmDecision {
   return {
     prompt: 'A wolf circles in the gloom.',
@@ -75,6 +76,7 @@ function firstDecision(baseDc: number): LlmDecision {
     done: false,
     decision: [
       { label: 'Press the attack', dcModifier: 0 },
+      { label: 'Circle around', dcModifier: 1 },
       { label: 'Step back', dcModifier: null },
     ],
     mutations: [],
@@ -148,7 +150,7 @@ describe('decision pipeline — WorldEngineImpl integration', () => {
     ctx.llm.setDecision(firstDecision(10));
     const start = await ctx.engine.startAction(ctx.charId, 'hunt the wolf');
     expect(start.outcome).toBeUndefined(); // not auto-finished
-    expect(start.firstDecision.options).toHaveLength(2);
+    expect(start.firstDecision.options).toHaveLength(3);
 
     ctx.llm.setDecision(
       resolveDecision({
@@ -290,21 +292,62 @@ describe('decision pipeline — WorldEngineImpl integration', () => {
     expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining);
   });
 
-  it('reports the spent roll on a bail (drained at start, never refunded)', async () => {
+  it('refunds the roll on the first bail per day, then keeps it spent on the next', async () => {
     ctx = setup(() => 15);
     const before = ctx.engine.getCharacter(USER_ID)!;
 
+    // First bail today — the roll is handed back (one free mulligan/day, like no-op/timeout).
     ctx.llm.setDecision(firstDecision(12));
     await ctx.engine.startAction(ctx.charId, 'investigate the noise');
-    const step = await ctx.engine.stepAction(ctx.charId, 'Step back');
+    const first = await ctx.engine.stepAction(ctx.charId, 'Step back');
+    expect(first.resolved).toBe(true);
+    if (!first.resolved) return;
+    expect(first.outcome.outcome).toBe('bailed');
+    expect(first.outcome.rollsDelta).toBe(0);
+    expect(first.outcome.rollRefunded).toBe(true);
+    expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining);
 
-    expect(step.resolved).toBe(true);
-    if (!step.resolved) return;
-    expect(step.outcome.outcome).toBe('bailed');
-    // The footer must show the −1 (previously omitted for playerRolled-null bails).
-    expect(step.outcome.rollsDelta).toBe(-1);
-    expect(step.outcome.rollRefunded).toBeFalsy();
+    // Second bail the same day — the grace is used, so the roll is spent (footer shows −1).
+    ctx.llm.setDecision(firstDecision(12));
+    await ctx.engine.startAction(ctx.charId, 'investigate again');
+    const second = await ctx.engine.stepAction(ctx.charId, 'Step back');
+    expect(second.resolved).toBe(true);
+    if (!second.resolved) return;
+    expect(second.outcome.outcome).toBe('bailed');
+    expect(second.outcome.rollsDelta).toBe(-1);
+    expect(second.outcome.rollRefunded).toBeFalsy();
     expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining - 1);
+  });
+
+  it('a degenerate decision (≤1 real option) resolves as a free no-op without draining a roll', async () => {
+    ctx = setup(() => 15);
+    const before = ctx.engine.getCharacter(USER_ID)!;
+
+    // One real option + a bail = the degenerate shape; the retry returns the same, so it bails.
+    ctx.llm.setDecision({
+      prompt: 'You squint at the old key.',
+      distilledType: 'inspect',
+      stat: 'wisdom',
+      baseDc: 12,
+      required: false,
+      done: false,
+      decision: [
+        { label: 'Keep looking', dcModifier: 0 },
+        { label: 'Step back', dcModifier: null },
+      ],
+      mutations: [],
+      outcomeText: '',
+    });
+
+    const res = await ctx.engine.startAction(ctx.charId, 'study the key');
+
+    expect(res.outcome).toBeDefined();
+    if (!res.outcome) return;
+    expect(res.outcome.outcome).toBe('skipped');
+    // System-fault refund: the roll was never drained (start path) and no grace is consumed.
+    expect(res.outcome.rollRefunded).toBe(true);
+    expect(res.outcome.rollsDelta).toBe(0);
+    expect(ctx.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(before.rollsRemaining);
   });
 
   it('resumeAction rehydrates the pending decision from the DB without a new LLM call', async () => {

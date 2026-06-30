@@ -33,6 +33,9 @@ export interface CharacterRow {
   /** game day_number the player last received the free timeout refund (D2) | NULL.
    *  Optional for the same reason as last_noop_refund_day. */
   last_timeout_refund_day?: number | null;
+  /** game day_number the player last received the free bail refund | NULL.
+   *  Optional for the same reason as last_noop_refund_day. */
+  last_bail_refund_day?: number | null;
   created_at: string;
 }
 

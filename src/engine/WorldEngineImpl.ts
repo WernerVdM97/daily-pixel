@@ -887,26 +887,33 @@ export class WorldEngineImpl implements WorldEngine {
           // Link the persisted action row so the outcome's Feedback/Bug buttons can attribute to it.
           startResult.outcome.actionId = res.actionId;
 
-          const charged = startResult.outcome.playerRolled != null || res.worldChanged;
-          // Free no-op refund only if not already used today.
-          const noopAlreadyRefundedToday = row.last_noop_refund_day === today;
-          const debit = charged || noopAlreadyRefundedToday;
-
-          // Re-read: applyResolution may have written a mutation-driven roll change.
-          const afterRes = this.charRepo.findById(characterId)!;
-          const finalRolls = debit
-            ? Math.max(0, afterRes.rolls_remaining - 1)
-            : afterRes.rolls_remaining;
-          if (debit) {
-            this.charRepo.update(characterId, { rolls_remaining: finalRolls });
+          if (startResult.outcome.systemRefund) {
+            // Degenerate decision shape on the very first beat (roll not yet drained here): never
+            // charge and never consume the once-per-day no-op grace — the player got no real choice.
+            startResult.outcome.rollsDelta = 0;
+            startResult.outcome.rollRefunded = true;
           } else {
-            // Free no-op refund — stamp the day so it's once-per-day.
-            this.stampRefundDay(characterId, "last_noop_refund_day", today);
+            const charged = startResult.outcome.playerRolled != null || res.worldChanged;
+            // Free no-op refund only if not already used today.
+            const noopAlreadyRefundedToday = row.last_noop_refund_day === today;
+            const debit = charged || noopAlreadyRefundedToday;
+
+            // Re-read: applyResolution may have written a mutation-driven roll change.
+            const afterRes = this.charRepo.findById(characterId)!;
+            const finalRolls = debit
+              ? Math.max(0, afterRes.rolls_remaining - 1)
+              : afterRes.rolls_remaining;
+            if (debit) {
+              this.charRepo.update(characterId, { rolls_remaining: finalRolls });
+            } else {
+              // Free no-op refund — stamp the day so it's once-per-day.
+              this.stampRefundDay(characterId, "last_noop_refund_day", today);
+            }
+            // Surface the real roll accounting so the footer reflects it instead of guessing:
+            // a no-op refund keeps the roll (delta 0, flagged); a charge spent one.
+            startResult.outcome.rollsDelta = finalRolls - row.rolls_remaining;
+            startResult.outcome.rollRefunded = !debit;
           }
-          // Surface the real roll accounting so the footer reflects it instead of guessing:
-          // a no-op refund keeps the roll (delta 0, flagged); a charge spent one.
-          startResult.outcome.rollsDelta = finalRolls - row.rolls_remaining;
-          startResult.outcome.rollRefunded = !debit;
         })();
 
         // D3: enrich any just-created provisional locations off the critical path.
@@ -1012,7 +1019,32 @@ export class WorldEngineImpl implements WorldEngine {
         // The action drained one roll at start; fold that into the mutation delta so the footer
         // reports the true change (covers bail and rolled resolutions alike — playerRolled-null
         // bails no longer silently omit the −1).
-        result.outcome.rollsDelta = -1 + res.rollsMutationDelta;
+        //
+        // Hand the drained roll back when it's owed:
+        //   • systemRefund — a degenerate-shape no-op (the player got no real choice): unconditional.
+        //   • first bail per char per day — mirrors the no-op/timeout grace; stepping back still
+        //     costs stamina, just not your one daily mulligan. Later bails that day keep the roll.
+        const today = this.currentDayNumber();
+        const systemRefund = result.outcome.systemRefund === true;
+        const bailRefunded =
+          result.outcome.outcome === "bailed" && row.last_bail_refund_day !== today;
+        if (systemRefund || bailRefunded) {
+          const allowance =
+            DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
+          const afterRes = this.charRepo.findById(characterId)!;
+          this.charRepo.update(characterId, {
+            rolls_remaining: Math.min(allowance, afterRes.rolls_remaining + 1),
+          });
+          // The bail grace is once-per-day, so stamp it; the system-fault refund is unconditional
+          // and burns no grace.
+          if (bailRefunded && !systemRefund) {
+            this.stampRefundDay(characterId, "last_bail_refund_day", today);
+          }
+          result.outcome.rollsDelta = res.rollsMutationDelta;
+          result.outcome.rollRefunded = true;
+        } else {
+          result.outcome.rollsDelta = -1 + res.rollsMutationDelta;
+        }
         // Link the persisted action row so the outcome's Feedback/Bug buttons can attribute to it.
         result.outcome.actionId = res.actionId;
       })();
@@ -1656,7 +1688,7 @@ export class WorldEngineImpl implements WorldEngine {
   /** Stamp a per-day refund-grace column on a character (via the repo update whitelist). */
   private stampRefundDay(
     characterId: number,
-    column: "last_noop_refund_day" | "last_timeout_refund_day",
+    column: "last_noop_refund_day" | "last_timeout_refund_day" | "last_bail_refund_day",
     day: number,
   ): void {
     this.charRepo.update(characterId, { [column]: day });

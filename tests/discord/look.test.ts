@@ -80,8 +80,9 @@ describe("/look", () => {
 		const result = await handler({ user: { id: "user-1" } } as never);
 
 		expect(result).toContain("🧭 Paths");
-		// Difficulty leads, then the compass arrow only (no letter / → arrow).
-		expect(result).toContain("🚶 ⬆️ Town Square");
+		// Difficulty leads, the compass arrow (no letter / → arrow), then the destination's own
+		// glyph + safety. (The mock returns one location for any name, so the glyph is the Oak's.)
+		expect(result).toContain("🚶 ⬆️ 🌳🛡️ Town Square");
 		expect(result).toContain("🏃 ➡️ *uncharted* — _the road to the eastern town_");
 		expect(result).not.toMatch(/⬆️ N\b/); // no direction letter
 	});

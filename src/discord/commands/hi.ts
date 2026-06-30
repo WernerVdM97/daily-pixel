@@ -177,10 +177,14 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
 
     const header = formatCharacterHeader(character);
     const location = engine.getLocation(character.location);
-    const locEmoji = location?.isSafe ? "🛡️" : "⚠️";
+    // Resolve the place's own map glyph (📍 fallback) + safety, mirroring /look and the map
+    // tree — not a hardcoded 🏠 (which lied at every location that wasn't the Oak).
+    const placeGlyph = location
+      ? `${location.emoji ?? "📍"} ${location.isSafe ? "🛡️" : "⚠️"}`
+      : "📍";
     const locationLine = location
-      ? `🏠 ${locEmoji} **${location.name}** — Use \`look\` for the full scene.`
-      : `🏠 **${character.location}** — Use \`look\` for the full scene.`;
+      ? `${placeGlyph} **${location.name}** — Use \`look\` for the full scene.`
+      : `📍 **${character.location}** — Use \`look\` for the full scene.`;
 
     // Weekend hooks, otherwise day-job actions
     const weekend = isWeekend();

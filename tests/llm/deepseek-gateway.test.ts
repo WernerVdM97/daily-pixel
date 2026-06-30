@@ -468,7 +468,10 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
           message: { content: JSON.stringify({
             distilled_type: 'talk', stat: 'charisma', base_dc: 10,
             required: false, done: false,
-            decision: [{ label: 'Greet them warmly', dc_modifier: 0 }],
+            decision: [
+              { label: 'Greet them warmly', dc_modifier: 0 },
+              { label: 'Hang back and watch', dc_modifier: -1 },
+            ],
           }), reasoning_content: '' },
           finish_reason: 'stop',
         }],

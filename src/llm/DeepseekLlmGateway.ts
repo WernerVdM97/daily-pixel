@@ -674,6 +674,15 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       }
     }
 
+    // Degenerate decision shape (polish-v0.2.7 Bug #2 / mutation-vocabulary §5a universal guard):
+    // exactly one real option is a beat with no real choice. Zero is fine — that's the "resolve
+    // outright" signal handled above. Flag it as mineable telemetry; the state machine acts on it
+    // (retry → refundable bail). Logged here so the FIRST degenerate call is always captured.
+    const realOptions = d.decision.filter(o => o.dcModifier !== null);
+    if (realOptions.length === 1) {
+      warnings.push('degenerate decision shape — exactly 1 real option (no real choice for the player)');
+    }
+
     if (warnings.length > 0) {
       console.warn(c.yellow('[llm:validate]'), warnings.join('; '));
       console.warn(c.yellow('[llm:validate] raw response:'), JSON.stringify(raw).slice(0, 500));

@@ -88,6 +88,7 @@ describe('migrate', () => {
       'health',
       'id',
       'last_action_state',
+      'last_bail_refund_day',
       'last_noop_refund_day',
       'last_played_at',
       'last_rested_day',

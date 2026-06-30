@@ -127,8 +127,9 @@ describe('renderMap', () => {
     expect(out).toContain("🏛️🛡️ **Town Square** · The Vale");
     // The Oak is NORTH of Town Square in the seed (Oak→N→Town Square), so from the Square
     // the Oak reads SOUTH (⬇️); the Forge sits east (➡️). No region tree, no other regions' nodes.
-    expect(out).toContain("⬇️ The Warden's Oak");
-    expect(out).toContain("➡️ The Town Forge");
+    // Road lines now carry the destination's own glyph + safety (full-map node parity).
+    expect(out).toContain("⬇️ 🌳🛡️ The Warden's Oak");
+    expect(out).toContain("➡️ 🔥🛡️ The Town Forge");
     expect(out).not.toContain('**The Vale** (home)'); // node view, not the region tree
     expect(out).not.toContain('The Forest Edge'); // not connected to Town Square
   });

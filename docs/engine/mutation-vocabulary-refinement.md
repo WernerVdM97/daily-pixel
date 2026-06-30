@@ -139,6 +139,25 @@ The `category → expected-mutations` map lives in code as the **single source o
 - [-] **Not** hard-dropped. D&D is emergent — a `social` turn can erupt into a stabbing, and the LLM then legitimately needs `modify_health`. Hard-dropping would break emergent scenes and largely duplicates the failure-filter.
 - [p] Payoff: prompt + filter generated from one definition (no drift) **and** a balancing signal ("the LLM keeps emitting `modify_wealth` on `combat`") without constraining play.
 
+### 5a. Per-category deterministic guards (generalises §5) — added 2026-06-30
+
+§5's "unexpected mutation" flag is the **first instance of a broader pattern**: each `category` carries its own set of **deterministic guards** over the resolved decision, because what counts as a malformed result differs by action type. This is the home for the validation ideas surfaced by the dev-DB review in [[polish-v0.2.7]] — folding them here rather than scattering one-off checks.
+
+- [!] **Why it must key off `category`, not a single action type.** An action's type **legitimately evolves across decision steps** — observed in the dev DB: action #24 "Study the key" distilled step 1 → `investigate`/`search`, step 2 → `social` (asked the Warden, then examined). That flip-flop is **correct**, not a bug — a turn can start as a search and become a conversation. So a guard is evaluated against the **step's own `category`** (and the resolution's), never a flattened whole-action label. `distilled_type` stays free-text flavour (§4); the closed `category` enum is the guard key.
+
+The contract every guard shares:
+
+- [I] **Keyed by `category`** — `rest` guards differ from `combat` guards (a `rest` that ends with the player *worse off*, a `combat` with zero stamina/health movement, a `search` that yields nothing yet charges full cost). Plus a small **universal** bucket for shape checks that aren't category-specific (e.g. a decision beat reaching the player with ≤1 real option).
+- [!] **Always logs to the DB when tripped** — a structured guard-violation capture (extends the existing `validation_warnings` column / telemetry), so **every break is mineable whether or not we act on it**. This half is non-negotiable: detection is always recorded.
+- [I] **Optionally acts** — per guard, one configurable action: **clamp** (rewrite the mutation — e.g. collapse stacked same-axis `modify_stamina` deltas and cap per-turn drain), **flag** (log only, ship as-is — today's §5 default), **bail** (resolve as a refundable no-op back to the player), or **retry** (re-request the decision). Defaulting a new guard to *log-only* lets us turn on enforcement once the telemetry says it's safe.
+
+Evidence already in hand (dev DB — [[polish-v0.2.7]]):
+
+- [c] **Stacked scalar deltas** — action #24 applied `modify_stamina −1` **and** `−2` in one resolution (−3 total) on a *failed* turn. A clamp guard (collapse same-axis deltas, cap per-turn cost) is the lowest-risk first enforcement; this is what the player felt as "3 stamina to look at a key."
+- [c] **Degenerate decision shape** — a beat reaching the player with a single real option (the [[polish-v0.2.7]] Bug #2). A universal shape guard → retry-then-bail.
+
+- [>] **Sequencing.** The guard *framework* needs the `category` enum (§4), so it rides the **v11** bump. The two evidence items above are category-agnostic clamps/shape-checks, so [[polish-v0.2.7]] may ship them standalone (log + clamp) ahead of v11, then re-home them under this framework once the enum lands.
+
 ### 6. Forward note → 0.3.0 two-pass prompt (ties to [[prompt-v12-scaling-and-pipeline]], the **v12** set)
 
 - [>] Today's soft map is a **stepping stone**. In the larger prompt refactor (v12 thread D — *classify → decide → resolve pipeline*), move to a **two-pass flow**: derive the `category` first, then **dynamically inject only that category's mutation sub-vocabulary** into the second prompt. A smaller, focused mutation menu per call should sharpen adherence and shrink the prompt. The soft map built here becomes the data source that two-pass flow reads from.

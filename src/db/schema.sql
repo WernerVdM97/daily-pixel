@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS player_characters (
   last_rested_day   INTEGER,           -- game day_number the player last rested at the Oak | NULL
   last_noop_refund_day    INTEGER,     -- game day_number the player last got the free no-op refund (D1) | NULL
   last_timeout_refund_day INTEGER,     -- game day_number the player last got the free timeout refund (D2) | NULL
+  last_bail_refund_day    INTEGER,     -- game day_number the player last got the free bail refund | NULL
   created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

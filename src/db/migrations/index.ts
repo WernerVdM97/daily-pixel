@@ -10,6 +10,7 @@ import { migration as llmCallCriticSeverity } from './202606260000_llm_call_crit
 import { migration as feedbackBugActionId } from './202606260001_feedback_bug_action_id.js';
 import { migration as geography } from './202606270000_geography.js';
 import { migration as feedbackBugAppVersion } from './202606280000_feedback_bug_app_version.js';
+import { migration as playerLastBailRefundDay } from './202606300000_player_last_bail_refund_day.js';
 
 /**
  * All migrations in apply order. Append new ones at the end — the runner applies
@@ -28,4 +29,5 @@ export const MIGRATIONS: Migration[] = [
   feedbackBugActionId,
   geography,
   feedbackBugAppVersion,
+  playerLastBailRefundDay,
 ];

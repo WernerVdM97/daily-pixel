@@ -92,6 +92,7 @@ import { announceCollapse, setCollapseBroadcaster } from "./discord/collapse.js"
 import {
   pickWeeklyThreat,
   buildThreatAnnouncement,
+  buildThreatHeadsUp,
   buildLeaderboardAnnouncement,
   LEADERBOARD_MARKER,
 } from "./discord/afternoon.js";
@@ -158,6 +159,11 @@ if (!ADMIN_USER_ID) {
 
 const VERBOSE = process.env.VERBOSE === "true";
 const TICK_CHANNEL_ID = process.env.TICK_CHANNEL_ID ?? "";
+
+/** Commands that need a character; running one without one reroutes to the join wizard. */
+const CHARACTER_GATED_COMMANDS = new Set([
+  "hi", "look", "action", "stats", "backpack", "journal", "map", "sleep",
+]);
 
 // ── Version ──
 
@@ -622,6 +628,14 @@ async function runMorningAnnouncement(
       lines.push(
         `─ ${playersAffected} soul(s) stirred, ${npcMovementCount} NPC(s) on the move.`,
       );
+    }
+
+    // Saturday: fold an early heads-up of the day's wilderness threat into the dawn message, so the
+    // warning lands at 05:30 — not only at the 12:00 reveal (which names + spawns the foe).
+    const now = new Date();
+    if (now.getUTCDay() === 6) {
+      lines.push("");
+      lines.push(buildThreatHeadsUp(pickWeeklyThreat(now)));
     }
 
     const channel = await client.channels.fetch(channelId);
@@ -1490,8 +1504,20 @@ ${headInfo}`);
         return;
       }
 
+      // Reroute character-gated surfaces to the join wizard when the player has no character yet,
+      // instead of dead-ending on a "type /join" string. The join handler owns its own
+      // defer/editReply flow, so the early-return below (replied/deferred) takes over from here.
+      let activeHandler = handler;
+      if (
+        CHARACTER_GATED_COMMANDS.has(commandName) &&
+        !engine.characterExists(interaction.user.id)
+      ) {
+        const joinHandler = registry.get("join");
+        if (joinHandler) activeHandler = joinHandler;
+      }
+
       try {
-        const result = await handler(interaction);
+        const result = await activeHandler(interaction);
         // join/action manage their own flow — skip if already replied.
         if (interaction.replied || interaction.deferred) return;
 

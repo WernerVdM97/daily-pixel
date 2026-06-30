@@ -5,6 +5,22 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+### Added
+- **One free bail per day** — the first time you step back from a decision each day refunds the roll (mirrors the no-op/timeout "made whole" graces); later bails that day still spend it, and bailing always costs stamina. Guarded migration `202606300000_player_last_bail_refund_day` adds `player_characters.last_bail_refund_day` (own column so the bail grace never burns — or is burned by — the no-op/timeout graces).
+
+### Changed
+- **`/hi` header shows the place's own glyph** — drops the hardcoded 🏠 for the location's map emoji (📍 fallback) + safety glyph, mirroring the 0.2.6 `/look` fix.
+- **Character-gated commands reroute to character creation** — running `/hi` (or `/look`, `/stats`, `/map`, `/backpack`, `/journal`, `/action`, `/sleep`) before you have a character now opens the join wizard instead of a "type /join" dead-end.
+- **`/look` paths and `/map` drill-in roads show the destination's glyph** — each path/road line carries the destination's place emoji + safe/wild glyph (full-map node parity), not just its name.
+- **`/join` options show their stat bonuses** — classes, backgrounds, races, and starting kits display the stats each boosts as emoji (💪/🧠/📖/💬 with signed amounts), not only free-text flavour.
+- **`/backpack` item lists get box-drawing rails** — items hang off each stat group with `├─ │ └─` connectors, matching `/map`.
+- **Saturday threat warned at dawn** — the wilderness-threat heads-up folds into the 05:30 morning message (place + hint); the full reveal and NPC spawn still happen at the 12:00 beat.
+
+### Fixed
+- **Degenerate decision beats no longer reach the player** — a beat that would present ≤1 real option (no real choice) is retried once; if still degenerate it resolves as a refundable no-op (the roll is free, no grace consumed) rather than a dead-end single-button "decision". The degenerate first call is always logged to `llm_calls.validation_warnings`. Universal shape guard from [[mutation-vocabulary-refinement]] §5a, shipped standalone ahead of the v11 framework.
+
+### Internal
+- **`ActionOutcome.systemRefund`** — engine flag marking a system-fault no-op (degenerate decision shape) that always hands the roll back, independent of the per-day no-op/timeout/bail graces. The per-turn **stamina clamp** (polish-v0.2.7 Feedback #1) is deferred to v11 — per-action-type caps key off the `category` enum the mutation refactor introduces.
 
 ## [0.2.6] - 2026-06-28
 ### Added
