@@ -84,13 +84,26 @@ export class ActionStateMachine {
     }
 
     const context = this.buildContext(char, rawInput, [], items);
-    const decision = await this.llm.decide(context);
+    let decision = await this.llm.decide(context);
+
+    // Degenerate-shape guard (universal, mutation-vocabulary §5a): a beat about to be PRESENTED
+    // with exactly one real option is no real choice. (Zero real options is the resolve-outright
+    // signal handled just below; ≥2 is healthy.) Retry the decision once — the gateway logs the
+    // degenerate first call to validation_warnings. We keep the first call's audit id either way.
+    let realOptions = decision.decision.filter(o => o.dcModifier !== null);
+    // `done` is a resolve-now signal (handled below), not a beat to present — never degenerate.
+    const presentable = !decision.done && decision.distilledType !== DIVINE_INTERVENTION_TYPE;
+    let priorCallIds: number[] = [];
+    if (presentable && realOptions.length === 1) {
+      priorCallIds = decisionCallIds(decision);
+      decision = await this.llm.decide(context);
+      realOptions = decision.decision.filter(o => o.dcModifier !== null);
+    }
 
     // Auto-finish: no real choices and not a forced reaction (e.g. travel/rest). Infer completion
     // from the absence of real options rather than trusting the LLM's `done` flag — without it the
     // only alternative is a lone "Step back" dead-end, so resolve immediately as neutral `done`.
     // Divine intervention is excluded — the engine handles it separately (no action row).
-    const realOptions = decision.decision.filter(o => o.dcModifier !== null);
     if (
       !decision.required &&
       realOptions.length === 0 &&
@@ -101,7 +114,7 @@ export class ActionStateMachine {
         `LLM returned ${decision.decision.length} option(s), 0 real (only step-back)` +
         `${decision.done ? '' : '; done:false → inferred from no options'} | input: "${rawInput}"`,
       );
-      const callIds = decisionCallIds(decision);
+      const callIds = [...priorCallIds, ...decisionCallIds(decision)];
       const state: InternalActionState = {
         rawInput,
         decisions: [],
@@ -135,6 +148,16 @@ export class ActionStateMachine {
       };
     }
 
+    // Still degenerate after the retry, and not a forced reaction: resolve as a refundable no-op
+    // rather than dead-ending the player on a single-button "decision". Required reactions can't
+    // bail, so they fall through and present the lone option.
+    if (presentable && !decision.required && !decision.done && realOptions.length === 1) {
+      return this.degenerateNoOp(
+        decision, rawInput, [], decision.baseDc, kind, wage,
+        [...priorCallIds, ...decisionCallIds(decision)],
+      );
+    }
+
     const firstDecision = this.toActionDecision(decision, decision.required);
 
     const state: InternalActionState = {
@@ -148,7 +171,7 @@ export class ActionStateMachine {
       lastActionAt: Date.now(),
       kind,
       wage,
-      llmCallIds: decisionCallIds(decision),
+      llmCallIds: [...priorCallIds, ...decisionCallIds(decision)],
     };
 
     return { resolved: false, state, firstDecision };
@@ -218,18 +241,37 @@ export class ActionStateMachine {
     const isLastDecision = state.decisions.length >= 1; // third+ decision capped
 
     const context = this.buildContext(char, state.rawInput, recordToPrev(newDecisions), items);
-    const decision = await this.llm.decide(context);
+    let decision = await this.llm.decide(context);
+    let realOptions = decision.decision.filter(o => o.dcModifier !== null);
+
+    // Degenerate-shape guard (universal, mutation-vocabulary §5a): if this beat would be PRESENTED
+    // (not resolving at the cap / on `done` / with zero real options) yet offers only one real
+    // option, retry the decision once — the gateway logs the degenerate first call. Keep both
+    // calls' audit ids.
+    let priorCallIds: number[] = [];
+    if (!isLastDecision && !decision.done && realOptions.length === 1) {
+      priorCallIds = decisionCallIds(decision);
+      decision = await this.llm.decide(context);
+      realOptions = decision.decision.filter(o => o.dcModifier !== null);
+    }
 
     // Resolve at the decision cap, on the legacy `done` flag, or (canonical v8 signal) when no real
     // options are returned. E3 contract: empty real-options is the primary "resolve now" signal;
     // `done` is a backstop so a model still emitting it resolves cleanly rather than dead-ending on
     // a lone "Step back". Roll FIRST, then narrate so prose + mutations match the dice. Accumulate
     // this beat's call id(s) onto the running chain.
-    const callIds = [...(state.llmCallIds ?? []), ...decisionCallIds(decision)];
+    const callIds = [...(state.llmCallIds ?? []), ...priorCallIds, ...decisionCallIds(decision)];
 
-    const realOptions = decision.decision.filter(o => o.dcModifier !== null);
     if (isLastDecision || decision.done || realOptions.length === 0) {
       return this.resolveWithRoll({ ...stateWithStat, llmCallIds: callIds }, char, items, newDc, newDecisions);
+    }
+
+    // Still degenerate after the retry, and not a forced reaction → refundable no-op rather than a
+    // one-button beat. Required reactions can't bail, so they present the lone option below.
+    if (realOptions.length === 1 && !state.required) {
+      return this.degenerateNoOp(
+        decision, state.rawInput, newDecisions, newDc, state.kind, state.wage, callIds,
+      );
     }
 
     // Continue — adopt the new decision's distilled type.
@@ -347,6 +389,54 @@ export class ActionStateMachine {
     };
   }
 
+  /**
+   * Degenerate decision-shape bail (mutation-vocabulary §5a universal guard). After a retry still
+   * left the player with a single real option, resolve as a no-op that writes no mutations and is
+   * flagged `systemRefund` so the engine always hands the roll back — the player never got a real
+   * choice, so the turn is free (the gateway already logged the degenerate call to telemetry).
+   */
+  private degenerateNoOp(
+    decision: LlmDecision,
+    rawInput: string,
+    decisions: ActionDecisionRecord[],
+    accumulatedDc: number,
+    kind: ActionKind | undefined,
+    wage: number | undefined,
+    callIds: number[],
+  ): { resolved: true; state: InternalActionState; outcome: ActionOutcome } {
+    console.warn(
+      `[action] degenerate decision shape after retry — ${decision.distilledType}: ` +
+      `${decision.decision.length} option(s), 1 real. Resolving as refundable no-op | input: "${rawInput}"`,
+    );
+    const state: InternalActionState = {
+      rawInput,
+      decisions,
+      accumulatedDc,
+      pendingDecision: this.toActionDecision(decision, decision.required),
+      distilledType: decision.distilledType,
+      rollStat: decision.stat,
+      required: decision.required,
+      lastActionAt: Date.now(),
+      kind,
+      wage,
+      llmCallIds: callIds,
+    };
+    return {
+      resolved: true,
+      state,
+      outcome: {
+        distilledType: decision.distilledType,
+        finalDc: accumulatedDc,
+        playerRolled: null,
+        outcome: 'skipped',
+        mutations: [],
+        outcomeText: DEGENERATE_NOOP_MESSAGE,
+        systemRefund: true,
+        llmCallIds: callIds,
+      },
+    };
+  }
+
   private toActionDecision(llm: LlmDecision, required = false): ActionDecision {
     // Reactive actions strip bail options.
     let options = required
@@ -451,6 +541,10 @@ function decisionCallIds(d: LlmDecision): number[] {
 
 /** Stamina cost for bailing out of a real (consequential) decision. Skip/Finish cost nothing. */
 const BAIL_STAMINA_COST = 1;
+
+/** Shown when the degenerate-shape guard resolves a no-real-choice beat as a refundable no-op. */
+const DEGENERATE_NOOP_MESSAGE =
+  'The path ahead blurred — the moment offered no real choice. Nothing came of it, and your roll has been **refunded**. Try again when you\'re ready.';
 
 /** Flat extra stamina cost on a failed roll, so a loss carries real weight. */
 const FAILURE_STAMINA_PENALTY = 2;

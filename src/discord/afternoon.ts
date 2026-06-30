@@ -90,6 +90,22 @@ export function pickWeeklyThreat(now: Date): WildernessThreat {
   return WILDERNESS_THREATS[weeklyThreatIndex(now)];
 }
 
+/**
+ * The dawn (05:30) heads-up that a wilderness threat looms this Saturday — the early warning
+ * that precedes the midday reveal (which names the foe and spawns it). Deterministic per week
+ * via `pickWeeklyThreat`, so the warning matches the noon announcement. Names the place + hint
+ * but holds back the foe's name, so the midday beat still lands.
+ */
+export function buildThreatHeadsUp(threat: WildernessThreat): string {
+  return [
+    "⚔️ **The weekend brings danger.**",
+    "",
+    `Word from the wild tells of trouble at **${threat.location}**. ${threat.hint}`,
+    "",
+    "Ready your kit — by midday the Oak will know what stalks there.",
+  ].join("\n");
+}
+
 /** The Saturday threat announcement body. */
 export function buildThreatAnnouncement(threat: WildernessThreat): string {
   return [

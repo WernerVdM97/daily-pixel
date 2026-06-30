@@ -119,7 +119,10 @@ function renderNodeFocus(
   roads.sort((a, b) => directionRank(a.dir) - directionRank(b.dir));
   roads.forEach((r, i) => {
     const connector = i === roads.length - 1 ? "└─ " : "├─ ";
-    out.push(`${connector}${effortGlyph(r.difficulty)} ${directionArrow(r.dir)} ${r.name}`.replace(/ {2,}/g, " ").trimEnd());
+    // Full-map node parity: the destination's own place emoji + safety glyph, not just its name.
+    const dest = byName.get(r.name);
+    const destGlyph = dest ? `${dest.emoji ?? "📍"}${dest.isSafe ? "🛡️" : "⚠️"} ` : "";
+    out.push(`${connector}${effortGlyph(r.difficulty)} ${directionArrow(r.dir)} ${destGlyph}${r.name}`.replace(/ {2,}/g, " ").trimEnd());
   });
 
   const frontiers = graph.frontiers

@@ -123,6 +123,10 @@ export interface ActionOutcome {
   /** True when a no-op refund returned the roll (nothing changed, so the action was free). Drives
    *  the footer's "(refunded)" tag so an unchanged roll count isn't mistaken for a bug. */
   rollRefunded?: boolean;
+  /** True when the engine must ALWAYS hand the roll back regardless of the per-day no-op/timeout/bail
+   *  graces — a system-side fault, not a player choice. Set by the degenerate decision-shape guard
+   *  (≤1 real option after a retry): the player never got a real choice, so the roll is free. */
+  systemRefund?: boolean;
 }
 
 export interface ActionResumeResult {

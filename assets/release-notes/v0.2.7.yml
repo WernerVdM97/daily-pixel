@@ -1,0 +1,21 @@
+# Player-facing release notes for tag v0.2.7.
+# Keep it non-technical — what's new and fun, not migrations/refactors.
+# Posted automatically to the announcement channel the first time the bot
+# boots on this tag. One file per tag: assets/release-notes/<tag>.yml.
+
+tag: "v0.2.7"
+title: "A Lick of Polish"
+date: "2026-06-30"
+
+highlights:
+  - "🎲 **One free change of heart a day.** The first time you step back from a decision each day, your roll is handed right back — no harm in thinking twice. (After that, retreating costs you, so choose your battles.)"
+  - "🛡️ **No more dead-end decisions.** If a moment ever offered you no real choice, you'd lose a roll for nothing. Now the Warden quietly tries again — and if there's still no real decision to make, the turn is free."
+  - "🧰 **`/join` shows what each choice makes you good at.** Classes, backgrounds, races, and starting kits now flag the stats they boost (💪 🧠 📖 💬) right next to the option, so you can build the hero you want."
+  - "🧭 **Signposts everywhere.** `/look` and `/map` now mark where each road leads with the destination's own emoji and a safe/wild flag, `/hi` shows the badge of the place you're actually standing in, and `/backpack` lays your gear out in a tidy tree."
+  - "⚔️ **Earlier warning of weekend danger.** The Saturday threat now gets a heads-up in the dawn announcement, so you have all day to gather your kit before you go meet it."
+  - "👋 **New here? Just say `/hi`.** Run almost any command before you've made a character and you'll be taken straight to character creation instead of bouncing off an error."
+
+notes: >
+  A grab-bag of polish drawn straight from your feedback — kinder rolls, clearer
+  choices, and signposts on every path. Keep the notes coming; the small stuff
+  is exactly what makes the Oak feel like home.

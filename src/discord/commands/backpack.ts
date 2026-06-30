@@ -61,12 +61,14 @@ export function formatBackpack(items: ItemData[]): string {
     lines.push("");
     lines.push(`${info.emoji} **${info.full}** (${totalStr})`);
 
-    for (const item of groupItems) {
+    // Box-drawing rails like /map: items hang off the stat header, last one closes with └─.
+    groupItems.forEach((item, j) => {
+      const connector = j === groupItems.length - 1 ? "└─ " : "├─ ";
       const modStr =
         item.modifier >= 0 ? `+${item.modifier}` : `${item.modifier}`;
       const qtyStr = item.quantity > 1 ? ` x${item.quantity}` : "";
-      lines.push(`  ${item.emoji} ${item.name} ${modStr}${qtyStr}`);
-    }
+      lines.push(`${connector}${item.emoji} ${item.name} ${modStr}${qtyStr}`);
+    });
   }
 
   // Utility items (0-modifier)
@@ -74,10 +76,11 @@ export function formatBackpack(items: ItemData[]): string {
   if (utility) {
     lines.push("");
     lines.push("📦 **Utility**");
-    for (const item of utility) {
+    utility.forEach((item, j) => {
+      const connector = j === utility.length - 1 ? "└─ " : "├─ ";
       const qtyStr = item.quantity > 1 ? ` x${item.quantity}` : "";
-      lines.push(`  ${item.emoji} ${item.name}${qtyStr}`);
-    }
+      lines.push(`${connector}${item.emoji} ${item.name}${qtyStr}`);
+    });
   }
 
   return lines.join("\n");
