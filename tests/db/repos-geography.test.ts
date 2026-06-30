@@ -44,6 +44,27 @@ describe('LocationEdgeRepository', () => {
     expect(forest?.difficulty).toBe(2);
   });
 
+  it('neighbours returns directions as seen from the queried node (reverse edges are inverted)', () => {
+    // Stored edge: Oak → Town Square, direction N.
+    // Forward (from Oak): Town Square shows as N — unchanged.
+    const fromOak = edges.neighbours("The Warden's Oak").find((n) => n.name === 'Town Square');
+    expect(fromOak?.direction).toBe('N');
+
+    // Reverse (from Town Square): Oak shows as S — opposite of the stored N.
+    const fromSquare = edges.neighbours('Town Square').find((n) => n.name === "The Warden's Oak");
+    expect(fromSquare?.direction).toBe('S');
+
+    // Stored edge: Oak → Forest Edge, direction S.
+    // Reverse (from Forest Edge): Oak shows as N.
+    const fromForest = edges.neighbours('The Forest Edge').find((n) => n.name === "The Warden's Oak");
+    expect(fromForest?.direction).toBe('N');
+
+    // Intercardinal: stored edge Oak → Shrine of the First Flame, direction NE.
+    // Reverse (from Shrine): Oak shows as SW — opposite of NE.
+    const fromShrine = edges.neighbours('The Shrine of the First Flame').find((n) => n.name === "The Warden's Oak");
+    expect(fromShrine?.direction).toBe('SW');
+  });
+
   it('frontierExits returns only dangling exits with their teaser', () => {
     const exits = edges.frontierExits('The East Road');
     expect(exits).toHaveLength(1); // East Road also has a charted edge to Broken Keep — excluded

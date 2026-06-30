@@ -85,6 +85,48 @@ describe('renderMap', () => {
     expect(lines.findIndex((l) => l.includes('Newer'))).toBeLessThan(lines.findIndex((l) => l.includes('Older')));
   });
 
+  it('effectiveRegion climbs multiple hops (null → null → region grandparent)', () => {
+    const g: DiscoveredGraph = {
+      current: "The Warden's Oak",
+      nodes: [
+        node("The Warden's Oak", { nodeTier: 0, region: 'The Vale', lastVisitedAt: '2026-06-10' }),
+        node('Waypoint', { region: null, lastVisitedAt: '2026-06-08' }),
+        node('Deep Cave', { region: null, lastVisitedAt: '2026-06-05' }),
+      ],
+      edges: [
+        { from: "The Warden's Oak", to: 'Waypoint', direction: 'S', difficulty: 2, flavour: null },
+        { from: 'Waypoint', to: 'Deep Cave', direction: 'S', difficulty: 3, flavour: null },
+      ],
+      frontiers: [],
+    };
+    const out = renderMap('Test', g);
+    // Deep Cave: no region; Waypoint: no region; grandparent Oak: The Vale → both inherit.
+    expect(out).toContain('**The Vale** (home)');
+    expect(out).toContain('Deep Cave');
+    expect(out).not.toContain('**Elsewhere**');
+  });
+
+  it('a null-region node inherits the region of its nearest BFS ancestor (feedback #14)', () => {
+    // Old Watchtower scenario: a node with region = null should group with its parent's
+    // region instead of landing in the "Elsewhere" catch-all.
+    const g: DiscoveredGraph = {
+      current: "The Warden's Oak",
+      nodes: [
+        node("The Warden's Oak", { nodeTier: 0, region: 'The Vale', lastVisitedAt: '2026-06-10' }),
+        node('Old Watchtower', { region: null, lastVisitedAt: '2026-06-05' }),
+      ],
+      edges: [
+        { from: "The Warden's Oak", to: 'Old Watchtower', direction: 'NE', difficulty: 2, flavour: null },
+      ],
+      frontiers: [],
+    };
+    const out = renderMap('Test', g);
+    // Node groups under The Vale (parent's region), not under Elsewhere.
+    expect(out).toContain('**The Vale** (home)');
+    expect(out).toContain('Old Watchtower');
+    expect(out).not.toContain('**Elsewhere**');
+  });
+
   it('collapses an over-cap region tail into a "+K more" line (no silent truncation)', () => {
     const nodes: DiscoveredNode[] = [node('Hub', { nodeTier: 0, region: 'Big', lastVisitedAt: '2026-06-30' })];
     const edges = [];

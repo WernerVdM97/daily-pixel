@@ -19,6 +19,16 @@ export interface FrontierExit {
   difficulty: number;
 }
 
+/** Reverse compass bearing — edges store one canonical direction; the far-side caller
+ *  needs the opposite heading. Inlined here to avoid crossing the db→discord layer. */
+function opposite(dir: string): string {
+  const map: Record<string, string> = {
+    N: 'S', S: 'N', E: 'W', W: 'E',
+    NE: 'SW', SW: 'NE', NW: 'SE', SE: 'NW',
+  };
+  return map[dir] ?? dir;
+}
+
 /**
  * The shared world graph. Edges are stored once per connection (parent → child)
  * but adjacency is SYMMETRIC for routing — you can walk a road back — so
@@ -28,15 +38,26 @@ export interface FrontierExit {
 export class LocationEdgeRepository {
   constructor(private db: Database.Database) {}
 
-  /** Charted neighbours of `name`, both directions, for routing/rendering. */
+  /** Charted neighbours of `name`, both directions. Direction is returned as seen
+   *  FROM the queried node: forward edges keep their stored direction; reverse edges
+   *  get the opposite heading so `/look` and the decision prompt read correctly. */
   neighbours(name: string): Neighbour[] {
-    return this.db
+    type RawNeighbour = Neighbour & { is_reverse: 0 | 1 };
+    const rows = this.db
       .prepare(
-        `SELECT to_location   AS name, direction, difficulty, flavour FROM location_edges WHERE from_location = @name AND to_location IS NOT NULL
+        `SELECT to_location   AS name, direction, difficulty, flavour, 0 AS is_reverse
+           FROM location_edges WHERE from_location = @name AND to_location IS NOT NULL
          UNION ALL
-         SELECT from_location AS name, direction, difficulty, flavour FROM location_edges WHERE to_location = @name`,
+         SELECT from_location AS name, direction, difficulty, flavour, 1 AS is_reverse
+           FROM location_edges WHERE to_location = @name`,
       )
-      .all({ name }) as Neighbour[];
+      .all({ name }) as RawNeighbour[];
+    return rows.map((r) => ({
+      name: r.name,
+      direction: r.is_reverse ? opposite(r.direction) : r.direction,
+      difficulty: r.difficulty,
+      flavour: r.flavour,
+    }));
   }
 
   /** Unexplored exits radiating from `name` (the invitation to explore). */

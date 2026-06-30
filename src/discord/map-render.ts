@@ -75,7 +75,12 @@ export function resolveMapFocus(query: string, graph: DiscoveredGraph): MapFocus
   const q = query.trim().toLowerCase();
   if (!q) return { kind: "none" };
 
-  const regions = [...new Set(graph.nodes.map((n) => n.region ?? "Elsewhere"))];
+  // Use effective regions (same BFS-parent fallback as renderMap) so the candidate list
+  // matches what the renderer actually groups — a null-region node won't contribute a
+  // spurious "Elsewhere" that resolves to an empty drill-in.
+  const rTree = buildTree(graph);
+  const rByName = new Map(graph.nodes.map((n) => [n.name, n]));
+  const regions = [...new Set(graph.nodes.map((n) => effectiveRegion(n.name, rByName, rTree)))];
   const candidates: Array<{ kind: "region" | "node"; name: string }> = [
     ...regions.map((name) => ({ kind: "region" as const, name })),
     ...graph.nodes.map((n) => ({ kind: "node" as const, name: n.name })),
@@ -205,6 +210,19 @@ function regionOrder(regions: string[], currentRegion: string | null): string[] 
   return [...new Set([...head, ...rest])];
 }
 
+/** Effective region for a node: its own region if set, else the nearest BFS ancestor's region,
+ *  then "Elsewhere" if nothing in the chain has one. Handles legacy/unenriched null-region nodes
+ *  so they group with their geographic neighbours rather than orphaning to a catch-all bucket. */
+function effectiveRegion(name: string, byName: Map<string, DiscoveredNode>, tree: TreeInfo): string {
+  let cur: string | undefined = name;
+  while (cur !== undefined) {
+    const region = byName.get(cur)?.region;
+    if (region) return region;
+    cur = tree.parent.get(cur);
+  }
+  return 'Elsewhere';
+}
+
 /** The emoji run for a node line: place · safe/wild · effort (effort omitted at a root). */
 function nodeGlyphs(node: DiscoveredNode, tree: TreeInfo, isRoot: boolean): string {
   const safe = node.isSafe ? "🛡️" : "⚠️";
@@ -253,12 +271,11 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
 
   const currentRegion = byName.get(graph.current)?.region ?? null;
 
-  // Group discovered nodes by region.
+  // Group discovered nodes by region. A node with region = null inherits its nearest
+  // BFS ancestor's region so it doesn't orphan to "Elsewhere" (decision: edge-bearing-inversion-and-region-reconciliation).
   const byRegion = new Map<string, DiscoveredNode[]>();
   for (const n of graph.nodes) {
-    // A visited place with no region yet (legacy/unenriched) — grouped under a
-    // neutral catch-all, NOT "uncharted" (that word is for unwalked frontier edges).
-    const r = n.region ?? "Elsewhere";
+    const r = effectiveRegion(n.name, byName, tree);
     if (!byRegion.has(r)) byRegion.set(r, []);
     byRegion.get(r)!.push(n);
   }

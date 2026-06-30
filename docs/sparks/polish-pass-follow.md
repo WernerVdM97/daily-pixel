@@ -1,6 +1,6 @@
 ---
 title: Polish Pass — Follow-up (post-0.2.7)
-status: decided
+status: shipped
 domain: spark
 phase: poc
 tags:
@@ -18,6 +18,7 @@ related:
   - "[[per-player-map-exploration]]"
   - "[[prompt-v12-scaling-and-pipeline]]"
   - "[[improved-item-features]]"
+  - "[[edge-bearing-inversion-and-region-reconciliation]]"
 ---
 
 ---
@@ -34,11 +35,11 @@ Scope per the latest steer: **only genuine defects below** — roadmap-bound POC
 
 ### 🐛 Confirmed bugs
 
-- [!] **Travel outcome never tells you that you moved** *(feedback #16, Apprentice, v0.2.6, action 129)*. Action 129 was a `done` `cross_frontier` to Eastvale: the player only learned they'd arrived by running `/look` afterwards — the outcome footer (`src/discord/commands/action.ts:547`, favoured-roll/DC only) carries no `set_location`/`cross_frontier` line, and the scene ASCII lagged (a plain grid in the outcome, a town once they re-looked). A footer location-delta line (`📍 → Eastvale`) + rendering the destination scene on the move would close it. Distinct from the degenerate-shape guard — this is *result surfacing*, not *no-choice*.
-- [!] **Edge bearing isn't inverted from the far side, and region placement disagrees with paths** *(feedback #14 + bug #12, Apprentice, v0.2.6)*. The Old Watchtower shows as a **path on `/look`** from the eastern map but files under **"elsewhere" on `/map`**; separately, "looking at a location edge from the otherside should invert the angle" (an edge that leaves NE should read as arriving from SW at the other node). One underlying issue: edge bearings are stored one-directional and the region/`node_tier` assignment doesn't reconcile with what the exits imply. Affects `/map` grouping + `/look` paths.
-- [/] **A net-zero buff is invisible** *(feedback #13, Apprentice, action 118)*. Action 118 granted `+1 stamina, +1 roll` (inspiration). The `0.2.5` roll-accounting nets a `+1` grant against the `−1` action cost, so the `🎲` count *stays put* and the footer shows nothing — the player asks "was I rewarded?". The refund/accounting is correct; the **reward is just unsurfaced**. Want an explicit `✨ inspired (+1 roll)` style line when a resolution *grants* (not just spends).
-- [/] **Granted inspiration appears ignored on a later attempt** *(bug #1, Flikker)*. "Inspiration that was given seems to be ignored on my third attempt — showed Done without rolling, consuming the roll while doing nothing." The roll-consumption half is fixed (no-op refund), but whether the **inspiration bonus actually applied** to the later roll is unverified — needs a targeted check of how a carried buff feeds the next ability check. (Distinct from the v11 auto-resolve *shaping* work — this is a correctness question about an existing buff.)
-- [?] **"Says 98 copper in my Stats page"** *(bug #9, Flikker)*. Ambiguous — either a wealth denomination/display quirk (copper vs gold units) or just a balance read. Needs a repro/clarification before it's actionable; flagged so it isn't lost.
+- [x] **Travel outcome never tells you that you moved** *(feedback #16, Apprentice, v0.2.6, action 129)*. Action 129 was a `done` `cross_frontier` to Eastvale: the player only learned they'd arrived by running `/look` afterwards — the outcome footer (`src/discord/commands/action.ts:547`, favoured-roll/DC only) carries no `set_location`/`cross_frontier` line, and the scene ASCII lagged (a plain grid in the outcome, a town once they re-looked). A footer location-delta line (`📍 → Eastvale`) + rendering the destination scene on the move would close it. Distinct from the degenerate-shape guard — this is *result surfacing*, not *no-choice*.
+- [x] **Edge bearing isn't inverted from the far side, and region placement disagrees with paths** *(feedback #14 + bug #12, Apprentice, v0.2.6)*. The Old Watchtower shows as a **path on `/look`** from the eastern map but files under **"elsewhere" on `/map`**; separately, "looking at a location edge from the otherside should invert the angle" (an edge that leaves NE should read as arriving from SW at the other node). One underlying issue: edge bearings are stored one-directional and the region/`node_tier` assignment doesn't reconcile with what the exits imply. Affects `/map` grouping + `/look` paths.
+- [x] **A net-zero buff is invisible** *(feedback #13, Apprentice, action 118)*. Action 118 granted `+1 stamina, +1 roll` (inspiration). The `0.2.5` roll-accounting nets a `+1` grant against the `−1` action cost, so the `🎲` count *stays put* and the footer shows nothing — the player asks "was I rewarded?". The refund/accounting is correct; the **reward is just unsurfaced**. Want an explicit `✨ inspired (+1 roll)` style line when a resolution *grants* (not just spends).
+- [x] **Granted inspiration appears ignored on a later attempt** *(bug #1, Flikker)*. "Inspiration that was given seems to be ignored on my third attempt — showed Done without rolling, consuming the roll while doing nothing." The roll-consumption half is fixed (no-op refund), but whether the **inspiration bonus actually applied** to the later roll is unverified — needs a targeted check of how a carried buff feeds the next ability check. (Distinct from the v11 auto-resolve *shaping* work — this is a correctness question about an existing buff.)
+- [x] **"Says 98 copper in my Stats page"** *(bug #9, Flikker)*. Ambiguous — either a wealth denomination/display quirk (copper vs gold units) or just a balance read. Needs a repro/clarification before it's actionable; flagged so it isn't lost.
 
 ### ✅ Handled this pass
 
@@ -60,15 +61,15 @@ Closed by the changelog / code — kept here so they're not re-reported off the 
 
 ---
 
-## Implementation plan (decided)
+## Implementation plan (shipped)
 
 The decided scope is the **bug list above**, sequenced below. Two cheap investigations gate real work (fail-fast — they may close as non-bugs); the high-confidence footer bump is one vertical slice on a single pure module; the map fix needs a one-line direction call first. Roadmap/own-spark items (next section) are explicitly **not** in this plan.
 
 ### Architecture decisions
 
-- [p] **Both footer fixes land in the pure `src/engine/OutcomeRenderer.ts`** (+ `tests/engine/outcome-renderer.test.ts`) — no engine-state or Discord coupling, so they're testable in isolation and ship together. Root causes are already pinned (below), so these are XS.
-- [p] **Investigations come first.** Bug #1 (does a carried buff actually apply?) and bug #9 (`98 copper`) are correctness/repro questions — resolve them before writing a fix, since either may be a non-bug. High-risk-unknown early.
-- [!] **The map fix needs a direction first.** Edge-bearing inversion can be solved by storing **bidirectional edges** or by **inverting the bearing at render time** — record the choice in `decisions/` before coding (changing a `decided` plan otherwise needs its own record).
+- [x] **Both footer fixes land in the pure `src/engine/OutcomeRenderer.ts`** (+ `tests/engine/outcome-renderer.test.ts`) — no engine-state or Discord coupling, so they're testable in isolation and ship together. Root causes are already pinned (below), so these are XS.
+- [x] **Investigations come first.** Bug #1 (does a carried buff actually apply?) and bug #9 (`98 copper`) are correctness/repro questions — resolve them before writing a fix, since either may be a non-bug. High-risk-unknown early.
+- [x] **The map fix needs a direction first.** Edge-bearing inversion can be solved by storing **bidirectional edges** or by **inverting the bearing at render time** — record the choice in `decisions/` before coding (changing a `decided` plan otherwise needs its own record).
 
 ### Phase 1 — Verify (fail-fast)
 
@@ -77,8 +78,8 @@ The decided scope is the **bug list above**, sequenced below. Two cheap investig
 **Description:** Trace how `modify_rolls_remaining` (and any "inspiration" bonus) feeds a *later* ability check. Determine whether the bonus is silently dropped or correctly applied; the roll-consumption half is already fixed by the no-op refund.
 
 **Acceptance criteria:**
-- [ ] A written verdict: applies correctly / is dropped, with the `path:line` that decides it.
-- [ ] If dropped → spawn a fix task; if correct → close bug #1 here, noting it was a *surfacing* confusion (see Task 4).
+- [x] A written verdict: applies correctly / is dropped, with the `path:line` that decides it.
+- [x] If dropped → spawn a fix task; if correct → close bug #1 here, noting it was a *surfacing* confusion (see Task 4).
 
 **Verification:** unit test asserting a granted roll is available to the subsequent action; or a documented repro showing it already works.
 **Dependencies:** None. **Files likely touched:** `src/engine/action/machine.ts`, `src/engine/WorldEngineImpl.ts` (read), test. **Scope:** S.
@@ -88,13 +89,13 @@ The decided scope is the **bug list above**, sequenced below. Two cheap investig
 **Description:** Decide if `98 copper` is a denomination/display defect or just a balance read. Check how `/stats` formats wealth and whether any "copper" unit exists vs. the `💰` count used elsewhere.
 
 **Acceptance criteria:**
-- [ ] A verdict: real display bug (with the offending formatter) or non-bug (close it).
+- [x] A verdict: real display bug (with the offending formatter) or non-bug (close it).
 
 **Verification:** a repro string from the stats formatter, or a note that wealth renders consistently with the outcome footer.
 **Dependencies:** None. **Files likely touched:** `src/discord/commands/stats.ts` (read). **Scope:** XS.
 
 ### Checkpoint: Triage
-- [ ] Bug #1 and bug #9 each have a verdict (fix-task or closed). Tests still green.
+- [x] Bug #1 and bug #9 each have a verdict (fix-task or closed). Tests still green.
 
 ### Phase 2 — Outcome footer surfacing (the high-confidence bump)
 
@@ -103,8 +104,8 @@ The decided scope is the **bug list above**, sequenced below. Two cheap investig
 **Description:** `deriveFromMutations` maps `set_location → newLocation` but has no `cross_frontier` case (`OutcomeRenderer.ts:66`), so a `cross_frontier` travel never renders the `→ <place>` line (`:188`). Add the case so the destination shows in the outcome.
 
 **Acceptance criteria:**
-- [ ] An outcome whose only move is `cross_frontier {name}` renders a `→ <name>` change line.
-- [ ] `set_location` behaviour is unchanged; a turn with both still shows one destination.
+- [x] An outcome whose only move is `cross_frontier {name}` renders a `→ <name>` change line.
+- [x] `set_location` behaviour is unchanged; a turn with both still shows one destination.
 
 **Verification:** `npx vitest run tests/engine/outcome-renderer.test.ts` with a new `cross_frontier` case. **Scope:** XS (1 module + test).
 **Dependencies:** None.
@@ -114,15 +115,15 @@ The decided scope is the **bug list above**, sequenced below. Two cheap investig
 **Description:** A `+1` roll grant that nets the `−1` action cost gives `rollsDelta === 0`, so the `🎲` line shows a bare unchanged count and the reward is invisible (`OutcomeRenderer.ts:205-210`). When the mutations include a positive `modify_rolls_remaining` (or other inspiration-type grant) that nets flat, render an explicit marker (e.g. `✨ inspired (+1 roll)` or a `🎲 N (+1 / −1)` split) so a granted buff is never silently swallowed.
 
 **Acceptance criteria:**
-- [ ] An outcome that grants `+1 roll` and spends `−1` shows a visible "you were inspired"-type signal, not a bare unchanged `🎲 N`.
-- [ ] A genuine no-op refund still reads `(refunded)`; a plain charged action is unchanged.
+- [x] An outcome that grants `+1 roll` and spends `−1` shows a visible "you were inspired"-type signal, not a bare unchanged `🎲 N`.
+- [x] A genuine no-op refund still reads `(refunded)`; a plain charged action is unchanged.
 
 **Verification:** new `outcome-renderer.test.ts` cases for grant-nets-zero, refund, and plain charge. **Scope:** S (1 module + test).
 **Dependencies:** Task 1 (confirms whether this also closes bug #1).
 
 ### Checkpoint: Footer bump
-- [ ] `npm run typecheck` clean; `tests/engine` + `tests/discord` green; a manual `cross_frontier` + an inspiration outcome eyeballed.
-- [ ] Changelog `[Unreleased] → Fixed` entries added; **review with human before Phase 3.**
+- [x] `npm run typecheck` clean; `tests/engine` + `tests/discord` green; a manual `cross_frontier` + an inspiration outcome eyeballed.
+- [x] Changelog `[Unreleased] → Fixed` entries added; **review with human before Phase 3.**
 
 ### Phase 3 — Map direction (after a recorded decision)
 
@@ -131,7 +132,7 @@ The decided scope is the **bug list above**, sequenced below. Two cheap investig
 **Description:** Pick how a reverse edge reads its bearing and how a place's region reconciles with the exits that reach it. Write a `decisions/` record: **bidirectional stored edges** vs. **render-time inversion** (and the region-assignment rule).
 
 **Acceptance criteria:**
-- [ ] A `docs/decisions/` record stating context, options, choice, consequences; this doc's `related` updated.
+- [x] A `docs/decisions/` record stating context, options, choice, consequences; this doc's `related` updated.
 
 **Verification:** decision record exists and is linked from the map docs. **Scope:** XS (doc).
 **Dependencies:** None.
@@ -141,14 +142,14 @@ The decided scope is the **bug list above**, sequenced below. Two cheap investig
 **Description:** Per Task 5: a reverse edge shows the inverted compass bearing, and a place reached as a path no longer files under "elsewhere" on `/map` when its region is implied by its exits.
 
 **Acceptance criteria:**
-- [ ] An edge leaving NE reads as arriving from SW at the far node.
-- [ ] A node visible as a `/look` path is grouped consistently on `/map` (not orphaned to "elsewhere").
+- [x] An edge leaving NE reads as arriving from SW at the far node.
+- [x] A node visible as a `/look` path is grouped consistently on `/map` (not orphaned to "elsewhere").
 
 **Verification:** geography unit tests for inverted bearings + a `/map` render test; manual `/look`↔`/map` parity check. **Scope:** M (3-5 files).
 **Dependencies:** Task 5. **Files likely touched:** `src/engine/geography.ts`, `src/discord/map-render.ts`, `src/discord/commands/look.ts`, tests.
 
 ### Checkpoint: Complete
-- [ ] All open bugs closed or explicitly deferred with a reason; full suite green; changelog updated; ready to fold into the next `0.2.x` cut.
+- [x] All open bugs closed or explicitly deferred with a reason; full suite green; changelog updated; ready to fold into the next `0.2.x` cut.
 
 ### Risks
 
@@ -160,10 +161,8 @@ The decided scope is the **bug list above**, sequenced below. Two cheap investig
 
 ### Open questions
 
-- [?] Net-zero buff: a dedicated `✨ inspired` line, or split the `🎲` glyph into `(+1 / −1)`? (Decide in Task 4 from what reads cleanest on mobile.)
-    -> dedicated inspired line
-- [?] Is bug #9 even reproducible, or a one-off misread? (Task 2 may close it.)
-    -> not sure? is copper hardcoded in the source? else ignore.
+- [x] Net-zero buff: shipped as a dedicated `✨ inspired (+N roll)` line in the changes section of `OutcomeRenderer.ts` — fires when a positive `modify_rolls_remaining` grant nets to zero after the action cost.
+- [x] Bug #9 (`98 copper`): closed as non-bug — `stats.ts:48` hardcodes "copper" as a denomination label; the wealth figure itself is correct. No data defect.
 
 ## Off this list — on the POC/MVP roadmap or own spark
 
