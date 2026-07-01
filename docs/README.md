@@ -24,17 +24,17 @@ mission, pillars, north star
 
 mechanics, loop, actions
 
-_All POC game specs shipped — the code is the living artifact (see `archived/poc/`)._
+| Status | Doc | Summary |
+| ------ | --- | ------- |
+|        |     |         |
 
 ## ⚙️ engine
 
 how it runs
 
 | Status | Doc | Summary |
-|---|---|---|
-| ✅ | [Mutation Vocabulary Refinement](./engine/mutation-vocabulary-refinement.md) | **`0.2.x` candidate → ships as `decision-v11`** (after the map doc's `decision-v10`). Tidies the LLM mutation keywords into one verb scheme (`modify_` deltas · `add/update/remove_` entity CRUD · `move_to`), splits the overloaded `set_location` → `move_to` + `reveal_location`, gives NPCs a lifecycle (`add/update/remove_npc`, disposition deferred), and adds a closed `category` enum + soft `category → expected-mutations` map (warn + telemetry, apply anyway). Stepping stone to v12's two-pass dynamic injection; `move_to`/`reveal_location` defer to the map graph, and `locations.created_by_action_id` is ceded to that doc. |
-
-_POC engine specs (tech stack, action-UX) shipped → `archived/poc/`._
+| ------ | --- | ------- |
+|        |     |         |
 
 ## 🖥️ ui
 
@@ -50,12 +50,12 @@ _Example Scenes shipped → `archived/poc/`._
 
 resolved cross-cutting trade-offs (ADRs)
 
-| Status | Doc | Summary |
-|---|---|---|
-| ✅ | [POC Action UX Refinements](./decisions/poc-action-ux-refinements.md) | Buttons A/B/C, Bail/Skip/Finish terminal states, footer standardisation, generic daily actions |
-| ✅ | [Per-Option Stat & Ability-Check Rolls](./decisions/per-option-stat-and-ability-checks.md) | Roll = d20 + char ability + item bonus; per-option stat so approach choice selects the stat tested |
-| ✅ | [Roll Economy, Timeouts & World Growth](./decisions/roll-economy-timeouts-and-world-growth.md) | Resolves prod-data D1/D2/D3: refund no-op/timeout rolls (1 free each per day), lazy-create off-map locations via sync stub + async cartographer. Drives the `decision-v8` bump. |
-| ✅ | [Edge Bearing Inversion & Region Reconciliation](./decisions/edge-bearing-inversion-and-region-reconciliation.md) | Render-time direction inversion in `neighbours()` (no migration) so `/look` agrees with `/map`; BFS parent fallback for null-region nodes in `renderMap` so unenriched places don't orphan to "Elsewhere." |
+| Status | Doc                                                                                                               | Summary                                                                                                                                                                                                    |
+| ------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅      | [POC Action UX Refinements](./decisions/poc-action-ux-refinements.md)                                             | Buttons A/B/C, Bail/Skip/Finish terminal states, footer standardisation, generic daily actions                                                                                                             |
+| ✅      | [Per-Option Stat & Ability-Check Rolls](./decisions/per-option-stat-and-ability-checks.md)                        | Roll = d20 + char ability + item bonus; per-option stat so approach choice selects the stat tested                                                                                                         |
+| ✅      | [Roll Economy, Timeouts & World Growth](./decisions/roll-economy-timeouts-and-world-growth.md)                    | Resolves prod-data D1/D2/D3: refund no-op/timeout rolls (1 free each per day), lazy-create off-map locations via sync stub + async cartographer. Drives the `decision-v8` bump.                            |
+| ✅      | [Edge Bearing Inversion & Region Reconciliation](./decisions/edge-bearing-inversion-and-region-reconciliation.md) | Render-time direction inversion in `neighbours()` (no migration) so `/look` agrees with `/map`; BFS parent fallback for null-region nodes in `renderMap` so unenriched places don't orphan to "Elsewhere." |
 
 ---
 
