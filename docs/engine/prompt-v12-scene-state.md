@@ -1,6 +1,6 @@
 ---
 title: "Prompt v12 — Scene-State: Deterministic Spine, Graph Shape & Location Coherence (D1/D2/D6)"
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
@@ -11,7 +11,7 @@ tags:
   - conversations
   - puzzles
 related:
-  - "[[prompt-seperation-of-concerns]]"
+  - "[[prompt-separation-of-concerns]]"
   - "[[prompt-v12-combat]]"
   - "[[prompt-v12-world-scaling]]"
   - "[[prompt-v12-pipeline]]"
@@ -23,7 +23,7 @@ related:
 ---
 _The scene-state half of Thread D: an engine-owned, graph-shaped spine carried across beats (D1), typed graph-delta mutations with no LLM SQL (D2), and the deterministic travel/location coherence the pipeline should close (D6)._
 
-> **Part of the [[prompt-seperation-of-concerns]] spark** (Thread D — scene-state half; the pipeline half is [[prompt-v12-pipeline]]). Siblings: [[prompt-v12-combat]] (C) · [[prompt-v12-world-scaling]] (B).
+> **Part of the [[prompt-separation-of-concerns]] spark** (Thread D — scene-state half; the pipeline half is [[prompt-v12-pipeline]]). Siblings: [[prompt-v12-combat]] (C) · [[prompt-v12-world-scaling]] (B).
 
 ---
 

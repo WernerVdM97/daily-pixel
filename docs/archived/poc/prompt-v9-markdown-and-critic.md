@@ -16,12 +16,12 @@ related:
   - "[[per-option-stat-and-ability-checks]]"
   - "[[roll-economy-timeouts-and-world-growth]]"
   - "[[prod-data-review-v0.2.3]]"
-  - "[[prompt-v10-scaling-and-pipeline]]"
+  - "[[prompt-separation-of-concerns]]"
 ---
 
 # Decision Prompt v9 — Markdown Input & Coherence Critic
 
-> *The **next** release (a `0.2.x` POC-beta patch). Two shippable threads carved out of the larger v8→v-next rework: (1) make the LLM's input pure markdown, (2) add a **coherence critic** — a second LLM pass that reviews and repairs each decision before it reaches the player. Combat as a first-class mode is **on ice** (moved to [[prompt-v10-scaling-and-pipeline]]), along with world-scaling and the full multi-stage pipeline. This doc is spec-grade: written for a handoff agent to implement directly.*
+> *The **next** release (a `0.2.x` POC-beta patch). Two shippable threads carved out of the larger v8→v-next rework: (1) make the LLM's input pure markdown, (2) add a **coherence critic** — a second LLM pass that reviews and repairs each decision before it reaches the player. Combat as a first-class mode is **on ice** (moved to [[prompt-separation-of-concerns]]), along with world-scaling and the full multi-stage pipeline. This doc is spec-grade: written for a handoff agent to implement directly.*
 
 **Thesis (inherited, narrowed):** deepen immersion by balancing the probabilistic and the deterministic — let the dice rule what should be uncertain, let the engine own what players would feel cheated by if it drifted, and let the LLM dress the result. v9 advances that on two fronts the codebase can absorb **without** any engine/scene-state change: a cleaner input (Thread 1) and an LLM proof-reader on the way out (Thread 2). Both are pure LLM-layer changes — independently shippable, independently reversible, and they touch no game mechanics.
 

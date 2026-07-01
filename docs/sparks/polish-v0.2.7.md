@@ -15,7 +15,7 @@ related:
   - "[[per-player-map-exploration]]"
   - "[[roll-economy-timeouts-and-world-growth]]"
   - "[[prod-data-review-v0.2.3]]"
-  - "[[prompt-seperation-of-concerns]]"
+  - "[[prompt-separation-of-concerns]]"
   - "[[discord-interaction-layer]]"
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: "Prompt v12 — Thread B: The World Scales Around the Player"
-status: exploring
+status: decided
 domain: game
 phase: poc
 tags:
@@ -9,7 +9,7 @@ tags:
   - prompt
   - immersion
 related:
-  - "[[prompt-seperation-of-concerns]]"
+  - "[[prompt-separation-of-concerns]]"
   - "[[prompt-v12-combat]]"
   - "[[prompt-v12-pipeline]]"
   - "[[prompt-v12-scene-state]]"
@@ -20,7 +20,7 @@ related:
 ---
 _Thread B of the v12 spark: the world sizes itself to whoever faces it (stronger player → tougher foes → bigger rewards, climbing week by week) — without ever buffing the player-side dice._
 
-> **Part of the [[prompt-seperation-of-concerns]] spark** (Thread B). Siblings: [[prompt-v12-combat]] (C) · [[prompt-v12-pipeline]] (D) · [[prompt-v12-scene-state]] (D1/D2/D6).
+> **Part of the [[prompt-separation-of-concerns]] spark** (Thread B). Siblings: [[prompt-v12-combat]] (C) · [[prompt-v12-pipeline]] (D) · [[prompt-v12-scene-state]] (D1/D2/D6).
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: Action Engine Framework
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
@@ -12,7 +12,7 @@ tags:
   - llm
   - graph
 related:
-  - "[[prompt-seperation-of-concerns]]"
+  - "[[prompt-separation-of-concerns]]"
   - "[[prompt-v12-pipeline]]"
   - "[[prompt-v12-scene-state]]"
   - "[[prompt-v12-combat]]"
@@ -27,7 +27,7 @@ _The framework view of the action engine: a fixed classify → decide → dice �
 
 # Action Engine Framework
 
-The engine that turns a player's custom action into a resolved outcome. This doc is the **scaling contract**: the resolution spine is fixed; everything that grows — action types, the mutation vocabulary, the LLM stages — is a **registry entry**, not a spine edit. It is grounded in the current code (`src/engine/action/`, `src/llm/`) and points at where v12 ([[prompt-seperation-of-concerns]]) extends it.
+The engine that turns a player's custom action into a resolved outcome. This doc is the **scaling contract**: the resolution spine is fixed; everything that grows — action types, the mutation vocabulary, the LLM stages — is a **registry entry**, not a spine edit. It is grounded in the current code (`src/engine/action/`, `src/llm/`) and points at where v12 ([[prompt-separation-of-concerns]]) extends it.
 
 The core principle, shared with the game thesis: **dice rule the uncertain, the engine owns what players would feel cheated by if it drifted, the LLM dresses it.** Immersion is the seams between those three not showing. The diagrams below exist to make every seam visible so we can defend it.
 
@@ -225,7 +225,7 @@ The framework scales because each axis is additive:
 
 ## Current vs target
 
-- [>] **Today:** DMAs are a decorator stack — `Fallback ∘ Critic ∘ Deepseek` — and the `DeepseekLlmGateway` class alone plays four roles (decide, cartographer, recap, critic). One `decide()` call does classify + author + (on resolve) mutate + narrate.
+- [>] **Today:** DMAs are a decorator stack — `Critic ∘ Fallback ∘ Deepseek` (critic outermost, wrapping the fallback/retry layer, wrapping the base gateway) — and the `DeepseekLlmGateway` class alone plays four roles (decide, cartographer, recap, critic). One `decide()` call does classify + author + (on resolve) mutate + narrate.
 - [>] **Target (v12):** split `decide` into distinct **Classify / Decide / Resolve** DMAs with structured handoffs (Diagram 1), each carrying only its ActionType's rule slice. The decorator stack (fallback, critic) stays as cross-cutting wrappers.
 
 ## Open questions

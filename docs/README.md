@@ -26,8 +26,8 @@ mechanics, loop, actions
 
 | Status | Doc | Summary |
 | ------ | --- | ------- |
-| 🔭     | [v12 · Combat (Thread C)](./game/prompt-v12-combat.md) | Combat as a frequent, long, high-reward wilds mode — prompt rules + the engine combat spine (lifted decision cap, `combatState`, contested roll + severity bands, once-per-day no-one-shot floor). Frequency/lethality scale with dynamic location danger; viable everywhere, non-lethal in safe places. |
-| 🔭     | [v12 · World Scaling (Thread B)](./game/prompt-v12-world-scaling.md) | The world sizes to the player (effective strength × week-indexed World Tier) → tougher foes, bigger rewards; no player-side dice buff; the anti-treadmill (Oblivion-style level-scaling) tension, sim-harness-gated. |
+| ✅      | [v12 · Combat (Thread C)](./game/prompt-v12-combat.md) | Combat as a frequent, long, high-reward wilds mode — prompt rules + the engine combat spine (lifted decision cap, `combatState`, contested roll + severity bands, once-per-day no-one-shot floor). Frequency/lethality scale with dynamic location danger; viable everywhere, non-lethal in safe places. |
+| ✅      | [v12 · World Scaling (Thread B)](./game/prompt-v12-world-scaling.md) | The world sizes to the player (effective strength × week-indexed World Tier) → tougher foes, bigger rewards; no player-side dice buff; the anti-treadmill (Oblivion-style level-scaling) tension, sim-harness-gated. |
 
 ## ⚙️ engine
 
@@ -35,10 +35,10 @@ how it runs
 
 | Status | Doc | Summary |
 | ------ | --- | ------- |
-| 🔭     | [Action Engine Framework](./engine/action-engine-framework.md) | The scaling contract for the action engine: a fixed classify → decide → dice → resolve spine with data-driven registries (ActionTypes, Mutations, DMAs) around it, drawn across three ownership zones (dice / engine / LLM) so every seam is explicit. Formalizes structures already in code (`CATEGORY_MUTATION_MAP`, the post-authoring mutation-adjustment pipeline) so future work — more DMAs, mutations, action types, item interaction — plugs in without touching the spine. Four Mermaid diagrams: the resolution pipeline, ActionType-as-registry-entry, the mutation vocab by entity, and the scene-state graph shape. v12 is its first consumer. |
-| 🔭     | [v12 — Prompt Separation of Concerns (parent)](./engine/prompt-seperation-of-concerns.md) | Parent/overview of the v12 prompt-set rework (POC round 2, `0.3.0`): prerequisites, sequencing, the thread-ownership map, risks, acceptance + a Parts index linking the four parts. The through-line is separation of concerns across the classify → decide → resolve pipeline. |
-| 🔭     | [v12 · Pipeline (Thread D)](./engine/prompt-v12-pipeline.md) | Classify → decide → resolve pipeline of per-type templates; interaction shapes (D3), free-text security (D4), the cost/data case (D5), and the verification design (D7 — gated coherence critic + faithfulness prose critic, patch-prose-only, no LLM state-authoring). |
-| 🔭     | [v12 · Scene-State (D1/D2/D6)](./engine/prompt-v12-scene-state.md) | Engine-owned, graph-shaped state carried across beats (D1); typed graph-delta mutations, no LLM SQL (D2); deterministic travel/location coherence via the `scene_location` field + the travel gate (D6). |
+| ✅      | [Action Engine Framework](./engine/action-engine-framework.md) | The scaling contract for the action engine: a fixed classify → decide → dice → resolve spine with data-driven registries (ActionTypes, Mutations, DMAs) around it, drawn across three ownership zones (dice / engine / LLM) so every seam is explicit. Formalizes structures already in code (`CATEGORY_MUTATION_MAP`, the post-authoring mutation-adjustment pipeline) so future work — more DMAs, mutations, action types, item interaction — plugs in without touching the spine. Four Mermaid diagrams: the resolution pipeline, ActionType-as-registry-entry, the mutation vocab by entity, and the scene-state graph shape. v12 is its first consumer. |
+| ✅      | [v12 — Prompt Separation of Concerns (parent)](./engine/prompt-separation-of-concerns.md) | Parent/overview of the v12 prompt-set rework (POC round 2, `0.3.0`): prerequisites, sequencing, the thread-ownership map, risks, acceptance + a Parts index linking the four parts. The through-line is separation of concerns across the classify → decide → resolve pipeline. |
+| ✅      | [v12 · Pipeline (Thread D)](./engine/prompt-v12-pipeline.md) | Classify → decide → resolve pipeline of per-type templates; interaction shapes (D3), free-text security (D4), the cost/data case (D5), and the verification design (D7 — gated coherence critic + faithfulness prose critic, patch-prose-only, no LLM state-authoring). |
+| ✅      | [v12 · Scene-State (D1/D2/D6)](./engine/prompt-v12-scene-state.md) | Engine-owned, graph-shaped state carried across beats (D1); typed graph-delta mutations, no LLM SQL (D2); deterministic travel/location coherence via the `scene_location` field + the travel gate (D6). |
 
 ## 🖥️ ui
 

@@ -1,6 +1,6 @@
 ---
 title: "Prompt v12 — Thread D: The Multi-Stage LLM Pipeline"
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
@@ -11,7 +11,7 @@ tags:
   - puzzles
   - immersion
 related:
-  - "[[prompt-seperation-of-concerns]]"
+  - "[[prompt-separation-of-concerns]]"
   - "[[prompt-v12-combat]]"
   - "[[prompt-v12-world-scaling]]"
   - "[[prompt-v12-scene-state]]"
@@ -21,7 +21,7 @@ related:
 ---
 _Thread D of the v12 spark: decompose the single mega-call into a chain of focused, per-type sessions (classify → decide → resolve), plus the per-type interaction shapes (D3), the free-text security stack (D4), and the cost/data case for the split (D5)._
 
-> **Part of the [[prompt-seperation-of-concerns]] spark** (Thread D — pipeline half; the scene-state half is [[prompt-v12-scene-state]]). Siblings: [[prompt-v12-combat]] (C) · [[prompt-v12-world-scaling]] (B).
+> **Part of the [[prompt-separation-of-concerns]] spark** (Thread D — pipeline half; the scene-state half is [[prompt-v12-scene-state]]). Siblings: [[prompt-v12-combat]] (C) · [[prompt-v12-world-scaling]] (B).
 
 ---
 
@@ -29,7 +29,7 @@ The backbone Thread B slots into. Today one call does everything for a beat — 
 
 **The pipeline (per custom action):**
 
-1. [I] **Stage 1 — Classify.** A cheap, tiny-output call deriving the action's **type** (`combat·travel·social·skill·search·rest·other`) + routing flags (`unsafe_location`, `needs_roll`, `target_present`) from raw input. No narrative, no options — just routing metadata.
+1. [I] **Stage 1 — Classify.** A cheap, tiny-output call deriving the action's **`ActionType`** (the canonical routing key — `combat·travel·social·skill·search·rest·other`; see [[action-engine-framework]] for the one-term-per-concept vocabulary that retires today's `category`/`distilledType`) + routing flags (`unsafe_location`, `needs_roll`, `target_present`) from raw input. No narrative, no options — just routing metadata.
 2. [I] **Stage 2 — Decide.** The type selects a template and *only its applicable rules + context are injected* — combat rules (C, [[prompt-v12-combat]]), `KNOWN LOCATIONS` for travel, NPC agendas for social, the `## World State` tier block (B, [[prompt-v12-world-scaling]]) where it matters. Authors the **decision** (options + per-option stat/dc) **only** — no outcomes.
 3. [I] **Stage 3 — Resolve.** After the dice (roll-first, unchanged), a **fresh session** receives a structured **handoff** (decisions made + roll verdict + world context) and computes **mutations + `outcome_text`**. It never saw the decision session's reasoning — its only job is "given this verdict and this world, what changed?"
 

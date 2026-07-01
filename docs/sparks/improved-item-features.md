@@ -40,7 +40,7 @@ The immediate `12/10`-overflow symptom was handled cheaply in the polish follow-
 
 - [?] Is "every item buffs a stat" worth keeping for the simple ones, or should flavour items carry **zero** mechanical effect and earn their place narratively?
 - [?] Does this land in POC at all, or is it an MVP feature? (Tagged `mvp` for now.)
-- [?] How much of this needs the v11/[[prompt-seperation-of-concerns]] mutation vocabulary (e.g. a `use_item` verb) before it's buildable?
+- [?] How much of this needs the v11/[[prompt-separation-of-concerns]] mutation vocabulary (e.g. a `use_item` verb) before it's buildable?
 
 ---
 
