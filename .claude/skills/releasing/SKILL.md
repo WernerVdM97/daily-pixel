@@ -20,13 +20,13 @@ Git workflow, versioning, and the release procedure. The always-on guardrails (n
 1. **Never commit directly to `main`.** All changes land on `dev` first.
 2. **`dev` must keep the changelog up to date.** Every merge into `dev` should either add to `[Unreleased]` or, when cutting a release, promote it to a versioned section. (See the `changelog` skill for entry style.)
 3. **Hotfixes on `main` must be merged back into `dev`.** If `main` ever receives a direct hotfix (bypassing the normal flow), merge `main` back into `dev` immediately so `dev` doesn't diverge.
-4. **Versioning — POC beta stays on `0.2.x`.** For the whole POC beta, **bump the patch only** (`0.2.2 → 0.2.3 → 0.2.4 → …`). Do **not** bump the minor (`0.3.x`) or major — `0.3.0` is reserved for the end of POC beta. `VERSION` holds the bare number (no `v`); tags and release-notes filenames carry the `v` prefix (`v0.2.x`).
+4. **Versioning — POC beta stays on `0.2.x`.** For the whole POC beta, **bump the patch only** (`0.2.2 → 0.2.3 → 0.2.4 → …`). Do **not** bump the minor (`0.3.x`) or major — `0.3.0` is reserved for the end of POC beta. `VERSION` holds the bare number (no `v`); tags and release-notes filenames carry the `v` prefix (`v0.2.x`). `package.json`'s `"version"` field must be kept in sync with `VERSION` on every release.
 5. **Merge strategy:** `--no-ff` (no fast-forward) on all merges into `main` so the merge commits are explicit.
 
 ## Cutting a release
 
 1. Merge `dev` into `main` (`--no-ff`).
-2. Bump the **patch** in `VERSION` (e.g. `0.2.2` → `0.2.3`).
+2. Bump the **patch** in `VERSION` (e.g. `0.2.2` → `0.2.3`), and sync `package.json`'s `"version"` field to match.
 3. Add a changelog entry for the new version (promote `[Unreleased]` → `[0.2.x]` with today's date).
 4. Add player-facing release notes at `assets/release-notes/v0.2.x.yml` matching the new tag (see below).
 5. Tag the release commit (`git tag -a v0.2.x -m "..."`).
