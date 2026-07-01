@@ -1,6 +1,6 @@
 {
   "name": "the-wardens-oak",
-  "version": "0.2.3",
+  "version": "0.2.7",
   "private": true,
   "description": "The Warden's Oak — Discord MUD POC",
   "type": "module",
