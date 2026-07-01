@@ -95,7 +95,12 @@ export function makeLookCommand(
     // ordered clockwise from north so the compass reads naturally.
     const exits = engine.getExits(character.location);
     const paths = [
-      ...exits.neighbours.map((n) => ({ direction: n.direction, difficulty: n.difficulty, dest: n.name })),
+      ...exits.neighbours.map((n) => {
+        // Charted destination → show its own map glyph + safety, like a full-map node line.
+        const dloc = engine.getLocation(n.name);
+        const glyph = dloc ? `${dloc.emoji ?? "📍"}${dloc.isSafe ? "🛡️" : "⚠️"} ` : "";
+        return { direction: n.direction, difficulty: n.difficulty, dest: `${glyph}${n.name}` };
+      }),
       ...exits.frontiers.map((f) => ({
         direction: f.direction,
         difficulty: f.difficulty,

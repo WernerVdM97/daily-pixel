@@ -283,7 +283,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       console.log(c.green('[llm:parsed]'), JSON.stringify(parsed, null, 2));
     }
 
-    const decision = this.parseDecision(parsed);
+    const decision = this.parseDecision(parsed, context);
     const warnings = this.validateDecision(parsed, decision);
     onProgress({ warnings });
     // Surface warnings so the coherence critic can gate on them (Thread 2).
@@ -608,10 +608,53 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     return verdict;
   }
 
-  private parseDecision(raw: Record<string, unknown>): LlmDecision {
+  private parseDecision(raw: Record<string, unknown>, context?: LlmContext): LlmDecision {
+    // Parse category (v11 closed enum). Unknown values fall back to 'other' silently.
+    const VALID_CATEGORIES = ['combat', 'travel', 'social', 'skill', 'search', 'rest', 'other'] as const;
+    type Cat = typeof VALID_CATEGORIES[number];
+    const rawCat = raw.category;
+    const parsedCategory: Cat | undefined = (typeof rawCat === 'string' && (VALID_CATEGORIES as readonly string[]).includes(rawCat))
+      ? rawCat as Cat
+      : undefined;
+
+    // Build handle → npcId map from context (index = [N1], [N2], …). Used to resolve
+    // update_npc/remove_npc handle references before they reach the engine.
+    const handleMap = new Map<string, number>();
+    if (context?.nearbyNpcs) {
+      context.nearbyNpcs.forEach((n, i) => {
+        handleMap.set(`[N${i + 1}]`, n.id);
+      });
+    }
+
+    // Resolve NPC handles in mutations: update_npc/remove_npc use handle strings in the
+    // raw LLM output; we replace them with npcId here so the engine never sees raw handles.
+    const resolveMutations = (muts: unknown[]): unknown[] => {
+      return muts.map(m => {
+        if (!m || typeof m !== 'object') return m;
+        const mut = m as Record<string, unknown>;
+        const type = String(mut.type ?? '');
+        if (type === 'update_npc' || type === 'remove_npc') {
+          const handle = String(mut.handle ?? '');
+          const npcId = handleMap.get(handle);
+          if (npcId === undefined) {
+            // Unknown handle — gateway will produce a warning later; use 0 as sentinel
+            console.warn(`[llm:parse] ${type}: unknown handle "${handle}" — no matching NPC in context`);
+            return { ...mut, npcId: 0 };
+          }
+          // Destructure handle out so it is truly removed, not set to undefined.
+          const { handle: _h, ...rest } = mut;
+          return { ...rest, npcId };
+        }
+        return mut;
+      });
+    };
+
+    const rawMuts = Array.isArray(raw.mutations) ? raw.mutations : undefined;
+
     const decision: LlmDecision = {
       ...(raw.prompt === undefined ? {} : { prompt: stripCR(String(raw.prompt)) }),
       distilledType: String(raw.distilled_type ?? ''),
+      ...(parsedCategory !== undefined ? { category: parsedCategory } : {}),
       stat: this.parseStat(raw.stat),
       baseDc: Number(raw.base_dc ?? 10),
       required: Boolean(raw.required),
@@ -627,7 +670,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
             };
           })
         : [],
-      ...(raw.mutations === undefined ? {} : { mutations: raw.mutations as unknown[] }),
+      ...(rawMuts !== undefined ? { mutations: resolveMutations(rawMuts) } : {}),
       ...(raw.outcome_text === undefined ? {} : { outcomeText: stripCR(String(raw.outcome_text)) }),
     };
 
@@ -674,6 +717,24 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       }
     }
 
+    // Pre-roll side-effect guard (§5a log-only, v11): a DECISION beat (non-empty decision[],
+    // done=false) that also carries mutations fires side-effects before the dice roll. We don't
+    // block or strip — those mutations may be intentional setup — but we log so the pattern is
+    // visible in telemetry. This is intentionally log-only; the spec decided against retry in v11.
+    const hasMutations = Array.isArray(raw.mutations) && (raw.mutations as unknown[]).length > 0;
+    if (d.decision.length > 0 && !d.done && hasMutations) {
+      console.warn(c.yellow('[llm:validate]'), 'DECISION beat with non-empty mutations — pre-roll side-effect detected (§5a log-only)');
+    }
+
+    // Degenerate decision shape (polish-v0.2.7 Bug #2 / mutation-vocabulary §5a universal guard):
+    // exactly one real option is a beat with no real choice. Zero is fine — that's the "resolve
+    // outright" signal handled above. Flag it as mineable telemetry; the state machine acts on it
+    // (retry → refundable bail). Logged here so the FIRST degenerate call is always captured.
+    const realOptions = d.decision.filter(o => o.dcModifier !== null);
+    if (realOptions.length === 1) {
+      warnings.push('degenerate decision shape — exactly 1 real option (no real choice for the player)');
+    }
+
     if (warnings.length > 0) {
       console.warn(c.yellow('[llm:validate]'), warnings.join('; '));
       console.warn(c.yellow('[llm:validate] raw response:'), JSON.stringify(raw).slice(0, 500));
@@ -686,7 +747,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       const hasReward = (raw.mutations as Array<Record<string, unknown>>).some(m => {
         if (!m || typeof m !== 'object') return false;
         const type = String(m.type ?? '');
-        if (['add_item', 'spawn_npc', 'set_location', 'cross_frontier'].includes(type)) return true;
+        if (['add_item', 'add_npc', 'spawn_npc', 'move_to', 'set_location', 'cross_frontier', 'reveal_location'].includes(type)) return true;
         if (['modify_wealth', 'modify_rolls_remaining'].includes(type)) return Number(m.amount ?? 0) > 0;
         return false;
       });

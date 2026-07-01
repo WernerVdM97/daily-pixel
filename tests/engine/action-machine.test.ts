@@ -601,6 +601,7 @@ describe('ActionStateMachine — required enforcement', () => {
       required: false,
       decision: [
         { label: 'Explore', dcModifier: 0 },
+        { label: 'Scout first', dcModifier: -1 },
         { label: 'Bail', dcModifier: null },
       ],
     });
@@ -608,7 +609,7 @@ describe('ActionStateMachine — required enforcement', () => {
     const machine = new ActionStateMachine(llm);
     const { firstDecision } = await machine.start(testChar(), 'explore', []);
 
-    expect(firstDecision.options).toHaveLength(2);
+    expect(firstDecision.options).toHaveLength(3);
     expect(firstDecision.options.some(o => o.dcModifier === null)).toBe(true);
   });
 });
@@ -620,6 +621,7 @@ describe('ActionStateMachine — dcModifier clamping', () => {
       ...MockLlmGateway.defaultDecision(),
       decision: [
         { label: 'Do something crazy', dcModifier: 15 },
+        { label: 'Play it safe', dcModifier: 0 },
         { label: 'Bail', dcModifier: null },
       ],
     });
@@ -636,6 +638,7 @@ describe('ActionStateMachine — dcModifier clamping', () => {
       ...MockLlmGateway.defaultDecision(),
       decision: [
         { label: 'Cheat fate', dcModifier: -10 },
+        { label: 'Take the safe road', dcModifier: 0 },
       ],
     });
 
@@ -651,6 +654,7 @@ describe('ActionStateMachine — dcModifier clamping', () => {
       ...MockLlmGateway.defaultDecision(),
       decision: [
         { label: 'Normal action', dcModifier: 2 },
+        { label: 'Other action', dcModifier: -1 },
       ],
     });
 
@@ -658,6 +662,66 @@ describe('ActionStateMachine — dcModifier clamping', () => {
     const { firstDecision } = await machine.start(testChar(), 'try', []);
 
     expect(firstDecision.options[0].dcModifier).toBe(2);
+  });
+});
+
+describe('ActionStateMachine — degenerate decision-shape guard (Bug #2)', () => {
+  const oneOption = (label = 'Press on'): LlmDecision => ({
+    distilledType: 'inspect', stat: 'wisdom', baseDc: 12, required: false, done: false,
+    decision: [{ label, dcModifier: 0 }, { label: 'Bail', dcModifier: null }],
+  });
+
+  it('retries then resolves a persistently single-option beat as a refundable no-op', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision(oneOption()); // every call returns the same ≤1-real-option shape
+    const machine = new ActionStateMachine(llm);
+
+    const result = await machine.start(testChar(), 'study the key', testItems);
+
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) return;
+    expect(result.outcome.outcome).toBe('skipped');
+    expect(result.outcome.systemRefund).toBe(true); // engine hands the roll back
+    expect(result.outcome.playerRolled).toBeNull();
+    expect(result.outcome.mutations).toEqual([]);
+    expect(llm.calls.length).toBe(2); // retried once before bailing
+  });
+
+  it('presents the beat when the retry returns a genuine choice', async () => {
+    let call = 0;
+    const llm: LlmGateway = {
+      decide: async () => {
+        call++;
+        return call === 1
+          ? oneOption()
+          : {
+              distilledType: 'inspect', stat: 'wisdom', baseDc: 12, required: false, done: false,
+              decision: [
+                { label: 'Pry it open', dcModifier: 0 },
+                { label: 'Pick the lock', dcModifier: -1 },
+                { label: 'Bail', dcModifier: null },
+              ],
+            };
+      },
+    };
+    const machine = new ActionStateMachine(llm);
+
+    const result = await machine.start(testChar(), 'study the key', testItems);
+
+    expect(result.resolved).toBe(false);
+    if (result.resolved) return;
+    expect(result.firstDecision.options).toHaveLength(3);
+    expect(call).toBe(2); // retried once, then presented the healthy beat
+  });
+
+  it('never bails a required (reactive) single-option beat — presents the lone option', async () => {
+    const llm = new MockLlmGateway();
+    llm.setDecision({ ...oneOption('Fight'), required: true });
+    const machine = new ActionStateMachine(llm);
+
+    const result = await machine.start(testChar(), 'a wolf lunges', testItems);
+
+    expect(result.resolved).toBe(false); // can't bail a reaction; it's presented
   });
 });
 
@@ -720,7 +784,8 @@ describe('ActionStateMachine — day-job wage paid at resolution', () => {
 
 const optionBeat: LlmDecision = {
   distilledType: 'combat', stat: 'physical', baseDc: 12, required: false, done: false,
-  decision: [{ label: 'Strike', dcModifier: 0 }, { label: 'Bail', dcModifier: null }],
+  // Two real options so the beat is a genuine choice (the degenerate-shape guard bails on ≤1).
+  decision: [{ label: 'Strike', dcModifier: 0 }, { label: 'Feint', dcModifier: -1 }, { label: 'Bail', dcModifier: null }],
 };
 const narrationBeat: LlmDecision = {
   distilledType: 'combat', stat: 'physical', baseDc: 12, required: false, done: false,

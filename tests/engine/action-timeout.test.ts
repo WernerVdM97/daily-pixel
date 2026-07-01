@@ -29,6 +29,7 @@ function huntDecision1(): LlmDecision {
     done: false,
     decision: [
       { label: 'Follow deer', dcModifier: 0 },
+      { label: 'Track the wolf', dcModifier: 2 },
       { label: 'Bail', dcModifier: null },
     ],
   };
@@ -100,7 +101,7 @@ describe('30-min action timeout', () => {
     // State was just persisted — should not be stale
     const resume = engine.resumeAction(characterId);
     expect(resume.state.rawInput).toBe('hunt a deer');
-    expect(resume.nextDecision.options).toHaveLength(2);
+    expect(resume.nextDecision.options).toHaveLength(3);
   });
 
   it('allows non-stale action in stepAction', async () => {

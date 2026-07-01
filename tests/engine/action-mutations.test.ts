@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   validateMutations,
   applyMutations,
+  collapseStackedDeltas,
   type MutationContext,
 } from '../../src/engine/action/mutations.js';
 import type { WorldMutation } from '../../src/engine/WorldEngine.js';
@@ -355,16 +356,16 @@ describe('Mutation application', () => {
     expect(state.itemsToRemove[0]).toEqual({ name: 'Steel Ingot', quantity: 1 });
   });
 
-  it('returns npcs to spawn from spawn_npc mutations', () => {
+  it('returns npcs to add from spawn_npc mutations (legacy alias)', () => {
     const state = applyMutations(
       [
         { type: 'spawn_npc', name: 'Greta', class: 'Blacksmith', description: 'A stern woman' },
       ],
       ctx(),
     );
-    expect(state.npcsToSpawn).toHaveLength(1);
-    expect(state.npcsToSpawn[0].name).toBe('Greta');
-    expect(state.npcsToSpawn[0].class).toBe('Blacksmith');
+    expect(state.npcsToAdd).toHaveLength(1);
+    expect(state.npcsToAdd[0].name).toBe('Greta');
+    expect(state.npcsToAdd[0].class).toBe('Blacksmith');
   });
 });
 
@@ -419,5 +420,248 @@ describe('Mutation — modify_max_stamina', () => {
       { type: 'modify_max_stamina', amount: -1 },
     ]);
     expect(result).toContainEqual(expect.objectContaining({ type: 'modify_max_stamina', amount: -1 }));
+  });
+});
+
+describe('Mutation v11 — move_to (primary travel verb)', () => {
+  it('accepts a valid move_to mutation', () => {
+    const result = validateMutations(
+      [{ type: 'move_to', name: 'The Dark Pines' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects move_to without name', () => {
+    const result = validateMutations([{ type: 'move_to' }], ctx());
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('name');
+  });
+
+  it('rejects move_to with empty name', () => {
+    const result = validateMutations([{ type: 'move_to', name: '' }], ctx());
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects move_to naming an unknown location when knownLocations is provided', () => {
+    const result = validateMutations(
+      [{ type: 'move_to', name: 'Nowhere' }],
+      ctx({ knownLocations: ['The Warden\'s Oak', 'The Dark Pines'] }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('unknown location');
+  });
+
+  it('applies move_to like set_location', () => {
+    const state = applyMutations([{ type: 'move_to', name: 'The Dark Pines' }], ctx());
+    expect(state.location).toBe('The Dark Pines');
+  });
+});
+
+describe('Mutation v11 — add_npc', () => {
+  it('accepts a valid add_npc mutation', () => {
+    const result = validateMutations(
+      [{ type: 'add_npc', name: 'Greta', class: 'Blacksmith', description: 'A stern woman' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects add_npc without name', () => {
+    const result = validateMutations(
+      [{ type: 'add_npc', class: 'Blacksmith' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it('collects add_npc into npcsToAdd', () => {
+    const state = applyMutations(
+      [{ type: 'add_npc', name: 'Greta', class: 'Blacksmith', description: 'A stern woman' }],
+      ctx(),
+    );
+    expect(state.npcsToAdd).toHaveLength(1);
+    expect(state.npcsToAdd[0].name).toBe('Greta');
+  });
+});
+
+describe('Mutation v11 — update_npc', () => {
+  it('accepts a valid update_npc with resolved npcId', () => {
+    const result = validateMutations(
+      [{ type: 'update_npc', npcId: 42, description: 'He turns away.' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects update_npc without npcId', () => {
+    const result = validateMutations(
+      [{ type: 'update_npc', description: 'Something changed' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('npcId');
+  });
+
+  it('rejects update_npc with sentinel npcId 0 (unknown handle fallback)', () => {
+    const result = validateMutations(
+      [{ type: 'update_npc', npcId: 0, description: 'Changed.' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('npcId');
+  });
+
+  it('collects update_npc into npcsToUpdate', () => {
+    const state = applyMutations(
+      [{ type: 'update_npc', npcId: 7, description: 'Wary now.' }],
+      ctx(),
+    );
+    expect(state.npcsToUpdate).toHaveLength(1);
+    expect(state.npcsToUpdate[0].npcId).toBe(7);
+  });
+});
+
+describe('Mutation v11 — remove_npc', () => {
+  it('accepts a valid remove_npc with resolved npcId', () => {
+    const result = validateMutations(
+      [{ type: 'remove_npc', npcId: 3 }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects remove_npc without npcId', () => {
+    const result = validateMutations(
+      [{ type: 'remove_npc' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('npcId');
+  });
+
+  it('rejects remove_npc with sentinel npcId 0 (unknown handle fallback)', () => {
+    const result = validateMutations(
+      [{ type: 'remove_npc', npcId: 0 }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('npcId');
+  });
+
+  it('collects remove_npc into npcsToRemove', () => {
+    const state = applyMutations(
+      [{ type: 'remove_npc', npcId: 5 }],
+      ctx(),
+    );
+    expect(state.npcsToRemove).toHaveLength(1);
+    expect(state.npcsToRemove[0].npcId).toBe(5);
+  });
+});
+
+describe('Mutation v11 — reveal_location', () => {
+  it('accepts a valid reveal_location with name and direction', () => {
+    const result = validateMutations(
+      [{ type: 'reveal_location', name: 'The Ashen Spire', direction: 'E' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('accepts reveal_location without direction (auto-assign)', () => {
+    const result = validateMutations(
+      [{ type: 'reveal_location', name: 'The Ashen Spire' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects reveal_location without name', () => {
+    const result = validateMutations(
+      [{ type: 'reveal_location' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('name');
+  });
+
+  it('collects reveal_location into locationsToReveal', () => {
+    const state = applyMutations(
+      [{ type: 'reveal_location', name: 'The Ashen Spire', direction: 'NE' }],
+      ctx(),
+    );
+    expect(state.locationsToReveal).toHaveLength(1);
+    expect(state.locationsToReveal[0].name).toBe('The Ashen Spire');
+    expect(state.locationsToReveal[0].direction).toBe('NE');
+  });
+});
+
+describe('collapseStackedDeltas (§5a guard)', () => {
+  it('collapses two modify_stamina into one', () => {
+    const result = collapseStackedDeltas([
+      { type: 'modify_stamina', amount: -2 },
+      { type: 'modify_stamina', amount: -1 },
+    ]);
+    const stamina = result.filter(m => m.type === 'modify_stamina');
+    expect(stamina).toHaveLength(1);
+    expect(stamina[0].amount).toBe(-3);
+  });
+
+  it('caps negative stamina at -5', () => {
+    const result = collapseStackedDeltas([
+      { type: 'modify_stamina', amount: -3 },
+      { type: 'modify_stamina', amount: -4 },
+    ]);
+    const stamina = result.filter(m => m.type === 'modify_stamina');
+    expect(stamina[0].amount).toBe(-5);
+  });
+
+  it('does not cap positive stamina (healing)', () => {
+    const result = collapseStackedDeltas([
+      { type: 'modify_stamina', amount: 3 },
+      { type: 'modify_stamina', amount: 4 },
+    ]);
+    const stamina = result.filter(m => m.type === 'modify_stamina');
+    expect(stamina[0].amount).toBe(7);
+  });
+
+  it('caps negative health at -4', () => {
+    const result = collapseStackedDeltas([
+      { type: 'modify_health', amount: -2 },
+      { type: 'modify_health', amount: -3 },
+    ]);
+    const health = result.filter(m => m.type === 'modify_health');
+    expect(health[0].amount).toBe(-4);
+  });
+
+  it('does not cap positive health (healing)', () => {
+    const result = collapseStackedDeltas([
+      { type: 'modify_health', amount: 2 },
+      { type: 'modify_health', amount: 3 },
+    ]);
+    const health = result.filter(m => m.type === 'modify_health');
+    expect(health[0].amount).toBe(5);
+  });
+
+  it('passes non-scalar mutations through unchanged', () => {
+    const muts: WorldMutation[] = [
+      { type: 'add_npc', name: 'Greta', class: 'Blacksmith' },
+      { type: 'modify_stamina', amount: -2 },
+      { type: 'move_to', name: 'The Dark Pines' },
+    ];
+    const result = collapseStackedDeltas(muts);
+    expect(result.some(m => m.type === 'add_npc')).toBe(true);
+    expect(result.some(m => m.type === 'move_to')).toBe(true);
+    expect(result.filter(m => m.type === 'modify_stamina')).toHaveLength(1);
+  });
+
+  it('collapses mixed positive and negative stamina correctly', () => {
+    const result = collapseStackedDeltas([
+      { type: 'modify_stamina', amount: -6 },
+      { type: 'modify_stamina', amount: 2 },
+    ]);
+    const stamina = result.filter(m => m.type === 'modify_stamina');
+    // Net is -4, which is above the -5 cap, so -4 passes through
+    expect(stamina[0].amount).toBe(-4);
   });
 });

@@ -64,6 +64,7 @@ function deriveFromMutations(mutations: WorldMutation[]): MutationDeltas {
         d.itemsLost.push(String(m.name ?? ''));
         break;
       case 'set_location':
+      case 'cross_frontier':
         d.newLocation = String(m.name ?? '');
         break;
       // spawn_npc ignored — NPCs are narrated in outcome_text
@@ -177,6 +178,12 @@ export function formatOutcome(
 
   lines.push('');
 
+  // ── Roll accounting — computed early so the changes section can reference it ──
+  // Prefer the engine's reported delta (set for auto-finish no-ops the renderer can't infer);
+  // otherwise infer: a resolved roll debits one plus any modify_rolls_remaining mutation.
+  const rollsSpent = outcome.playerRolled !== null ? -1 : 0;
+  const rollsDelta = outcome.rollsDelta ?? d.rollsDelta + rollsSpent;
+
   // ── Changes line — items gained/lost and location ──
   const changes: string[] = [];
   for (const item of d.itemsGained) {
@@ -188,6 +195,11 @@ export function formatOutcome(
   if (d.newLocation) {
     changes.push(`→ ${d.newLocation}`);
   }
+  // A positive roll grant that nets to zero against the action cost is invisible in the 🎲
+  // counter — surface it explicitly so the player knows they were rewarded (feedback #13).
+  if (!outcome.rollRefunded && d.rollsDelta > 0 && rollsDelta === 0) {
+    changes.push(`✨ inspired (+${d.rollsDelta} roll)`);
+  }
 
   // ── Stat footer — standardised emoji glyphs ──
   const stats: string[] = [];
@@ -198,12 +210,8 @@ export function formatOutcome(
   // Stamina — always
   stats.push(`⚡ ${ctx.stamina}/${ctx.maxStamina}${formatDelta(d.staminaDelta)}`);
   // Rolls — no fixed denominator (daily allowance varies: 3, Saturday 4), so the old
-  // `/2` printed an over-full fraction. Prefer the engine's actual net change when it reports
-  // one (the auto-finish no-op refund/charge, which the renderer can't infer); otherwise infer:
-  // a resolved roll debits one (−1) plus any modify_rolls_remaining mutation. A no-op refund
-  // shows "(refunded)" — without it, the unchanged count reads as a bug (see player report).
-  const rollsSpent = outcome.playerRolled !== null ? -1 : 0;
-  const rollsDelta = outcome.rollsDelta ?? d.rollsDelta + rollsSpent;
+  // `/2` printed an over-full fraction. A no-op refund shows "(refunded)" — without it,
+  // the unchanged count reads as a bug (see player report).
   // "(refunded)" only for a genuine net-zero refund; if a mutation also moved rolls, show the
   // real delta instead so a grant/loss isn't mislabelled as a refund.
   const rollsSuffix = outcome.rollRefunded && rollsDelta === 0 ? ' (refunded)' : formatDelta(rollsDelta);

@@ -1,16 +1,12 @@
 # Docs — Map of Content
 
-The design vault for **The Warden's Oak**. Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain folders. 
-
-Every doc carries frontmatter. Promoted docs graduate from `sparks/` to domain folders. 
+The design vault for **The Warden's Oak**. Every doc carries frontmatter; promoted docs graduate from `sparks/` to domain folders.
 
 Read **[CONVENTIONS](./CONVENTIONS.md)** first.
 
-> **Maintenance:**  When you add a doc, add its row to the right table. When status or phase changes, update the badge and table. If a file exists that isn't listed, it's drifting toward slop.
-
 ---
 
-🌱 `spark` · 🔭 `exploring` · ✅ `decided` · 🪦 `superseded` · 🚫 `nogo` · 🚀 `shipped`
+🌱 `spark` · 🔭 `exploring` · ✅ `decided` · 🪦 `superseded` · 🚫 `nogo`
 
 ---
 
@@ -28,18 +24,17 @@ mission, pillars, north star
 
 mechanics, loop, actions
 
-_All POC game specs shipped — the code is the living artifact (see `archived/poc/`)._
+| Status | Doc | Summary |
+| ------ | --- | ------- |
+|        |     |         |
 
 ## ⚙️ engine
 
 how it runs
 
 | Status | Doc | Summary |
-|---|---|---|
-| ✅ | [Map & Exploration — Shared Hub-and-Spoke Geography](./engine/per-player-map-exploration.md) | Full Tier-2 rework: a **shared** hub-and-spoke graph rooted at the Oak (`location_edges` + `node_tier` + `region`), fog-of-war masked per player. Deterministic engine-owned travel (routing + `stamina = Σ edge difficulty`), edge-validated `set_location`, frontier exits that mint shared places on first crossing. `/map` paginated with region/hub drill-in; `/journal` rechronicled via `actions.location_name`. Path 2 — geography foundation in POC (prompt bump = `decision-v10`), LLM pipeline split deferred to v12. |
-| ✅ | [Mutation Vocabulary Refinement](./engine/mutation-vocabulary-refinement.md) | **`0.2.x` candidate → ships as `decision-v11`** (after the map doc's `decision-v10`). Tidies the LLM mutation keywords into one verb scheme (`modify_` deltas · `add/update/remove_` entity CRUD · `move_to`), splits the overloaded `set_location` → `move_to` + `reveal_location`, gives NPCs a lifecycle (`add/update/remove_npc`, disposition deferred), and adds a closed `category` enum + soft `category → expected-mutations` map (warn + telemetry, apply anyway). Stepping stone to v12's two-pass dynamic injection; `move_to`/`reveal_location` defer to the map graph, and `locations.created_by_action_id` is ceded to that doc. |
-
-_POC engine specs (tech stack, action-UX) shipped → `archived/poc/`._
+| ------ | --- | ------- |
+|        |     |         |
 
 ## 🖥️ ui
 
@@ -55,19 +50,21 @@ _Example Scenes shipped → `archived/poc/`._
 
 resolved cross-cutting trade-offs (ADRs)
 
-| Status | Doc | Summary |
-|---|---|---|
-| ✅ | [POC Action UX Refinements](./decisions/poc-action-ux-refinements.md) | Buttons A/B/C, Bail/Skip/Finish terminal states, footer standardisation, generic daily actions |
-| ✅ | [Per-Option Stat & Ability-Check Rolls](./decisions/per-option-stat-and-ability-checks.md) | Roll = d20 + char ability + item bonus; per-option stat so approach choice selects the stat tested |
-| ✅ | [Roll Economy, Timeouts & World Growth](./decisions/roll-economy-timeouts-and-world-growth.md) | Resolves prod-data D1/D2/D3: refund no-op/timeout rolls (1 free each per day), lazy-create off-map locations via sync stub + async cartographer. Drives the `decision-v8` bump. |
+| Status | Doc                                                                                                               | Summary                                                                                                                                                                                                    |
+| ------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅      | [POC Action UX Refinements](./decisions/poc-action-ux-refinements.md)                                             | Buttons A/B/C, Bail/Skip/Finish terminal states, footer standardisation, generic daily actions                                                                                                             |
+| ✅      | [Per-Option Stat & Ability-Check Rolls](./decisions/per-option-stat-and-ability-checks.md)                        | Roll = d20 + char ability + item bonus; per-option stat so approach choice selects the stat tested                                                                                                         |
+| ✅      | [Roll Economy, Timeouts & World Growth](./decisions/roll-economy-timeouts-and-world-growth.md)                    | Resolves prod-data D1/D2/D3: refund no-op/timeout rolls (1 free each per day), lazy-create off-map locations via sync stub + async cartographer. Drives the `decision-v8` bump.                            |
+| ✅      | [Edge Bearing Inversion & Region Reconciliation](./decisions/edge-bearing-inversion-and-region-reconciliation.md) | Render-time direction inversion in `neighbours()` (no migration) so `/look` agrees with `/map`; BFS parent fallback for null-region nodes in `renderMap` so unenriched places don't orphan to "Elsewhere." |
 
 ---
 
 ## 🎯 POC 
 
-| Status | Doc                                                                                                               | Summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------ | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🌱     | [Decision Prompt v12 — Combat, World Scaling & Multi-Stage Pipeline](./sparks/prompt-v12-scaling-and-pipeline.md) _(the `0.3.0` prompt **set** = v12; `decision-v10`/`v11` are the map + mutation-vocab `0.2.x` bumps)_ | **POC round 2 (`0.3.0`) kickoff**, builds on the shipped v9 (markdown input + coherence critic, now in `archived/poc/`). The engine-heavy half: (C) combat as a long, frequent, high-reward wilds mode backed by engine scene-state (`combatState`, contested rolls, severity bands, no-one-shot floor); (B) the world scales around the player via a week-indexed World Tier; (D) decompose the mega-call into a classify → decide → resolve pipeline of per-type templates over graph-shaped scene-state (the v9 critic is its first stage). Sim harness is a prerequisite. |
+| Status | Doc                                                                                                                                                                                                                     | Summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 🌱     | [Decision Prompt v12 — Combat, World Scaling & Multi-Stage Pipeline](./sparks/prompt-v12-scaling-and-pipeline.md) _(the `0.3.0` prompt **set** = v12; `decision-v10`/`v11` are the map + mutation-vocab `0.2.x` bumps)_ | **POC round 2 (`0.3.0`) kickoff**, builds on the shipped v9 (markdown input + coherence critic, now in `archived/poc/`). The engine-heavy half: (C) combat as a long, frequent, high-reward wilds mode backed by engine scene-state (`combatState`, contested rolls, severity bands, no-one-shot floor); (B) the world scales around the player via a week-indexed World Tier; (D) decompose the mega-call into a classify → decide → resolve pipeline of per-type templates over graph-shaped scene-state (the v9 critic is its first stage). Sim harness is a prerequisite.              |
+| 🌱     | [Improved Item Features](./sparks/improved-item-features.md)                                                                                                                                                            | Placeholder for giving items depth — item kinds/layers, use/equip/drop verbs, quest coupling, real inventory management, and an economy tie-in (personal vs. communal coin). Collects the "loot is noise" thread (feedback #11) + soft-cap enforcement deferred from the backpack short-fix. Not yet a direction.                                                                                                                                                                                                                                                                          |
 
 ## 🔥 MVP 
 

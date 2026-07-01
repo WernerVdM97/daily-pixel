@@ -29,6 +29,18 @@ related:
 
 # Decision Prompt v12 — First-Class Combat, World Scaling & Multi-Stage Pipeline
 
+## Must clear before any v12 build (gating prerequisites)
+
+This set is well-reasoned but **not one buildable unit** — it is two prerequisites plus three stageable threads, and the threads stay blocked until these land. Ordered by what unblocks the most:
+
+- [ ] **Build the sim harness** — gates tuning for **Thread B** (scaling curve) and **Thread C** (combat severity bands). Called "a prerequisite, not optional" throughout; tuning either blind bricks the game into trivial-or-impossible. It does not exist yet, so it is the *real first deliverable* of `0.3.0`.
+- [ ] **Settle prompt-set versioning** — the asset layout + `PROMPT_VERSION` shape for a multi-template set (`decision-prompts/v12/{classify,…,resolve}.md`). Small, self-contained, and gates **all of Thread D**. Decide before building (see Thread D's [!]).
+- [x] **Category enum — standardised on v11's seven values** (`combat · travel · social · skill · search · rest · other`). This doc now uses that set throughout (Stage-1 classifier `type`, the Stage-2/per-type template list, the ownership map); the earlier 5-value `fight · travel · trade · talk · other` sketch is retired. v11 ships first, so its enum is canonical and Thread D inherits it.
+- [ ] **Pin the typed scene-state structure** before Thread C — `combatState` is its first writer (D1/D2). Graph-*shaped*, persisted in SQLite for this round; the real graph backend defers to MVP.
+- [ ] **Carry every v8–v11 rule forward** into whichever template now owns it (refunds, known-locations reuse, no-dead-turns, the security rule, markdown framing). A prompt-set rewrite is the easiest place to silently drop a hard-won rule.
+
+> [>] Critical path: `v10 (shipped) → v11 → {sim harness, prompt-set versioning} → D → C → B`. Stage the threads (D backbone first) so telemetry between prompt versions makes any regression attributable.
+
 > *The kickoff for **POC round 2 (`0.3.0`)** — the deep, structural half of the original `decision-v8 → v-next` rework, building **on top of** what v9 ships. [[prompt-v9-markdown-and-critic]] (the next `0.2.x` patch) lands the LLM-layer changes — markdown input and a coherence critic — first. This doc carries the three threads that need real engine work: **(C)** combat as a frequent, long, high-reward mode in the wilds, backed by engine scene-state; **(B)** the world scales around each player — stronger players meet tougher foes for bigger rewards, climbing week by week; and **(D)** decompose the single mega-call into a multi-stage LLM pipeline (classify → decide → resolve) over graph-shaped scene-state. Raw — capture, don't build yet.*
 
 > [!] **Renumber (decided 2026-06-27): this prompt *set* is `v12`.** Two single-file `0.2.x` bumps land first and take the next numbers — `decision-v10` is the [[per-player-map-exploration]] prompt change (KNOWN LOCATIONS → local "here + exits" block) and `decision-v11` is the [[mutation-vocabulary-refinement]] vocabulary cleanup. This `0.3.0` multi-file template *set* forks from the latest single file (v11) and ships as **`v12`** (it was drafted as "v10"; all references below now read v12). The `category` enum the v11 cleanup introduces is the **seed of Thread D's Stage-1 classifier `type`** — adopt that one vocabulary here, don't fork a parallel set.
@@ -164,13 +176,12 @@ The biggest structural change, and the **backbone** Thread B slots into. Today o
 **The pipeline (per custom action):**
 
 1. [I] **Stage 1 — Classify.** A cheap, fast call with tiny output that derives the action's
-   metadata from the raw player input + minimal context: its **type** (`fight | travel | trade |
-   talk | other`) and routing flags (`unsafe_location`, `needs_roll`, `target_present`). No
+   metadata from the raw player input + minimal context: its **type** (combat·travel·social·skill·search·rest·other) and routing flags (`unsafe_location`, `needs_roll`, `target_present`). No
    narrative, no options — just routing metadata.
-2. [I] **Stage 2 — Decide.** The type selects a **prompt template** (combat / travel / trade / talk
-   / generic), and *only the rules and context applicable to that type are injected* — combat rules
+2. [I] **Stage 2 — Decide.** The type selects a **prompt template** (combat / travel / social /
+   skill / search / rest / generic), and *only the rules and context applicable to that type are injected* — combat rules
    (Thread C) for a fight, the `KNOWN LOCATIONS` block for travel, NPC agendas for
-   talk, the `## World State` tier block (Thread B) where it matters. This session authors the
+   social, the `## World State` tier block (Thread B) where it matters. This session authors the
    **decision** (options + per-option stat/dc) **only** — it does **not** compute outcomes or
    mutations.
 3. [I] **Stage 3 — Resolve.** After the dice (roll-first, unchanged), a **fresh session** receives
@@ -181,7 +192,7 @@ The biggest structural change, and the **backbone** Thread B slots into. Today o
 - [p] **Smaller, sharper prompts.** Each stage carries only its slice of the rulebook, not the
   monolith. This serves the markdown interpretability goal ([[prompt-v9-markdown-and-critic]])
   *better than one fat markdown prompt does* — decomposition beats length. A fight never pays for
-  trade rules.
+  travel rules.
 - [p] **Separation of concerns = fewer contradictions.** The decision session can't pre-bake an
   outcome; the mutation session can't be led astray by narrative flourish — it works from a
   structured verdict + world state (it extends the roll-first split that already shipped). Each
@@ -295,6 +306,27 @@ Free text is an attack surface, so it is a **revocable privilege**, defended in 
   make it spiral — and feed that back into trimming the per-type templates. A flywheel: shorter,
   sharper templates → less spiral → faster + cheaper → easier to tune.
 
+#### D5a — What the thinking data actually shows (dev-DB review, 2026-06-30)
+
+Mining `llm_calls` on the dev DB (builds `0.2.4`/`0.2.5`, prompt v9/v10; see [[polish-v0.2.7]]) confirms the spiral hypothesis and **sharpens what to trim** — with one correction and one new driver D5 didn't anticipate.
+
+- [!] **Thinking *is* the completion.** `reasoning_chars ≈ 4 × completion_tokens` on every row — the hidden reasoning is essentially the entire output; the emitted JSON answer is a few hundred tokens. Decision calls average **3,342** reasoning chars (max **16,153**); the v9 critic is far leaner (**1,975** avg) because its prompt is smaller and scoped. So "big completion / big latency" *is* "big thinking."
+- [!] **Spiral is uncorrelated with player-input length — it tracks the *rule surface*, not the player context.** The worst offenders had trivial inputs: `"Rest"` (4 chars) → **8,448** reasoning chars (id 108); 13 chars → 9,154 (id 104); the 16k max (id 13) came from a 94-char input. Trimming the *player* context (D5's loose framing above) won't touch this. What the model re-reasons over is the **monolithic conditional rulebook** packed into the near-constant ~5,600-token prompt *every* call. **This is the direct, quantified case for Thread D** — inject only the per-type slice of rules, not the whole rulebook.
+- [!] **New driver: contradictory rules on no-op turns force a manufactured result.** On `"Rest"` at full 10/10 HP+stamina, the captured `reasoning` (id 108) loops for 8k chars trying to reconcile *"never emit a completely empty turn — must include ≥1 mutation"* against *"nothing should mechanically change"* — debating a fake `modify_stamina 0`, inventing a herb item, granting a roll, or converting rest into a decision. The rule **compels** the model to fabricate a non-empty result for a turn that should be a clean no-op. The fix is rule *design*, not context trimming: let a genuine no-op resolve empty, and/or let the deterministic guard ([[mutation-vocabulary-refinement]] §5a, [[polish-v0.2.7]]) short-circuit it before/with a tiny prompt. **These are the same no-op turns as the refund/guard work** — one fix, three payoffs (correctness, cost, latency).
+- [I] **CONTINUE-phase re-derivation is the second spiral source.** The 16k max (id 13) is a mid-fight `CONTINUE` beat where the model re-derives the whole beat state from prose — *"dice not yet thrown · must be the consequence · never re-offer the same options · outcome_text required when decisions empty…"*. Precisely what D1/D2's **engine-owned, graph-shaped scene-state spine** removes: beat state stops being reconstructed from `RECENT ACTIONS` prose on every call.
+- [>] **Prod snapshot confirmation (warden-2026-06-30, 535 calls, v6–v10).** All top-10 heaviest reasoning calls in the full prod DB are CONTINUE phase — without exception. New max: **17,323 chars / 47.5 s** (call #399, a multi-round combat CONTINUE beat on `v9`). Overall decision-call average: **3,154** reasoning chars; the v9 critic averages **1,943** on the same window because its prompt surface is smaller and scoped — a 38% leaner reasoning trace for a focused stage, directly quantifying the per-stage payoff D5 predicts. 13% of calls (≈70/535) exceed 20 s, all in the high-reasoning tail; zero tier-1 fallbacks. D1/D2's scene-state spine remains the correct fix.
+- [>] **Flywheel, now grounded.** D5's "shorter templates → less spiral → faster + cheaper" holds — corrected lever: it's the **rulebook surface per call** (Thread D decomposition) + **killing the no-op rule contradiction**, *not* player-context size. Re-mine after v11/v12 to quantify the drop (this row set is the `v9/v10` baseline); see D5b for the critic-v1 data that already narrows the levers further.
+
+#### D5b — Critic-v1 prod data: staged approach confirmed, final-mutation handoff gap
+
+38 critic calls in the prod snapshot (`call_kind='critic'`, `prompt_version='critic-v1'`, 2026-06-27 onward — first 4 days in the wild): **29 ok (76%) / 6 minor (16%) / 3 major (8%)**.
+
+- [p] **The staged approach is confirmed viable at scale.** 76% of beats need no correction. The retry mechanism works: critic `major` on call #459 (Jun 28) downgraded to `minor` on the single re-decide (#462), confirming the correction note lands and the model fixes the structural failure in one pass. The extra stage costs avg **5 s / 1,943 reasoning chars** — affordable against the ~12.6 s decision-call baseline.
+- [!] **All 6 minor issues are the same defect: outcome_text authored against an earlier mutation snapshot.** The minor verdict always flags that `outcome_text` doesn't reflect `final_mutations` — a stamina loss unacknowledged, a spawned NPC unnamed, a wealth cost missing. Root: the decision stage authors mutations at *T*; the engine applies stacking / guard-adjustments at *T+1*; the outcome text was written against *T*. This is a concrete Stage 3 handoff constraint: **the resolve stage must receive `final_mutations` (the engine's post-adjustment set), not the LLM-emitted authored set.** Every minor critic response already contains a correct `patch` field — meaning the critic *knows* the right text once it sees final state. Stage 3 of Thread D's pipeline structurally eliminates this class by design, because the resolve session receives the verdict + final world state rather than the authored beat.
+- [!] **2 of 3 major issues are DECISION beats with no player options — the CONTINUE-phase structural failure in the field.** Both occurred on complex social/religious actions (blessing temple workers, preaching at town square) in CONTINUE phase; both had empty `decision[]` **and** non-empty `mutations[]` (pre-roll side effects applied before any choice). The critic caught both as `major` because the player was presented with an unplayable beat and a world that had already changed beneath them. The shape guard (`0.2.7`) fires on these; the prod critic data confirms the guard class is correct and these failures are a real, recurring pattern. Both are documented as evidence in [[mutation-vocabulary-refinement]] §5a.
+- [c] **The third major (call #440, NPC "Otto")** is the hallucination case: a phantom NPC referenced in outcome prose with no handle to anchor it, plus a mutation delta not in the authored set. Full treatment in [[mutation-vocabulary-refinement]] §2a. Direct field evidence that handle-keyed references are load-bearing, not just architectural tidiness.
+- [>] **Flywheel addendum.** D5a identified two levers: (1) rulebook surface per call and (2) killing the no-op contradiction. The critic data adds a third: **(3) `final_mutations` in the Stage 3 handoff** — a structural change, not prompt-tuning, that eliminates the entire minor class in one move. All three are engineering changes, reinforcing Thread D's decomposition as the right investment rather than prompt wording.
+
 ### D6 — Deterministic travel/location coherence (a v9-critic gap the pipeline should close)
 
 Captured from a testing-data review (action 16, `llm_calls` 67–73). A Blacksmith standing at **The Town Forge** (a `safe` location) typed *"Go to the woods and find a monster to brawl."* The model authored a boar fight set **in the forest** with **no `set_location` / travel beat** — so the scene teleported to the wilds while the engine still has the character at the Forge. This is the "fight where you aren't" bug: the encounter is narrated somewhere the character physically isn't, and nothing moved them there. The correct chain is **travel first, then fight**.
@@ -326,8 +358,8 @@ How this folds into the v12 threads (it isn't a new thread, it's a coherence pro
 
 Thread D reframes C and B: they stop being edits to *one* prompt file and become properties of a **versioned prompt set**. Per `AGENTS.md` the move is still "new version, bump `PROMPT_VERSION` (`prompt-builder.ts:9`), mirror to `current_source.md`" — but `v12` is now a *set of templates*, not a single file (see Thread D's [!]).
 
-- [>] **The `v12` prompt set owns** the per-type templates (classify / combat / travel / trade /
-  talk / resolve), each inheriting v9's markdown framing — including the combat template's
+- [>] **The `v12` prompt set owns** the per-type templates (classify / combat / travel / social /
+  skill / search / rest / resolve), each inheriting v9's markdown framing — including the combat template's
   unsafe-location frequency + long-combat rules (Thread C) and the `## World State` tier block the
   decide/resolve templates read (Thread B).
 - [>] **`machine.ts` + `dc.ts`** own the combat spine (Thread C): the lifted decision cap, the

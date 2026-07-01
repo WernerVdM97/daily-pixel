@@ -39,7 +39,7 @@ import {
   type InternalActionState,
   type WorldContextResolver,
 } from "./action/machine.js";
-import { validateMutations, applyMutations } from "./action/mutations.js";
+import { validateMutations, applyMutations, collapseStackedDeltas } from "./action/mutations.js";
 import { effectiveStats } from "./action/dc.js";
 import {
   computeStats,
@@ -106,6 +106,38 @@ function locationTagsContain(tags: string | null, tag: string): boolean {
     .includes(tag);
 }
 
+// ── Category → mutation map (§4 / §5 soft enforcement) ──
+
+/**
+ * Expected mutation types per action category. Used to:
+ *  a) generate the §4 recipe section in the prompt (single source of truth)
+ *  b) flag unexpected mutations at runtime (§5 telemetry — always applied, never dropped)
+ */
+export const CATEGORY_MUTATION_MAP: Record<string, string[]> = {
+  combat:  ['modify_stamina', 'modify_health', 'add_item', 'update_npc', 'remove_npc'],
+  travel:  ['move_to', 'cross_frontier', 'modify_stamina', 'add_npc', 'add_item'],
+  social:  ['modify_wealth', 'add_npc', 'update_npc', 'add_item', 'remove_item'],
+  skill:   ['modify_stamina', 'modify_max_stamina', 'modify_rolls_remaining'],
+  search:  ['add_item', 'modify_stamina'],
+  rest:    ['modify_health', 'modify_stamina', 'modify_rolls_remaining'],
+  other:   [], // catch-all — anything goes; never flag
+};
+
+/** Log unexpected mutations for a given category (§5 telemetry). Flag-only, never dropped. */
+function logCategoryDeviations(category: string, mutations: WorldMutation[]): void {
+  const expected = CATEGORY_MUTATION_MAP[category];
+  if (!expected) return; // unknown category — skip
+  if (expected.length === 0) return; // 'other' — catch-all
+
+  for (const m of mutations) {
+    if (!expected.includes(m.type)) {
+      console.log(
+        `[category-telemetry] unexpected mutation "${m.type}" on category "${category}" — flagged for tuning`,
+      );
+    }
+  }
+}
+
 // ── Mutation insight logging ──
 
 /** Subset of CharacterRow read for the before→after diff. */
@@ -121,17 +153,27 @@ type AppliedStateView = {
 /** Compact summary of one mutation, e.g. `wealth+5`, `→Town Square`, `+item:Rabbit Pelt`. */
 function summariseMutation(m: WorldMutation): string {
   switch (m.type) {
+    case "move_to":
     case "set_location":
       return `→${String(m.name ?? "?")}`;
+    case "cross_frontier":
+      return `frontier:${String(m.direction ?? "?")}→${String(m.name ?? "?")}`;
+    case "reveal_location":
+      return `reveal:${String(m.name ?? "?")}`;
     case "add_item":
       return `+item:${String(m.name ?? "?")}`;
     case "remove_item":
       return `-item:${String(m.name ?? "?")}`;
+    case "add_npc":
     case "spawn_npc":
-      return `npc:${String(m.name ?? "?")}`;
+      return `+npc:${String(m.name ?? "?")}`;
+    case "update_npc":
+      return `~npc:${String(m.npcId ?? "?")}`;
+    case "remove_npc":
+      return `-npc:${String(m.npcId ?? "?")}`;
     default: {
       // modify_* — show the signed amount against the trimmed stat name.
-      const stat = m.type.replace(/^modify_/, "");
+      const stat = (m.type as string).replace(/^modify_/, "");
       const amt = Number(m.amount ?? 0);
       return `${stat}${amt >= 0 ? "+" : ""}${amt}`;
     }
@@ -281,7 +323,8 @@ export class WorldEngineImpl implements WorldEngine {
         return this.npcRepo
           .findByLocation(location)
           .filter((n) => n.description)
-          .map((n) => ({ name: n.name, description: n.description! }));
+          .sort((a, b) => a.id - b.id)
+          .map((n) => ({ id: n.id, name: n.name, description: n.description! }));
       },
       getNearbyPcs: (location: string, excludeCharId: number) => {
         const allChars = this.charRepo.findAll();
@@ -435,8 +478,8 @@ export class WorldEngineImpl implements WorldEngine {
     this.charRepo.update(characterId, { last_action_state: null });
 
     // Geographic resolution (per-player-map-exploration §2): movement is now
-    // engine-validated against the shared graph. `set_location` must reach a charted
-    // node; `cross_frontier` mints new ground ONLY by crossing a real frontier exit.
+    // engine-validated against the shared graph. `move_to`/`set_location` must reach a
+    // charted node; `cross_frontier` mints new ground ONLY by crossing a real frontier exit.
     // Illegal moves are dropped (no lazy-create-from-thin-air). Returns the names
     // minted this turn — fed to the async cartographer to chart their geometry.
     const knownLocations = this.locationRepo.findAll().map((l) => l.name);
@@ -452,10 +495,20 @@ export class WorldEngineImpl implements WorldEngine {
       wealth: row.wealth,
       rollsRemaining: row.rolls_remaining,
       location: row.location,
-      // Include just-minted names so the set_location/cross_frontier guard accepts them
+      // Include just-minted names so the move_to/cross_frontier guard accepts them
       // and applyMutations snaps to canonical casing.
       knownLocations: [...knownLocations, ...provisionalLocations],
     };
+
+    // §5a stacked-delta clamp: collapse same-axis scalar deltas before validation so
+    // the validator sees the already-summed (and capped) set, not individual −1/−2 pairs.
+    outcome.mutations = collapseStackedDeltas(outcome.mutations);
+
+    // §5 category deviation telemetry: log when a mutation falls outside its category's
+    // expected set. Flag-only — never dropped (emergent scenes are legitimate).
+    if (outcome.category) {
+      logCategoryDeviations(outcome.category, outcome.mutations);
+    }
 
     // Per spec: malformed mutations are silently dropped, valid ones applied.
     const validation = validateMutations(outcome.mutations, ctx);
@@ -513,7 +566,10 @@ export class WorldEngineImpl implements WorldEngine {
       updates.location !== undefined ||
       itemsAdded.length > 0 ||
       itemsRemoved.length > 0 ||
-      applied.npcsToSpawn.length > 0 ||
+      applied.npcsToAdd.length > 0 ||
+      applied.npcsToUpdate.length > 0 ||
+      applied.npcsToRemove.length > 0 ||
+      applied.locationsToReveal.length > 0 ||
       rollsGained;
 
     for (const item of itemsAdded) {
@@ -555,14 +611,54 @@ export class WorldEngineImpl implements WorldEngine {
       this.llmCallRepo.linkAction(callId, actionRow.id);
     }
 
-    for (const npc of applied.npcsToSpawn) {
+    // add_npc: create-only + collision detection (§2a). Never auto-merge — a duplicate
+    // name at the same location is almost certainly an LLM accident; flag it and still create,
+    // so the auditable world-state change is recorded even when we know it's a dup.
+    for (const npc of applied.npcsToAdd) {
+      const atLocation = applied.location;
+      const collision = this.npcRepo.findByLocation(atLocation)
+        .find(existing => existing.name.trim().toLowerCase() === npc.name.trim().toLowerCase());
+      if (collision) {
+        const warn = `add_npc collision: "${npc.name}" already exists at "${atLocation}" (id=${collision.id}) — creating duplicate`;
+        console.warn(`[engine] ${warn}`);
+        // Append to validation_warnings on the LLM call if we can — telemetry for §5a.
+        // (Best-effort; the call may not exist yet when add_npc comes from a test fixture.)
+      }
       this.npcRepo.create({
         name: npc.name,
         class: npc.class,
         race: npc.race,
         description: npc.description,
+        location: atLocation,
+        homeLocation: npc.homeLocation,
         createdByActionId: actionRow.id,
       });
+    }
+
+    // update_npc: apply field changes via resolved npcId (§2a). class and race are included
+    // because the repo's allowed-list already gates which DB columns can be written.
+    for (const upd of applied.npcsToUpdate) {
+      const fields: Record<string, unknown> = {};
+      if (upd.description !== undefined) fields.description = upd.description;
+      if (upd.location !== undefined) fields.location = upd.location;
+      if (upd.class !== undefined) fields.class = upd.class;
+      if (upd.race !== undefined) fields.race = upd.race;
+      if (Object.keys(fields).length > 0) {
+        this.npcRepo.update(upd.npcId, fields);
+      }
+    }
+
+    // remove_npc: hard delete — the action audit row (created_by_action_id on the npc) is
+    // already persisted, so provenance is preserved even after the row is gone.
+    for (const rem of applied.npcsToRemove) {
+      this.db.prepare('DELETE FROM npcs WHERE id = ?').run(rem.npcId);
+    }
+
+    // reveal_location: author a frontier exit at the current location (§3). The destination
+    // is NOT created yet — it's minted when cross_frontier binds it later. direction is
+    // auto-assigned from the first unused cardinal if not provided in the mutation.
+    for (const reveal of applied.locationsToReveal) {
+      this.applyRevealLocation(row.location, reveal, actionRow.id);
     }
 
     // Stamp provenance on any place minted this turn (which action grew the world).
@@ -714,14 +810,14 @@ export class WorldEngineImpl implements WorldEngine {
       crossResolved.set(m, this.resolveCrossFrontier(m, currentLocation, known, minted));
     }
 
-    // Pass 2 — build the kept list in original order; set_location now sees the full
+    // Pass 2 — build the kept list in original order; move_to/set_location now sees the full
     // known set (seed locations + anything minted this turn).
     const kept: WorldMutation[] = [];
     for (const m of mutations) {
       if (m.type === "cross_frontier") {
         const resolved = crossResolved.get(m);
         if (resolved) kept.push(resolved);
-      } else if (m.type === "set_location") {
+      } else if (m.type === "move_to" || m.type === "set_location") {
         const name = typeof m.name === "string" ? m.name.trim() : "";
         if (name === "") {
           kept.push(m); // shape-invalid — let validateMutations report/drop it
@@ -736,7 +832,7 @@ export class WorldEngineImpl implements WorldEngine {
           (known.has(norm) && this.routeBetween(currentLocation, canonical) !== null);
         if (!reachable) {
           console.warn(
-            `[engine] dropping set_location to unreachable/unknown "${name}" — movement is graph-validated (no lazy-create)`,
+            `[engine] dropping ${m.type} to unreachable/unknown "${name}" — movement is graph-validated (no lazy-create)`,
           );
           continue;
         }
@@ -747,6 +843,50 @@ export class WorldEngineImpl implements WorldEngine {
     }
 
     return { mutations: kept, minted };
+  }
+
+  /**
+   * Author a frontier exit for a `reveal_location` mutation (§3). Creates a `location_edges`
+   * row with `to_location=NULL` at `fromLocation`. `direction` is auto-assigned from the first
+   * unused cardinal/ordinal if not provided in the mutation. Does NOT create a location row —
+   * the destination is minted when the player later `cross_frontier`s this exit.
+   */
+  private applyRevealLocation(
+    fromLocation: string,
+    reveal: { name: string; direction?: string; isSafe?: number; description?: string },
+    actionId: number,
+  ): void {
+    const CARDINALS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    const usedDirections = new Set(
+      this.edgeRepo.all()
+        .filter(e => e.from_location === fromLocation)
+        .map(e => e.direction.toUpperCase()),
+    );
+
+    const direction = reveal.direction?.toUpperCase().trim() ||
+      CARDINALS.find(d => !usedDirections.has(d)) ||
+      "N"; // last-resort fallback when all directions occupied
+
+    // Skip if this direction already has an outbound edge from this location
+    if (usedDirections.has(direction)) {
+      console.warn(
+        `[engine] reveal_location: direction "${direction}" already occupied at "${fromLocation}" — skipping`,
+      );
+      return;
+    }
+
+    const teaser = reveal.description
+      ? `${reveal.name} — ${reveal.description}`
+      : reveal.name;
+
+    this.edgeRepo.recordEdge({
+      from: fromLocation,
+      to: null,
+      direction,
+      teaser,
+      difficulty: 2,
+      createdByActionId: actionId,
+    });
   }
 
   /**
@@ -887,26 +1027,33 @@ export class WorldEngineImpl implements WorldEngine {
           // Link the persisted action row so the outcome's Feedback/Bug buttons can attribute to it.
           startResult.outcome.actionId = res.actionId;
 
-          const charged = startResult.outcome.playerRolled != null || res.worldChanged;
-          // Free no-op refund only if not already used today.
-          const noopAlreadyRefundedToday = row.last_noop_refund_day === today;
-          const debit = charged || noopAlreadyRefundedToday;
-
-          // Re-read: applyResolution may have written a mutation-driven roll change.
-          const afterRes = this.charRepo.findById(characterId)!;
-          const finalRolls = debit
-            ? Math.max(0, afterRes.rolls_remaining - 1)
-            : afterRes.rolls_remaining;
-          if (debit) {
-            this.charRepo.update(characterId, { rolls_remaining: finalRolls });
+          if (startResult.outcome.systemRefund) {
+            // Degenerate decision shape on the very first beat (roll not yet drained here): never
+            // charge and never consume the once-per-day no-op grace — the player got no real choice.
+            startResult.outcome.rollsDelta = 0;
+            startResult.outcome.rollRefunded = true;
           } else {
-            // Free no-op refund — stamp the day so it's once-per-day.
-            this.stampRefundDay(characterId, "last_noop_refund_day", today);
+            const charged = startResult.outcome.playerRolled != null || res.worldChanged;
+            // Free no-op refund only if not already used today.
+            const noopAlreadyRefundedToday = row.last_noop_refund_day === today;
+            const debit = charged || noopAlreadyRefundedToday;
+
+            // Re-read: applyResolution may have written a mutation-driven roll change.
+            const afterRes = this.charRepo.findById(characterId)!;
+            const finalRolls = debit
+              ? Math.max(0, afterRes.rolls_remaining - 1)
+              : afterRes.rolls_remaining;
+            if (debit) {
+              this.charRepo.update(characterId, { rolls_remaining: finalRolls });
+            } else {
+              // Free no-op refund — stamp the day so it's once-per-day.
+              this.stampRefundDay(characterId, "last_noop_refund_day", today);
+            }
+            // Surface the real roll accounting so the footer reflects it instead of guessing:
+            // a no-op refund keeps the roll (delta 0, flagged); a charge spent one.
+            startResult.outcome.rollsDelta = finalRolls - row.rolls_remaining;
+            startResult.outcome.rollRefunded = !debit;
           }
-          // Surface the real roll accounting so the footer reflects it instead of guessing:
-          // a no-op refund keeps the roll (delta 0, flagged); a charge spent one.
-          startResult.outcome.rollsDelta = finalRolls - row.rolls_remaining;
-          startResult.outcome.rollRefunded = !debit;
         })();
 
         // D3: enrich any just-created provisional locations off the critical path.
@@ -1012,7 +1159,32 @@ export class WorldEngineImpl implements WorldEngine {
         // The action drained one roll at start; fold that into the mutation delta so the footer
         // reports the true change (covers bail and rolled resolutions alike — playerRolled-null
         // bails no longer silently omit the −1).
-        result.outcome.rollsDelta = -1 + res.rollsMutationDelta;
+        //
+        // Hand the drained roll back when it's owed:
+        //   • systemRefund — a degenerate-shape no-op (the player got no real choice): unconditional.
+        //   • first bail per char per day — mirrors the no-op/timeout grace; stepping back still
+        //     costs stamina, just not your one daily mulligan. Later bails that day keep the roll.
+        const today = this.currentDayNumber();
+        const systemRefund = result.outcome.systemRefund === true;
+        const bailRefunded =
+          result.outcome.outcome === "bailed" && row.last_bail_refund_day !== today;
+        if (systemRefund || bailRefunded) {
+          const allowance =
+            DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
+          const afterRes = this.charRepo.findById(characterId)!;
+          this.charRepo.update(characterId, {
+            rolls_remaining: Math.min(allowance, afterRes.rolls_remaining + 1),
+          });
+          // The bail grace is once-per-day, so stamp it; the system-fault refund is unconditional
+          // and burns no grace.
+          if (bailRefunded && !systemRefund) {
+            this.stampRefundDay(characterId, "last_bail_refund_day", today);
+          }
+          result.outcome.rollsDelta = res.rollsMutationDelta;
+          result.outcome.rollRefunded = true;
+        } else {
+          result.outcome.rollsDelta = -1 + res.rollsMutationDelta;
+        }
         // Link the persisted action row so the outcome's Feedback/Bug buttons can attribute to it.
         result.outcome.actionId = res.actionId;
       })();
@@ -1656,7 +1828,7 @@ export class WorldEngineImpl implements WorldEngine {
   /** Stamp a per-day refund-grace column on a character (via the repo update whitelist). */
   private stampRefundDay(
     characterId: number,
-    column: "last_noop_refund_day" | "last_timeout_refund_day",
+    column: "last_noop_refund_day" | "last_timeout_refund_day" | "last_bail_refund_day",
     day: number,
   ): void {
     this.charRepo.update(characterId, { [column]: day });

@@ -19,12 +19,13 @@ export class NpcRepository {
     stamina?: number;
     wealth?: number;
     location?: string;
+    homeLocation?: string;
     description?: string;
     createdByActionId?: number;
   }): NpcRow {
     const stmt = this.db.prepare(`
-      INSERT INTO npcs (name, class, race, day_job, stats, health, stamina, wealth, location, description, created_by_action_id)
-      VALUES (@name, @class, @race, @day_job, @stats, @health, @stamina, @wealth, @location, @description, @created_by_action_id)
+      INSERT INTO npcs (name, class, race, day_job, stats, health, stamina, wealth, location, home_location, description, created_by_action_id)
+      VALUES (@name, @class, @race, @day_job, @stats, @health, @stamina, @wealth, @location, @home_location, @description, @created_by_action_id)
     `);
     const result = stmt.run({
       name: data.name,
@@ -36,6 +37,7 @@ export class NpcRepository {
       stamina: data.stamina ?? null,
       wealth: data.wealth ?? 0,
       location: data.location ?? null,
+      home_location: data.homeLocation ?? null,
       description: data.description ?? null,
       created_by_action_id: data.createdByActionId ?? null,
     });

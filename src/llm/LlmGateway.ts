@@ -13,7 +13,7 @@ export interface LlmContext {
   };
   /** `isSafe` drives danger pacing (safe/unsafe tag); `region` groups the map. Optional: omitted by stripped retry context / bare fixtures. */
   location: { name: string; isSafe?: boolean; region?: string | null };
-  nearbyNpcs: { name: string; description: string }[];
+  nearbyNpcs: { id: number; name: string; description: string }[];
   nearbyPcs: { name: string; class: string }[];
   recentActions: { type: string; outcome: string; narrative?: string | null }[];
   /** Charted location names. Pre-v10 this rode a global `KNOWN LOCATIONS` block; v10 replaced
@@ -45,9 +45,14 @@ export interface LlmContext {
   criticNote?: string;
 }
 
+export type ActionCategory = 'combat' | 'travel' | 'social' | 'skill' | 'search' | 'rest' | 'other';
+
 export interface LlmDecision {
   prompt?: string;
   distilledType: string;
+  /** Closed category enum — machine key for the mutation map, telemetry, and future guards.
+   *  Optional: absent on pre-v11 responses and bare test fixtures. */
+  category?: ActionCategory;
   stat: 'physical' | 'wisdom' | 'intelligence' | 'charisma';
   baseDc: number;
   required: boolean;

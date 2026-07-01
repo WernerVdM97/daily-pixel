@@ -14,6 +14,7 @@ import {
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import type { WizardSession, WizardState } from "../WizardSession.js";
 import { OAK_IMAGE, imageFiles, hasImage } from "../images.js";
+import { STAT_LABELS } from "../../engine/stat-format.js";
 
 // ── Custom IDs ──
 
@@ -33,12 +34,16 @@ export interface NamedDef {
   name: string;
   description?: string;
   emoji: string;
+  /** Per-stat bonuses (classes/backgrounds/races); absent on entries that grant none. */
+  modifiers?: Record<string, number>;
 }
 /** A starting-kit entry from item-sets.yml. */
 export interface ItemSetDef {
   name: string;
   description: string;
   for_classes: string[];
+  /** Items the kit grants, each carrying the stat + d20 modifier it boosts. */
+  items?: Array<{ stat: string; modifier: number; quantity?: number }>;
 }
 /** All char-creation option data from assets/char-creation/*.yml. */
 export interface CharDefs {
@@ -323,9 +328,9 @@ function buildStepMessage(state: WizardState): {
     const opts = buildStepOptions(state.step, _defs, state.class);
     const heading = STEPS[state.step]?.heading ?? "";
 
-    // Options block: emoji + bold name + description, one per line.
+    // Options block: emoji + bold name + the stats it boosts + description, one per line.
     const list = opts
-      .map(o => `${o.emoji} **${o.label}** — ${o.description}`)
+      .map(o => `${o.emoji} **${o.label}**${o.statBonuses ? ` ${o.statBonuses}` : ""} — ${o.description}`)
       .join("\n");
     blocks.push(`__**${heading}**__\n${list}`);
     embed.setFooter({ text: `Step ${state.step} of ${totalSteps} — ${heading}` });
@@ -425,9 +430,30 @@ interface OptionDef {
   emoji: string;
   /** One-line flavour in the embed body (YAML `description`). */
   description: string;
+  /** Pre-rendered stat-bonus run, e.g. `💪+3 🧠-1` — "" when the option grants none. */
+  statBonuses: string;
 }
 
 const FALLBACK_EMOJI = "🔹";
+
+/** Render nonzero per-stat bonuses as emoji + signed amount, in canonical stat order. */
+function formatStatBonuses(mods: Record<string, number> | undefined): string {
+  if (!mods) return "";
+  return Object.keys(STAT_LABELS)
+    .filter(stat => (mods[stat] ?? 0) !== 0)
+    .map(stat => {
+      const v = mods[stat];
+      return `${STAT_LABELS[stat].emoji}${v > 0 ? `+${v}` : `${v}`}`;
+    })
+    .join(" ");
+}
+
+/** Sum a kit's per-item modifiers into a per-stat total. */
+function sumItemModifiers(items: ItemSetDef["items"]): Record<string, number> {
+  const mods: Record<string, number> = {};
+  for (const it of items ?? []) mods[it.stat] = (mods[it.stat] ?? 0) + it.modifier;
+  return mods;
+}
 
 /** Options for a step, built from the YAML defs (emoji read straight off each entry). Exported for tests. */
 export function buildStepOptions(step: number, defs: CharDefs, chosenClass?: string): OptionDef[] {
@@ -436,6 +462,7 @@ export function buildStepOptions(step: number, defs: CharDefs, chosenClass?: str
     value: value ?? d.name,
     emoji: d.emoji || FALLBACK_EMOJI,
     description: d.description ?? "",
+    statBonuses: formatStatBonuses(d.modifiers),
   });
 
   switch (step) {
@@ -447,7 +474,10 @@ export function buildStepOptions(step: number, defs: CharDefs, chosenClass?: str
     case 6: return defs.dayJobs.map(d => toOption(d));
     case 7: return defs.itemSets
       .filter(kit => kit.for_classes.includes(chosenClass ?? ""))
-      .map(kit => ({ label: kit.name, value: kit.name, emoji: "🎒", description: kit.description }));
+      .map(kit => ({
+        label: kit.name, value: kit.name, emoji: "🎒", description: kit.description,
+        statBonuses: formatStatBonuses(sumItemModifiers(kit.items)),
+      }));
     default: return [];
   }
 }

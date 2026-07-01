@@ -231,21 +231,22 @@ describe("/backpack", () => {
     const handler = makeBackpackCommand(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
 
-    // 4 used → header shows 4/10 and the grid has 6 empty slots.
-    expect(result).toContain("(4/10)");
+    // 4 used → header shows 4/40; the first grid row fills 4 slots, leaving 6 empties.
+    expect(result).toContain("(4/40)");
     const gridLine = result.split("\n").find((l) => l.includes("⬜"))!;
     expect((gridLine.match(/⬜/g) ?? []).length).toBe(6);
   });
 
-  it("shows a full row of empty slots when the pack is empty", async () => {
+  it("shows a full 10-wide row of empty slots when the pack is empty", async () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar());
     engine.setItems([]);
     const handler = makeBackpackCommand(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
 
-    expect(result).toContain("(0/10)");
+    expect(result).toContain("(0/40)");
     expect(result).toContain("empty");
+    // 40 empty slots wrap into four 10-wide rows; each grid row holds exactly 10.
     const gridLine = result.split("\n").find((l) => l.includes("⬜"))!;
     expect((gridLine.match(/⬜/g) ?? []).length).toBe(10);
   });

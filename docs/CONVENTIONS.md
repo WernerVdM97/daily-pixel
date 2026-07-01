@@ -8,22 +8,7 @@ The deal is simple: **bodies are free-form** (dump ideas however you like), but 
 
 ## 1. Every file starts with frontmatter
 
-Using `docs/templates/doc-template.md`;
-
-```yaml
----
-title: Human-readable title
-status: spark            # spark | exploring | decided | superseded | nogo | shipped
-domain: engine           # vision | game | engine | ui | spark | archived
-phase: mvp               # poc | mvp | mvp+ — when this is targeted for implementation
-tags: [render, vault]    # free-form, lowercase, for cross-cutting search
-related:                 # wikilinks to sibling docs
-  - "[[mvp+world-state-projection]]"
-# --- optional, only when they apply ---
-supersedes: "[[old-doc]]"
-superseded_by: "[[new-doc]]"
----
-```
+Copy the shape from **[`docs/templates/doc-template.md`](./templates/doc-template.md)** — that's the canonical frontmatter (and body) skeleton; don't reproduce it here.
 
 `title`, `status`, `domain` are **required**. `tags`, `phase`, and `related` are strongly encouraged. The `supersedes` / `superseded_by` pair appears only on docs involved in a replacement. Shipped docs may use `superseded_by: "implemented in code"` to signal the spec was built.
 
@@ -37,63 +22,24 @@ superseded_by: "[[new-doc]]"
 
 `phase` is orthogonal to `status`. A doc can be `status: spark, phase: poc` (raw idea, but essential) or `status: exploring, phase: mvp+` (fleshed-out, but deferred).
 
-That's the whole template. No required body sections — write the body in whatever shape the idea wants.
+### List markers
 
-### Lists Flavours
+Bodies use Obsidian task markers to signal the *kind* of list item, not just done-ness. **Never use `[x]` in sparks** (`[x]` tracks code implementation only). Never use plain `-` bullets when a list mixes kinds; mix flavours freely.
 
-Use Obsidian task markers to signal the *kind* of item in a list — not just its completion state. Grouped by when you'd reach for them.
+Decision-making (any doc):
+[?] open question
+[!] critical/must-resolve
+[I] alternative idea
+[p] pro
+[c] con
 
-NEVER USE PLAIN BULLET STYLE LISTS, always add flavour. Mix different flavours in a single list. When in doubt, default to  `[I]`, `[p]`, or `[/]`.
-
-NEVER USE TICKED `[x]` CHECK BOXES FOR SPARKS, these should only be used to track code implementations.
-
-**Decision-making (use in any doc):**
-
-| Marker | Meaning | Example |
-|---|---|---|
-| `[?] question` | Open design question | `[?] Should the warden speak more after month 3?` |
-| `[!] important` | Critical, must-resolve | `[!] Death-at-3-weeks is hostile to the stated philosophy` |
-| `[I] idea` | Alternative approach | `[I] What if bonds decay with distance instead of time?` |
-| `[p] pros` | Argument for | `[p] SQLite — zero ops, file-based, sync API` |
-| `[c] cons` | Argument against | `[c] SQLite — no concurrent writers, not a graph DB` |
-
-**Progress tracking (use in build plans and specs):**
-
-| Marker           | Meaning                | Example                                                 |
-| ---------------- | ---------------------- | ------------------------------------------------------- |
-| `[ ] to-do`      | Not started            | `[ ] Implement /action slash command`                   |
-| `[/] incomplete` | In progress            | `[/] LLM decision prompt — works, needs error handling` |
-| `[x] done`       | Resolved / implemented | `[x] Bot responds to /ping`                             |
-| `[-] canceled`   | Rejected / won't do    | `[-] ascii-image-converter — deferred to MVP`           |
-| `[>] forwarded`  | Moved to another doc   | `[>] See [[poc-build-plan]] for implementation order`   |
-| `[<] scheduling` | Planned for later      | `[<] NPC economy tick — after core loop ships`          |
-
-**Example — a real doc body using these:**
-
-## Open questions
-
-- [?] Should /hi show the opening scene every day or only on first join?
-- [!] Bail mechanic: is wisdom the right stat, or should it be class-based?
-
-## Trade-offs
-
-- [p] Pre-rendered ASCII fragments: zero tokens, zero latency, always looks right
-- [c] Pre-rendered ASCII fragments: only 4 scenes, no variety, feels static after day 3
-- [I] Hybrid: pre-rendered backgrounds + LLM-generated character descriptions
-
-## POC scope
-
-- [x] /action hunt with LLM decisions
-- [/] /action travel — works, needs road.ascii wired up
-- [ ] /backpack emoji grid
-- [-] ascii-image-converter — punted to MVP
-- [<] Daily cron tick — manual /sleep for POC
-- [>] Hosting details → [[poc-tech-stack]]
-
-
-**When to NOT use these:** If a list has only one kind of item (all to-dos, all questions), plain `- [ ]` is cleaner. The flavours earn their keep when a single list mixes different kinds — decisions, progress, and deferred items living side by side.
-
----
+Progress (build plans / specs):
+[ ] to-do
+[/] in progress
+[x] done
+[-] cancelled
+[>] forwarded
+[<] scheduled
 
 ## 2. `status` — the maturity signal (lives here, never in the folder)
 
@@ -137,8 +83,6 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 3. When it becomes the direction → `status: decided`.
 4. When it's been implemented and the code is the living artifact → **`git mv`** into `archived/`, flip `status` to `shipped`, set `superseded_by: "implemented in code"`. Shipped docs don't appear in the map of content — they're history, not active reference. Active docs that link to shipped docs should note the reference in their `related:` frontmatter so readers know where to look.
 
-**During Phase 1 (design), all docs live in `sparks/`.** The domain folders (`vision/`, `game/`, `engine/`, `ui/`) are empty — reserved for Phase 2 when design crystallizes into implementation. This keeps the repo honest: we're designing, not pretending to have a codebase.
-
 Sparks are allowed to be messy and to contradict each other. The other folders are not.
 
 ---
@@ -165,4 +109,6 @@ This is the single most important anti-slop habit: **contradictions become one d
 
 ## 7. The index
 
-`docs/README.md` is the **map of content** — the one place that lists every doc with its status. Add your new doc's line there when you create it. If it's not on the map, it's slop.
+Every doc must appear in the map of content — **[`docs/README.md`](./README.md)**, which owns the index and its maintenance rules. Add your doc's row there when you create it. If it's not on the map, it's slop.
+
+Maintain it when docs are promoted through statusses.

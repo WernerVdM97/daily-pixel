@@ -1,6 +1,6 @@
 ---
 name: game-design
-description: Game design principles. GDD structure, balancing, player psychology, progression.
+description: Game design principles for The Warden's Oak. Use when writing or revising the GDD, balancing systems, designing progression or reward loops, or reasoning about player psychology.
 allowed-tools: Read, Glob, Grep
 ---
 

@@ -77,10 +77,12 @@ export interface ActionState {
 }
 
 export interface WorldMutation {
-  type: 'set_location' | 'cross_frontier' | 'modify_health' | 'modify_stamina'
-      | 'modify_wealth' | 'modify_rolls_remaining'
-      | 'modify_max_stamina'
-      | 'add_item' | 'remove_item' | 'spawn_npc';
+  type: 'move_to' | 'set_location' | 'cross_frontier'
+      | 'modify_health' | 'modify_stamina' | 'modify_wealth'
+      | 'modify_rolls_remaining' | 'modify_max_stamina'
+      | 'add_item' | 'remove_item'
+      | 'add_npc' | 'update_npc' | 'remove_npc' | 'spawn_npc'
+      | 'reveal_location';
   [key: string]: unknown;
 }
 
@@ -98,6 +100,9 @@ export type ActionStepResult =
 
 export interface ActionOutcome {
   distilledType: string;
+  /** v11 closed category enum — machine key for mutation-map deviation telemetry. Optional: absent
+   *  pre-v11 or when the LLM omits it. Typed as string here; validated as ActionCategory by the engine. */
+  category?: string;
   finalDc: number;
   playerRolled: number | null;
   outcome: 'success' | 'failure' | 'skipped' | 'bailed' | 'done' | 'timed_out';
@@ -123,6 +128,10 @@ export interface ActionOutcome {
   /** True when a no-op refund returned the roll (nothing changed, so the action was free). Drives
    *  the footer's "(refunded)" tag so an unchanged roll count isn't mistaken for a bug. */
   rollRefunded?: boolean;
+  /** True when the engine must ALWAYS hand the roll back regardless of the per-day no-op/timeout/bail
+   *  graces — a system-side fault, not a player choice. Set by the degenerate decision-shape guard
+   *  (≤1 real option after a retry): the player never got a real choice, so the roll is free. */
+  systemRefund?: boolean;
 }
 
 export interface ActionResumeResult {

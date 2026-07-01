@@ -21,7 +21,7 @@ function fullContext(overrides: Partial<LlmContext> = {}): LlmContext {
       dayJob: 'Fletcher',
     },
     location: { name: 'The Dark Pines', isSafe: false },
-    nearbyNpcs: [{ name: 'Crow', description: 'a lean rider who owns the road now' }],
+    nearbyNpcs: [{ id: 7, name: 'Crow', description: 'a lean rider who owns the road now' }],
     nearbyPcs: [{ name: 'Mara', class: 'Priest' }],
     recentActions: [
       { type: 'forage', outcome: 'failure', narrative: 'The bramble gave nothing but scratches.' },
@@ -88,13 +88,13 @@ describe('buildUserMessage — v9 markdown briefing', () => {
   it('splits NPCs and other players into labelled lists', () => {
     const msg = buildUserMessage(fullContext());
     expect(msg).toContain('### Present');
-    expect(msg).toContain('NPCs:\n- Crow — a lean rider who owns the road now');
+    expect(msg).toContain('- [N1] Crow — a lean rider who owns the road now');
     expect(msg).toContain('Other players:\n- Mara (Priest)');
   });
 
   it('renders the Warden lore as a fenced GM note, not an NPC entry', () => {
     const msg = buildUserMessage(fullContext({
-      nearbyNpcs: [{ name: 'The Warden', description: 'an ancient keeper' }],
+      nearbyNpcs: [{ id: 1, name: 'The Warden', description: 'an ancient keeper' }],
     }));
     expect(msg).toContain('> GM note (out of character): The Warden is not one person');
     // The directive must not leak into the NPC bullet itself.
@@ -198,6 +198,6 @@ describe('prompt version + current_source mirror (AGENTS.md convention)', () => 
   });
 
   it('the map foundation runs on v10+', () => {
-    expect(PROMPT_VERSION).toBe('v10');
+    expect(PROMPT_VERSION).toBe('v11');
   });
 });

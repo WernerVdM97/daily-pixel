@@ -1,7 +1,8 @@
 ---
 title: Map & Exploration — Shared Hub-and-Spoke Geography, Deterministic Travel & Fog-of-War /map
-status: decided
-domain: engine
+status: shipped
+domain: archived
+superseded_by: "implemented in code"
 phase: poc
 tags: [map, exploration, locations, travel, geography, graph, hub-and-spoke, ui, fog-of-war, stamina, cartographer]
 related:

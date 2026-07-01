@@ -1,6 +1,6 @@
 ---
 name: game-development
-description: Game development orchestrator for The Warden's Oak (async, turn-based, text/ASCII Discord RPG). Core principles + routing to sub-skills.
+description: Game development orchestrator for The Warden's Oak (async, turn-based, text/ASCII Discord RPG). Core principles + routing to sub-skills. Use when building or changing game systems, the tick loop, actions, or when unsure which game-* sub-skill applies.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 ---
 
@@ -18,15 +18,15 @@ You are working on **The Warden's Oak** — an async, turn-based, text/ASCII Dis
 
 ## Sub-Skill Routing
 
-This project is fixed: one async, turn-based, text/ASCII Discord RPG. There is no platform or dimension to choose — routing is by specialty only.
+This project is fixed: one async, turn-based, text/ASCII Discord RPG. There is no platform or dimension to choose — routing is by specialty only. Each sub-skill is a sibling top-level skill (flattened so Claude Code auto-discovers them), invoke by its bare name.
 
 | If you need... | Use Sub-Skill |
 |----------------|---------------|
-| GDD, balancing, player psychology, progression, reward design | `game-development/game-design` |
-| Co-op architecture, server authority, sync model | `game-development/multiplayer` |
-| Static visual style, palette, ASCII scene composition, asset organization | `game-development/game-art-static` |
-| Animation / dynamic & video rendering (future MP4 path) | `game-development/game-art-dynamic` |
-| Sound design, music, adaptive audio (future video) | `game-development/game-audio` |
+| GDD, balancing, player psychology, progression, reward design | `game-design` |
+| Co-op architecture, server authority, sync model | `multiplayer` |
+| Static visual style, palette, ASCII scene composition, asset organization | `game-art-static` |
+| Animation / dynamic & video rendering (future MP4 path) | `game-art-dynamic` |
+| Sound design, music, adaptive audio (future video) | `game-audio` |
 
 ---
 

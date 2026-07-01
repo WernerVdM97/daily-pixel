@@ -3,7 +3,7 @@
 // outcomes trace back to the prompt that produced them.
 // To cut a new version: copy decision-<old>.md → decision-<new>.md, edit, bump this
 // string, keep old files, and mirror the new file into current_source.md.
-export const PROMPT_VERSION = 'v10';
+export const PROMPT_VERSION = 'v11';
 
 // Critic prompt version, independent of PROMPT_VERSION. Stamped on critic llm_calls
 // rows as `critic-<CRITIC_VERSION>` so a verdict traces to the prompt that produced it.
@@ -151,13 +151,19 @@ export function buildUserMessage(ctx: LlmContext): string {
   const region = ctx.location.region ? ` · ${ctx.location.region}` : '';
   out.push(`Location: ${ctx.location.name}${region}${safety}`);
 
-  // ── Present — NPCs and other players, separate labelled lists ──
+  // ── Present — NPCs (with ephemeral handles) and other players ──
+  // Handles [N1]…[Nk] are assigned by index to present NPCs in id-ascending order.
+  // update_npc/remove_npc mutations reference these handles; the gateway resolves them
+  // back to npcId at parse time (§2a). add_npc always uses a name, never a handle.
   if (ctx.nearbyNpcs.length > 0 || ctx.nearbyPcs.length > 0) {
     out.push('');
     out.push('### Present');
     if (ctx.nearbyNpcs.length > 0) {
-      out.push('NPCs:');
-      for (const n of ctx.nearbyNpcs) out.push(`- ${n.name} — ${n.description}`);
+      out.push('NPCs (use the handle to update or remove an existing NPC):');
+      for (let i = 0; i < ctx.nearbyNpcs.length; i++) {
+        const n = ctx.nearbyNpcs[i];
+        out.push(`- [N${i + 1}] ${n.name} — ${n.description}`);
+      }
     }
     if (ctx.nearbyPcs.length > 0) {
       out.push('Other players:');

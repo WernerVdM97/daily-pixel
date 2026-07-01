@@ -1,6 +1,6 @@
 ---
 name: multiplayer
-description: Co-op multiplayer principles for a server-authoritative, async/turn-based game. Architecture, state sync, server authority.
+description: Co-op multiplayer principles for a server-authoritative, async/turn-based game. Use when designing co-op architecture, state sync, server authority, or anything touching multi-player consistency.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 ---
 

@@ -3,7 +3,9 @@ import { STAT_LABELS } from "../../engine/stat-format.js";
 import { SEPARATOR } from "../format.js";
 
 /** How many item slots a character can carry. */
-export const BACKPACK_CAPACITY = 10;
+export const BACKPACK_CAPACITY = 40;
+/** Slots per grid row — renders the pack as a tidy 10-wide grid (4 rows at full capacity). */
+const GRID_COLS = 10;
 /** Emoji shown for an unused slot in the grid. */
 const EMPTY_SLOT = "⬜";
 
@@ -26,10 +28,14 @@ export function formatBackpack(items: ItemData[]): string {
   lines.push(SEPARATOR);
   lines.push("");
 
-  // Emoji grid: one emoji per carried unit, then ⬜ for each free slot.
+  // Emoji grid: one emoji per carried unit, then ⬜ for each free slot, wrapped
+  // into GRID_COLS-wide rows so the pack reads as a grid, not one long line.
   const filled = items.flatMap((item) => Array(item.quantity).fill(item.emoji));
   const empties = Array(Math.max(0, BACKPACK_CAPACITY - used)).fill(EMPTY_SLOT);
-  lines.push([...filled, ...empties].join(" "));
+  const slots = [...filled, ...empties];
+  for (let i = 0; i < slots.length; i += GRID_COLS) {
+    lines.push(slots.slice(i, i + GRID_COLS).join(" "));
+  }
 
   if (items.length === 0) {
     lines.push("");
@@ -61,12 +67,14 @@ export function formatBackpack(items: ItemData[]): string {
     lines.push("");
     lines.push(`${info.emoji} **${info.full}** (${totalStr})`);
 
-    for (const item of groupItems) {
+    // Box-drawing rails like /map: items hang off the stat header, last one closes with └─.
+    groupItems.forEach((item, j) => {
+      const connector = j === groupItems.length - 1 ? "└─ " : "├─ ";
       const modStr =
         item.modifier >= 0 ? `+${item.modifier}` : `${item.modifier}`;
       const qtyStr = item.quantity > 1 ? ` x${item.quantity}` : "";
-      lines.push(`  ${item.emoji} ${item.name} ${modStr}${qtyStr}`);
-    }
+      lines.push(`${connector}${item.emoji} ${item.name} ${modStr}${qtyStr}`);
+    });
   }
 
   // Utility items (0-modifier)
@@ -74,10 +82,11 @@ export function formatBackpack(items: ItemData[]): string {
   if (utility) {
     lines.push("");
     lines.push("📦 **Utility**");
-    for (const item of utility) {
+    utility.forEach((item, j) => {
+      const connector = j === utility.length - 1 ? "└─ " : "├─ ";
       const qtyStr = item.quantity > 1 ? ` x${item.quantity}` : "";
-      lines.push(`  ${item.emoji} ${item.name}${qtyStr}`);
-    }
+      lines.push(`${connector}${item.emoji} ${item.name}${qtyStr}`);
+    });
   }
 
   return lines.join("\n");

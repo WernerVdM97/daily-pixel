@@ -116,6 +116,27 @@ describe('OutcomeRenderer — success', () => {
     expect(result).toContain('→ Deep Forest');
   });
 
+  it('shows destination from cross_frontier mutation (feedback #16)', () => {
+    const outcome: ActionOutcome = {
+      ...successOutcome,
+      mutations: [{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }],
+    };
+    const result = formatOutcome(outcome, ctx());
+    expect(result).toContain('→ Eastvale');
+  });
+
+  it('silently omits location line when cross_frontier carries no name', () => {
+    // Validator rejects nameless cross_frontier before it reaches the renderer, but the
+    // renderer should not crash or emit a bare "→ " if one slips through.
+    const outcome: ActionOutcome = {
+      ...successOutcome,
+      mutations: [{ type: 'cross_frontier', direction: 'NE' }],
+    };
+    const result = formatOutcome(outcome, ctx());
+    // The roll header contains "→  ✅"; only the location line starts a line with "→".
+    expect(result).not.toMatch(/^→/m);
+  });
+
   it('includes items, location, and stats in full summary line', () => {
     const outcome: ActionOutcome = {
       ...successOutcome,
@@ -365,13 +386,54 @@ describe('OutcomeRenderer — rolls delta', () => {
     expect(result).toContain('🎲 0 (-2)');
   });
 
-  it('a positive rolls mutation cancels the spent roll', () => {
+  it('a positive rolls mutation cancels the spent roll, surfacing an inspired line (feedback #13)', () => {
     const outcome: ActionOutcome = {
       ...base,
       mutations: [{ type: 'modify_rolls_remaining', amount: 1 }],
     };
-    // mutation +1 minus the one roll spent = net 0 → no delta suffix
+    // mutation +1 minus the one roll spent = net 0 → no delta on the 🎲 counter,
+    // but an explicit inspired line so the grant is never silently swallowed.
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 1 }));
+    expect(result).toContain('🎲 1');
+    expect(result).not.toContain('🎲 1 (');
+    expect(result).toContain('✨ inspired (+1 roll)');
+  });
+
+  it('does not show inspired line when the roll grant is already visible in the footer', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_rolls_remaining', amount: 2 }],
+    };
+    // net: +2 grant − 1 spent = +1 visible in footer; no redundant inspired line needed
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
+    expect(result).not.toContain('✨ inspired');
+    expect(result).toContain('🎲 2 (+1)');
+  });
+
+  it('does not show inspired line for a no-op refund', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      playerRolled: null,
+      outcome: 'done',
+      rollsDelta: 0,
+      rollRefunded: true,
+      mutations: [],
+    };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
+    expect(result).not.toContain('✨ inspired');
+    expect(result).toContain('🎲 2 (refunded)');
+  });
+
+  it('shows inspired line when engine-reported rollsDelta is zero but mutation granted a roll', () => {
+    // The engine may set outcome.rollsDelta to surface the true net (e.g. +1 grant − 1 action cost = 0).
+    // The inspired line must still fire because d.rollsDelta > 0 tells us a grant happened.
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_rolls_remaining', amount: 1 }],
+      rollsDelta: 0,
+    };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 1 }));
+    expect(result).toContain('✨ inspired (+1 roll)');
     expect(result).toContain('🎲 1');
     expect(result).not.toContain('🎲 1 (');
   });

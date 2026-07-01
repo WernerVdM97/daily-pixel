@@ -5,6 +5,29 @@ All notable changes to The Warden's Oak are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+### Added
+- **One free bail per day** — the first time you step back from a decision each day refunds the roll (mirrors the no-op/timeout "made whole" graces); later bails that day still spend it, and bailing always costs stamina. Guarded migration `202606300000_player_last_bail_refund_day` adds `player_characters.last_bail_refund_day` (own column so the bail grace never burns — or is burned by — the no-op/timeout graces).
+
+### Changed
+- **`/hi` header shows the place's own glyph** — drops the hardcoded 🏠 for the location's map emoji (📍 fallback) + safety glyph, mirroring the 0.2.6 `/look` fix.
+- **Character-gated commands reroute to character creation** — running `/hi` (or `/look`, `/stats`, `/map`, `/backpack`, `/journal`, `/action`, `/sleep`) before you have a character now opens the join wizard instead of a "type /join" dead-end.
+- **`/look` paths and `/map` drill-in roads show the destination's glyph** — each path/road line carries the destination's place emoji + safe/wild glyph (full-map node parity), not just its name.
+- **`/join` options show their stat bonuses** — classes, backgrounds, races, and starting kits display the stats each boosts as emoji (💪/🧠/📖/💬 with signed amounts), not only free-text flavour.
+- **`/backpack` item lists get box-drawing rails** — items hang off each stat group with `├─ │ └─` connectors, matching `/map`.
+- **Saturday threat warned at dawn** — the wilderness-threat heads-up folds into the 05:30 morning message (place + hint); the full reveal and NPC spawn still happen at the 12:00 beat.
+
+### Fixed
+- **Edge bearings are now inverted on the far side of a road** — `/look` paths and the decision-prompt context now show the compass direction as seen from where you stand, not the stored canonical direction (feedback #14, bug #12). `neighbours()` returns directions relative to the queried node; reverse edges get `oppositeDirection()` applied in the repo.
+- **Null-region nodes no longer orphan to "Elsewhere" on `/map`** — a place whose cartographer enrichment is absent or predated the region logic now inherits its nearest BFS ancestor's region, so it groups with its geographic neighbours (feedback #14, bug #12).
+- **Frontier crossings now show the destination in the outcome footer** — a `cross_frontier` travel (e.g. arriving at Eastvale for the first time) now renders the `→ Place` line, matching `set_location` (feedback #16).
+- **A roll grant that nets to zero is no longer invisible** — when an action rewards `+1 roll` but the action cost cancels it out, the outcome now shows `✨ inspired (+1 roll)` in the changes line so the grant is never silently swallowed (feedback #13, bug #1).
+- **Backpack no longer reads past its capacity** — `BACKPACK_CAPACITY` raised `10 → 40` and the slot grid wraps at 10 per row (a tidy 10×4 grid), so a full-ish pack stops showing nonsense like `12/10`. The cap stays soft for now; enforcement + item depth tracked in [[improved-item-features]].
+- **Degenerate decision beats no longer reach the player** — a beat that would present ≤1 real option (no real choice) is retried once; if still degenerate it resolves as a refundable no-op (the roll is free, no grace consumed) rather than a dead-end single-button "decision". The degenerate first call is always logged to `llm_calls.validation_warnings`. Universal shape guard from [[mutation-vocabulary-refinement]] §5a, shipped standalone ahead of the v11 framework.
+
+### Internal
+- **`ActionOutcome.systemRefund`** — engine flag marking a system-fault no-op (degenerate decision shape) that always hands the roll back, independent of the per-day no-op/timeout/bail graces. The per-turn **stamina clamp** (polish-v0.2.7 Feedback #1) is deferred to v11 — per-action-type caps key off the `category` enum the mutation refactor introduces.
+- **Agent conventions folded into auto-discovered skills** — moved the per-task sections of `AGENTS.md` (git/releasing, changelog, prompt-versioning, docs) into `.claude/skills/` and migrated the game-dev skills from `agent/skills/` (flattened so Claude Code auto-discovers them). `AGENTS.md` now keeps only always-on guardrails + a skills index.
+- **Trimmed `docs/CONVENTIONS.md` (169→103 lines)** — deduped the frontmatter block and list-marker catalog into `docs/templates/doc-template.md` and the index rule into `docs/README.md`; CONVENTIONS stays the single source of truth for the rules and now points at those homes instead of restating them.
 
 ## [0.2.6] - 2026-06-28
 ### Added
