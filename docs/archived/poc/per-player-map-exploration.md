@@ -2,14 +2,25 @@
 title: Map & Exploration — Shared Hub-and-Spoke Geography, Deterministic Travel & Fog-of-War /map
 status: shipped
 domain: archived
-superseded_by: "implemented in code"
+superseded_by: implemented in code
 phase: poc
-tags: [map, exploration, locations, travel, geography, graph, hub-and-spoke, ui, fog-of-war, stamina, cartographer]
+tags:
+  - map
+  - exploration
+  - locations
+  - travel
+  - geography
+  - graph
+  - hub-and-spoke
+  - ui
+  - fog-of-war
+  - stamina
+  - cartographer
 related:
   - "[[world-setting]]"
   - "[[daily-work-teleport]]"
   - "[[roll-economy-timeouts-and-world-growth]]"
-  - "[[prompt-v12-scaling-and-pipeline]]"
+  - "[[prompt-seperation-of-concerns]]"
   - "[[mvp-llm-prompt-architecture]]"
   - "[[mutation-vocabulary-refinement]]"
   - "[[mvp-data-model]]"
@@ -32,7 +43,7 @@ This rework makes the world **one shared, coherent place** that **governs moveme
 - [I] **A frontier that pulls outward** — pre-seeded "unexplored exits" (direction + teaser) are the invitation; crossing one mints the place on the far side, shared thereafter.
 - [I] **`/map`** renders your discovered subgraph (paginated, region/hub drill-in); **`/journal`** becomes a true chronicle of recent actions and where you did them.
 
-**Scope stance — Path 2 (decided with Werner).** Build the **deterministic, engine-owned foundation now** (`0.2.x`): the geography data model, routing, stamina, edge-validated `set_location`, the local-exits prompt, `/map`, `/journal`. **Defer the LLM-pipeline elegance to `0.3.0`/v12** ([[prompt-v12-scaling-and-pipeline]] Thread D): the classify→decide→resolve split and the dedicated *resolve* LLM slot *on top of* an engine that is already geographic. None of the foundation is throwaway — v12 plugs its `travel` per-type template into these same tables. This is forward-compatible with v12, not rivalrous.
+**Scope stance — Path 2 (decided with Werner).** Build the **deterministic, engine-owned foundation now** (`0.2.x`): the geography data model, routing, stamina, edge-validated `set_location`, the local-exits prompt, `/map`, `/journal`. **Defer the LLM-pipeline elegance to `0.3.0`/v12** ([[prompt-seperation-of-concerns]] Thread D): the classify→decide→resolve split and the dedicated *resolve* LLM slot *on top of* an engine that is already geographic. None of the foundation is throwaway — v12 plugs its `travel` per-type template into these same tables. This is forward-compatible with v12, not rivalrous.
 
 ## The gap (why rework)
 
@@ -218,7 +229,7 @@ The Vale · /map reach → the Ashen Reach
 ## 9. Scope boundaries
 
 - [-] **No full travel-cost economy beyond `Σ difficulty`.** Pathfinding is Dijkstra over the small node set; no fuel/provisions model.
-- [>] **Pipeline split (classify→decide→resolve) + the resolve LLM** → [[prompt-v12-scaling-and-pipeline]] Thread D. The geography slots under v12's future `travel` template.
+- [>] **Pipeline split (classify→decide→resolve) + the resolve LLM** → [[prompt-seperation-of-concerns]] Thread D. The geography slots under v12's future `travel` template.
 - [>] **Travel-risk DC** (a real mishap roll on harsh edges, feeding off `difficulty`) → v12 Thread B ("danger is geographic").
 - [<] **`manner`/`distance`/time trade** → §7, gated on time-tracking; owned by v12.
 - [<] **A 4th "gated/blocked" difficulty band** — an edge impassable without a required item (a key, climbing gear, a guide). Cool, but MVP territory, and **links cleanly to an items refactor** — defer until items can gate traversal.

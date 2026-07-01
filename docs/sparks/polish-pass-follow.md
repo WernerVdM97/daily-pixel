@@ -16,7 +16,7 @@ related:
   - "[[prod-data-review-v0.2.3]]"
   - "[[roll-economy-timeouts-and-world-growth]]"
   - "[[per-player-map-exploration]]"
-  - "[[prompt-v12-scaling-and-pipeline]]"
+  - "[[prompt-seperation-of-concerns]]"
   - "[[improved-item-features]]"
   - "[[edge-bearing-inversion-and-region-reconciliation]]"
 ---
@@ -174,4 +174,4 @@ Not bugs; pulled out per the bug-only scope so they aren't re-triaged here:
 - [<] **Player-authored named landmarks** *(bug #8, Ulrich)* — beyond procedural world-growth; MVP roadmap.
 - [<] **Fast-travel cost + rest-at-a-distant-settlement** *(feedback #17)* — multi-hop fast-travel parked to [[per-player-map-exploration]] §9; rest-anywhere-safe is a fresh design question.
 - [<] **Discord `@mention` of the character's owner** *(feedback #3 + #8, Flikker)* — MVP-deferred in [[prod-data-review-v0.2.3]]; worth re-weighing but not a bug.
-- [<] **Auto-resolve *shaping*** *(feedback #6, "boring, anti-climactic")* — refund + ≤1-option guard shipped; the LLM-classifies-a-paragraph-as-no-choice half rides the v11 [[prompt-v12-scaling-and-pipeline]] classify→decide→resolve work.
+- [<] **Auto-resolve *shaping*** *(feedback #6, "boring, anti-climactic")* — refund + ≤1-option guard shipped; the LLM-classifies-a-paragraph-as-no-choice half rides the v11 [[prompt-seperation-of-concerns]] classify→decide→resolve work.

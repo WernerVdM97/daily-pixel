@@ -15,7 +15,7 @@ related:
   - "[[per-player-map-exploration]]"
   - "[[roll-economy-timeouts-and-world-growth]]"
   - "[[prod-data-review-v0.2.3]]"
-  - "[[prompt-v12-scaling-and-pipeline]]"
+  - "[[prompt-seperation-of-concerns]]"
   - "[[discord-interaction-layer]]"
 ---
 
