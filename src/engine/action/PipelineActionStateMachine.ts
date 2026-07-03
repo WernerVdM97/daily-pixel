@@ -46,8 +46,10 @@ export interface PipelineInternalActionState extends ActionState {
   required: boolean;
   /** Epoch ms last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
-  /** All llm_calls ids in this action. Populated by Task 5's per-stage stamping — left
-   *  untouched here. */
+  /** All llm_calls ids in this action. Task 5 built the per-stage stamp/callKind derivation
+   *  (`src/llm/pipeline/stamping.ts`) but nothing wires it into an actual `LlmCallRecorder` call
+   *  yet — no live gateway/persistence exists for the pipeline machine in Stage 1 (scope fence).
+   *  Stays empty (`state.llmCallIds ?? []` at every read site) until that wiring lands. */
   llmCallIds?: number[];
 }
 

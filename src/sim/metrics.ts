@@ -101,9 +101,13 @@ export interface PipelineStageSummary {
 
 /**
  * Group `PipelineScriptedGateway.stageCalls` (Task 5) into per-stage counts + a latency tail
- * signal. Order follows first-appearance in `stageCalls` (`Map` preserves insertion order),
- * which for a resolved turn is the pipeline's own call order: decide → resolve-mutate →
- * resolve-narrate (classify only appears on a heuristic miss).
+ * signal. `stageCalls` accumulates across the WHOLE scenario (every turn), not just one action,
+ * so the returned array's order is first-global-appearance (`Map` preserves insertion order) —
+ * for a single resolved turn that reads as decide → resolve-mutate → resolve-narrate (classify
+ * only on a heuristic miss), but a multi-turn scenario mixing e.g. a heuristic-hit turn then a
+ * classify-miss turn groups as [decide, resolve-mutate, resolve-narrate, classify], not
+ * classify-first. Counts/totals per stage are correct regardless — only the group ORDER reflects
+ * first appearance across the whole run, not a single call's stage sequence.
  */
 export function summarizePipelineStages(stageCalls: PipelineStageCall[]): PipelineStageSummary[] {
   const byStage = new Map<string, PipelineStageSummary>();
