@@ -186,6 +186,80 @@ describe('PipelineActionStateMachine — typed handoff', () => {
     expect(narrateInput.chosenOption).toEqual({ label: 'Strike hard', dcModifier: 2 });
     expect(narrateInput.finalMutations).toEqual([{ type: 'modify_stamina', amount: -1 }]);
   });
+
+  it('hands off the beat-cap resolve with the follow-up decide\'s real baseDc/options, not the accumulated DC or the clamped/bail-augmented pendingDecision.options', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // baseDc: 12, decision: Strike hard(+2)/Feint first(-1)
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'The fight ends.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Follow-up decide (called inside step1): a distinct baseDc, and a single real option with
+    // an out-of-range dcModifier and no bail entry — so `toActionDecision` clamps it and
+    // `ensureBail` appends a synthetic "Step back" before it ever reaches pendingDecision.
+    // decide() itself never returns either the clamp or the bail entry.
+    const followUpDecide: PipelineDecideResult = {
+      distilledType: 'skirmish',
+      stat: 'physical',
+      baseDc: 15,
+      required: false,
+      decision: [{ label: 'Desperate strike', dcModifier: 8 }],
+    };
+    llm.decideResult = followUpDecide;
+
+    const step1 = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    expect(step1.resolved).toBe(false);
+    if (step1.resolved) throw new Error('expected unresolved step1');
+    // Sanity-check the clamp/bail actually happened, so the assertion below is meaningful.
+    expect(step1.nextDecision.options).toEqual([
+      { label: 'Desperate strike', dcModifier: 5 },
+      { label: 'Step back', dcModifier: null },
+    ]);
+
+    // Beat cap: this second step resolves without calling decide again, so the handoff must
+    // come from the pinned `lastDecideResult` (followUpDecide), not a reconstruction.
+    const decideCallsBeforeStep2 = llm.decideCalls.length;
+    const step2 = await machine.step(step1.state, 'Desperate strike', testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+    expect(llm.decideCalls.length).toBe(decideCallsBeforeStep2);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const decisionForHandoff = llm.resolveMutateCalls[0].decision;
+    // decide's actual baseDc (15) — not the accumulated DC (12 + 2 + 5 = 19).
+    expect(decisionForHandoff.baseDc).toBe(15);
+    // decide's actual raw decision array — not pendingDecision.options (clamped dcModifier: 5,
+    // plus ensureBail's synthetic "Step back" entry decide() never returned).
+    expect(decisionForHandoff.decision).toEqual([{ label: 'Desperate strike', dcModifier: 8 }]);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    expect(llm.resolveNarrateCalls[0].decision).toBe(decisionForHandoff);
+  });
+});
+
+describe('PipelineActionStateMachine — required (reactive) actions', () => {
+  it('never adds a bail option to a required action\'s first decision', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'ambush',
+      stat: 'physical',
+      baseDc: 14,
+      required: true,
+      decision: [
+        { label: 'Fight back', dcModifier: 3 },
+        { label: 'Dodge', dcModifier: -2 },
+      ],
+    };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    expect(started.resolved).toBe(false);
+    if (started.resolved) {
+      expect(started.firstDecision.options.some(o => o.dcModifier === null)).toBe(false);
+    }
+  });
 });
 
 describe('PipelineDecideResult shape', () => {

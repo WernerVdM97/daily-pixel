@@ -34,6 +34,13 @@ export interface PipelineInternalActionState extends ActionState {
   distilledType: string;
   /** Stat tested by this action's roll. */
   rollStat: string;
+  /** The actual `PipelineDecideResult` the last `decide()` call returned — threaded through to
+   *  `resolve()`'s RESOLVE-MUTATE/RESOLVE-NARRATE handoff unchanged. Deliberately NOT
+   *  reconstructed from pinned fields at handoff time: `accumulatedDc` drifts from decide's raw
+   *  `baseDc` once dcModifiers accumulate, and `pendingDecision.options` may carry
+   *  `ensureBail`'s synthetic bail option plus clamped `dcModifier` values decide() never
+   *  actually returned. */
+  lastDecideResult: PipelineDecideResult;
   /** Reactive action — bail not allowed. */
   required: boolean;
   /** Epoch ms last persisted. Used by the 30-min timeout hook. */
@@ -125,6 +132,7 @@ export class PipelineActionStateMachine {
       distilledType: decideResult.distilledType,
       rollStat: decideResult.stat,
       required: decideResult.required,
+      lastDecideResult: decideResult,
       lastActionAt: Date.now(),
     };
 
@@ -208,6 +216,7 @@ export class PipelineActionStateMachine {
       accumulatedDc: newDc,
       pendingDecision: nextDecision,
       distilledType: decideResult.distilledType || state.distilledType,
+      lastDecideResult: decideResult,
     };
 
     return { resolved: false, state: nextState, nextDecision };
@@ -245,16 +254,11 @@ export class PipelineActionStateMachine {
       verdict = 'success';
     }
 
-    // Structured, typed handoff (Task 2 acceptance criterion) — reconstructed from the pinned
-    // state fields rather than re-parsed prose. `decision` is a fresh session per the pipeline
-    // contract, so this is what RESOLVE-MUTATE is told was decided, not a shared object.
-    const decisionForHandoff: PipelineDecideResult = {
-      distilledType: state.distilledType,
-      stat: state.rollStat as PipelineDecideResult['stat'],
-      baseDc: newDc,
-      required: state.required,
-      decision: state.pendingDecision.options as LlmDecisionOption[],
-    };
+    // Structured, typed handoff (Task 2 acceptance criterion) — the actual `PipelineDecideResult`
+    // the last `decide()` call returned, carried forward on `state.lastDecideResult`. `decision`
+    // is a fresh session per the pipeline contract, so this is what RESOLVE-MUTATE is told was
+    // decided, not a shared object.
+    const decisionForHandoff = state.lastDecideResult;
     const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
 
     const { mutations: proposedMutations } = await this.llm.resolveMutate({
@@ -331,6 +335,10 @@ export class PipelineActionStateMachine {
       distilledType: 'divine_intervention',
       rollStat: 'physical',
       required: false,
+      // No real decide() call happens on this path (classify itself failed) — this mirrors the
+      // other hardcoded fields above rather than being read by anything, since divine
+      // intervention resolves outright and never reaches resolve()'s handoff.
+      lastDecideResult: { distilledType: 'divine_intervention', stat: 'physical', baseDc: 0, required: false, decision: [] },
       lastActionAt: Date.now(),
     };
     return {
