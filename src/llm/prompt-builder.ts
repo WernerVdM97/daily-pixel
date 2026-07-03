@@ -10,24 +10,33 @@ export const PROMPT_VERSION = 'v11';
 // Bump it (and add critic-<N>.md) when the critic prompt changes.
 export const CRITIC_VERSION = 'v1';
 
+// v12 prompt-*set* version (docs/decisions/v12-prompt-set-versioning.md). Scaffolding
+// only: no orchestrator consumes loadPromptSet yet, so this never touches the live v11
+// path above. Stage 1 (Thread D) wires the engine onto it and retires PROMPT_VERSION.
+export const PROMPT_SET_VERSION = 'v12';
+
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { LlmContext, CriticInput } from './LlmGateway.js';
+import type { LlmContext, CriticInput, ActionCategory } from './LlmGateway.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Canonical ActionCategory list — single source of truth for the decide-map keys so it's
+// never hand-copied alongside the LlmGateway union type (they'd silently drift apart).
+const ACTION_CATEGORIES: readonly ActionCategory[] = ['combat', 'travel', 'social', 'skill', 'search', 'rest', 'other'];
+
+/** Read a prompt file under assets/prompts/ and trim it. Path segments join under the
+ *  assets root; fails loud (ENOENT) if the file is missing — prompts are boot-critical. */
+function readPrompt(...segments: string[]): string {
+  return readFileSync(path.join(__dirname, '..', '..', 'assets', 'prompts', ...segments), 'utf-8').trim();
+}
+
 /** System prompt, loaded once at boot from the file matching PROMPT_VERSION. */
-const _systemPrompt = readFileSync(
-  path.join(__dirname, '..', '..', 'assets', 'prompts', 'decision-prompts', `decision-${PROMPT_VERSION}.md`),
-  'utf-8',
-).trim();
+const _systemPrompt = readPrompt('decision-prompts', `decision-${PROMPT_VERSION}.md`);
 
 /** Critic system prompt, loaded once at boot from the file matching CRITIC_VERSION. */
-const _criticSystemPrompt = readFileSync(
-  path.join(__dirname, '..', '..', 'assets', 'prompts', 'critic', `critic-${CRITIC_VERSION}.md`),
-  'utf-8',
-).trim();
+const _criticSystemPrompt = readPrompt('critic', `critic-${CRITIC_VERSION}.md`);
 
 export function buildSystemPrompt(): string {
   return _systemPrompt;
@@ -35,6 +44,45 @@ export function buildSystemPrompt(): string {
 
 export function buildCriticSystemPrompt(): string {
   return _criticSystemPrompt;
+}
+
+/** A full versioned prompt set (docs/decisions/v12-prompt-set-versioning.md §1): the
+ *  classify/resolve bookends plus one decide template per ActionCategory, loaded together
+ *  from a single directory so a pipeline outcome traces to the exact set that produced it. */
+export interface PromptSet {
+  version: string;
+  classify: string;
+  resolve: string;
+  decide: Record<ActionCategory, string>;
+}
+
+/** Load a full prompt set from decision-prompts/<version>/. Throws loud (fail-fast at
+ *  boot) naming the missing file if any expected template is absent — a partial set must
+ *  never run. Reads eagerly (not memoized like the v11 singletons above) since no caller
+ *  exists yet; Stage 1 can add caching once the orchestrator calls this per-boot. */
+export function loadPromptSet(version: string = PROMPT_SET_VERSION): PromptSet {
+  const dir = ['decision-prompts', version];
+  const load = (name: string): string => {
+    try {
+      return readPrompt(...dir, `${name}.md`);
+    } catch (err) {
+      throw new Error(`loadPromptSet('${version}'): missing template '${name}.md' in assets/prompts/decision-prompts/${version}/ (${(err as Error).message})`);
+    }
+  };
+
+  const classify = load('classify');
+  const resolve = load('resolve');
+  const decide = {} as Record<ActionCategory, string>;
+  for (const category of ACTION_CATEGORIES) decide[category] = load(category);
+
+  return { version, classify, resolve, decide };
+}
+
+/** Derive the per-call telemetry stamp for a pipeline stage: `${version}/${template}`
+ *  (e.g. 'v12/combat'). Stamps are always derived, never hand-maintained, so the set and
+ *  its stage stay attributable without duplicated version bookkeeping. */
+export function stampFor(template: 'classify' | 'resolve' | ActionCategory, version: string = PROMPT_SET_VERSION): string {
+  return `${version}/${template}`;
 }
 
 /** User message for the coherence critic: the authored beat + engine truths to anchor
