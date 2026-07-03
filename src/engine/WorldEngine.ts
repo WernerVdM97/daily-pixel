@@ -132,6 +132,11 @@ export interface ActionOutcome {
    *  graces — a system-side fault, not a player choice. Set by the degenerate decision-shape guard
    *  (≤1 real option after a retry): the player never got a real choice, so the roll is free. */
   systemRefund?: boolean;
+  /** True when the pipeline machine's classify-fallback exhausted (heuristic miss + LLM fallback
+   *  rejection) and the action resolved as a canned divine-intervention outcome. Typed replacement
+   *  for the legacy `distilledType === '__divine__'` sentinel (Stage 1 Thread D backbone plan,
+   *  Task 2) — legacy code never sets this field. */
+  isDivineIntervention?: boolean;
 }
 
 export interface ActionResumeResult {
