@@ -18,13 +18,9 @@ export const PROMPT_SET_VERSION = 'v12';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { LlmContext, CriticInput, ActionCategory } from './LlmGateway.js';
+import { ACTION_CATEGORIES, type LlmContext, type CriticInput, type ActionCategory } from './LlmGateway.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// Canonical ActionCategory list — single source of truth for the decide-map keys so it's
-// never hand-copied alongside the LlmGateway union type (they'd silently drift apart).
-const ACTION_CATEGORIES: readonly ActionCategory[] = ['combat', 'travel', 'social', 'skill', 'search', 'rest', 'other'];
 
 /** Read a prompt file under assets/prompts/ and trim it. Path segments join under the
  *  assets root; fails loud (ENOENT) if the file is missing — prompts are boot-critical. */
@@ -72,6 +68,9 @@ export function loadPromptSet(version: string = PROMPT_SET_VERSION): PromptSet {
 
   const classify = load('classify');
   const resolve = load('resolve');
+  // The cast is safe because ActionCategory is TYPE-DERIVED from this same ACTION_CATEGORIES
+  // array (LlmGateway.ts) — looping over it can't skip or invent a key, so `decide` really is
+  // total by construction, not just by convention.
   const decide = {} as Record<ActionCategory, string>;
   for (const category of ACTION_CATEGORIES) decide[category] = load(category);
 

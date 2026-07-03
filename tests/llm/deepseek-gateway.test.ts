@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildSystemPrompt } from '../../src/llm/prompt-builder.js';
 import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
+import { ACTION_CATEGORIES } from '../../src/llm/LlmGateway.js';
 import type { LlmContext, LlmDecision } from '../../src/llm/LlmGateway.js';
 import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
 
@@ -701,8 +702,7 @@ describe('DeepseekLlmGateway — v11 category field', () => {
   });
 
   it('parses all valid category values without error', async () => {
-    const CATS = ['combat', 'travel', 'social', 'skill', 'search', 'rest', 'other'] as const;
-    for (const cat of CATS) {
+    for (const cat of ACTION_CATEGORIES) {
       const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: cat }) });
       const result = await gw.decide(minimalContext);
       expect(result.category).toBe(cat);
