@@ -39,6 +39,7 @@ how it runs
 | ✅      | [v12 — Prompt Separation of Concerns (parent)](./engine/prompt-separation-of-concerns.md) | Parent/overview of the v12 prompt-set rework (POC round 2, `0.3.0`): prerequisites, sequencing, the thread-ownership map, risks, acceptance + a Parts index linking the four parts. The through-line is separation of concerns across the classify → decide → resolve pipeline. |
 | ✅      | [v12 · Pipeline (Thread D)](./engine/prompt-v12-pipeline.md) | Classify → decide → resolve pipeline of per-type templates; interaction shapes (D3), free-text security (D4), the cost/data case (D5), and the verification design (D7 — gated coherence critic + faithfulness prose critic, patch-prose-only, no LLM state-authoring). |
 | ✅      | [v12 · Scene-State (D1/D2/D6)](./engine/prompt-v12-scene-state.md) | Engine-owned, graph-shaped state carried across beats (D1); typed graph-delta mutations, no LLM SQL (D2); deterministic travel/location coherence via the `scene_location` field + the travel gate (D6). |
+| ✅      | [Stage 0a — Sim Harness (plan)](./engine/stage-0a-sim-harness-plan.md) | Handoff-ready build plan for the v12 critical-path first deliverable: an offline, deterministic replay harness driving a character through many actions/weeks via the real `WorldEngineImpl` with a mocked LLM + seeded d20, emitting balance-tuning curves. Every code anchor, type contract, and gotcha (incl. the resolved `tick(true)` day-advance) inlined for execution by a lesser agent. |
 
 ## 🖥️ ui
 

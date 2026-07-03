@@ -28,6 +28,10 @@ db-backups/*.db
 db-backups/*.db-wal
 db-backups/*.db-shm
 
+# Sim harness generated output (scenario .json inputs are tracked; results are not)
+src/sim/scenarios/*.result.json
+src/sim/scenarios/*.csv
+
 # OS cruft
 Thumbs.db
 .DS_Store

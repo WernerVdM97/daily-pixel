@@ -1,0 +1,50 @@
+{
+  "name": "risky-wilds",
+  "character": {
+    "class": "Wanderer",
+    "stats": { "physical": 2, "wisdom": 2, "intelligence": 0, "charisma": 0 },
+    "health": 10,
+    "maxHealth": 10,
+    "stamina": 10,
+    "maxStamina": 10,
+    "wealth": 0,
+    "location": "The Wailing Fen",
+    "alignment": "chaotic neutral",
+    "dayJob": "Hunter"
+  },
+  "rollSource": { "kind": "seeded", "seed": 90210 },
+  "decisions": [
+    {
+      "prompt": "Something moves in the reeds ahead.",
+      "distilledType": "hunt",
+      "stat": "physical",
+      "baseDc": 16,
+      "required": false,
+      "done": false,
+      "decision": [
+        { "label": "Press deeper into the fen", "dcModifier": 2 },
+        { "label": "Circle the treeline", "dcModifier": 0 },
+        { "label": "Bail", "dcModifier": null }
+      ]
+    },
+    {
+      "distilledType": "hunt",
+      "stat": "physical",
+      "baseDc": 16,
+      "required": false,
+      "done": true,
+      "decision": [{ "label": "Finish it", "dcModifier": 0 }],
+      "mutations": [
+        { "type": "add_item", "name": "Fen Reed", "emoji": "🌾", "stat": "wisdom", "modifier": 1, "quantity": 1 },
+        { "type": "modify_wealth", "amount": 3 }
+      ],
+      "outcomeText": "The wilds yield, grudgingly."
+    }
+  ],
+  "turns": [
+    { "input": "hunt in the fen", "choicePolicy": "first-real" },
+    { "input": "hunt in the fen", "choicePolicy": "first-real" },
+    { "input": "hunt in the fen", "choicePolicy": "first-real" }
+  ],
+  "weeks": 1
+}

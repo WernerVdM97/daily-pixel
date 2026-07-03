@@ -8,7 +8,8 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sim": "tsx src/sim/run.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
