@@ -497,14 +497,9 @@ export class WorldEngineImpl implements WorldEngine {
     const { mutations: finalMutations, minted: provisionalLocations } = this.finalizeMutations(
       outcome.mutations,
       baseCtx,
+      outcome.category,
     );
     outcome.mutations = finalMutations;
-
-    // §5 category deviation telemetry: log when a mutation falls outside its category's
-    // expected set. Flag-only — never dropped (emergent scenes are legitimate).
-    if (outcome.category) {
-      logCategoryDeviations(outcome.category, outcome.mutations);
-    }
 
     // Include just-minted names so applyMutations' move_to/cross_frontier snap-to-canonical
     // sees the same known set finalizeMutations validated against.
@@ -680,6 +675,7 @@ export class WorldEngineImpl implements WorldEngine {
   private finalizeMutations(
     proposed: WorldMutation[],
     ctx: MutationContext,
+    category?: string,
   ): { mutations: WorldMutation[]; minted: string[] } {
     const geo = this.applyGeography(ctx.location, proposed, ctx.knownLocations ?? []);
 
@@ -694,6 +690,14 @@ export class WorldEngineImpl implements WorldEngine {
     // §5a stacked-delta clamp: collapse same-axis scalar deltas before validation so
     // the validator sees the already-summed (and capped) set, not individual −1/−2 pairs.
     const collapsed = collapseStackedDeltas(geo.mutations);
+
+    // §5 category deviation telemetry: log when a mutation falls outside its category's
+    // expected set. Flag-only — never dropped (emergent scenes are legitimate). Must run on the
+    // collapsed set BEFORE validation drops anything, so a mutation that deviates AND later gets
+    // dropped for being malformed is still flagged (matches pre-extraction ordering).
+    if (category) {
+      logCategoryDeviations(category, collapsed);
+    }
 
     // Per spec: malformed mutations are silently dropped, valid ones applied.
     let mutations = collapsed;

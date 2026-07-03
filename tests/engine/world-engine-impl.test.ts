@@ -489,6 +489,34 @@ describe('WorldEngineImpl — action state machine integration', () => {
       warnSpy.mockRestore();
     });
 
+    it('accepts a set_location to the same-turn just-minted destination — proves finalizeMutations merges geography-minted names into its OWN validation pass before dropping anything (Thread D Task 3)', async () => {
+      charRepo.update(characterId, { location: 'The East Road' }); // has the NE frontier
+      llm.setDecision({
+        ...huntFinalDecision(),
+        mutations: [
+          { type: 'cross_frontier' as const, direction: 'NE', name: 'Eastvale' },
+          { type: 'set_location' as const, name: 'Eastvale' }, // same-turn move into the just-minted place
+        ],
+      });
+      await engine.startAction(characterId, 'hunt');
+
+      const result = await engine.stepAction(characterId, 'Attack!');
+
+      // Neither mutation was dropped as "unreachable/unknown" — if finalizeMutations' internal
+      // validation ran without merging geography's just-minted names first, the set_location
+      // would be incorrectly rejected as a move to an unknown place.
+      if (result.resolved) {
+        expect(result.outcome.mutations).toEqual([
+          { type: 'cross_frontier', direction: 'NE', name: 'Eastvale' },
+          { type: 'set_location', name: 'Eastvale' },
+        ]);
+      }
+
+      const loc = new LocationRepository(getDb()).findByName('Eastvale');
+      expect(loc).toBeDefined(); // minted by the cross_frontier
+      expect(charRepo.findById(characterId)!.location).toBe('Eastvale'); // set_location landed
+    });
+
     it('does not drain a second roll on step (already drained on start)', async () => {
       llm.setDecision({
         ...huntFinalDecision(),

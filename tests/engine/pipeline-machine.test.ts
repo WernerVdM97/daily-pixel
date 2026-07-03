@@ -387,6 +387,20 @@ describe('PipelineActionStateMachine — D5b mutation-finalization inversion (Ta
     expect(finalize).toHaveBeenCalledTimes(1);
     expect(finalize.mock.calls[0][0]).toEqual(proposed);
 
+    // The MutationContext handed to finalize must be built from the actual char fields (not
+    // stale/defaulted values) plus the resolver's known locations — the default no-op resolver
+    // here returns [], so knownLocations must come through empty rather than undefined/omitted.
+    expect(finalize.mock.calls[0][1]).toEqual({
+      currentHealth: 12,
+      maxHealth: 12,
+      stamina: 10,
+      maxStamina: 10,
+      wealth: 5,
+      rollsRemaining: 2,
+      location: "The Warden's Oak",
+      knownLocations: [],
+    } satisfies MutationContext);
+
     // resolveNarrate must see the FINALIZED set, not the originally-proposed one.
     expect(llm.resolveNarrateCalls).toHaveLength(1);
     expect(llm.resolveNarrateCalls[0].finalMutations).toEqual(finalized);
