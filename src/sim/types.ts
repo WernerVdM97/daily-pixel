@@ -52,6 +52,13 @@ export interface PipelineScript {
    *  typed divine-intervention fallback-of-fallback outcome — a legitimate, clearly-flagged
    *  result (`isDivineIntervention: true`), not silently wrong data. */
   classify?: (rawInput: string, context: LlmContext) => ClassifyHit;
+  /** @param callNo 0-based count of decide() calls made so far on this `PipelineScriptedGateway`
+   *  instance — a gateway-instance-global counter across the ENTIRE scenario run, not scoped to
+   *  the current action or beat (same underlying semantics as the legacy `DecisionScript`'s
+   *  `callNo`, documented below). A scenario with more than one action/turn must NOT rely on
+   *  `callNo` to distinguish beats within a single action — use
+   *  `input.context.previousDecisions.length` instead, which resets to 0 at the start of each
+   *  new action. */
   decide: (input: PipelineDecideInput, callNo: number) => PipelineDecideResult;
   resolveMutate: (input: PipelineResolveMutateInput) => PipelineResolveMutateResult;
   resolveNarrate: (input: PipelineResolveNarrateInput) => PipelineResolveNarrateResult;

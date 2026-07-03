@@ -79,6 +79,12 @@ export function buildSimEngine(
   pipelineOptions?: PipelineMachineOptions,
 ): SimEngineHandle | PipelineSimEngineHandle {
   if (pipelineOptions?.machine === 'pipeline') {
+    if (script) {
+      throw new Error(
+        'buildSimEngine: a legacy DecisionScript was passed alongside pipelineOptions — pick one machine, not both',
+      );
+    }
+
     // No DB setup at all on this branch — PipelineSimEngine is pure in-memory, so spinning up
     // an in-memory SQLite DB it would never touch would just be wasted work.
     const llm = new PipelineScriptedGateway(pipelineOptions.script);

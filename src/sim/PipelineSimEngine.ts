@@ -114,6 +114,14 @@ export class PipelineSimEngine {
     // WorldEngineImpl.startAction's "normal path" — stepAction below never drains further).
     // Divine intervention (the only path start() can resolve synchronously, since DECIDE never
     // authors mutations/outcome_text) drains it too and it is never refunded, same as legacy.
+    //
+    // CAVEAT for runComparison output: legacy WorldEngineImpl.startAction has a third path this
+    // one has no equivalent for — the auto-finish/no-op-refund (`systemRefund`, once-per-day
+    // no-op grace), which can make a legacy action free. `PipelineActionStateMachine` doesn't
+    // implement that degenerate-shape/no-op-refund path at all (an accepted scope reduction from
+    // Task 2's review), so every pipeline-machine action costs exactly 1 roll, unconditionally.
+    // Net effect: rollsRemaining/roll-economy curves between runComparison's legacy and pipeline
+    // results are NOT apples-to-apples for scenarios that would trigger a legacy no-op refund.
     this.char = { ...this.char, rollsRemaining: Math.max(0, this.char.rollsRemaining - 1) };
 
     if (result.resolved) {
