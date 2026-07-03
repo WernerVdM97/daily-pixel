@@ -64,10 +64,12 @@ function makeScenario(overrides: Partial<Scenario> = {}): Scenario {
     character: BASE_CHARACTER,
     rollSource: { kind: 'fixed', value: 20 },
     llm: { kind: 'scripted', script: huntScript() },
-    turns: [
-      { input: 'hunt a wolf', choicePolicy: 'first-real' },
-      { input: 'hunt a wolf', choicePolicy: 'first-real' },
-      { input: 'hunt a wolf', choicePolicy: 'first-real' },
+    week: [
+      [
+        { input: 'hunt a wolf', choicePolicy: 'first-real' },
+        { input: 'hunt a wolf', choicePolicy: 'first-real' },
+        { input: 'hunt a wolf', choicePolicy: 'first-real' },
+      ],
     ],
     ...overrides,
   };
@@ -89,7 +91,7 @@ describe('sim driver — runScenario', () => {
     const result = await runScenario(
       makeScenario({
         rollSource: { kind: 'fixed', value: 20 },
-        turns: [{ input: 'hunt a wolf', choicePolicy: 'first-real' }],
+        week: [[{ input: 'hunt a wolf', choicePolicy: 'first-real' }]],
       }),
     );
 
@@ -101,7 +103,7 @@ describe('sim driver — runScenario', () => {
     const result = await runScenario(
       makeScenario({
         rollSource: { kind: 'fixed', value: 1 },
-        turns: [{ input: 'hunt a wolf', choicePolicy: 'first-real' }],
+        week: [[{ input: 'hunt a wolf', choicePolicy: 'first-real' }]],
       }),
     );
 
@@ -119,7 +121,7 @@ describe('sim driver — runScenario', () => {
 
   it('each TurnTrace reflects post-resolution character state read back via getCharacter/getItems', async () => {
     const result = await runScenario(
-      makeScenario({ turns: [{ input: 'hunt a wolf', choicePolicy: 'first-real' }] }),
+      makeScenario({ week: [[{ input: 'hunt a wolf', choicePolicy: 'first-real' }]] }),
     );
     const turn = result.turns[0];
 
@@ -129,11 +131,36 @@ describe('sim driver — runScenario', () => {
     expect(turn.rollsRemaining).toBe(2); // 3 starting rolls - 1 drained
   });
 
+  it('walks a multi-day week of distinct days, ticking between them and skipping rest days', async () => {
+    // 3 turns Mon, 1 turn Tue, a rest day Wed (no turns, clock still advances), 2 turns Thu.
+    const result = await runScenario(
+      makeScenario({
+        week: [
+          [
+            { input: 'hunt a wolf', choicePolicy: 'first-real' },
+            { input: 'hunt a wolf', choicePolicy: 'first-real' },
+            { input: 'hunt a wolf', choicePolicy: 'first-real' },
+          ],
+          [{ input: 'hunt a wolf', choicePolicy: 'first-real' }],
+          [],
+          [
+            { input: 'hunt a wolf', choicePolicy: 'first-real' },
+            { input: 'hunt a wolf', choicePolicy: 'first-real' },
+          ],
+        ],
+      }),
+    );
+
+    expect(result.turns).toHaveLength(6); // 3 + 1 + 0 (rest) + 2
+    // Day tags reflect the ticks between days — the rest day (day 3) still advances the clock.
+    expect(result.turns.map((t) => t.day)).toEqual([1, 1, 1, 2, 4, 4]);
+  });
+
   it('a "bail" choicePolicy retreats from the first real decision instead of pressing on', async () => {
     const result = await runScenario(
       makeScenario({
         rollSource: { kind: 'fixed', value: 20 },
-        turns: [{ input: 'hunt a wolf', choicePolicy: 'bail' }],
+        week: [[{ input: 'hunt a wolf', choicePolicy: 'bail' }]],
       }),
     );
 

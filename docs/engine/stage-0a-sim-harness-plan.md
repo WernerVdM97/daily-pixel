@@ -87,16 +87,17 @@ interface CharacterSeed {
   wealth: number; location: string; alignment: string; dayJob: string;
 }
 interface TurnScript { input: string; choicePolicy: ChoicePolicy; }
+type DayScript = TurnScript[];           // one day's turns; [] = a rest day
 interface Scenario {
   name: string; character: CharacterSeed; rollSource: RollSource;
   llm: { kind: 'scripted'; script: DecisionScript };
-  turns: TurnScript[]; weeks?: number;   // weeks used by T3
+  week: DayScript[]; weeks?: number;     // week = 1..7 distinct days; weeks (T3) repeats it
 }
 interface TurnTrace {
   index: number; input: string; distilledType: string; finalDc: number | null;
   playerRolled: number | null; rollBonus: number | null; outcome: string;
   health: number; stamina: number; wealth: number; rollsRemaining: number;
-  itemCount: number; mutationsApplied: number;
+  itemCount: number; mutationsApplied: number; day?: number;   // game day_number (T3)
 }
 interface SimResult { scenario: string; turns: TurnTrace[]; }
 async function runScenario(s: Scenario): Promise<SimResult>;
@@ -110,7 +111,7 @@ The `DecisionScript`'s `callNo` lets one script serve both the decision and narr
 - [x] Each `TurnTrace` reflects post-resolution character state read back via `getCharacter`/`getItems`.
 
 **Verification.**
-- [x] `npm test -- tests/sim/driver.test.ts` — 6/6 pass (fixed-roll 20/1 → success/failure, bail policy, no-fallback assertion).
+- [x] `npm test -- tests/sim/driver.test.ts` — 7/7 pass (fixed-roll 20/1 → success/failure, bail policy, no-fallback assertion, multi-day week with a rest day).
 - [x] `npm run typecheck` clean.
 - [x] A test asserts the scripted mock never triggers the divine-intervention fallback (the real sentinel `DIVINE_INTERVENTION_TYPE` / `'__divine__'`, not the illustrative literal).
 
@@ -157,13 +158,13 @@ function renderTable(s: SimSummary): string;  // console summary
 **Verification.**
 - [x] `npm test -- tests/sim/time.test.ts` — 3/3 pass (`tick(true)` throughout; `vi.setSystemTime` pinned to a Monday for a stable allowance).
 
-> Implementation note: `scenario.turns` is treated as **one day's routine**, repeated once per game day for `weeks * 7` days with a `tick(true)` between days — the reading that makes "no mid-week roll exhaustion" true by construction. Confirm this matches intent before Stage 3/4 author scenarios on top of it.
+> Implementation note: `scenario.week` is an **explicit sequence of day routines** (`DayScript[]`, 1..7 entries — a `[]` day is a rest day, clock ticks but no turn runs). The driver walks each day in order, ticking (`tick(true)`) between days, then repeats the whole week `weeks` times. This replaced an earlier one-day-repeated reading so a week can mix distinct days (grind days, a market day, a rest day) rather than the same day 7×.
 
 **Dependencies:** T1. **Files:** `src/sim/time.ts`, `src/sim/types.ts` (add `weeks`), `src/sim/driver.ts` (loop integration), `tests/sim/time.test.ts`. **Scope:** M.
 
 ### Checkpoint: after T1–T3
 
-- [x] `npm test` green (834/834); `npm run typecheck` clean.
+- [x] `npm test` green (837/837); `npm run typecheck` clean.
 - [x] A multi-turn, multi-week scenario runs end-to-end and produces a summary + CSV. Machinery proven before adding the CLI/scenario surface.
 - [ ] Review with a human (pending).
 
@@ -177,7 +178,7 @@ function renderTable(s: SimSummary): string;  // console summary
 
 **Verification.**
 - [x] Manual: `npm run sim -- src/sim/scenarios/{grind-week,risky-wilds}.json` both exit 0 and produce `<name>.result.json` + `<name>.csv` (gitignored).
-- [x] `npm test -- tests/sim/scenario-load.test.ts` — 6/6 pass.
+- [x] `npm test -- tests/sim/scenario-load.test.ts` — 8/8 pass (incl. the `week` >7-day cap and non-positive/fractional `weeks` rejection).
 
 **Dependencies:** T2, T3. **Files:** `src/sim/run.ts`, `src/sim/scenario-load.ts`, `src/sim/scenarios/grind-week.json`, `src/sim/scenarios/risky-wilds.json`, `package.json`, `tests/sim/scenario-load.test.ts`. **Scope:** S–M.
 
@@ -206,4 +207,4 @@ Can replay a scripted character through simulated weeks against mocked LLM outpu
 
 ---
 
-_Status: **T1–T4 built and verified** (834/834 tests green, typecheck clean) — pending human review. T5 (captured replay) and the death-rate metric remain deferred until the death track lands. Once reviewed and merged, `git mv` this plan to `archived/` with `status: shipped`, `superseded_by: "implemented in code"`._
+_Status: **T1–T4 built and verified** (837/837 tests green, typecheck clean) — pending human review. T5 (captured replay) and the death-rate metric remain deferred until the death track lands. Once reviewed and merged, `git mv` this plan to `archived/` with `status: shipped`, `superseded_by: "implemented in code"`._

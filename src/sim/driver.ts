@@ -117,10 +117,11 @@ async function runTurn(
  * then drive every turn's input through startAction/stepAction to resolution. No network
  * call and no Math.random — the roll is fully determined by `scenario.rollSource`.
  *
- * `scenario.turns` is a single day's routine. Without `weeks` it runs once (T1 behaviour,
- * unchanged). With `weeks` set, that routine repeats once per game day for `weeks * 7`
- * days, ticking (advanceDays) between each day so the roll allowance actually refills —
- * the roll economy this exists to exercise, not just a single day's snapshot.
+ * `scenario.week` is an explicit sequence of day routines (one DayScript per day). The driver
+ * walks each day in order, then repeats the whole week `weeks` times (default 1), ticking
+ * (advanceDays) between every day so the roll allowance actually refills and resources
+ * regen/drain — the roll economy this exists to exercise, not just a single day's snapshot.
+ * A day whose DayScript is empty is a rest day: the clock ticks but no turn is driven.
  */
 export async function runScenario(scenario: Scenario): Promise<SimResult> {
   const { engine, db } = buildSimEngine(scenario.rollSource, scenario.llm.script);
@@ -136,16 +137,21 @@ export async function runScenario(scenario: Scenario): Promise<SimResult> {
   });
   applySeedOverrides(db, char.id, scenario.character);
 
-  const days = scenario.weeks && scenario.weeks > 0 ? scenario.weeks * 7 : 1;
+  const weeks = scenario.weeks && scenario.weeks > 0 ? scenario.weeks : 1;
   const turns: TurnTrace[] = [];
   let globalIndex = 0;
+  let firstDay = true;
 
-  for (let day = 1; day <= days; day++) {
-    for (const turnScript of scenario.turns) {
-      turns.push(await runTurn(engine, char.id, discordUserId, globalIndex++, turnScript, currentDayNumber(engine)));
-    }
-    if (day < days) {
-      advanceDays(engine, 1);
+  for (let week = 0; week < weeks; week++) {
+    for (const dayScript of scenario.week) {
+      // Tick between days (not before the very first day, and across week boundaries too).
+      if (!firstDay) advanceDays(engine, 1);
+      firstDay = false;
+
+      const day = currentDayNumber(engine);
+      for (const turnScript of dayScript) {
+        turns.push(await runTurn(engine, char.id, discordUserId, globalIndex++, turnScript, day));
+      }
     }
   }
 

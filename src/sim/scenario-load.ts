@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { STATS } from '../assets/asset-schemas.js';
 import type { LlmDecision } from '../llm/LlmGateway.js';
-import type { CharacterSeed, DecisionScript, RollSource, Scenario, TurnScript } from './types.js';
+import type { CharacterSeed, DayScript, DecisionScript, RollSource, Scenario } from './types.js';
 
 /**
  * JSON-serializable scenario shape (T4). A JSON file can't carry the `DecisionScript`
@@ -13,7 +13,7 @@ export interface ScenarioFile {
   character: CharacterSeed;
   rollSource: RollSource;
   decisions: LlmDecision[];
-  turns: TurnScript[];
+  week: DayScript[];
   weeks?: number;
 }
 
@@ -138,6 +138,22 @@ function validateTurn(v: unknown, path: string, errs: string[]): void {
   validateChoicePolicy(v.choicePolicy, `${path}.choicePolicy`, errs);
 }
 
+/** A week is 1..7 days; each day is an array of turns (empty = a rest day, clock still ticks). */
+function validateWeek(v: unknown, errs: string[]): void {
+  if (!Array.isArray(v) || v.length === 0) {
+    errs.push('"week" must be a non-empty array of days (each day an array of turns)');
+    return;
+  }
+  if (v.length > 7) errs.push(`"week" must have at most 7 days (got ${v.length}); use "weeks" > 1 to span multiple weeks`);
+  v.forEach((day, d) => {
+    if (!Array.isArray(day)) {
+      errs.push(`week[${d}] must be an array of turns (use [] for a rest day)`);
+      return;
+    }
+    day.forEach((t, i) => validateTurn(t, `week[${d}][${i}]`, errs));
+  });
+}
+
 function validateScenarioFile(v: unknown): string[] {
   if (!isRecord(v)) return ['scenario must be a JSON object'];
 
@@ -152,13 +168,11 @@ function validateScenarioFile(v: unknown): string[] {
     v.decisions.forEach((d, i) => validateDecision(d, `decisions[${i}]`, errs));
   }
 
-  if (!Array.isArray(v.turns) || v.turns.length === 0) {
-    errs.push('"turns" must be a non-empty array of turns');
-  } else {
-    v.turns.forEach((t, i) => validateTurn(t, `turns[${i}]`, errs));
-  }
+  validateWeek(v.week, errs);
 
-  if (v.weeks !== undefined && !isFiniteNumber(v.weeks)) errs.push('"weeks" must be a number when present');
+  if (v.weeks !== undefined && (!isFiniteNumber(v.weeks) || !Number.isInteger(v.weeks) || v.weeks < 1)) {
+    errs.push('"weeks" must be a positive integer when present');
+  }
 
   return errs;
 }
@@ -167,8 +181,8 @@ function validateScenarioFile(v: unknown): string[] {
  * Adapt the canned `decisions` list into a `DecisionScript`. Indexed by
  * `ctx.previousDecisions.length` — which resets to 0 at the start of every action — rather
  * than the raw decide()-call count, so the SAME short list replays identically for every
- * turn and every repeated day (a `weeks`-spanning scenario re-runs `turns` once per game
- * day). `decisions[0]` is the opening beat; the last entry is reused for every call after,
+ * turn and every repeated day (a `weeks`-spanning scenario re-runs the `week` routine once
+ * per repeat). `decisions[0]` is the opening beat; the last entry is reused for every call after,
  * matching the "one canned decision serves both the decision and narration call" convention
  * MockLlmGateway already establishes (tests/engine/decision-pipeline.test.ts).
  */
@@ -185,7 +199,7 @@ function toScenario(file: ScenarioFile): Scenario {
     character: file.character,
     rollSource: file.rollSource,
     llm: { kind: 'scripted', script: adaptDecisions(file.decisions) },
-    turns: file.turns,
+    week: file.week,
     weeks: file.weeks,
   };
 }

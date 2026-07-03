@@ -41,10 +41,19 @@
       "outcomeText": "The wilds yield, grudgingly."
     }
   ],
-  "turns": [
-    { "input": "hunt in the fen", "choicePolicy": "first-real" },
-    { "input": "hunt in the fen", "choicePolicy": "first-real" },
-    { "input": "hunt in the fen", "choicePolicy": "first-real" }
+  "week": [
+    [
+      { "input": "hunt in the fen", "choicePolicy": "first-real" },
+      { "input": "hunt in the fen", "choicePolicy": "first-real" },
+      { "input": "hunt in the fen", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "hunt in the fen", "choicePolicy": "first-real" },
+      { "input": "hunt in the fen", "choicePolicy": "first-real" },
+      { "input": "hunt in the fen", "choicePolicy": "first-real" }
+    ],
+    [{ "input": "hunt in the fen", "choicePolicy": "first-real" }],
+    []
   ],
   "weeks": 1
 }

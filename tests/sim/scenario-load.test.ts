@@ -22,7 +22,7 @@ describe('scenario-load — example scenarios', () => {
     expect(scenario.name).toBe('grind-week');
 
     const result = await runScenario(scenario);
-    expect(result.turns.length).toBeGreaterThan(0);
+    expect(result.turns).toHaveLength(16); // 5 days × 3 turns + 1 short day + 1 rest day (0 turns)
     expect(result.turns.every((t) => t.distilledType === 'work')).toBe(true);
   });
 
@@ -31,7 +31,7 @@ describe('scenario-load — example scenarios', () => {
     expect(scenario.name).toBe('risky-wilds');
 
     const result = await runScenario(scenario);
-    expect(result.turns.length).toBeGreaterThan(0);
+    expect(result.turns).toHaveLength(7); // 2 days × 3 turns + 1 short day + 1 rest day (0 turns)
     expect(result.turns.every((t) => t.distilledType === 'hunt')).toBe(true);
   });
 });
@@ -44,7 +44,7 @@ describe('scenario-load — validation', () => {
 
   it('reports every structural problem in a malformed scenario', () => {
     try {
-      parseScenario({ name: '', character: {}, rollSource: { kind: 'bogus' }, decisions: [], turns: [] });
+      parseScenario({ name: '', character: {}, rollSource: { kind: 'bogus' }, decisions: [], week: [] });
       expect.unreachable('parseScenario should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(ScenarioLoadError);
@@ -53,7 +53,7 @@ describe('scenario-load — validation', () => {
       expect(problems.some((p) => p.includes('character.class'))).toBe(true);
       expect(problems.some((p) => p.includes('rollSource.kind'))).toBe(true);
       expect(problems.some((p) => p.includes('"decisions"'))).toBe(true);
-      expect(problems.some((p) => p.includes('"turns"'))).toBe(true);
+      expect(problems.some((p) => p.includes('"week"'))).toBe(true);
     }
   });
 
@@ -76,10 +76,63 @@ describe('scenario-load — validation', () => {
       decisions: [
         { distilledType: 'noop', stat: 'physical', baseDc: 10, required: false, done: true, decision: [] },
       ],
-      turns: [{ input: 'do a thing', choicePolicy: 'not-a-real-policy' }],
+      week: [[{ input: 'do a thing', choicePolicy: 'not-a-real-policy' }]],
     };
 
     expect(() => parseScenario(valid)).toThrow(/choicePolicy/);
+  });
+
+  it('rejects a non-positive or fractional "weeks" rather than silently coercing it', () => {
+    const base = {
+      name: 'w',
+      character: {
+        class: 'Warrior',
+        stats: { physical: 0, wisdom: 0, intelligence: 0, charisma: 0 },
+        health: 10,
+        maxHealth: 10,
+        stamina: 10,
+        maxStamina: 10,
+        wealth: 0,
+        location: "The Warden's Oak",
+        alignment: 'neutral',
+        dayJob: 'Blacksmith',
+      },
+      rollSource: { kind: 'fixed', value: 20 },
+      decisions: [
+        { distilledType: 'noop', stat: 'physical', baseDc: 10, required: false, done: true, decision: [] },
+      ],
+      week: [[{ input: 'do a thing', choicePolicy: 'first-real' }]],
+    };
+
+    // 1.5 would silently run the week block twice; -1 would coerce to 1 — both must fail loudly.
+    expect(() => parseScenario({ ...base, weeks: 1.5 })).toThrow(/positive integer/);
+    expect(() => parseScenario({ ...base, weeks: -1 })).toThrow(/positive integer/);
+    expect(() => parseScenario({ ...base, weeks: 0 })).toThrow(/positive integer/);
+  });
+
+  it('rejects a week longer than 7 days (a week is 7 days; use "weeks" to span more)', () => {
+    const eightDays = {
+      name: 'too-long',
+      character: {
+        class: 'Warrior',
+        stats: { physical: 0, wisdom: 0, intelligence: 0, charisma: 0 },
+        health: 10,
+        maxHealth: 10,
+        stamina: 10,
+        maxStamina: 10,
+        wealth: 0,
+        location: "The Warden's Oak",
+        alignment: 'neutral',
+        dayJob: 'Blacksmith',
+      },
+      rollSource: { kind: 'fixed', value: 20 },
+      decisions: [
+        { distilledType: 'noop', stat: 'physical', baseDc: 10, required: false, done: true, decision: [] },
+      ],
+      week: Array.from({ length: 8 }, () => [{ input: 'do a thing', choicePolicy: 'first-real' }]),
+    };
+
+    expect(() => parseScenario(eightDays)).toThrow(/at most 7 days/);
   });
 
   it('surfaces a JSON parse error for a malformed file rather than throwing an opaque SyntaxError', () => {

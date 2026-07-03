@@ -115,13 +115,14 @@ describe('sim time — weeks-spanning scenario', () => {
       character: BASE_CHARACTER,
       rollSource: { kind: 'fixed', value: 20 },
       llm: { kind: 'scripted', script: huntScript() },
-      // Exactly DAILY_ROLL_ALLOWANCE (3) turns/day — each day's tick refills the pool
-      // before the next day's routine runs, so a multi-week span never exhausts mid-week.
-      turns: [
-        { input: 'hunt', choicePolicy: 'first-real' },
-        { input: 'hunt', choicePolicy: 'first-real' },
-        { input: 'hunt', choicePolicy: 'first-real' },
-      ],
+      // A full 7-day week, each day exactly DAILY_ROLL_ALLOWANCE (3) turns — each day's tick
+      // refills the pool before the next day's routine runs, so a multi-week span never
+      // exhausts mid-week.
+      week: Array.from({ length: 7 }, () => [
+        { input: 'hunt', choicePolicy: 'first-real' as const },
+        { input: 'hunt', choicePolicy: 'first-real' as const },
+        { input: 'hunt', choicePolicy: 'first-real' as const },
+      ]),
       weeks,
     };
   }

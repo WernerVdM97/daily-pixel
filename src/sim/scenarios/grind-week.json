@@ -38,10 +38,34 @@
       "outcomeText": "Another honest day's work, coin in hand."
     }
   ],
-  "turns": [
-    { "input": "work the forge", "choicePolicy": "first-real" },
-    { "input": "work the forge", "choicePolicy": "first-real" },
-    { "input": "work the forge", "choicePolicy": "first-real" }
+  "week": [
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [{ "input": "work the forge", "choicePolicy": "first-real" }],
+    []
   ],
   "weeks": 1
 }

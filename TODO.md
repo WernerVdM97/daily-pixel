@@ -41,6 +41,7 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
   - track or show quests or hints?
   - add clue system? also grants +1 roll
 - [>] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty. → now designed in [[per-player-map-exploration]] (engine-owned routing + `stamina = Σ edge difficulty`; `distance` reserved for the time mechanic).
+- [ ] **`CharacterRepository.update` allow-list omits `max_stamina`** — the column exists and is settable, but `update`'s field allow-list leaves it out, so `max_stamina` can't be persisted through the repo (the sim harness routes around it with raw SQL in `src/sim/driver.ts`). Add it to the allow-list (and audit the list against the schema for other gaps) so callers don't have to bypass the repo.
 - [ ] **schema: normalise location references to FK ids** — locations are keyed by `name` (TEXT) everywhere (`player_characters.location`, `npcs.location`, `location_edges`, `actions.location_name`). `actions.location_name` is a deliberate point-in-time *snapshot* (keep it), but a future polish pass should decide whether the live-reference tables move to `location_id` FKs consistently — a holistic refactor, not a lone divergence. See [[per-player-map-exploration]] §6.
 - [ ] use reactions as a way of buffering input before a button is pressed (expend items or use certain abilities to amplify actions, also works for trades) 
   `this is cool!!!`
