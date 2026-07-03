@@ -5,6 +5,57 @@
 // balance curves (roll success rate, resource drain, reward gain) are observable
 // before Thread B/C tuning happens blind.
 import type { LlmContext, LlmDecision } from '../llm/LlmGateway.js';
+import type { ActionKind, ActionStartResult, ActionStepResult, CharacterData, ItemData } from '../engine/WorldEngine.js';
+import type {
+  ClassifyHit,
+  PipelineDecideInput,
+  PipelineDecideResult,
+  PipelineResolveMutateInput,
+  PipelineResolveMutateResult,
+  PipelineResolveNarrateInput,
+  PipelineResolveNarrateResult,
+} from '../llm/pipeline/types.js';
+
+/** Which action-state machine drives a scenario (Thread D Task 4). */
+export type MachineKind = 'legacy' | 'pipeline';
+
+/**
+ * The narrow surface `driver.ts`'s `runTurn`/`runScenario` actually call — satisfied
+ * structurally by both the real `WorldEngineImpl` (legacy) and `PipelineSimEngine` (Task 4),
+ * so per-turn driving code needs zero machine-specific branching; only engine *construction*
+ * (`engine-factory.ts`'s `buildSimEngine`) picks the machine.
+ */
+export interface SimEngine {
+  startAction(
+    characterId: number,
+    rawInput: string,
+    opts?: { kind?: ActionKind; wage?: number },
+  ): Promise<ActionStartResult>;
+  stepAction(characterId: number, choice: string): Promise<ActionStepResult>;
+  getCharacter(discordUserId: string): CharacterData | null;
+  getItems(characterId: number): ItemData[];
+}
+
+/**
+ * Per-stage canned outputs for `PipelineScriptedGateway` (Task 4) — the pipeline's 4-stage
+ * contract (classify-fallback/decide/resolveMutate/resolveNarrate) can't be expressed by the
+ * legacy single-method `DecisionScript` above, so this is a parallel script shape, not an
+ * extension of it. Each callback receives the exact input the real stage would and must return
+ * a valid output OR throw a clear scenario-author error — `PipelineScriptedGateway` never
+ * manufactures a guessed output on the caller's behalf (mirrors `driver.ts`'s `pickChoice`
+ * philosophy: a scenario-author bug should fail loudly, not silently skew the curve).
+ */
+export interface PipelineScript {
+  /** Only invoked on a heuristic CLASSIFY miss (`classifier.ts::heuristicClassify`). Optional:
+   *  a well-formed scenario's raw inputs should all hit the heuristic table, so most scripts
+   *  never need this. Omitting it means any miss surfaces as `PipelineActionStateMachine`'s own
+   *  typed divine-intervention fallback-of-fallback outcome — a legitimate, clearly-flagged
+   *  result (`isDivineIntervention: true`), not silently wrong data. */
+  classify?: (rawInput: string, context: LlmContext) => ClassifyHit;
+  decide: (input: PipelineDecideInput, callNo: number) => PipelineDecideResult;
+  resolveMutate: (input: PipelineResolveMutateInput) => PipelineResolveMutateResult;
+  resolveNarrate: (input: PipelineResolveNarrateInput) => PipelineResolveNarrateResult;
+}
 
 /** How resolveWithRoll's single d20 call is answered — deterministic, never Math.random. */
 export type RollSource =
@@ -52,7 +103,7 @@ export interface Scenario {
   name: string;
   character: CharacterSeed;
   rollSource: RollSource;
-  llm: { kind: 'scripted'; script: DecisionScript };
+  llm: { kind: 'scripted'; script: DecisionScript } | { kind: 'pipeline-scripted'; script: PipelineScript };
   /**
    * The week's routine — one DayScript per day (1..7 entries). The driver walks each day in
    * order, ticking a game day between days, then repeats the whole week `weeks` times. A week
@@ -61,6 +112,28 @@ export interface Scenario {
    */
   week: DayScript[];
   /** How many times to repeat `week`. Consumed by the time module (T3). Defaults to 1. */
+  weeks?: number;
+  /** Which action-state machine drives this scenario (Task 4). Defaults to 'legacy' — every
+   *  existing JSON fixture omits this field and is unaffected. A 'pipeline' scenario's `llm`
+   *  must be the `pipeline-scripted` variant, not the legacy `scripted` one — `driver.ts`'s
+   *  `runScenario` throws a clear error on a mismatch rather than silently ignoring it. */
+  machine?: MachineKind;
+}
+
+/**
+ * A scenario run through BOTH machines for comparison (Task 4's `runComparison`). Shares the
+ * character seed / roll source / week routine so the two runs are genuinely comparable, but
+ * carries a script per machine — decide's shape differs and resolve is split in two, so a
+ * legacy `DecisionScript` and a `PipelineScript` are never equivalent/auto-derivable from one
+ * another (see driver.ts's `runComparison` doc comment).
+ */
+export interface ComparisonScenario {
+  name: string;
+  character: CharacterSeed;
+  rollSource: RollSource;
+  legacyScript: DecisionScript;
+  pipelineScript: PipelineScript;
+  week: DayScript[];
   weeks?: number;
 }
 

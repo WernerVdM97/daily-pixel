@@ -1,9 +1,17 @@
 import type Database from 'better-sqlite3';
-import type { WorldEngineImpl } from '../engine/WorldEngineImpl.js';
 import type { ActionOption, ActionOutcome } from '../engine/WorldEngine.js';
 import { buildSimEngine } from './engine-factory.js';
 import { advanceDays, currentDayNumber } from './time.js';
-import type { CharacterSeed, ChoicePolicy, Scenario, SimResult, TurnScript, TurnTrace } from './types.js';
+import type {
+  CharacterSeed,
+  ChoicePolicy,
+  ComparisonScenario,
+  Scenario,
+  SimEngine,
+  SimResult,
+  TurnScript,
+  TurnTrace,
+} from './types.js';
 
 /**
  * `createCharacter` (WorldEngineImpl.ts) only takes class/upbringing/race/alignment/dayJob —
@@ -63,9 +71,13 @@ function pickChoice(options: ActionOption[], policy: ChoicePolicy): string {
 
 /** Drive one turn to resolution: startAction, then stepAction repeatedly (a beat may take up
  *  to two steps — the machine forces resolution on the third decision, machine.ts:238)
- *  applying the same choice policy at every beat, until the action resolves. */
+ *  applying the same choice policy at every beat, until the action resolves.
+ *
+ *  Typed against the narrow `SimEngine` interface (not `WorldEngineImpl` directly) so this
+ *  function is machine-agnostic (Task 4): `WorldEngineImpl` and `PipelineSimEngine` both
+ *  satisfy it structurally, and only the caller's engine construction picks which one runs. */
 async function runTurn(
-  engine: WorldEngineImpl,
+  engine: SimEngine,
   characterId: number,
   discordUserId: string,
   index: number,
@@ -113,17 +125,37 @@ async function runTurn(
 }
 
 /**
- * Run a scenario end-to-end against a fresh in-memory WorldEngineImpl: seed the character,
- * then drive every turn's input through startAction/stepAction to resolution. No network
- * call and no Math.random — the roll is fully determined by `scenario.rollSource`.
+ * Run a scenario end-to-end: seed the character, then drive every turn's input through
+ * startAction/stepAction to resolution. No network call and no Math.random — the roll is fully
+ * determined by `scenario.rollSource`.
  *
- * `scenario.week` is an explicit sequence of day routines (one DayScript per day). The driver
- * walks each day in order, then repeats the whole week `weeks` times (default 1), ticking
+ * `scenario.machine` (Task 4) picks which state machine drives it: 'legacy' (default, this
+ * function's body below) against a fresh in-memory `WorldEngineImpl`, or 'pipeline' — delegated
+ * to `runPipelineScenario` below — against the in-memory `PipelineSimEngine` adapter. Every
+ * existing scenario (JSON fixtures, prior tests) omits `machine` entirely and is unaffected.
+ *
+ * `scenario.week` is an explicit sequence of day routines (one DayScript per day). The legacy
+ * path walks each day in order, then repeats the whole week `weeks` times (default 1), ticking
  * (advanceDays) between every day so the roll allowance actually refills and resources
  * regen/drain — the roll economy this exists to exercise, not just a single day's snapshot.
- * A day whose DayScript is empty is a rest day: the clock ticks but no turn is driven.
+ * A day whose DayScript is empty is a rest day: the clock ticks but no turn is driven. (The
+ * pipeline path walks the same week/weeks shape but never ticks a clock — see
+ * `runPipelineScenario`'s doc comment.)
  */
 export async function runScenario(scenario: Scenario): Promise<SimResult> {
+  const machine = scenario.machine ?? 'legacy';
+
+  if (machine === 'pipeline') {
+    return runPipelineScenario(scenario);
+  }
+
+  if (scenario.llm.kind !== 'scripted') {
+    throw new Error(
+      `sim: scenario "${scenario.name}" has machine 'legacy' but llm.kind is "${scenario.llm.kind}" ` +
+        '(expected "scripted") — a pipeline scenario needs machine: \'pipeline\' set too.',
+    );
+  }
+
   const { engine, db } = buildSimEngine(scenario.rollSource, scenario.llm.script);
 
   const discordUserId = `sim:${scenario.name}`;
@@ -156,4 +188,92 @@ export async function runScenario(scenario: Scenario): Promise<SimResult> {
   }
 
   return { scenario: scenario.name, turns };
+}
+
+/**
+ * The pipeline-machine counterpart to `runScenario`'s legacy body above. `runTurn` itself is
+ * shared/unchanged (Task 4: the driver's per-turn code is machine-agnostic) — only engine
+ * construction and the setup around it (character seeding, day bookkeeping) differ, because
+ * `PipelineSimEngine` has no DB/repos and no `createCharacter`/`tick` to call.
+ *
+ * No day-tick economy here: `PipelineSimEngine` is pure in-memory (no `db`/`meta` row for
+ * `advanceDays`/`currentDayNumber` to read/write), so `day` is a locally counted sequence
+ * number rather than the engine's real `day_number`, and rolls never refill mid-scenario. This
+ * is a deliberate Task 4 simplification (proving the pipeline machine runs mechanically through
+ * the sim, not proving the day/roll economy in the pipeline path) — a `week`/`weeks` routine
+ * that would exhaust `rollsRemaining` under the legacy machine's day-refill economy will throw
+ * "No rolls remaining" here instead once the seeded allowance runs out.
+ */
+async function runPipelineScenario(scenario: Scenario): Promise<SimResult> {
+  if (scenario.llm.kind !== 'pipeline-scripted') {
+    throw new Error(
+      `sim: scenario "${scenario.name}" has machine 'pipeline' but llm.kind is "${scenario.llm.kind}" ` +
+        '(expected "pipeline-scripted") — a legacy DecisionScript can\'t drive the pipeline machine.',
+    );
+  }
+
+  const discordUserId = `sim:${scenario.name}`;
+  const { engine } = buildSimEngine(scenario.rollSource, undefined, undefined, {
+    machine: 'pipeline',
+    script: scenario.llm.script,
+    seed: scenario.character,
+    discordUserId,
+  });
+
+  const char = engine.getCharacter(discordUserId)!;
+
+  const weeks = scenario.weeks && scenario.weeks > 0 ? scenario.weeks : 1;
+  const turns: TurnTrace[] = [];
+  let globalIndex = 0;
+  let day = 1;
+
+  for (let week = 0; week < weeks; week++) {
+    for (const dayScript of scenario.week) {
+      for (const turnScript of dayScript) {
+        turns.push(await runTurn(engine, char.id, discordUserId, globalIndex++, turnScript, day));
+      }
+      day++;
+    }
+  }
+
+  return { scenario: scenario.name, turns };
+}
+
+/**
+ * Runs the SAME scenario (character seed, roll source, week routine) through both machines and
+ * returns both `SimResult`s side by side, so a human can eyeball legacy vs pipeline metrics for
+ * an equivalent scenario (Task 4's comparison mode / `--compare` CLI flag, see run.ts).
+ *
+ * Deliberately takes a `ComparisonScenario` (one script per machine) rather than a single
+ * `Scenario` — decide's shape differs and resolve is split in two between the machines, so a
+ * legacy `DecisionScript` and a `PipelineScript` are never equivalent or auto-derivable from one
+ * another (Task 4 spec: do NOT try). The two scripts are expected to be hand-authored to express
+ * "the same" turn-by-turn behaviour for a given scenario, not literally shared code.
+ */
+export async function runComparison(
+  scenario: ComparisonScenario,
+): Promise<{ legacy: SimResult; pipeline: SimResult }> {
+  const { name, character, rollSource, week, weeks, legacyScript, pipelineScript } = scenario;
+
+  const legacy = await runScenario({
+    name,
+    character,
+    rollSource,
+    week,
+    weeks,
+    llm: { kind: 'scripted', script: legacyScript },
+    machine: 'legacy',
+  });
+
+  const pipeline = await runScenario({
+    name,
+    character,
+    rollSource,
+    week,
+    weeks,
+    llm: { kind: 'pipeline-scripted', script: pipelineScript },
+    machine: 'pipeline',
+  });
+
+  return { legacy, pipeline };
 }
