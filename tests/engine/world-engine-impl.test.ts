@@ -450,6 +450,45 @@ describe('WorldEngineImpl — action state machine integration', () => {
       expect(char?.health).toBe(9); // 12 - 3
     });
 
+    it('clamps an out-of-range modify_stamina delta the same way through the public API as before (collapseStackedDeltas, now inside finalizeMutations)', async () => {
+      llm.setDecision({
+        ...huntFinalDecision(),
+        mutations: [
+          { type: 'modify_health' as const, amount: -2 },
+          { type: 'modify_stamina' as const, amount: -999 }, // way past STAMINA_DELTA_CAP(-5)
+        ],
+      });
+      await engine.startAction(characterId, 'hunt');
+
+      await engine.stepAction(characterId, 'Attack!');
+
+      const char = charRepo.findById(characterId);
+      expect(char?.health).toBe(10);  // 12 - 2, unaffected by the stamina cap
+      expect(char?.stamina).toBe(5);  // 10 - 5 (clamped), not 10 - 999
+    });
+
+    it('drops a malformed mutation via validateMutations, applying only the valid ones (finalizeMutations extraction, Thread D Task 3)', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      llm.setDecision({
+        ...huntFinalDecision(),
+        mutations: [
+          { type: 'modify_stamina' as const, amount: -1 }, // valid — still applied
+          { type: 'remove_npc' as const, npcId: 0 },        // 0 = unresolved handle — shape-invalid, dropped
+        ],
+      });
+      await engine.startAction(characterId, 'hunt');
+
+      await engine.stepAction(characterId, 'Attack!');
+
+      const char = charRepo.findById(characterId);
+      expect(char?.stamina).toBe(9); // 10 - 1 — the valid mutation still landed
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[engine] Dropping invalid mutations:',
+        expect.stringContaining('remove_npc requires a positive integer'),
+      );
+      warnSpy.mockRestore();
+    });
+
     it('does not drain a second roll on step (already drained on start)', async () => {
       llm.setDecision({
         ...huntFinalDecision(),

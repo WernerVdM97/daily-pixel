@@ -20,6 +20,7 @@ import type {
 import type { WorldContextResolver } from './machine.js';
 import { accumulateDc, abilityCheckBonus, resolveRoll, validateDcModifier } from './dc.js';
 import { buildPipelineContext } from './pipeline-context.js';
+import type { MutationContext } from './mutations.js';
 
 /** ActionState plus the pipeline's internal fields, stored in the JSON column (mirrors
  *  `InternalActionState` in machine.ts, but with `actionType`/`flags` pinned at classify
@@ -82,6 +83,14 @@ export class PipelineActionStateMachine {
       isLocationSafe: () => true,
       getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
     },
+    // Defaults to an identity pass-through: this machine never touches a repo or knows about
+    // geography itself, so with nobody injecting a real closure (prod wiring is Stage 1
+    // out-of-scope — see PipelineActionStateMachine.ts header/plan doc Task 3) proposed
+    // mutations pass straight through as final, matching Task 2's prior inline behaviour.
+    private finalize: (
+      proposed: WorldMutation[],
+      ctx: MutationContext,
+    ) => { mutations: WorldMutation[]; minted: string[] } = (proposed) => ({ mutations: proposed, minted: [] }),
   ) {}
 
   async start(
@@ -269,10 +278,22 @@ export class PipelineActionStateMachine {
       context,
     });
 
-    // Task 3 inserts the real pure `finalizeMutations` call here (geography → collapse →
-    // validate) — the D5b inversion point. For Task 2, proposed mutations pass straight
-    // through as final.
-    const finalMutations = proposedMutations as WorldMutation[];
+    // The D5b inversion point: engine finalize (geography → collapse → validate) runs here,
+    // between mutation-authoring and text-authoring, so RESOLVE-NARRATE below sees what
+    // actually landed rather than what RESOLVE-MUTATE proposed. `this.finalize` defaults to an
+    // identity pass-through (see constructor) — nobody wires the real WorldEngineImpl-bound
+    // closure into a live call site in Stage 1; only this class's own tests inject one.
+    const mutationCtx: MutationContext = {
+      currentHealth: char.health,
+      maxHealth: char.maxHealth,
+      stamina: char.stamina,
+      maxStamina: char.maxStamina,
+      wealth: char.wealth,
+      rollsRemaining: char.rollsRemaining,
+      location: char.location,
+      knownLocations: this.resolver.getKnownLocations(),
+    };
+    const { mutations: finalMutations } = this.finalize(proposedMutations as WorldMutation[], mutationCtx);
 
     const { outcomeText } = await this.llm.resolveNarrate({
       actionType: state.actionType,

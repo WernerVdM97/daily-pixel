@@ -39,7 +39,7 @@ import {
   type InternalActionState,
   type WorldContextResolver,
 } from "./action/machine.js";
-import { validateMutations, applyMutations, collapseStackedDeltas } from "./action/mutations.js";
+import { validateMutations, applyMutations, collapseStackedDeltas, type MutationContext } from "./action/mutations.js";
 import { effectiveStats } from "./action/dc.js";
 import {
   computeStats,
@@ -483,11 +483,7 @@ export class WorldEngineImpl implements WorldEngine {
     // Illegal moves are dropped (no lazy-create-from-thin-air). Returns the names
     // minted this turn — fed to the async cartographer to chart their geometry.
     const knownLocations = this.locationRepo.findAll().map((l) => l.name);
-    const geo = this.applyGeography(row.location, outcome.mutations, knownLocations);
-    outcome.mutations = geo.mutations;
-    const provisionalLocations = geo.minted;
-
-    const ctx = {
+    const baseCtx: MutationContext = {
       currentHealth: row.health,
       maxHealth: row.max_health,
       stamina: row.stamina,
@@ -495,14 +491,14 @@ export class WorldEngineImpl implements WorldEngine {
       wealth: row.wealth,
       rollsRemaining: row.rolls_remaining,
       location: row.location,
-      // Include just-minted names so the move_to/cross_frontier guard accepts them
-      // and applyMutations snaps to canonical casing.
-      knownLocations: [...knownLocations, ...provisionalLocations],
+      knownLocations,
     };
 
-    // §5a stacked-delta clamp: collapse same-axis scalar deltas before validation so
-    // the validator sees the already-summed (and capped) set, not individual −1/−2 pairs.
-    outcome.mutations = collapseStackedDeltas(outcome.mutations);
+    const { mutations: finalMutations, minted: provisionalLocations } = this.finalizeMutations(
+      outcome.mutations,
+      baseCtx,
+    );
+    outcome.mutations = finalMutations;
 
     // §5 category deviation telemetry: log when a mutation falls outside its category's
     // expected set. Flag-only — never dropped (emergent scenes are legitimate).
@@ -510,18 +506,12 @@ export class WorldEngineImpl implements WorldEngine {
       logCategoryDeviations(outcome.category, outcome.mutations);
     }
 
-    // Per spec: malformed mutations are silently dropped, valid ones applied.
-    const validation = validateMutations(outcome.mutations, ctx);
-    if (!validation.valid) {
-      console.warn(
-        "[engine] Dropping invalid mutations:",
-        validation.errors.map((e) => `[${e.index}] ${e.message}`).join("; "),
-      );
-      const invalidIndices = new Set(validation.errors.map((e) => e.index));
-      outcome.mutations = outcome.mutations.filter(
-        (_, i) => !invalidIndices.has(i),
-      );
-    }
+    // Include just-minted names so applyMutations' move_to/cross_frontier snap-to-canonical
+    // sees the same known set finalizeMutations validated against.
+    const ctx: MutationContext = {
+      ...baseCtx,
+      knownLocations: [...knownLocations, ...provisionalLocations],
+    };
 
     const applied = applyMutations(outcome.mutations, ctx);
 
@@ -677,6 +667,47 @@ export class WorldEngineImpl implements WorldEngine {
       actionId: actionRow.id,
       rollsMutationDelta: applied.rollsRemaining - row.rolls_remaining,
     };
+  }
+
+  /**
+   * Deterministic mutation finalize: geography → collapse → validate (Thread D Task 3's
+   * extraction of `applyResolution`'s inline steps, so the pipeline machine's D5b inversion can
+   * call the same logic ahead of narration). "Pure" is read narrowly here — it never persists an
+   * action's health/wealth/rolls/action-row — but `applyGeography`/`resolveCrossFrontier`'s
+   * pre-existing frontier-mint DB write (a `locations` row + a bound `location_edges` row on a
+   * first crossing) is untouched live behaviour, not a resolution-level persist, so it stays.
+   */
+  private finalizeMutations(
+    proposed: WorldMutation[],
+    ctx: MutationContext,
+  ): { mutations: WorldMutation[]; minted: string[] } {
+    const geo = this.applyGeography(ctx.location, proposed, ctx.knownLocations ?? []);
+
+    // Validation must see the just-minted names (mirrors applyResolution's prior inline
+    // `knownLocations: [...knownLocations, ...provisionalLocations]`) so a same-turn move_to
+    // into freshly-crossed ground isn't rejected as unknown.
+    const validationCtx: MutationContext = {
+      ...ctx,
+      knownLocations: [...(ctx.knownLocations ?? []), ...geo.minted],
+    };
+
+    // §5a stacked-delta clamp: collapse same-axis scalar deltas before validation so
+    // the validator sees the already-summed (and capped) set, not individual −1/−2 pairs.
+    const collapsed = collapseStackedDeltas(geo.mutations);
+
+    // Per spec: malformed mutations are silently dropped, valid ones applied.
+    let mutations = collapsed;
+    const validation = validateMutations(collapsed, validationCtx);
+    if (!validation.valid) {
+      console.warn(
+        "[engine] Dropping invalid mutations:",
+        validation.errors.map((e) => `[${e.index}] ${e.message}`).join("; "),
+      );
+      const invalidIndices = new Set(validation.errors.map((e) => e.index));
+      mutations = collapsed.filter((_, i) => !invalidIndices.has(i));
+    }
+
+    return { mutations, minted: geo.minted };
   }
 
   /**

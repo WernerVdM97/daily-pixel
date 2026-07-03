@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PipelineActionStateMachine } from '../../src/engine/action/PipelineActionStateMachine.js';
-import type { CharacterData, ItemData } from '../../src/engine/WorldEngine.js';
+import type { CharacterData, ItemData, WorldMutation } from '../../src/engine/WorldEngine.js';
+import type { MutationContext } from '../../src/engine/action/mutations.js';
 import type {
   ClassifyHit,
   PipelineDecideInput,
@@ -352,6 +353,69 @@ describe('PipelineActionStateMachine — needs_roll: false', () => {
       expect(result.outcome.playerRolled).toBeNull();
     }
     expect(rollD20).not.toHaveBeenCalled();
+  });
+});
+
+describe('PipelineActionStateMachine — D5b mutation-finalization inversion (Task 3)', () => {
+  it('narrates and reports the FINAL mutations when an injected finalize drops a proposed one', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult();
+    const proposed: WorldMutation[] = [
+      { type: 'modify_health', amount: -2 },
+      { type: 'add_item', name: 'Goblin Ear', emoji: '👂', stat: 'physical', modifier: 0 },
+    ];
+    llm.resolveMutateResult = { mutations: proposed };
+    llm.resolveNarrateResult = { outcomeText: 'You strike true.' };
+
+    // Deliberately drops the add_item mutation — proves outcome_text/final outcome are
+    // authored against what finalize actually returns, not what resolveMutate proposed.
+    const finalized: WorldMutation[] = [{ type: 'modify_health', amount: -2 }];
+    const finalize = vi.fn((_proposed: WorldMutation[], _ctx: MutationContext) => ({
+      mutations: finalized,
+      minted: [],
+    }));
+
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, finalize);
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Force straight to resolve on the next step (zero real follow-up options).
+    llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    const stepResult = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    expect(stepResult.resolved).toBe(true);
+
+    expect(finalize).toHaveBeenCalledTimes(1);
+    expect(finalize.mock.calls[0][0]).toEqual(proposed);
+
+    // resolveNarrate must see the FINALIZED set, not the originally-proposed one.
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    expect(llm.resolveNarrateCalls[0].finalMutations).toEqual(finalized);
+
+    // The resolved ActionOutcome's mutations reflect the finalized set too.
+    if (stepResult.resolved) {
+      expect(stepResult.outcome.mutations).toEqual(finalized);
+    }
+  });
+
+  it('defaults to an identity pass-through when no finalize is injected (no live wiring yet in Stage 1)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult();
+    const proposed: WorldMutation[] = [{ type: 'modify_stamina', amount: -1 }];
+    llm.resolveMutateResult = { mutations: proposed };
+    llm.resolveNarrateResult = { outcomeText: 'A clash of steel.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20); // no finalize override
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    const stepResult = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    expect(stepResult.resolved).toBe(true);
+
+    expect(llm.resolveNarrateCalls[0].finalMutations).toEqual(proposed);
+    if (stepResult.resolved) {
+      expect(stepResult.outcome.mutations).toEqual(proposed);
+    }
   });
 });
 
