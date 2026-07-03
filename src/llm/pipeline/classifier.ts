@@ -65,6 +65,23 @@ const UNSAFE_LOCATION_PATTERN =
 // untargeted action, which is a routing nicety, not a correctness hazard like a wrong ActionType.
 const TARGET_PATTERN = /\b(?:at|to|with|on)\s+(?:the\s+|a\s+|an\s+|my\s+)?[a-z][\w'-]*/i;
 
+// Direct-object phrasing ("attack the goblin", "search the room") never has a preposition
+// before the noun, so it's checked as a separate OR'd pattern rather than folded into
+// TARGET_PATTERN above — a determiner anywhere in the input is enough given the flag is
+// already documented as loose/best-effort (see comment above).
+const DETERMINER_NOUN_PATTERN = /\b(?:the|a|an|my|that|this)\s+[a-z][\w'-]*/i;
+
+// Negation flips a candidate category hit into a miss: "don't attack" is not combat intent,
+// but the bare-keyword tables above have no way to see that on their own — see the guard in
+// heuristicClassify below.
+const NEGATION_PATTERN =
+  /\b(don't|do not|doesn't|won't|will not|never|refuse to|cannot|can't|shouldn't|wouldn't)\b/i;
+
+// Idioms that collide with a category table's bare keywords (e.g. combat's "kill"/"shoot")
+// without expressing that category's intent at all — enumerated explicitly rather than
+// guessed at, since idiom detection can't be done reliably with a general pattern.
+const IDIOM_MISS_PATTERNS: RegExp[] = [/\bkill time\b/i, /\bshoot the breeze\b/i, /\bwalk away from\b/i];
+
 // Only combat/social/skill/search actions can plausibly resolve on a dice roll in this
 // prototype; rest and travel are treated as deterministic outcomes until Stage 2 proves
 // otherwise (e.g. a risky frontier crossing) — see plan doc's scope fence on per-type shapes.
@@ -74,7 +91,7 @@ function deriveFlags(actionType: ActionType, rawInput: string): RoutingFlags {
   return {
     unsafe_location: UNSAFE_LOCATION_PATTERN.test(rawInput),
     needs_roll: ROLL_ACTION_TYPES.has(actionType),
-    target_present: TARGET_PATTERN.test(rawInput),
+    target_present: TARGET_PATTERN.test(rawInput) || DETERMINER_NOUN_PATTERN.test(rawInput),
   };
 }
 
@@ -96,6 +113,14 @@ export function heuristicClassify(rawInput: string): ClassifyResult {
   const matches = CATEGORY_TABLES.filter((table) => table.patterns.some((pattern) => pattern.test(trimmed)));
 
   if (matches.length !== 1) {
+    return { kind: 'miss', rawInput };
+  }
+
+  // A single-table match can still be wrong: negation ("don't attack") reverses the bare
+  // keyword's intent, and some idioms ("kill time") collide with a table's keyword without
+  // carrying that category's meaning at all. Both are known-wrong-guess shapes, not merely
+  // ambiguous ones, so they miss here rather than falling into the ambiguity check above.
+  if (NEGATION_PATTERN.test(trimmed) || IDIOM_MISS_PATTERNS.some((pattern) => pattern.test(trimmed))) {
     return { kind: 'miss', rawInput };
   }
 

@@ -147,6 +147,20 @@ describe('heuristicClassify — ambiguous/unmatched input misses rather than gue
     const result = heuristicClassify('do something inscrutable');
     expect(result.kind).toBe('miss');
   });
+
+  it.each(["don't attack the goblin", "I won't fight him"])(
+    'returns a miss for negated combat phrasing "%s" (never guesses the opposite intent)',
+    (input) => {
+      expectMiss(input);
+    },
+  );
+
+  it.each(['kill time at the tavern', 'shoot the breeze with the bartender', 'walk away from the fight'])(
+    'returns a miss for idiom "%s" that collides with a bare combat keyword',
+    (input) => {
+      expectMiss(input);
+    },
+  );
 });
 
 describe('heuristicClassify — routing flags', () => {
@@ -183,6 +197,15 @@ describe('heuristicClassify — routing flags', () => {
   it('does not flag a target on an untargeted action', () => {
     const hit = expectHit('sleep', 'rest');
     expect(hit.flags.target_present).toBe(false);
+  });
+
+  it.each([
+    ['attack the goblin', 'combat'],
+    ['kill the rat', 'combat'],
+    ['search the room', 'search'],
+  ] as const)('flags target_present for direct-object phrasing "%s" (no preposition needed)', (input, actionType) => {
+    const hit = expectHit(input, actionType);
+    expect(hit.flags.target_present).toBe(true);
   });
 });
 
