@@ -12,6 +12,20 @@
 - [ ] `/stats` — show how the character builder (race/class) shaped each base score, and make it prettier. The base+gear breakdown already ships (`+6 (+4 base, +2 🎒)`); levels/upskilling/traits and per-race/class char-creator guidance are deferred → MVP below.
 - [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
 
+### Player requests — prod data review (2026-07-03)
+
+Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `warden-20260703-133521`). Bug-shaped reports already fixed in `[Unreleased]`/0.2.5–0.2.6 are omitted; these are the requests still open. `F#`/`B#` cite the feedback/bug row. The four POC-sized Discord/comms wins are lumped into the **[[polish-v0.2.8]]** spark; the rest route to MVP/sparks.
+
+- [>] **Show who owns each character on action outcomes** (F#3, F#8) → [[polish-v0.2.8]].
+- [>] **Distinct emoji for release notes vs weekly recap in pins** (F#20) → [[polish-v0.2.8]].
+- [>] **Trim pinned-message noise** (F#18) → [[polish-v0.2.8]].
+- [>] **Weekly-recap thread UX rework** (F#19) → [[polish-v0.2.8]].
+- [ ] **Player-founded structures become real locations** — a player who *starts building* a temple expects it to exist as its own explorable/buildable place, not resolve to an existing or adjacent location (F#4, B#8 — Ulrich's temple). Relates to lazy world growth + world-state tracking [[mvp-data-model]].
+- [ ] **Cross-player buff actions** — praying/blessing "for everyone" should actually apply a buff mutation to the other players present, not no-op (B#11). Needs a multiplayer-aware mutation; see [[multiplayer]].
+- [ ] **Items should be usable, not stat-bonus clutter** — players accumulate notes/keys/etc. that only grant a passive stat bonus and never get *used*; make items actually do something (F#11). Tracked in [[improved-item-features]] but not previously on this list.
+- [ ] **Communal / offering currency separate from personal gold** — a player wanted to spend offering-basket funds (not their own coin) on temple supplies; distinguish a shared/temple purse from personal wealth (F#9). Nuance under the MVP "make wealth spendable/meaningful" item below.
+- [ ] **Rework divine intervention** (F#21) — it's a system-failure fallback, so it must not read or be stored as an action row, must not cost anything, and must refund the roll (or at least the first per day). And it must be clearly signalled to the player as a system failure/fallback, not dressed up as an in-world outcome.
+
 ## MVP — deferred
 
 - [ ] dnd statblock scraper
