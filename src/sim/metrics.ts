@@ -1,4 +1,4 @@
-import type { SimResult, TurnTrace } from './types.js';
+import type { PipelineStageCall, SimResult, TurnTrace } from './types.js';
 
 export interface SimSummary {
   turnsRun: number;
@@ -86,6 +86,49 @@ export function toCsv(r: SimResult): string {
   const header = CSV_COLUMNS.join(',');
   const rows = r.turns.map((t) => CSV_COLUMNS.map((col) => csvEscape(t[col])).join(','));
   return [header, ...rows].join('\n');
+}
+
+export interface PipelineStageSummary {
+  stage: string;
+  count: number;
+  totalLatencyMs: number;
+  /** Simplest honest tail signal for near-zero scripted latencies — not a real percentile.
+   *  A percentile calculation would be over-engineering for synthetic timings this small
+   *  (Task 5 spec: "don't over-engineer a percentile calculation"); once real gateway latency
+   *  is measured, this is the first number worth upgrading. */
+  maxLatencyMs: number;
+}
+
+/**
+ * Group `PipelineScriptedGateway.stageCalls` (Task 5) into per-stage counts + a latency tail
+ * signal. Order follows first-appearance in `stageCalls` (`Map` preserves insertion order),
+ * which for a resolved turn is the pipeline's own call order: decide → resolve-mutate →
+ * resolve-narrate (classify only appears on a heuristic miss).
+ */
+export function summarizePipelineStages(stageCalls: PipelineStageCall[]): PipelineStageSummary[] {
+  const byStage = new Map<string, PipelineStageSummary>();
+  for (const call of stageCalls) {
+    const entry = byStage.get(call.stage) ?? { stage: call.stage, count: 0, totalLatencyMs: 0, maxLatencyMs: 0 };
+    entry.count += 1;
+    entry.totalLatencyMs += call.latencyMs;
+    entry.maxLatencyMs = Math.max(entry.maxLatencyMs, call.latencyMs);
+    byStage.set(call.stage, entry);
+  }
+  return [...byStage.values()];
+}
+
+/** Console table rendered after a pipeline sim run (`run.ts --compare`). */
+export function renderPipelineStages(rows: PipelineStageSummary[]): string {
+  if (rows.length === 0) {
+    return 'Pipeline Stage Latency\n──────────────────────\n(no pipeline stage calls recorded)';
+  }
+  const lines = ['Pipeline Stage Latency', '──────────────────────'];
+  for (const r of rows) {
+    lines.push(
+      `${r.stage.padEnd(16)} count=${r.count}  total=${r.totalLatencyMs.toFixed(2)}ms  max=${r.maxLatencyMs.toFixed(2)}ms`,
+    );
+  }
+  return lines.join('\n');
 }
 
 function formatSigned(n: number): string {

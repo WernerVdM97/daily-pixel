@@ -9,7 +9,8 @@ import type {
   PipelineResolveNarrateInput,
   PipelineResolveNarrateResult,
 } from '../llm/pipeline/types.js';
-import type { PipelineScript } from './types.js';
+import type { PipelineStage } from '../llm/pipeline/stamping.js';
+import type { PipelineScript, PipelineStageCall } from './types.js';
 
 /**
  * Scripted, deterministic `PipelineLlmGateway` for the sim harness (Thread D Task 4) —
@@ -36,30 +37,51 @@ import type { PipelineScript } from './types.js';
 export class PipelineScriptedGateway implements PipelineLlmGateway {
   private decideCallCount = 0;
 
+  /**
+   * Per-call stage + wall-clock latency (Thread D Task 5's latency-tail measurement). Scripted
+   * calls are near-instant, so these numbers are not meaningful timings — the point is exercising
+   * the measurement plumbing a real gateway would also feed (`summarizePipelineStages`,
+   * src/sim/metrics.ts), matching Stage 1's "stub prompts, prove the pipe works" spirit. Recorded
+   * even when a call throws (`timed` below uses try/finally): the stage WAS invoked either way,
+   * and a script bug still costs wall-clock time worth seeing in the tail.
+   */
+  readonly stageCalls: PipelineStageCall[] = [];
+
   constructor(private script: PipelineScript) {}
 
-  async classify(rawInput: string, context: LlmContext): Promise<ClassifyHit> {
-    if (!this.script.classify) {
-      throw new Error(
-        `PipelineScriptedGateway: heuristic classify missed on "${rawInput}" and this scenario's ` +
-          "script has no classify() callback wired up. Either the scenario's raw input should hit " +
-          'the heuristic table (classifier.ts), or the script needs a classify() callback — this is ' +
-          'not itself a bug (PipelineActionStateMachine turns it into a typed divine-intervention ' +
-          'outcome), but check it was intentional.',
-      );
+  private timed<T>(stage: PipelineStage, fn: () => T): T {
+    const startedAt = performance.now();
+    try {
+      return fn();
+    } finally {
+      this.stageCalls.push({ stage, latencyMs: performance.now() - startedAt });
     }
-    return this.script.classify(rawInput, context);
+  }
+
+  async classify(rawInput: string, context: LlmContext): Promise<ClassifyHit> {
+    return this.timed('classify', () => {
+      if (!this.script.classify) {
+        throw new Error(
+          `PipelineScriptedGateway: heuristic classify missed on "${rawInput}" and this scenario's ` +
+            "script has no classify() callback wired up. Either the scenario's raw input should hit " +
+            'the heuristic table (classifier.ts), or the script needs a classify() callback — this is ' +
+            'not itself a bug (PipelineActionStateMachine turns it into a typed divine-intervention ' +
+            'outcome), but check it was intentional.',
+        );
+      }
+      return this.script.classify(rawInput, context);
+    });
   }
 
   async decide(input: PipelineDecideInput): Promise<PipelineDecideResult> {
-    return this.script.decide(input, this.decideCallCount++);
+    return this.timed('decide', () => this.script.decide(input, this.decideCallCount++));
   }
 
   async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineResolveMutateResult> {
-    return this.script.resolveMutate(input);
+    return this.timed('resolve-mutate', () => this.script.resolveMutate(input));
   }
 
   async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineResolveNarrateResult> {
-    return this.script.resolveNarrate(input);
+    return this.timed('resolve-narrate', () => this.script.resolveNarrate(input));
   }
 }

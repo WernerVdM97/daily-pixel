@@ -13,7 +13,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadScenarioFile } from './scenario-load.js';
 import { runScenario, runComparison } from './driver.js';
-import { renderTable, summarize, toCsv } from './metrics.js';
+import { renderPipelineStages, renderTable, summarize, summarizePipelineStages, toCsv } from './metrics.js';
 import { exampleComparisonScenario } from './example-comparison-scenario.js';
 
 async function runCompare(): Promise<void> {
@@ -24,6 +24,11 @@ async function runCompare(): Promise<void> {
   console.log(renderTable(summarize(legacy)));
   console.log('\n── pipeline machine ──');
   console.log(renderTable(summarize(pipeline)));
+
+  // Task 5's latency/stage-count metric — only the pipeline machine has stages to report
+  // (`pipeline.stageCalls` is populated by `runPipelineScenario`; legacy leaves it undefined).
+  console.log('\n── pipeline stage latency (Task 5) ──');
+  console.log(renderPipelineStages(summarizePipelineStages(pipeline.stageCalls ?? [])));
 }
 
 async function main(): Promise<void> {

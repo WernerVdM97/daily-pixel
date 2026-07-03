@@ -213,7 +213,7 @@ async function runPipelineScenario(scenario: Scenario): Promise<SimResult> {
   }
 
   const discordUserId = `sim:${scenario.name}`;
-  const { engine } = buildSimEngine(scenario.rollSource, undefined, undefined, {
+  const { engine, llm } = buildSimEngine(scenario.rollSource, undefined, undefined, {
     machine: 'pipeline',
     script: scenario.llm.script,
     seed: scenario.character,
@@ -236,7 +236,10 @@ async function runPipelineScenario(scenario: Scenario): Promise<SimResult> {
     }
   }
 
-  return { scenario: scenario.name, turns };
+  // `llm.stageCalls` (Task 5) accumulates for the lifetime of this one PipelineScriptedGateway
+  // instance, i.e. across the whole scenario (all weeks/turns) — matching `decideCallCount`'s
+  // existing gateway-instance-global scoping (see PipelineScript's doc comment in types.ts).
+  return { scenario: scenario.name, turns, stageCalls: llm.stageCalls };
 }
 
 /**

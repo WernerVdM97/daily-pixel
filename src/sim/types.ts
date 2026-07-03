@@ -162,7 +162,20 @@ export interface TurnTrace {
   day?: number;
 }
 
+/** One scripted pipeline-stage invocation's wall-clock timing (Task 5), as recorded by
+ *  `PipelineScriptedGateway.stageCalls`. `stage` is a plain `string` here (not the `PipelineStage`
+ *  union from `src/llm/pipeline/stamping.ts`) so this sim-layer type doesn't couple to that
+ *  module's exact union — a `PipelineStage` value is always assignable into it. */
+export interface PipelineStageCall {
+  stage: string;
+  latencyMs: number;
+}
+
 export interface SimResult {
   scenario: string;
   turns: TurnTrace[];
+  /** Per-stage call timings (Task 5) — populated only for pipeline-machine runs
+   *  (`runPipelineScenario` in driver.ts); `undefined` for legacy runs, which have no pipeline
+   *  stages to report. */
+  stageCalls?: PipelineStageCall[];
 }
