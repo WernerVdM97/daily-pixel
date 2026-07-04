@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { runScenario, runComparison } from '../../src/sim/driver.js';
+import { summarize } from '../../src/sim/metrics.js';
 import { buildSimEngine } from '../../src/sim/engine-factory.js';
 import { exampleComparisonScenario } from '../../src/sim/example-comparison-scenario.js';
 import type { PipelineSimEngine } from '../../src/sim/PipelineSimEngine.js';
@@ -486,5 +487,63 @@ describe('sim — scene-state spine (Stage 2 T3 review fix): drop-with-warn inva
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+describe('sim — Stage 2 T5c: relationsPersisted sim metric (persistence across beats)', () => {
+  it('an edge set_relation\'d on an early beat is still counted in relationsPersisted after a later beat', async () => {
+    let resolveMutateCallCount = 0;
+
+    const script: PipelineScript = {
+      decide: () => ({
+        distilledType: 'investigate',
+        stat: 'wisdom',
+        baseDc: 8,
+        required: false,
+        decision: [
+          { label: 'Search the room', dcModifier: 0 },
+          { label: 'Step back', dcModifier: null },
+        ],
+      }),
+      resolveMutate: () => {
+        const isFirstAction = resolveMutateCallCount === 0;
+        resolveMutateCallCount++;
+        if (!isFirstAction) return { mutations: [] };
+        // pc -> location edge (needs no npc store) authored on the first (early) beat.
+        return {
+          mutations: [
+            {
+              type: 'set_relation',
+              from: { node: 'pc' },
+              to: { node: 'location', name: "The Warden's Oak" },
+              relType: 'knows_secret',
+              props: { clue: 'a hidden door behind the bar' },
+            },
+          ],
+        };
+      },
+      resolveNarrate: () => ({ outcomeText: 'You uncover a small clue.' }),
+    };
+
+    const result = await runScenario({
+      name: 'relations-persisted-metric',
+      character: BASE_CHARACTER, // location: "The Warden's Oak" — matches the authored edge's "to"
+      rollSource: { kind: 'fixed', value: 20 },
+      llm: { kind: 'pipeline-scripted', script },
+      machine: 'pipeline',
+      // Two beats: the edge is authored on beat 1, and beat 2 runs after it with no further
+      // relation mutations — proving the edge survives from an earlier beat to scenario end.
+      week: [[
+        { input: 'search the room', choicePolicy: 'first-real' },
+        { input: 'search the room again', choicePolicy: 'first-real' },
+      ]],
+    });
+
+    expect(result.turns).toHaveLength(2);
+    expect(result.relationsPersisted).toBe(1);
+
+    const summary = summarize(result);
+    expect(summary.relationsPersisted).toBe(1);
+    expect(summary.relationsPersisted).toBe(result.relationsPersisted);
   });
 });

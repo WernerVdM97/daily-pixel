@@ -13,6 +13,9 @@ export interface SimSummary {
    *  define death / 0 HP"). A `SimSummary.death` field kept as an explicit hook rather
    *  than inventing a mechanic ahead of the design. */
   death: null;
+  /** Relation rows persisted at scenario end (Stage 2 T5c), copied straight from
+   *  `SimResult.relationsPersisted` — pipeline-only, `undefined` for legacy runs. */
+  relationsPersisted?: number;
 }
 
 /**
@@ -52,6 +55,7 @@ export function summarize(r: SimResult): SimSummary {
     itemsGained,
     avgFinalDc,
     death: null,
+    ...(r.relationsPersisted !== undefined ? { relationsPersisted: r.relationsPersisted } : {}),
   };
 }
 
@@ -142,7 +146,7 @@ function formatSigned(n: number): string {
 /** Console summary table rendered after a sim run. */
 export function renderTable(s: SimSummary): string {
   const pct = (s.rollSuccessRate * 100).toFixed(1);
-  return [
+  const lines = [
     'Sim Summary',
     '───────────',
     `Turns run:      ${s.turnsRun}`,
@@ -154,5 +158,11 @@ export function renderTable(s: SimSummary): string {
     `Items gained:   ${s.itemsGained}`,
     `Avg final DC:   ${s.avgFinalDc.toFixed(1)}`,
     `Death rate:     N/A (death track not yet implemented)`,
-  ].join('\n');
+  ];
+  // Pipeline-only (Stage 2 T5c) — omitted entirely for legacy runs so their table output is
+  // byte-for-byte unchanged.
+  if (s.relationsPersisted !== undefined) {
+    lines.push(`Relations persisted: ${s.relationsPersisted}`);
+  }
+  return lines.join('\n');
 }

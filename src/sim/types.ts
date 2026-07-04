@@ -178,4 +178,10 @@ export interface SimResult {
    *  (`runPipelineScenario` in driver.ts); `undefined` for legacy runs, which have no pipeline
    *  stages to report. */
   stageCalls?: PipelineStageCall[];
+  /** Relation rows persisted at scenario end (Stage 2 T5c), read from `PipelineSimEngine`'s
+   *  private `RelationRepository` — mirrors `stageCalls`' optional pipeline-only precedent above.
+   *  Populated only for pipeline-machine runs (`runPipelineScenario`); `undefined` for legacy
+   *  runs, which have no relation repo. Demonstrates edges written on earlier beats survive to
+   *  scenario end (persistence across beats). */
+  relationsPersisted?: number;
 }

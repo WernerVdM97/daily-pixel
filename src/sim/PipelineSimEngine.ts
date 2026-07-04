@@ -194,6 +194,13 @@ export class PipelineSimEngine {
     return this.items.map((i) => ({ ...i }));
   }
 
+  /** Stage 2 T5c sim-metrics hook — total relation rows persisted at this point in the scenario
+   *  (`relationRepo.count()`). Pipeline-only: the legacy sim path has no relation repo, so
+   *  `runPipelineScenario` (driver.ts) is the only caller. */
+  getPersistedRelationCount(): number {
+    return this.relationRepo.count();
+  }
+
   /**
    * Applies a resolved outcome's mutations to in-memory char/item state via the same pure
    * `applyMutations` `WorldEngineImpl.applyResolution` uses — the slice this adapter needs

@@ -239,7 +239,10 @@ async function runPipelineScenario(scenario: Scenario): Promise<SimResult> {
   // `llm.stageCalls` (Task 5) accumulates for the lifetime of this one PipelineScriptedGateway
   // instance, i.e. across the whole scenario (all weeks/turns) — matching `decideCallCount`'s
   // existing gateway-instance-global scoping (see PipelineScript's doc comment in types.ts).
-  return { scenario: scenario.name, turns, stageCalls: llm.stageCalls };
+  // `relationsPersisted` (Stage 2 T5c) is read once at scenario end from the engine's private
+  // RelationRepository — a running total across every beat, so it demonstrates edges written on
+  // earlier beats survive to the end of the run.
+  return { scenario: scenario.name, turns, stageCalls: llm.stageCalls, relationsPersisted: engine.getPersistedRelationCount() };
 }
 
 /**

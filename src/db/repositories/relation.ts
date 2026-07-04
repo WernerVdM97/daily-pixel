@@ -108,6 +108,11 @@ export class RelationRepository {
       .all({ type, ref }) as RelationRow[];
   }
 
+  /** Total edge count — the sim-metrics hook (Stage 2 T5c) for "edges persisted at scenario end". */
+  count(): number {
+    return (this.db.prepare('SELECT count(*) AS n FROM relations').get() as { n: number }).n;
+  }
+
   remove(key: RelationKey): void {
     this.db
       .prepare(
