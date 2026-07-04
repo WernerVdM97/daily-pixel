@@ -1,4 +1,5 @@
 import { WORLD_MUTATION_TYPES, type WorldMutation } from '../WorldEngine.js';
+import { ENEMY_HP_MAX } from './combat-dc.js';
 
 /**
  * Stage 2 T2 — edge-shaped relation mutation vocabulary (scene-state graph, D2).
@@ -29,10 +30,13 @@ export interface AuthoredRelation {
 }
 
 /** Seed whitelist of relationship kinds (`relType`) — extensible; writers add theirs (Stage 3+).
- *  Per-`relType` prop schemas (combat's `enemyHp`, conversation's `trust` range) are OUT of scope
- *  for this pass (T2 scope fence) — only the generic edge shape is validated here. */
+ *  Stage 3 T2 adds `combat_save` (the once-per-day no-one-shot floor edge, decision 5); `in_combat`
+ *  was already seeded here in Stage 2. Per-`relType` prop schemas (combat's `enemyHp`/`enemyMaxHp`/
+ *  `round`/`savedDay`) are filled in below by `validateTypedRelationProps` — the first writer of
+ *  the schemas Stage 2 deferred (see that function's doc comment). */
 const RELATION_TYPE_WHITELIST = new Set([
   'in_combat',
+  'combat_save',
   'trust',
   'disposition',
   'knows_secret',
@@ -173,6 +177,60 @@ function validateRelationProps(opType: string, props: unknown): string | null {
       return `${opType} prop "${key}" must be a scalar (number, string, or boolean)`;
     }
   }
+  return null;
+}
+
+/** Per-`relType` prop schemas (Stage 3 T2) — layered ON TOP of the generic edge-shape check
+ *  above (`validateRelationProps`), never replacing it. This is the first writer of the schemas
+ *  Stage 2 deferred ("per-`relType` prop schemas... are OUT of scope for this pass", now in
+ *  scope): `in_combat` (engine-owned enemy numbers, decision 3) and `combat_save` (the
+ *  once-per-day floor, decision 5). Every other whitelisted relType (trust, disposition, ...)
+ *  falls through unchanged — only the generic scalar/clamp check applies to them, exactly as
+ *  before this stage. */
+function validateTypedRelationProps(
+  opType: string,
+  relType: string,
+  props: Record<string, unknown>,
+): string | null {
+  if (relType === 'in_combat') {
+    const { enemyName, enemyHp, enemyMaxHp, round } = props as {
+      enemyName?: unknown;
+      enemyHp?: unknown;
+      enemyMaxHp?: unknown;
+      round?: unknown;
+    };
+    if (typeof enemyName !== 'string' || enemyName.trim() === '') {
+      return `${opType} "in_combat" requires a non-empty "enemyName" string`;
+    }
+    if (typeof enemyHp !== 'number' || !Number.isFinite(enemyHp)) {
+      return `${opType} "in_combat" requires a finite numeric "enemyHp"`;
+    }
+    if (typeof enemyMaxHp !== 'number' || !Number.isFinite(enemyMaxHp)) {
+      return `${opType} "in_combat" requires a finite numeric "enemyMaxHp"`;
+    }
+    if (typeof round !== 'number' || !Number.isFinite(round)) {
+      return `${opType} "in_combat" requires a finite numeric "round"`;
+    }
+    if (enemyMaxHp < 1 || enemyMaxHp > ENEMY_HP_MAX) {
+      return `${opType} "in_combat" prop "enemyMaxHp" (${enemyMaxHp}) must be within [1, ${ENEMY_HP_MAX}]`;
+    }
+    if (enemyHp < 0 || enemyHp > enemyMaxHp) {
+      return `${opType} "in_combat" prop "enemyHp" (${enemyHp}) must be within [0, enemyMaxHp=${enemyMaxHp}]`;
+    }
+    if (round < 1) {
+      return `${opType} "in_combat" prop "round" (${round}) must be >= 1`;
+    }
+    return null;
+  }
+
+  if (relType === 'combat_save') {
+    const savedDay = (props as { savedDay?: unknown }).savedDay;
+    if (typeof savedDay !== 'number' || !Number.isFinite(savedDay) || savedDay < 0) {
+      return `${opType} "combat_save" requires a finite numeric "savedDay" (>= 0)`;
+    }
+    return null;
+  }
+
   return null;
 }
 
@@ -343,6 +401,8 @@ function validateOne(
       }
       const propsErr = validateRelationProps(m.type, m.props);
       if (propsErr) return { index, message: propsErr };
+      const typedErr = validateTypedRelationProps(m.type, m.relType, m.props as Record<string, unknown>);
+      if (typedErr) return { index, message: typedErr };
       return null;
     }
   }

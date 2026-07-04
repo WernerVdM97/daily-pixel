@@ -861,3 +861,150 @@ describe('Mutation v12 T2 — set_relation / update_relation (Stage 2 scene-stat
     expect(result).toEqual(muts);
   });
 });
+
+describe('Mutation v12 T2 (Stage 3) — per-relType prop schemas: in_combat / combat_save', () => {
+  const combatProps = { enemyName: 'Wild Boar', enemyHp: 8, enemyMaxHp: 12, round: 1 };
+  const inCombat = (props: Record<string, unknown> = combatProps) => ({
+    type: 'set_relation' as const,
+    from: { node: 'pc' as const },
+    to: { node: 'location' as const, name: 'Darkwood Clearing' },
+    relType: 'in_combat',
+    props,
+  });
+
+  it('accepts a well-formed in_combat set_relation', () => {
+    const result = validateMutations([inCombat()], ctx());
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('accepts a well-formed in_combat update_relation', () => {
+    const result = validateMutations([{ ...inCombat(), type: 'update_relation' }], ctx());
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects in_combat missing enemyName', () => {
+    const { enemyName, ...rest } = combatProps;
+    const result = validateMutations([inCombat(rest)], ctx());
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('enemyName');
+  });
+
+  it('rejects in_combat with an empty enemyName', () => {
+    const result = validateMutations([inCombat({ ...combatProps, enemyName: '  ' })], ctx());
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('enemyName');
+  });
+
+  it('rejects in_combat with enemyHp > enemyMaxHp', () => {
+    const result = validateMutations(
+      [inCombat({ ...combatProps, enemyHp: 20, enemyMaxHp: 12 })],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('enemyHp');
+  });
+
+  it('rejects in_combat with a negative enemyHp', () => {
+    const result = validateMutations([inCombat({ ...combatProps, enemyHp: -1 })], ctx());
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects in_combat with a non-numeric round', () => {
+    const result = validateMutations([inCombat({ ...combatProps, round: 'one' })], ctx());
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('round');
+  });
+
+  it('rejects in_combat with round < 1', () => {
+    const result = validateMutations([inCombat({ ...combatProps, round: 0 })], ctx());
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('round');
+  });
+
+  it('rejects in_combat with enemyMaxHp over the ENEMY_HP_MAX clamp (20)', () => {
+    const result = validateMutations(
+      [inCombat({ ...combatProps, enemyHp: 21, enemyMaxHp: 21 })],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('enemyMaxHp');
+  });
+
+  it('rejects in_combat with enemyMaxHp under 1', () => {
+    const result = validateMutations([inCombat({ ...combatProps, enemyHp: 0, enemyMaxHp: 0 })], ctx());
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('enemyMaxHp');
+  });
+
+  it('combat_save is whitelisted and its savedDay prop validates', () => {
+    const result = validateMutations(
+      [{
+        type: 'set_relation',
+        from: { node: 'pc' },
+        to: { node: 'pc' },
+        relType: 'combat_save',
+        props: { savedDay: 9 },
+      }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects combat_save with a non-numeric savedDay', () => {
+    const result = validateMutations(
+      [{
+        type: 'set_relation',
+        from: { node: 'pc' },
+        to: { node: 'pc' },
+        relType: 'combat_save',
+        props: { savedDay: 'nine' },
+      }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('savedDay');
+  });
+
+  it('rejects combat_save with a negative savedDay', () => {
+    const result = validateMutations(
+      [{
+        type: 'set_relation',
+        from: { node: 'pc' },
+        to: { node: 'pc' },
+        relType: 'combat_save',
+        props: { savedDay: -1 },
+      }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it('leaves an existing non-combat relType (trust) validating exactly as before', () => {
+    const result = validateMutations(
+      [{
+        type: 'set_relation',
+        from: { node: 'pc' },
+        to: { node: 'npc', name: 'Greta' },
+        relType: 'trust',
+        props: { score: 5 },
+      }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('does not require combat props on a non-combat relType (no cross-relType leakage)', () => {
+    const result = validateMutations(
+      [{
+        type: 'set_relation',
+        from: { node: 'pc' },
+        to: { node: 'npc', name: 'Greta' },
+        relType: 'trust',
+        props: { score: 5 }, // no enemyName/enemyHp/etc — must not be required for "trust"
+      }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+});
