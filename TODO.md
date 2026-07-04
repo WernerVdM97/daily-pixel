@@ -4,6 +4,7 @@
 ## scratchpad (humans start here)
 
 ### TBD — POC polish (small UI wins, no spark warranted)
+- [ ] improve daily work options
 - [ ] some jobs must be performable in unsafe areas.
 - [ ] on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.
    - also show the emojis of the chosen class, upbringing, and race in the selected crossed out list
@@ -14,6 +15,8 @@
 - [ ] custom (free-text) actions need a real "thinking" screen — three dots + "thinking…" as its own page. Preset day-job actions already show a ⏳ "Starting…" loading envelope (`action.ts:204`); the custom-modal path shows nothing before `engine.startAction`.
 - [ ] `/stats` — show how the character builder (race/class) shaped each base score, and make it prettier. The base+gear breakdown already ships (`+6 (+4 base, +2 🎒)`); levels/upskilling/traits and per-race/class char-creator guidance are deferred → MVP below.
 - [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
+- [ ] hitting 0 stamina blocks more actions that day. pass out can be evaluated similarly to global message.
+   - also, 0 hp should do this but also roll the dice, mkaing a death save...
 
 ### Player requests — prod data review (2026-07-03)
 
