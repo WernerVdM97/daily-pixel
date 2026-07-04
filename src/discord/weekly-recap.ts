@@ -149,6 +149,7 @@ export interface OutcomePayload {
 
 type ChannelFetcher = { channels: { fetch: (id: string) => Promise<unknown> } };
 type Sendable = { send: (opts: OutcomePayload) => Promise<unknown> };
+type ThreadMemberAddable = { members: { add: (userId: string) => Promise<unknown> } };
 
 function isSendable(channel: unknown): channel is Sendable {
   return (
@@ -157,21 +158,45 @@ function isSendable(channel: unknown): channel is Sendable {
   );
 }
 
+function canAddThreadMembers(channel: unknown): channel is ThreadMemberAddable {
+  const members = (channel as { members?: { add?: unknown } } | null)?.members;
+  return !!members && typeof members.add === "function";
+}
+
 /**
  * Post an outcome into the week's recap thread, falling back to `fallback()` (the channel
  * followUp) when there's no thread id, the fetch fails, or it isn't sendable — so nothing is lost.
+ *
+ * `subscribeUserIds` are joined to the thread BEFORE the post. The owner mention in the payload is
+ * deliberately ping-suppressed (allowedMentions.users: []), and a suppressed bot mention does NOT
+ * subscribe a user — so without an explicit add the acting player never gets the thread in their
+ * sidebar and misses the outcome (F#19a). members.add is idempotent, so re-adding a member each
+ * action is a harmless no-op. Best-effort per user: a failed add must never block the post.
  */
 export async function broadcastOutcome(opts: {
   client: ChannelFetcher;
   threadId: string | null | undefined;
   payload: OutcomePayload;
   fallback: () => Promise<unknown>;
+  subscribeUserIds?: string[];
 }): Promise<void> {
-  const { client, threadId, payload, fallback } = opts;
+  const { client, threadId, payload, fallback, subscribeUserIds } = opts;
   if (threadId) {
     try {
       const channel = await client.channels.fetch(threadId);
       if (isSendable(channel)) {
+        if (subscribeUserIds?.length && canAddThreadMembers(channel)) {
+          for (const userId of subscribeUserIds) {
+            try {
+              await channel.members.add(userId);
+            } catch (err) {
+              console.warn(
+                c.yellow("[recap] could not subscribe player to thread:"),
+                err instanceof Error ? err.message : String(err),
+              );
+            }
+          }
+        }
         await channel.send(payload);
         return;
       }

@@ -220,8 +220,8 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         const scene = getCurrentScene(interaction.user.id);
         // Compact embed for private reply (no story thread — the player just saw it in
         // the decision embed). Full embed for the public thread copy (F#19c).
-        const privateEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, { compact: true });
-        const publicEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
+        const privateEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, { compact: true }, engine);
+        const publicEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, undefined, engine);
         const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
         await interaction.editReply({
           embeds: [privateEmbed],
@@ -244,6 +244,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
             threadId: engine.getMeta(META_RECAP_THREAD_ID),
             payload,
             fallback: () => interaction.followUp(payload),
+            subscribeUserIds: [interaction.user.id],
           });
           await announceCollapse(resolvedChar?.name ?? 'A soul', character, resolvedChar);
         } catch (broadcastErr) {
@@ -366,8 +367,8 @@ async function applyActionResult(
     const scene = _sceneLookup?.(i.user.id);
     // Compact for private reply (no story thread — the player just saw it in the
     // decision embed). Full for the public thread copy (F#19c).
-    const privateEmbed = buildOutcomeEmbed(outcome, character, scene, result.state, { compact: true });
-    const publicEmbed = buildOutcomeEmbed(outcome, character, scene, result.state);
+    const privateEmbed = buildOutcomeEmbed(outcome, character, scene, result.state, { compact: true }, engine);
+    const publicEmbed = buildOutcomeEmbed(outcome, character, scene, result.state, undefined, engine);
 
     const serviceButtons = getOutcomeServiceButtons(outcome.actionId);
     await i.webhook.editMessage(i.message.id, {
@@ -390,6 +391,7 @@ async function applyActionResult(
       threadId: engine.getMeta(META_RECAP_THREAD_ID),
       payload,
       fallback: () => i.followUp(payload),
+      subscribeUserIds: [i.user.id],
     });
     await announceCollapse(character?.name ?? prevChar?.name ?? 'A soul', prevChar, character);
   } else {
@@ -588,6 +590,7 @@ export function buildOutcomeEmbed(
   scene: string | null | undefined,
   state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string }>; kind?: ActionKind },
   opts?: { compact?: boolean },
+  engine?: WorldEngine,
 ): ReturnType<EmbedBuilder['toJSON']> {
   const ctx: OutcomeRenderContext = {
     stamina: character?.stamina ?? 10,
@@ -597,6 +600,11 @@ export function buildOutcomeEmbed(
     maxHealth: character?.maxHealth ?? 10,
     wealth: character?.wealth ?? 0,
   };
+
+  // Location header — emoji prefix from the geography seed, name from character.
+  const locName = character?.location;
+  const locEmoji = locName ? (engine?.getLocation(locName)?.emoji ?? '📍') : null;
+  const locationLine = locName ? `${locEmoji} ${locName}` : null;
 
   // Breadcrumb of the distilled actions the player moved through, e.g. 🔍 → 🗣️ → ⚔️.
   const types = state.decisions.length > 0
@@ -616,6 +624,7 @@ export function buildOutcomeEmbed(
   // clip.
   const assemble = (collapseHistory: boolean, includeScene: boolean): string => {
     const parts: string[] = [];
+    if (locationLine) parts.push(locationLine);
     if (breadcrumb) parts.push(breadcrumb);
     if (includeScene && sceneBlock) parts.push(sceneBlock);
     if (!opts?.compact) {

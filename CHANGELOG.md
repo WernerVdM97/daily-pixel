@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Saturday threat warned at dawn** — the wilderness-threat heads-up folds into the 05:30 morning message (place + hint); the full reveal and NPC spawn still happen at the 12:00 beat.
 
 ### Fixed
+- **Players now join the week's thread when their outcome posts** *(F#19a)* — the acting player is added to the recap thread (`thread.members.add`) just before the outcome is broadcast. The owner mention is ping-suppressed and so never subscribed them, leaving the thread out of their sidebar and the outcome unseen; the add is idempotent and best-effort (a failed add still posts the outcome).
 - **Outcome footer now shows `max_stamina` changes** — a `modify_max_stamina` mutation renders a labelled `(max +N)` or `(max −N)` suffix on the stamina line so ceiling gains are no longer silently invisible.
 - **Private outcome reply no longer duplicates the story thread** *(F#19c)* — the private embed now shows only the outcome text + stats, not the full gamebook trail the player just saw in the decision embed.
 - **Edge bearings are now inverted on the far side of a road** — `/look` paths and the decision-prompt context now show the compass direction as seen from where you stand, not the stored canonical direction (feedback #14, bug #12). `neighbours()` returns directions relative to the queried node; reverse edges get `oppositeDirection()` applied in the repo.

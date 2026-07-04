@@ -1776,12 +1776,15 @@ ${headInfo}`);
             getCurrentScene(interaction.user.id),
             result.state,
             { compact: true },
+            engine,
           );
           const publicEmbed = buildOutcomeEmbed(
             result.outcome,
             resolvedChar,
             getCurrentScene(interaction.user.id),
             result.state,
+            undefined,
+            engine,
           );
           const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
           await interaction.editReply({
@@ -1799,6 +1802,7 @@ ${headInfo}`);
             threadId: engine.getMeta(META_RECAP_THREAD_ID),
             payload,
             fallback: () => interaction.followUp(payload),
+            subscribeUserIds: [interaction.user.id],
           });
           await announceCollapse(resolvedChar.name, char, resolvedChar);
         } else if (result.firstDecision.options.length === 0) {
@@ -2098,12 +2102,15 @@ _${idleMsg}_`)
             getCurrentScene(interaction.user.id),
             result.state,
             { compact: true },
+            engine,
           );
           const publicEmbed = buildOutcomeEmbed(
             result.outcome,
             resolvedChar,
             getCurrentScene(interaction.user.id),
             result.state,
+            undefined,
+            engine,
           );
           const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
           await interaction.webhook.editMessage(interaction.message.id, {
@@ -2121,6 +2128,7 @@ _${idleMsg}_`)
             threadId: engine.getMeta(META_RECAP_THREAD_ID),
             payload,
             fallback: () => interaction.followUp(payload),
+            subscribeUserIds: [interaction.user.id],
           });
           await announceCollapse(resolvedChar.name, char, resolvedChar);
         } else if (result.firstDecision.options.length === 0) {

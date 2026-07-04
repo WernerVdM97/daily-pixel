@@ -4,6 +4,7 @@
 ## scratchpad (humans start here)
 
 ### TBD — POC polish (small UI wins, no spark warranted)
+- [ ] some jobs must be performable in unsafe areas.
 - [ ] on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.
    - also show the emojis of the chosen class, upbringing, and race in the selected crossed out list
 - [ ] establish POC polish scope game doc

@@ -143,6 +143,45 @@ describe("broadcastOutcome", () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 
+  it("subscribes the acting player to the thread before posting (F#19a)", async () => {
+    const calls: string[] = [];
+    const add = vi.fn().mockImplementation(async () => void calls.push("add"));
+    const send = vi.fn().mockImplementation(async () => void calls.push("send"));
+    const client = { channels: { fetch: vi.fn().mockResolvedValue({ send, members: { add } }) } };
+    const fallback = vi.fn().mockResolvedValue(undefined);
+
+    await broadcastOutcome({ client, threadId: "thread-1", payload, fallback, subscribeUserIds: ["user-1"] });
+
+    expect(add).toHaveBeenCalledWith("user-1");
+    expect(send).toHaveBeenCalledWith(payload);
+    // The join must happen first, so the outcome lands in a thread the player already belongs to.
+    expect(calls).toEqual(["add", "send"]);
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it("still posts the outcome when subscribing a player fails", async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const add = vi.fn().mockRejectedValue(new Error("missing access"));
+    const client = { channels: { fetch: vi.fn().mockResolvedValue({ send, members: { add } }) } };
+    const fallback = vi.fn().mockResolvedValue(undefined);
+
+    await broadcastOutcome({ client, threadId: "thread-1", payload, fallback, subscribeUserIds: ["user-1"] });
+
+    expect(send).toHaveBeenCalledWith(payload);
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it("posts without subscribing when the channel has no thread-member manager", async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const client = { channels: { fetch: vi.fn().mockResolvedValue({ send }) } };
+    const fallback = vi.fn().mockResolvedValue(undefined);
+
+    await broadcastOutcome({ client, threadId: "thread-1", payload, fallback, subscribeUserIds: ["user-1"] });
+
+    expect(send).toHaveBeenCalledWith(payload);
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
   it("falls back to the channel when there is no thread id", async () => {
     const client = { channels: { fetch: vi.fn() } };
     const fallback = vi.fn().mockResolvedValue(undefined);

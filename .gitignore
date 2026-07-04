@@ -1,5 +1,6 @@
 # agents
 .pi-subagents/
+.claude/worktrees
 
 # Obsidian — personal config
 .obsidian/*
