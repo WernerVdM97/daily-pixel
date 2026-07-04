@@ -4,6 +4,7 @@
 ## scratchpad (humans start here)
 
 ### TBD — POC polish (small UI wins, no spark warranted)
+- [ ] populate more locaiton edges in the sees
 - [ ] improve daily work options
 - [ ] some jobs must be performable in unsafe areas.
 - [ ] on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.
