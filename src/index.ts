@@ -788,7 +788,7 @@ async function runAfternoonBeat(
       engine.setMeta("last_threat_date", dateStr);
       const threatMsg = await postAnnouncement(client, channelId, buildThreatAnnouncement(threat));
       if (threatMsg) {
-        await pinMessage(threatMsg, "Saturday threat");
+        await pinReplacing(threatMsg, '⚔️ **A threat stirs in the wild.**', 'Saturday threat');
         console.log(
           c.green(`[cron] Saturday threat posted: ${threat.npc.name} at ${threat.location}.`),
         );
@@ -888,6 +888,7 @@ async function finalizePreviousWeek(
   boundaryTs: string,
 ): Promise<void> {
   const headerId = engine.getMeta(META_RECAP_HEADER_ID);
+  const threadId = engine.getMeta(META_RECAP_THREAD_ID);
   const weekStart = engine.getMeta(META_RECAP_WEEK_START);
   if (!headerId || !weekStart) return; // nothing to finalize yet
 
@@ -913,7 +914,26 @@ async function finalizePreviousWeek(
   // week's thread (the boundary is when the thread id flips below).
   const actions = engine.getActionsBetween(weekStart, boundaryTs);
   const recapResult = await generateWeeklyDigest(actions, recap);
-  const headerText = buildRecapHeader(weekNumber, weekStart.slice(0, 10), recapResult);
+
+  // Post the chronicle to the thread, lock it, then edit the header to a minimal anchor.
+  if (threadId) {
+    try {
+      const thread = await client.channels.fetch(threadId);
+      if (thread && typeof (thread as unknown as Record<string, unknown>).send === 'function') {
+        const chronicle = buildRecapHeader(weekNumber, weekStart.slice(0, 10), recapResult);
+        await (thread as { send: (c: string) => Promise<unknown> }).send(chronicle);
+        // Lock best-effort; a missing Manage Threads permission shouldn't block.
+        await (thread as { setLocked: (l: boolean) => Promise<unknown> }).setLocked(true).catch(() => {});
+      }
+    } catch (err) {
+      console.warn(
+        c.yellow(`[recap] Could not finalize Week ${weekNumber} thread (${threadId}):`),
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const headerText = `📜 **Week ${weekNumber}** — the tale is told. Scroll down to the last message in the thread for the chronicle.`;
   try {
     await headerMsg.edit(headerText);
     console.log(c.green(`[recap] Finalized Week ${weekNumber} chronicle (${actions.length} actions).`));
@@ -1749,7 +1769,15 @@ ${headInfo}`);
           // Re-read AFTER startAction so the embed + nav reflect the spent roll and
           // mutations — `char` above is the pre-action snapshot.
           const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
-          const embed = buildOutcomeEmbed(
+          // Compact for private reply, full for public thread copy (F#19c).
+          const privateEmbed = buildOutcomeEmbed(
+            result.outcome,
+            resolvedChar,
+            getCurrentScene(interaction.user.id),
+            result.state,
+            { compact: true },
+          );
+          const publicEmbed = buildOutcomeEmbed(
             result.outcome,
             resolvedChar,
             getCurrentScene(interaction.user.id),
@@ -1757,12 +1785,12 @@ ${headInfo}`);
           );
           const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
           await interaction.editReply({
-            embeds: [embed],
+            embeds: [privateEmbed],
             components: [...getNavButtons(resolvedChar), ...serviceButtons],
           });
           const payload = {
             content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
-            embeds: [embed],
+            embeds: [publicEmbed],
             components: serviceButtons,
             allowedMentions: { users: [] },
           };
@@ -2063,7 +2091,15 @@ _${idleMsg}_`)
           // mutations — `char` above is the pre-action snapshot (only patched locally
           // for the commute stamina cost).
           const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
-          const embed = buildOutcomeEmbed(
+          // Compact for private reply, full for public thread copy (F#19c).
+          const privateEmbed = buildOutcomeEmbed(
+            result.outcome,
+            resolvedChar,
+            getCurrentScene(interaction.user.id),
+            result.state,
+            { compact: true },
+          );
+          const publicEmbed = buildOutcomeEmbed(
             result.outcome,
             resolvedChar,
             getCurrentScene(interaction.user.id),
@@ -2071,12 +2107,12 @@ _${idleMsg}_`)
           );
           const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
           await interaction.webhook.editMessage(interaction.message.id, {
-            embeds: [embed],
+            embeds: [privateEmbed],
             components: [...getNavButtons(resolvedChar), ...serviceButtons],
           });
           const payload = {
             content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
-            embeds: [embed],
+            embeds: [publicEmbed],
             components: serviceButtons,
             allowedMentions: { users: [] },
           };
