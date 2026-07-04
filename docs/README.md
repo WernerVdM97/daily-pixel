@@ -28,6 +28,7 @@ mechanics, loop, actions
 | ------ | --- | ------- |
 | ✅      | [v12 · Combat (Thread C)](./game/prompt-v12-combat.md) | Combat as a frequent, long, high-reward wilds mode — prompt rules + the engine combat spine (lifted decision cap, `combatState`, contested roll + severity bands, once-per-day no-one-shot floor). Frequency/lethality scale with dynamic location danger; viable everywhere, non-lethal in safe places. |
 | ✅      | [v12 · World Scaling (Thread B)](./game/prompt-v12-world-scaling.md) | The world sizes to the player (effective strength × week-indexed World Tier) → tougher foes, bigger rewards; no player-side dice buff; the anti-treadmill (Oblivion-style level-scaling) tension, sim-harness-gated. |
+| 🔭     | [Threat Encounter System](./game/threat-encounter-system.md) | Stochastic encounter gate populating unsafe locations with the Threat's three-tier minion pool, density-scaled by week, with shared threat-persistence across players and asymmetric detection via approach-based gate modifiers. |
 
 ## ⚙️ engine
 
