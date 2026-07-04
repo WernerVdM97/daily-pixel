@@ -15,23 +15,28 @@ export type PipelineStage = 'classify' | 'decide' | 'resolve-mutate' | 'resolve-
 /**
  * Derive the `promptVersion` stamp an `llm_calls` row for this stage should carry.
  *
- * `resolve-mutate` and `resolve-narrate` both stamp `stampFor('resolve')` — this is correct,
- * not a bug: `PromptSet` (prompt-builder.ts) has exactly one `resolve` template slot, not a
- * separate mutate/narrate pair. The pipeline's D5b inversion splits mutation-authoring from
- * text-authoring at the STAGE level (two calls, a finalize step between them) while both calls
- * still draw their system prompt from the same v12 resolve template. If a future prompt-set
- * version ever needs genuinely different prose per resolve sub-stage, that's a `PromptSet`
- * shape change (a new slot), not something to route around here.
+ * `resolve-mutate` and `resolve-narrate` both stamp `stampFor('resolve-' + actionType + '-' +
+ * verdict)` — they share the same per-type-per-verdict resolve template (e.g.
+ * 'v12/resolve-combat-success'), mirroring how `decide` selects per-ActionType
+ * ('v12/combat'). The pipeline's D5b inversion splits mutation-authoring from text-authoring
+ * at the STAGE level (two calls, a finalize step between them) while both calls still draw
+ * their system prompt from the same per-type-per-verdict resolve template. If a future
+ * prompt-set version ever needs genuinely different prose per resolve sub-stage, that's a
+ * `PromptSet` shape change (new slots), not something to route around here.
  *
- * `decide` has no default template — it's ALWAYS per-`ActionType` (loadPromptSet(...).decide[type]
- * in prompt-builder.ts) — so calling this for 'decide' without an `actionType` throws rather
- * than silently guessing a category.
+ * `decide` and `resolve-mutate`/`resolve-narrate` have no default template — they're ALWAYS
+ * per-`ActionType` — so calling these without an `actionType` throws rather than silently
+ * guessing a category. The resolve stages also require `verdict`.
  */
-export function stampForPipelineStage(stage: PipelineStage, actionType?: ActionType): string {
+export function stampForPipelineStage(
+  stage: PipelineStage,
+  actionTypeAndVerdict?: { actionType: ActionType; verdict: 'success' | 'failure' } | ActionType,
+): string {
   if (stage === 'classify') {
     return stampFor('classify');
   }
   if (stage === 'decide') {
+    const actionType = actionTypeAndVerdict as ActionType | undefined;
     if (!actionType) {
       throw new Error(
         "stampForPipelineStage('decide', ...): an actionType is required — decide selects a " +
@@ -39,10 +44,18 @@ export function stampForPipelineStage(stage: PipelineStage, actionType?: ActionT
           'nothing sensible to stamp without one.',
       );
     }
-    return stampFor(actionType);
+    return stampFor(`decide/${actionType}`);
   }
-  // stage is 'resolve-mutate' | 'resolve-narrate' here — both share the single `resolve` slot.
-  return stampFor('resolve');
+  // stage is 'resolve-mutate' | 'resolve-narrate' — both share the per-type-per-verdict resolve slot.
+  const av = actionTypeAndVerdict as { actionType: ActionType; verdict: 'success' | 'failure' } | undefined;
+  if (!av) {
+    throw new Error(
+      `stampForPipelineStage('${stage}', ...): actionType and verdict are required — ${stage} selects a ` +
+        'per-ActionType-per-verdict template (no default/shared template exists), so there is ' +
+        'nothing sensible to stamp without them.',
+    );
+  }
+  return stampFor(`resolve/${av.actionType}/${av.verdict}`);
 }
 
 /**

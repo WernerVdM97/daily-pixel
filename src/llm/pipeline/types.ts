@@ -63,12 +63,15 @@ export interface PipelineDecideResult {
 
 /** Input to RESOLVE-MUTATE: a structured (not re-parsed prose) handoff of the decision that
  *  was made, the option the player/dice picked, and the roll verdict. Fresh session per the
- *  pipeline contract — no memory of the DECIDE call. */
+ *  pipeline contract — no memory of the DECIDE call. Includes the raw d20 value so crits
+ *  (nat 1 / nat 20) can modify rewards and costs. */
 export interface PipelineResolveMutateInput {
   actionType: ActionType;
   decision: PipelineDecideResult;
   chosenOption: LlmDecisionOption;
   verdict: 'success' | 'failure';
+  /** The raw d20 roll (1-20), or 0 for auto-resolve (no-roll types like rest/travel). */
+  d20Roll: number;
   context: LlmContext;
 }
 
@@ -80,12 +83,14 @@ export interface PipelineResolveMutateResult {
 
 /** Input to RESOLVE-NARRATE: the FINAL (post-finalize) mutations, not the proposed ones — the
  *  D5b inversion this whole pipeline exists to deliver, so outcome_text is authored against
- *  what actually landed. */
+ *  what actually landed. Includes the raw d20 value so crit narration can call it out. */
 export interface PipelineResolveNarrateInput {
   actionType: ActionType;
   decision: PipelineDecideResult;
   chosenOption: LlmDecisionOption;
   verdict: 'success' | 'failure';
+  /** The raw d20 roll (1-20), or 0 for auto-resolve (no-roll types like rest/travel). */
+  d20Roll: number;
   finalMutations: unknown[];
   context: LlmContext;
 }

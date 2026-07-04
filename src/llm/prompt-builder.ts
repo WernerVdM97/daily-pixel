@@ -42,45 +42,82 @@ export function buildCriticSystemPrompt(): string {
   return _criticSystemPrompt;
 }
 
+/** Per-category resolve templates, split by verdict so success and failure get their own
+ *  focused prompts (and crits — nat 1 / nat 20 — are in-scope for each). */
+export interface ResolveTemplates {
+  success: string;
+  failure: string;
+}
+
 /** A full versioned prompt set (docs/decisions/v12-prompt-set-versioning.md §1): the
- *  classify/resolve bookends plus one decide template per ActionCategory, loaded together
+ *  classify bookend plus per-ActionCategory decide and resolve templates, loaded together
  *  from a single directory so a pipeline outcome traces to the exact set that produced it. */
 export interface PromptSet {
   version: string;
   classify: string;
-  resolve: string;
+  resolve: Record<ActionCategory, ResolveTemplates>;
   decide: Record<ActionCategory, string>;
 }
 
 /** Load a full prompt set from decision-prompts/<version>/. Throws loud (fail-fast at
  *  boot) naming the missing file if any expected template is absent — a partial set must
  *  never run. Reads eagerly (not memoized like the v11 singletons above) since no caller
- *  exists yet; Stage 1 can add caching once the orchestrator calls this per-boot. */
+ *  exists yet; Stage 1 can add caching once the orchestrator calls this per-boot.
+ *
+ *  Layout (v12+):
+ *    <version>/classify.md
+ *    <version>/decide/BASE.md          ← shared decide rules (optional)
+ *    <version>/decide/<category>.md    ← per-type decide templates
+ *    <version>/resolve/BASE.md         ← shared resolve rules (optional)
+ *    <version>/resolve/<category>/success.md  ← per-type-per-verdict resolve templates
+ *    <version>/resolve/<category>/failure.md
+ */
 export function loadPromptSet(version: string = PROMPT_SET_VERSION): PromptSet {
-  const dir = ['decision-prompts', version];
-  const load = (name: string): string => {
+  const root = ['decision-prompts', version];
+  const load = (...segments: string[]): string => {
     try {
-      return readPrompt(...dir, `${name}.md`);
+      return readPrompt(...root, ...segments);
     } catch (err) {
-      throw new Error(`loadPromptSet('${version}'): missing template '${name}.md' in assets/prompts/decision-prompts/${version}/ (${(err as Error).message})`);
+      const path = segments.join('/');
+      throw new Error(`loadPromptSet('${version}'): missing template '${path}' in assets/prompts/decision-prompts/${version}/ (${(err as Error).message})`);
+    }
+  };
+  const loadOptional = (...segments: string[]): string => {
+    try {
+      return readPrompt(...root, ...segments);
+    } catch {
+      return '';
     }
   };
 
-  const classify = load('classify');
-  const resolve = load('resolve');
+  const classify = load('classify.md');
+  const decideBase = loadOptional('decide', 'BASE.md');
+  const resolveBase = loadOptional('resolve', 'BASE.md');
+
   // The cast is safe because ActionCategory is TYPE-DERIVED from this same ACTION_CATEGORIES
-  // array (LlmGateway.ts) — looping over it can't skip or invent a key, so `decide` really is
-  // total by construction, not just by convention.
+  // array (LlmGateway.ts) — looping over it can't skip or invent a key, so `decide`/`resolve`
+  // are total by construction, not just by convention.
   const decide = {} as Record<ActionCategory, string>;
-  for (const category of ACTION_CATEGORIES) decide[category] = load(category);
+  const resolve = {} as Record<ActionCategory, ResolveTemplates>;
+  for (const category of ACTION_CATEGORIES) {
+    const decideRaw = load('decide', `${category}.md`);
+    decide[category] = decideBase ? `${decideBase}\n\n${decideRaw}` : decideRaw;
+    const successRaw = load('resolve', category, 'success.md');
+    const failureRaw = load('resolve', category, 'failure.md');
+    resolve[category] = {
+      success: resolveBase ? `${resolveBase}\n\n${successRaw}` : successRaw,
+      failure: resolveBase ? `${resolveBase}\n\n${failureRaw}` : failureRaw,
+    };
+  }
 
   return { version, classify, resolve, decide };
 }
 
 /** Derive the per-call telemetry stamp for a pipeline stage: `${version}/${template}`
- *  (e.g. 'v12/combat'). Stamps are always derived, never hand-maintained, so the set and
- *  its stage stay attributable without duplicated version bookkeeping. */
-export function stampFor(template: 'classify' | 'resolve' | ActionCategory, version: string = PROMPT_SET_VERSION): string {
+ *  (e.g. 'v12/combat', 'v12/resolve-combat-success'). Stamps are always derived, never
+ *  hand-maintained, so the set and its stage stay attributable without duplicated version
+ *  bookkeeping. */
+export function stampFor(template: string, version: string = PROMPT_SET_VERSION): string {
   return `${version}/${template}`;
 }
 

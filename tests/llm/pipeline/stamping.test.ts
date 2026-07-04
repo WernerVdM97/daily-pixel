@@ -14,30 +14,44 @@ describe('stampForPipelineStage', () => {
     expect(stampForPipelineStage('classify')).toBe(stampFor('classify'));
   });
 
-  it("stamps decide per ActionType, e.g. 'v12/combat'", () => {
-    expect(stampForPipelineStage('decide', 'combat')).toBe('v12/combat');
-    expect(stampForPipelineStage('decide', 'combat')).toBe(stampFor('combat'));
+  it("stamps decide per ActionType, e.g. 'v12/decide/combat'", () => {
+    expect(stampForPipelineStage('decide', 'combat')).toBe('v12/decide/combat');
+    expect(stampForPipelineStage('decide', 'combat')).toBe(stampFor('decide/combat'));
   });
 
-  it("stamps decide for a second ActionType too, e.g. 'v12/rest' — proving it's per-category, not hardcoded", () => {
-    expect(stampForPipelineStage('decide', 'rest')).toBe('v12/rest');
-    expect(stampForPipelineStage('decide', 'rest')).toBe(stampFor('rest'));
+  it("stamps decide for a second ActionType too, e.g. 'v12/decide/rest' — proving it's per-category, not hardcoded", () => {
+    expect(stampForPipelineStage('decide', 'rest')).toBe('v12/decide/rest');
+    expect(stampForPipelineStage('decide', 'rest')).toBe(stampFor('decide/rest'));
   });
 
   it('throws a clear error when decide is called without an actionType', () => {
     expect(() => stampForPipelineStage('decide')).toThrow(/actionType is required/);
   });
 
-  it("stamps resolve-mutate as 'v12/resolve'", () => {
-    expect(stampForPipelineStage('resolve-mutate')).toBe('v12/resolve');
+  it('stamps resolve-mutate per ActionType and verdict, e.g. v12/resolve/combat/success', () => {
+    expect(stampForPipelineStage('resolve-mutate', { actionType: 'combat', verdict: 'success' })).toBe('v12/resolve/combat/success');
+    expect(stampForPipelineStage('resolve-mutate', { actionType: 'combat', verdict: 'failure' })).toBe('v12/resolve/combat/failure');
   });
 
-  it("stamps resolve-narrate as 'v12/resolve'", () => {
-    expect(stampForPipelineStage('resolve-narrate')).toBe('v12/resolve');
+  it('stamps resolve-narrate per ActionType and verdict, e.g. v12/resolve/combat/success', () => {
+    expect(stampForPipelineStage('resolve-narrate', { actionType: 'combat', verdict: 'success' })).toBe('v12/resolve/combat/success');
   });
 
-  it('resolve-mutate and resolve-narrate produce the IDENTICAL stamp — one shared `resolve` template slot, not a bug', () => {
-    expect(stampForPipelineStage('resolve-mutate')).toBe(stampForPipelineStage('resolve-narrate'));
+  it('resolve-mutate and resolve-narrate share the same per-type-per-verdict resolve template', () => {
+    expect(stampForPipelineStage('resolve-mutate', { actionType: 'combat', verdict: 'success' })).toBe(
+      stampForPipelineStage('resolve-narrate', { actionType: 'combat', verdict: 'success' }),
+    );
+    expect(stampForPipelineStage('resolve-mutate', { actionType: 'skill', verdict: 'failure' })).toBe(
+      stampForPipelineStage('resolve-narrate', { actionType: 'skill', verdict: 'failure' }),
+    );
+  });
+
+  it('throws a clear error when resolve-mutate is called without actionType/verdict', () => {
+    expect(() => stampForPipelineStage('resolve-mutate')).toThrow(/actionType and verdict are required/);
+  });
+
+  it('throws a clear error when resolve-narrate is called without actionType/verdict', () => {
+    expect(() => stampForPipelineStage('resolve-narrate')).toThrow(/actionType and verdict are required/);
   });
 });
 

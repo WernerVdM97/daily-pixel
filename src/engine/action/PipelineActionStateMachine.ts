@@ -266,11 +266,12 @@ export class PipelineActionStateMachine {
     let verdict: 'success' | 'failure';
     let playerRolled: number | null = null;
     let rollBonus: number | undefined;
+    let d20Roll = 0;
     if (state.flags.needs_roll) {
-      const d20 = this.rollD20();
+      d20Roll = this.rollD20();
       rollBonus = abilityCheckBonus(char.stats, items, state.rollStat);
-      verdict = resolveRoll(d20, rollBonus, newDc);
-      playerRolled = d20;
+      verdict = resolveRoll(d20Roll, rollBonus, newDc);
+      playerRolled = d20Roll;
     } else {
       // rest/travel (this prototype's non-rollable types) resolve automatically — no dice stage.
       verdict = 'success';
@@ -288,6 +289,7 @@ export class PipelineActionStateMachine {
       decision: decisionForHandoff,
       chosenOption: chosenOptionForHandoff,
       verdict,
+      d20Roll,
       context,
     });
 
@@ -322,6 +324,7 @@ export class PipelineActionStateMachine {
       decision: decisionForHandoff,
       chosenOption: chosenOptionForHandoff,
       verdict,
+      d20Roll,
       finalMutations: finalMutations as unknown[],
       context,
     });
