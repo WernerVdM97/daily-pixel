@@ -724,3 +724,230 @@ describe('T3 iteration 1 — combat round-loop core', () => {
     expect(summary.relationsPersisted).toBe(result.relationsPersisted);
   });
 });
+
+describe('T3 iteration 2 — floor + loss ladder', () => {
+  /** Low-HP variant so the first damaging band triggers the floor. */
+  const lowHpChar: CharacterSeed = {
+    ...BASE_CHARACTER,
+    health: 2,
+    maxHealth: 10,
+  };
+
+  /** Script for combat rounds without a decide-stage sceneState inspection. */
+  function combatScript(): PipelineScript {
+    return {
+      decide: (_input, callNo) => ({
+        distilledType: 'combat',
+        stat: 'physical',
+        baseDc: 12,
+        required: true,
+        decision: [{ label: 'Press the attack', dcModifier: 0 }],
+        ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' } } : {}),
+      }),
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls.' }),
+    };
+  }
+
+  it('first lethal blow triggers desperate-choice (resolved: false with forced options bail bloodied / last stand)', async () => {
+    // Heavy band (margin < -2): player d20=1, enemy d20=10 => player total=6, enemy total=12,
+    // margin=-6 → heavy. With char.health=2, playerHpDelta=-3 → hpZeroReached.
+    const handle = buildSimEngine({ kind: 'sequence', values: [1, 10] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: lowHpChar,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    const step = await engine.stepAction(1, 'Press the attack');
+    expect(step.resolved).toBe(false);
+
+    const decision = (step as { resolved: false; nextDecision: { prompt: string; options: { label: string; dcModifier: number | null }[] } }).nextDecision;
+    const labels = decision.options.map((o) => o.label);
+    expect(labels).toContain('Bail bloodied');
+    expect(labels).toContain('Last stand');
+
+    const bailOption = decision.options.find((o) => o.label === 'Bail bloodied');
+    expect(bailOption?.dcModifier).toBeNull();
+
+    const standOption = decision.options.find((o) => o.label === 'Last stand');
+    expect(standOption?.dcModifier).toBe(0);
+
+    // The non-terminal floor mutations were applied: HP floored to 1.
+    expect(engine.getCharacter('sim:pipeline')?.health).toBe(1);
+
+    // The combat_save and in_combat edges were persisted.
+    expect(engine.getPersistedRelationCount()).toBeGreaterThanOrEqual(2);
+  });
+
+  it('bail bloodied resolves combat as bailed with enemy edge persisted', async () => {
+    const handle = buildSimEngine({ kind: 'sequence', values: [1, 10] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: lowHpChar,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    // Drive to desperate-choice state.
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    const desperate = await engine.stepAction(1, 'Press the attack');
+    expect(desperate.resolved).toBe(false);
+    expect(engine.getCharacter('sim:pipeline')?.health).toBe(1);
+
+    // Bail bloodied (dcModifier: null) is caught by step()'s generic bail check.
+    const bail = await engine.stepAction(1, 'Bail bloodied');
+    expect(bail.resolved).toBe(true);
+    expect((bail as { resolved: true; outcome: { outcome: string } }).outcome.outcome).toBe('bailed');
+
+    // The in_combat edge from the desperate-choice beat is still persisted (not cleared by bail).
+    // At least 2 edges: in_combat + combat_save.
+    expect(engine.getPersistedRelationCount()).toBeGreaterThanOrEqual(2);
+
+    // Character is at 1 HP from the floor.
+    expect(engine.getCharacter('sim:pipeline')?.health).toBe(1);
+  });
+
+  it('last stand continues combat with player at 1 HP', async () => {
+    const handle = buildSimEngine({ kind: 'sequence', values: [1, 10, 20, 1] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: lowHpChar,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    // Drive to desperate-choice state.
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    const desperate = await engine.stepAction(1, 'Press the attack');
+    expect(desperate.resolved).toBe(false);
+    expect(engine.getCharacter('sim:pipeline')?.health).toBe(1);
+
+    // Last stand clears desperateChoice and enters normal combat flow.
+    // Roll [20, 1]: player nat-20 → forced clean band, playerHpDelta=0. No hpZero → continue.
+    const stand = await engine.stepAction(1, 'Last stand');
+    expect(stand.resolved).toBe(false);
+
+    // HP remains at 1 (floor mutations persist; clean band does no player damage).
+    expect(engine.getCharacter('sim:pipeline')?.health).toBe(1);
+  });
+
+  it('second lethal blow same day resolves failure with hpZero', async () => {
+    const handle = buildSimEngine(
+      { kind: 'sequence', values: [1, 10, 20, 1, 1, 10] },
+      undefined,
+      undefined,
+      {
+        machine: 'pipeline',
+        script: combatScript(),
+        seed: lowHpChar,
+      },
+    );
+    const engine = handle.engine as PipelineSimEngine;
+
+    // Round 1: heavy → desperate-choice (save set with currentDay=1).
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    const desperate = await engine.stepAction(1, 'Press the attack');
+    expect(desperate.resolved).toBe(false);
+    expect(engine.getCharacter('sim:pipeline')?.health).toBe(1);
+
+    // Last stand → clean band (no player damage) → continue.
+    const stand = await engine.stepAction(1, 'Last stand');
+    expect(stand.resolved).toBe(false);
+
+    // Round 2 (third combat step, second after last-stand): heavy → hpZeroReached.
+    // savedDay(1) === currentDay(1) → failure with hpZero.
+    const lethal = await engine.stepAction(1, 'Press the attack');
+    expect(lethal.resolved).toBe(true);
+    const lethalOutcome = (lethal as { resolved: true; outcome: { outcome: string; hpZero?: boolean } }).outcome;
+    expect(lethalOutcome.outcome).toBe('failure');
+    expect(lethalOutcome.hpZero).toBe(true);
+  });
+
+  it('a new day resets the save', async () => {
+    const handle = buildSimEngine(
+      { kind: 'sequence', values: [1, 10, 20, 1, 1, 10, 1, 10] },
+      undefined,
+      undefined,
+      {
+        machine: 'pipeline',
+        script: combatScript(),
+        seed: lowHpChar,
+      },
+    );
+    const engine = handle.engine as PipelineSimEngine;
+
+    // Round 1: heavy → desperate-choice (save set with currentDay=1).
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    let step = await engine.stepAction(1, 'Press the attack');
+    expect(step.resolved).toBe(false);
+
+    // Advance the day — save should reset.
+    engine.currentDay = 2;
+
+    // Last stand → clean band → continue.
+    step = await engine.stepAction(1, 'Last stand');
+    expect(step.resolved).toBe(false);
+
+    // Next round: heavy → hpZeroReached. savedDay(1) !== currentDay(2) → save fires again.
+    step = await engine.stepAction(1, 'Press the attack');
+    expect(step.resolved).toBe(false);
+
+    // The desperate-choice beat offers both options again.
+    const decision2 = (step as { resolved: false; nextDecision: { options: { label: string }[] } }).nextDecision;
+    const labels2 = decision2.options.map((o) => o.label);
+    expect(labels2).toContain('Bail bloodied');
+    expect(labels2).toContain('Last stand');
+
+    // HP is still 1 (floored in round 1, clean band did no damage).
+    expect(engine.getCharacter('sim:pipeline')?.health).toBe(1);
+  });
+
+  it('edge case: absent getCurrentDay degrades to per-encounter', async () => {
+    // When getCurrentDay returns 0 (same as the default-fallback when absent), the save
+    // fires on the first lethal blow with savedDay=0. A second lethal blow in the same
+    // encounter finds savedDay(0) === currentDay(0) → failure.
+    const handle = buildSimEngine(
+      { kind: 'sequence', values: [1, 10, 20, 1, 1, 10] },
+      undefined,
+      undefined,
+      {
+        machine: 'pipeline',
+        script: combatScript(),
+        seed: lowHpChar,
+      },
+    );
+    const engine = handle.engine as PipelineSimEngine;
+
+    // Set currentDay to 0, same as the default fallback when getCurrentDay is absent.
+    engine.currentDay = 0;
+
+    // Round 1: heavy → desperate-choice (save set with savedDay=0).
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    const desperate = await engine.stepAction(1, 'Press the attack');
+    expect(desperate.resolved).toBe(false);
+    expect(engine.getCharacter('sim:pipeline')?.health).toBe(1);
+
+    // Last stand → clean band → continue.
+    const stand = await engine.stepAction(1, 'Last stand');
+    expect(stand.resolved).toBe(false);
+
+    // Second lethal blow: savedDay(0) === currentDay(0) → failure with hpZero.
+    const lethal = await engine.stepAction(1, 'Press the attack');
+    expect(lethal.resolved).toBe(true);
+    const lethalOutcome = (lethal as { resolved: true; outcome: { outcome: string; hpZero?: boolean } }).outcome;
+    expect(lethalOutcome.outcome).toBe('failure');
+    expect(lethalOutcome.hpZero).toBe(true);
+  });
+});
