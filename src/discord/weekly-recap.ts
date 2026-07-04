@@ -184,14 +184,27 @@ export async function broadcastOutcome(opts: {
   if (threadId) {
     try {
       const channel = await client.channels.fetch(threadId);
+      // [debug F#19a] confirm what we resolved + which branch we take.
+      console.log(
+        c.cyan(
+          `[recap][debug] threadId=${threadId} sendable=${isSendable(channel)} ` +
+            `canAddMembers=${canAddThreadMembers(channel)} subscribe=${JSON.stringify(subscribeUserIds ?? null)} ` +
+            `ctor=${(channel as { constructor?: { name?: string } } | null)?.constructor?.name}`,
+        ),
+      );
       if (isSendable(channel)) {
         if (subscribeUserIds?.length && canAddThreadMembers(channel)) {
           for (const userId of subscribeUserIds) {
             try {
-              await channel.members.add(userId);
+              const added = await channel.members.add(userId);
+              console.log(c.green(`[recap][debug] members.add(${userId}) OK → ${String(added)}`));
             } catch (err) {
+              const e = err as { code?: unknown; status?: unknown; message?: unknown };
               console.warn(
-                c.yellow("[recap] could not subscribe player to thread:"),
+                c.yellow(
+                  `[recap] could not subscribe player ${userId} to thread ` +
+                    `(code=${String(e?.code)} status=${String(e?.status)}):`,
+                ),
                 err instanceof Error ? err.message : String(err),
               );
             }
