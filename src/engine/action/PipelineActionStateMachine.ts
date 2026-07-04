@@ -217,7 +217,18 @@ export class PipelineActionStateMachine {
     const realOptions = decideResult.decision.filter(o => o.dcModifier !== null);
 
     if (realOptions.length === 0) {
-      return this.resolve(stateWithStat, char, items, newDc, newDecisions, option);
+      // The terminating decide (zero real options -> resolve now) can still declare a fresh
+      // scene_location even though its options are empty. Refresh ONLY sceneLocation for the
+      // travel gate; the resolveMutate/narrate handoff intentionally keeps the prior decide's
+      // real options/baseDc (see the beat-cap handoff test), so we do not wholesale-replace it.
+      const stateForResolve: PipelineInternalActionState = {
+        ...stateWithStat,
+        lastDecideResult: {
+          ...stateWithStat.lastDecideResult,
+          sceneLocation: decideResult.sceneLocation ?? stateWithStat.lastDecideResult.sceneLocation,
+        },
+      };
+      return this.resolve(stateForResolve, char, items, newDc, newDecisions, option);
     }
 
     const nextDecision = toActionDecision(decideResult, state.required);

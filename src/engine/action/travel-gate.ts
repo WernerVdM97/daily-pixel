@@ -1,9 +1,5 @@
 import type { WorldMutation } from '../WorldEngine.js';
-
-/** The three ops that already relocate the character (`mutations.ts`'s `applyMutations`
- *  converges all three onto `state.location`) — any one of them already satisfies travel and
- *  must suppress the gate's injection. */
-const RELOCATE_TYPES = new Set(['set_location', 'move_to', 'cross_frontier']);
+import { RELOCATE_MUTATION_TYPES } from './mutations.js';
 
 function normalize(s: string): string {
   return s.trim().toLowerCase();
@@ -33,7 +29,9 @@ export function applyTravelCoherenceGate(
   const scene = sceneLocation?.trim();
   if (!scene) return mutations;
   if (normalize(scene) === normalize(currentLocation)) return mutations;
-  if (mutations.some(m => RELOCATE_TYPES.has(m.type))) return mutations;
+  // Shared with `mutations.ts` (`RELOCATE_MUTATION_TYPES`) — any one of these three already
+  // relocates the character, so it already satisfies travel and must suppress the injection.
+  if (mutations.some(m => RELOCATE_MUTATION_TYPES.has(m.type))) return mutations;
 
   console.warn(
     `[travel-gate] injecting missing travel: "${currentLocation}" -> "${scene}" (scene_location diverged with no relocate mutation)`,

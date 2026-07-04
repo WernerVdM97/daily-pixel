@@ -100,6 +100,12 @@ export interface AppliedState extends MutationContext {
  *  `spawn_npc` are legacy aliases, treated identically to `move_to`/`add_npc` respectively. */
 const MUTATION_TYPES: Set<string> = new Set(WORLD_MUTATION_TYPES);
 
+/** The three ops that all converge onto `state.location` (see the relocate switch cases in
+ *  `validateOne`/`applyMutations` below) — the single shared source for anything that needs to
+ *  know "is this mutation a relocate?" without re-deriving its own copy of the list
+ *  (`travel-gate.ts`'s `RELOCATE_MUTATION_TYPES` usage). */
+export const RELOCATE_MUTATION_TYPES = new Set<string>(['set_location', 'move_to', 'cross_frontier']);
+
 /** Per-axis stacked-delta caps (§5a guard 1). Applied by collapseStackedDeltas. */
 const STAMINA_DELTA_CAP = -5;
 const HEALTH_DELTA_CAP = -4;
@@ -195,6 +201,8 @@ function validateOne(
   }
 
   switch (m.type) {
+    // Relocate ops — see RELOCATE_MUTATION_TYPES above for the shared list; update both if a
+    // future alias joins this trio.
     case 'move_to':
     case 'set_location': {
       const name = m.name;
@@ -360,6 +368,7 @@ export function applyMutations(
 
   for (const m of mutations) {
     switch (m.type) {
+      // Relocate ops — see RELOCATE_MUTATION_TYPES above for the shared list.
       case 'move_to':
       case 'set_location':
       case 'cross_frontier': {

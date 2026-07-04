@@ -484,6 +484,53 @@ describe('PipelineActionStateMachine — D6 travel-coherence gate (Task 4)', () 
       ]);
     }
   });
+
+  it('fires the gate on a scene that diverges on the terminating decide, not just the opening one', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Opening decide's scene is coherent with the character's actual location.
+    llm.decideResult = combatDecideResult({ sceneLocation: 'The Town Forge' });
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'The fight spills into the trees.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const char = testChar({ location: 'The Town Forge' });
+    const started = await machine.start(char, 'go to the woods and brawl', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // The terminating (follow-up) decide is where the scene diverges — zero real options forces
+    // the zero-real-options resolve branch in step(), which must refresh sceneLocation from THIS
+    // decide rather than resolving against the stale opening one.
+    llm.decideResult = {
+      ...combatDecideResult({ sceneLocation: 'the deep woods' }),
+      decision: [{ label: 'Step back', dcModifier: null }],
+    };
+    const stepResult = await machine.step(started.state, 'Strike hard', char, testItems);
+    expect(stepResult.resolved).toBe(true);
+    if (stepResult.resolved) {
+      expect(stepResult.outcome.mutations).toContainEqual({ type: 'set_location', name: 'the deep woods' });
+    }
+  });
+
+  it('runs the gate BEFORE finalize, so an injected finalize spy observes the gated set_location', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult({ sceneLocation: 'the woods' });
+    // resolveMutate authors no relocate mutation — the gate must inject one before finalize runs.
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'A boar charges from the treeline.' };
+
+    const finalize = vi.fn((muts: WorldMutation[], _ctx: MutationContext) => ({ mutations: muts, minted: [] }));
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, finalize);
+    const char = testChar({ location: 'The Town Forge' });
+    const started = await machine.start(char, 'go to the woods and brawl', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = { ...combatDecideResult({ sceneLocation: 'the woods' }), decision: [{ label: 'Step back', dcModifier: null }] };
+    const stepResult = await machine.step(started.state, 'Strike hard', char, testItems);
+    expect(stepResult.resolved).toBe(true);
+
+    expect(finalize).toHaveBeenCalledTimes(1);
+    expect(finalize.mock.calls[0][0]).toContainEqual({ type: 'set_location', name: 'the woods' });
+  });
 });
 
 describe('PipelineActionStateMachine — classify-fallback-total-failure', () => {
