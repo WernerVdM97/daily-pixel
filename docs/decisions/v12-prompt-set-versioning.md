@@ -16,24 +16,43 @@ _Stage 0b of the v12 critical path: extend the one-file-per-version prompt conve
 
 ## Decisions
 
-### 1. Layout — flat directory per set
+### 1. Layout — subdirectory per stage
 
 ```
 assets/prompts/decision-prompts/v12/
-  classify.md
-  combat.md
-  travel.md
-  social.md
-  skill.md
-  search.md
-  rest.md
-  other.md
-  resolve.md
+├── classify.md                        ← STUB (classifier prompt)
+├── decide/
+│   ├── BASE.md                        ← shared decide rules (optional; prepended by loader)
+│   ├── phases/
+│   │   ├── NEW_ACTION.md              ← NEW_ACTION phase rules (optional)
+│   │   └── CONTINUE.md                ← CONTINUE phase rules (optional)
+│   ├── combat.md
+│   ├── travel.md
+│   ├── social.md
+│   ├── skill.md
+│   ├── search.md
+│   ├── rest.md
+│   └── other.md
+└── resolve/
+    ├── BASE.md                        ← shared resolve rules (optional; prepended by loader)
+    ├── combat/
+    │   ├── success.md
+    │   └── failure.md
+    ├── travel/   {success,failure}.md
+    ├── social/   {success,failure}.md
+    ├── skill/    {success,failure}.md
+    ├── search/   {success,failure}.md
+    ├── rest/     {success,failure}.md
+    └── other/    {success,failure}.md
 ```
 
-`classify` and `resolve` are reserved bookend names; every other file is a **decide** template named for its `ActionCategory` (`src/llm/LlmGateway.ts:48` — `combat · travel · social · skill · search · rest · other`). Flat (not a `decide/` subfolder) per the chosen layout; the loader distinguishes decide templates from the bookends by the reserved names, not by folder.
+`classify` is a reserved bookend name. Per-type **decide** templates live under `decide/`, named for their `ActionCategory` (`src/llm/LlmGateway.ts:48` — `combat · travel · social · skill · search · rest · other`). Per-type-per-verdict **resolve** templates live under `resolve/<category>/`, split into `success.md` and `failure.md`.
 
-`other.md` is included even though the parent spec lists only six decide templates: the classifier can emit `'other'`, so the decide map must be **total** over `ActionCategory` — an unmapped enum value would be a latent runtime gap. If Thread D decides `'other'` is handled specially (e.g. rejected at classify time), trim it then; a total map is the safe default now.
+**Phase splitting (decide only):** `decide/phases/NEW_ACTION.md` and `decide/phases/CONTINUE.md` separate the opening-beat rules from the chaining-beat rules so the model sees only what's relevant to its current task. Both are optional — a set without phase files just uses the shared BASE.
+
+**BASE files:** `decide/BASE.md` carries phase-agnostic rules shared by all decide templates; `resolve/BASE.md` carries rules shared by all resolve templates. Both are optional — a set without BASE files loads templates self-contained. BASE files live inside the set directory (not version-portable across sets): a `v13` set would have its own `v13/decide/BASE.md`.
+
+`other.md` is included even though some paths don't use it: the classifier can emit `'other'`, so the decide map must be **total** over `ActionCategory` — an unmapped enum value would be a latent runtime gap. If Thread D decides `'other'` is handled specially (e.g. rejected at classify time), trim it then; a total map is the safe default now.
 
 ### 2. Version-constant shape — one set version, derived stamps
 
@@ -42,7 +61,7 @@ A single new constant names the set; per-call stamps are derived, never hand-mai
 ```ts
 export const PROMPT_SET_VERSION = 'v12';
 // actions.prompt_version   → 'v12'                 (the set)
-// llm_calls.prompt_version → 'v12/classify', 'v12/combat', 'v12/resolve', …  (the stage)
+// llm_calls.prompt_version → 'v12/classify', 'v12/combat', 'v12/resolve/combat/success', …  (the stage)
 ```
 
 `PROMPT_VERSION = 'v11'` stays as the **live** single-file decision prompt and is untouched by this stage — the engine has no pipeline orchestrator yet, so flipping it would break boot. Stage 1 migrates the engine onto the set and retires the legacy constant.
@@ -64,33 +83,53 @@ In `src/llm/prompt-builder.ts`, factor the existing `readFileSync(...).trim()` b
 ```ts
 export const PROMPT_SET_VERSION = 'v12';
 
+/** Maximum decision beats per action. Injected into the user message on CONTINUE so the
+ *  model knows how close it is to the engine's beat cap. */
+export const MAX_DECISIONS_PER_ACTION = 2;
+
+export interface ResolveTemplates {
+  success: string;
+  failure: string;
+}
+
+export interface DecideTemplates {
+  newAction: string;
+  continue: string;
+}
+
 export interface PromptSet {
-  version: string;                          // e.g. 'v12'
-  classify: string;                         // classify.md contents
-  resolve: string;                          // resolve.md contents
-  decide: Record<ActionCategory, string>;   // one entry per category, keyed by name
+  version: string;
+  classify: string;
+  resolve: Record<ActionCategory, ResolveTemplates>;
+  decide: Record<ActionCategory, DecideTemplates>;
 }
 
 /** Load a full prompt set from decision-prompts/<version>/. Throws loud (fail-fast at boot)
- *  if any expected template file is missing — a partial set must never run. */
+ *  if any expected template file is missing — a partial set must never run.
+ *
+ *  Assembly order (decide): BASE.md → phases/<PHASE>.md → <category>.md
+ *  Assembly order (resolve): BASE.md → <category>/<verdict>.md */
 export function loadPromptSet(version?: string): PromptSet;
 
-/** Derive the per-call telemetry stamp: `${version}/${template}` (e.g. 'v12/combat'). */
-export function stampFor(template: 'classify' | 'resolve' | ActionCategory, version?: string): string;
+/** Derive the per-call telemetry stamp: `${version}/${template}` (e.g. 'v12/combat',
+ *  'v12/resolve/combat/success'). */
+export function stampFor(template: string, version?: string): string;
 ```
 
 Each stub `.md` is a clear placeholder (e.g. `# v12 · classify (STUB)` + a line noting it's authored in Stage 1 and not yet wired) — the loader only reads text, so stubs load fine and let the loader + its tests be real now.
 
 ## Scope fence
 
-In scope: the layout, the two new exports + shared read helper, the nine stub files, loader tests, this record, the `prompt-versioning` skill update, and flipping the Stage 0b markers in [[prompt-separation-of-concerns]]. **Out of scope:** authoring any template content, wiring the gateway/orchestrator to use the set, and flipping the live `PROMPT_VERSION` — all Stage 1 (Thread D).
+In scope: the layout, the loader + `PromptSet` types + `MAX_DECISIONS_PER_ACTION` constant, the stub template files, loader tests, this record, the `prompt-versioning` skill update, and flipping the Stage 0b markers in [[prompt-separation-of-concerns]]. **Out of scope:** authoring any template content, wiring the gateway/orchestrator to use the set, and flipping the live `PROMPT_VERSION` — all Stage 1 (Thread D).
 
 ## Verification
 
-- `loadPromptSet('v12')` returns all nine templates; `decide` has an entry for every `ActionCategory`.
-- `stampFor` derives `v12/classify`, `v12/combat`, `v12/resolve`, etc.
+- `loadPromptSet('v12')` returns all templates; `decide` has an entry for every `ActionCategory` with both `newAction` and `continue` phase variants; `resolve` has `success`/`failure` per category.
+- Templates assemble in order: BASE → phase → type-specific (decide); BASE → verdict recipe (resolve).
+- `stampFor` derives `v12/classify`, `v12/combat`, `v12/resolve/combat/success`, etc.
 - A missing template file throws a clear error naming the file.
-- `npm run typecheck` clean; `npm test` green; the live `v11` path and all existing tests are unaffected.
+- `MAX_DECISIONS_PER_ACTION = 2` is a named constant injected into the CONTINUE user message so the model knows its pacing boundary.
+- `npm run typecheck` clean; `npm test` green; the live `v11` path and all existing tests are unaffected (`1057` tests as of the phase-split merge).
 
 ---
 

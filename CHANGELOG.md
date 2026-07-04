@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 ### Added
+- **Phase-split decide prompts** — decide templates now split by pipeline phase (`decide/phases/NEW_ACTION.md` + `CONTINUE.md`) so the model sees only the rules relevant to its current task. The shared `decide/BASE.md` carries phase-agnostic rules; the loader assembles `BASE → phase → type` per call.
+- **`MAX_DECISIONS_PER_ACTION` constant** — the beat cap is now a named constant (`2`) injected into the CONTINUE user message so the model knows how close it is to resolution.
+- **Per-verdict resolve templates** — resolve templates split by success/failure under `resolve/<category>/{success,failure}.md`, each a lean mutation recipe (~4 lines), with shared rules in `resolve/BASE.md`.
 - **Owner identity on public outcome messages** *(F#3, F#8)* — the character's owner (as a `<@discordId>` mention with pings suppressed) now appears next to the character name on the shared public outcomes so testers can tell who's who.
 - **One free bail per day** — the first time you step back from a decision each day refunds the roll (mirrors the no-op/timeout "made whole" graces); later bails that day still spend it, and bailing always costs stamina. Guarded migration `202606300000_player_last_bail_refund_day` adds `player_characters.last_bail_refund_day` (own column so the bail grace never burns — or is burned by — the no-op/timeout graces).
 

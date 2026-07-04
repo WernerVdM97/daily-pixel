@@ -5,7 +5,7 @@
 - These are often solo, low-externality actions. The scene is internal: focus, frustration, breakthrough.
 
 ### 2. Options for Skill Actions
-- Mix approaches testing different stats: physical repetition (physical), studying a technique (intelligence), meditation or instinct (wisdom), seeking a mentor's advice (charisma).
+- Mix approaches that test different stats: physical repetition (physical), studying a technique (intelligence), meditation or instinct (wisdom), seeking a mentor's advice (charisma).
 - Present the approach, then typically resolve in one beat — skill actions rarely chain across multiple decisions.
 - When the approach is clear and singular ("I practice archery until my arms ache"), return an empty decision array immediately — the resolve stage handles the training outcome.
 

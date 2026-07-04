@@ -8,7 +8,8 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
     expect(set.version).toBe(PROMPT_SET_VERSION);
     expect(set.classify.length).toBeGreaterThan(0);
     for (const category of ACTION_CATEGORIES) {
-      expect(set.decide[category]).toBeTruthy();
+      expect(set.decide[category].newAction).toBeTruthy();
+      expect(set.decide[category].continue).toBeTruthy();
       expect(set.resolve[category]).toBeTruthy();
     }
   });
@@ -21,9 +22,13 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
     }
   });
 
-  it('the decide map is total over every ActionCategory', () => {
+  it('the decide map is total over every ActionCategory with both phase variants', () => {
     const set = loadPromptSet('v12');
     expect(Object.keys(set.decide).sort()).toEqual([...ACTION_CATEGORIES].sort());
+    for (const category of ACTION_CATEGORIES) {
+      expect(set.decide[category]).toHaveProperty('newAction');
+      expect(set.decide[category]).toHaveProperty('continue');
+    }
   });
 
   it('throws naming a missing template and the version dir for a set that does not exist', () => {
@@ -63,6 +68,45 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
         const baseIdx = set.resolve[category][ver].indexOf('# BASE-RESOLVE — shared rules');
         const markerIdx = set.resolve[category][ver].indexOf(resolveMarkers[category][ver]);
         expect(baseIdx).toBeLessThan(markerIdx);
+      }
+    }
+  });
+
+  it('decide templates are prepended with BASE.md and the correct phase', () => {
+    const set = loadPromptSet('v12');
+    for (const category of ACTION_CATEGORIES) {
+      // Both variants start with BASE
+      expect(set.decide[category].newAction).toContain('# BASE — shared rules for all v12 decide templates');
+      expect(set.decide[category].continue).toContain('# BASE — shared rules for all v12 decide templates');
+      // NEW_ACTION variant contains the phase header
+      expect(set.decide[category].newAction).toContain('## PHASE — NEW_ACTION');
+      // CONTINUE variant contains its phase header
+      expect(set.decide[category].continue).toContain('## PHASE — CONTINUE');
+      // Neither contains the opposite phase
+      expect(set.decide[category].newAction).not.toContain('## PHASE — CONTINUE');
+      expect(set.decide[category].continue).not.toContain('## PHASE — NEW_ACTION');
+    }
+  });
+
+  it('decide templates are assembled in order: BASE → phase → type-specific', () => {
+    const set = loadPromptSet('v12');
+    const typeMarkers: Record<string, string> = {
+      combat: 'COMBAT-SPECIFIC RULES',
+      travel: 'TRAVEL-SPECIFIC RULES',
+      social: 'SOCIAL-SPECIFIC RULES',
+      skill: 'SKILL-SPECIFIC RULES',
+      search: 'SEARCH-SPECIFIC RULES',
+      rest: 'REST-SPECIFIC RULES',
+      other: 'CATCH-ALL RULES',
+    };
+    for (const category of ACTION_CATEGORIES) {
+      for (const phase of ['newAction', 'continue'] as const) {
+        const tpl = set.decide[category][phase];
+        const baseIdx = tpl.indexOf('# BASE — shared rules');
+        const phaseIdx = tpl.indexOf('## PHASE —');
+        const typeIdx = tpl.indexOf(typeMarkers[category]);
+        expect(baseIdx).toBeLessThan(phaseIdx);
+        expect(phaseIdx).toBeLessThan(typeIdx);
       }
     }
   });

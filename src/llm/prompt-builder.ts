@@ -15,6 +15,11 @@ export const CRITIC_VERSION = 'v1';
 // path above. Stage 1 (Thread D) wires the engine onto it and retires PROMPT_VERSION.
 export const PROMPT_SET_VERSION = 'v12';
 
+/** Maximum decision beats per action. Mirrors PipelineActionStateMachine's beat cap: after
+ *  the first decision (index 0), the second is the final beat before resolve triggers.
+ *  Injected into the user message on CONTINUE so the model knows how close it is to the cap. */
+export const MAX_DECISIONS_PER_ACTION = 2;
+
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +54,14 @@ export interface ResolveTemplates {
   failure: string;
 }
 
+/** Per-category decide templates, split by pipeline phase so the model sees only the rules
+ *  relevant to its current task (NEW_ACTION vs CONTINUE). Both variants share the same BASE
+ *  and per-type rules; only the phase-specific layer differs. */
+export interface DecideTemplates {
+  newAction: string;
+  continue: string;
+}
+
 /** A full versioned prompt set (docs/decisions/v12-prompt-set-versioning.md §1): the
  *  classify bookend plus per-ActionCategory decide and resolve templates, loaded together
  *  from a single directory so a pipeline outcome traces to the exact set that produced it. */
@@ -56,7 +69,7 @@ export interface PromptSet {
   version: string;
   classify: string;
   resolve: Record<ActionCategory, ResolveTemplates>;
-  decide: Record<ActionCategory, string>;
+  decide: Record<ActionCategory, DecideTemplates>;
 }
 
 /** Load a full prompt set from decision-prompts/<version>/. Throws loud (fail-fast at
@@ -66,10 +79,12 @@ export interface PromptSet {
  *
  *  Layout (v12+):
  *    <version>/classify.md
- *    <version>/decide/BASE.md          ← shared decide rules (optional)
- *    <version>/decide/<category>.md    ← per-type decide templates
- *    <version>/resolve/BASE.md         ← shared resolve rules (optional)
- *    <version>/resolve/<category>/success.md  ← per-type-per-verdict resolve templates
+ *    <version>/decide/BASE.md                   ← shared decide rules (optional)
+ *    <version>/decide/phases/NEW_ACTION.md      ← NEW_ACTION phase rules (optional)
+ *    <version>/decide/phases/CONTINUE.md        ← CONTINUE phase rules (optional)
+ *    <version>/decide/<category>.md             ← per-type decide templates
+ *    <version>/resolve/BASE.md                  ← shared resolve rules (optional)
+ *    <version>/resolve/<category>/success.md    ← per-type-per-verdict resolve templates
  *    <version>/resolve/<category>/failure.md
  */
 export function loadPromptSet(version: string = PROMPT_SET_VERSION): PromptSet {
@@ -92,16 +107,25 @@ export function loadPromptSet(version: string = PROMPT_SET_VERSION): PromptSet {
 
   const classify = load('classify.md');
   const decideBase = loadOptional('decide', 'BASE.md');
+  const decideNewAction = loadOptional('decide', 'phases', 'NEW_ACTION.md');
+  const decideContinue = loadOptional('decide', 'phases', 'CONTINUE.md');
   const resolveBase = loadOptional('resolve', 'BASE.md');
 
   // The cast is safe because ActionCategory is TYPE-DERIVED from this same ACTION_CATEGORIES
   // array (LlmGateway.ts) — looping over it can't skip or invent a key, so `decide`/`resolve`
   // are total by construction, not just by convention.
-  const decide = {} as Record<ActionCategory, string>;
+  const decide = {} as Record<ActionCategory, DecideTemplates>;
   const resolve = {} as Record<ActionCategory, ResolveTemplates>;
   for (const category of ACTION_CATEGORIES) {
     const decideRaw = load('decide', `${category}.md`);
-    decide[category] = decideBase ? `${decideBase}\n\n${decideRaw}` : decideRaw;
+    // Assemble: BASE (shared rules) + phase (NEW_ACTION or CONTINUE) + type (category-specific).
+    // Phase files are optional — if missing, the variant just omits that layer (same behaviour
+    // as a set with no phase split).
+    const prefix = decideBase ? `${decideBase}\n\n` : '';
+    decide[category] = {
+      newAction: decideNewAction ? `${prefix}${decideNewAction}\n\n${decideRaw}` : `${prefix}${decideRaw}`,
+      continue: decideContinue ? `${prefix}${decideContinue}\n\n${decideRaw}` : `${prefix}${decideRaw}`,
+    };
     const successRaw = load('resolve', category, 'success.md');
     const failureRaw = load('resolve', category, 'failure.md');
     resolve[category] = {
@@ -195,6 +219,16 @@ export function buildUserMessage(ctx: LlmContext): string {
 
   const out: string[] = [];
   out.push(`PHASE: ${phase}`);
+
+  // On CONTINUE, tell the model where it is in the beat chain so it can pace toward
+  // resolution before the engine's hard cap fires.
+  if (phase === 'CONTINUE') {
+    const decisionNumber = (ctx.previousDecisions?.length ?? 0) + 1;
+    const isLast = decisionNumber >= MAX_DECISIONS_PER_ACTION;
+    out.push(isLast
+      ? `This is decision ${decisionNumber} of ${MAX_DECISIONS_PER_ACTION} — the final beat. Frame it to reach a natural resolution point (empty decision triggers the resolve stage).`
+      : `Decision ${decisionNumber} of ${MAX_DECISIONS_PER_ACTION}.`);
+  }
 
   // ── You — identity, resources, the ability-checks table (Score + Gear = Bonus) ──
   const c = ctx.character;

@@ -1,8 +1,7 @@
 ## REST-SPECIFIC RULES
 
 ### 1. Rest Always Resolves Immediately
-- Rest has no decisions. Always return an empty `decision` array.
-- The resolve stage handles the recovery mutations (stamina, health, roll refresh).
+- Rest has no decisions. Always return an empty `decision` array. The resolve stage handles recovery mutations (stamina, health, roll refresh). There is no beat chain — this type never reaches CONTINUE.
 
 ### 2. Scene Framing for Rest
 - Describe the rest scene in one vivid sentence per option — but since there are no options, focus on the `distilledType` label.

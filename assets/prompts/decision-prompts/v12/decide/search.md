@@ -5,7 +5,7 @@
 - Environmental detail drives these: what's here? What's hidden? What clues does the scene offer?
 
 ### 2. Options for Search
-- Mix approaches testing different stats: a methodical sweep (intelligence), tracking or spotting (wisdom), physically tearing through the area (physical), asking a local (charisma).
+- Mix approaches that test different stats: a methodical sweep (intelligence), tracking or spotting (wisdom), physically tearing through the area (physical), asking a local (charisma).
 - Present the approach, then typically resolve in one beat — search actions rarely chain. Once the player commits to HOW they search, the dice decide what they find.
 - When the approach is clear ("I search the abandoned cart for supplies"), return an empty decision array — the resolve stage handles discovery.
 

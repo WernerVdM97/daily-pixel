@@ -18,6 +18,7 @@ import type {
   ItemData,
 } from '../WorldEngine.js';
 import { accumulateDc, abilityCheckBonus, resolveRoll, validateDcModifier } from './dc.js';
+import { MAX_DECISIONS_PER_ACTION } from '../../llm/prompt-builder.js';
 import { buildPipelineContext, type PipelineContextResolver } from './pipeline-context.js';
 import type { MutationContext } from './mutations.js';
 import { applyTravelCoherenceGate } from './travel-gate.js';
@@ -203,11 +204,10 @@ export class PipelineActionStateMachine {
     const chosenStat = option.stat ?? state.rollStat;
     const stateWithStat: PipelineInternalActionState = { ...state, rollStat: chosenStat };
 
-    // Beat cap mirrors the legacy machine's shape (parity acceptance criterion): after one
-    // prior decision beat, resolve without presenting a third. `PipelineDecideResult` has no
-    // `done` flag (options-only, by design) so this cap plus the zero-real-options check below
-    // are the ONLY resolve-trigger signals available here.
-    const isLastDecision = state.decisions.length >= 1;
+    // Beat cap: after MAX_DECISIONS_PER_ACTION - 1 prior beats, the current one is the last.
+    // `PipelineDecideResult` has no `done` flag (options-only, by design) so this cap plus the
+    // zero-real-options check below are the ONLY resolve-trigger signals available here.
+    const isLastDecision = state.decisions.length >= MAX_DECISIONS_PER_ACTION - 1;
     if (isLastDecision) {
       return this.resolve(stateWithStat, char, items, newDc, newDecisions, option);
     }
