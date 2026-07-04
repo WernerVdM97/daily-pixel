@@ -66,6 +66,8 @@ export class PipelineSimEngine {
   private readonly edgeRepo: LocationEdgeRepository;
   private readonly relationRepo: RelationRepository;
   private readonly resolver: PipelineContextResolver;
+  /** Current in-game day number (T3 iteration 2 uses this for the combat floor). */
+  currentDay = 1;
 
   constructor(
     rollSource: RollSource,
@@ -94,6 +96,7 @@ export class PipelineSimEngine {
       isLocationSafe: () => true,
       getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
       getSceneRelations: (node) => this.relationRepo.forNode(node.type, node.ref),
+      getCurrentDay: () => this.currentDay,
     };
 
     this.machine = new PipelineActionStateMachine(
@@ -179,6 +182,31 @@ export class PipelineSimEngine {
       this.pendingState = null;
       this.applyOutcome(result.outcome);
       return { resolved: true, state: toPublicState(result.state), outcome: result.outcome };
+    }
+
+    // Apply non-terminal mutations (e.g. combat round updates, player HP deltas) before
+    // the next beat's context is built, so scene-state read-back works across beats.
+    if (result.mutations && result.mutations.length > 0) {
+      const ctx: MutationContext = {
+        currentHealth: this.char.health,
+        maxHealth: this.char.maxHealth,
+        stamina: this.char.stamina,
+        maxStamina: this.char.maxStamina,
+        wealth: this.char.wealth,
+        rollsRemaining: this.char.rollsRemaining,
+        location: this.char.location,
+      };
+      const applied = applyMutations(result.mutations, ctx);
+      this.char = {
+        ...this.char,
+        health: applied.currentHealth,
+        stamina: applied.stamina,
+        maxStamina: applied.maxStamina,
+        wealth: applied.wealth,
+        rollsRemaining: applied.rollsRemaining,
+        location: applied.location,
+      };
+      this.persistRelations(applied.relationsToSet, applied.relationsToUpdate);
     }
 
     this.pendingState = result.state;

@@ -1,4 +1,4 @@
-import type { LlmDecisionOption } from '../../llm/LlmGateway.js';
+import type { LlmDecisionOption, SceneStateEdge } from '../../llm/LlmGateway.js';
 import type {
   ActionType,
   RoutingFlags,
@@ -22,6 +22,18 @@ import { MAX_DECISIONS_PER_ACTION } from '../../llm/prompt-builder.js';
 import { buildPipelineContext, type PipelineContextResolver } from './pipeline-context.js';
 import type { MutationContext } from './mutations.js';
 import { applyTravelCoherenceGate } from './travel-gate.js';
+import {
+  resolveCombatRound,
+  deriveEnemyMaxHp,
+  ENEMY_BONUS_MAX,
+  MAX_COMBAT_ROUNDS,
+} from './combat-dc.js';
+import {
+  readCombatState,
+  combatRoundUpdate,
+  type CombatState,
+} from './combat-state.js';
+import { resolveRelationEndpoint, type NearbyNpc } from './relation-wiring.js';
 
 /** ActionState plus the pipeline's internal fields, stored in the JSON column (mirrors
  *  `InternalActionState` in machine.ts, but with `actionType`/`flags` pinned at classify
@@ -45,6 +57,13 @@ export interface PipelineInternalActionState extends ActionState {
   lastDecideResult: PipelineDecideResult;
   /** Reactive action — bail not allowed. */
   required: boolean;
+  /** The authored relation endpoint resolved on combat establishment, held across rounds
+   *  so the npc-name→id resolution gap doesn't force re-resolution every beat (T3 decision 4).
+   *  Undefined when no combat is in progress. */
+  combatAnchor?: { node: 'npc' | 'location'; name: string };
+  /** Set when player HP would drop to ≤0 (pre-floor; iteration 2 will gate it via the save,
+   *  but iteration 1 still needs to detect the condition to drive failure termination). */
+  hpZero?: boolean;
   /** Epoch ms last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
   /** All llm_calls ids in this action. Task 5 built the per-stage stamp/callKind derivation
@@ -59,7 +78,7 @@ export type PipelineStartResult =
   | { resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome };
 
 export type PipelineStepResult =
-  | { resolved: false; state: PipelineInternalActionState; nextDecision: ActionDecision }
+  | { resolved: false; state: PipelineInternalActionState; nextDecision: ActionDecision; mutations?: WorldMutation[] }
   | { resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome };
 
 /** Canned fallback text for the classify-fallback-total-failure path (heuristic miss AND the
@@ -204,6 +223,14 @@ export class PipelineActionStateMachine {
     const chosenStat = option.stat ?? state.rollStat;
     const stateWithStat: PipelineInternalActionState = { ...state, rollStat: chosenStat };
 
+    // ─── COMBAT SUB-MODE GATE ───
+    // Reactive combat actions short-circuit the generic beat-cap/decide/resolve flow.
+    // The combat handler owns the entire round: contested roll, band application,
+    // mutation persistence, and termination ladder (win/cap-derive/hpZero→failure/continue).
+    if (state.actionType === 'combat' && state.required) {
+      return this.handleCombatStep(stateWithStat, char, items, newDc, newDecisions, option);
+    }
+
     // Beat cap: after MAX_DECISIONS_PER_ACTION - 1 prior beats, the current one is the last.
     // `PipelineDecideResult` has no `done` flag (options-only, by design) so this cap plus the
     // zero-real-options check below are the ONLY resolve-trigger signals available here.
@@ -246,6 +273,281 @@ export class PipelineActionStateMachine {
 
   resume(state: PipelineInternalActionState): { state: PipelineInternalActionState; nextDecision: ActionDecision } {
     return { state, nextDecision: state.pendingDecision };
+  }
+
+  /**
+   * Combat sub-mode handler — owns the contested roll, band application, persistence, and
+   * termination ladder (win / cap-derive / hpZero→failure / continue). Replaces the generic
+   * beat-cap/decide/resolve flow for reactive combat actions.
+   */
+  private async handleCombatStep(
+    state: PipelineInternalActionState,
+    char: CharacterData,
+    items: ItemData[],
+    newDc: number,
+    newDecisions: ActionDecisionRecord[],
+    chosenOption: ActionOption,
+  ): Promise<PipelineStepResult> {
+    // Build context for scene-state read-back (includes the in_combat edge from any prior beat).
+    const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
+
+    // ── Establish or read combat state ──
+    let cs = readCombatState(context.sceneState ?? []);
+
+    if (!cs || cs.enemyHp <= 0) {
+      const enemy = state.lastDecideResult.combatEnemy;
+      if (enemy) {
+        // Resolve the anchor: npc -> try nearby lookup, default to location.
+        let anchor: { node: 'npc' | 'location'; name: string };
+        if (enemy.anchor === 'npc') {
+          const nearbyNpcs = this.resolver.getNearbyNpcs(char.location) as NearbyNpc[];
+          const resolved = resolveRelationEndpoint({ node: 'npc', name: enemy.name }, { id: char.id }, nearbyNpcs);
+          if (resolved && resolved.type === 'npc') {
+            anchor = { node: 'npc', name: resolved.ref };
+          } else {
+            // NPC resolution failed — default to location-anchored minion (decision 4 fallback).
+            anchor = { node: 'location', name: char.location };
+          }
+        } else {
+          anchor = { node: 'location', name: char.location };
+        }
+
+        const enemyMaxHp = deriveEnemyMaxHp(state.lastDecideResult.baseDc);
+        cs = {
+          enemyName: enemy.name,
+          enemyHp: enemyMaxHp,
+          enemyMaxHp,
+          round: 1,
+          anchor,
+        };
+      } else {
+        // No combatEnemy signal — default to a location-anchored minion (always establishes).
+        const enemyMaxHp = deriveEnemyMaxHp(state.lastDecideResult.baseDc);
+        cs = {
+          enemyName: 'Minion',
+          enemyHp: enemyMaxHp,
+          enemyMaxHp,
+          round: 1,
+          anchor: { node: 'location', name: char.location },
+        };
+      }
+    }
+
+    // Resolve the anchor to use for edge writes: prefer the state-held anchor (across rounds),
+    // fall back to the current CombatState's anchor (which for npc fights carries the id-as-name
+    // that would fail re-resolution — T3 decision 4).
+    const heldAnchor: { node: 'npc' | 'location'; name: string } =
+      state.combatAnchor ?? (cs.anchor as { node: 'npc' | 'location'; name: string });
+
+    // ── Contested roll (both player and engine roll from the same injected rollD20) ──
+    const playerD20 = this.rollD20();
+    const enemyD20 = this.rollD20();
+    const playerBonus = abilityCheckBonus(char.stats, items, state.rollStat);
+    const enemyBonus = Math.max(0, Math.min(ENEMY_BONUS_MAX, state.lastDecideResult.baseDc - 10));
+    const roundResult = resolveCombatRound(playerD20, playerBonus, enemyD20, enemyBonus, 1);
+
+    // ── Apply the band ──
+    const newEnemyHp = Math.max(0, Math.min(cs.enemyMaxHp, cs.enemyHp + roundResult.enemyHpDelta));
+    const playerHpDelta = roundResult.playerHpDelta;
+
+    // hpZero detection: player HP would drop to ≤0 (deferred to iteration 2 for the save floor).
+    const hpZeroReached = playerHpDelta < 0 && (char.health + playerHpDelta) <= 0;
+
+    // ── Termination ladder ──
+    // 1. WIN: enemy HP depleted
+    if (newEnemyHp <= 0) {
+      return this.resolveCombat(
+        cs, roundResult, playerHpDelta, 0, 'success',
+        state, char, items, newDc, newDecisions, chosenOption,
+      );
+    }
+
+    // 2. hpZero → failure (iteration 1: no floor save yet, no survive-at-1).
+    // Note: hpZero is only reliably detectable when player HP is also persisted
+    // per-round (see the modify_health injection below).
+    if (hpZeroReached) {
+      return this.resolveCombat(
+        cs, roundResult, playerHpDelta, newEnemyHp, 'failure',
+        state, char, items, newDc, newDecisions, chosenOption,
+      );
+    }
+
+    // 3. Cap-derive: round exceeds MAX_COMBAT_ROUNDS → compare remaining HP fractions
+    if (cs.round > MAX_COMBAT_ROUNDS) {
+      const playerFraction = (char.health + playerHpDelta) / char.maxHealth;
+      const enemyFraction = newEnemyHp / cs.enemyMaxHp;
+      const capVerdict = playerFraction >= enemyFraction ? 'success' : 'failure';
+      return this.resolveCombat(
+        cs, roundResult, playerHpDelta, newEnemyHp, capVerdict,
+        state, char, items, newDc, newDecisions, chosenOption,
+      );
+    }
+
+    // 4. CONTINUE — apply band, persist combat edge, call DECIDE for the next round.
+    const nextRound = cs.round + 1;
+    const combatEdge = combatRoundUpdate(
+      cs,
+      roundResult.enemyHpDelta,
+      nextRound,
+    );
+
+    // Build the updated scene state for the decide call (the caller hasn't persisted yet,
+    // so we append the updated combat edge manually).
+    const updatedSceneState: SceneStateEdge[] = [
+      ...(context.sceneState ?? []).filter(
+        (e) => !(e.relType === 'in_combat' && e.from.type === 'pc'),
+      ),
+      {
+        from: { type: 'pc', ref: String(char.id) },
+        to: {
+          type: heldAnchor.node === 'npc' ? 'npc' : 'location',
+          ref: heldAnchor.name,
+        },
+        relType: 'in_combat',
+        props: { ...combatEdge.props },
+      },
+    ];
+
+    const updatedContext = { ...context, sceneState: updatedSceneState };
+    const decideResult = await this.llm.decide({
+      actionType: state.actionType,
+      flags: state.flags,
+      context: updatedContext,
+    });
+
+    const nextDecision = toActionDecision(decideResult, state.required);
+    const nextState: PipelineInternalActionState = {
+      ...state,
+      decisions: newDecisions,
+      accumulatedDc: newDc,
+      pendingDecision: nextDecision,
+      distilledType: decideResult.distilledType || state.distilledType,
+      lastDecideResult: decideResult,
+      combatAnchor: heldAnchor,
+    };
+
+    return {
+      resolved: false,
+      state: nextState,
+      nextDecision,
+      mutations: [
+        { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
+        ...(playerHpDelta < 0
+          ? [{ type: 'modify_health' as const, amount: playerHpDelta }]
+          : []),
+      ],
+    };
+  }
+
+  /**
+   * Terminal combat beat: verdict is pre-determined (no resolveRoll). RESOLVE-MUTATE still
+   * runs for ancillary loot; the engine-authored combat mutations (set_relation + modify_health)
+   * are injected into the outcome alongside the LLM-authored ones, then finalize + RESOLVE-NARRATE.
+   */
+  private async resolveCombat(
+    cs: CombatState,
+    roundResult: import('./combat-dc.js').CombatRoundOutcome,
+    playerHpDelta: number,
+    finalEnemyHp: number,
+    verdict: 'success' | 'failure',
+    state: PipelineInternalActionState,
+    char: CharacterData,
+    items: ItemData[],
+    newDc: number,
+    newDecisions: ActionDecisionRecord[],
+    chosenOption: ActionOption,
+  ): Promise<{ resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome }> {
+    const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
+
+    const d20Roll = roundResult.playerD20;
+    const rollBonus = abilityCheckBonus(char.stats, items, state.rollStat);
+    const decisionForHandoff = state.lastDecideResult;
+    const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
+
+    // RESOLVE-MUTATE for ancillary loot only (the LLM never authors enemyHp/core damage).
+    const { mutations: proposedMutations } = await this.llm.resolveMutate({
+      actionType: state.actionType,
+      decision: decisionForHandoff,
+      chosenOption: chosenOptionForHandoff,
+      verdict,
+      d20Roll,
+      context,
+    });
+
+    // D6 travel-coherence gate.
+    const gatedMutations = applyTravelCoherenceGate(
+      proposedMutations as WorldMutation[],
+      decisionForHandoff.sceneLocation,
+      char.location,
+    );
+
+    // Inject engine-authored combat mutations: the final combat edge + player HP delta.
+    const finalRound = cs.round + 1;
+    // Use the state-held anchor (decision 4) — for npc fights, cs.anchor carries the
+    // id-as-name that would fail re-resolution; the held anchor is the originally authored one.
+    const finalCsAnchor = state.combatAnchor ?? (cs.anchor as { node: 'npc' | 'location'; name: string });
+    const finalEdge = combatRoundUpdate({ ...cs, enemyHp: cs.enemyHp, anchor: finalCsAnchor }, 0, finalRound);
+    // Overwrite enemyHp to the computed final value (clamped at 0 for win).
+    const clampedFinalEdge = { ...finalEdge, props: { ...finalEdge.props, enemyHp: Math.max(0, finalEnemyHp) } };
+    const engineMutations: WorldMutation[] = [
+      clampedFinalEdge as unknown as WorldMutation,
+      { type: 'modify_health', amount: playerHpDelta },
+    ];
+    const mutationsWithCombat = [...gatedMutations, ...engineMutations];
+
+    // Finalize (geography → collapse → validate).
+    const mutationCtx: MutationContext = {
+      currentHealth: char.health,
+      maxHealth: char.maxHealth,
+      stamina: char.stamina,
+      maxStamina: char.maxStamina,
+      wealth: char.wealth,
+      rollsRemaining: char.rollsRemaining,
+      location: char.location,
+      knownLocations: this.resolver.getKnownLocations(),
+    };
+    const { mutations: finalMutations } = this.finalize(mutationsWithCombat, mutationCtx);
+
+    // RESOLVE-NARRATE.
+    const { outcomeText } = await this.llm.resolveNarrate({
+      actionType: state.actionType,
+      decision: decisionForHandoff,
+      chosenOption: chosenOptionForHandoff,
+      verdict,
+      d20Roll,
+      finalMutations: finalMutations as unknown[],
+      context,
+    });
+
+    const mutations = [...finalMutations];
+    if (state.wage && state.wage > 0) {
+      mutations.push({ type: 'modify_wealth', amount: state.wage });
+    }
+
+    const finalState: PipelineInternalActionState = {
+      ...state,
+      decisions: newDecisions,
+      accumulatedDc: newDc,
+      pendingDecision: { prompt: outcomeText, options: [] },
+      hpZero: (playerHpDelta < 0 && (char.health + playerHpDelta) <= 0) || undefined,
+    };
+
+    return {
+      resolved: true,
+      state: finalState,
+      outcome: {
+        distilledType: state.distilledType,
+        finalDc: newDc,
+        playerRolled: d20Roll,
+        rollBonus,
+        rollStat: state.rollStat,
+        outcome: verdict,
+        mutations,
+        outcomeText,
+        llmCallIds: state.llmCallIds ?? [],
+        hpZero: (playerHpDelta < 0 && (char.health + playerHpDelta) <= 0) || undefined,
+      },
+    };
   }
 
   /**

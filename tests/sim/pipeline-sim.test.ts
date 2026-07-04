@@ -491,6 +491,183 @@ describe('sim — scene-state spine (Stage 2 T3 review fix): drop-with-warn inva
 });
 
 describe('sim — Stage 2 T5c: relationsPersisted sim metric (persistence across beats)', () => {
+describe('T3 iteration 1 — combat round-loop core', () => {
+  it('establishes in_combat edge via combatEnemy on the first combat beat', async () => {
+    const sceneStateByDecideCall: (unknown[] | undefined)[] = [];
+
+    const script: PipelineScript = {
+      decide: (input, callNo) => {
+        sceneStateByDecideCall[callNo] = input.context.sceneState;
+        return {
+          distilledType: 'combat',
+          stat: 'physical',
+          baseDc: 12,
+          required: true,
+          decision: [{ label: 'Press the attack', dcModifier: 0 }],
+          ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' } } : {}),
+        };
+      },
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls.' }),
+    };
+
+    // 'fight the goblin' hits ONLY the combat heuristic (no 'scout' colliding with search).
+    const result = await runScenario({
+      name: 'combat-establishment',
+      character: BASE_CHARACTER,
+      rollSource: { kind: 'sequence', values: [20, 1, 20, 1] },
+      llm: { kind: 'pipeline-scripted', script },
+      machine: 'pipeline',
+      week: [[{ input: 'fight the goblin', choicePolicy: 'first-real' }]],
+    });
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.relationsPersisted).toBeGreaterThanOrEqual(1);
+
+    // Decide call 0 (start) sees no sceneState (nothing persisted yet).
+    expect(sceneStateByDecideCall[0]).toBeUndefined();
+
+    // Decide call 1 (first round's continue via updatedContext) sees the in_combat edge.
+    const state1 = sceneStateByDecideCall[1];
+    expect(state1).toBeDefined();
+    const combatEdge = (state1 as unknown[]).find(
+      (e: unknown) => (e as Record<string, unknown>).relType === 'in_combat',
+    );
+    expect(combatEdge).toBeDefined();
+    expect((combatEdge as Record<string, unknown>).props).toMatchObject({
+      enemyName: 'Goblin',
+      enemyHp: expect.any(Number),
+      enemyMaxHp: expect.any(Number),
+      round: expect.any(Number),
+    });
+  });
+
+  it('multi-round fight resolves success after depleting enemyHp', async () => {
+    const sceneStateByDecideCall: (unknown[] | undefined)[] = [];
+
+    const script: PipelineScript = {
+      decide: (input, callNo) => {
+        sceneStateByDecideCall[callNo] = input.context.sceneState;
+        return {
+          distilledType: 'combat',
+          stat: 'physical',
+          baseDc: 12,
+          required: true,
+          decision: [{ label: 'Press the attack', dcModifier: 0 }],
+          ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' } } : {}),
+        };
+      },
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 5 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls to your blade.' }),
+    };
+
+    const result = await runScenario({
+      name: 'combat-multi-round',
+      character: BASE_CHARACTER,
+      // Two clean hits (player 20 vs enemy 1 each round) with baseDc=12 → enemyMaxHp=12,
+      // clean band = -6 enemyHpDelta → 2 rounds to kill.
+      rollSource: { kind: 'sequence', values: [20, 1, 20, 1] },
+      llm: { kind: 'pipeline-scripted', script },
+      machine: 'pipeline',
+      week: [[{ input: 'fight the goblin', choicePolicy: 'first-real' }]],
+    });
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.turns[0].wealth).toBe(5); // resolveMutate loot fires on terminal beat
+
+    // Round 2's sceneState (from decide call 1) should show reduced enemyHp
+    const state1 = sceneStateByDecideCall[1];
+    const combatEdge = ((state1 as unknown[]) ?? []).find(
+      (e: unknown) => (e as Record<string, unknown>).relType === 'in_combat',
+    ) as Record<string, unknown> | undefined;
+    expect(combatEdge).toBeDefined();
+    const props = combatEdge!.props as Record<string, unknown>;
+    // After one clean hit with crit amplification (-8), enemyHp should be 12 - 8 = 4
+    expect(props.enemyHp).toBe(4);
+    expect(props.enemyMaxHp).toBe(12);
+    expect(props.round).toBe(2);
+  });
+
+  it('cap-derive resolves at MAX_COMBAT_ROUNDS by comparing HP fractions', async () => {
+    // Physical=15 → abilityCheckBonus = floor(15/2 - 5) = 2, so paired equal
+    // dice (+2 each) produce trade bands with 0 margin.
+    const highStat: CharacterSeed = {
+      ...BASE_CHARACTER,
+      stats: { physical: 15, wisdom: 0, intelligence: 0, charisma: 0 },
+      health: 20,
+      maxHealth: 20,
+    };
+
+    const script: PipelineScript = {
+      decide: (_input, callNo) => ({
+        distilledType: 'combat',
+        stat: 'physical',
+        baseDc: 12,
+        required: true,
+        decision: [{ label: 'Fight', dcModifier: 0 }],
+        ...(callNo === 0 ? { combatEnemy: { name: 'Boar', anchor: 'location' } } : {}),
+      }),
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The boar is driven off.' }),
+    };
+
+    const result = await runScenario({
+      name: 'combat-cap-derive',
+      character: highStat,
+      // 4 rounds fought × 2 draws each + 1 cap step × 2 draws = 10 draws.
+      // Each round: player&enemy both -2 so player=20-2n, enemy=12-2n.
+      // Equal dice (8 vs 8) + equal bonus (2 vs 2) = margin 0 → trade (-2/-2).
+      rollSource: { kind: 'sequence', values: [8, 8, 8, 8, 8, 8, 8, 8, 8, 8] },
+      llm: { kind: 'pipeline-scripted', script },
+      machine: 'pipeline',
+      week: [[{ input: 'fight the boar', choicePolicy: 'first-real' }]],
+    });
+
+    expect(result.turns).toHaveLength(1);
+    // After 4 trades: enemyHp=12-8=4, playerHp=20-8=12
+    // playerFrac=12/20=0.6 >= enemyFrac=4/12=0.333 → success
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.relationsPersisted).toBeGreaterThanOrEqual(1);
+  });
+
+  it('non-combat action does not enter combat sub-mode (standard beat cap applies)', async () => {
+    const script: PipelineScript = {
+      decide: () => ({
+        distilledType: 'investigate',
+        stat: 'wisdom',
+        baseDc: 8,
+        required: false,
+        decision: [
+          { label: 'Search the area', dcModifier: 0 },
+          { label: 'Step back', dcModifier: null },
+        ],
+      }),
+      resolveMutate: () => ({ mutations: [] }),
+      resolveNarrate: () => ({ outcomeText: 'You find nothing unusual.' }),
+    };
+
+    // Two beats = a non-combat action resolves in max 2 beats (beat cap).
+    // Each beat resolves via needs_roll, consuming one d20 draw.
+    const result = await runScenario({
+      name: 'non-combat-unaffected',
+      character: BASE_CHARACTER,
+      rollSource: { kind: 'fixed', value: 10 },
+      llm: { kind: 'pipeline-scripted', script },
+      machine: 'pipeline',
+      week: [[
+        { input: 'search the area', choicePolicy: 'first-real' },
+      ]],
+    });
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+
+    expect(result.turns[0].distilledType).toBe('investigate');
+  });
+});
+
   it('an edge set_relation\'d on an early beat is still counted in relationsPersisted after a later beat', async () => {
     let resolveMutateCallCount = 0;
 

@@ -150,6 +150,10 @@ export interface ActionOutcome {
    *  for the legacy `distilledType === '__divine__'` sentinel (Stage 1 Thread D backbone plan,
    *  Task 2) — legacy code never sets this field. */
   isDivineIntervention?: boolean;
+  /** True when this outcome involved player HP reaching 0 (the hp_zero trace marker,
+   *  Stage 3 decision 10). Always undefined (absent) in legacy/v11 outcomes — set only
+   *  by the pipeline's combat spine. */
+  hpZero?: boolean;
 }
 
 export interface ActionResumeResult {

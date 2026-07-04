@@ -59,6 +59,10 @@ export interface PipelineDecideResult {
    *  absent means "no scene declared," and the travel-coherence gate (`travel-gate.ts`) is then a
    *  strict no-op — every existing scripted decide result stays valid unchanged. */
   sceneLocation?: string;
+  /** Signal for combat establishment: the enemy's identity and anchor kind, authored by
+   *  DECIDE on the first combat beat (T3 decision 3). Absent or failing to resolve → defaults
+   *  to a location-anchored minion named generically. */
+  combatEnemy?: { name: string; anchor: 'npc' | 'location' };
 }
 
 /** Input to RESOLVE-MUTATE: a structured (not re-parsed prose) handoff of the decision that

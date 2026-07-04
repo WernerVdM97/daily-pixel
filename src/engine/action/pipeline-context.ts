@@ -19,6 +19,10 @@ const ALL_STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
  */
 export interface PipelineContextResolver extends WorldContextResolver {
   getSceneRelations?(node: { type: NodeType; ref: string }): RelationRow[];
+  /** Optional hook for the per-day combat floor (iteration 2). Returns the current in-game
+   *  day number, or 0 (default) when absent — iteration 1's tests use a high-HP character so
+   *  the floor is never triggered, and the wiring is just plumbing. */
+  getCurrentDay?(): number;
 }
 
 /**

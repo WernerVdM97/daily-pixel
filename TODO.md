@@ -17,6 +17,7 @@
 - [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
 - [ ] hitting 0 stamina blocks more actions that day. pass out can be evaluated similarly to global message.
    - also, 0 hp should do this but also roll the dice, mkaing a death save...
+- [ ] bug: autoresolved rest showed refunded but not the inspiration text?
 
 ### Player requests — prod data review (2026-07-03)
 

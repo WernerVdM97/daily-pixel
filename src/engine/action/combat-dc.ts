@@ -29,6 +29,11 @@ export const ENEMY_HP_MAX = 20;
 /** Extra magnitude a crit die adds on top of its forced band, before `scale`. */
 export const CRIT_AMPLIFY_BONUS = 2;
 
+/** Combat sub-mode cap: max rounds fought after the initiating decision (decision 6).
+ *  A fight at the cap derives its winner from the HP fraction instead of another roll.
+ *  Non-combat actions keep `MAX_DECISIONS_PER_ACTION = 2`. */
+export const MAX_COMBAT_ROUNDS = 4;
+
 interface CombatBandDef {
   band: CombatBand;
   /** Inclusive lower bound on margin; `-Infinity` for the catch-all band. */
