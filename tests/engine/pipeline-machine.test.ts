@@ -1,5 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
 import { PipelineActionStateMachine } from '../../src/engine/action/PipelineActionStateMachine.js';
+import { createGeographyFinalize } from '../../src/engine/geography-finalize.js';
+import { runMigrations, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
+import { LocationRepository } from '../../src/db/repositories/location.js';
+import { LocationEdgeRepository } from '../../src/db/repositories/locationEdge.js';
 import type { CharacterData, ItemData, WorldMutation } from '../../src/engine/WorldEngine.js';
 import type { MutationContext } from '../../src/engine/action/mutations.js';
 import type {
@@ -530,6 +535,60 @@ describe('PipelineActionStateMachine — D6 travel-coherence gate (Task 4)', () 
 
     expect(finalize).toHaveBeenCalledTimes(1);
     expect(finalize.mock.calls[0][0]).toContainEqual({ type: 'set_location', name: 'the woods' });
+  });
+});
+
+describe('PipelineActionStateMachine — D6 x T5b: the gate injects intent, geography enforces feasibility', () => {
+  let db: Database.Database;
+  afterEach(() => db?.close());
+
+  it('drops the D6-injected set_location as unreachable when a REAL geography finalize is wired in', async () => {
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    seedWorld(db, SEEDED_LOCATIONS, SEEDED_EDGES);
+    const locationRepo = new LocationRepository(db);
+    const edgeRepo = new LocationEdgeRepository(db);
+    const finalize = createGeographyFinalize({ locationRepo, edgeRepo });
+
+    const resolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => locationRepo.findAll().map((l) => l.name),
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+    };
+
+    const llm = new MockPipelineLlmGateway();
+    // "The Frozen Wastes" is neither a seeded location nor reachable from the Oak (assets/world/
+    // {locations,edges}.yml) — an unknown/dark place, contrast with the identity-finalize D6
+    // tests above where the gate's injected move always survives.
+    llm.decideResult = combatDecideResult({ sceneLocation: 'The Frozen Wastes' });
+    // resolveMutate authors no relocate mutation — the D6 gate must inject one, which real
+    // geography then has to feasibility-check.
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'The scene shifts, but the map disagrees.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20, resolver, finalize);
+    const char = testChar({ location: "The Warden's Oak" });
+    const started = await machine.start(char, 'go to the woods and brawl', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Force straight to resolve on the first step (zero real follow-up options) — same shape as
+    // the identity-finalize D6 tests above.
+    llm.decideResult = {
+      ...combatDecideResult({ sceneLocation: 'The Frozen Wastes' }),
+      decision: [{ label: 'Step back', dcModifier: null }],
+    };
+    const stepResult = await machine.step(started.state, 'Strike hard', char, testItems);
+    expect(stepResult.resolved).toBe(true);
+    if (stepResult.resolved) {
+      // T4's gate injected `set_location` to the scene; real geography then dropped it as
+      // unreachable/unknown — the char stays put. Proves the two stages compose: the gate injects
+      // intent, geography enforces feasibility.
+      expect(stepResult.outcome.mutations).toEqual([{ type: 'modify_health', amount: -3 }]);
+    }
   });
 });
 

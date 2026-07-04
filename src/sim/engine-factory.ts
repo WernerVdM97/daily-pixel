@@ -87,8 +87,9 @@ export function buildSimEngine(
 
     // No baseline/world DB set up by THIS FACTORY on this branch — spinning one up here would be
     // wasted work the pipeline machine never touches. `PipelineSimEngine` itself now owns a
-    // separate, private `:memory:` relations DB internally for scene-state (Stage 2 T3); that's
-    // encapsulated inside the engine, not something this factory builds or sees.
+    // separate, private `:memory:` world DB internally (full migration chain + seed), used for
+    // both scene-state relations (Stage 2 T3) and geography reachability-gating (Stage 2 T5b);
+    // that's encapsulated inside the engine, not something this factory builds or sees.
     const llm = new PipelineScriptedGateway(pipelineOptions.script);
     const engine = new PipelineSimEngine(rollSource, llm, pipelineOptions.seed, pipelineOptions.discordUserId);
     return { engine, llm };

@@ -9,6 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { runScenario, runComparison } from '../../src/sim/driver.js';
 import { buildSimEngine } from '../../src/sim/engine-factory.js';
 import { exampleComparisonScenario } from '../../src/sim/example-comparison-scenario.js';
+import type { PipelineSimEngine } from '../../src/sim/PipelineSimEngine.js';
 import type { CharacterSeed, PipelineScript, Scenario } from '../../src/sim/types.js';
 
 const BASE_CHARACTER: CharacterSeed = {
@@ -293,6 +294,70 @@ describe('sim — scene-state spine (Stage 2 T3): cross-turn read-back through P
       },
     ]);
     expect(sceneStateByDecideCall[3]).toEqual(sceneStateByDecideCall[2]);
+  });
+});
+
+describe('sim — Stage 2 T5b: real geography reachability-gates pipeline movement', () => {
+  /** No `sceneLocation` authored, so the D6 gate stays a no-op — this exercises geography
+   *  finalize on the resolveMutate-authored `move_to` alone. */
+  function movePipelineScript(target: string): PipelineScript {
+    return {
+      decide: () => ({
+        distilledType: 'travel',
+        stat: 'physical',
+        baseDc: 5,
+        required: false,
+        decision: [
+          { label: 'Go', dcModifier: 0 },
+          { label: 'Step back', dcModifier: null },
+        ],
+      }),
+      resolveMutate: () => ({ mutations: [{ type: 'move_to', name: target }] }),
+      resolveNarrate: () => ({ outcomeText: 'You travel.' }),
+    };
+  }
+
+  /** Drives one action to resolution, always picking the first real (non-bail) option — mirrors
+   *  driver.ts's runTurn 'first-real' loop, inlined here since runScenario's SimResult carries no
+   *  location field and these tests need to inspect post-resolve character state directly. */
+  async function driveToResolution(engine: PipelineSimEngine, characterId: number, rawInput: string) {
+    const start = await engine.startAction(characterId, rawInput);
+    if (start.outcome) return start.outcome;
+    let options = start.firstDecision.options;
+    for (;;) {
+      const real = options.find((o) => o.dcModifier !== null);
+      if (!real) throw new Error('driveToResolution: no real option presented');
+      const step = await engine.stepAction(characterId, real.label);
+      if (step.resolved) return step.outcome;
+      options = step.nextDecision.options;
+    }
+  }
+
+  it('a move_to a node reachable from the seeded start location lands', async () => {
+    const handle = buildSimEngine({ kind: 'fixed', value: 20 }, undefined, undefined, {
+      machine: 'pipeline',
+      // "Town Square" is a direct N spoke off "The Warden's Oak" (assets/world/edges.yml).
+      script: movePipelineScript('Town Square'),
+      seed: BASE_CHARACTER,
+    });
+
+    await driveToResolution(handle.engine, 1, 'walk to town square');
+
+    expect(handle.engine.getCharacter('sim:pipeline')?.location).toBe('Town Square');
+  });
+
+  it('a move_to an unreachable/unknown place is dropped — the character stays put', async () => {
+    const handle = buildSimEngine({ kind: 'fixed', value: 20 }, undefined, undefined, {
+      machine: 'pipeline',
+      // Not in assets/world/locations.yml at all — unknown AND unreachable.
+      script: movePipelineScript('The Frozen Wastes'),
+      seed: BASE_CHARACTER,
+    });
+
+    const outcome = await driveToResolution(handle.engine, 1, 'walk to the frozen wastes');
+
+    expect(outcome.mutations).toEqual([]); // move_to dropped by createGeographyFinalize
+    expect(handle.engine.getCharacter('sim:pipeline')?.location).toBe("The Warden's Oak");
   });
 });
 

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { PipelineActionStateMachine, type PipelineInternalActionState } from '../engine/action/PipelineActionStateMachine.js';
-import { applyMutations, collapseStackedDeltas, validateMutations, type MutationContext } from '../engine/action/mutations.js';
+import { applyMutations, type MutationContext } from '../engine/action/mutations.js';
 import { resolveAuthoredRelation } from '../engine/action/relation-wiring.js';
 import type { PipelineContextResolver } from '../engine/action/pipeline-context.js';
 import type {
@@ -11,9 +11,11 @@ import type {
   ActionStepResult,
   CharacterData,
   ItemData,
-  WorldMutation,
 } from '../engine/WorldEngine.js';
-import { migration as sceneRelationsMigration } from '../db/migrations/202607041000_scene_relations.js';
+import { createGeographyFinalize } from '../engine/geography-finalize.js';
+import { runMigrations, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../db/migrate.js';
+import { LocationRepository } from '../db/repositories/location.js';
+import { LocationEdgeRepository } from '../db/repositories/locationEdge.js';
 import { RelationRepository } from '../db/repositories/relation.js';
 import type { PipelineLlmGateway } from '../llm/pipeline/types.js';
 import { makeRollD20 } from './roll-source.js';
@@ -25,24 +27,6 @@ import type { CharacterSeed, RollSource } from './types.js';
 // in-memory adapter has no DB row to read the constant off of. Same duplication rationale as
 // engine-factory.ts's own mulberry32 copy: isolated, not meant to track engine internals.
 const DAILY_ROLL_ALLOWANCE = 3;
-
-// Stage 1 Task 4 scope fence: this adapter's finalize is collapse+validate ONLY, no geography.
-// Geography-in-pipeline fidelity was already proven at the WorldEngineImpl.finalizeMutations
-// level in Task 3 (a WorldEngineImpl-bound closure needing DB-backed location/edge repos this
-// in-memory sim adapter doesn't have and doesn't need) — Task 4's goal is proving the pipeline
-// machine mechanically runs end-to-end through the sim and produces comparable metrics, not
-// proving geography works in the pipeline path. A dropped/rewritten mutation from validation
-// still lands correctly (matches `finalizeMutations`' own drop-on-invalid contract); only the
-// geography step (minting/binding frontier crossings) is absent here.
-function finalizeCollapseValidateOnly(
-  proposed: WorldMutation[],
-  ctx: MutationContext,
-): { mutations: WorldMutation[]; minted: string[] } {
-  const collapsed = collapseStackedDeltas(proposed);
-  const v = validateMutations(collapsed, ctx);
-  const mutations = v.valid ? collapsed : collapsed.filter((_, i) => !v.errors.some((e) => e.index === i));
-  return { mutations, minted: [] };
-}
 
 function toPublicState(internal: PipelineInternalActionState): ActionState {
   return {
@@ -71,11 +55,15 @@ export class PipelineSimEngine {
   private pendingState: PipelineInternalActionState | null = null;
   private nextItemId = 1;
 
-  // Stage 2 T3 — private scene-state storage. `:memory:` with ONLY the relations migration
-  // applied (not the full baseline — this adapter has no other tables and never needs them).
-  // Deliberately NOT exposed on `PipelineSimEngineHandle` (engine-factory.ts) — the handle shape
-  // and its `'db' in handle === false` assertion (tests/sim/pipeline-sim.test.ts) stay unchanged.
-  private readonly relationsDb: Database.Database;
+  // Stage 2 T5b — private geography-capable world. `:memory:` with the FULL migration chain
+  // applied (incl. the relations migration T1 registers last) and the seed world layered on, so
+  // this adapter can reachability-gate movement (`createGeographyFinalize`) the same way the
+  // live path does, not just persist scene-state relations. Deliberately NOT exposed on
+  // `PipelineSimEngineHandle` (engine-factory.ts) — the handle shape and its
+  // `'db' in handle === false` assertion (tests/sim/pipeline-sim.test.ts) stay unchanged.
+  private readonly db: Database.Database;
+  private readonly locationRepo: LocationRepository;
+  private readonly edgeRepo: LocationEdgeRepository;
   private readonly relationRepo: RelationRepository;
   private readonly resolver: PipelineContextResolver;
 
@@ -85,24 +73,35 @@ export class PipelineSimEngine {
     seed: CharacterSeed,
     private readonly discordUserId = 'sim:pipeline',
   ) {
-    this.relationsDb = new Database(':memory:');
-    sceneRelationsMigration.up(this.relationsDb);
-    this.relationRepo = new RelationRepository(this.relationsDb);
+    this.db = new Database(':memory:');
+    this.db.pragma('foreign_keys = ON');
+    runMigrations(this.db);
+    seedWorld(this.db, SEEDED_LOCATIONS, SEEDED_EDGES);
+    this.locationRepo = new LocationRepository(this.db);
+    this.edgeRepo = new LocationEdgeRepository(this.db);
+    this.relationRepo = new RelationRepository(this.db);
 
-    // Same no-op shape as PipelineActionStateMachine's own default resolver (this adapter has
-    // no NPC/PC/geography backing), plus the one live hook this pass wires: the scene-state
-    // read-back (D1 "graph → markdown at ~0 tokens") sourced from the private repo above.
+    // Same no-op shape as PipelineActionStateMachine's own default resolver for the parts this
+    // adapter still has no backing for (NPC/PC), plus the two live hooks this pass wires: the
+    // scene-state read-back (D1 "graph → markdown at ~0 tokens") and known-locations from the
+    // seeded world (so the injected `createGeographyFinalize` below has a real set to validate
+    // `move_to`/`set_location` reachability against).
     this.resolver = {
       getNearbyNpcs: () => [],
       getNearbyPcs: () => [],
       getRecentActions: () => [],
-      getKnownLocations: () => [],
+      getKnownLocations: () => this.locationRepo.findAll().map((l) => l.name),
       isLocationSafe: () => true,
       getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
       getSceneRelations: (node) => this.relationRepo.forNode(node.type, node.ref),
     };
 
-    this.machine = new PipelineActionStateMachine(llm, makeRollD20(rollSource), this.resolver, finalizeCollapseValidateOnly);
+    this.machine = new PipelineActionStateMachine(
+      llm,
+      makeRollD20(rollSource),
+      this.resolver,
+      createGeographyFinalize({ locationRepo: this.locationRepo, edgeRepo: this.edgeRepo }),
+    );
     this.char = {
       id: 1,
       userId: 1,
@@ -213,9 +212,9 @@ export class PipelineSimEngine {
       wealth: this.char.wealth,
       rollsRemaining: this.char.rollsRemaining,
       location: this.char.location,
-      // No location graph in this in-memory adapter (scope fence: no geography fidelity) —
-      // move_to/cross_frontier always succeeds and lands on whatever name the resolution
-      // proposed, unvalidated against a known-locations set.
+      // Geography (Stage 2 T5b) already ran inside the machine's injected finalize, ahead of
+      // this call — outcome.mutations are the post-geography survivors, so applyMutations here
+      // just applies them to in-memory char state; no `knownLocations` needed a second time.
     };
     const applied = applyMutations(outcome.mutations, ctx);
 

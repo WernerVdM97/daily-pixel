@@ -63,6 +63,34 @@ describe('createGeographyFinalize', () => {
     warnSpy.mockRestore();
   });
 
+  it('drops a move_to that IS known but has no route — the known-but-disconnected discriminator', () => {
+    // Contrast with the "Nowhereville" case above: that name fails `known.has(norm)` and never
+    // reaches `routeBetween`. Here the node is created + included in `knownLocations`, so
+    // `known.has(norm)` is TRUE — only the `routeBetween(...) !== null` clause (Dijkstra finding
+    // no path, since this node has zero edges) can be what drops it. This is the test that would
+    // fail if the reachability check were weakened back to `known.has(norm)` alone.
+    locationRepo.create({
+      name: 'The Sealed Vault',
+      description: 'x',
+      isSafe: 0,
+      enrichmentPending: 0,
+      region: 'The Vale',
+    });
+    const knownLocations = locationRepo.findAll().map((l) => l.name);
+    expect(knownLocations).toContain('The Sealed Vault');
+    expect(edgeRepo.neighbours('The Sealed Vault')).toEqual([]);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const proposed: WorldMutation[] = [{ type: 'move_to', name: 'The Sealed Vault' }];
+    const result = finalize(proposed, baseCtx("The Warden's Oak", knownLocations));
+
+    expect(result.mutations).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('dropping move_to to unreachable/unknown "The Sealed Vault"'),
+    );
+    warnSpy.mockRestore();
+  });
+
   it('mints and binds a cross_frontier on a real unbound frontier exit', () => {
     // "The East Road" NE is a real unbound frontier (assets/world/edges.yml).
     const proposed: WorldMutation[] = [{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }];
