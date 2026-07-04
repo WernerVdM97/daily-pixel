@@ -60,7 +60,7 @@ pc ──combat_save{ savedDay }──▶ pc                                    
 | `trade` | `-2 ≤ m < +2` | `-2` | `-2` | blows are exchanged |
 | `heavy` | `m < -2` | `-1` | `-3` | the foe dominates |
 
-- **Crits swing the band, consequence stays bounded:** player nat-20 → force `clean` and amplify `enemyHp` Δ by `-2`; player nat-1 → force `heavy` and amplify player HP Δ by `-2`. Enemy nat-20 → force `heavy`; enemy nat-1 → force `clean` (symmetric, still band-bounded). Amplification never exceeds the band's own cap by more than the fixed crit bonus (bounded — decision 7).
+- **Crits swing the band, consequence stays bounded:** player nat-20 → force `clean` and amplify `enemyHp` Δ by `-2`; player nat-1 → force `heavy` and amplify player HP Δ by `-2`. Enemy nat-20 → force `heavy`; enemy nat-1 → force `clean` (symmetric, still band-bounded, no extra amplification — the opposing player crit already covers the "extra" case). Amplification never exceeds the band's own cap by more than the fixed crit bonus (bounded — decision 7). **Precedence when both dice crit and disagree** (settled — T1 review): the player's own die always wins the band, so player crits are evaluated before enemy crits (a player nat-1 opposite an enemy nat-1 resolves to `heavy` + amplified, not `clean`). Amplification never stacks — a single crit contributes at most one `-2`.
 - Player HP Δ passes through the existing `modify_health` path (validator + `collapseStackedDeltas` `HEALTH_DELTA_CAP = -4`, `mutations.ts:110-111` — all starting deltas are within cap). `enemyHp` Δ is an `update_relation` prop delta (summed by `relation.ts:60-63`), *not* subject to the health cap.
 
 ### Round loop + termination (decision on the cap)
