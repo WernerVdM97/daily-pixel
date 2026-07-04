@@ -85,8 +85,10 @@ export function buildSimEngine(
       );
     }
 
-    // No DB setup at all on this branch — PipelineSimEngine is pure in-memory, so spinning up
-    // an in-memory SQLite DB it would never touch would just be wasted work.
+    // No baseline/world DB set up by THIS FACTORY on this branch — spinning one up here would be
+    // wasted work the pipeline machine never touches. `PipelineSimEngine` itself now owns a
+    // separate, private `:memory:` relations DB internally for scene-state (Stage 2 T3); that's
+    // encapsulated inside the engine, not something this factory builds or sees.
     const llm = new PipelineScriptedGateway(pipelineOptions.script);
     const engine = new PipelineSimEngine(rollSource, llm, pipelineOptions.seed, pipelineOptions.discordUserId);
     return { engine, llm };

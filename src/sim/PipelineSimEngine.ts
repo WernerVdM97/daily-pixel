@@ -271,7 +271,12 @@ export class PipelineSimEngine {
     for (const relation of relationsToUpdate) {
       const key = resolveAuthoredRelation(relation, { id: this.char.id }, nearbyNpcs);
       if (!key) continue;
-      this.relationRepo.updateProps(key, relation.props);
+      const updated = this.relationRepo.updateProps(key, relation.props);
+      if (!updated) {
+        console.warn(
+          `[PipelineSimEngine] dropping update_relation — no existing edge for ${key.fromType}:${key.fromRef} -> ${key.toType}:${key.toRef} (${key.relType})`,
+        );
+      }
     }
   }
 

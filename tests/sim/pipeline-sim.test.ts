@@ -5,7 +5,7 @@
  * through both machines, and that a scripted pipeline stage failure fails loudly rather than
  * silently corrupting a curve. See docs/engine/stage-1-thread-d-backbone-plan.md, Task 4.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { runScenario, runComparison } from '../../src/sim/driver.js';
 import { buildSimEngine } from '../../src/sim/engine-factory.js';
 import { exampleComparisonScenario } from '../../src/sim/example-comparison-scenario.js';
@@ -293,5 +293,133 @@ describe('sim — scene-state spine (Stage 2 T3): cross-turn read-back through P
       },
     ]);
     expect(sceneStateByDecideCall[3]).toEqual(sceneStateByDecideCall[2]);
+  });
+});
+
+describe('sim — scene-state spine (Stage 2 T3 review fix): drop-with-warn invariants', () => {
+  it('an update_relation authored against an edge that was never set_relation\'d warns and persists nothing', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Indexed the same way the read-back test above is: 2 decide() calls per action, so index
+    // 0/1 belong to turn 1 and 2/3 to turn 2.
+    const sceneStateByDecideCall: (unknown[] | undefined)[] = [];
+
+    const script: PipelineScript = {
+      decide: (input, callNo) => {
+        sceneStateByDecideCall[callNo] = input.context.sceneState;
+        return {
+          distilledType: 'investigate',
+          stat: 'wisdom',
+          baseDc: 8,
+          required: false,
+          decision: [
+            { label: 'Search the room', dcModifier: 0 },
+            { label: 'Step back', dcModifier: null },
+          ],
+        };
+      },
+      resolveMutate: () => ({
+        // pc -> location edge, but this edge was never set_relation'd first — updateProps has
+        // nothing to merge onto and must warn rather than silently vanish (the "drop-with-warn,
+        // never silent" invariant this review fix restores).
+        mutations: [
+          {
+            type: 'update_relation',
+            from: { node: 'pc' },
+            to: { node: 'location', name: "The Warden's Oak" },
+            relType: 'disposition',
+            props: { trust: 1 },
+          },
+        ],
+      }),
+      resolveNarrate: () => ({ outcomeText: 'Nothing here changes.' }),
+    };
+
+    try {
+      const result = await runScenario({
+        name: 'update-relation-missing-edge',
+        character: BASE_CHARACTER,
+        rollSource: { kind: 'fixed', value: 20 },
+        llm: { kind: 'pipeline-scripted', script },
+        machine: 'pipeline',
+        week: [[
+          { input: 'inspect the room', choicePolicy: 'first-real' },
+          { input: 'inspect the room again', choicePolicy: 'first-real' },
+        ]],
+      });
+
+      expect(result.turns).toHaveLength(2);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/dropping update_relation.*pc:1.*location:The Warden's Oak/),
+      );
+
+      // Nothing was persisted, so turn 2's decide() input still carries no sceneState.
+      expect(sceneStateByDecideCall[2]).toBeUndefined();
+      expect(sceneStateByDecideCall[3]).toBeUndefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('a set_relation authored with an unresolvable npc endpoint is dropped end-to-end, with a warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const sceneStateByDecideCall: (unknown[] | undefined)[] = [];
+
+    const script: PipelineScript = {
+      decide: (input, callNo) => {
+        sceneStateByDecideCall[callNo] = input.context.sceneState;
+        return {
+          distilledType: 'investigate',
+          stat: 'wisdom',
+          baseDc: 8,
+          required: false,
+          decision: [
+            { label: 'Search the room', dcModifier: 0 },
+            { label: 'Step back', dcModifier: null },
+          ],
+        };
+      },
+      resolveMutate: () => ({
+        // to: npc "Grum" — but PipelineSimEngine's resolver has getNearbyNpcs: () => [], so this
+        // endpoint can never resolve. The whole edge (both endpoints) must drop, not just persist
+        // with a dangling/half-resolved side.
+        mutations: [
+          {
+            type: 'set_relation',
+            from: { node: 'pc' },
+            to: { node: 'npc', name: 'Grum' },
+            relType: 'trust',
+            props: { trust: 1 },
+          },
+        ],
+      }),
+      resolveNarrate: () => ({ outcomeText: 'Grum is nowhere to be found.' }),
+    };
+
+    try {
+      const result = await runScenario({
+        name: 'set-relation-unresolvable-npc',
+        character: BASE_CHARACTER,
+        rollSource: { kind: 'fixed', value: 20 },
+        llm: { kind: 'pipeline-scripted', script },
+        machine: 'pipeline',
+        week: [[
+          { input: 'talk to grum', choicePolicy: 'first-real' },
+          { input: 'talk to grum again', choicePolicy: 'first-real' },
+        ]],
+      });
+
+      expect(result.turns).toHaveLength(2);
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/unresolved npc endpoint "Grum"/));
+
+      // The edge was dropped, not persisted, so turn 2's decide() input carries no sceneState.
+      expect(sceneStateByDecideCall[2]).toBeUndefined();
+      expect(sceneStateByDecideCall[3]).toBeUndefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
