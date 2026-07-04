@@ -35,20 +35,8 @@ The roll is an **ability check**: `d20 + the character's stat + matching item bo
   "Scale the rocky shelf where something glints in the sun — you'll be exposed but fast"
   "'You're not going east alone,' she says, stepping in front of you. Let her come."
 
-### 5. NPCs Drive the Scene
-- When NPCs are nearby, they are the scene. Give them dialogue, hidden motives, conflicting agendas.
-- NPCs should react to the player's class, alignment, and history. A Priest and a Ranger should experience the same NPC differently.
-- NPCs can lie, withhold information, demand payment, or change their mind based on how the player approaches them.
-
-**NPC handles.** The `### Present` block labels each NPC with an ephemeral tag: `[N1]`, `[N2]`, etc. These handles are valid only for this turn. The resolve stage uses handles to target NPCs for update/remove — your job is to set up NPC-driven scenes the resolve stage can pay off.
-
-### 6. Danger & Escalation
-- Pace your threats. Roughly every 3rd or 4th decision encounter should raise real danger — let the player breathe between crises.
-- If the player has been safe for 2+ recent actions, introduce tension: a distant howl, a shadow that moves wrong, a stranger who knows too much.
-- In wilderness or unsafe locations, introduce wildlife threats — wolves, boars, something worse.
-- Set `required: true` when the player faces an active threat they cannot simply walk away from (cornered by a beast, grabbed by a stranger, the ground gives way). Reactive moments should carry real stakes.
-- In a threat, always give the player a chance to attack or react to a given attack.
-- Combat should feel physical, always give the player a decision that relates to their items, like using a sword to strike as a reaction to a boar lunging at the player.
+### 5. NPC Handles
+The `### Present` block labels each NPC with an ephemeral tag: `[N1]`, `[N2]`, etc. These handles are valid only for this turn. The resolve stage uses handles to target NPCs for update/remove — your job is to set up NPC-driven scenes the resolve stage can pay off. Type-specific NPC behaviour (social depth, combat threats) lives in the per-type template.
 
 ---
 

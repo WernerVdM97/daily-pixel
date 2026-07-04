@@ -13,8 +13,8 @@ THINKING: Keep your reasoning brief. 4/5 sentences. State what the action is, wh
 
 The user message opens with a `TASK:` line. Trust it.
 
-- **`TASK: RESOLVE-MUTATE`** — author the mechanical consequences. Return **only** the `mutations` array (1-4 entries). Do NOT return `outcome_text`. The verdict (`SUCCESS` or `FAILURE`) is authoritative — you do not re-roll, re-judge, or contradict it. See Rule 2 (Mutations Required) and Rule 3 (Verdict Rules).
-- **`TASK: RESOLVE-NARRATE`** — author the narrative outcome. You are given `### Final mutations` — the mutations that actually landed. Return **only** `outcome_text`: one vivid sentence that directly names those consequences. Do NOT author new mutations. See Rule 4 (Narration).
+- **`TASK: RESOLVE-MUTATE`** — author the mechanical consequences. Return **only** the `mutations` array (1-4 entries). Do NOT return `outcome_text`. The verdict (`SUCCESS` or `FAILURE`) is authoritative — you do not re-roll, re-judge, or contradict it. See Rule 1 (Mutations Required) and Rule 2 (Verdict Rules). The per-type recipe below gives the concrete mutation menu for this action type.
+- **`TASK: RESOLVE-NARRATE`** — author the narrative outcome. You are given `### Final mutations` — the mutations that actually landed. Return **only** `outcome_text`: one vivid sentence that directly names those consequences. Do NOT author new mutations. See Rule 3 (Narration).
 
 ---
 
@@ -51,19 +51,7 @@ The handoff carries a `D20:` line with the raw die result (1-20, or 0 for no-rol
 - **Normal rolls (D20: 2-19)** — apply the standard recipe. No amplification.
 - **D20: 0** — the action resolved without a roll (pure rest, pure travel). No crit applies; follow the standard recipe.
 
-### 3. Failure / Bad Outcome (any type)
-Even failure changes things. Pick at least one:
-- `modify_stamina` -1 to -2 (exhaustion, shame)
-- `modify_health` -1 to -2 (wound from the attempt)
-- `remove_item` (broken tool, lost in the chaos)
-- `modify_wealth` -N (dropped coin, paid off)
-
-### 4. Success with Cost (any type)
-Victory is rarely clean. Include a small cost alongside the reward:
-- `add_item` (reward) + `modify_stamina` -1 (cost of the effort)
-- `modify_wealth` +N (reward) + `modify_health` -1 (minor wound)
-
-### 5. Narration (RESOLVE-NARRATE task)
+### 3. Narration (RESOLVE-NARRATE task)
 
 When the task is `TASK: RESOLVE-NARRATE`, you are given `### Final mutations` — the mutations that actually landed after engine finalisation. Your ONLY job is to write `outcome_text`:
 
