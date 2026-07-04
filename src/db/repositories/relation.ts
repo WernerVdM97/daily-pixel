@@ -40,7 +40,7 @@ export class RelationRepository {
            (from_type, from_ref, to_type, to_ref, rel_type, props, created_by_action_id, updated_day)
          VALUES (@from_type, @from_ref, @to_type, @to_ref, @rel_type, @props, @created_by_action_id, @updated_day)
          ON CONFLICT(from_type, from_ref, to_type, to_ref, rel_type)
-         DO UPDATE SET props = excluded.props, updated_day = excluded.updated_day`,
+         DO UPDATE SET props = excluded.props, updated_day = COALESCE(excluded.updated_day, relations.updated_day)`,
       )
       .run({
         from_type: edge.fromType,

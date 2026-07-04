@@ -65,6 +65,23 @@ describe('RelationRepository', () => {
     expect(row!.updated_day).toBe(5);
   });
 
+  it('a second set that omits updatedDay preserves the existing day (does not null it out)', () => {
+    relations.set({ ...combatKey, props: { enemyHp: 10 }, updatedDay: 3 });
+    relations.set({ ...combatKey, props: { enemyHp: 4 } });
+
+    const row = relations.find(combatKey);
+    expect(row!.updated_day).toBe(3);
+    expect(JSON.parse(row!.props)).toEqual({ enemyHp: 4 });
+  });
+
+  it('a second set that supplies a new updatedDay overwrites it', () => {
+    relations.set({ ...combatKey, props: { enemyHp: 10 }, updatedDay: 3 });
+    relations.set({ ...combatKey, props: { enemyHp: 4 }, updatedDay: 8 });
+
+    const row = relations.find(combatKey);
+    expect(row!.updated_day).toBe(8);
+  });
+
   it('updateProps merges a numeric delta onto an existing edge', () => {
     relations.set({ ...combatKey, props: { enemyHp: 10, posture: 'guarded' } });
     const ok = relations.updateProps(combatKey, { enemyHp: -3 }, 2);
