@@ -99,6 +99,11 @@ const PIPELINE_DIVINE_MESSAGE =
  *  private `BAIL_STAMINA_COST` — duplicated locally since that constant isn't exported. */
 const BAIL_STAMINA_COST = 1;
 
+/** Label of the engine-appended voluntary combat flee option — must stay unique so `step()`'s
+ *  `options.find(o => o.label === choice)` lookup always resolves to the guaranteed-null bail,
+ *  never a wayward LLM-authored option sharing the same label. */
+const COMBAT_FLEE_LABEL = 'Flee the fight';
+
 export class PipelineActionStateMachine {
   constructor(
     private llm: PipelineLlmGateway,
@@ -470,12 +475,15 @@ export class PipelineActionStateMachine {
     });
 
     const nextDecision = toActionDecision(decideResult, state.required);
-    // Engaged combat offers a voluntary flee (dcModifier: null) each round — caught by step()'s
-    // bail path, which leaves the in_combat edge persisted (enemy remembered, plan decision 4).
-    // ensureBail can't add it (returns early for required), so append here.
-    if (!nextDecision.options.some(o => o.dcModifier === null)) {
-      nextDecision.options = [...nextDecision.options, { label: 'Flee the fight', dcModifier: null }];
-    }
+    // Engaged combat always offers a voluntary flee (dcModifier: null), caught by step()'s bail
+    // path — which leaves the in_combat edge persisted, so the enemy is remembered (plan decision 4).
+    // Filter any same-labelled decide option first so the engine's guaranteed-null flee wins step()'s
+    // label lookup (a wayward LLM could author a real 'Flee the fight' despite BASE Rule 3).
+    // ensureBail can't add this — it returns early for required actions, which combat always is.
+    nextDecision.options = [
+      ...nextDecision.options.filter(o => o.label !== COMBAT_FLEE_LABEL),
+      { label: COMBAT_FLEE_LABEL, dcModifier: null },
+    ];
     const nextState: PipelineInternalActionState = {
       ...state,
       decisions: newDecisions,

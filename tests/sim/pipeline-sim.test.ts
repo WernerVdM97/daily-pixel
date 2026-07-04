@@ -1061,6 +1061,18 @@ describe('T3 follow-up — voluntary mid-combat bail (flee at a cost)', () => {
     // The bail path doesn't touch relations, so the in_combat edge persisted during round 1's
     // CONTINUE survives unchanged — the enemy is remembered at its current (depleted) HP.
     expect(engine.getPersistedRelationCount()).toBe(relationCountBeforeBail);
+
+    // Prove the depleted edge genuinely persisted in the DB (not just that the row count held
+    // steady): start a fresh follow-up action so its decide() context is built from a real
+    // `relationRepo.forNode` read-back, not the machine's in-memory synthesized round-2 state.
+    // The bail step itself makes no decide call, so this is the next index (callNo 2).
+    await engine.startAction(1, 'search the area');
+    const state2 = sceneStateByDecideCall[2] as unknown[];
+    const persistedCombatEdge = state2.find(
+      (e) => (e as Record<string, unknown>).relType === 'in_combat',
+    ) as Record<string, unknown> | undefined;
+    expect(persistedCombatEdge).toBeDefined();
+    expect((persistedCombatEdge!.props as Record<string, unknown>).enemyHp).toBe(10);
   });
 
   it('the first combat beat has no flee option (round 1 is the forced reaction)', async () => {
@@ -1079,5 +1091,54 @@ describe('T3 follow-up — voluntary mid-combat bail (flee at a cost)', () => {
       | undefined;
     expect(firstDecision).toBeDefined();
     expect(firstDecision!.options.some((o) => o.dcModifier === null)).toBe(false);
+  });
+
+  it('a wayward LLM-authored real option sharing the flee label cannot shadow the guaranteed bail', async () => {
+    // Round 2's decide call (callNo 1) authors a REAL 'Flee the fight' option (dcModifier: 0) —
+    // a BASE-Rule-3 violation, but the engine must not let it win step()'s label lookup over its
+    // own guaranteed-null flee.
+    const script: PipelineScript = {
+      decide: (_input, callNo) => ({
+        distilledType: 'combat',
+        stat: 'physical',
+        baseDc: 12,
+        required: true,
+        decision: callNo === 1
+          ? [
+            { label: 'Press the attack', dcModifier: 0 },
+            { label: 'Flee the fight', dcModifier: 0 },
+          ]
+          : [{ label: 'Press the attack', dcModifier: 0 }],
+        ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' } } : {}),
+      }),
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls.' }),
+    };
+    const handle = buildSimEngine(TRADE_ROLLS, undefined, undefined, {
+      machine: 'pipeline',
+      script,
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    const step = await engine.stepAction(1, 'Press the attack');
+    expect(step.resolved).toBe(false);
+
+    const decision = (step as {
+      resolved: false;
+      nextDecision: { options: { label: string; dcModifier: number | null }[] };
+    }).nextDecision;
+
+    // Only one 'Flee the fight' option survives — the engine's own, not the LLM's real one.
+    const fleeOptions = decision.options.filter((o) => o.label === 'Flee the fight');
+    expect(fleeOptions).toHaveLength(1);
+    expect(fleeOptions[0]?.dcModifier).toBeNull();
+
+    const bail = await engine.stepAction(1, 'Flee the fight');
+    expect(bail.resolved).toBe(true);
+    expect((bail as { resolved: true; outcome: { outcome: string } }).outcome.outcome).toBe('bailed');
   });
 });

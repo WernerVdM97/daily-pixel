@@ -49,6 +49,13 @@ Mirror the harness used by the existing combat tests: `buildSimEngine(rollSource
 - Do NOT touch non-combat decide/resolve templates, `prompt-builder.ts`, or `PROMPT_SET_VERSION`.
 - Do NOT alter existing combat tests' expectations (they use `choicePolicy: 'first-real'`, which skips the null-dcModifier flee option, so they must stay green untouched).
 
+## Prod-wiring caveats (for whoever promotes the pipeline off the sim)
+
+The "enemy remembered" guarantee depends on ordering that only `PipelineSimEngine` currently enforces, and the flee is the first synchronous-resolving option in combat. Two things the eventual Discord-wired caller must preserve (flagged in the T3-followup review; not fixable in this sim-only slice):
+
+- **Persist round *N*'s `in_combat` `set_relation` mutation before presenting (or accepting a flee on) round *N+1*.** `PipelineSimEngine.stepAction` applies non-terminal `PipelineStepResult.mutations` synchronously before returning; a caller that persists asynchronously/fire-and-forget could accept a flee before the edge lands and forget the enemy (breaks plan decision 4). No machine-contract type obliges this yet.
+- **Serialise `step()` per action.** The flee resolves synchronously via the generic bail path (no `await`), unlike a normal combat round (which awaits `decide()`). A concurrent double-submit on the same pending action could let a slow in-flight round resurrect an already-bailed action. Single-flight per action is assumed.
+
 ## Verification (run before returning; report exact numbers)
 
 ```bash
