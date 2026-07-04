@@ -114,11 +114,16 @@ function locationTagsContain(tags: string | null, tag: string): boolean {
  *  b) flag unexpected mutations at runtime (§5 telemetry — always applied, never dropped)
  */
 export const CATEGORY_MUTATION_MAP: Record<string, string[]> = {
-  combat:  ['modify_stamina', 'modify_health', 'add_item', 'update_npc', 'remove_npc'],
+  // Stage 2 T2: set_relation/update_relation added to categories matching the seed relType
+  // whitelist's near-term writers ([[prompt-v12-scene-state]] graph model) — combat's
+  // `in_combat`, social's `trust`/`disposition`/`knows_secret`/`fears`/`owes_debt`, skill/search's
+  // `puzzle`. Pipeline-only ops in this pass (decision 1) — no live-path LLM emits them yet, so
+  // this is additive telemetry config, not a behaviour change for existing ops.
+  combat:  ['modify_stamina', 'modify_health', 'add_item', 'update_npc', 'remove_npc', 'set_relation', 'update_relation'],
   travel:  ['move_to', 'cross_frontier', 'modify_stamina', 'add_npc', 'add_item'],
-  social:  ['modify_wealth', 'add_npc', 'update_npc', 'add_item', 'remove_item'],
-  skill:   ['modify_stamina', 'modify_max_stamina', 'modify_rolls_remaining'],
-  search:  ['add_item', 'modify_stamina'],
+  social:  ['modify_wealth', 'add_npc', 'update_npc', 'add_item', 'remove_item', 'set_relation', 'update_relation'],
+  skill:   ['modify_stamina', 'modify_max_stamina', 'modify_rolls_remaining', 'set_relation', 'update_relation'],
+  search:  ['add_item', 'modify_stamina', 'set_relation', 'update_relation'],
   rest:    ['modify_health', 'modify_stamina', 'modify_rolls_remaining'],
   other:   [], // catch-all — anything goes; never flag
 };
@@ -150,6 +155,18 @@ type AppliedStateView = {
   location: string;
 };
 
+/** Render a relation endpoint for the compact mutation summary, e.g. `pc`, `npc:Greta`. Shape
+ *  only — no resolution (mirrors mutations.ts's `isValidEndpoint`; endpoints are unresolved here). */
+function describeRelationEndpoint(v: unknown): string {
+  if (typeof v !== "object" || v === null) return "?";
+  const node = (v as { node?: unknown }).node;
+  if (node === "pc") return "pc";
+  if (node === "npc" || node === "location") {
+    return `${node}:${String((v as { name?: unknown }).name ?? "?")}`;
+  }
+  return "?";
+}
+
 /** Compact summary of one mutation, e.g. `wealth+5`, `→Town Square`, `+item:Rabbit Pelt`. */
 function summariseMutation(m: WorldMutation): string {
   switch (m.type) {
@@ -171,6 +188,11 @@ function summariseMutation(m: WorldMutation): string {
       return `~npc:${String(m.npcId ?? "?")}`;
     case "remove_npc":
       return `-npc:${String(m.npcId ?? "?")}`;
+    case "set_relation":
+    case "update_relation": {
+      const verb = m.type === "set_relation" ? "set" : "upd";
+      return `${verb}_rel:${describeRelationEndpoint(m.from)}→${describeRelationEndpoint(m.to)}:${String(m.relType ?? "?")}`;
+    }
     default: {
       // modify_* — show the signed amount against the trimmed stat name.
       const stat = (m.type as string).replace(/^modify_/, "");

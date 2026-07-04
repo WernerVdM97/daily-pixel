@@ -5,7 +5,7 @@ import {
   collapseStackedDeltas,
   type MutationContext,
 } from '../../src/engine/action/mutations.js';
-import type { WorldMutation } from '../../src/engine/WorldEngine.js';
+import { WORLD_MUTATION_TYPES, type WorldMutation } from '../../src/engine/WorldEngine.js';
 import { applyOutcomeToMutations } from '../../src/engine/action/machine.js';
 
 // RED: tests fail because src/engine/action/mutations.ts doesn't exist yet
@@ -663,5 +663,201 @@ describe('collapseStackedDeltas (§5a guard)', () => {
     const stamina = result.filter(m => m.type === 'modify_stamina');
     // Net is -4, which is above the -5 cap, so -4 passes through
     expect(stamina[0].amount).toBe(-4);
+  });
+});
+
+describe('Mutation-type drift guard (mirrors ActionCategory pattern, commit 62b102b)', () => {
+  it('recognises every member of the canonical WORLD_MUTATION_TYPES union (no "Unknown mutation type")', () => {
+    for (const type of WORLD_MUTATION_TYPES) {
+      const result = validateMutations([{ type } as unknown as WorldMutation], ctx());
+      const unknownTypeError = result.errors.find(e => e.message.includes('Unknown mutation type'));
+      expect(unknownTypeError, `type "${type}" was rejected as unknown`).toBeUndefined();
+    }
+  });
+});
+
+describe('Mutation v12 T2 — set_relation / update_relation (Stage 2 scene-state spine)', () => {
+  const wellFormed = (type: 'set_relation' | 'update_relation') => ({
+    type,
+    from: { node: 'pc' as const },
+    to: { node: 'npc' as const, name: 'Greta' },
+    relType: 'trust',
+    props: { score: 5 },
+  });
+
+  it('accepts a well-formed set_relation', () => {
+    const result = validateMutations([wellFormed('set_relation')], ctx());
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('accepts a well-formed update_relation', () => {
+    const result = validateMutations([wellFormed('update_relation')], ctx());
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('accepts a location↔location edge with a "pc"-less from/to pair', () => {
+    const result = validateMutations(
+      [{
+        type: 'set_relation',
+        from: { node: 'location', name: 'The Warden\'s Oak' },
+        to: { node: 'location', name: 'Darkwood Forest' },
+        relType: 'puzzle',
+        props: { solved: false },
+      }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects an unknown relType', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('set_relation'), relType: 'made_up_kind' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('relType');
+  });
+
+  it('rejects a missing relType', () => {
+    const m = wellFormed('set_relation') as Record<string, unknown>;
+    delete m.relType;
+    const result = validateMutations([m as unknown as WorldMutation], ctx());
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects a malformed "from" Endpoint (missing name for npc node)', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('set_relation'), from: { node: 'npc' } }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('from');
+  });
+
+  it('rejects a malformed "to" Endpoint (unknown node kind)', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('set_relation'), to: { node: 'dragon', name: 'Smaug' } }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('to');
+  });
+
+  it('rejects a non-object "from" Endpoint', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('set_relation'), from: 'pc' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects non-scalar props (nested object)', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('update_relation'), props: { nested: { a: 1 } } }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('scalar');
+  });
+
+  it('rejects an array props value', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('update_relation'), props: { list: [1, 2, 3] } }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects a numeric prop over the +9999 clamp', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('update_relation'), props: { enemyHp: 10000 } }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('clamp');
+  });
+
+  it('rejects a numeric prop under the -9999 clamp', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('update_relation'), props: { enemyHp: -10000 } }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it('accepts a numeric prop exactly at the ±9999 clamp boundary', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('set_relation'), props: { score: 9999 } }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('accepts string and boolean scalar props alongside numbers', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('set_relation'), props: { note: 'wary', resolved: true, score: -3 } }],
+      ctx(),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects props that is not an object', () => {
+    const result = validateMutations(
+      [{ ...wellFormed('set_relation'), props: 'not-an-object' }],
+      ctx(),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it('applyMutations places a valid set_relation into relationsToSet, endpoints as authored', () => {
+    const state = applyMutations([wellFormed('set_relation')], ctx());
+    expect(state.relationsToSet).toHaveLength(1);
+    expect(state.relationsToUpdate).toHaveLength(0);
+    expect(state.relationsToSet[0]).toEqual({
+      from: { node: 'pc' },
+      to: { node: 'npc', name: 'Greta' },
+      relType: 'trust',
+      props: { score: 5 },
+    });
+  });
+
+  it('applyMutations places a valid update_relation into relationsToUpdate, endpoints as authored', () => {
+    const state = applyMutations([wellFormed('update_relation')], ctx());
+    expect(state.relationsToUpdate).toHaveLength(1);
+    expect(state.relationsToSet).toHaveLength(0);
+    expect(state.relationsToUpdate[0]).toEqual({
+      from: { node: 'pc' },
+      to: { node: 'npc', name: 'Greta' },
+      relType: 'trust',
+      props: { score: 5 },
+    });
+  });
+
+  it('does not resolve npc names to ids — carries the name string through unresolved', () => {
+    // Per decision 4: the pure applier does no DB lookups. Resolution + drop-of-unresolvable
+    // is deferred to T3's engine wiring.
+    const state = applyMutations([wellFormed('set_relation')], ctx());
+    const to = state.relationsToSet[0].to;
+    expect(to).toEqual({ node: 'npc', name: 'Greta' });
+    expect('npcId' in to).toBe(false);
+  });
+
+  it('leaves other AppliedState fields untouched when only a relation mutation is applied', () => {
+    const state = applyMutations([wellFormed('set_relation')], ctx());
+    expect(state.itemsToAdd).toHaveLength(0);
+    expect(state.npcsToAdd).toHaveLength(0);
+    expect(state.location).toBe('The Warden\'s Oak');
+  });
+
+  it('collapseStackedDeltas passes set_relation/update_relation through untouched (not collapsible)', () => {
+    const muts: WorldMutation[] = [
+      wellFormed('set_relation'),
+      wellFormed('update_relation'),
+    ];
+    const result = collapseStackedDeltas(muts);
+    expect(result).toHaveLength(2);
+    expect(result).toEqual(muts);
   });
 });

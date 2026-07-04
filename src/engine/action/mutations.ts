@@ -1,4 +1,49 @@
-import type { WorldMutation } from '../WorldEngine.js';
+import { WORLD_MUTATION_TYPES, type WorldMutation } from '../WorldEngine.js';
+
+/**
+ * Stage 2 T2 — edge-shaped relation mutation vocabulary (scene-state graph, D2).
+ *
+ * Doc-to-code mapping (decision 6): the design doc ([[prompt-v12-scene-state]] D2) writes
+ * `{ op, from, to, type, props }`; the codebase's `WorldMutation` already uses `type` for the
+ * OP NAME (`WorldEngine.ts`). So in code the op name is `type: 'set_relation' | 'update_relation'`
+ * and the *relationship* kind is carried as `relType` (doc's `type` → code's `relType`; doc's
+ * `op` → code's `type`).
+ *
+ * `node identity is polymorphic (type, ref)` (decision 4): `pc` has no name (there is exactly
+ * one PC per action context); `npc`/`location` carry the name AS AUTHORED by the LLM — this pure
+ * layer does no DB lookups and no npc-name→id resolution, exactly like `update_npc`/`remove_npc`
+ * receiving a pre-resolved `npcId` from upstream (see the comment above). Resolution + drop of
+ * unresolvable endpoints is deferred to T3's engine wiring.
+ */
+export type RelationEndpoint =
+  | { node: 'pc' }
+  | { node: 'npc'; name: string }
+  | { node: 'location'; name: string };
+
+/** A relation mutation, edges as authored by the LLM — endpoints unresolved (see above). */
+export interface AuthoredRelation {
+  from: RelationEndpoint;
+  to: RelationEndpoint;
+  relType: string;
+  props: Record<string, number | string | boolean>;
+}
+
+/** Seed whitelist of relationship kinds (`relType`) — extensible; writers add theirs (Stage 3+).
+ *  Per-`relType` prop schemas (combat's `enemyHp`, conversation's `trust` range) are OUT of scope
+ *  for this pass (T2 scope fence) — only the generic edge shape is validated here. */
+const RELATION_TYPE_WHITELIST = new Set([
+  'in_combat',
+  'trust',
+  'disposition',
+  'knows_secret',
+  'fears',
+  'owes_debt',
+  'puzzle',
+]);
+
+/** Global clamp on any numeric relation prop value (±). Per-`relType` bounds are a Stage 3+
+ *  concern; this is only the generic "no absurd number" guard for the edge-shape validator. */
+const RELATION_NUM_CLAMP = 9999;
 
 export interface MutationContext {
   currentHealth: number;
@@ -35,26 +80,25 @@ export interface AppliedState extends MutationContext {
   npcsToRemove: Array<{ npcId: number }>;
   /** v11: reveal_location — authors a frontier exit at the current location. */
   locationsToReveal: Array<{ name: string; direction?: string; isSafe?: number; description?: string }>;
+  /**
+   * Stage 2 T2 — `set_relation` edges, endpoints AS AUTHORED (unresolved). Intentionally
+   * dangling this pass: nothing reads this field yet — T3 wires it through
+   * `RelationRepository.set` after resolving npc-name→id upstream. Not dead code.
+   */
+  relationsToSet: AuthoredRelation[];
+  /**
+   * Stage 2 T2 — `update_relation` edges, endpoints AS AUTHORED (unresolved). Intentionally
+   * dangling this pass: nothing reads this field yet — T3 wires it through
+   * `RelationRepository.updateProps` after resolving npc-name→id upstream. Not dead code.
+   */
+  relationsToUpdate: AuthoredRelation[];
 }
 
-/** v11 vocabulary — active types accepted by the validator. */
-const MUTATION_TYPES = new Set([
-  'move_to',
-  'set_location',   // legacy alias — accepted, treated identically to move_to
-  'cross_frontier',
-  'modify_health',
-  'modify_stamina',
-  'modify_max_stamina',
-  'modify_wealth',
-  'modify_rolls_remaining',
-  'add_item',
-  'remove_item',
-  'add_npc',
-  'spawn_npc',      // legacy alias — accepted, treated identically to add_npc
-  'update_npc',
-  'remove_npc',
-  'reveal_location',
-]);
+/** Active types accepted by the validator — derived from the canonical `WORLD_MUTATION_TYPES`
+ *  array (`WorldEngine.ts`) so this set can never drift from the `WorldMutation.type` union
+ *  (mirrors the `ACTION_CATEGORIES` drift-proofing pattern, commit 62b102b). `set_location` and
+ *  `spawn_npc` are legacy aliases, treated identically to `move_to`/`add_npc` respectively. */
+const MUTATION_TYPES: Set<string> = new Set(WORLD_MUTATION_TYPES);
 
 /** Per-axis stacked-delta caps (§5a guard 1). Applied by collapseStackedDeltas. */
 const STAMINA_DELTA_CAP = -5;
@@ -92,6 +136,38 @@ export function collapseStackedDeltas(mutations: WorldMutation[]): WorldMutation
   }
 
   return pass;
+}
+
+/** Shape-only check for a `RelationEndpoint` — no DB lookup, no name resolution (T2 scope fence;
+ *  see the `AuthoredRelation` doc comment above). `pc` carries no name (one PC per action ctx). */
+function isValidEndpoint(v: unknown): v is RelationEndpoint {
+  if (typeof v !== 'object' || v === null) return false;
+  const node = (v as { node?: unknown }).node;
+  if (node === 'pc') return true;
+  if (node === 'npc' || node === 'location') {
+    const name = (v as { name?: unknown }).name;
+    return typeof name === 'string' && name.trim() !== '';
+  }
+  return false;
+}
+
+/** Validate the generic edge-shape `props` bag: a flat record of scalars, numbers within the
+ *  global clamp. Rejects out-of-range/non-scalar values rather than silently clamping them —
+ *  clamp-and-write is a T3/persistence concern (decision 5), this pass only gates the shape. */
+function validateRelationProps(opType: string, props: unknown): string | null {
+  if (typeof props !== 'object' || props === null || Array.isArray(props)) {
+    return `${opType} requires a "props" object (flat record of scalars)`;
+  }
+  for (const [key, value] of Object.entries(props as Record<string, unknown>)) {
+    if (typeof value === 'number') {
+      if (Number.isNaN(value) || Math.abs(value) > RELATION_NUM_CLAMP) {
+        return `${opType} prop "${key}" (${value}) exceeds the ±${RELATION_NUM_CLAMP} clamp`;
+      }
+    } else if (typeof value !== 'string' && typeof value !== 'boolean') {
+      return `${opType} prop "${key}" must be a scalar (number, string, or boolean)`;
+    }
+  }
+  return null;
 }
 
 export function validateMutations(
@@ -246,6 +322,21 @@ function validateOne(
       }
       return null;
     }
+    case 'set_relation':
+    case 'update_relation': {
+      if (!isValidEndpoint(m.from)) {
+        return { index, message: `${m.type} requires a well-formed "from" Endpoint ({node:'pc'} | {node:'npc',name} | {node:'location',name})` };
+      }
+      if (!isValidEndpoint(m.to)) {
+        return { index, message: `${m.type} requires a well-formed "to" Endpoint ({node:'pc'} | {node:'npc',name} | {node:'location',name})` };
+      }
+      if (typeof m.relType !== 'string' || m.relType.trim() === '' || !RELATION_TYPE_WHITELIST.has(m.relType)) {
+        return { index, message: `${m.type} "relType" must be one of the seed whitelist: ${[...RELATION_TYPE_WHITELIST].join(', ')} (got "${String(m.relType)}")` };
+      }
+      const propsErr = validateRelationProps(m.type, m.props);
+      if (propsErr) return { index, message: propsErr };
+      return null;
+    }
   }
 
   return null;
@@ -263,6 +354,8 @@ export function applyMutations(
     npcsToUpdate: [],
     npcsToRemove: [],
     locationsToReveal: [],
+    relationsToSet: [],
+    relationsToUpdate: [],
   };
 
   for (const m of mutations) {
@@ -345,8 +438,26 @@ export function applyMutations(
           ...(m.description !== undefined ? { description: String(m.description) } : {}),
         });
         break;
+      case 'set_relation':
+        state.relationsToSet.push(toAuthoredRelation(m));
+        break;
+      case 'update_relation':
+        state.relationsToUpdate.push(toAuthoredRelation(m));
+        break;
     }
   }
 
   return state;
+}
+
+/** Carry a `set_relation`/`update_relation` mutation into `AuthoredRelation` shape, endpoints AS
+ *  AUTHORED (no DB lookup, no npc-name→id resolution — mirrors `update_npc`/`remove_npc` trusting
+ *  their already-validated/pre-resolved input; see the doc comment above `AuthoredRelation`). */
+function toAuthoredRelation(m: WorldMutation): AuthoredRelation {
+  return {
+    from: m.from as RelationEndpoint,
+    to: m.to as RelationEndpoint,
+    relType: String(m.relType ?? ''),
+    props: (m.props && typeof m.props === 'object' ? m.props as Record<string, number | string | boolean> : {}),
+  };
 }
