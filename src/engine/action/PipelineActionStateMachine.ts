@@ -17,9 +17,8 @@ import type {
   CharacterData,
   ItemData,
 } from '../WorldEngine.js';
-import type { WorldContextResolver } from './machine.js';
 import { accumulateDc, abilityCheckBonus, resolveRoll, validateDcModifier } from './dc.js';
-import { buildPipelineContext } from './pipeline-context.js';
+import { buildPipelineContext, type PipelineContextResolver } from './pipeline-context.js';
 import type { MutationContext } from './mutations.js';
 
 /** ActionState plus the pipeline's internal fields, stored in the JSON column (mirrors
@@ -77,7 +76,7 @@ export class PipelineActionStateMachine {
   constructor(
     private llm: PipelineLlmGateway,
     private rollD20: () => number = () => Math.floor(Math.random() * 20) + 1,
-    private resolver: WorldContextResolver = {
+    private resolver: PipelineContextResolver = {
       getNearbyNpcs: () => [],
       getNearbyPcs: () => [],
       getRecentActions: () => [],

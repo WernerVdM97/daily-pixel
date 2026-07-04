@@ -219,3 +219,79 @@ describe('sim — a scripted pipeline stage failure fails loudly', () => {
     ).rejects.toThrow(/scenario bug: resolveMutate was never scripted/);
   });
 });
+
+describe('sim — scene-state spine (Stage 2 T3): cross-turn read-back through PipelineSimEngine', () => {
+  it('a set_relation authored on turn 1\'s resolve persists and is read back into turn 2\'s decide() context.sceneState', async () => {
+    // Indexed by PipelineScriptedGateway's gateway-instance-global decideCallCount: each action
+    // costs exactly 2 decide() calls (one at start, one at the first step — see
+    // PipelineActionStateMachine's beat-cap comment), so index 0/1 belong to turn 1 and 2/3 to
+    // turn 2.
+    const sceneStateByDecideCall: (unknown[] | undefined)[] = [];
+    let resolveMutateCallCount = 0;
+
+    const script: PipelineScript = {
+      decide: (input, callNo) => {
+        sceneStateByDecideCall[callNo] = input.context.sceneState;
+        return {
+          distilledType: 'investigate',
+          stat: 'wisdom',
+          baseDc: 8,
+          required: false,
+          decision: [
+            { label: 'Search the room', dcModifier: 0 },
+            { label: 'Step back', dcModifier: null },
+          ],
+        };
+      },
+      resolveMutate: () => {
+        const isFirstAction = resolveMutateCallCount === 0;
+        resolveMutateCallCount++;
+        if (!isFirstAction) return { mutations: [] };
+        // pc -> location edge, an endpoint pair that needs no npc store (per T3's exit-test spec).
+        return {
+          mutations: [
+            {
+              type: 'set_relation',
+              from: { node: 'pc' },
+              to: { node: 'location', name: "The Warden's Oak" },
+              relType: 'knows_secret',
+              props: { clue: 'a hidden door behind the bar' },
+            },
+          ],
+        };
+      },
+      resolveNarrate: () => ({ outcomeText: 'You uncover a small clue.' }),
+    };
+
+    const result = await runScenario({
+      name: 'scene-state-readback',
+      character: BASE_CHARACTER, // location: "The Warden's Oak" — matches the authored edge's "to"
+      rollSource: { kind: 'fixed', value: 20 },
+      llm: { kind: 'pipeline-scripted', script },
+      machine: 'pipeline',
+      week: [[
+        { input: 'search the room', choicePolicy: 'first-real' },
+        { input: 'search the room again', choicePolicy: 'first-real' },
+      ]],
+    });
+
+    expect(result.turns).toHaveLength(2);
+
+    // Turn 1 (decide calls 0 and 1): nothing persisted yet, sceneState stays absent.
+    expect(sceneStateByDecideCall[0]).toBeUndefined();
+    expect(sceneStateByDecideCall[1]).toBeUndefined();
+
+    // Turn 2 (decide calls 2 and 3): the edge set_relation authored on turn 1's resolve has been
+    // persisted through PipelineSimEngine's private RelationRepository and read back via
+    // buildPipelineContext's getSceneRelations hook.
+    expect(sceneStateByDecideCall[2]).toEqual([
+      {
+        from: { type: 'pc', ref: '1' },
+        to: { type: 'location', ref: "The Warden's Oak" },
+        relType: 'knows_secret',
+        props: { clue: 'a hidden door behind the bar' },
+      },
+    ]);
+    expect(sceneStateByDecideCall[3]).toEqual(sceneStateByDecideCall[2]);
+  });
+});

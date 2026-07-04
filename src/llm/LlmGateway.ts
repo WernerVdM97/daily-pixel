@@ -43,6 +43,22 @@ export interface LlmContext {
   rollOutcome?: 'success' | 'failure';
   /** Coherence-critic feedback (Thread 2) for a single re-decide on a MAJOR defect. Absent on first attempt. */
   criticNote?: string;
+  /** Stage 2 T3 — the persisted scene-state subgraph touching this character, as structured data
+   *  (D1 "graph → markdown at ~0 tokens": T3 lays the data channel only, markdown rendering is a
+   *  v12-template concern deferred to later work). Only the pipeline path populates this — the
+   *  legacy resolver (`machine.ts`) has no scene-state channel. Omitted when empty. */
+  sceneState?: SceneStateEdge[];
+}
+
+/** One edge of the scene-state graph (Stage 2 decision 3/4), read back into `LlmContext` as
+ *  plain structured data — no markdown rendering here (deferred; see `sceneState` above). The
+ *  `type` literals mirror `NodeType` (`src/db/repositories/relation.ts`) without importing it,
+ *  since the llm layer doesn't otherwise depend on the db layer. */
+export interface SceneStateEdge {
+  from: { type: 'pc' | 'npc' | 'location'; ref: string };
+  to: { type: 'pc' | 'npc' | 'location'; ref: string };
+  relType: string;
+  props: Record<string, number | string | boolean>;
 }
 
 // Canonical list — the SINGLE source of truth for the category set. The union type below is

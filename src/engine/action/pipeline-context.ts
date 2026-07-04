@@ -1,11 +1,25 @@
-import type { LlmContext } from '../../llm/LlmGateway.js';
+import type { LlmContext, SceneStateEdge } from '../../llm/LlmGateway.js';
 import type { CharacterData, ItemData } from '../WorldEngine.js';
 import type { WorldContextResolver } from './machine.js';
+import type { NodeType } from '../../db/repositories/relation.js';
+import type { RelationRow } from '../../db/repositories/types.js';
 import { itemStatModifier } from './dc.js';
 
 /** The four ability stats, in display order. Duplicated from `machine.ts` (module-private
  *  there) — see file-level rationale below. */
 const ALL_STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
+
+/**
+ * Stage 2 T3 — a pipeline-local resolver extending the legacy `WorldContextResolver` (declared
+ * in `machine.ts`, frozen per decision 1) with an optional scene-state read-back hook (D1
+ * "graph → markdown at ~0 tokens" — this only opens the structured data channel; rendering is a
+ * v12-template concern, out of scope). Lives here rather than in `machine.ts` for the same
+ * duplication rationale as this file's header comment. Optional so every existing no-op default
+ * resolver (that has no relations backing) stays a valid `PipelineContextResolver` unchanged.
+ */
+export interface PipelineContextResolver extends WorldContextResolver {
+  getSceneRelations?(node: { type: NodeType; ref: string }): RelationRow[];
+}
 
 /**
  * Pipeline's own context builder — a deliberate duplicate of `ActionStateMachine`'s private
@@ -15,7 +29,7 @@ const ALL_STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
  * machine is proven (see stage-1-thread-d-backbone-plan.md, Task 2).
  */
 export function buildPipelineContext(
-  resolver: WorldContextResolver,
+  resolver: PipelineContextResolver,
   char: CharacterData,
   rawInput: string,
   previous: { prompt: string; chosen: string; dcModifier: number }[],
@@ -50,6 +64,18 @@ export function buildPipelineContext(
     charisma: itemStatModifier(items, 'charisma'),
   };
 
+  // Stage 2 T3 — D1's "graph → markdown at ~0 tokens" read-back: the persisted subgraph
+  // touching this PC, as structured data only (rendering is a v12-template concern, deferred).
+  // `getSceneRelations` is optional so every existing no-op resolver (nothing backing the
+  // relations table) stays valid without change.
+  const sceneRelationRows = resolver.getSceneRelations?.({ type: 'pc', ref: String(char.id) }) ?? [];
+  const sceneState: SceneStateEdge[] = sceneRelationRows.map((row) => ({
+    from: { type: row.from_type as NodeType, ref: row.from_ref },
+    to: { type: row.to_type as NodeType, ref: row.to_ref },
+    relType: row.rel_type,
+    props: JSON.parse(row.props) as Record<string, number | string | boolean>,
+  }));
+
   return {
     character: {
       class: char.class,
@@ -69,6 +95,7 @@ export function buildPipelineContext(
     localGeography: { neighbours: localGeography.neighbours, frontiers: localGeography.frontiers },
     rawInput,
     ...(previous.length > 0 ? { previousDecisions: previous } : {}),
+    ...(sceneState.length > 0 ? { sceneState } : {}),
     itemBonuses: itemBonusByStat,
     inventory: items.map(i => ({ emoji: i.emoji, name: i.name, stat: i.stat, modifier: i.modifier, quantity: i.quantity })),
     scalingHint: hintParts.join(' | ') || 'No relevant items',

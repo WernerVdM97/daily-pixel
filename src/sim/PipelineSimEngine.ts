@@ -1,5 +1,8 @@
+import Database from 'better-sqlite3';
 import { PipelineActionStateMachine, type PipelineInternalActionState } from '../engine/action/PipelineActionStateMachine.js';
 import { applyMutations, collapseStackedDeltas, validateMutations, type MutationContext } from '../engine/action/mutations.js';
+import { resolveAuthoredRelation } from '../engine/action/relation-wiring.js';
+import type { PipelineContextResolver } from '../engine/action/pipeline-context.js';
 import type {
   ActionKind,
   ActionOutcome,
@@ -10,6 +13,8 @@ import type {
   ItemData,
   WorldMutation,
 } from '../engine/WorldEngine.js';
+import { migration as sceneRelationsMigration } from '../db/migrations/202607041000_scene_relations.js';
+import { RelationRepository } from '../db/repositories/relation.js';
 import type { PipelineLlmGateway } from '../llm/pipeline/types.js';
 import { makeRollD20 } from './roll-source.js';
 import type { CharacterSeed, RollSource } from './types.js';
@@ -66,13 +71,38 @@ export class PipelineSimEngine {
   private pendingState: PipelineInternalActionState | null = null;
   private nextItemId = 1;
 
+  // Stage 2 T3 — private scene-state storage. `:memory:` with ONLY the relations migration
+  // applied (not the full baseline — this adapter has no other tables and never needs them).
+  // Deliberately NOT exposed on `PipelineSimEngineHandle` (engine-factory.ts) — the handle shape
+  // and its `'db' in handle === false` assertion (tests/sim/pipeline-sim.test.ts) stay unchanged.
+  private readonly relationsDb: Database.Database;
+  private readonly relationRepo: RelationRepository;
+  private readonly resolver: PipelineContextResolver;
+
   constructor(
     rollSource: RollSource,
     llm: PipelineLlmGateway,
     seed: CharacterSeed,
     private readonly discordUserId = 'sim:pipeline',
   ) {
-    this.machine = new PipelineActionStateMachine(llm, makeRollD20(rollSource), undefined, finalizeCollapseValidateOnly);
+    this.relationsDb = new Database(':memory:');
+    sceneRelationsMigration.up(this.relationsDb);
+    this.relationRepo = new RelationRepository(this.relationsDb);
+
+    // Same no-op shape as PipelineActionStateMachine's own default resolver (this adapter has
+    // no NPC/PC/geography backing), plus the one live hook this pass wires: the scene-state
+    // read-back (D1 "graph → markdown at ~0 tokens") sourced from the private repo above.
+    this.resolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+      getSceneRelations: (node) => this.relationRepo.forNode(node.type, node.ref),
+    };
+
+    this.machine = new PipelineActionStateMachine(llm, makeRollD20(rollSource), this.resolver, finalizeCollapseValidateOnly);
     this.char = {
       id: 1,
       userId: 1,
@@ -214,6 +244,34 @@ export class PipelineSimEngine {
 
     for (const { name, quantity } of applied.itemsToRemove) {
       this.decrementItemByName(name, quantity);
+    }
+
+    this.persistRelations(applied.relationsToSet, applied.relationsToUpdate);
+  }
+
+  /**
+   * Stage 2 T3 persist point — `applied.relationsToSet/relationsToUpdate` carry endpoints AS
+   * AUTHORED (decision 4; `mutations.ts`'s pure applier never does DB lookups). Resolve each via
+   * the pure `relation-wiring.ts` helper against this adapter's own no-npc-store resolver, then
+   * write through the private repo. An unresolvable edge is already warned by the helper —
+   * silently skipped here, never a throw (mirrors `applyGeography`'s drop-with-warn).
+   */
+  private persistRelations(
+    relationsToSet: ReturnType<typeof applyMutations>['relationsToSet'],
+    relationsToUpdate: ReturnType<typeof applyMutations>['relationsToUpdate'],
+  ): void {
+    const nearbyNpcs = this.resolver.getNearbyNpcs(this.char.location);
+
+    for (const relation of relationsToSet) {
+      const key = resolveAuthoredRelation(relation, { id: this.char.id }, nearbyNpcs);
+      if (!key) continue;
+      this.relationRepo.set({ ...key, props: relation.props });
+    }
+
+    for (const relation of relationsToUpdate) {
+      const key = resolveAuthoredRelation(relation, { id: this.char.id }, nearbyNpcs);
+      if (!key) continue;
+      this.relationRepo.updateProps(key, relation.props);
     }
   }
 
