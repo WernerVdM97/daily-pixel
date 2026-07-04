@@ -30,6 +30,8 @@ import {
 } from './combat-dc.js';
 import {
   readCombatState,
+  readCombatSave,
+  combatSaveUpdate,
   combatRoundUpdate,
   type CombatState,
 } from './combat-state.js';
@@ -61,9 +63,13 @@ export interface PipelineInternalActionState extends ActionState {
    *  so the npc-name→id resolution gap doesn't force re-resolution every beat (T3 decision 4).
    *  Undefined when no combat is in progress. */
   combatAnchor?: { node: 'npc' | 'location'; name: string };
-  /** Set when player HP would drop to ≤0 (pre-floor; iteration 2 will gate it via the save,
-   *  but iteration 1 still needs to detect the condition to drive failure termination). */
+  /** Set when a would-be-lethal blow lands after the once-per-day survive-at-1 floor
+   *  has already been spent — the hp_zero trace marker on the resolved outcome. */
   hpZero?: boolean;
+  /** Set when a desperate-choice beat is pending (iteration 2 floor + loss ladder).
+   *  The next step() clears it before falling through to normal combat flow — only
+   *  `last stand` reaches handleCombatStep; `bail bloodied` is caught by step()'s bail check. */
+  desperateChoice?: boolean;
   /** Epoch ms last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
   /** All llm_calls ids in this action. Task 5 built the per-stage stamp/callKind derivation
@@ -291,6 +297,14 @@ export class PipelineActionStateMachine {
     // Build context for scene-state read-back (includes the in_combat edge from any prior beat).
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
 
+    // ── Desperate-choice clear ──
+    // If returning from a desperate-choice beat via `last stand`, clear the flag and fall
+    // through to the normal combat continue flow. `bail bloodied` is caught by step()'s bail
+    // check and never reaches here.
+    if (state.desperateChoice) {
+      state = { ...state, desperateChoice: undefined };
+    }
+
     // ── Establish or read combat state ──
     let cs = readCombatState(context.sceneState ?? []);
 
@@ -362,14 +376,54 @@ export class PipelineActionStateMachine {
       );
     }
 
-    // 2. hpZero → failure (iteration 1: no floor save yet, no survive-at-1).
-    // Note: hpZero is only reliably detectable when player HP is also persisted
-    // per-round (see the modify_health injection below).
+    // 2. hpZero → floor + save ladder (iteration 2: survive-at-1 once per day).
     if (hpZeroReached) {
-      return this.resolveCombat(
-        cs, roundResult, playerHpDelta, newEnemyHp, 'failure',
-        state, char, items, newDc, newDecisions, chosenOption,
-      );
+      const currentDay = this.resolver.getCurrentDay?.() ?? 0;
+      const savedDay = readCombatSave(context.sceneState ?? []);
+
+      if (savedDay === null || savedDay !== currentDay) {
+        // ── Desperate-choice beat (first lethal blow today) ──
+        // Floor player to 1 HP, author the combat_save edge, keep the combat edge at the
+        // band-depleted enemyHp (same round — player hasn't survived yet in a way that
+        // advances the fight). Return forced options: bail bloodied / last stand.
+        const floorPlayerHpDelta = 1 - char.health;
+        const saveRelation = combatSaveUpdate(currentDay);
+        const combatEdge = combatRoundUpdate(cs, roundResult.enemyHpDelta, cs.round);
+
+        const nextDecision: ActionDecision = {
+          prompt: 'The blow would be lethal — you feel death\'s cold touch. Make your stand or flee before it\'s too late.',
+          options: [
+            { label: 'Bail bloodied', dcModifier: null },
+            { label: 'Last stand', dcModifier: 0 },
+          ],
+        };
+
+        const nextState: PipelineInternalActionState = {
+          ...state,
+          decisions: newDecisions,
+          accumulatedDc: newDc,
+          desperateChoice: true,
+          pendingDecision: nextDecision,
+          combatAnchor: heldAnchor,
+        };
+
+        return {
+          resolved: false,
+          state: nextState,
+          nextDecision,
+          mutations: [
+            { type: 'modify_health' as const, amount: floorPlayerHpDelta },
+            { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
+            { ...saveRelation, type: 'set_relation' } as unknown as WorldMutation,
+          ],
+        };
+      } else {
+        // ── Second lethal blow today → HP-zero, resolve failure ──
+        return this.resolveCombat(
+          cs, roundResult, playerHpDelta, newEnemyHp, 'failure',
+          state, char, items, newDc, newDecisions, chosenOption,
+        );
+      }
     }
 
     // 3. Cap-derive: round exceeds MAX_COMBAT_ROUNDS → compare remaining HP fractions
