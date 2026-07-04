@@ -54,6 +54,11 @@ export interface PipelineDecideResult {
   baseDc: number;
   required: boolean;
   decision: LlmDecisionOption[];
+  /** D6 — doc's `scene_location` (prompt-v12-scene-state.md) → code camelCase. The location the
+   *  decided scene is set in, declared as structured data rather than derived from prose. Optional:
+   *  absent means "no scene declared," and the travel-coherence gate (`travel-gate.ts`) is then a
+   *  strict no-op — every existing scripted decide result stays valid unchanged. */
+  sceneLocation?: string;
 }
 
 /** Input to RESOLVE-MUTATE: a structured (not re-parsed prose) handoff of the decision that

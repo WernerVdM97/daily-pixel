@@ -433,6 +433,59 @@ describe('PipelineActionStateMachine — D5b mutation-finalization inversion (Ta
   });
 });
 
+describe('PipelineActionStateMachine — D6 travel-coherence gate (Task 4)', () => {
+  it('injects the missing set_location on the forge->forest teleport (no set_location authored)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult({ sceneLocation: 'the woods' });
+    // resolveMutate authors a fight in the forest with NO relocate mutation — the D6 bug repro.
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'A boar charges from the treeline.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const char = testChar({ location: 'The Town Forge' });
+    const started = await machine.start(char, 'go to the woods and brawl', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Force straight to resolve on the first step (zero real follow-up options).
+    llm.decideResult = { ...combatDecideResult({ sceneLocation: 'the woods' }), decision: [{ label: 'Step back', dcModifier: null }] };
+    const stepResult = await machine.step(started.state, 'Strike hard', char, testItems);
+    expect(stepResult.resolved).toBe(true);
+    if (stepResult.resolved) {
+      expect(stepResult.outcome.mutations).toEqual([
+        { type: 'modify_health', amount: -3 },
+        { type: 'set_location', name: 'the woods' },
+      ]);
+    }
+  });
+
+  it('does not inject a duplicate when resolveMutate already authored the travel', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult({ sceneLocation: 'the woods' });
+    llm.resolveMutateResult = {
+      mutations: [
+        { type: 'set_location', name: 'the woods' },
+        { type: 'modify_health', amount: -3 },
+      ],
+    };
+    llm.resolveNarrateResult = { outcomeText: 'You march into the woods and the boar charges.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const char = testChar({ location: 'The Town Forge' });
+    const started = await machine.start(char, 'go to the woods and brawl', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = { ...combatDecideResult({ sceneLocation: 'the woods' }), decision: [{ label: 'Step back', dcModifier: null }] };
+    const stepResult = await machine.step(started.state, 'Strike hard', char, testItems);
+    expect(stepResult.resolved).toBe(true);
+    if (stepResult.resolved) {
+      expect(stepResult.outcome.mutations).toEqual([
+        { type: 'set_location', name: 'the woods' },
+        { type: 'modify_health', amount: -3 },
+      ]);
+    }
+  });
+});
+
 describe('PipelineActionStateMachine — classify-fallback-total-failure', () => {
   it('sets isDivineIntervention: true rather than any string sentinel check', async () => {
     const llm = new MockPipelineLlmGateway();

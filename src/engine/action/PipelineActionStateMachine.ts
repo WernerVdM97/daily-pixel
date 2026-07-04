@@ -20,6 +20,7 @@ import type {
 import { accumulateDc, abilityCheckBonus, resolveRoll, validateDcModifier } from './dc.js';
 import { buildPipelineContext, type PipelineContextResolver } from './pipeline-context.js';
 import type { MutationContext } from './mutations.js';
+import { applyTravelCoherenceGate } from './travel-gate.js';
 
 /** ActionState plus the pipeline's internal fields, stored in the JSON column (mirrors
  *  `InternalActionState` in machine.ts, but with `actionType`/`flags` pinned at classify
@@ -279,6 +280,15 @@ export class PipelineActionStateMachine {
       context,
     });
 
+    // D6 travel-coherence gate: structural backstop against a scene that narrated elsewhere with
+    // no relocate mutation (the forge→forest teleport). Injects intent only — geography enforces
+    // feasibility once the augmented list flows through finalize below.
+    const gatedMutations = applyTravelCoherenceGate(
+      proposedMutations as WorldMutation[],
+      decisionForHandoff.sceneLocation,
+      char.location,
+    );
+
     // The D5b inversion point: engine finalize (geography → collapse → validate) runs here,
     // between mutation-authoring and text-authoring, so RESOLVE-NARRATE below sees what
     // actually landed rather than what RESOLVE-MUTATE proposed. `this.finalize` defaults to an
@@ -294,7 +304,7 @@ export class PipelineActionStateMachine {
       location: char.location,
       knownLocations: this.resolver.getKnownLocations(),
     };
-    const { mutations: finalMutations } = this.finalize(proposedMutations as WorldMutation[], mutationCtx);
+    const { mutations: finalMutations } = this.finalize(gatedMutations, mutationCtx);
 
     const { outcomeText } = await this.llm.resolveNarrate({
       actionType: state.actionType,
