@@ -169,3 +169,22 @@ export interface MetaRow {
   key: string;
   value: string;
 }
+
+/**
+ * Stage 2 T1 — a typed, directed edge in the scene-state graph
+ * (docs/engine/stage-2-scene-state-spine-plan.md). Node identity is polymorphic
+ * `(type, ref)`: `pc` ref = character_id, `npc` ref = the resolved npc id,
+ * `location` ref = location name (decision 4). Additive only — nothing reads
+ * or writes this table yet.
+ */
+export interface RelationRow {
+  id: number;
+  from_type: string;                 // 'pc' | 'npc' | 'location'
+  from_ref: string;
+  to_type: string;                   // 'pc' | 'npc' | 'location'
+  to_ref: string;
+  rel_type: string;
+  props: string;                     // JSON object of clamped scalars
+  created_by_action_id: number | null;
+  updated_day: number | null;
+}
