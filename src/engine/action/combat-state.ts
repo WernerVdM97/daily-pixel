@@ -8,6 +8,7 @@
  */
 import type { AuthoredRelation, RelationEndpoint } from './mutations.js';
 import type { SceneStateEdge } from '../../llm/LlmGateway.js';
+import { ENEMY_HP_MAX } from './combat-dc.js';
 
 export interface CombatState {
   enemyName: string;
@@ -42,7 +43,15 @@ function toAnchor(node: SceneStateEdge['to']): RelationEndpoint {
  *  closely enough to reject obviously-corrupt persisted props, without re-importing the
  *  validator (this module stays pure/dependency-free of `mutations.ts`'s runtime code). */
 function isSaneCombatProps(enemyHp: number, enemyMaxHp: number, round: number): boolean {
-  return enemyMaxHp >= 1 && enemyHp >= 0 && enemyHp <= enemyMaxHp && round >= 1;
+  // Must mirror validateTypedRelationProps' clamps exactly (incl. the enemyMaxHp
+  // upper bound) so the read guard never accepts a bag the write path rejects.
+  return (
+    enemyMaxHp >= 1 &&
+    enemyMaxHp <= ENEMY_HP_MAX &&
+    enemyHp >= 0 &&
+    enemyHp <= enemyMaxHp &&
+    round >= 1
+  );
 }
 
 /** Find the `in_combat` edge authored BY the pc (`from.type === 'pc'`) and parse its props into

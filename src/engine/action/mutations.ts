@@ -193,6 +193,11 @@ function validateTypedRelationProps(
   props: Record<string, unknown>,
 ): string | null {
   if (relType === 'in_combat') {
+    // Deliberately requires the FULL prop set even for update_relation: combat writers
+    // (combat-state.ts) always emit the absolute set_relation shape, never a partial
+    // in_combat delta (round would double-sum through updateProps, see combatRoundUpdate),
+    // and the LLM never authors in_combat ops (engine-owned, decision 3). A future partial
+    // in_combat delta writer would need to relax this by opType.
     const { enemyName, enemyHp, enemyMaxHp, round } = props as {
       enemyName?: unknown;
       enemyHp?: unknown;

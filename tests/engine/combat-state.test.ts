@@ -104,6 +104,16 @@ describe('readCombatState / combatStateToSetRelation round-trip', () => {
     });
     expect(readCombatState([edge])).toBeNull();
   });
+
+  it('returns null for malformed props: enemyMaxHp above ENEMY_HP_MAX (read guard mirrors the write clamp)', () => {
+    const edge = edgeFromAuthored({ type: 'pc', ref: '7' }, { type: 'location', ref: 'X' }, 'in_combat', {
+      enemyName: 'x',
+      enemyHp: 50,
+      enemyMaxHp: 100,
+      round: 1,
+    });
+    expect(readCombatState([edge])).toBeNull();
+  });
 });
 
 describe('combatRoundUpdate', () => {
