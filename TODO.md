@@ -4,6 +4,7 @@
 ## scratchpad (humans start here)
 
 ### TBD — POC polish (small UI wins, no spark warranted)
+- [ ] add /hi to 'A new hero joins the Oak' message.
 - [ ] dynamically request or load context. Instead of sending the LLM all possible context, give it an NCP-like interaction layer.
     - scripts or command that perform lookups from the world state that is provided to the decision DMA
 - [ ] establish POC polish scope game doc
