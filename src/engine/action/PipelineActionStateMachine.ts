@@ -459,17 +459,19 @@ export class PipelineActionStateMachine {
           combatAnchor: heldAnchor,
         };
 
-        const floorOps = ['modify_health', 'set_relation', 'set_relation'];
+        const floorMutations: WorldMutation[] = [
+          { type: 'modify_health' as const, amount: floorPlayerHpDelta },
+          { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
+          { ...saveRelation, type: 'set_relation' } as unknown as WorldMutation,
+        ];
         return {
           resolved: false,
           state: nextState,
           nextDecision,
-          mutations: [
-            { type: 'modify_health' as const, amount: floorPlayerHpDelta },
-            { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
-            { ...saveRelation, type: 'set_relation' } as unknown as WorldMutation,
-          ],
-          combatBeat: this.buildCombatBeat(cs, roundResult, newEnemyHp, floorOps, { floorSave: true }),
+          mutations: floorMutations,
+          combatBeat: this.buildCombatBeat(
+            cs, roundResult, newEnemyHp, floorMutations.map(m => m.type), { floorSave: true },
+          ),
         };
       } else {
         // ── Second lethal blow today → HP-zero, resolve failure ──
@@ -543,18 +545,18 @@ export class PipelineActionStateMachine {
       combatAnchor: heldAnchor,
     };
 
-    const continueOps = ['set_relation', ...(playerHpDelta < 0 ? ['modify_health'] : [])];
+    const continueMutations: WorldMutation[] = [
+      { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
+      ...(playerHpDelta < 0
+        ? [{ type: 'modify_health' as const, amount: playerHpDelta }]
+        : []),
+    ];
     return {
       resolved: false,
       state: nextState,
       nextDecision,
-      mutations: [
-        { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
-        ...(playerHpDelta < 0
-          ? [{ type: 'modify_health' as const, amount: playerHpDelta }]
-          : []),
-      ],
-      combatBeat: this.buildCombatBeat(cs, roundResult, newEnemyHp, continueOps),
+      mutations: continueMutations,
+      combatBeat: this.buildCombatBeat(cs, roundResult, newEnemyHp, continueMutations.map(m => m.type)),
     };
   }
 
@@ -606,11 +608,17 @@ export class PipelineActionStateMachine {
     // id-as-name that would fail re-resolution; the held anchor is the originally authored one.
     const finalCsAnchor = state.combatAnchor ?? (cs.anchor as { node: 'npc' | 'location'; name: string });
     const finalEdge = combatRoundUpdate({ ...cs, enemyHp: cs.enemyHp, anchor: finalCsAnchor }, 0, finalRound);
-    // Overwrite enemyHp to the computed final value (clamped at 0 for win).
-    const clampedFinalEdge = { ...finalEdge, props: { ...finalEdge.props, enemyHp: Math.max(0, finalEnemyHp) } };
+    // Overwrite enemyHp to the computed final value (clamped at 0 for win). `type: 'set_relation'`
+    // is required — combatRoundUpdate returns a bare AuthoredRelation (no op `type`), so without it
+    // validateMutations drops the edge as an unknown type and the terminal in_combat write is lost
+    // (a defeated enemy's edge would linger at positive HP → the next fight resumes the dead foe).
+    // The CONTINUE/floor paths add it the same way.
+    const clampedFinalEdge = { ...finalEdge, type: 'set_relation', props: { ...finalEdge.props, enemyHp: Math.max(0, finalEnemyHp) } };
     const engineMutations: WorldMutation[] = [
       clampedFinalEdge as unknown as WorldMutation,
-      { type: 'modify_health', amount: playerHpDelta },
+      ...(playerHpDelta !== 0
+        ? [{ type: 'modify_health' as const, amount: playerHpDelta }]
+        : []),
     ];
     const mutationsWithCombat = [...gatedMutations, ...engineMutations];
 

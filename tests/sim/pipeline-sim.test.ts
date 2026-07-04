@@ -1175,14 +1175,79 @@ describe('T5 — combat telemetry + metrics', () => {
 
     const step2 = await engine.stepAction(1, 'Press the attack');
     expect(step2.resolved).toBe(true);
-    const outcome = (step2 as { resolved: true; outcome: { outcome: string; combatBeat?: { band: string; enemyHpAfter: number; marker: string } } }).outcome;
+    const outcome = (step2 as {
+      resolved: true;
+      outcome: {
+        outcome: string;
+        combatBeat?: {
+          round: number;
+          band: string;
+          enemyHpBefore: number;
+          enemyHpAfter: number;
+          playerHpDelta: number;
+          materialMutationFired: boolean;
+          ops: string[];
+          marker: string;
+        };
+      };
+    }).outcome;
     expect(outcome.outcome).toBe('success');
     expect(outcome.combatBeat).toBeDefined();
     expect(outcome.combatBeat?.band).toBe('clean');
     expect(outcome.combatBeat?.enemyHpAfter).toBe(0);
     expect(outcome.combatBeat?.marker).toBe('combat_round');
+    expect(outcome.combatBeat?.round).toBe(2);
+    expect(outcome.combatBeat?.enemyHpBefore).toBe(4);
+    expect(outcome.combatBeat?.playerHpDelta).toBe(0);
+    expect(outcome.combatBeat?.materialMutationFired).toBe(true);
+    // Terminal ops carry the engine-authored final in_combat edge write (enemyHp → 0) plus the
+    // LLM loot. Both survive validation now the edge is emitted with its `type: 'set_relation'`.
+    expect(outcome.combatBeat?.ops).toContain('set_relation');
+    expect(outcome.combatBeat?.ops).toContain('modify_wealth');
 
     expect(engine.getCombatMetrics()).toEqual({ roundsFought: 2, floorSaves: 0, wins: 1, losses: 0 });
+  });
+
+  it('a win finalizes the in_combat edge at enemyHp 0 (defeated foe not resumed by the next fight)', async () => {
+    // The terminal set_relation must land, or the edge lingers at the last CONTINUE round's HP and
+    // a fresh fight would re-establish onto a still-"active" (enemyHp > 0) edge (plan decision 5).
+    const sceneStateByDecideCall: (unknown[] | undefined)[] = [];
+    const script: PipelineScript = {
+      decide: (input, callNo) => {
+        sceneStateByDecideCall[callNo] = input.context.sceneState;
+        return {
+          distilledType: 'combat',
+          stat: 'physical',
+          baseDc: 12,
+          required: true,
+          decision: [{ label: 'Press the attack', dcModifier: 0 }],
+          ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' as const } } : {}),
+        };
+      },
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls.' }),
+    };
+    const handle = buildSimEngine({ kind: 'sequence', values: [20, 1, 20, 1] }, undefined, undefined, {
+      machine: 'pipeline',
+      script,
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    await engine.startAction(1, 'fight the goblin');
+    await engine.stepAction(1, 'Press the attack'); // round 1 → CONTINUE (edge at enemyHp 4)
+    const win = await engine.stepAction(1, 'Press the attack'); // round 2 → WIN
+    expect(win.resolved).toBe(true);
+
+    // A fresh follow-up action reads the persisted edge back through relationRepo.forNode, proving
+    // the terminal write reached the DB (not just the in-memory synthesized round state).
+    await engine.startAction(1, 'search the area');
+    const readBack = sceneStateByDecideCall[2] as unknown[];
+    const persistedEdge = readBack?.find(
+      (e) => (e as Record<string, unknown>).relType === 'in_combat',
+    ) as Record<string, unknown> | undefined;
+    expect(persistedEdge).toBeDefined();
+    expect((persistedEdge!.props as Record<string, unknown>).enemyHp).toBe(0);
   });
 
   it('a voluntary bail carries no terminal combatBeat, but its earlier fought round still counts', async () => {
