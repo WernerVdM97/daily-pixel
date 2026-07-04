@@ -470,6 +470,12 @@ export class PipelineActionStateMachine {
     });
 
     const nextDecision = toActionDecision(decideResult, state.required);
+    // Engaged combat offers a voluntary flee (dcModifier: null) each round — caught by step()'s
+    // bail path, which leaves the in_combat edge persisted (enemy remembered, plan decision 4).
+    // ensureBail can't add it (returns early for required), so append here.
+    if (!nextDecision.options.some(o => o.dcModifier === null)) {
+      nextDecision.options = [...nextDecision.options, { label: 'Flee the fight', dcModifier: null }];
+    }
     const nextState: PipelineInternalActionState = {
       ...state,
       decisions: newDecisions,

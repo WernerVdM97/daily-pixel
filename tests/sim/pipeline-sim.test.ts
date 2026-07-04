@@ -951,3 +951,133 @@ describe('T3 iteration 2 — floor + loss ladder', () => {
     expect(lethalOutcome.hpZero).toBe(true);
   });
 });
+
+describe('T3 follow-up — voluntary mid-combat bail (flee at a cost)', () => {
+  /** Script for combat rounds without a decide-stage sceneState inspection. */
+  function combatScript(): PipelineScript {
+    return {
+      decide: (_input, callNo) => ({
+        distilledType: 'combat',
+        stat: 'physical',
+        baseDc: 12,
+        required: true,
+        decision: [{ label: 'Press the attack', dcModifier: 0 }],
+        ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' } } : {}),
+      }),
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls.' }),
+    };
+  }
+
+  /** Same script, but records each decide call's sceneState so a test can inspect the
+   *  persisted in_combat edge's enemyHp at that point in the fight. */
+  function combatScriptCapturing(sceneStateByDecideCall: (unknown[] | undefined)[]): PipelineScript {
+    return {
+      decide: (input, callNo) => {
+        sceneStateByDecideCall[callNo] = input.context.sceneState;
+        return {
+          distilledType: 'combat',
+          stat: 'physical',
+          baseDc: 12,
+          required: true,
+          decision: [{ label: 'Press the attack', dcModifier: 0 }],
+          ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' } } : {}),
+        };
+      },
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls.' }),
+    };
+  }
+
+  // Roll [8, 10] with BASE_CHARACTER (physical=5 → playerBonus=5) and baseDc=12
+  // (→ enemyBonus=clamp(12-10,0,10)=2): margin = (8+5)-(10+2) = 1 → 'trade' band
+  // (enemyHpDelta=-2, playerHpDelta=-2). Neither die is a 1 or 20, so no crit override, and
+  // BASE_CHARACTER's health=10/enemyMaxHp=12 both stay well clear of the floor — a clean
+  // non-terminal round-2 continuation.
+  const TRADE_ROLLS = { kind: 'sequence' as const, values: [8, 10] };
+
+  it('a combat continuation beat offers a Flee the fight option', async () => {
+    const handle = buildSimEngine(TRADE_ROLLS, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    const step = await engine.stepAction(1, 'Press the attack');
+    expect(step.resolved).toBe(false);
+
+    const decision = (step as {
+      resolved: false;
+      nextDecision: { options: { label: string; dcModifier: number | null }[] };
+    }).nextDecision;
+    const labels = decision.options.map((o) => o.label);
+    expect(labels).toContain('Press the attack');
+    expect(labels).toContain('Flee the fight');
+
+    const fleeOption = decision.options.find((o) => o.label === 'Flee the fight');
+    expect(fleeOption?.dcModifier).toBeNull();
+  });
+
+  it('picking Flee the fight mid-combat bails, costs stamina, and leaves the enemy remembered', async () => {
+    const sceneStateByDecideCall: (unknown[] | undefined)[] = [];
+    const handle = buildSimEngine(TRADE_ROLLS, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScriptCapturing(sceneStateByDecideCall),
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+    const startingStamina = engine.getCharacter('sim:pipeline')?.stamina ?? 0;
+
+    const step = await engine.stepAction(1, 'Press the attack');
+    expect(step.resolved).toBe(false);
+
+    // Round 2's decide call (callNo 1) sees the round-1-depleted in_combat edge:
+    // enemyMaxHp=12, trade band enemyHpDelta=-2 → enemyHp=10.
+    const state1 = sceneStateByDecideCall[1] as unknown[];
+    const combatEdge = state1.find(
+      (e) => (e as Record<string, unknown>).relType === 'in_combat',
+    ) as Record<string, unknown> | undefined;
+    expect(combatEdge).toBeDefined();
+    const depletedEnemyHp = (combatEdge!.props as Record<string, unknown>).enemyHp;
+    expect(depletedEnemyHp).toBe(10);
+
+    const relationCountBeforeBail = engine.getPersistedRelationCount();
+    expect(relationCountBeforeBail).toBeGreaterThanOrEqual(1);
+
+    const bail = await engine.stepAction(1, 'Flee the fight');
+    expect(bail.resolved).toBe(true);
+    expect((bail as { resolved: true; outcome: { outcome: string } }).outcome.outcome).toBe('bailed');
+
+    // BAIL_STAMINA_COST is 1 — the generic bail path's only mutation.
+    expect(engine.getCharacter('sim:pipeline')?.stamina).toBe(startingStamina - 1);
+
+    // The bail path doesn't touch relations, so the in_combat edge persisted during round 1's
+    // CONTINUE survives unchanged — the enemy is remembered at its current (depleted) HP.
+    expect(engine.getPersistedRelationCount()).toBe(relationCountBeforeBail);
+  });
+
+  it('the first combat beat has no flee option (round 1 is the forced reaction)', async () => {
+    const handle = buildSimEngine(TRADE_ROLLS, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    const start = await engine.startAction(1, 'fight the goblin');
+    expect(start.outcome).toBeUndefined();
+
+    const firstDecision = start.firstDecision as
+      | { options: { label: string; dcModifier: number | null }[] }
+      | undefined;
+    expect(firstDecision).toBeDefined();
+    expect(firstDecision!.options.some((o) => o.dcModifier === null)).toBe(false);
+  });
+});
