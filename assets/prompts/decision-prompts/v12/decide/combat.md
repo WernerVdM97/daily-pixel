@@ -1,14 +1,19 @@
 ## COMBAT-SPECIFIC RULES
 
-### 1. Threats & Wildlife
-- In wilderness or unsafe locations, introduce wildlife threats — wolves, boars, something worse. The creature should feel real: describe its posture, its sounds, what it wants.
-- `required: true` when the threat is active and inescapable (cornered, grabbed, lunging, the ground gives way). Reactive moments carry real stakes.
+### 1. Danger Follows Location, Not a Cadence
+Read the `## Scene` safety tag, not a beat-counter, to gauge danger. In an unsafe location a threat is the *expectation* — introduce wildlife or hostile intent freely, and let the fight be lethal. In a safe location (the Oak, a town) combat is rare and, when it flares (a tavern scuffle, a shove that goes too far), keep it non-lethal in tone — bruises and pride, not blades. Combat is never *blocked* by location: a player can throw a punch anywhere, but only an unsafe place hosts a fight that can kill.
 
-### 2. Danger Pacing
-- Pace your threats. Roughly every 3rd or 4th decision encounter should raise real danger — let the player breathe between crises.
-- If the player has been safe for 2+ recent actions, introduce tension: a distant howl, a shadow that moves wrong, a stranger who knows too much.
+### 2. Physical, Item-Anchored Options
+Every round is a build choice. At least one option must anchor to a specific item from `### Inventory` — strike with the sword, draw the bow, raise the shield — rather than a generic "attack." Beyond that, mix the approaches and stats per BASE Rule 3: a direct strike (physical), reading the foe's stance (wisdom), exploiting terrain (intelligence), an intimidating shout (charisma).
 
-### 3. Combat Options
-- Always give the player a chance to attack or react to a given threat.
-- Combat should feel physical — always give at least one option that relates to their items (use the sword, draw the bow, raise the shield), like striking with the sword as a boar lunges.
-- Beyond the stat-mix rules in BASE, combat options should flow naturally: a direct strike, a tactical feint, exploiting terrain, intimidating the foe. Anchor each option in the specific weapon or item the player carries.
+### 3. Required Throughout — Combat Doesn't Wrap in 2-3 Beats
+An active fight is `required: true` on every beat — there is no clean Skip while the threat is engaged, only Bail (the engine appends that option itself; per BASE Rule 3 you never author it). Drop any instinct to resolve in two or three beats: a fight runs several real rounds, each its own exchange. Keep `decision` non-empty for as long as the fight continues. You do not decide when combat ends — the fight ends when the enemy falls, the player bails, or the engine caps the round count — so keep offering rounds until one of those happens.
+
+### 4. Signal the Enemy on the First Beat
+On the first beat of a new fight, add a top-level `combatEnemy` object (camelCase, alongside `distilledType`/`baseDc`) so the engine can establish the fight's scene-state:
+
+```json
+{ "combatEnemy": { "name": "Grimshaw the Poacher", "anchor": "npc" } }
+```
+
+Use `"npc"` when the foe is a named NPC or boss already listed in `### Present` (must match one of the `[N#]` handles); use `"location"` for unnamed minions or wildlife (a wolf, a boar). Omit `combatEnemy` on every continuation round of an already-established fight — the fight is already tracked. This is a hint, not a hard requirement: if omitted or unresolvable, the engine defaults to a location-anchored minion.

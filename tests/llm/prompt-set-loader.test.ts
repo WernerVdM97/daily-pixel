@@ -1,6 +1,25 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { loadPromptSet, stampFor, PROMPT_SET_VERSION } from '../../src/llm/prompt-builder.js';
 import { ACTION_CATEGORIES } from '../../src/llm/LlmGateway.js';
+
+// Raw (un-assembled) recipe files — loadPromptSet's assembled resolve strings are prepended with
+// BASE-resolve.md, whose shared MUTATION TYPES menu legitimately mentions `modify_health` as an
+// example for other action types. The engine-owned-number guard must check the combat recipe
+// files themselves, not the BASE-prefixed assembly.
+const V12_COMBAT_RESOLVE_DIR = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'assets',
+  'prompts',
+  'decision-prompts',
+  'v12',
+  'resolve',
+  'combat',
+);
 
 describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versioning.md)', () => {
   it('loads all templates from the default (v12) set', () => {
@@ -116,6 +135,40 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
     // decide/rest.md and resolve/rest/*.md. The loader encounters decide/rest.md first in
     // iteration order (combat→…→rest→other) and throws there.
     expect(() => loadPromptSet('__test-partial__')).toThrow(/missing template 'decide\/rest\.md'/);
+  });
+});
+
+describe('v12 combat template content — T4 C-a rules', () => {
+  it('decide/combat.md keys danger to location safety and drops the old cadence rule', () => {
+    const set = loadPromptSet('v12');
+    const decide = set.decide.combat.newAction;
+    expect(decide).toMatch(/location/i);
+    expect(decide).toMatch(/safe/i);
+    expect(decide).not.toMatch(/every 3rd or 4th/i);
+  });
+
+  it('decide/combat.md documents the combatEnemy field with both anchor values', () => {
+    const set = loadPromptSet('v12');
+    const decide = set.decide.combat.newAction;
+    expect(decide).toContain('combatEnemy');
+    expect(decide).toContain('"npc"');
+    expect(decide).toContain('"location"');
+  });
+
+  it('resolve combat recipe files never author engine-owned combat numbers', () => {
+    for (const ver of ['success', 'failure'] as const) {
+      const tpl = readFileSync(path.join(V12_COMBAT_RESOLVE_DIR, `${ver}.md`), 'utf-8');
+      expect(tpl).not.toContain('modify_health');
+      expect(tpl).not.toContain('enemyHp');
+      expect(tpl).not.toContain('set_relation');
+    }
+  });
+
+  it('success recipe scales reward with difficulty; failure recipe costs are non-health', () => {
+    const success = readFileSync(path.join(V12_COMBAT_RESOLVE_DIR, 'success.md'), 'utf-8');
+    const failure = readFileSync(path.join(V12_COMBAT_RESOLVE_DIR, 'failure.md'), 'utf-8');
+    expect(success).toMatch(/difficulty/i);
+    expect(failure).toMatch(/remove_item|modify_wealth/);
   });
 });
 
