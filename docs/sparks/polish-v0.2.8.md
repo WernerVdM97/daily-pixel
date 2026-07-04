@@ -1,6 +1,6 @@
 ---
 title: Polish Pass — v0.2.8
-status: exploring
+status: decided
 domain: spark
 phase: poc
 tags:
@@ -16,11 +16,15 @@ related:
   - "[[discord-interaction-layer]]"
   - "[[improved-item-features]]"
 ---
-A POC-beta polish bump (`0.2.7 → 0.2.8`) collecting the small, high-confidence **Discord-surface** wins from the 2026-07-03 prod-data review (snapshot `warden-20260703-133521`, builds `0.2.6`/`0.2.7`). Scope is deliberately narrow — four presentation/comms items drawn straight from player `feedback` rows. The larger asks from the same review (player-founded locations, cross-player buffs, item usability, communal currency) are routed to MVP/sparks and stay **out** of this bump. `F#` cites the feedback row in the snapshot.
+A POC-beta polish bump (`0.2.7 → 0.2.8`) collecting the small, high-confidence **presentation/comms** wins from the prod-data review, scoped for handoff to an implementation pipeline. Refreshed 2026-07-04 against snapshot `warden-20260704-124954` (prod, build `0.2.7`) plus the local dev DB. Every task here is render- or comms-only and **independent of the LLM prompt**, so it is unaffected by the in-flight prompt refactor (`feat/prompt-refactor`). Feedback that traces to the **old v11 prompting** (the auto-resolve/`done` behaviour, the rule-4b "success with no reward" violations, the 2026-07-02 companion-travel aborts) is **excluded here** and left to the refactor. The larger design asks from the same review (player-founded locations, cross-player buffs, item usability, communal currency) are routed to MVP/sparks and stay **out** of this bump. `F#`/`B#` cite the feedback/bug row.
 
 ---
 
 ## Tasks
+
+### 🧾 Outcome footer
+
+- [ ] **Footer omits a `max_stamina` gain** *(local dev DB, 2026-07-04 — "got max stamina +1 but no indicator on the footer")* — an action that raises `max_stamina` (e.g. `+1`) applies the mutation but the outcome footer shows no indicator, so the reward reads as if nothing happened. Same class as the F#13 inspiration/roll-grant fix already shipped to `[Unreleased]`: surface a `max_stamina` delta in the outcome changes line. Render-only. Confirm the footer/changes-line builder (`buildOutcomeEmbed`) and how it already renders health/stamina/roll deltas, then add the missing `max_stamina` case. Watch a likely-related root cause: `TODO.md` notes `CharacterRepository.update`'s allow-list omits `max_stamina`, so first verify the gain actually persists before assuming the bug is render-only.
 
 ### 🪪 Identity
 
@@ -49,9 +53,35 @@ Bigger than a polish bump; tracked in the root `TODO.md` "Player requests — pr
 - [>] **Items should be usable, not stat-bonus clutter** *(F#11)* → `[[improved-item-features]]`.
 - [>] **Communal / offering currency vs personal gold** *(F#9)* → the MVP wealth item + `[[improved-item-features]]` (personal vs communal coin).
 
-Also excluded: the auto-resolve/`done` frustration cluster (a known design wound, not a discrete polish item) and **F#21** — the 2026-07-02 quarry/divine-intervention incident, which is a **bug to investigate**, not a feature request.
+Also excluded and pushed down into `TODO.md` (MVP-deferred) on 2026-07-04: **LLM latency** (the snapshot shows 26 calls over 30s) and the **auto-resolve roll-refund** question (B#1, B#10). The broader auto-resolve/`done` frustration cluster and the v11 rule-4b violations are design/prompt wounds owned by the prompt refactor, not discrete polish items. **F#21** (the 2026-07-02 quarry/divine-intervention incident) stays a bug to investigate under the refactor, not a feature request.
 
 ---
+
+## Execution spec — Pass 1 (footer + identity)
+
+Verified seams (2026-07-04, lead-confirmed against `feat/prompt-refactor`). This is the executor contract for the first orchestration pass. The two other groups (pins/comms, weekly-recap) are a later pass and are **out of scope** for Pass 1.
+
+**Verification (run before returning; must stay green):** `npm run typecheck` and `npm test` (vitest). Baseline: the full suite is green before any change.
+
+### Task A — footer shows a `max_stamina` change
+
+- **File:** `src/engine/OutcomeRenderer.ts`. Deltas are aggregated from `outcome.mutations` in `deriveFromMutations()` (~L32-75) into the `MutationDeltas` struct (~L21-29); the stat block that prints them is ~L204-222, joined at ~L228. `formatDelta` (~L78-82) renders `" (+N)"`/`" (-N)"`.
+- **Gap:** there is no `case 'modify_max_stamina'` in the switch and no `maxStaminaDelta` field, so the op (canonical name `modify_max_stamina`, `WorldEngine.ts:87`) is silently dropped. `ctx.maxStamina` already carries the new ceiling; there is no before-value (not needed — the delta is the mutation `amount`).
+- **Change:** add `maxStaminaDelta: 0` to `MutationDeltas`; add `case 'modify_max_stamina': d.maxStaminaDelta += Number(m.amount ?? 0); break;`; render the delta on the stamina entry **unambiguously distinct from the current-stamina delta** — the current-stamina delta and the ceiling delta must not be confusable when both are nonzero. Use a labelled suffix, e.g. `⚡ 8/10 (max +1)` (only when `maxStaminaDelta !== 0`), rendered after any existing `staminaDelta` suffix. Final glyph/wording is the executor's to keep consistent with the file's style, but the two deltas must be visually separable.
+- **Tests:** extend `tests/engine/outcome-renderer.test.ts` — a `modify_max_stamina` mutation surfaces the ceiling delta; both-deltas case stays unambiguous; a no-max-change outcome is unchanged.
+- **Verify, do NOT fix (flag back to lead if broken):** confirm a `modify_max_stamina` mutation actually reaches `ctx.maxStamina` end-to-end (the `TODO.md` note that `CharacterRepository.update` omits `max_stamina` may mean the gain doesn't persist across loads). Persistence is **out of scope** for this render task; if it's broken, report it, don't fix it here.
+
+### Task B — show the character's owner on outcome messages *(F#3, F#8)*
+
+- **Send sites (all four, keep consistent):** `src/discord/commands/action.ts` auto-finish path (content ~L230) and button-resolution path (content ~L376); `src/index.ts` nav re-action (~L1764) and work path (~L2077). Each builds a `content` line like `` `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}` `` and sends a private reply plus a public `broadcastOutcome` (`src/discord/weekly-recap.ts:163`).
+- **Owner id:** the acting user *is* the owner; their Discord id is `interaction.user.id` / `i.user.id`, already in scope at every site. `CharacterData.userId` is the internal DB id, **not** the snowflake — do not use it. No DB lookup needed.
+- **Change:** add the owner next to the character name in the **public** outcome `content` as a Discord mention (`<@${userId}>`), and **suppress the ping** so it renders as a name without notifying (`allowedMentions: { users: [] }` / `parse: []` on the public payload; add pass-through to `broadcastOutcome` if it doesn't already forward `allowedMentions`). The private reply may carry the same suffix (harmless self-reference) but is secondary — the public/shared message is the one testers asked for.
+- **Scope fence:** identity is a lightweight name/mention suffix only. No guild-member display-name fetch, no new repo, no embed-author redesign, no touching the richer community-tagging work (deferred to `[[mvp-social-model]]`).
+- **Tests:** cover the public content line carries the owner mention and that pings are suppressed (extend the relevant `tests/discord/*` action test).
+
+### Scope fence (both tasks)
+
+Render/comms only. Do **not** touch the LLM prompt, the auto-resolve/`done` path, roll-refund logic, latency, or the pins/weekly-recap groups. No drive-by refactors of adjacent code.
 
 ## Cut line / notes
 
@@ -61,4 +91,4 @@ Also excluded: the auto-resolve/`done` frustration cluster (a known design wound
 
 ---
 
-Drawn from the 2026-07-03 prod-data review; refresh against a newer snapshot before cutting if much time passes.
+Drawn from the prod-data review and refreshed 2026-07-04 (snapshot `warden-20260704-124954` + local dev DB); refresh again before cutting if much time passes.

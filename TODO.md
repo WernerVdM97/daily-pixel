@@ -4,6 +4,8 @@
 ## scratchpad (humans start here)
 
 ### TBD — POC polish (small UI wins, no spark warranted)
+- [ ] on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.
+   - also show the emojis of the chosen class, upbringing, and race in the selected crossed out list
 - [ ] establish POC polish scope game doc
 - [ ] hints on action message
   - one action remaining, low stamina, unsafe location
@@ -35,6 +37,8 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
 - [ ] character progression depth — levels, upskilling, traits; the char creator shows which stats matter per race/class and how each modifies them. See [[mvp-progression]], [[mvp-character-drivers]].
 - [ ] richer community feedback in chat — tag people (not too spammy), let players show off to each other. See [[mvp-social-model]], [[mvp-discord-ux]].
 - [ ] use both models differently, flash for generating quick responses and daily work, pro for decision trees.
+- [ ] **LLM latency** *(deferred from [[polish-v0.2.8]], 2026-07-04)* — the 2026-07-04 snapshot shows mean ~12.8s, 94 calls >20s, 26 >30s (max 47.5s); this is what surfaces to players as `timed_out`/`bailed` outcomes. Rein in reasoning length and tighten the timeout+fallback. Overlaps the model-split above and the thinking-on/off experiments in [[mvp-llm-prompt-architecture]].
+- [ ] **Auto-resolve roll refund** *(deferred from [[polish-v0.2.8]], 2026-07-04)* — bug reports say a `done` auto-resolve can consume a roll while doing nothing / not refund it (B#1, B#10). The no-op/timeout/bail refund graces already exist and this list concluded there's no deterministic double-decrement in `startAction`, so the job is to verify the `done` path specifically hands the roll back on a true no-op. Part of the broader auto-resolve wound owned by the prompt refactor.
 - [ ] saturday special event, spawn an "evil npc" somewhere with a hint. Incentivise hunting it/them and add npc death mutation
 - [ ] choose age
 - [ ] Improved journal/story

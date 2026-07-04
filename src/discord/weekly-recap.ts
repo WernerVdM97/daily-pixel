@@ -144,6 +144,7 @@ export interface OutcomePayload {
   content?: string;
   embeds?: unknown[];
   components?: unknown[];
+  allowedMentions?: { users: string[]; parse?: string[] };
 }
 
 type ChannelFetcher = { channels: { fetch: (id: string) => Promise<unknown> } };

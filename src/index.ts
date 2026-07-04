@@ -1761,9 +1761,10 @@ ${headInfo}`);
             components: [...getNavButtons(resolvedChar), ...serviceButtons],
           });
           const payload = {
-            content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
+            content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
             embeds: [embed],
             components: serviceButtons,
+            allowedMentions: { users: [] },
           };
           await broadcastOutcome({
             client: interaction.client,
@@ -2074,9 +2075,10 @@ _${idleMsg}_`)
             components: [...getNavButtons(resolvedChar), ...serviceButtons],
           });
           const payload = {
-            content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
+            content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
             embeds: [embed],
             components: serviceButtons,
+            allowedMentions: { users: [] },
           };
           await broadcastOutcome({
             client: interaction.client,
