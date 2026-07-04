@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`MAX_DECISIONS_PER_ACTION` constant** — the beat cap is now a named constant (`2`) injected into the CONTINUE user message so the model knows how close it is to resolution.
 - **Per-verdict resolve templates** — resolve templates split by success/failure under `resolve/<category>/{success,failure}.md`, each a lean mutation recipe (~4 lines), with shared rules in `resolve/BASE.md`.
 - **Owner identity on public outcome messages** *(F#3, F#8)* — the character's owner (as a `<@discordId>` mention with pings suppressed) now appears next to the character name on the shared public outcomes so testers can tell who's who.
+- **`Hi` button on public outcomes** — action outcomes posted to the weekly thread now carry a 🌅 `Hi` re-entry button ahead of the feedback/bug buttons, so a reader can jump straight into play from the thread. The `nav:hi` handler already spawns a fresh per-clicker ephemeral on public messages, so no new routing was needed.
 - **One free bail per day** — the first time you step back from a decision each day refunds the roll (mirrors the no-op/timeout "made whole" graces); later bails that day still spend it, and bailing always costs stamina. Guarded migration `202606300000_player_last_bail_refund_day` adds `player_characters.last_bail_refund_day` (own column so the bail grace never burns — or is burned by — the no-op/timeout graces).
 
 ### Changed

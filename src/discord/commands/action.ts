@@ -21,7 +21,7 @@ import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
-import { getNavButtons, getOutcomeServiceButtons, classEmoji, dayJobEmoji } from '../format.js';
+import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji, dayJobEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 
@@ -232,7 +232,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         const payload = {
           content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
           embeds: [publicEmbed],
-          components: serviceButtons,
+          components: getPublicOutcomeButtons(result.outcome.actionId),
           allowedMentions: { users: [] },
         };
         // The action already resolved and persisted, and the outcome is shown above. Isolate the
@@ -378,12 +378,12 @@ async function applyActionResult(
         : serviceButtons,
     });
 
-    // Public copy carries only the feedback/bug-report buttons — no nav.
+    // Public copy carries a "Hi" re-entry button alongside the feedback/bug-report buttons.
     const charName = character?.name ?? 'Unknown';
     const payload = {
       content: `${classEmoji(character?.class)} **${charName}** <@${i.user.id}> — ${outcome.distilledType}`,
       embeds: [publicEmbed],
-      components: serviceButtons,
+      components: getPublicOutcomeButtons(outcome.actionId),
       allowedMentions: { users: [] },
     };
     await broadcastOutcome({

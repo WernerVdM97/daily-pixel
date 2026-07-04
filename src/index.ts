@@ -87,7 +87,7 @@ import {
   getWorkplaceLocation,
   type DayJobDef,
 } from "./discord/commands/hi.js";
-import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, navResponseMode, parseOutcomeActionId, dayJobEmoji, registerEmoji } from "./discord/format.js";
+import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, navResponseMode, parseOutcomeActionId, dayJobEmoji, registerEmoji } from "./discord/format.js";
 import { announceCollapse, setCollapseBroadcaster } from "./discord/collapse.js";
 import {
   pickWeeklyThreat,
@@ -1794,7 +1794,7 @@ ${headInfo}`);
           const payload = {
             content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
             embeds: [publicEmbed],
-            components: serviceButtons,
+            components: getPublicOutcomeButtons(result.outcome.actionId),
             allowedMentions: { users: [] },
           };
           await broadcastOutcome({
@@ -2120,7 +2120,7 @@ _${idleMsg}_`)
           const payload = {
             content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
             embeds: [publicEmbed],
-            components: serviceButtons,
+            components: getPublicOutcomeButtons(result.outcome.actionId),
             allowedMentions: { users: [] },
           };
           await broadcastOutcome({
