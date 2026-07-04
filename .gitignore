@@ -1,3 +1,6 @@
+# agents
+.pi-subagents/
+
 # Obsidian — personal config
 .obsidian/*
 !.obsidian/app.json
