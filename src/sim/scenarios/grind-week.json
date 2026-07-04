@@ -1,0 +1,71 @@
+{
+  "name": "grind-week",
+  "character": {
+    "class": "Blacksmith Apprentice",
+    "stats": { "physical": 4, "wisdom": 1, "intelligence": 1, "charisma": 1 },
+    "health": 10,
+    "maxHealth": 10,
+    "stamina": 10,
+    "maxStamina": 10,
+    "wealth": 0,
+    "location": "The Warden's Oak",
+    "alignment": "lawful good",
+    "dayJob": "Blacksmith"
+  },
+  "rollSource": { "kind": "seeded", "seed": 20260703 },
+  "decisions": [
+    {
+      "prompt": "The forge is warm and the day's work is routine.",
+      "distilledType": "work",
+      "stat": "physical",
+      "baseDc": 10,
+      "required": false,
+      "done": false,
+      "decision": [
+        { "label": "Forge a blade", "dcModifier": 0 },
+        { "label": "Repair armour", "dcModifier": -1 },
+        { "label": "Step back", "dcModifier": null }
+      ]
+    },
+    {
+      "distilledType": "work",
+      "stat": "physical",
+      "baseDc": 10,
+      "required": false,
+      "done": true,
+      "decision": [{ "label": "Finish it", "dcModifier": 0 }],
+      "mutations": [{ "type": "modify_wealth", "amount": 6 }],
+      "outcomeText": "Another honest day's work, coin in hand."
+    }
+  ],
+  "week": [
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" },
+      { "input": "work the forge", "choicePolicy": "first-real" }
+    ],
+    [{ "input": "work the forge", "choicePolicy": "first-real" }],
+    []
+  ],
+  "weeks": 1
+}

@@ -74,7 +74,7 @@ export function loadReleaseNotes(tag: string, dir: string): ReleaseNotes | null 
 
 /** Build the public release-notes message body. */
 export function buildReleaseNotesMessage(rn: ReleaseNotes): string {
-  const lines: string[] = [`📜 **What's New — ${rn.tag}: ${rn.title}**`];
+  const lines: string[] = [`📬 **What's New — ${rn.tag}: ${rn.title}**`];
   if (rn.date) lines.push(`*${rn.date}*`);
   lines.push("");
   for (const h of rn.highlights) lines.push(`• ${h}`);

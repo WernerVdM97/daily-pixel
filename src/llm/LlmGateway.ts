@@ -43,9 +43,30 @@ export interface LlmContext {
   rollOutcome?: 'success' | 'failure';
   /** Coherence-critic feedback (Thread 2) for a single re-decide on a MAJOR defect. Absent on first attempt. */
   criticNote?: string;
+  /** Stage 2 T3 — the persisted scene-state subgraph touching this character, as structured data
+   *  (D1 "graph → markdown at ~0 tokens": T3 lays the data channel only, markdown rendering is a
+   *  v12-template concern deferred to later work). Only the pipeline path populates this — the
+   *  legacy resolver (`machine.ts`) has no scene-state channel. Omitted when empty. */
+  sceneState?: SceneStateEdge[];
 }
 
-export type ActionCategory = 'combat' | 'travel' | 'social' | 'skill' | 'search' | 'rest' | 'other';
+/** One edge of the scene-state graph (Stage 2 decision 3/4), read back into `LlmContext` as
+ *  plain structured data — no markdown rendering here (deferred; see `sceneState` above). The
+ *  `type` literals mirror `NodeType` (`src/db/repositories/relation.ts`) without importing it,
+ *  since the llm layer doesn't otherwise depend on the db layer. */
+export interface SceneStateEdge {
+  from: { type: 'pc' | 'npc' | 'location'; ref: string };
+  to: { type: 'pc' | 'npc' | 'location'; ref: string };
+  relType: string;
+  props: Record<string, number | string | boolean>;
+}
+
+// Canonical list — the SINGLE source of truth for the category set. The union type below is
+// derived from this array (never a hand-copied literal), so every consumer (prompt-builder's
+// decide-map, DeepseekLlmGateway's runtime validation, tests) imports the same array and a
+// category can't be added to one without the other silently drifting.
+export const ACTION_CATEGORIES = ['combat', 'travel', 'social', 'skill', 'search', 'rest', 'other'] as const;
+export type ActionCategory = (typeof ACTION_CATEGORIES)[number];
 
 export interface LlmDecision {
   prompt?: string;

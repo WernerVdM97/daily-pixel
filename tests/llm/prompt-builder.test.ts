@@ -135,6 +135,23 @@ describe('buildUserMessage — v9 markdown briefing', () => {
     expect(msg).toContain('- A standoff → Draw (dc_modifier: 1)');
   });
 
+  it('injects the beat count on CONTINUE — final beat when at the cap', () => {
+    // first decision = beat 1 of 2 (not final)
+    const msg1 = buildUserMessage(fullContext({
+      previousDecisions: [],
+    }));
+    // NEW_ACTION has no beat count line (only the bare PHASE line)
+    expect(msg1).toMatch(/^PHASE: NEW_ACTION\n/);
+    expect(msg1).not.toContain('decision 1 of 2');
+
+    // one prior → beat 2 of 2 (final)
+    const msg2 = buildUserMessage(fullContext({
+      previousDecisions: [{ prompt: 'A standoff', chosen: 'Draw', dcModifier: 1 }],
+    }));
+    expect(msg2).toContain('PHASE: CONTINUE');
+    expect(msg2).toContain('decision 2 of 2 — the final beat');
+  });
+
   it('derives RESOLVE_ROLL phase and appends the verdict directive', () => {
     const msg = buildUserMessage(fullContext({ rollOutcome: 'failure' }));
     expect(msg).toMatch(/^PHASE: RESOLVE_ROLL\n/);

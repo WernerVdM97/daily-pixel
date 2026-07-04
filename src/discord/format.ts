@@ -220,6 +220,24 @@ export function getOutcomeServiceButtons(actionId?: number): Array<{
 }
 
 /**
+ * Buttons for the PUBLIC outcome copy posted to the weekly thread: a "Hi" re-entry
+ * button (`nav:hi`) ahead of the feedback/bug-report service buttons, so a reader can
+ * jump straight into play from the thread. The private reply already carries the full
+ * nav bar, so Hi is added here only for the thread copy. The `nav:hi` handler already
+ * spawns a fresh per-clicker ephemeral on public messages (see navResponseMode).
+ */
+export function getPublicOutcomeButtons(actionId?: number): ReturnType<typeof getOutcomeServiceButtons> {
+  const [serviceRow] = getOutcomeServiceButtons(actionId);
+  return [{
+    ...serviceRow,
+    components: [
+      { type: CT.BUTTON, custom_id: 'nav:hi', label: 'Hi', emoji: { name: '🌅' }, style: BS.SECONDARY },
+      ...serviceRow.components,
+    ],
+  }];
+}
+
+/**
  * How a nav-button click should respond, given the source message's flags. Edit in place
  * ONLY when the source is itself a Components-V2 ephemeral: `update()` is a partial edit,
  * so on a legacy embed message (the action outcome) it would preserve the embeds and clash

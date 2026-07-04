@@ -87,7 +87,7 @@ import {
   getWorkplaceLocation,
   type DayJobDef,
 } from "./discord/commands/hi.js";
-import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, navResponseMode, parseOutcomeActionId, dayJobEmoji, registerEmoji } from "./discord/format.js";
+import { buildComponentPayload, getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, navResponseMode, parseOutcomeActionId, dayJobEmoji, registerEmoji } from "./discord/format.js";
 import { announceCollapse, setCollapseBroadcaster } from "./discord/collapse.js";
 import {
   pickWeeklyThreat,
@@ -788,7 +788,7 @@ async function runAfternoonBeat(
       engine.setMeta("last_threat_date", dateStr);
       const threatMsg = await postAnnouncement(client, channelId, buildThreatAnnouncement(threat));
       if (threatMsg) {
-        await pinMessage(threatMsg, "Saturday threat");
+        await pinReplacing(threatMsg, '⚔️ **A threat stirs in the wild.**', 'Saturday threat');
         console.log(
           c.green(`[cron] Saturday threat posted: ${threat.npc.name} at ${threat.location}.`),
         );
@@ -888,6 +888,7 @@ async function finalizePreviousWeek(
   boundaryTs: string,
 ): Promise<void> {
   const headerId = engine.getMeta(META_RECAP_HEADER_ID);
+  const threadId = engine.getMeta(META_RECAP_THREAD_ID);
   const weekStart = engine.getMeta(META_RECAP_WEEK_START);
   if (!headerId || !weekStart) return; // nothing to finalize yet
 
@@ -913,7 +914,26 @@ async function finalizePreviousWeek(
   // week's thread (the boundary is when the thread id flips below).
   const actions = engine.getActionsBetween(weekStart, boundaryTs);
   const recapResult = await generateWeeklyDigest(actions, recap);
-  const headerText = buildRecapHeader(weekNumber, weekStart.slice(0, 10), recapResult);
+
+  // Post the chronicle to the thread, lock it, then edit the header to a minimal anchor.
+  if (threadId) {
+    try {
+      const thread = await client.channels.fetch(threadId);
+      if (thread && typeof (thread as unknown as Record<string, unknown>).send === 'function') {
+        const chronicle = buildRecapHeader(weekNumber, weekStart.slice(0, 10), recapResult);
+        await (thread as { send: (c: string) => Promise<unknown> }).send(chronicle);
+        // Lock best-effort; a missing Manage Threads permission shouldn't block.
+        await (thread as { setLocked: (l: boolean) => Promise<unknown> }).setLocked(true).catch(() => {});
+      }
+    } catch (err) {
+      console.warn(
+        c.yellow(`[recap] Could not finalize Week ${weekNumber} thread (${threadId}):`),
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const headerText = `📜 **Week ${weekNumber}** — the tale is told. Scroll down to the last message in the thread for the chronicle.`;
   try {
     await headerMsg.edit(headerText);
     console.log(c.green(`[recap] Finalized Week ${weekNumber} chronicle (${actions.length} actions).`));
@@ -1749,27 +1769,40 @@ ${headInfo}`);
           // Re-read AFTER startAction so the embed + nav reflect the spent roll and
           // mutations — `char` above is the pre-action snapshot.
           const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
-          const embed = buildOutcomeEmbed(
+          // Compact for private reply, full for public thread copy (F#19c).
+          const privateEmbed = buildOutcomeEmbed(
             result.outcome,
             resolvedChar,
             getCurrentScene(interaction.user.id),
             result.state,
+            { compact: true },
+            engine,
+          );
+          const publicEmbed = buildOutcomeEmbed(
+            result.outcome,
+            resolvedChar,
+            getCurrentScene(interaction.user.id),
+            result.state,
+            undefined,
+            engine,
           );
           const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
           await interaction.editReply({
-            embeds: [embed],
+            embeds: [privateEmbed],
             components: [...getNavButtons(resolvedChar), ...serviceButtons],
           });
           const payload = {
-            content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
-            embeds: [embed],
-            components: serviceButtons,
+            content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
+            embeds: [publicEmbed],
+            components: getPublicOutcomeButtons(result.outcome.actionId),
+            allowedMentions: { users: [] },
           };
           await broadcastOutcome({
             client: interaction.client,
             threadId: engine.getMeta(META_RECAP_THREAD_ID),
             payload,
             fallback: () => interaction.followUp(payload),
+            subscribeUserIds: [interaction.user.id],
           });
           await announceCollapse(resolvedChar.name, char, resolvedChar);
         } else if (result.firstDecision.options.length === 0) {
@@ -2062,27 +2095,40 @@ _${idleMsg}_`)
           // mutations — `char` above is the pre-action snapshot (only patched locally
           // for the commute stamina cost).
           const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
-          const embed = buildOutcomeEmbed(
+          // Compact for private reply, full for public thread copy (F#19c).
+          const privateEmbed = buildOutcomeEmbed(
             result.outcome,
             resolvedChar,
             getCurrentScene(interaction.user.id),
             result.state,
+            { compact: true },
+            engine,
+          );
+          const publicEmbed = buildOutcomeEmbed(
+            result.outcome,
+            resolvedChar,
+            getCurrentScene(interaction.user.id),
+            result.state,
+            undefined,
+            engine,
           );
           const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
           await interaction.webhook.editMessage(interaction.message.id, {
-            embeds: [embed],
+            embeds: [privateEmbed],
             components: [...getNavButtons(resolvedChar), ...serviceButtons],
           });
           const payload = {
-            content: `**${resolvedChar.name}** — ${result.outcome.distilledType}`,
-            embeds: [embed],
-            components: serviceButtons,
+            content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
+            embeds: [publicEmbed],
+            components: getPublicOutcomeButtons(result.outcome.actionId),
+            allowedMentions: { users: [] },
           };
           await broadcastOutcome({
             client: interaction.client,
             threadId: engine.getMeta(META_RECAP_THREAD_ID),
             payload,
             fallback: () => interaction.followUp(payload),
+            subscribeUserIds: [interaction.user.id],
           });
           await announceCollapse(resolvedChar.name, char, resolvedChar);
         } else if (result.firstDecision.options.length === 0) {

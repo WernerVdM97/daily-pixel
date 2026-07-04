@@ -21,7 +21,7 @@ import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
-import { getNavButtons, getOutcomeServiceButtons, classEmoji, dayJobEmoji } from '../format.js';
+import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji, dayJobEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 
@@ -218,18 +218,22 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       if (result.outcome) {
         const resolvedChar = engine.getCharacter(interaction.user.id);
         const scene = getCurrentScene(interaction.user.id);
-        const embed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
+        // Compact embed for private reply (no story thread — the player just saw it in
+        // the decision embed). Full embed for the public thread copy (F#19c).
+        const privateEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, { compact: true }, engine);
+        const publicEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, undefined, engine);
         const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
         await interaction.editReply({
-          embeds: [embed],
+          embeds: [privateEmbed],
           components: resolvedChar
             ? [...getNavButtons(resolvedChar), ...serviceButtons]
             : serviceButtons,
         });
         const payload = {
-          content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
-          embeds: [embed],
-          components: serviceButtons,
+          content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
+          embeds: [publicEmbed],
+          components: getPublicOutcomeButtons(result.outcome.actionId),
+          allowedMentions: { users: [] },
         };
         // The action already resolved and persisted, and the outcome is shown above. Isolate the
         // public broadcast + collapse announce so a failure here can't fall through to the outer
@@ -240,6 +244,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
             threadId: engine.getMeta(META_RECAP_THREAD_ID),
             payload,
             fallback: () => interaction.followUp(payload),
+            subscribeUserIds: [interaction.user.id],
           });
           await announceCollapse(resolvedChar?.name ?? 'A soul', character, resolvedChar);
         } catch (broadcastErr) {
@@ -360,28 +365,33 @@ async function applyActionResult(
 
     // Destination scene shown when the character moved.
     const scene = _sceneLookup?.(i.user.id);
-    const outcomeEmbed = buildOutcomeEmbed(outcome, character, scene, result.state);
+    // Compact for private reply (no story thread — the player just saw it in the
+    // decision embed). Full for the public thread copy (F#19c).
+    const privateEmbed = buildOutcomeEmbed(outcome, character, scene, result.state, { compact: true }, engine);
+    const publicEmbed = buildOutcomeEmbed(outcome, character, scene, result.state, undefined, engine);
 
     const serviceButtons = getOutcomeServiceButtons(outcome.actionId);
     await i.webhook.editMessage(i.message.id, {
-      embeds: [outcomeEmbed],
+      embeds: [privateEmbed],
       components: character
         ? [...getNavButtons(character), ...serviceButtons]
         : serviceButtons,
     });
 
-    // Public copy carries only the feedback/bug-report buttons — no nav.
+    // Public copy carries a "Hi" re-entry button alongside the feedback/bug-report buttons.
     const charName = character?.name ?? 'Unknown';
     const payload = {
-      content: `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}`,
-      embeds: [outcomeEmbed],
-      components: serviceButtons,
+      content: `${classEmoji(character?.class)} **${charName}** <@${i.user.id}> — ${outcome.distilledType}`,
+      embeds: [publicEmbed],
+      components: getPublicOutcomeButtons(outcome.actionId),
+      allowedMentions: { users: [] },
     };
     await broadcastOutcome({
       client: i.client,
       threadId: engine.getMeta(META_RECAP_THREAD_ID),
       payload,
       fallback: () => i.followUp(payload),
+      subscribeUserIds: [i.user.id],
     });
     await announceCollapse(character?.name ?? prevChar?.name ?? 'A soul', prevChar, character);
   } else {
@@ -579,6 +589,8 @@ export function buildOutcomeEmbed(
   character: CharacterData | null | undefined,
   scene: string | null | undefined,
   state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string }>; kind?: ActionKind },
+  opts?: { compact?: boolean },
+  engine?: WorldEngine,
 ): ReturnType<EmbedBuilder['toJSON']> {
   const ctx: OutcomeRenderContext = {
     stamina: character?.stamina ?? 10,
@@ -588,6 +600,11 @@ export function buildOutcomeEmbed(
     maxHealth: character?.maxHealth ?? 10,
     wealth: character?.wealth ?? 0,
   };
+
+  // Location header — emoji prefix from the geography seed, name from character.
+  const locName = character?.location;
+  const locEmoji = locName ? (engine?.getLocation(locName)?.emoji ?? '📍') : null;
+  const locationLine = locName ? `${locEmoji} ${locName}` : null;
 
   // Breadcrumb of the distilled actions the player moved through, e.g. 🔍 → 🗣️ → ⚔️.
   const types = state.decisions.length > 0
@@ -600,13 +617,19 @@ export function buildOutcomeEmbed(
   const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
   // Full gamebook recap: breadcrumb, destination scene, story thread, then the
-  // resolution as focal unquoted text. Degrade to fit the embed cap: full →
-  // collapse history → drop the decorative scene → hard clip.
+  // resolution as focal unquoted text. Compact mode (private reply) skips the
+  // story thread — the player just saw it in the decision embed, so repeating
+  // it here is the double-showing the player flagged (F#19c). Degrade to fit
+  // the embed cap: full → collapse history → drop the decorative scene → hard
+  // clip.
   const assemble = (collapseHistory: boolean, includeScene: boolean): string => {
     const parts: string[] = [];
+    if (locationLine) parts.push(locationLine);
     if (breadcrumb) parts.push(breadcrumb);
     if (includeScene && sceneBlock) parts.push(sceneBlock);
-    parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
+    if (!opts?.compact) {
+      parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
+    }
     parts.push(outcomeBlock);
     return parts.join('\n\n');
   };

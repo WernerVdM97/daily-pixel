@@ -34,6 +34,7 @@ describe('migrate', () => {
       'meta',
       'npcs',
       'player_characters',
+      'relations',
       'schema_migrations',
       'users',
     ]);

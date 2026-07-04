@@ -1,0 +1,11 @@
+tag: v0.2.8
+title: Polish — who did what, and what changed
+highlights:
+  - "Outcome footer now shows max stamina gains — no more invisible rewards when your grit hardens."
+  - "Your name now appears on shared action outcomes, so other testers know who's who."
+  - "Release notes have their own 📬 icon in pins, separate from the weekly chronicle."
+  - "The weekly chronicle now lives at the bottom of a locked thread — no more scrolling to the top to read the recap."
+  - "Private outcome replies are now less cluttered — the story trail stays in the thread copy."
+notes: >
+  Small but live. Pins are cleaner, the recap is finally readable, and the feedback loop
+  that's been bugging testers since the start (who did that? what changed?) is closed.

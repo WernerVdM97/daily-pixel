@@ -3,10 +3,16 @@ title: Mutation Vocabulary Refinement — Verb Cleanup, NPC Lifecycle & Action-C
 status: shipped
 domain: engine
 phase: poc
-tags: [llm, mutations, engine, prompt, npc, taxonomy]
+tags:
+  - llm
+  - mutations
+  - engine
+  - prompt
+  - npc
+  - taxonomy
 related:
   - "[[prompt-v9-markdown-and-critic]]"
-  - "[[prompt-v12-scaling-and-pipeline]]"
+  - "[[prompt-separation-of-concerns]]"
   - "[[roll-economy-timeouts-and-world-growth]]"
   - "[[per-player-map-exploration]]"
 ---
@@ -18,7 +24,7 @@ A focused cleanup-plus-small-expansion of the **mutation vocabulary** — the ke
 This is a `0.2.x` candidate. It bumps the decision prompt (a new **`decision-v11.md`** + `PROMPT_VERSION`), so historical action rows stay attributable to the v8/v9 vocabulary that produced them.
 
 - [>] **Sequencing settled by reality: v9 shipped standalone** (`PROMPT_VERSION='v9'`, `decision-v9.md` + the critic are live). So this cleanup is a **separate, later bump**, not folded into v9.
-- [>] **Numbering — RESOLVED (decided 2026-06-27).** Three prompt changes queue after v9: the *decided* [[per-player-map-exploration]] prompt bump ships first as **`decision-v10`** (KNOWN LOCATIONS → local exits); **this** vocabulary cleanup is the second single-file `0.2.x` bump, **`decision-v11`**; and the `0.3.0` pipeline *set* in [[prompt-v12-scaling-and-pipeline]] becomes **`v12`**. This cleanup builds on the map model — its `move_to`/`reveal_location` defer to the graph (see §3) — so it sequences *after* the map bump.
+- [>] **Numbering — RESOLVED (decided 2026-06-27).** Three prompt changes queue after v9: the *decided* [[per-player-map-exploration]] prompt bump ships first as **`decision-v10`** (KNOWN LOCATIONS → local exits); **this** vocabulary cleanup is the second single-file `0.2.x` bump, **`decision-v11`**; and the `0.3.0` pipeline *set* in [[prompt-separation-of-concerns]] becomes **`v12`**. This cleanup builds on the map model — its `move_to`/`reveal_location` defer to the graph (see §3) — so it sequences *after* the map bump.
 
 ## The current vocabulary (v8/v9 baseline)
 
@@ -164,10 +170,10 @@ Additional evidence (prod snapshot — warden-2026-06-30):
 
 - [>] **Sequencing and scope (scoped 2026-06-30).** The guard *framework* (enum + unexpected-mutation telemetry + stacked-delta clamp) rides the **v11** bump. Of the three specific guards: the **stacked-delta clamp** (guard 1) ships now; the **pre-roll side-effect guard** (guard 2 — DECISION beat with mutations) is implemented as **log-only** in v11 (no retry), with the retry deferred to v12 once telemetry confirms frequency; the **Rule 4b success-no-reward guard** (guard 3) remains **flag-only** (the warning already fires in `validateDecision`) — retry deferred for the same reason. Both deferred retries will re-home naturally under this framework when they ship.
 
-### 6. Forward note → 0.3.0 two-pass prompt (ties to [[prompt-v12-scaling-and-pipeline]], the **v12** set)
+### 6. Forward note → 0.3.0 two-pass prompt (ties to [[prompt-separation-of-concerns]], the **v12** set)
 
 - [>] Today's soft map is a **stepping stone**. In the larger prompt refactor (v12 thread D — *classify → decide → resolve pipeline*), move to a **two-pass flow**: derive the `category` first, then **dynamically inject only that category's mutation sub-vocabulary** into the second prompt. A smaller, focused mutation menu per call should sharpen adherence and shrink the prompt. The soft map built here becomes the data source that two-pass flow reads from.
-- [>] **One classification vocabulary — RESOLVED.** The `category` enum added here (`combat · travel · social · skill · search · rest · other`) **is the seed of v12's Stage-1 classifier `type`**, and [[prompt-v12-scaling-and-pipeline]] now standardises on this exact set throughout (its earlier 5-value `fight · travel · trade · talk · other` sketch is retired). v11 ships first, so this enum is canonical; v12 inherits it (and may extend), never forks a parallel taxonomy.
+- [>] **One classification vocabulary — RESOLVED.** The `category` enum added here (`combat · travel · social · skill · search · rest · other`) **is the seed of v12's Stage-1 classifier `type`**, and [[prompt-separation-of-concerns]] now standardises on this exact set throughout (its earlier 5-value `fight · travel · trade · talk · other` sketch is retired). v11 ships first, so this enum is canonical; v12 inherits it (and may extend), never forks a parallel taxonomy.
 
 ---
 
