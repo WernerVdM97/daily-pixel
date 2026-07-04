@@ -242,7 +242,13 @@ async function runPipelineScenario(scenario: Scenario): Promise<SimResult> {
   // `relationsPersisted` (Stage 2 T5c) is read once at scenario end from the engine's private
   // RelationRepository — a running total across every beat, so it demonstrates edges written on
   // earlier beats survive to the end of the run.
-  return { scenario: scenario.name, turns, stageCalls: llm.stageCalls, relationsPersisted: engine.getPersistedRelationCount() };
+  return {
+    scenario: scenario.name,
+    turns,
+    stageCalls: llm.stageCalls,
+    relationsPersisted: engine.getPersistedRelationCount(),
+    combatMetrics: engine.getCombatMetrics(),
+  };
 }
 
 /**

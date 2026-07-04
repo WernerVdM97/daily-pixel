@@ -3,6 +3,7 @@ import { PipelineActionStateMachine, type PipelineInternalActionState } from '..
 import { applyMutations, type MutationContext } from '../engine/action/mutations.js';
 import { resolveAuthoredRelation } from '../engine/action/relation-wiring.js';
 import type { PipelineContextResolver } from '../engine/action/pipeline-context.js';
+import type { CombatBeatLog } from '../engine/action/combat-dc.js';
 import type {
   ActionKind,
   ActionOutcome,
@@ -19,7 +20,7 @@ import { LocationEdgeRepository } from '../db/repositories/locationEdge.js';
 import { RelationRepository } from '../db/repositories/relation.js';
 import type { PipelineLlmGateway } from '../llm/pipeline/types.js';
 import { makeRollD20 } from './roll-source.js';
-import type { CharacterSeed, RollSource } from './types.js';
+import type { CharacterSeed, CombatMetrics, RollSource } from './types.js';
 
 // Fresh-character default, duplicated from WorldEngineImpl.ts's private DAILY_ROLL_ALLOWANCE
 // (createCharacter, WorldEngineImpl.ts:76,409) — `CharacterSeed` has no rollsRemaining field
@@ -54,6 +55,13 @@ export class PipelineSimEngine {
   private items: ItemData[] = [];
   private pendingState: PipelineInternalActionState | null = null;
   private nextItemId = 1;
+  /** T5 combat telemetry accumulators — collected at BOTH `stepAction` (non-terminal beats)
+   *  and `applyOutcome` (terminal beats), not just the outcome: a bailed/fled fight resolves
+   *  via the generic bail path whose outcome carries no `combatBeat`, so its earlier fought
+   *  rounds would be lost if only the terminal outcome were read. */
+  private combatBeats: CombatBeatLog[] = [];
+  private combatWins = 0;
+  private combatLosses = 0;
 
   // Stage 2 T5b — private geography-capable world. `:memory:` with the FULL migration chain
   // applied (incl. the relations migration T1 registers last) and the seed world layered on, so
@@ -184,6 +192,9 @@ export class PipelineSimEngine {
       return { resolved: true, state: toPublicState(result.state), outcome: result.outcome };
     }
 
+    // T5 — collect this beat's combat telemetry (if any) before the next beat overwrites it.
+    if (result.combatBeat) this.combatBeats.push(result.combatBeat);
+
     // Apply non-terminal mutations (e.g. combat round updates, player HP deltas) before
     // the next beat's context is built, so scene-state read-back works across beats.
     if (result.mutations && result.mutations.length > 0) {
@@ -229,6 +240,17 @@ export class PipelineSimEngine {
     return this.relationRepo.count();
   }
 
+  /** T5 sim-metrics hook — scenario-level combat aggregates, mirroring
+   *  `getPersistedRelationCount()`'s pipeline-only precedent above. */
+  getCombatMetrics(): CombatMetrics {
+    return {
+      roundsFought: this.combatBeats.length,
+      floorSaves: this.combatBeats.filter(b => b.floorSave).length,
+      wins: this.combatWins,
+      losses: this.combatLosses,
+    };
+  }
+
   /**
    * Applies a resolved outcome's mutations to in-memory char/item state via the same pure
    * `applyMutations` `WorldEngineImpl.applyResolution` uses — the slice this adapter needs
@@ -239,6 +261,14 @@ export class PipelineSimEngine {
    * shape, which reports them without this adapter acting on them.
    */
   private applyOutcome(outcome: ActionOutcome): void {
+    // T5 — a bailed combat has no `combatBeat` on its outcome (a voluntary flee is a choice,
+    // not a fought round), so it correctly counts as neither a win nor a loss here.
+    if (outcome.combatBeat) {
+      this.combatBeats.push(outcome.combatBeat);
+      if (outcome.outcome === 'success') this.combatWins++;
+      else if (outcome.outcome === 'failure') this.combatLosses++;
+    }
+
     const ctx: MutationContext = {
       currentHealth: this.char.health,
       maxHealth: this.char.maxHealth,

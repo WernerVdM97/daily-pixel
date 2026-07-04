@@ -7,11 +7,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { runScenario, runComparison } from '../../src/sim/driver.js';
-import { summarize } from '../../src/sim/metrics.js';
+import { summarize, renderTable } from '../../src/sim/metrics.js';
 import { buildSimEngine } from '../../src/sim/engine-factory.js';
 import { exampleComparisonScenario } from '../../src/sim/example-comparison-scenario.js';
+import { combatWinScenario, combatFloorScenario, combatCapScenario } from '../../src/sim/combat-scenario.js';
 import type { PipelineSimEngine } from '../../src/sim/PipelineSimEngine.js';
-import type { CharacterSeed, PipelineScript, Scenario } from '../../src/sim/types.js';
+import type { CharacterSeed, DecisionScript, PipelineScript, Scenario } from '../../src/sim/types.js';
 
 const BASE_CHARACTER: CharacterSeed = {
   class: 'Warrior',
@@ -1140,5 +1141,126 @@ describe('T3 follow-up — voluntary mid-combat bail (flee at a cost)', () => {
     const bail = await engine.stepAction(1, 'Flee the fight');
     expect(bail.resolved).toBe(true);
     expect((bail as { resolved: true; outcome: { outcome: string } }).outcome.outcome).toBe('bailed');
+  });
+});
+
+describe('T5 — combat telemetry + metrics', () => {
+  /** Script for combat rounds without a decide-stage sceneState inspection (same T3 shape). */
+  function combatScript(): PipelineScript {
+    return {
+      decide: (_input, callNo) => ({
+        distilledType: 'combat',
+        stat: 'physical',
+        baseDc: 12,
+        required: true,
+        decision: [{ label: 'Press the attack', dcModifier: 0 }],
+        ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' } } : {}),
+      }),
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls.' }),
+    };
+  }
+
+  it('the terminal WIN beat carries a combatBeat with band + enemyHpAfter 0', async () => {
+    const handle = buildSimEngine({ kind: 'sequence', values: [20, 1, 20, 1] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    await engine.startAction(1, 'fight the goblin');
+    const step1 = await engine.stepAction(1, 'Press the attack');
+    expect(step1.resolved).toBe(false);
+
+    const step2 = await engine.stepAction(1, 'Press the attack');
+    expect(step2.resolved).toBe(true);
+    const outcome = (step2 as { resolved: true; outcome: { outcome: string; combatBeat?: { band: string; enemyHpAfter: number; marker: string } } }).outcome;
+    expect(outcome.outcome).toBe('success');
+    expect(outcome.combatBeat).toBeDefined();
+    expect(outcome.combatBeat?.band).toBe('clean');
+    expect(outcome.combatBeat?.enemyHpAfter).toBe(0);
+    expect(outcome.combatBeat?.marker).toBe('combat_round');
+
+    expect(engine.getCombatMetrics()).toEqual({ roundsFought: 2, floorSaves: 0, wins: 1, losses: 0 });
+  });
+
+  it('a voluntary bail carries no terminal combatBeat, but its earlier fought round still counts', async () => {
+    // Trade band (margin 1, no crit) with BASE_CHARACTER — a clean non-terminal round 1.
+    const handle = buildSimEngine({ kind: 'sequence', values: [8, 10] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    await engine.startAction(1, 'fight the goblin');
+    const step1 = await engine.stepAction(1, 'Press the attack');
+    expect(step1.resolved).toBe(false);
+    expect(engine.getCombatMetrics()).toEqual({ roundsFought: 1, floorSaves: 0, wins: 0, losses: 0 });
+
+    const bail = await engine.stepAction(1, 'Flee the fight');
+    expect(bail.resolved).toBe(true);
+    const outcome = (bail as { resolved: true; outcome: { outcome: string; combatBeat?: unknown } }).outcome;
+    expect(outcome.outcome).toBe('bailed');
+    expect(outcome.combatBeat).toBeUndefined();
+
+    // The bail itself fought no round — round 1's beat (before the bail) is still counted.
+    expect(engine.getCombatMetrics()).toEqual({ roundsFought: 1, floorSaves: 0, wins: 0, losses: 0 });
+  });
+
+  it('combatWinScenario yields the exact win combatMetrics end-to-end', async () => {
+    const result = await runScenario(combatWinScenario);
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.combatMetrics).toEqual({ roundsFought: 2, floorSaves: 0, wins: 1, losses: 0 });
+    expect(summarize(result).combatMetrics).toEqual(result.combatMetrics);
+  });
+
+  it('combatFloorScenario yields the exact floor/desperate-choice/loss combatMetrics end-to-end', async () => {
+    const result = await runScenario(combatFloorScenario);
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('failure');
+    expect(result.combatMetrics).toEqual({ roundsFought: 2, floorSaves: 1, wins: 0, losses: 1 });
+    expect(summarize(result).combatMetrics).toEqual(result.combatMetrics);
+  });
+
+  it('combatCapScenario yields the exact cap-derive combatMetrics end-to-end', async () => {
+    const result = await runScenario(combatCapScenario);
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.combatMetrics).toEqual({ roundsFought: 5, floorSaves: 0, wins: 1, losses: 0 });
+    expect(summarize(result).combatMetrics).toEqual(result.combatMetrics);
+  });
+
+  it('a legacy scenario carries no combatMetrics and renderTable output is unchanged', async () => {
+    const legacyScript: DecisionScript = () => ({
+      prompt: '',
+      distilledType: 'rest',
+      stat: 'physical',
+      baseDc: 0,
+      required: false,
+      done: true,
+      decision: [{ label: 'Rest', dcModifier: 0 }],
+      mutations: [],
+      outcomeText: 'You rest quietly.',
+    });
+
+    const result = await runScenario({
+      name: 'legacy-unaffected',
+      character: BASE_CHARACTER,
+      rollSource: { kind: 'fixed', value: 20 },
+      llm: { kind: 'scripted', script: legacyScript },
+      week: [[{ input: 'rest', choicePolicy: 'first-real' }]],
+    });
+
+    expect(result.combatMetrics).toBeUndefined();
+
+    const summary = summarize(result);
+    expect(summary.combatMetrics).toBeUndefined();
+    const table = renderTable(summary);
+    expect(table).not.toContain('Combat rounds');
+    expect(table).not.toContain('Floor-saves');
+    expect(table).not.toContain('Wins/Losses');
   });
 });

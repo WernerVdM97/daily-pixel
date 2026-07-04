@@ -27,6 +27,8 @@ import {
   deriveEnemyMaxHp,
   ENEMY_BONUS_MAX,
   MAX_COMBAT_ROUNDS,
+  type CombatBeatLog,
+  type CombatRoundOutcome,
 } from './combat-dc.js';
 import {
   readCombatState,
@@ -84,7 +86,15 @@ export type PipelineStartResult =
   | { resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome };
 
 export type PipelineStepResult =
-  | { resolved: false; state: PipelineInternalActionState; nextDecision: ActionDecision; mutations?: WorldMutation[] }
+  | {
+      resolved: false;
+      state: PipelineInternalActionState;
+      nextDecision: ActionDecision;
+      mutations?: WorldMutation[];
+      /** Per-round combat telemetry beat (T5) — set on every fought CONTINUE/desperate-choice
+       *  round, never on the generic (non-combat) beat flow or the voluntary bail path. */
+      combatBeat?: CombatBeatLog;
+    }
   | { resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome };
 
 /** Canned fallback text for the classify-fallback-total-failure path (heuristic miss AND the
@@ -287,6 +297,43 @@ export class PipelineActionStateMachine {
   }
 
   /**
+   * Builds this round's telemetry beat (T5) — the single choke point all four
+   * beat-emitting paths in `handleCombatStep`/`resolveCombat` go through, so the shape stays
+   * honest across CONTINUE, desperate-choice, and the terminal win/loss/cap paths.
+   *
+   * `materialMutationFired` is computed from the semantic HP deltas + a non-`set_relation` op,
+   * NOT `ops.length > 0` — `set_relation` alone (a round-counter-only bump) is bookkeeping, not
+   * material; enemyHp/player-HP deltas and any loot op ARE material.
+   *
+   * Round-numbering caveat: the floor beat persists `combatRoundUpdate(cs, ..., cs.round)` (same
+   * round number, not incremented — see the desperate-choice branch below), so the floor beat and
+   * the subsequent last-stand beat can share a `round` value. This is intended: `round` is the
+   * in-fight round LABEL, not a unique beat id — "rounds fought" is the beat COUNT
+   * (`combatBeats.length` in `PipelineSimEngine`), not the max round label.
+   */
+  private buildCombatBeat(
+    cs: CombatState,
+    roundResult: CombatRoundOutcome,
+    enemyHpAfter: number,
+    ops: string[],
+    opts: { floorSave?: boolean } = {},
+  ): CombatBeatLog {
+    const materialMutationFired =
+      roundResult.enemyHpDelta !== 0 || roundResult.playerHpDelta !== 0 || ops.some(o => o !== 'set_relation');
+    return {
+      round: cs.round,
+      band: roundResult.band,
+      enemyHpBefore: cs.enemyHp,
+      enemyHpAfter,
+      playerHpDelta: roundResult.playerHpDelta,
+      materialMutationFired,
+      ops,
+      marker: 'combat_round',
+      ...(opts.floorSave ? { floorSave: true } : {}),
+    };
+  }
+
+  /**
    * Combat sub-mode handler — owns the contested roll, band application, persistence, and
    * termination ladder (win / cap-derive / hpZero→failure / continue). Replaces the generic
    * beat-cap/decide/resolve flow for reactive combat actions.
@@ -412,6 +459,7 @@ export class PipelineActionStateMachine {
           combatAnchor: heldAnchor,
         };
 
+        const floorOps = ['modify_health', 'set_relation', 'set_relation'];
         return {
           resolved: false,
           state: nextState,
@@ -421,6 +469,7 @@ export class PipelineActionStateMachine {
             { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
             { ...saveRelation, type: 'set_relation' } as unknown as WorldMutation,
           ],
+          combatBeat: this.buildCombatBeat(cs, roundResult, newEnemyHp, floorOps, { floorSave: true }),
         };
       } else {
         // ── Second lethal blow today → HP-zero, resolve failure ──
@@ -494,6 +543,7 @@ export class PipelineActionStateMachine {
       combatAnchor: heldAnchor,
     };
 
+    const continueOps = ['set_relation', ...(playerHpDelta < 0 ? ['modify_health'] : [])];
     return {
       resolved: false,
       state: nextState,
@@ -504,6 +554,7 @@ export class PipelineActionStateMachine {
           ? [{ type: 'modify_health' as const, amount: playerHpDelta }]
           : []),
       ],
+      combatBeat: this.buildCombatBeat(cs, roundResult, newEnemyHp, continueOps),
     };
   }
 
@@ -592,6 +643,15 @@ export class PipelineActionStateMachine {
       mutations.push({ type: 'modify_wealth', amount: state.wage });
     }
 
+    // Terminal beat (T5): built here, after `mutations` is fully assembled (incl. the wage
+    // append), so `ops` matches exactly what the outcome reports.
+    const combatBeat = this.buildCombatBeat(
+      cs,
+      roundResult,
+      Math.max(0, finalEnemyHp),
+      mutations.map(m => m.type),
+    );
+
     const finalState: PipelineInternalActionState = {
       ...state,
       decisions: newDecisions,
@@ -614,6 +674,7 @@ export class PipelineActionStateMachine {
         outcomeText,
         llmCallIds: state.llmCallIds ?? [],
         hpZero: (playerHpDelta < 0 && (char.health + playerHpDelta) <= 0) || undefined,
+        combatBeat,
       },
     };
   }

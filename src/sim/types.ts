@@ -171,6 +171,18 @@ export interface PipelineStageCall {
   latencyMs: number;
 }
 
+/** Scenario-level combat aggregates (T5). Pipeline-only, mirroring stageCalls/relationsPersisted. */
+export interface CombatMetrics {
+  /** Total combat rounds fought across the scenario (one per emitted combatBeat). */
+  roundsFought: number;
+  /** Rounds where the once-per-day survive-at-1 floor fired. */
+  floorSaves: number;
+  /** Combat fights resolved as a win (terminal combat beat, outcome 'success'). */
+  wins: number;
+  /** Combat fights resolved as a loss (terminal combat beat, outcome 'failure'). */
+  losses: number;
+}
+
 export interface SimResult {
   scenario: string;
   turns: TurnTrace[];
@@ -184,4 +196,7 @@ export interface SimResult {
    *  runs, which have no relation repo. Demonstrates edges written on earlier beats survive to
    *  scenario end (persistence across beats). */
   relationsPersisted?: number;
+  /** Combat round/outcome aggregates (T5), read from `PipelineSimEngine.getCombatMetrics()`.
+   *  Pipeline-only — `undefined` for legacy runs, which have no combat sub-mode. */
+  combatMetrics?: CombatMetrics;
 }

@@ -19,6 +19,31 @@ export interface CombatRoundOutcome {
   margin: number;
 }
 
+/**
+ * One combat round's telemetry beat — the data that later settles the parked prose-critic
+ * trigger (prompt-v12-pipeline §D7): the trigger question is whether a "material-change-only"
+ * heuristic collapses into "always" in combat. `materialMutationFired` is computed semantically
+ * (did enemyHp/player-HP actually move, or loot drop) — NOT `ops.length > 0` — so the telemetry
+ * can genuinely answer that, rather than being trivially true.
+ */
+export interface CombatBeatLog {
+  /** 1-based in-fight round this beat fought (the floor beat + its last-stand retry can share a round number — see the machine note). */
+  round: number;
+  band: CombatBand;
+  enemyHpBefore: number;
+  enemyHpAfter: number;
+  /** Signed player-HP delta the band applied this round (0 on clean/glanced). */
+  playerHpDelta: number;
+  /** Did a state-changing (narratable) mutation fire this beat? enemyHp always moves in combat, so this is expected ~always true — that IS the §D7 signal. */
+  materialMutationFired: boolean;
+  /** The mutation op `type` names emitted this beat, in emission order (e.g. ['set_relation', 'modify_health']). */
+  ops: string[];
+  /** Combat-round beat marker — distinct from a generic CONTINUE beat (which carries no combatBeat). */
+  marker: 'combat_round';
+  /** Set only on the beat where the once-per-day survive-at-1 floor fired (the desperate-choice beat). */
+  floorSave?: boolean;
+}
+
 /** Enemy `d20` bonus ceiling: `clamp(baseDc - 10, 0, ENEMY_BONUS_MAX)`. */
 export const ENEMY_BONUS_MAX = 10;
 

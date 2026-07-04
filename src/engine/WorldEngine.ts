@@ -1,3 +1,5 @@
+import type { CombatBeatLog } from './action/combat-dc.js';
+
 // ── Seam data types (plain serializable — no discord.js, no ASCII, no SQL rows) ──
 
 export interface CharCreateData {
@@ -154,6 +156,10 @@ export interface ActionOutcome {
    *  Stage 3 decision 10). Always undefined (absent) in legacy/v11 outcomes — set only
    *  by the pipeline's combat spine. */
   hpZero?: boolean;
+  /** Per-round combat telemetry beat (T5) — set only by the pipeline combat spine's terminal
+   *  path (win / loss / cap-derive). Always undefined (absent) in legacy/v11 outcomes and on
+   *  non-combat pipeline outcomes. */
+  combatBeat?: CombatBeatLog;
 }
 
 export interface ActionResumeResult {

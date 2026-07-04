@@ -615,3 +615,113 @@ describe('PipelineActionStateMachine — classify-fallback-total-failure', () =>
     // The rejection never escapes start() as an unhandled rejection/throw.
   });
 });
+
+/**
+ * T5 — per-round combat beat logging. Round 1 of a fresh fight needs no scene-state
+ * persistence (combat establishes fresh off `lastDecideResult.combatEnemy` regardless of any
+ * resolver), so these assert directly against the raw `PipelineActionStateMachine.step()`
+ * result — the ONLY place `combatBeat` is observable on a non-resolved beat.
+ * `PipelineSimEngine.stepAction` (the sim harness's public wrapper, tests/sim/pipeline-sim.test.ts)
+ * deliberately does not forward it on the non-resolved branch (mirrors the existing `mutations`
+ * precedent — internal-only, consumed for accumulation, never re-exposed on `ActionStepResult`).
+ */
+describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('a fought CONTINUE round carries a combatBeat with the right shape', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult();
+
+    // player d20=10, enemy d20=10 (no crit). testChar physical=3 + Iron Sword +2 = playerBonus 5;
+    // baseDc=10 -> enemyBonus=clamp(0,0,10)=0. margin=(10+5)-(10+0)=5 -> glanced band
+    // (enemyHpDelta -3, playerHpDelta 0). enemyMaxHp=deriveEnemyMaxHp(10)=10, so round 1 neither
+    // wins, floors, nor caps — a clean CONTINUE.
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(step.combatBeat).toEqual({
+      round: 1,
+      band: 'glanced',
+      enemyHpBefore: 10,
+      enemyHpAfter: 7,
+      playerHpDelta: 0,
+      materialMutationFired: true,
+      ops: ['set_relation'],
+      marker: 'combat_round',
+    });
+    expect(step.combatBeat?.floorSave).toBeUndefined();
+  });
+
+  it('the desperate-choice (floor) beat carries floorSave: true', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult();
+
+    // player d20=1 forces `heavy` regardless of margin (amplified playerHpDelta -3-2=-5); a
+    // low-health character (3 HP) would-be-lethal on round 1, firing the once-per-day floor.
+    const rolls = [1, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const lowChar = testChar({ health: 3 });
+
+    const started = await machine.start(lowChar, 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', lowChar, testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(step.combatBeat).toEqual({
+      round: 1,
+      band: 'heavy',
+      enemyHpBefore: 10,
+      enemyHpAfter: 9,
+      playerHpDelta: -5,
+      materialMutationFired: true,
+      ops: ['modify_health', 'set_relation', 'set_relation'],
+      marker: 'combat_round',
+      floorSave: true,
+    });
+  });
+
+  it('a generic (non-combat) continue carries no combatBeat', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 8,
+      required: false,
+      decision: [
+        { label: 'Search the room', dcModifier: 0 },
+        { label: 'Feint first', dcModifier: -1 },
+      ],
+    };
+
+    const machine = new PipelineActionStateMachine(llm, () => 10);
+    const started = await machine.start(testChar(), 'search the room', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Search the room', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(step.combatBeat).toBeUndefined();
+  });
+});

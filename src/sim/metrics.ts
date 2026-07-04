@@ -1,4 +1,4 @@
-import type { PipelineStageCall, SimResult, TurnTrace } from './types.js';
+import type { CombatMetrics, PipelineStageCall, SimResult, TurnTrace } from './types.js';
 
 export interface SimSummary {
   turnsRun: number;
@@ -16,6 +16,9 @@ export interface SimSummary {
   /** Relation rows persisted at scenario end (Stage 2 T5c), copied straight from
    *  `SimResult.relationsPersisted` — pipeline-only, `undefined` for legacy runs. */
   relationsPersisted?: number;
+  /** Combat round/outcome aggregates (T5), copied straight from `SimResult.combatMetrics` —
+   *  pipeline-only, `undefined` for legacy runs. */
+  combatMetrics?: CombatMetrics;
 }
 
 /**
@@ -56,6 +59,7 @@ export function summarize(r: SimResult): SimSummary {
     avgFinalDc,
     death: null,
     ...(r.relationsPersisted !== undefined ? { relationsPersisted: r.relationsPersisted } : {}),
+    ...(r.combatMetrics !== undefined ? { combatMetrics: r.combatMetrics } : {}),
   };
 }
 
@@ -163,6 +167,13 @@ export function renderTable(s: SimSummary): string {
   // byte-for-byte unchanged.
   if (s.relationsPersisted !== undefined) {
     lines.push(`Relations persisted: ${s.relationsPersisted}`);
+  }
+  // Pipeline-only (T5) — omitted entirely for legacy runs so their table output is
+  // byte-for-byte unchanged.
+  if (s.combatMetrics) {
+    lines.push(`Combat rounds:  ${s.combatMetrics.roundsFought}`);
+    lines.push(`Floor-saves:    ${s.combatMetrics.floorSaves}`);
+    lines.push(`Wins/Losses:    ${s.combatMetrics.wins}/${s.combatMetrics.losses}`);
   }
   return lines.join('\n');
 }
