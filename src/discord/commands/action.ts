@@ -218,17 +218,20 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       if (result.outcome) {
         const resolvedChar = engine.getCharacter(interaction.user.id);
         const scene = getCurrentScene(interaction.user.id);
-        const embed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
+        // Compact embed for private reply (no story thread — the player just saw it in
+        // the decision embed). Full embed for the public thread copy (F#19c).
+        const privateEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, { compact: true });
+        const publicEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state);
         const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
         await interaction.editReply({
-          embeds: [embed],
+          embeds: [privateEmbed],
           components: resolvedChar
             ? [...getNavButtons(resolvedChar), ...serviceButtons]
             : serviceButtons,
         });
         const payload = {
           content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
-          embeds: [embed],
+          embeds: [publicEmbed],
           components: serviceButtons,
           allowedMentions: { users: [] },
         };
@@ -361,11 +364,14 @@ async function applyActionResult(
 
     // Destination scene shown when the character moved.
     const scene = _sceneLookup?.(i.user.id);
-    const outcomeEmbed = buildOutcomeEmbed(outcome, character, scene, result.state);
+    // Compact for private reply (no story thread — the player just saw it in the
+    // decision embed). Full for the public thread copy (F#19c).
+    const privateEmbed = buildOutcomeEmbed(outcome, character, scene, result.state, { compact: true });
+    const publicEmbed = buildOutcomeEmbed(outcome, character, scene, result.state);
 
     const serviceButtons = getOutcomeServiceButtons(outcome.actionId);
     await i.webhook.editMessage(i.message.id, {
-      embeds: [outcomeEmbed],
+      embeds: [privateEmbed],
       components: character
         ? [...getNavButtons(character), ...serviceButtons]
         : serviceButtons,
@@ -375,7 +381,7 @@ async function applyActionResult(
     const charName = character?.name ?? 'Unknown';
     const payload = {
       content: `${classEmoji(character?.class)} **${charName}** <@${i.user.id}> — ${outcome.distilledType}`,
-      embeds: [outcomeEmbed],
+      embeds: [publicEmbed],
       components: serviceButtons,
       allowedMentions: { users: [] },
     };
@@ -581,6 +587,7 @@ export function buildOutcomeEmbed(
   character: CharacterData | null | undefined,
   scene: string | null | undefined,
   state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string }>; kind?: ActionKind },
+  opts?: { compact?: boolean },
 ): ReturnType<EmbedBuilder['toJSON']> {
   const ctx: OutcomeRenderContext = {
     stamina: character?.stamina ?? 10,
@@ -602,13 +609,18 @@ export function buildOutcomeEmbed(
   const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
   // Full gamebook recap: breadcrumb, destination scene, story thread, then the
-  // resolution as focal unquoted text. Degrade to fit the embed cap: full →
-  // collapse history → drop the decorative scene → hard clip.
+  // resolution as focal unquoted text. Compact mode (private reply) skips the
+  // story thread — the player just saw it in the decision embed, so repeating
+  // it here is the double-showing the player flagged (F#19c). Degrade to fit
+  // the embed cap: full → collapse history → drop the decorative scene → hard
+  // clip.
   const assemble = (collapseHistory: boolean, includeScene: boolean): string => {
     const parts: string[] = [];
     if (breadcrumb) parts.push(breadcrumb);
     if (includeScene && sceneBlock) parts.push(sceneBlock);
-    parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
+    if (!opts?.compact) {
+      parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
+    }
     parts.push(outcomeBlock);
     return parts.join('\n\n');
   };

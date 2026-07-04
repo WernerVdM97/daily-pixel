@@ -55,4 +55,13 @@ describe("buildReleaseNotesMessage", () => {
     expect(msg).toContain("• Only highlight");
     expect(msg).not.toContain("undefined");
   });
+
+  it("uses the 📬 emoji for release notes", () => {
+    const msg = buildReleaseNotesMessage({
+      tag: "v0.2.8",
+      title: "Polish",
+      highlights: ["A fix"],
+    });
+    expect(msg.startsWith("📬")).toBe(true);
+  });
 });

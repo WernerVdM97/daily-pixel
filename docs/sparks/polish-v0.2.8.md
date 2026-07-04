@@ -83,6 +83,76 @@ Verified seams (2026-07-04, lead-confirmed against `feat/prompt-refactor`). This
 
 Render/comms only. Do **not** touch the LLM prompt, the auto-resolve/`done` path, roll-refund logic, latency, or the pins/weekly-recap groups. No drive-by refactors of adjacent code.
 
+---
+
+## Execution spec — Pass 2 (pins/comms + weekly recap)
+
+Verified seams (2026-07-04, lead-confirmed against `feat/polish-v0.2.8`). Pass 1 (footer + identity) is committed; this pass handles the two remaining groups. The weekly-recap sub-tasks (F#19a-c) are the heavier ones; pins (F#18, F#20) are trivial.
+
+**Verification (run before returning; must stay green):** `npm run typecheck` and `npm test` (vitest). Baseline: 70 test files, 1046 tests.
+
+### Task C — distinct emoji for release notes vs weekly recap *(F#20)*
+
+- **File:** `src/discord/release-notes.ts`, `buildReleaseNotesMessage()` at the top of its body.
+- **Gap:** release notes and weekly-recap headers both start with `📜`, so the pin list can't tell them apart.
+- **Change:** replace `📜` with `📬` in `buildReleaseNotesMessage()` — the line `📜 **What's New — ${rn.tag}: ${rn.title}**` becomes `📬 **What's New — ${rn.tag}: ${rn.title}**`.
+- **Retroactive editing:** skip. `runReleaseAnnouncement` in `src/index.ts:1080` stores `last_release_announced` (the tag string), not the message id. Finding and editing old announcements would require fetching pinned messages by content prefix, and the benefit is marginal (only the most-recently-pinned icons matter).
+- **Tests:** extend `tests/discord/release-notes.test.ts` (if it exists) or confirm `buildReleaseNotesMessage` output starts with `📬`.
+
+### Task D — trim pinned Saturday threats *(F#18)*
+
+- **File:** `src/index.ts`, the Saturday-threat block inside `runAfternoonBeat` (~L789).
+- **Current:** `pinMessage(threatMsg, "Saturday threat")` — each week's Saturday threat accumulates as a separate pin. Over a few weeks, that's 3–4 threat pins cluttering the list.
+- **Change:** switch from `pinMessage` to `pinReplacing(threatMsg, "⚔️ **A threat stirs in the wild.**", "Saturday threat")` — same pattern as the leaderboard. Only the latest Saturday threat stays pinned; older ones are unpinned. The marker is the opening line of `buildThreatAnnouncement` in `src/discord/afternoon.ts:110`.
+- **No other low-signal pins to sweep.** The only accumulating pins are release notes (one per version, self-limiting), Saturday threats, leaderboards (self-replacing), and weekly headers (capped by `pinKeepingNewest`). After this change, every pin type is either capped or self-replacing.
+- **Tests:** verify the call site uses `pinReplacing` with the correct marker. No new test file needed; the call site is straightforward.
+
+### Task E — sidebar visibility for the week's thread *(F#19a)*
+
+- **Status:** likely already solved by Pass 1 (Task B). Every public outcome now carries `<@${userId}>` with `allowedMentions: { users: [] }` — the mention renders without pinging but the thread should still surface in the mentioned user's Discord sidebar.
+- **Verification-only task:** confirm this is sufficient by testing with a real Discord client. If Discord doesn't treat bot-authored mentions as sidebar triggers, flag it back for a different approach. No code change in this pass.
+- **If needed:** the fallback is a first-outcome-only explicit mention in the thread (tracked per-thread-per-player). But try with Pass 1's mentions first.
+
+### Task F — summary at the bottom of a locked thread *(F#19b)*
+
+- **File:** `src/index.ts`, `finalizePreviousWeek()` (~L883).
+- **Current flow:** fetches the header message in the guild channel → generates digest → edits the header message in place.
+- **Change:** post the chronicle as a final message at the bottom of the thread, then lock it. The pinned header stays as the archive anchor.
+
+  In `finalizePreviousWeek`:
+  1. After generating `recapResult`, fetch the thread by `META_RECAP_THREAD_ID` (still the old thread at this point — `startNewWeek` hasn't flipped it yet).
+  2. Post the chronicle text as a message to the thread: `await thread.send(buildRecapHeader(weekNumber, weekStart.slice(0, 10), recapResult))`.
+  3. Lock the thread: `await thread.setLocked(true)`.
+  4. Edit the header message minimally instead of with the full chronicle — keep it as the archive anchor, e.g.: `📜 **Week ${weekNumber}** — the tale is told. Scroll down to the last message in the thread for the chronicle.`
+  5. Handle missing thread gracefully (deleted between when the week was active and when finalize runs). Fetching the thread is inside the existing try/catch.
+
+- **Edge cases:**
+  - **Boot catch-up (`catchUpWeeklyRecap`):** uses the same `finalizePreviousWeek` → no changes needed.
+  - **Recreate-on-delete (`ensureWeeklyThread`):** triggers only on deleted threads (error code 10003), not locked ones. Locking doesn't break the recreate path. Verified: `isThreadDeleted` checks exactly code 10003; a locked thread is still fetchable.
+  - **Lock fails:** already inside try/catch → the chronicle still posts.
+  - **No mid-week lock:** outcomes still post into the thread while the week is live. The lock only happens at finalize, after the thread id has already flipped.
+
+- **Tests:** extend `tests/discord/weekly-recap.test.ts` if it exists, or add assertions that the finalize path posts to the thread and locks it. Mock the Discord thread object.
+
+### Task G — dedupe private-outcome vs thread-copy vs header *(F#19c)*
+
+- **Audit scope (no code change required unless a clear, low-risk dedupe emerges):**
+  1. **Private reply** (interaction reply): full embed with outcome + story thread + nav buttons + service buttons.
+  2. **Thread copy** (`broadcastOutcome`): same embed + owner mention + service buttons only (no nav).
+  3. **Header** (pinned channel message): LLM chronicle summary, completely different format.
+
+- **The overlap is between (1) and (2):** the same embed appears in two places when a player completes an action. The player sees the outcome twice — once in the interaction (replacing the decision embed) and once scrolling the thread.
+
+- **Audit deliverable:** read both render paths (`buildOutcomeEmbed` in `src/discord/commands/action.ts` and the four send sites), confirm the overlap, and propose a lightweight dedupe if one is possible without regressing the gamebook feel. Options to evaluate:
+  - Trim the story-thread breadcrumb from the private reply (it's already visible in the decision embed the player just saw). Keep it in the thread copy for the public record.
+  - Or leave as-is if the dedupe would cost more in UX than the minor duplication.
+
+- **Concrete code change (if the audit concludes one is safe):** drop the `buildStoryThread` / breadcrumb block from the private reply embed, keeping it only in the thread copy. The private outcome shows just the outcome text + stats + footer. This eliminates the primary overlap without touching the thread or header.
+
+### Scope fence (Pass 2)
+
+Render/comms only. Do **not** touch the LLM prompt, auto-resolve/`done` path, roll-refund logic, latency, or `CharacterRepository.update`. Do **not** change the recap scheduler (`runWeeklyRecap`, `catchUpWeeklyRecap`, `ensureWeeklyThread`) beyond the `finalizePreviousWeek` changes specified in Task F. No drive-by refactors.
+
 ## Cut line / notes
 
 - Branch off `dev` (e.g. `feat/polish-v0.2.8`), log under `CHANGELOG.md` `[Unreleased]`, stage player notes at `assets/release-notes/v0.2.8.yml`. Release cut (VERSION bump, `dev`→`main`, tag) is a separate step per `[[releasing]]`.
