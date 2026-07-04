@@ -1,11 +1,6 @@
 /** Mid-action state auto-times out after this (30 min). */
 const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** The home region every new player starts having discovered (§3). Matches the
- *  `region` the seed world (assets/world/locations.yml) gives the Vale. New
- *  ground gets other regions and stays fogged until explored. */
-const HOME_REGION = "The Vale";
-
 /** Map §4 spoke cap: a node never sprouts more than this many outgoing spokes
  *  (charted edges + frontier exits), so the graph can't fan out without bound. */
 const SPOKE_CAP = 5;
@@ -25,7 +20,6 @@ import { LocationRepository } from "../db/repositories/location.js";
 import { LocationEdgeRepository } from "../db/repositories/locationEdge.js";
 import { CharacterLocationRepository } from "../db/repositories/characterLocation.js";
 import { MetaRepository } from "../db/repositories/meta.js";
-import { findRoute } from "./geography.js";
 import { LlmCallRepository } from "../db/repositories/llm-call.js";
 import {
   FallbackLlmGateway,
@@ -39,7 +33,8 @@ import {
   type InternalActionState,
   type WorldContextResolver,
 } from "./action/machine.js";
-import { validateMutations, applyMutations, collapseStackedDeltas, type MutationContext } from "./action/mutations.js";
+import { applyMutations, type MutationContext } from "./action/mutations.js";
+import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
 import { effectiveStats } from "./action/dc.js";
 import {
   computeStats,
@@ -104,43 +99,6 @@ function locationTagsContain(tags: string | null, tag: string): boolean {
     .split(",")
     .map((t) => t.trim())
     .includes(tag);
-}
-
-// ── Category → mutation map (§4 / §5 soft enforcement) ──
-
-/**
- * Expected mutation types per action category. Used to:
- *  a) generate the §4 recipe section in the prompt (single source of truth)
- *  b) flag unexpected mutations at runtime (§5 telemetry — always applied, never dropped)
- */
-export const CATEGORY_MUTATION_MAP: Record<string, string[]> = {
-  // Stage 2 T2: set_relation/update_relation added to categories matching the seed relType
-  // whitelist's near-term writers ([[prompt-v12-scene-state]] graph model) — combat's
-  // `in_combat`, social's `trust`/`disposition`/`knows_secret`/`fears`/`owes_debt`, skill/search's
-  // `puzzle`. Pipeline-only ops in this pass (decision 1) — no live-path LLM emits them yet, so
-  // this is additive telemetry config, not a behaviour change for existing ops.
-  combat:  ['modify_stamina', 'modify_health', 'add_item', 'update_npc', 'remove_npc', 'set_relation', 'update_relation'],
-  travel:  ['move_to', 'cross_frontier', 'modify_stamina', 'add_npc', 'add_item'],
-  social:  ['modify_wealth', 'add_npc', 'update_npc', 'add_item', 'remove_item', 'set_relation', 'update_relation'],
-  skill:   ['modify_stamina', 'modify_max_stamina', 'modify_rolls_remaining', 'set_relation', 'update_relation'],
-  search:  ['add_item', 'modify_stamina', 'set_relation', 'update_relation'],
-  rest:    ['modify_health', 'modify_stamina', 'modify_rolls_remaining'],
-  other:   [], // catch-all — anything goes; never flag
-};
-
-/** Log unexpected mutations for a given category (§5 telemetry). Flag-only, never dropped. */
-function logCategoryDeviations(category: string, mutations: WorldMutation[]): void {
-  const expected = CATEGORY_MUTATION_MAP[category];
-  if (!expected) return; // unknown category — skip
-  if (expected.length === 0) return; // 'other' — catch-all
-
-  for (const m of mutations) {
-    if (!expected.includes(m.type)) {
-      console.log(
-        `[category-telemetry] unexpected mutation "${m.type}" on category "${category}" — flagged for tuning`,
-      );
-    }
-  }
 }
 
 // ── Mutation insight logging ──
@@ -288,6 +246,11 @@ export class WorldEngineImpl implements WorldEngine {
   private npcRepo: NpcRepository;
   private locationRepo: LocationRepository;
   private edgeRepo: LocationEdgeRepository;
+  /** T5a: the shared geography-finalize closure (mint/route/collapse/validate), extracted so the
+   *  pipeline sim can reuse the SAME logic over its own seeded repos — see geography-finalize.ts.
+   *  Built in the constructor body (not a field initializer) since it closes over
+   *  `this.locationRepo`/`this.edgeRepo`, which are themselves assigned in the constructor body. */
+  private geographyFinalize: ReturnType<typeof createGeographyFinalize>;
   private charLocRepo: CharacterLocationRepository;
   private metaRepo: MetaRepository;
   private llmCallRepo: LlmCallRepository;
@@ -321,6 +284,10 @@ export class WorldEngineImpl implements WorldEngine {
     this.npcRepo = config.npcRepo;
     this.locationRepo = new LocationRepository(config.db);
     this.edgeRepo = new LocationEdgeRepository(config.db);
+    this.geographyFinalize = createGeographyFinalize({
+      locationRepo: this.locationRepo,
+      edgeRepo: this.edgeRepo,
+    });
     this.charLocRepo = new CharacterLocationRepository(config.db);
     this.metaRepo = new MetaRepository(config.db);
     this.llmCallRepo = new LlmCallRepository(config.db);
@@ -699,41 +666,7 @@ export class WorldEngineImpl implements WorldEngine {
     ctx: MutationContext,
     category?: string,
   ): { mutations: WorldMutation[]; minted: string[] } {
-    const geo = this.applyGeography(ctx.location, proposed, ctx.knownLocations ?? []);
-
-    // Validation must see the just-minted names (mirrors applyResolution's prior inline
-    // `knownLocations: [...knownLocations, ...provisionalLocations]`) so a same-turn move_to
-    // into freshly-crossed ground isn't rejected as unknown.
-    const validationCtx: MutationContext = {
-      ...ctx,
-      knownLocations: [...(ctx.knownLocations ?? []), ...geo.minted],
-    };
-
-    // §5a stacked-delta clamp: collapse same-axis scalar deltas before validation so
-    // the validator sees the already-summed (and capped) set, not individual −1/−2 pairs.
-    const collapsed = collapseStackedDeltas(geo.mutations);
-
-    // §5 category deviation telemetry: log when a mutation falls outside its category's
-    // expected set. Flag-only — never dropped (emergent scenes are legitimate). Must run on the
-    // collapsed set BEFORE validation drops anything, so a mutation that deviates AND later gets
-    // dropped for being malformed is still flagged (matches pre-extraction ordering).
-    if (category) {
-      logCategoryDeviations(category, collapsed);
-    }
-
-    // Per spec: malformed mutations are silently dropped, valid ones applied.
-    let mutations = collapsed;
-    const validation = validateMutations(collapsed, validationCtx);
-    if (!validation.valid) {
-      console.warn(
-        "[engine] Dropping invalid mutations:",
-        validation.errors.map((e) => `[${e.index}] ${e.message}`).join("; "),
-      );
-      const invalidIndices = new Set(validation.errors.map((e) => e.index));
-      mutations = collapsed.filter((_, i) => !invalidIndices.has(i));
-    }
-
-    return { mutations, minted: geo.minted };
+    return this.geographyFinalize(proposed, ctx, category);
   }
 
   /**
@@ -832,77 +765,6 @@ export class WorldEngineImpl implements WorldEngine {
   }
 
   /**
-   * Engine-owned geographic resolution (per-player-map-exploration §2). Replaces the
-   * old lazy-create-on-any-set_location with graph-validated movement:
-   *
-   * - `set_location` is kept only if the target is the current node or a charted node
-   *   reachable on the shared graph (`routeBetween`). An unreachable/unknown target is
-   *   DROPPED (the player simply doesn't move) — no more minting from thin air.
-   * - `cross_frontier { direction, name }` is the ONLY mint path. If `direction` is a
-   *   real **unbound** frontier exit on the current node, mint the named destination
-   *   (provisional, enrichment_pending → cartographer charts the rest) and bind the
-   *   exit (shared thereafter). If the exit is **already bound** (a prior crosser got
-   *   there first), arrive at that shared destination instead of minting a duplicate.
-   *   No matching frontier → dropped.
-   *
-   * Returns the filtered mutation list (cross_frontier normalized to the resolved
-   * destination name) and the names minted this turn (for the async cartographer).
-   */
-  private applyGeography(
-    currentLocation: string,
-    mutations: WorldMutation[],
-    knownLocations: string[],
-  ): { mutations: WorldMutation[]; minted: string[] } {
-    const known = new Set(knownLocations.map((n) => n.trim().toLowerCase()));
-    const currentNorm = currentLocation.trim().toLowerCase();
-    const minted: string[] = [];
-
-    // Pass 1 — resolve frontier crossings first (mint + bind), so a same-action
-    // set_location to a just-minted place validates in pass 2 regardless of the order
-    // the LLM emitted the two mutations in. Each cross maps to its resolved replacement
-    // (a set_location/cross_frontier), or null when dropped; `known`/`minted` grow here.
-    const crossResolved = new Map<WorldMutation, WorldMutation | null>();
-    for (const m of mutations) {
-      if (m.type !== "cross_frontier") continue;
-      crossResolved.set(m, this.resolveCrossFrontier(m, currentLocation, known, minted));
-    }
-
-    // Pass 2 — build the kept list in original order; move_to/set_location now sees the full
-    // known set (seed locations + anything minted this turn).
-    const kept: WorldMutation[] = [];
-    for (const m of mutations) {
-      if (m.type === "cross_frontier") {
-        const resolved = crossResolved.get(m);
-        if (resolved) kept.push(resolved);
-      } else if (m.type === "move_to" || m.type === "set_location") {
-        const name = typeof m.name === "string" ? m.name.trim() : "";
-        if (name === "") {
-          kept.push(m); // shape-invalid — let validateMutations report/drop it
-          continue;
-        }
-        const norm = name.toLowerCase();
-        // Canonicalize to the known casing so the (case-sensitive) graph route resolves
-        // an LLM-lowercased name like "town square".
-        const canonical = knownLocations.find((l) => l.trim().toLowerCase() === norm) ?? name;
-        const reachable =
-          norm === currentNorm ||
-          (known.has(norm) && this.routeBetween(currentLocation, canonical) !== null);
-        if (!reachable) {
-          console.warn(
-            `[engine] dropping ${m.type} to unreachable/unknown "${name}" — movement is graph-validated (no lazy-create)`,
-          );
-          continue;
-        }
-        kept.push(m);
-      } else {
-        kept.push(m);
-      }
-    }
-
-    return { mutations: kept, minted };
-  }
-
-  /**
    * Author a frontier exit for a `reveal_location` mutation (§3). Creates a `location_edges`
    * row with `to_location=NULL` at `fromLocation`. `direction` is auto-assigned from the first
    * unused cardinal/ordinal if not provided in the mutation. Does NOT create a location row —
@@ -944,62 +806,6 @@ export class WorldEngineImpl implements WorldEngine {
       difficulty: 2,
       createdByActionId: actionId,
     });
-  }
-
-  /**
-   * Resolve one `cross_frontier` mutation against the shared graph. Returns the kept mutation
-   * (a normalized `cross_frontier` on a first mint, or a `set_location` when the exit was already
-   * bound), or null when the exit is missing / unbound-but-unnamed. Mutates `known` + `minted`
-   * on a successful mint.
-   */
-  private resolveCrossFrontier(
-    m: WorldMutation,
-    currentLocation: string,
-    known: Set<string>,
-    minted: string[],
-  ): WorldMutation | null {
-    const direction = typeof m.direction === "string" ? m.direction.trim().toUpperCase() : "";
-    // Sanitize the LLM-coined name before it becomes a DB key rendered into markdown + prompts.
-    const proposed = typeof m.name === "string" ? sanitizeAuthored(m.name) : "";
-    const edge = direction ? this.edgeRepo.find(currentLocation, direction) : undefined;
-    if (!edge) {
-      console.warn(`[engine] dropping cross_frontier ${direction} from "${currentLocation}" — no such exit`);
-      return null;
-    }
-    if (edge.to_location !== null) {
-      // A prior crosser already bound this exit — arrive at the shared place,
-      // ignoring the LLM's proposed name (we never re-mint or rename).
-      return { type: "set_location", name: edge.to_location };
-    }
-    if (proposed === "") {
-      console.warn(`[engine] dropping cross_frontier ${direction} from "${currentLocation}" — no destination name`);
-      return null;
-    }
-    // First crosser: mint the destination + bind the frontier (shared thereafter).
-    // Seed its region from the place it was crossed from (fallback the home region)
-    // so it's never region-less on /map even before the cartographer charts it; the
-    // cartographer may reassign a new region on enrichment if the fiction moves on.
-    const fromRegion = this.locationRepo.findByName(currentLocation)?.region ?? HOME_REGION;
-    this.locationRepo.create({
-      name: proposed,
-      description: "An uncharted place, newly crossed into. (Mapping…)",
-      isSafe: 0,
-      enrichmentPending: 1,
-      region: fromRegion,
-    });
-    if (!this.edgeRepo.bindFrontier(currentLocation, direction, proposed)) {
-      // The exit got bound between our find() and bind() (only possible if a future
-      // refactor makes this path re-entrant). Don't narrate a mint that didn't take —
-      // arrive at whatever shared destination won the bind. The provisional row we just
-      // INSERT-OR-IGNOREd is left unreferenced and harmless (no edge → never rendered).
-      const settled = this.edgeRepo.find(currentLocation, direction)?.to_location;
-      console.warn(`[engine] cross_frontier ${direction} from "${currentLocation}" lost the bind — arriving at "${settled}"`);
-      return settled ? { type: "set_location", name: settled } : null;
-    }
-    minted.push(proposed);
-    known.add(proposed.toLowerCase());
-    console.log(`[location] frontier crossed: minted "${proposed}" (${direction} of "${currentLocation}")`);
-    return { type: "cross_frontier", direction, name: proposed };
   }
 
   async startAction(
@@ -1454,11 +1260,10 @@ export class WorldEngineImpl implements WorldEngine {
 
   /** Least-cost route over the shared graph (Dijkstra on edge difficulty); null when
    *  unreachable (§2). The cost is computed but not charged as stamina yet — that's
-   *  deferred to fast-travel (§9). Used today to validate movement reachability. */
+   *  deferred to fast-travel (§9). Used today to validate movement reachability.
+   *  Body lives in `geography-finalize.ts` (T5a) — shared with the pipeline sim. */
   routeBetween(from: string, to: string): TravelRoute | null {
-    return findRoute(from, to, (name) =>
-      this.edgeRepo.neighbours(name).map((n) => ({ name: n.name, difficulty: n.difficulty })),
-    );
+    return geographyRouteBetween(this.edgeRepo, from, to);
   }
 
   /** Public visit-recorder for non-engine movement paths (the daily-work commute). */
