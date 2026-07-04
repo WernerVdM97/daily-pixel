@@ -21,6 +21,18 @@ const V12_COMBAT_RESOLVE_DIR = path.join(
   'combat',
 );
 
+const V12_DECIDE_COMBAT_FILE = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'assets',
+  'prompts',
+  'decision-prompts',
+  'v12',
+  'decide',
+  'combat.md',
+);
+
 describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versioning.md)', () => {
   it('loads all templates from the default (v12) set', () => {
     const set = loadPromptSet();
@@ -140,11 +152,11 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
 
 describe('v12 combat template content — T4 C-a rules', () => {
   it('decide/combat.md keys danger to location safety and drops the old cadence rule', () => {
-    const set = loadPromptSet('v12');
-    const decide = set.decide.combat.newAction;
-    expect(decide).toMatch(/location/i);
-    expect(decide).toMatch(/safe/i);
-    expect(decide).not.toMatch(/every 3rd or 4th/i);
+    // Reads the raw file, not the assembled prompt set — BASE.md is generic enough that
+    // /location/i or /safe/i would pass even without combat.md's own danger rule present.
+    const tpl = readFileSync(V12_DECIDE_COMBAT_FILE, 'utf-8');
+    expect(tpl).toMatch(/danger follows location/i);
+    expect(tpl).not.toMatch(/every 3rd or 4th/i);
   });
 
   it('decide/combat.md documents the combatEnemy field with both anchor values', () => {
@@ -155,12 +167,19 @@ describe('v12 combat template content — T4 C-a rules', () => {
     expect(decide).toContain('"location"');
   });
 
-  it('resolve combat recipe files never author engine-owned combat numbers', () => {
+  it('resolve combat recipe files name the engine-owned ops without authoring a health mutation', () => {
     for (const ver of ['success', 'failure'] as const) {
       const tpl = readFileSync(path.join(V12_COMBAT_RESOLVE_DIR, `${ver}.md`), 'utf-8');
-      expect(tpl).not.toContain('modify_health');
-      expect(tpl).not.toContain('enemyHp');
+      // Guard exists: the prohibition names the engine-owned ops literally (Fix 2), so a
+      // plain `not.toContain('modify_health')` would now be a false failure — assert presence
+      // of the guard instead.
+      expect(tpl).toMatch(/engine-owned/i);
+      expect(tpl).toMatch(/modify_health/);
+      // Regression guard: the recipe itself must never author a negative modify_health amount
+      // (the old "modify_health -1 to -3" double-damage-authoring bug pattern).
+      expect(tpl).not.toMatch(/modify_health[^\n]{0,12}-\s?\d/);
       expect(tpl).not.toContain('set_relation');
+      expect(tpl).not.toContain('update_relation');
     }
   });
 
