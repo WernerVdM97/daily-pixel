@@ -57,6 +57,32 @@ Also excluded and pushed down into `TODO.md` (MVP-deferred) on 2026-07-04: **LLM
 
 ---
 
+## Execution spec — Pass 1 (footer + identity)
+
+Verified seams (2026-07-04, lead-confirmed against `feat/prompt-refactor`). This is the executor contract for the first orchestration pass. The two other groups (pins/comms, weekly-recap) are a later pass and are **out of scope** for Pass 1.
+
+**Verification (run before returning; must stay green):** `npm run typecheck` and `npm test` (vitest). Baseline: the full suite is green before any change.
+
+### Task A — footer shows a `max_stamina` change
+
+- **File:** `src/engine/OutcomeRenderer.ts`. Deltas are aggregated from `outcome.mutations` in `deriveFromMutations()` (~L32-75) into the `MutationDeltas` struct (~L21-29); the stat block that prints them is ~L204-222, joined at ~L228. `formatDelta` (~L78-82) renders `" (+N)"`/`" (-N)"`.
+- **Gap:** there is no `case 'modify_max_stamina'` in the switch and no `maxStaminaDelta` field, so the op (canonical name `modify_max_stamina`, `WorldEngine.ts:87`) is silently dropped. `ctx.maxStamina` already carries the new ceiling; there is no before-value (not needed — the delta is the mutation `amount`).
+- **Change:** add `maxStaminaDelta: 0` to `MutationDeltas`; add `case 'modify_max_stamina': d.maxStaminaDelta += Number(m.amount ?? 0); break;`; render the delta on the stamina entry **unambiguously distinct from the current-stamina delta** — the current-stamina delta and the ceiling delta must not be confusable when both are nonzero. Use a labelled suffix, e.g. `⚡ 8/10 (max +1)` (only when `maxStaminaDelta !== 0`), rendered after any existing `staminaDelta` suffix. Final glyph/wording is the executor's to keep consistent with the file's style, but the two deltas must be visually separable.
+- **Tests:** extend `tests/engine/outcome-renderer.test.ts` — a `modify_max_stamina` mutation surfaces the ceiling delta; both-deltas case stays unambiguous; a no-max-change outcome is unchanged.
+- **Verify, do NOT fix (flag back to lead if broken):** confirm a `modify_max_stamina` mutation actually reaches `ctx.maxStamina` end-to-end (the `TODO.md` note that `CharacterRepository.update` omits `max_stamina` may mean the gain doesn't persist across loads). Persistence is **out of scope** for this render task; if it's broken, report it, don't fix it here.
+
+### Task B — show the character's owner on outcome messages *(F#3, F#8)*
+
+- **Send sites (all four, keep consistent):** `src/discord/commands/action.ts` auto-finish path (content ~L230) and button-resolution path (content ~L376); `src/index.ts` nav re-action (~L1764) and work path (~L2077). Each builds a `content` line like `` `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}` `` and sends a private reply plus a public `broadcastOutcome` (`src/discord/weekly-recap.ts:163`).
+- **Owner id:** the acting user *is* the owner; their Discord id is `interaction.user.id` / `i.user.id`, already in scope at every site. `CharacterData.userId` is the internal DB id, **not** the snowflake — do not use it. No DB lookup needed.
+- **Change:** add the owner next to the character name in the **public** outcome `content` as a Discord mention (`<@${userId}>`), and **suppress the ping** so it renders as a name without notifying (`allowedMentions: { users: [] }` / `parse: []` on the public payload; add pass-through to `broadcastOutcome` if it doesn't already forward `allowedMentions`). The private reply may carry the same suffix (harmless self-reference) but is secondary — the public/shared message is the one testers asked for.
+- **Scope fence:** identity is a lightweight name/mention suffix only. No guild-member display-name fetch, no new repo, no embed-author redesign, no touching the richer community-tagging work (deferred to `[[mvp-social-model]]`).
+- **Tests:** cover the public content line carries the owner mention and that pings are suppressed (extend the relevant `tests/discord/*` action test).
+
+### Scope fence (both tasks)
+
+Render/comms only. Do **not** touch the LLM prompt, the auto-resolve/`done` path, roll-refund logic, latency, or the pins/weekly-recap groups. No drive-by refactors of adjacent code.
+
 ## Cut line / notes
 
 - Branch off `dev` (e.g. `feat/polish-v0.2.8`), log under `CHANGELOG.md` `[Unreleased]`, stage player notes at `assets/release-notes/v0.2.8.yml`. Release cut (VERSION bump, `dev`→`main`, tag) is a separate step per `[[releasing]]`.
