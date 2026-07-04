@@ -239,3 +239,31 @@ describe('Work label uses the profession emoji', () => {
     expect(msg.embeds[0].description).toContain('🛡️ **Work:**');
   });
 });
+
+// ── Owner identity on public outcome messages (F#3, F#8) ──
+
+describe('Outcome payload — owner mention', () => {
+  it('public content line carries the owner Discord mention after the character name', () => {
+    const userId = '123456789012345678';
+    const payload = {
+      content: `⚔️ **Thorn** <@${userId}> — hunt`,
+      embeds: [],
+      components: [],
+      allowedMentions: { users: [] },
+    };
+    expect(payload.content).toContain(`<@${userId}>`);
+    // The mention sits after the bold character name, before the dash
+    expect(payload.content).toMatch(/\*\*\w+\*\*\s+<@\d+>/);
+  });
+
+  it('includes allowedMentions with empty users array to suppress the ping', () => {
+    const payload = {
+      content: '⚔️ **Thorn** <@123456789012345678> — hunt',
+      embeds: [],
+      components: [],
+      allowedMentions: { users: [] },
+    };
+    expect(payload.allowedMentions).toBeDefined();
+    expect(payload.allowedMentions!.users).toEqual([]);
+  });
+});

@@ -227,9 +227,10 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
             : serviceButtons,
         });
         const payload = {
-          content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** — ${result.outcome.distilledType}`,
+          content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
           embeds: [embed],
           components: serviceButtons,
+          allowedMentions: { users: [] },
         };
         // The action already resolved and persisted, and the outcome is shown above. Isolate the
         // public broadcast + collapse announce so a failure here can't fall through to the outer
@@ -373,9 +374,10 @@ async function applyActionResult(
     // Public copy carries only the feedback/bug-report buttons — no nav.
     const charName = character?.name ?? 'Unknown';
     const payload = {
-      content: `${classEmoji(character?.class)} **${charName}** — ${outcome.distilledType}`,
+      content: `${classEmoji(character?.class)} **${charName}** <@${i.user.id}> — ${outcome.distilledType}`,
       embeds: [outcomeEmbed],
       components: serviceButtons,
+      allowedMentions: { users: [] },
     };
     await broadcastOutcome({
       client: i.client,
