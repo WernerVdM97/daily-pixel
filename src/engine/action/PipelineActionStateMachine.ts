@@ -1,4 +1,5 @@
-import type { LlmDecisionOption, SceneStateEdge } from '../../llm/LlmGateway.js';
+import type { LlmContext, LlmDecision, LlmDecisionOption, SceneStateEdge, CriticGateway, CriticInput } from '../../llm/LlmGateway.js';
+import { buildContextDigest } from '../../llm/prompt-builder.js';
 import type {
   ActionType,
   RoutingFlags,
@@ -134,6 +135,10 @@ export class PipelineActionStateMachine {
       proposed: WorldMutation[],
       ctx: MutationContext,
     ) => { mutations: WorldMutation[]; minted: string[] } = (proposed) => ({ mutations: proposed, minted: [] }),
+    // Optional (D7): absent by default, so every existing caller (and the sim, which never
+    // injects one) takes the no-critic path through `critiqueDecide`/`critiqueNarration` below —
+    // both are unconditional no-ops without a critic, keeping this the zero-risk default.
+    private critic?: CriticGateway,
   ) {}
 
   async start(
@@ -169,7 +174,8 @@ export class PipelineActionStateMachine {
       }
     }
 
-    const decideResult = await this.llm.decide({ actionType, flags, context });
+    const rawDecideResult = await this.llm.decide({ actionType, flags, context });
+    const { result: decideResult, criticCallIds } = await this.critiqueDecide(rawDecideResult, actionType, flags, context);
     const firstDecision = toActionDecision(decideResult, decideResult.required);
 
     const state: PipelineInternalActionState = {
@@ -186,6 +192,9 @@ export class PipelineActionStateMachine {
       required: decideResult.required,
       lastDecideResult: decideResult,
       lastActionAt: Date.now(),
+      // No-critic path never sets this key (criticCallIds is always []), so the state object
+      // stays byte-identical to pre-T4 — only a live critic call adds it.
+      ...(criticCallIds.length > 0 ? { llmCallIds: criticCallIds } : {}),
     };
 
     return { resolved: false, state, firstDecision };
@@ -261,7 +270,13 @@ export class PipelineActionStateMachine {
     }
 
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
-    const decideResult = await this.llm.decide({ actionType: state.actionType, flags: state.flags, context });
+    const rawDecideResult = await this.llm.decide({ actionType: state.actionType, flags: state.flags, context });
+    // Gate runs on the fresh decideResult BEFORE the realOptions split below, so a major re-decide
+    // (or a pass-through) feeds BOTH the zero-real-options resolve-trigger check and the normal
+    // continue branch from the same single critic pass — no second gate call for either branch.
+    const { result: decideResult, criticCallIds } = await this.critiqueDecide(
+      rawDecideResult, state.actionType, state.flags, context,
+    );
     const realOptions = decideResult.decision.filter(o => o.dcModifier !== null);
 
     if (realOptions.length === 0) {
@@ -275,6 +290,9 @@ export class PipelineActionStateMachine {
           ...stateWithStat.lastDecideResult,
           sceneLocation: decideResult.sceneLocation ?? stateWithStat.lastDecideResult.sceneLocation,
         },
+        ...(criticCallIds.length > 0
+          ? { llmCallIds: [...(stateWithStat.llmCallIds ?? []), ...criticCallIds] }
+          : {}),
       };
       return this.resolve(stateForResolve, char, items, newDc, newDecisions, option);
     }
@@ -287,6 +305,9 @@ export class PipelineActionStateMachine {
       pendingDecision: nextDecision,
       distilledType: decideResult.distilledType || state.distilledType,
       lastDecideResult: decideResult,
+      ...(criticCallIds.length > 0
+        ? { llmCallIds: [...(stateWithStat.llmCallIds ?? []), ...criticCallIds] }
+        : {}),
     };
 
     return { resolved: false, state: nextState, nextDecision };
@@ -519,6 +540,8 @@ export class PipelineActionStateMachine {
     ];
 
     const updatedContext = { ...context, sceneState: updatedSceneState };
+    // T4: NOT gated — combat truth is engine-owned (the contested roll + band already decided
+    // this round), so there is no authored decision content here for the coherence critic to check.
     const decideResult = await this.llm.decide({
       actionType: state.actionType,
       flags: state.flags,
@@ -636,7 +659,7 @@ export class PipelineActionStateMachine {
     const { mutations: finalMutations } = this.finalize(mutationsWithCombat, mutationCtx);
 
     // RESOLVE-NARRATE.
-    const { outcomeText } = await this.llm.resolveNarrate({
+    const { outcomeText: rawOutcomeText } = await this.llm.resolveNarrate({
       actionType: state.actionType,
       decision: decisionForHandoff,
       chosenOption: chosenOptionForHandoff,
@@ -645,6 +668,12 @@ export class PipelineActionStateMachine {
       finalMutations: finalMutations as unknown[],
       context,
     });
+
+    // Faithfulness prose critic (D7): may only patch outcomeText. `finalMutations` is already
+    // finalized above and never handed back for modification — see critiqueNarration's contract.
+    const { outcomeText, criticCallIds } = await this.critiqueNarration(
+      rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context,
+    );
 
     const mutations = [...finalMutations];
     if (state.wage && state.wage > 0) {
@@ -680,7 +709,7 @@ export class PipelineActionStateMachine {
         outcome: verdict,
         mutations,
         outcomeText,
-        llmCallIds: state.llmCallIds ?? [],
+        llmCallIds: [...(state.llmCallIds ?? []), ...criticCallIds],
         hpZero: (playerHpDelta < 0 && (char.health + playerHpDelta) <= 0) || undefined,
         combatBeat,
       },
@@ -758,7 +787,7 @@ export class PipelineActionStateMachine {
     };
     const { mutations: finalMutations } = this.finalize(gatedMutations, mutationCtx);
 
-    const { outcomeText } = await this.llm.resolveNarrate({
+    const { outcomeText: rawOutcomeText } = await this.llm.resolveNarrate({
       actionType: state.actionType,
       decision: decisionForHandoff,
       chosenOption: chosenOptionForHandoff,
@@ -767,6 +796,12 @@ export class PipelineActionStateMachine {
       finalMutations: finalMutations as unknown[],
       context,
     });
+
+    // Faithfulness prose critic (D7): may only patch outcomeText. `finalMutations` is already
+    // finalized above and never handed back for modification — see critiqueNarration's contract.
+    const { outcomeText, criticCallIds } = await this.critiqueNarration(
+      rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context,
+    );
 
     const mutations = [...finalMutations];
     if (state.wage && state.wage > 0) {
@@ -792,7 +827,7 @@ export class PipelineActionStateMachine {
         outcome: verdict,
         mutations,
         outcomeText,
-        llmCallIds: state.llmCallIds ?? [],
+        llmCallIds: [...(state.llmCallIds ?? []), ...criticCallIds],
       },
     };
   }
@@ -803,6 +838,101 @@ export class PipelineActionStateMachine {
    * `'__divine__'` the way `FallbackLlmGateway.ts` does) — `isDivineIntervention: true` on the
    * outcome is the only signal. Never lets the rejection escape `start()`.
    */
+  /**
+   * D7 two-critic-split resolution (settled by the lead): a SINGLE `CriticGateway.critique`
+   * interface (the critic-v1 prompt, branching on `beat`) is invoked at two pipeline sites — a
+   * gated coherence critic over DECIDE (major → one bounded re-decide, below) and a faithfulness
+   * prose critic over RESOLVE-NARRATE (patches `outcome_text` only, see `critiqueNarration`). Not
+   * two prompts/interfaces: the D5b split already structurally prevents the prose critic from
+   * altering mutations (the machine applies only `patch.outcomeText`; the finalized mutation array
+   * is never handed to the critic for modification), so a separate "prose-only" interface would
+   * add versioning + wiring for zero behavioural gain.
+   *
+   * No critic injected → unconditional no-op (`{ result: decideResult, criticCallIds: [] }`), so
+   * every caller that doesn't wire one in (all existing tests + the sim) is byte-identical to
+   * pre-T4 behaviour.
+   */
+  private async critiqueDecide(
+    decideResult: PipelineDecideResult,
+    actionType: ActionType,
+    flags: RoutingFlags,
+    context: LlmContext,
+  ): Promise<{ result: PipelineDecideResult; criticCallIds: number[] }> {
+    if (!this.critic) return { result: decideResult, criticCallIds: [] };
+
+    // Gate: the pipeline has no `_warnings` channel like the legacy deterministic validator, so
+    // `required` (a high-stakes/reactive beat) is the whole gate here — mirrors
+    // CritiquedLlmGateway's "required OR warnings" ladder with warnings unavailable. Clean,
+    // low-stakes beats skip the critic entirely.
+    if (!decideResult.required) return { result: decideResult, criticCallIds: [] };
+
+    const input: CriticInput = {
+      beat: 'decision',
+      decision: adaptDecideToLlmDecision(decideResult),
+      contextDigest: buildContextDigest(context),
+      playerInput: context.rawInput,
+      warnings: [],
+    };
+    const verdict = await this.critic.critique(input);
+    const criticCallIds = verdict._llmCallId !== undefined ? [verdict._llmCallId] : [];
+
+    if (verdict.ok) return { result: decideResult, criticCallIds };
+
+    // Minor: a decide beat is options-only (no player-facing prose field) — `patch` has nowhere
+    // to land, so treat minor the same as ok (pass through unchanged).
+    if (verdict.severity === 'minor') return { result: decideResult, criticCallIds };
+
+    // Major: ONE bounded re-decide with the critic's issues as guidance. NOT re-critiqued —
+    // a correction is not itself subject to correction (mirrors CritiquedLlmGateway's ladder).
+    const note = verdict.issues.join('; ') || 'incoherent with the scene';
+    try {
+      const redecided = await this.llm.decide({ actionType, flags, context: { ...context, criticNote: note } });
+      return { result: redecided, criticCallIds };
+    } catch (err) {
+      console.warn('[critic] re-decide failed — keeping original', err instanceof Error ? err.message : String(err));
+      return { result: decideResult, criticCallIds };
+    }
+  }
+
+  /**
+   * Faithfulness prose critic over RESOLVE-NARRATE. Returns ONLY a (possibly patched) string —
+   * it never receives or returns mutations, so the caller's `finalMutations` array is untouched
+   * by construction: the prose critic structurally cannot alter a finalized mutation.
+   *
+   * No critic injected → unconditional no-op, matching `critiqueDecide`.
+   */
+  private async critiqueNarration(
+    outcomeText: string,
+    verdict: 'success' | 'failure',
+    decideResult: PipelineDecideResult,
+    finalMutations: unknown[],
+    context: LlmContext,
+  ): Promise<{ outcomeText: string; criticCallIds: number[] }> {
+    if (!this.critic) return { outcomeText, criticCallIds: [] };
+
+    const input: CriticInput = {
+      beat: 'resolution',
+      rollOutcome: verdict,
+      decision: adaptNarrationToLlmDecision(decideResult, outcomeText, finalMutations),
+      finalMutations,
+      contextDigest: buildContextDigest(context),
+      playerInput: context.rawInput,
+      warnings: [],
+    };
+    const v = await this.critic.critique(input);
+    const criticCallIds = v._llmCallId !== undefined ? [v._llmCallId] : [];
+
+    if (!v.ok && v.severity === 'minor' && v.patch?.outcomeText) {
+      outcomeText = v.patch.outcomeText;
+    } else if (!v.ok && v.severity === 'major') {
+      // Dice + mutations are already finalized; a structural defect can't be safely re-narrated,
+      // so keep the original text (mirrors legacy machine.ts's resolveWithRoll critic hook).
+      console.warn('[critic] major defect on resolution beat — keeping original text:', v.issues.join('; '));
+    }
+
+    return { outcomeText, criticCallIds };
+  }
+
   private resolveDivineIntervention(
     rawInput: string,
     kind: ActionKind,
@@ -884,4 +1014,33 @@ function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen
     chosen: r.chosen,
     dcModifier: r.dcModifier,
   }));
+}
+
+/** Adapts a DECIDE-beat result into the single `LlmDecision` shape the critic-v1 prompt expects
+ *  (it reads a `decision`/`prompt`/`mutations`/`outcome_text`-shaped object regardless of beat). */
+function adaptDecideToLlmDecision(r: PipelineDecideResult): LlmDecision {
+  return {
+    distilledType: r.distilledType,
+    stat: r.stat,
+    baseDc: r.baseDc,
+    required: r.required,
+    done: false,
+    decision: r.decision,
+  };
+}
+
+/** Adapts a finalized RESOLVE-NARRATE beat (verdict-shaped, `done: true`) into the same
+ *  `LlmDecision` shape — `mutations`/`outcomeText` carried through for the critic's context only,
+ *  never fed back into the machine's own mutation handling. */
+function adaptNarrationToLlmDecision(r: PipelineDecideResult, outcomeText: string, finalMutations: unknown[]): LlmDecision {
+  return {
+    distilledType: r.distilledType,
+    stat: r.stat,
+    baseDc: r.baseDc,
+    required: r.required,
+    done: true,
+    decision: [],
+    mutations: finalMutations,
+    outcomeText,
+  };
 }

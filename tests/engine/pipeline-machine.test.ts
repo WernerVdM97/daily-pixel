@@ -17,7 +17,7 @@ import type {
   PipelineResolveNarrateInput,
   PipelineResolveNarrateResult,
 } from '../../src/llm/pipeline/types.js';
-import type { LlmContext } from '../../src/llm/LlmGateway.js';
+import type { CriticGateway, CriticInput, CriticVerdict, LlmContext } from '../../src/llm/LlmGateway.js';
 
 // Deliberately NOT the legacy `MockLlmGateway` (single-decision-shaped) — the pipeline needs
 // 4 distinct scriptable stages and sharing the legacy fixture would couple the two machines'
@@ -53,6 +53,19 @@ class MockPipelineLlmGateway implements PipelineLlmGateway {
   async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineResolveNarrateResult> {
     this.resolveNarrateCalls.push(input);
     return this.resolveNarrateResult;
+  }
+}
+
+/** Scriptable critic double for the T4 describe block below — one verdict per call by default
+ *  (`verdict`), or a queue via `verdicts` for tests that need the ladder to change between calls
+ *  (e.g. major-then-not-recritiqued). */
+class MockCriticGateway implements CriticGateway {
+  verdict: CriticVerdict = { ok: true, severity: 'minor', issues: [] };
+  calls: CriticInput[] = [];
+
+  async critique(input: CriticInput): Promise<CriticVerdict> {
+    this.calls.push(input);
+    return this.verdict;
   }
 }
 
@@ -749,5 +762,164 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
     if (step.resolved) throw new Error('expected unresolved step');
 
     expect(step.combatBeat).toBeUndefined();
+  });
+});
+
+/**
+ * T4 — critic re-placement (D7): the single `CriticGateway.critique` interface invoked at two
+ * in-machine sites (gated coherence critic over DECIDE, faithfulness prose critic over
+ * RESOLVE-NARRATE). The critic is an OPTIONAL 5th constructor param — every describe block above
+ * this one constructs the machine without one, so those 20 tests staying green already proves the
+ * no-critic path is untouched; the explicit no-critic test below (#6) is a cheap extra belt.
+ */
+describe('PipelineActionStateMachine — T4 critic', () => {
+  it('prose critic patches outcomeText only — mutations stay byte-identical to a no-critic run', async () => {
+    const buildLlm = () => {
+      const llm = new MockPipelineLlmGateway();
+      llm.decideResult = combatDecideResult();
+      llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -2 }] };
+      llm.resolveNarrateResult = { outcomeText: 'You land a clean hit.' };
+      return llm;
+    };
+    const forceResolve = (llm: MockPipelineLlmGateway) => {
+      llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    };
+
+    // Baseline: no critic at all — captures the exact mutations array T4 must not disturb.
+    const baselineLlm = buildLlm();
+    const baselineMachine = new PipelineActionStateMachine(baselineLlm, () => 20);
+    const baselineStarted = await baselineMachine.start(testChar(), 'attack the goblin', testItems);
+    if (baselineStarted.resolved) throw new Error('expected unresolved start');
+    forceResolve(baselineLlm);
+    const baselineStep = await baselineMachine.step(baselineStarted.state, 'Strike hard', testChar(), testItems);
+    if (!baselineStep.resolved) throw new Error('expected resolved step');
+
+    // Critic run: a minor prose defect patches outcomeText only.
+    const llm = buildLlm();
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: false, severity: 'minor', issues: ['prose drifted from the final mutations'], patch: { outcomeText: 'patched' } };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    forceResolve(llm);
+    const step = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcomeText).toBe('patched');
+    // This is the acceptance criterion in concrete form: the prose critic never receives or
+    // returns mutations, so the finalized array is exactly what the no-critic run produced.
+    expect(step.outcome.mutations).toEqual(baselineStep.outcome.mutations);
+  });
+
+  it('resolution major defect keeps the original outcomeText and leaves mutations untouched', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult();
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -2 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You land a clean hit.' };
+
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: false, severity: 'major', issues: ['structurally wrong'] };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcomeText).toBe('You land a clean hit.');
+    expect(step.outcome.mutations).toEqual([{ type: 'modify_health', amount: -2 }]);
+  });
+
+  it('coherence gate: a major verdict on a required decide beat triggers exactly ONE bounded re-decide', async () => {
+    const llm = new MockPipelineLlmGateway();
+    const originalDecide: PipelineDecideResult = {
+      distilledType: 'ambush',
+      stat: 'physical',
+      baseDc: 14,
+      required: true,
+      decision: [
+        { label: 'Fight back', dcModifier: 3 },
+        { label: 'Dodge', dcModifier: -2 },
+      ],
+    };
+    // A distinct distilledType on the re-decide result lets the assertion below prove the
+    // RETURNED decision is the second (re-decided) call, not the discarded first one.
+    const redecided: PipelineDecideResult = { ...originalDecide, distilledType: 'ambush-corrected' };
+    const results = [originalDecide, redecided];
+    let callCount = 0;
+    llm.decide = async (input: PipelineDecideInput): Promise<PipelineDecideResult> => {
+      llm.decideCalls.push(input);
+      return results[Math.min(callCount++, results.length - 1)];
+    };
+
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: false, severity: 'major', issues: ['combat silently converted'] };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+
+    // Grew by exactly 1 (the original decide + the one bounded re-decide).
+    expect(llm.decideCalls).toHaveLength(2);
+    expect(llm.decideCalls[1].context.criticNote).toContain('combat silently converted');
+    // The re-decide is NOT itself re-critiqued.
+    expect(critic.calls).toHaveLength(1);
+    if (started.resolved) throw new Error('expected unresolved start');
+    expect(started.state.distilledType).toBe('ambush-corrected');
+  });
+
+  it('coherence gate: an ok verdict passes the decide result through untouched (no re-decide)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'ambush',
+      stat: 'physical',
+      baseDc: 14,
+      required: true,
+      decision: [
+        { label: 'Fight back', dcModifier: 3 },
+        { label: 'Dodge', dcModifier: -2 },
+      ],
+    };
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: true, severity: 'minor', issues: [] };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    await machine.start(testChar(), 'attack the goblin', testItems);
+
+    expect(llm.decideCalls).toHaveLength(1);
+    expect(critic.calls).toHaveLength(1);
+  });
+
+  it('coherence gate: skips a non-required decide beat entirely', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // required: false
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: false, severity: 'major', issues: ['should never be read'] };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    await machine.start(testChar(), 'attack the goblin', testItems);
+
+    expect(critic.calls).toHaveLength(0);
+    expect(llm.decideCalls).toHaveLength(1);
+  });
+
+  it('no critic constructed — critic logic is entirely a no-op', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult();
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -2 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You land a clean hit.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20); // no critic param at all
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+    if (step.resolved) {
+      expect(step.outcome.outcomeText).toBe('You land a clean hit.');
+      expect(step.outcome.mutations).toEqual([{ type: 'modify_health', amount: -2 }]);
+      expect(step.outcome.llmCallIds).toEqual([]);
+    }
   });
 });
