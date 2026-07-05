@@ -1,3 +1,12 @@
+---
+title: "T3 iteration 2 — floor + loss ladder: spec handoff"
+status: shipped
+domain: engine
+phase: poc
+tags: [combat, engine, pipeline, thread-c, stage-3, floor, spec]
+related: ["[[stage-3-combat-spine-plan]]", "[[prompt-v12-combat]]"]
+---
+
 # T3 iteration 2 — floor + loss ladder (spec handoff)
 
 **Contract:** implement the once-per-day survive-at-1 floor, forced desperate-choice beat,
@@ -55,16 +64,12 @@ non-terminal mutations slot.
 const floorPlayerHpDelta = 1 - char.health; // brings player to exactly 1
 const saveRelation = combatSaveUpdate(currentDay);
 const combatEdgeSameRound = combatRoundUpdate(cs, 0, cs.round);
-// Overwrite enemyHp to the unchanged value from the round (the band's delta shouldn't
-// be applied to enemyHp for the desperate round — actually re-read the plan)
-
-// Hmm, on the lethal blow, the band's enemyHpDelta WAS already applied to newEnemyHp
-// above. The player takes the band damage, goes to 1 instead of 0, but the enemy
-// still took its hits this round. So the combat edge should reflect the round's
-// enemyHp delta but NOT the player's lethal delta.
+// The round's band delta was already applied to newEnemyHp above — the enemy still took
+// its hits this round, so the combat edge reflects that band-depleted enemyHp, not the
+// player's lethal delta (which is floored separately).
 ```
 
-**CORRECTED logic:** On the lethal blow:
+**On the lethal blow:**
 - `enemyHp` still gets its band delta (the round happened)
 - Player HP goes to 1 (instead of the lethal delta)
 - The `combat_save` edge is written
@@ -138,19 +143,14 @@ another lethal blow the same day. Assert resolves with `failure` and `hpZero: tr
 Advance the engine's `currentDay`. The next lethal blow should again trigger the
 desperate-choice rather than immediate failure.
 
-**f) (Edge case) `getCurrentDay` absent → combat_save never fires**
+**f) (Edge case) `getCurrentDay` absent → the floor degrades to per-encounter**
 
-When the resolver returns 0 (default), the first lethal blow should still trigger a
-desperate-choice but the save gate degrades to per-encounter — meaning a second lethal
-blow within the same encounter also resolves as failure. Actually, with `savedDay === 0`
-and `currentDay` defaulting to 0, the save compares `savedDay !== currentDay` which is
-`false` — so it treats it as already saved. This is a documented degradation.
-
-Wait — simpler: when the resolver has no `getCurrentDay`, the floor **never fires**,
-because `currentDay` is 0 (default) and no `combat_save` edge was ever written with
-`savedDay = 0`, so `savedDay === null` → save fires once, then the edge has `savedDay = 0`
-and the next lethal blow the same encounter finds `savedDay(0) === currentDay(0)` → failure.
-That IS per-encounter, which is the documented degradation. OK.
+When the resolver has no `getCurrentDay`, `currentDay` defaults to 0. The first lethal
+blow finds no `combat_save` edge (`savedDay === null`), so the floor still fires once,
+writing `combat_save` with `savedDay = 0`. A second lethal blow within the same
+encounter then finds `savedDay(0) === currentDay(0)` and resolves as failure. This is
+the documented degradation: without a real day source, the once-per-day floor degrades
+to once-per-encounter.
 
 ## Scope fence (do NOT touch)
 

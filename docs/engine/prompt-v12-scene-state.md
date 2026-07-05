@@ -15,6 +15,7 @@ related:
   - "[[prompt-v12-combat]]"
   - "[[prompt-v12-world-scaling]]"
   - "[[prompt-v12-pipeline]]"
+  - "[[stage-2-scene-state-spine-plan]]"
   - "[[mvp-data-model]]"
   - "[[mvp-social-model]]"
   - "[[mvp+world-state-projection]]"
@@ -52,6 +53,7 @@ Model scene + relationship state as **nodes + edges** — the subject and object
   { "op": "set_relation", "from": "<pc>", "to": "Crow", "type": "trust", "props": { "delta": -1 } }
   ```
 - [>] **Storage (decided):** graph-*shaped* now, persisted as a typed structure in SQLite this round; migrate to a real graph backend at MVP when [[mvp-data-model]] lands.
+- [!] **Naming in code differs from this doc** ([[stage-2-scene-state-spine-plan]] decision 6): the relationship kind is `relType` in the codebase — `WorldMutation.type` already means the *op name* — and D6's `scene_location` field lands camelCase as `sceneLocation`. Grep with the code names, not this doc's design-level names.
 
 ## D6 — Deterministic travel/location coherence
 
