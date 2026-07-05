@@ -6,20 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.2.7] - 2026-07-01
+## [0.2.8] - 2026-07-05
 ### Added
-- **Phase-split decide prompts** — decide templates now split by pipeline phase (`decide/phases/NEW_ACTION.md` + `CONTINUE.md`) so the model sees only the rules relevant to its current task. The shared `decide/BASE.md` carries phase-agnostic rules; the loader assembles `BASE → phase → type` per call.
-- **`MAX_DECISIONS_PER_ACTION` constant** — the beat cap is now a named constant (`2`) injected into the CONTINUE user message so the model knows how close it is to resolution.
-- **Per-verdict resolve templates** — resolve templates split by success/failure under `resolve/<category>/{success,failure}.md`, each a lean mutation recipe (~4 lines), with shared rules in `resolve/BASE.md`.
 - **Owner identity on public outcome messages** *(F#3, F#8)* — the character's owner (as a `<@discordId>` mention with pings suppressed) now appears next to the character name on the shared public outcomes so testers can tell who's who.
 - **`Hi` button on public outcomes** — action outcomes posted to the weekly thread now carry a 🌅 `Hi` re-entry button ahead of the feedback/bug buttons, so a reader can jump straight into play from the thread. The `nav:hi` handler already spawns a fresh per-clicker ephemeral on public messages, so no new routing was needed.
-- **One free bail per day** — the first time you step back from a decision each day refunds the roll (mirrors the no-op/timeout "made whole" graces); later bails that day still spend it, and bailing always costs stamina. Guarded migration `202606300000_player_last_bail_refund_day` adds `player_characters.last_bail_refund_day` (own column so the bail grace never burns — or is burned by — the no-op/timeout graces).
 
 ### Changed
 - **Release notes get their own pin icon** *(F#20)* — 📬 now marks release announcements in the pin list, distinct from the weekly recap's 📜.
 - **Saturday threat pins are now self-replacing** *(F#18)* — only the latest week's wilderness threat stays pinned; older ones are cleaned up automatically.
 - **Weekly chronicle moves to the bottom of a locked thread** *(F#19b)* — at Monday finalize, the recap digest is posted as a new message at the bottom of the week's thread and the thread is locked; the pinned header stays as the archive anchor.
-- **`/hi` header shows the place's own glyph`** — drops the hardcoded 🏠 for the location's map emoji (📍 fallback) + safety glyph, mirroring the 0.2.6 `/look` fix.
+
+### Fixed
+- **Players now join the week's thread when their outcome posts** *(F#19a)* — the acting player is added to the recap thread (`thread.members.add`) just before the outcome is broadcast. The owner mention is ping-suppressed and so never subscribed them, leaving the thread out of their sidebar and the outcome unseen; the add is idempotent and best-effort (a failed add still posts the outcome).
+- **Outcome footer now shows `max_stamina` changes** — a `modify_max_stamina` mutation renders a labelled `(max +N)` or `(max −N)` suffix on the stamina line so ceiling gains are no longer silently invisible.
+- **Private outcome reply no longer duplicates the story thread** *(F#19c)* — the private embed now shows only the outcome text + stats, not the full gamebook trail the player just saw in the decision embed.
+
+### Internal
+- **v12 action-pipeline groundwork (not live)** — an offline sim harness plus a parallel `PipelineActionStateMachine` (classify → decide → dice → resolve), first-class combat + scene-state relations, and the phase-split v12 prompt set (per-phase `decide/`, per-verdict `resolve/`, `MAX_DECISIONS_PER_ACTION` cap) all landed behind the sim; prod still runs v11, with the live cutover tracked for `0.3.0` (see [[stage-5-live-cutover-plan]]).
+
+## [0.2.7] - 2026-07-01
+### Added
+- **One free bail per day** — the first time you step back from a decision each day refunds the roll (mirrors the no-op/timeout "made whole" graces); later bails that day still spend it, and bailing always costs stamina. Guarded migration `202606300000_player_last_bail_refund_day` adds `player_characters.last_bail_refund_day` (own column so the bail grace never burns — or is burned by — the no-op/timeout graces).
+
+### Changed
+- **`/hi` header shows the place's own glyph** — drops the hardcoded 🏠 for the location's map emoji (📍 fallback) + safety glyph, mirroring the 0.2.6 `/look` fix.
 - **Character-gated commands reroute to character creation** — running `/hi` (or `/look`, `/stats`, `/map`, `/backpack`, `/journal`, `/action`, `/sleep`) before you have a character now opens the join wizard instead of a "type /join" dead-end.
 - **`/look` paths and `/map` drill-in roads show the destination's glyph** — each path/road line carries the destination's place emoji + safe/wild glyph (full-map node parity), not just its name.
 - **`/join` options show their stat bonuses** — classes, backgrounds, races, and starting kits display the stats each boosts as emoji (💪/🧠/📖/💬 with signed amounts), not only free-text flavour.
@@ -27,9 +37,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Saturday threat warned at dawn** — the wilderness-threat heads-up folds into the 05:30 morning message (place + hint); the full reveal and NPC spawn still happen at the 12:00 beat.
 
 ### Fixed
-- **Players now join the week's thread when their outcome posts** *(F#19a)* — the acting player is added to the recap thread (`thread.members.add`) just before the outcome is broadcast. The owner mention is ping-suppressed and so never subscribed them, leaving the thread out of their sidebar and the outcome unseen; the add is idempotent and best-effort (a failed add still posts the outcome).
-- **Outcome footer now shows `max_stamina` changes** — a `modify_max_stamina` mutation renders a labelled `(max +N)` or `(max −N)` suffix on the stamina line so ceiling gains are no longer silently invisible.
-- **Private outcome reply no longer duplicates the story thread** *(F#19c)* — the private embed now shows only the outcome text + stats, not the full gamebook trail the player just saw in the decision embed.
 - **Edge bearings are now inverted on the far side of a road** — `/look` paths and the decision-prompt context now show the compass direction as seen from where you stand, not the stored canonical direction (feedback #14, bug #12). `neighbours()` returns directions relative to the queried node; reverse edges get `oppositeDirection()` applied in the repo.
 - **Null-region nodes no longer orphan to "Elsewhere" on `/map`** — a place whose cartographer enrichment is absent or predated the region logic now inherits its nearest BFS ancestor's region, so it groups with its geographic neighbours (feedback #14, bug #12).
 - **Frontier crossings now show the destination in the outcome footer** — a `cross_frontier` travel (e.g. arriving at Eastvale for the first time) now renders the `→ Place` line, matching `set_location` (feedback #16).
