@@ -76,10 +76,10 @@ PipelineActionStateMachine
 ### Task 1 — Sim calibration (the balance gate)
 **Description.** Run the existing combat scenarios through the sim and tune to acceptable curves, scale-neutral. Adjust the band table / enemy-HP derive in `combat-dc.ts` (and add scenarios if a case is unproven) until win/death/reward rates and round counts read sensibly. Capture the chosen constants + the curves in a short calibration record so the flip is defensible. No prod code changes here.
 **Acceptance:**
-- [ ] Win/death/reward + rounds-per-fight curves recorded for the tuned constants across the win / floor / cap scenarios.
-- [ ] Any band/`enemyMaxHp` change lands via `combat-dc.ts` with the sim rerun green.
+- [x] Win/death/reward + rounds-per-fight curves recorded for the tuned constants across the win / floor / cap scenarios.
+- [x] Any band/`enemyMaxHp` change lands via `combat-dc.ts` with the sim rerun green.
 **Verification:** `npm run sim` produces the curves; combat sim tests green.
-**Files:** `src/engine/action/combat-dc.ts`, sim scenarios, a calibration note (docs or committed sim output). **Scope:** M. **Deps:** prerequisites. Can run alongside T2–T4.
+**Files:** `src/engine/action/combat-dc.ts`, sim scenarios, a calibration note (docs or committed sim output). **Scope:** M. **Deps:** prerequisites. Can run alongside T2–T4. **Landed** — reproducible seeded harness `src/sim/calibrate-combat.ts` (`npm run calibrate`, 9-config physical×baseDc grid, N=300 seeded fights each) + calibration record [[T1-combat-calibration]]. **Verdict: accepted as the scale-neutral launch baseline, no constant changes** (curves monotonic + directionally correct; baseline warrior vs standard foe ~90.7% win / ~4 rounds; underdog death rates are knockouts-not-permadeath + floor-save-mitigated + location-gated, recorded as post-launch watch-items). `combat-dc.ts` untouched.
 
 ### Task 1b — Pipeline scenario coverage for social / skill / other
 **Description.** Close the sim coverage gap before anything goes live: `combat` and `rest` are well-exercised through `PipelineActionStateMachine`/`PipelineSimEngine`, `travel`/`search` only lightly, but **`social`, `skill`, and `other` have zero pipeline-level scenarios** — their decide/resolve templates and machine routing have never been driven end-to-end, even against the scripted gateway. Add one scripted-gateway scenario per missing type (mirror the combat scenarios' shape) asserting the full chain completes: classify routes the type, decide emits options only, resolve produces mutations + `outcome_text`, and the per-stage stamp seams carry the right stage names.
