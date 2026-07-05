@@ -1249,6 +1249,17 @@ async function main() {
     npcRepo,
     ...(cartographer ? { cartographer } : {}),
     ...(criticEnabled && criticGateway ? { critic: criticGateway } : {}),
+    // T6 live cutover: pass pipelineLlm when DEEPSEEK_API_KEY is present → the
+    // constructor builds PipelineActionStateMachine (v12). Without the key, the
+    // legacy machine (v11) is built. The recorder catches per-stage llm_calls stamps.
+    ...(DEEPSEEK_API_KEY ? {
+      pipelineLlm: {
+        apiKey: DEEPSEEK_API_KEY,
+        ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
+        recorder: new LlmCallRepository(initDb()),
+        verbose: process.env.VERBOSE_LLM === "true",
+      },
+    } : {}),
     classDefs: assets.classes as ClassDef[],
     upbringingDefs: assets.backgrounds as ModifierDef[],
     raceDefs: assets.races as ModifierDef[],
