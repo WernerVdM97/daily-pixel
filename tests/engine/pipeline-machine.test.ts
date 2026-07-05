@@ -891,17 +891,18 @@ describe('PipelineActionStateMachine — T4 critic', () => {
     expect(critic.calls).toHaveLength(1);
   });
 
-  it('coherence gate: skips a non-required decide beat entirely', async () => {
+  it('coherence gate: fires on every decide beat (required gate removed — §3 v12 QA)', async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decideResult = combatDecideResult(); // required: false
     const critic = new MockCriticGateway();
-    critic.verdict = { ok: false, severity: 'major', issues: ['should never be read'] };
+    critic.verdict = { ok: true, severity: 'minor', issues: [] };
     const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
 
     await machine.start(testChar(), 'attack the goblin', testItems);
 
-    expect(critic.calls).toHaveLength(0);
-    expect(llm.decideCalls).toHaveLength(1);
+    // §3: critic now fires on every decide beat, not just required ones.
+    expect(critic.calls).toHaveLength(1);
+    expect(critic.calls[0].beat).toBe('decision');
   });
 
   it('no critic constructed — critic logic is entirely a no-op', async () => {
@@ -922,5 +923,152 @@ describe('PipelineActionStateMachine — T4 critic', () => {
       expect(step.outcome.mutations).toEqual([{ type: 'modify_health', amount: -2 }]);
       expect(step.outcome.llmCallIds).toEqual([]);
     }
+  });
+});
+
+describe('PipelineActionStateMachine — §2 v12 QA: auto-resolve + single-option validator', () => {
+  it('auto-resolve: start() returns resolved:true when LLM returns decision:[] on beat 1', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Travel — no branching needed, LLM returns empty decision array.
+    llm.decideResult = {
+      distilledType: 'travel',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = { mutations: [{ type: 'set_location', location: 'The Dark Woods' }] };
+    llm.resolveNarrateResult = { outcomeText: 'You journey into the dark woods.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 15);
+    const result = await machine.start(testChar(), 'travel to the dark woods', testItems);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.outcome).toBe('success');
+      expect(result.outcome.outcomeText).toBe('You journey into the dark woods.');
+      expect(result.outcome.mutations).toEqual([{ type: 'set_location', location: 'The Dark Woods' }]);
+      // resolveMutate was called with the synthetic option (rawInput as label)
+      expect(llm.resolveMutateCalls).toHaveLength(1);
+      expect(llm.resolveMutateCalls[0].chosenOption).toEqual({ label: 'travel to the dark woods', dcModifier: 0, stat: 'physical' });
+      expect(llm.resolveNarrateCalls).toHaveLength(1);
+      // No decisions were presented — decisions array is empty
+      expect(result.state.decisions).toEqual([]);
+    }
+  });
+
+  it('auto-resolve: no-roll action (needs_roll:false) auto-resolves as success without calling rollD20', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'rest',
+      stat: 'wisdom',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_stamina', amount: 3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You rest beneath the oak.' };
+
+    let rollCalled = false;
+    const machine = new PipelineActionStateMachine(llm, () => { rollCalled = true; return 1; });
+    const result = await machine.start(testChar(), 'rest at the campfire', testItems);
+
+    expect(result.resolved).toBe(true);
+    expect(rollCalled).toBe(false);
+    if (result.resolved) {
+      expect(result.outcome.outcome).toBe('success');
+      expect(result.outcome.playerRolled).toBeNull();
+      expect(result.outcome.mutations).toEqual([{ type: 'modify_stamina', amount: 3 }]);
+    }
+  });
+
+  it('auto-resolve: does not trigger when LLM returns 1+ real options (normal path)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // 2 options
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const result = await machine.start(testChar(), 'attack the goblin', testItems);
+
+    expect(result.resolved).toBe(false);
+    if (!result.resolved) {
+      expect(result.firstDecision.options.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('single-option validator: triggers one bounded re-decide when decision has exactly 1 option', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // First decide returns a single option — validator should trigger re-decide.
+    // The re-decide returns a proper 2-option spread.
+    llm.decideResult = {
+      distilledType: 'interact',
+      stat: 'wisdom',
+      baseDc: 12,
+      required: false,
+      decision: [{ label: 'The Warden pauses...', dcModifier: -2, stat: 'wisdom' }],
+    };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // Override the mock's decideResult AFTER the first decide call, so the re-decide gets
+    // the corrected 2-option result. The mock always returns `this.decideResult` — we need
+    // it to change between calls. Use a simple counter approach via the decideCalls spy.
+    const result = await machine.start(testChar(), 'talk to the warden', testItems);
+
+    // The validator fired: first decide returned 1 option, re-decide got the (still 1-option)
+    // result because our mock always returns the same value. The re-decide itself passes through.
+    // We verify the validator was invoked by checking decide was called twice (original + re-decide).
+    expect(llm.decideCalls.length).toBe(2);
+    // The second call should carry the criticNote with the validator's guidance.
+    expect(llm.decideCalls[1].context.criticNote).toContain('single option');
+    expect(result.resolved).toBe(false);
+  });
+
+  it('single-option validator: does not trigger when decision has 2+ options', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // 2 options
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    await machine.start(testChar(), 'attack the goblin', testItems);
+
+    // Only one decide call — validator didn't trigger a re-decide.
+    expect(llm.decideCalls.length).toBe(1);
+  });
+
+  it('single-option validator: does not trigger on empty decision (auto-resolve path)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'travel',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You travel.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const result = await machine.start(testChar(), 'go to the forest', testItems);
+
+    // Validator sees 0 options → no-op. Auto-resolve triggers instead.
+    expect(llm.decideCalls.length).toBe(1);
+    expect(result.resolved).toBe(true);
+  });
+
+  it('single-option validator: triggers on a single bail-only option (re-decides for real choices)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'travel',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      decision: [{ label: 'Proceed', dcModifier: null }],
+    };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const result = await machine.start(testChar(), 'go to the forest', testItems);
+
+    // Validator triggers on decision.length === 1 regardless of dcModifier.
+    // A single bail-only option IS a single option — the validator re-decides.
+    expect(llm.decideCalls.length).toBe(2);
+    expect(result.resolved).toBe(false);
   });
 });

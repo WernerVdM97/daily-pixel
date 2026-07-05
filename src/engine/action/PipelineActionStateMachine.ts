@@ -155,9 +155,10 @@ export class PipelineActionStateMachine {
     const context = buildPipelineContext(this.resolver, char, rawInput, [], items);
 
     // CLASSIFY fires once per action (settled decision #4): heuristic first, LLM fallback only
-    // on a miss. A fallback rejection is the one way `start()` resolves outright in this
-    // pipeline — DECIDE itself never authors mutations/outcome_text (D5b split), so short of
-    // this failure mode, start() always returns `resolved: false`.
+    // on a miss. A fallback rejection resolves outright. DECIDE itself never authors
+    // mutations/outcome_text (D5b split), but when the LLM returns `decision: []` on beat 1,
+    // the resolve pipeline runs inside start() and returns `resolved: true` — the auto-resolve
+    // path restored per §2 v12 QA.
     const classifyResult = heuristicClassify(rawInput);
     let actionType: ActionType;
     let flags: RoutingFlags;
@@ -178,7 +179,35 @@ export class PipelineActionStateMachine {
 
     const { result: rawDecideResult, callId: decideCallId } = await this.llm.decide({ actionType, flags, context });
     if (decideCallId !== 0) gatewayCallIds.push(decideCallId);
-    const { result: decideResult, criticCallIds } = await this.critiqueDecide(rawDecideResult, actionType, flags, context);
+    const { result: afterCritic, criticCallIds } = await this.critiqueDecide(rawDecideResult, actionType, flags, context);
+    const { result: decideResult, validatorCallIds } = await this.validateSingleOption(afterCritic, actionType, flags, context);
+
+    // §2 v12 QA: auto-resolve on first-beat `decision: []` — the LLM returned an empty
+    // decision array, signalling this action needs no player branching. Jump straight to
+    // the resolve pipeline instead of serving a bail-only screen.
+    if (decideResult.decision.length === 0) {
+      const syntheticOption: ActionOption = { label: rawInput, dcModifier: 0, stat: decideResult.stat };
+      const allCallIds = [...gatewayCallIds, ...criticCallIds, ...validatorCallIds];
+      const preState: PipelineInternalActionState = {
+        rawInput,
+        decisions: [],
+        accumulatedDc: decideResult.baseDc,
+        kind,
+        wage,
+        actionType,
+        flags,
+        pendingDecision: { prompt: '', options: [] },
+        distilledType: decideResult.distilledType,
+        rollStat: decideResult.stat,
+        required: decideResult.required,
+        lastDecideResult: decideResult,
+        lastActionAt: Date.now(),
+        ...(allCallIds.length > 0 ? { llmCallIds: allCallIds } : {}),
+      };
+      const resolved = await this.resolve(preState, char, items, decideResult.baseDc, [], syntheticOption);
+      return { resolved: true, state: resolved.state, outcome: resolved.outcome };
+    }
+
     const firstDecision = toActionDecision(decideResult, decideResult.required);
 
     const state: PipelineInternalActionState = {
@@ -197,8 +226,8 @@ export class PipelineActionStateMachine {
       lastActionAt: Date.now(),
       // llmCallIds accumulates every recorded LLM call in this action (gateway stages +
       // critic). Filter zeros: callId===0 means no recorder was wired for that call.
-      ...([...gatewayCallIds, ...criticCallIds].length > 0
-        ? { llmCallIds: [...gatewayCallIds, ...criticCallIds] }
+      ...([...gatewayCallIds, ...criticCallIds, ...validatorCallIds].length > 0
+        ? { llmCallIds: [...gatewayCallIds, ...criticCallIds, ...validatorCallIds] }
         : {}),
     };
 
@@ -279,10 +308,11 @@ export class PipelineActionStateMachine {
     // Gate runs on the fresh decideResult BEFORE the realOptions split below, so a major re-decide
     // (or a pass-through) feeds BOTH the zero-real-options resolve-trigger check and the normal
     // continue branch from the same single critic pass — no second gate call for either branch.
-    const { result: decideResult, criticCallIds } = await this.critiqueDecide(
+    const { result: afterCritic, criticCallIds } = await this.critiqueDecide(
       rawDecideResult, state.actionType, state.flags, context,
     );
-    const beatCallIds = [stepDecideCallId, ...criticCallIds].filter(id => id !== 0);
+    const { result: decideResult, validatorCallIds } = await this.validateSingleOption(afterCritic, state.actionType, state.flags, context);
+    const beatCallIds = [stepDecideCallId, ...criticCallIds, ...validatorCallIds].filter(id => id !== 0);
     const realOptions = decideResult.decision.filter(o => o.dcModifier !== null);
 
     if (realOptions.length === 0) {
@@ -877,12 +907,12 @@ export class PipelineActionStateMachine {
   ): Promise<{ result: PipelineDecideResult; criticCallIds: number[] }> {
     if (!this.critic) return { result: decideResult, criticCallIds: [] };
 
-    // Gate: the pipeline has no `_warnings` channel like the legacy deterministic validator, so
-    // `required` (a high-stakes/reactive beat) is the whole gate here — mirrors
-    // CritiquedLlmGateway's "required OR warnings" ladder with warnings unavailable. Clean,
-    // low-stakes beats skip the critic entirely.
-    if (!decideResult.required) return { result: decideResult, criticCallIds: [] };
-
+    // §3 v12 QA: removed the `required` gate — the decision critic now fires on
+    // every decide beat, catching single-option and other LLM quality issues that
+    // would otherwise pass through unchecked (e.g. add_item on a travel action).
+    // TODO: re-evaluate after more testing data — anomaly-based gating
+    // (e.g. decision.length < 2 or baseDc out of range) may be a lighter
+    // alternative once we have enough critic verdicts to compare.
     const input: CriticInput = {
       beat: 'decision',
       decision: adaptDecideToLlmDecision(decideResult),
@@ -909,6 +939,48 @@ export class PipelineActionStateMachine {
     } catch (err) {
       console.warn('[critic] re-decide failed — keeping original', err instanceof Error ? err.message : String(err));
       return { result: decideResult, criticCallIds };
+    }
+  }
+
+  /**
+   * §2 v12 QA: deterministic single-option validator. After the critic pass, if the final
+   * decision has exactly one option, trigger ONE bounded re-decide with guidance to produce
+   * real choices or return []. The re-decide output is NOT re-critiqued (mirrors the critic's
+   * own re-decide ladder — a correction is not itself subject to correction).
+   */
+  private async validateSingleOption(
+    decideResult: PipelineDecideResult,
+    actionType: ActionType,
+    flags: RoutingFlags,
+    context: LlmContext,
+  ): Promise<{ result: PipelineDecideResult; validatorCallIds: number[] }> {
+    if (decideResult.decision.length !== 1) {
+      return { result: decideResult, validatorCallIds: [] };
+    }
+
+    // Combat beats are linear per round — single-option "Press the attack" is expected
+    // and the combat sub-mode handler owns the entire round flow. Skip the validator.
+    if (actionType === 'combat') {
+      return { result: decideResult, validatorCallIds: [] };
+    }
+
+    console.warn(
+      '[validator] single-option decision detected',
+      `rawInput: ${context.rawInput}`,
+      `option: ${JSON.stringify(decideResult.decision[0])}`,
+    );
+
+    const note = 'You returned only a single option. The player needs real choices. Generate 2-4 distinct approaches or return [] if this should resolve outright.';
+    try {
+      const { result: redecided, callId } = await this.llm.decide({
+        actionType,
+        flags,
+        context: { ...context, criticNote: note },
+      });
+      return { result: redecided, validatorCallIds: callId !== 0 ? [callId] : [] };
+    } catch (err) {
+      console.warn('[validator] single-option re-decide failed — keeping original', err instanceof Error ? err.message : String(err));
+      return { result: decideResult, validatorCallIds: [] };
     }
   }
 

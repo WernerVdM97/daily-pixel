@@ -930,10 +930,9 @@ export class WorldEngineImpl implements WorldEngine {
     const startResult = await machine.start(char, rawInput, items, opts.kind, opts.wage);
     const internalState = startResult.state;
 
-    // Pipeline divine intervention: classify fallback failure resolves outright — drain the roll
-    // (not refunded) and return the canned outcome. The legacy path's two-phase divine
-    // intervention (mark → resolve) is retired; the pipeline resolves it in a single beat.
-    if (startResult.resolved && startResult.outcome.isDivineIntervention) {
+    // Pipeline divine intervention or auto-resolve (§2 v12 QA): both paths resolve outright
+    // inside start(). Drain the roll, apply the outcome, and return directly.
+    if (startResult.resolved) {
       this.db.transaction(() => {
         this.charRepo.update(characterId, {
           rolls_remaining: Math.max(0, row.rolls_remaining - 1),
@@ -948,9 +947,8 @@ export class WorldEngineImpl implements WorldEngine {
       };
     }
 
-    // Pipeline divine intervention during startAction (classify failure): handled above as
-    // `startResult.resolved` path. Pipeline DECIDE never authors mutations/outcome_text, so
-    // no auto-finish path exists here — DECIDE always returns `resolved: false`.
+    // No resolved path taken — the decide beat produced real options. Persist state and
+    // return the first decision screen for the player.
 
     // Normal path: drain a roll + persist state atomically.
     // Pipeline no-op refund path is accepted scope reduction from T2 review — every pipeline

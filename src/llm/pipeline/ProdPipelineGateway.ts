@@ -293,8 +293,8 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
             reasoningChars: reasoningContent?.length ?? null,
             latencyMs: Date.now() - startedAt,
             finishReason,
-            rawPrompt: (errorMsg !== null || !parseOk) ? req.userMessage : null,
-            reasoning: (errorMsg !== null || !parseOk) ? reasoningContent : null,
+            rawPrompt: (errorMsg !== null || !parseOk || process.env.LLM_LOG_ALL_PROMPTS === '1') ? req.userMessage : null,
+            reasoning: (errorMsg !== null || !parseOk || process.env.LLM_LOG_ALL_PROMPTS === '1') ? reasoningContent : null,
             criticSeverity: null,
           });
         } catch (recErr) {

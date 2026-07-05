@@ -885,16 +885,8 @@ describe('WorldEngineImpl — pipeline path step() serialisation (T6)', () => {
         // Hang forever — the test will race a second stepAction against this.
         return new Promise<Response>(() => {});
       }
-      // classify call: return combat actionType
-      if (callCount === 1) {
-        return new Response(
-          JSON.stringify({
-            choices: [{ message: { content: JSON.stringify({ actionType: 'combat', flags: { unsafe_location: false, needs_roll: true, target_present: true } }) } }],
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        );
-      }
-      // decide call: return options only
+      // All pipeline calls are decide calls — heuristic classify (PipelineActionStateMachine.start)
+      // handles classification server-side at zero LLM cost, so no fetch for classify ever fires.
       return new Response(
         JSON.stringify({
           choices: [{ message: { content: JSON.stringify({ distilledType: 'combat', stat: 'physical', baseDc: 12, required: true, decision: [{ label: 'Attack', dcModifier: 0, stat: 'physical' }] }) } }],

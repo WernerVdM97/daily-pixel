@@ -11,9 +11,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **Pipeline decide timeout now resolves gracefully** — when a decide call times out (AbortError), the engine resolves the action as `timed_out` instead of re-throwing and re-presenting the same stuck decision screen. The roll is refunded (system fault grace), stamina −1 is applied, and state is cleared so the player moves on.
+- **Decision critic now fires on every decide beat** — the `required` gate that restricted `critiqueDecide()` to high-stakes beats only is removed. The critic now reviews every LLM-generated decision, catching single-option outputs and incoherent choices (e.g. `add_item` on a travel action) that would previously pass through unchecked. A re-decide on `major` verdicts gives the LLM one chance to fix the issue with the critic's guidance.
+- **Auto-resolve restored on first-beat `decision: []`** — when the LLM returns an empty decision array on beat 1 (signalling no player branching needed, e.g. pure travel), the resolve pipeline (RESOLVE-MUTATE → RESOLVE-NARRATE) runs inside `start()` instead of serving a bail-only decision screen. Travel and similar deterministic actions now resolve in one shot with a full outcome.
+- **Single-option validator added** — after the critic pass, if the final decision has exactly one option, a bounded re-decide fires with guidance to produce real choices (2-4 distinct approaches) or return `[]` to resolve outright. The re-decide output is not re-critiqued (mirrors the critic's own re-decide ladder).
 
 ### Internal
 - **Pipeline LLM call IDs now wired into `llmCallIds`** — `ProdPipelineLlmGateway.runStage()` returns the `llm_calls` row ID alongside the stage result; every pipeline stage (classify, decide, resolveMutate, resolveNarrate) accumulates its call ID into `PipelineInternalActionState.llmCallIds`, which flows through to the existing `linkAction()` backfill at resolution time so the full audit chain is mineable. `PipelineStageResult<T>` wraps all gateway returns in `{ result, callId }`.
+- **`LLM_LOG_ALL_PROMPTS` env var added** — when set to `1`, `ProdPipelineGateway.runStage()` logs raw prompts and DeepSeek reasoning content on every call regardless of success/failure. Previously this was gated behind `errorMsg !== null || !parseOk`. Intended as a QA debugging tool; turn off in steady state (~2-5KB per prompt).
 
 ## [0.2.8] - 2026-07-05
 ### Added
