@@ -84,10 +84,10 @@ PipelineActionStateMachine
 ### Task 1b — Pipeline scenario coverage for social / skill / other
 **Description.** Close the sim coverage gap before anything goes live: `combat` and `rest` are well-exercised through `PipelineActionStateMachine`/`PipelineSimEngine`, `travel`/`search` only lightly, but **`social`, `skill`, and `other` have zero pipeline-level scenarios** — their decide/resolve templates and machine routing have never been driven end-to-end, even against the scripted gateway. Add one scripted-gateway scenario per missing type (mirror the combat scenarios' shape) asserting the full chain completes: classify routes the type, decide emits options only, resolve produces mutations + `outcome_text`, and the per-stage stamp seams carry the right stage names.
 **Acceptance:**
-- [ ] `social`, `skill`, and `other` each have at least one sim scenario driving the full chain through the pipeline machine.
-- [ ] `travel` and `search` each have at least one full-chain assertion (upgrade the light touches).
+- [x] `social`, `skill`, and `other` each have at least one sim scenario driving the full chain through the pipeline machine.
+- [x] `travel` and `search` each have at least one full-chain assertion (upgrade the light touches).
 **Verification:** sim suite green with the new scenarios; `npm run typecheck` clean.
-**Files:** `src/sim/scenarios/*`, `tests/sim/*`. **Scope:** M. **Deps:** prerequisites only (the scripted gateway suffices — no T2). Can run alongside T1–T4.
+**Files:** `src/sim/scenarios/*`, `tests/sim/*`. **Scope:** M. **Deps:** prerequisites only (the scripted gateway suffices — no T2). Can run alongside T1–T4. **Landed** — 5 full-chain per-ActionType scenarios added to `tests/sim/pipeline-sim.test.ts` (social/skill/search/travel + the `other` miss→scripted-classify path); each asserts `actionType` propagation through decide/resolveMutate/resolveNarrate and the per-stage `stageCalls` names. Suite 1159 green.
 
 ### Task 2 — Production `PipelineLlmGateway` (DeepSeek-backed)
 **Description.** Implement the four stage methods of `PipelineLlmGateway` (`src/llm/pipeline/types.ts:113`) against the real model: `classify` (LLM-fallback shape), `decide` (options only), `resolveMutate`, `resolveNarrate`. Load per-stage templates via `loadPromptSet('v12')` (`prompt-builder.ts:90`) and stamp each call via `stampFor` (`prompt-builder.ts:144`) using the pipeline callKinds on `LlmCallRecorder` (`LlmCallRecorder.ts:14-15`). Reuse `DeepseekLlmGateway`'s transport/retry, do not fork it. Excludes classify-fallback heuristic (T3) and the critic stack (T4).
