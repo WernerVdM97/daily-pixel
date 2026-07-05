@@ -197,6 +197,74 @@ describe('OutcomeRenderer — stamina delta', () => {
   });
 });
 
+// ── Max stamina delta display ──
+
+describe('OutcomeRenderer — max stamina delta', () => {
+  const base: ActionOutcome = {
+    distilledType: 'hunt',
+    finalDc: 14,
+    playerRolled: 16,
+    outcome: 'success',
+    outcomeText: 'Your vitality expands.',
+    mutations: [],
+  };
+
+  it('shows a positive max_stamina delta as labelled suffix', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_max_stamina', amount: 1 }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 8, maxStamina: 11 }));
+    expect(result).toContain('⚡ 8/11 (max +1)');
+  });
+
+  it('shows a negative max_stamina delta', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_max_stamina', amount: -1 }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 8, maxStamina: 9 }));
+    expect(result).toContain('⚡ 8/9 (max -1)');
+  });
+
+  it('both stamina and max stamina deltas stay visually separable', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [
+        { type: 'modify_stamina', amount: -2 },
+        { type: 'modify_max_stamina', amount: 1 },
+      ],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 6, maxStamina: 11 }));
+    // The stamina delta (-2) and the labelled max suffix (max +1) must both appear
+    // and be distinguishable — the current-stamina delta is unlabelled, the ceiling
+    // delta is explicitly labelled "(max …)".
+    expect(result).toContain('⚡ 6/11 (-2) (max +1)');
+  });
+
+  it('no max change does not emit a spurious (max suffix', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [{ type: 'modify_stamina', amount: -2 }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 6 }));
+    expect(result).toContain('⚡ 6/10 (-2)');
+    expect(result).not.toContain('(max');
+  });
+
+  it('aggregates multiple max stamina mutations', () => {
+    const outcome: ActionOutcome = {
+      ...base,
+      mutations: [
+        { type: 'modify_max_stamina', amount: 2 },
+        { type: 'modify_max_stamina', amount: -1 },
+      ],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 8, maxStamina: 11 }));
+    expect(result).toContain('⚡ 8/11 (max +1)');
+  });
+});
+
 // ── Failure ──
 
 describe('OutcomeRenderer — failure', () => {

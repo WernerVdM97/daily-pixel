@@ -1,19 +1,21 @@
 // DeepSeek: OpenAI-compatible chat completions with Bearer auth + JSON mode.
 // https://api-docs.deepseek.com/
 
-import type {
-  LlmGateway,
-  LlmContext,
-  LlmDecision,
-  CartographerGateway,
-  CartographerInput,
-  CartographerResult,
-  RecapGateway,
-  RecapActionInput,
-  RecapResult,
-  CriticGateway,
-  CriticInput,
-  CriticVerdict,
+import {
+  ACTION_CATEGORIES,
+  type LlmGateway,
+  type LlmContext,
+  type LlmDecision,
+  type ActionCategory,
+  type CartographerGateway,
+  type CartographerInput,
+  type CartographerResult,
+  type RecapGateway,
+  type RecapActionInput,
+  type RecapResult,
+  type CriticGateway,
+  type CriticInput,
+  type CriticVerdict,
 } from './LlmGateway.js';
 import type { LlmCallRecorder } from './LlmCallRecorder.js';
 import {
@@ -609,12 +611,12 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   }
 
   private parseDecision(raw: Record<string, unknown>, context?: LlmContext): LlmDecision {
-    // Parse category (v11 closed enum). Unknown values fall back to 'other' silently.
-    const VALID_CATEGORIES = ['combat', 'travel', 'social', 'skill', 'search', 'rest', 'other'] as const;
-    type Cat = typeof VALID_CATEGORIES[number];
+    // Parse category (v11 closed enum) against the canonical list (LlmGateway.ts) so this
+    // validation can't silently drift from the ActionCategory type. Unknown values are left
+    // undefined, not thrown — the caller treats a missing category like pre-v11 responses.
     const rawCat = raw.category;
-    const parsedCategory: Cat | undefined = (typeof rawCat === 'string' && (VALID_CATEGORIES as readonly string[]).includes(rawCat))
-      ? rawCat as Cat
+    const parsedCategory: ActionCategory | undefined = (typeof rawCat === 'string' && (ACTION_CATEGORIES as readonly string[]).includes(rawCat))
+      ? rawCat as ActionCategory
       : undefined;
 
     // Build handle → npcId map from context (index = [N1], [N2], …). Used to resolve

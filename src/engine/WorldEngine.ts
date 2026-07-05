@@ -1,3 +1,5 @@
+import type { CombatBeatLog } from './action/combat-dc.js';
+
 // ── Seam data types (plain serializable — no discord.js, no ASCII, no SQL rows) ──
 
 export interface CharCreateData {
@@ -76,13 +78,26 @@ export interface ActionState {
   wage?: number;
 }
 
+// Canonical list — the SINGLE source of truth for the mutation-op-name set. `WorldMutation.type`
+// below is TYPE-DERIVED from this array (never a hand-copied literal union), and
+// `mutations.ts`'s runtime `MUTATION_TYPES` Set imports this same array, so a new op can't be
+// added to one without the other silently drifting (mirrors the `ACTION_CATEGORIES` pattern,
+// commit 62b102b).
+export const WORLD_MUTATION_TYPES = [
+  'move_to', 'set_location', 'cross_frontier',
+  'modify_health', 'modify_stamina', 'modify_wealth',
+  'modify_rolls_remaining', 'modify_max_stamina',
+  'add_item', 'remove_item',
+  'add_npc', 'update_npc', 'remove_npc', 'spawn_npc',
+  'reveal_location',
+  // Stage 2 T2 — edge-shaped relation ops (scene-state graph). Op name (`type`) vs
+  // relationship kind (`relType`) is deliberate — see the doc-to-code mapping note beside
+  // `RelationEndpoint` in `action/mutations.ts` (design doc's `op`/`type` → code's `type`/`relType`).
+  'set_relation', 'update_relation',
+] as const;
+
 export interface WorldMutation {
-  type: 'move_to' | 'set_location' | 'cross_frontier'
-      | 'modify_health' | 'modify_stamina' | 'modify_wealth'
-      | 'modify_rolls_remaining' | 'modify_max_stamina'
-      | 'add_item' | 'remove_item'
-      | 'add_npc' | 'update_npc' | 'remove_npc' | 'spawn_npc'
-      | 'reveal_location';
+  type: (typeof WORLD_MUTATION_TYPES)[number];
   [key: string]: unknown;
 }
 
@@ -132,6 +147,19 @@ export interface ActionOutcome {
    *  graces — a system-side fault, not a player choice. Set by the degenerate decision-shape guard
    *  (≤1 real option after a retry): the player never got a real choice, so the roll is free. */
   systemRefund?: boolean;
+  /** True when the pipeline machine's classify-fallback exhausted (heuristic miss + LLM fallback
+   *  rejection) and the action resolved as a canned divine-intervention outcome. Typed replacement
+   *  for the legacy `distilledType === '__divine__'` sentinel (Stage 1 Thread D backbone plan,
+   *  Task 2) — legacy code never sets this field. */
+  isDivineIntervention?: boolean;
+  /** True when this outcome involved player HP reaching 0 (the hp_zero trace marker,
+   *  Stage 3 decision 10). Always undefined (absent) in legacy/v11 outcomes — set only
+   *  by the pipeline's combat spine. */
+  hpZero?: boolean;
+  /** Per-round combat telemetry beat (T5) — set only by the pipeline combat spine's terminal
+   *  path (win / loss / cap-derive). Always undefined (absent) in legacy/v11 outcomes and on
+   *  non-combat pipeline outcomes. */
+  combatBeat?: CombatBeatLog;
 }
 
 export interface ActionResumeResult {

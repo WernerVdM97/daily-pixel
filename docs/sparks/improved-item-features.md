@@ -31,6 +31,7 @@ The immediate `12/10`-overflow symptom was handled cheaply in the polish follow-
 
 - [I] **Item kinds / layers** — a `category` on items (quest / consumable / equippable / currency / keepsake) that changes how they render and what you can do with them.
 - [I] **Items that *do* something** — use/consume verbs, equip slots, keys that gate a location or beat, notes that drop journal/lore.
+- [I] **Crafting as a location-gated item action** — blacksmithing / cooking / brewing as a `use_item`-style action requiring a location with the right **affordance** (a forge, a hearth). Deferred here from the v12 action-precondition discussion ([[action-engine-framework]]): the engine's coherence gate could block "forge a sword" where there's no forge — but that needs locations to carry feature tags first, which is MVP-level granularity.
 - [I] **Quest coupling** — items minted by a quest, consumed or required to advance it, so loot has narrative weight instead of being a stat sticker.
 - [I] **Inventory management** — equip/unequip, drop, gift-to-another-player, stack/combine; capacity becomes a real trade-off again rather than a number to outrun.
 - [I] **Economy tie-in** — distinguish personal coin from communal/offering funds (*feedback #9*), and let items have buy/sell value, not just a stat bonus.
@@ -39,7 +40,7 @@ The immediate `12/10`-overflow symptom was handled cheaply in the polish follow-
 
 - [?] Is "every item buffs a stat" worth keeping for the simple ones, or should flavour items carry **zero** mechanical effect and earn their place narratively?
 - [?] Does this land in POC at all, or is it an MVP feature? (Tagged `mvp` for now.)
-- [?] How much of this needs the v11/[[prompt-v12-scaling-and-pipeline]] mutation vocabulary (e.g. a `use_item` verb) before it's buildable?
+- [?] How much of this needs the v11/[[prompt-separation-of-concerns]] mutation vocabulary (e.g. a `use_item` verb) before it's buildable?
 
 ---
 

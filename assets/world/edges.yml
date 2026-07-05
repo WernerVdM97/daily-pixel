@@ -18,10 +18,6 @@
   difficulty: 1
   flavour: "up the market road"
 - from: "The Warden's Oak"
-  to: "The Warden's Library"
-  direction: "NW"
-  difficulty: 1
-- from: "The Warden's Oak"
   to: "The Shrine of the First Flame"
   direction: "NE"
   difficulty: 1
@@ -47,6 +43,10 @@
 - from: "Town Square"
   to: "The Weary Lantern Inn"
   direction: "W"
+  difficulty: 1
+- from: "Town Square"
+  to: "The Warden's Library"
+  direction: "N"
   difficulty: 1
 
 # ── Wild reaches ──

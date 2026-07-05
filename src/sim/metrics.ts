@@ -1,0 +1,179 @@
+import type { CombatMetrics, PipelineStageCall, SimResult, TurnTrace } from './types.js';
+
+export interface SimSummary {
+  turnsRun: number;
+  rollsResolved: number;
+  rollSuccessRate: number;
+  netHealth: number;
+  netStamina: number;
+  netWealth: number;
+  itemsGained: number;
+  avgFinalDc: number;
+  /** N/A until the death track lands (TODO.md: "make wealth/stamina/health spendable,
+   *  define death / 0 HP"). A `SimSummary.death` field kept as an explicit hook rather
+   *  than inventing a mechanic ahead of the design. */
+  death: null;
+  /** Relation rows persisted at scenario end (Stage 2 T5c), copied straight from
+   *  `SimResult.relationsPersisted` — pipeline-only, `undefined` for legacy runs. */
+  relationsPersisted?: number;
+  /** Combat round/outcome aggregates (T5), copied straight from `SimResult.combatMetrics` —
+   *  pipeline-only, `undefined` for legacy runs. */
+  combatMetrics?: CombatMetrics;
+}
+
+/**
+ * Turn-per-turn scalars → a scenario-level summary.
+ *
+ * `net*` figures compare the last turn's post-resolution state to the first turn's —
+ * `TurnTrace` only carries POST-resolution snapshots (no pre-run baseline), so the very
+ * first turn's own delta from the character's seed isn't captured. Immaterial for the
+ * many-turn (week-spanning) curves this harness exists to produce.
+ */
+export function summarize(r: SimResult): SimSummary {
+  const turns = r.turns;
+  const turnsRun = turns.length;
+
+  const rolled = turns.filter((t) => t.playerRolled !== null);
+  const rollsResolved = rolled.length;
+  const successes = rolled.filter((t) => t.outcome === 'success').length;
+  const rollSuccessRate = rollsResolved > 0 ? successes / rollsResolved : 0;
+
+  const first = turns[0];
+  const last = turns[turnsRun - 1];
+  const netHealth = turnsRun > 0 ? last.health - first.health : 0;
+  const netStamina = turnsRun > 0 ? last.stamina - first.stamina : 0;
+  const netWealth = turnsRun > 0 ? last.wealth - first.wealth : 0;
+  const itemsGained = turnsRun > 0 ? last.itemCount - first.itemCount : 0;
+
+  const avgFinalDc =
+    turnsRun > 0 ? turns.reduce((sum, t) => sum + (t.finalDc ?? 0), 0) / turnsRun : 0;
+
+  return {
+    turnsRun,
+    rollsResolved,
+    rollSuccessRate,
+    netHealth,
+    netStamina,
+    netWealth,
+    itemsGained,
+    avgFinalDc,
+    death: null,
+    ...(r.relationsPersisted !== undefined ? { relationsPersisted: r.relationsPersisted } : {}),
+    ...(r.combatMetrics !== undefined ? { combatMetrics: r.combatMetrics } : {}),
+  };
+}
+
+/** Every TurnTrace scalar column, in emission order. `day` is optional pre-T3 wiring —
+ *  emitted as an empty cell until a time-advancing scenario sets it. */
+const CSV_COLUMNS: (keyof TurnTrace)[] = [
+  'index',
+  'input',
+  'distilledType',
+  'finalDc',
+  'playerRolled',
+  'rollBonus',
+  'outcome',
+  'health',
+  'stamina',
+  'wealth',
+  'rollsRemaining',
+  'itemCount',
+  'mutationsApplied',
+  'day',
+];
+
+function csvEscape(value: unknown): string {
+  const str = value === null || value === undefined ? '' : String(value);
+  // RFC 4180: quote (and escape embedded quotes) only when the field needs it.
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+/** Header + one row per turn — every TurnTrace scalar column, so the file is a complete
+ *  record for offline plotting/spreadsheet analysis (no charting dependency in-repo). */
+export function toCsv(r: SimResult): string {
+  const header = CSV_COLUMNS.join(',');
+  const rows = r.turns.map((t) => CSV_COLUMNS.map((col) => csvEscape(t[col])).join(','));
+  return [header, ...rows].join('\n');
+}
+
+export interface PipelineStageSummary {
+  stage: string;
+  count: number;
+  totalLatencyMs: number;
+  /** Simplest honest tail signal for near-zero scripted latencies — not a real percentile.
+   *  A percentile calculation would be over-engineering for synthetic timings this small
+   *  (Task 5 spec: "don't over-engineer a percentile calculation"); once real gateway latency
+   *  is measured, this is the first number worth upgrading. */
+  maxLatencyMs: number;
+}
+
+/**
+ * Group `PipelineScriptedGateway.stageCalls` (Task 5) into per-stage counts + a latency tail
+ * signal. `stageCalls` accumulates across the WHOLE scenario (every turn), not just one action,
+ * so the returned array's order is first-global-appearance (`Map` preserves insertion order) —
+ * for a single resolved turn that reads as decide → resolve-mutate → resolve-narrate (classify
+ * only on a heuristic miss), but a multi-turn scenario mixing e.g. a heuristic-hit turn then a
+ * classify-miss turn groups as [decide, resolve-mutate, resolve-narrate, classify], not
+ * classify-first. Counts/totals per stage are correct regardless — only the group ORDER reflects
+ * first appearance across the whole run, not a single call's stage sequence.
+ */
+export function summarizePipelineStages(stageCalls: PipelineStageCall[]): PipelineStageSummary[] {
+  const byStage = new Map<string, PipelineStageSummary>();
+  for (const call of stageCalls) {
+    const entry = byStage.get(call.stage) ?? { stage: call.stage, count: 0, totalLatencyMs: 0, maxLatencyMs: 0 };
+    entry.count += 1;
+    entry.totalLatencyMs += call.latencyMs;
+    entry.maxLatencyMs = Math.max(entry.maxLatencyMs, call.latencyMs);
+    byStage.set(call.stage, entry);
+  }
+  return [...byStage.values()];
+}
+
+/** Console table rendered after a pipeline sim run (`run.ts --compare`). */
+export function renderPipelineStages(rows: PipelineStageSummary[]): string {
+  if (rows.length === 0) {
+    return 'Pipeline Stage Latency\n──────────────────────\n(no pipeline stage calls recorded)';
+  }
+  const lines = ['Pipeline Stage Latency', '──────────────────────'];
+  for (const r of rows) {
+    lines.push(
+      `${r.stage.padEnd(16)} count=${r.count}  total=${r.totalLatencyMs.toFixed(2)}ms  max=${r.maxLatencyMs.toFixed(2)}ms`,
+    );
+  }
+  return lines.join('\n');
+}
+
+function formatSigned(n: number): string {
+  return n >= 0 ? `+${n}` : `${n}`;
+}
+
+/** Console summary table rendered after a sim run. */
+export function renderTable(s: SimSummary): string {
+  const pct = (s.rollSuccessRate * 100).toFixed(1);
+  const lines = [
+    'Sim Summary',
+    '───────────',
+    `Turns run:      ${s.turnsRun}`,
+    `Rolls resolved: ${s.rollsResolved}`,
+    `Roll success:   ${pct}%`,
+    `Net health:     ${formatSigned(s.netHealth)}`,
+    `Net stamina:    ${formatSigned(s.netStamina)}`,
+    `Net wealth:     ${formatSigned(s.netWealth)}`,
+    `Items gained:   ${s.itemsGained}`,
+    `Avg final DC:   ${s.avgFinalDc.toFixed(1)}`,
+    `Death rate:     N/A (death track not yet implemented)`,
+  ];
+  // Pipeline-only (Stage 2 T5c) — omitted entirely for legacy runs so their table output is
+  // byte-for-byte unchanged.
+  if (s.relationsPersisted !== undefined) {
+    lines.push(`Relations persisted: ${s.relationsPersisted}`);
+  }
+  // Pipeline-only (T5) — omitted entirely for legacy runs so their table output is
+  // byte-for-byte unchanged.
+  if (s.combatMetrics) {
+    lines.push(`Combat rounds:  ${s.combatMetrics.roundsFought}`);
+    lines.push(`Floor-saves:    ${s.combatMetrics.floorSaves}`);
+    lines.push(`Wins/Losses:    ${s.combatMetrics.wins}/${s.combatMetrics.losses}`);
+  }
+  return lines.join('\n');
+}

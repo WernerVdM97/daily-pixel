@@ -8,8 +8,13 @@ export interface LlmCallRecord {
   /** App build (VERSION) that produced this call. */
   appVersion: string;
   promptVersion: string;
-  /** Which pipeline stage produced this call: 'decision' (default) or 'critic'. Lets the
-   *  coherence critic be mined separately from the decision call. */
+  /** Which pipeline stage produced this call. A loose `string`, not a closed union, by design
+   *  (new call kinds shouldn't require touching this type). Known values in use:
+   *  - `'decision'` (default) / `'critic'` — the live v11 path (`DeepseekLlmGateway.ts`).
+   *  - `'pipeline-classify'` / `'pipeline-decide'` / `'pipeline-resolve-mutate'` /
+   *    `'pipeline-resolve-narrate'` — the v12 pipeline machine's four stages (Thread D Task 5,
+   *    `src/llm/pipeline/stamping.ts::callKindForPipelineStage`); not wired to any real
+   *    llm_calls writer yet (no live pipeline persistence exists — see that file's doc comment). */
   callKind?: string;
   /** Critic verdict for a critic call: 'ok' | 'minor' | 'major'. NULL/absent on decision calls
    *  and on critic calls that failed before producing a verdict. */

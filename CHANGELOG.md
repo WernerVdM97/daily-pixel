@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-07-05
+### Added
+- **Owner identity on public outcome messages** *(F#3, F#8)* — the character's owner (as a `<@discordId>` mention with pings suppressed) now appears next to the character name on the shared public outcomes so testers can tell who's who.
+- **`Hi` button on public outcomes** — action outcomes posted to the weekly thread now carry a 🌅 `Hi` re-entry button ahead of the feedback/bug buttons, so a reader can jump straight into play from the thread. The `nav:hi` handler already spawns a fresh per-clicker ephemeral on public messages, so no new routing was needed.
+
+### Changed
+- **Release notes get their own pin icon** *(F#20)* — 📬 now marks release announcements in the pin list, distinct from the weekly recap's 📜.
+- **Saturday threat pins are now self-replacing** *(F#18)* — only the latest week's wilderness threat stays pinned; older ones are cleaned up automatically.
+- **Weekly chronicle moves to the bottom of a locked thread** *(F#19b)* — at Monday finalize, the recap digest is posted as a new message at the bottom of the week's thread and the thread is locked; the pinned header stays as the archive anchor.
+
+### Fixed
+- **Players now join the week's thread when their outcome posts** *(F#19a)* — the acting player is added to the recap thread (`thread.members.add`) just before the outcome is broadcast. The owner mention is ping-suppressed and so never subscribed them, leaving the thread out of their sidebar and the outcome unseen; the add is idempotent and best-effort (a failed add still posts the outcome).
+- **Outcome footer now shows `max_stamina` changes** — a `modify_max_stamina` mutation renders a labelled `(max +N)` or `(max −N)` suffix on the stamina line so ceiling gains are no longer silently invisible.
+- **Private outcome reply no longer duplicates the story thread** *(F#19c)* — the private embed now shows only the outcome text + stats, not the full gamebook trail the player just saw in the decision embed.
+
+### Internal
+- **v12 action-pipeline groundwork (not live)** — an offline sim harness plus a parallel `PipelineActionStateMachine` (classify → decide → dice → resolve), first-class combat + scene-state relations, and the phase-split v12 prompt set (per-phase `decide/`, per-verdict `resolve/`, `MAX_DECISIONS_PER_ACTION` cap) all landed behind the sim; prod still runs v11, with the live cutover tracked for `0.3.0` (see [[stage-5-live-cutover-plan]]).
+
 ## [0.2.7] - 2026-07-01
 ### Added
 - **One free bail per day** — the first time you step back from a decision each day refunds the roll (mirrors the no-op/timeout "made whole" graces); later bails that day still spend it, and bailing always costs stamina. Guarded migration `202606300000_player_last_bail_refund_day` adds `player_characters.last_bail_refund_day` (own column so the bail grace never burns — or is burned by — the no-op/timeout graces).

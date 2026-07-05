@@ -21,6 +21,7 @@ export interface OutcomeRenderContext {
 interface MutationDeltas {
   healthDelta: number;
   staminaDelta: number;
+  maxStaminaDelta: number;
   wealthDelta: number;
   rollsDelta: number;
   itemsGained: Array<{ emoji: string; name: string }>;
@@ -33,6 +34,7 @@ function deriveFromMutations(mutations: WorldMutation[]): MutationDeltas {
   const d: MutationDeltas = {
     healthDelta: 0,
     staminaDelta: 0,
+    maxStaminaDelta: 0,
     wealthDelta: 0,
     rollsDelta: 0,
     itemsGained: [],
@@ -47,6 +49,9 @@ function deriveFromMutations(mutations: WorldMutation[]): MutationDeltas {
         break;
       case 'modify_stamina':
         d.staminaDelta += Number(m.amount ?? 0);
+        break;
+      case 'modify_max_stamina':
+        d.maxStaminaDelta += Number(m.amount ?? 0);
         break;
       case 'modify_wealth':
         d.wealthDelta += Number(m.amount ?? 0);
@@ -207,8 +212,12 @@ export function formatOutcome(
   if (d.healthDelta !== 0) {
     stats.push(`❤️ ${ctx.health}/${ctx.maxHealth}${formatDelta(d.healthDelta)}`);
   }
-  // Stamina — always
-  stats.push(`⚡ ${ctx.stamina}/${ctx.maxStamina}${formatDelta(d.staminaDelta)}`);
+  // Stamina — always. A max_stamina change gets a labelled "(max +N)" suffix so it can never
+  // be confused with the plain current-stamina delta when both fire on the same outcome.
+  const maxStaminaSuffix = d.maxStaminaDelta !== 0
+    ? ` (max ${d.maxStaminaDelta > 0 ? '+' : ''}${d.maxStaminaDelta})`
+    : '';
+  stats.push(`⚡ ${ctx.stamina}/${ctx.maxStamina}${formatDelta(d.staminaDelta)}${maxStaminaSuffix}`);
   // Rolls — no fixed denominator (daily allowance varies: 3, Saturday 4), so the old
   // `/2` printed an over-full fraction. A no-op refund shows "(refunded)" — without it,
   // the unchanged count reads as a bug (see player report).

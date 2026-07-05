@@ -1,0 +1,162 @@
+---
+title: "Stage 5 — Live cutover: sim-calibrate, then hard-flip v11 → v12 with a DB wipe (build plan)"
+status: exploring
+domain: engine
+phase: poc
+tags: [llm, pipeline, thread-d, cutover, stage-5, prod]
+related: ["[[prompt-separation-of-concerns]]", "[[prompt-v12-pipeline]]", "[[stage-0a-sim-harness-plan]]", "[[stage-1-thread-d-backbone-plan]]", "[[stage-2-scene-state-spine-plan]]", "[[stage-3-combat-spine-plan]]", "[[v12-prompt-set-versioning]]", "[[action-engine-framework]]"]
+---
+_Handoff-ready build plan for the v12 graduation gate, POC-style: calibrate the sim-proven `PipelineActionStateMachine` for balance, build the production pipeline path, prove the real model against the v12 templates with a smoke run, then hard-flip from v11 to v12 in one commit accompanied by a fresh DB wipe. No feature flag, no canary, no gradual rollout: a POC with a small tester audience and no precious data buys a clean swap. Launches scale-neutral (Thread B follows). Every code anchor and open decision inlined so a lesser agent can execute it task by task._
+
+---
+
+## Why this shape
+
+Stages 1 through 4 all obey one fence: prove the pipeline in the sim, never touch the live loop ([[stage-1-thread-d-backbone-plan]] §Scope fence). Production still runs a single ~5,600-token v11 call through the legacy `ActionStateMachine` (`WorldEngineImpl.ts:257,359`) and stamps `PROMPT_VERSION = 'v11'` everywhere (`prompt-builder.ts:6`, `WorldEngineImpl.ts:568-569,1747`, `DeepseekLlmGateway.ts:161-162`). This is the missing gate that takes v12 live.
+
+The chosen strategy is deliberately un-ceremonious: this is a POC with a fresh-wipeable database, so we skip flags, canaries, and shadow traffic. Two calibration gates de-risk it instead of a gradual rollout:
+
+- **The sim harness gates *balance*** (deterministic, scripted LLM): win/death/reward curves, round counts, floor/cap behaviour.
+- **A real-model smoke run gates *LLM behaviour*** (real DeepSeek + real v12 templates on a throwaway DB): prompt quality, classify accuracy on free text, coherence, and the latency tail.
+
+The sim alone is not enough because it never sends the real templates to the model. Both gates clear before the destructive step. The flip and the DB wipe land together: a fresh schema means no `prompt_version` migration and no characters caught mid-action across the machine swap.
+
+## Gating prerequisites (must be true before this stage starts)
+
+- [x] **Stage 1 backbone built** — `PipelineActionStateMachine` runs the full chain in the sim with the D5b inversion and per-stage stamping seams (`src/engine/action/PipelineActionStateMachine.ts`, `src/llm/pipeline/*`).
+- [x] **Stage 3 combat sim-proven** — win/floor/cap resolve through the pipeline with per-round logging and metrics (T5 shipped, `c228790`).
+- [ ] **Stage 2 scene-state wired in CODE, not just migrated** — the `relations` migration exists (`202607041000_scene_relations.ts`), but the prod read path (context building surfacing edges to the pipeline; persistence across live beats) must be confirmed wired. The DB wipe rebaselines the *data*, but it does not wire un-wired *code*. **Verify this first** — likeliest hidden blocker.
+- [>] **Stage 4 world-scaling — NOT in scope.** Launch scale-neutral (seam at 1, [[stage-3-combat-spine-plan]] D7); Thread B is a later stage on live data.
+
+## Settled decisions (this round)
+
+1. **Hard flip, no flag or canary.** The pipeline machine directly replaces the legacy one in `WorldEngineImpl` construction (`WorldEngineImpl.ts:359`). The unchanged `start`/`step`/`resume` call sites drive it (the machine was built to mirror that surface). Reversibility is one thing only: the legacy machine stays **in-tree but uninvoked** between the swap (T6) and the smoke-run pass, so a catastrophe is a one-commit revert; T7 deletes it once the smoke clears.
+2. **DB wipe accompanies the flip.** Fresh migrate on the new schema. No historical `prompt_version` migration (the concern evaporates), no in-flight v11 actions to reconcile. Acceptable because this is a POC with no data worth keeping.
+3. **Two calibration gates, then flip.** Sim balance calibration (T1) and a real-model smoke run (Checkpoint) both clear before the destructive T7.
+4. **Scale-neutral launch.** Combat behaves exactly as sim-proven; the `scale` seam stays at 1. Thread B tuning is a later stage.
+5. **Per-stage stamps only.** The pipeline stamps `v12/<stage>` via `stampFor` + the `LlmCallRecorder` callKinds (already built); `actions.prompt_version` carries `v12`. The wipe moots any back-fill question.
+
+## Open questions (resolve during the build — do not silently pick)
+
+- [?] **Does the Fallback decorator wrap each stage or the orchestrator?** The v9 `FallbackLlmGateway` composes over one gateway; the pipeline has four stage calls ([[stage-1-thread-d-backbone-plan]] §Risks). Decide per-stage vs once-around-the-chain in T2.
+- [?] **Where does the critic sit?** Today it wraps the single decide call (`config.critic` into the machine ctor, `WorldEngineImpl.ts:~363`). D7 ([[prompt-v12-pipeline]]) wants a gated coherence critic over decide plus a faithfulness prose critic over resolve-narrate that patches prose only. T4 owns this; confirm two-critic-split vs single-relocated before building.
+
+## Cutover contract (the post-flip live path)
+
+```
+WorldEngineImpl.startAction / stepAction / resume
+   │
+   ▼  (v11 legacy machine deleted in T7)
+PipelineActionStateMachine
+   │  prod PipelineLlmGateway (DeepSeek-backed) + loadPromptSet('v12')
+   [CLASSIFY] heuristic → hit | miss → LLM classify fallback (T3)
+   [DECIDE]   options only  ── coherence critic gate (T4)
+   [DICE]     resolveRoll (unchanged)
+   [RESOLVE-MUTATE] → proposed mutations
+   [FINALIZE] finalizeMutations() (pure, already extracted — WorldEngineImpl.ts:664)
+   [RESOLVE-NARRATE] outcome_text vs FINAL mutations ── prose critic patch (T4)
+   │
+   ▼ persist: actions row (prompt_version='v12') + per-stage llm_calls stamps
+```
+
+`finalizeMutations` already exists as a pure function shared by both paths (`WorldEngineImpl.ts:664` → `geography-finalize.ts`), so the D5b inversion needs no new extraction; the prod gateway just routes resolve-narrate against the finalized set.
+
+## Task breakdown
+
+### Task 1 — Sim calibration (the balance gate)
+**Description.** Run the existing combat scenarios through the sim and tune to acceptable curves, scale-neutral. Adjust the band table / enemy-HP derive in `combat-dc.ts` (and add scenarios if a case is unproven) until win/death/reward rates and round counts read sensibly. Capture the chosen constants + the curves in a short calibration record so the flip is defensible. No prod code changes here.
+**Acceptance:**
+- [ ] Win/death/reward + rounds-per-fight curves recorded for the tuned constants across the win / floor / cap scenarios.
+- [ ] Any band/`enemyMaxHp` change lands via `combat-dc.ts` with the sim rerun green.
+**Verification:** `npm run sim` produces the curves; combat sim tests green.
+**Files:** `src/engine/action/combat-dc.ts`, sim scenarios, a calibration note (docs or committed sim output). **Scope:** M. **Deps:** prerequisites. Can run alongside T2–T4.
+
+### Task 2 — Production `PipelineLlmGateway` (DeepSeek-backed)
+**Description.** Implement the four stage methods of `PipelineLlmGateway` (`src/llm/pipeline/types.ts:113`) against the real model: `classify` (LLM-fallback shape), `decide` (options only), `resolveMutate`, `resolveNarrate`. Load per-stage templates via `loadPromptSet('v12')` (`prompt-builder.ts:90`) and stamp each call via `stampFor` (`prompt-builder.ts:144`) using the pipeline callKinds on `LlmCallRecorder` (`LlmCallRecorder.ts:14-15`). Reuse `DeepseekLlmGateway`'s transport/retry, do not fork it. Excludes classify-fallback heuristic (T3) and the critic stack (T4).
+**Acceptance:**
+- [ ] Each stage issues one real model call with the correct v12 template and stamps `v12/<stage>`.
+- [ ] `decide` asserted free of mutations/`outcome_text`; `resolveMutate` returns proposed mutations only; `resolveNarrate` receives the finalized set.
+- [ ] Resolves the Fallback-wraps-stage-vs-orchestrator question (documented in the gateway header).
+**Verification:** unit tests with a mocked transport assert per-stage prompts + stamps; suite + typecheck green.
+**Files:** `src/llm/ProdPipelineGateway.ts` (new), `src/llm/DeepseekLlmGateway.ts` (shared transport), tests. **Scope:** L. **Deps:** prerequisites.
+
+### Task 3 — Real LLM classify-fallback
+**Description.** Turn the seam at `classifier.ts:141` into a real call: on a heuristic miss, the machine calls `gateway.classify` (built in T2) and pins the returned `ActionType` + flags. Keep the total-failure path (miss AND LLM failure) routing to the typed divine-intervention fallback (`PipelineActionStateMachine.ts:801`), never a wrong guess.
+**Acceptance:**
+- [ ] A heuristic-miss input resolves to a real classified `ActionType`; a forced classify failure falls to the typed fallback.
+- [ ] The heuristic hit path is unchanged (zero added latency on the common case).
+**Verification:** tests for miss→call→hit and miss→failure→fallback; suite green.
+**Files:** `src/engine/action/PipelineActionStateMachine.ts`, `src/llm/pipeline/classifier.ts`, tests. **Scope:** M. **Deps:** T2.
+
+### Task 4 — Critic re-placement (D7)
+**Description.** Move the critic off the single decide call into the pipeline as stage(s): a gated coherence critic over decide, and a faithfulness prose critic over resolve-narrate that patches prose only (never re-authors mutations — the engine owns the numbers). The legacy dual-injection (`WorldEngineImpl.ts:~363`) is removed with the legacy machine in T7.
+**Acceptance:**
+- [ ] The prose critic can only alter `outcome_text`; a test proves it cannot change a finalized mutation.
+- [ ] A coherence-gate rejection triggers a bounded re-decide, not an unbounded loop.
+- [ ] Resolves the two-critic-split-vs-single question (documented).
+**Verification:** tests for patch-prose-only and the re-decide bound; suite green.
+**Files:** `src/engine/action/PipelineActionStateMachine.ts`, critic gateway wiring, tests. **Scope:** L. **Deps:** T2.
+
+### Task 5 — Carry-forward audit + template hardening
+**Description.** Walk the six v8–v11 rules ([[prompt-separation-of-concerns]] §Carry-forward: refunds, KNOWN LOCATIONS reuse, no-dead-turns, the SECURITY RULE, markdown framing, per-option ability checks) against the v12 templates as `loadPromptSet` assembles them for the live context, not the sim stubs. Fix gaps through the `prompt-versioning` skill (this is the one task that edits `assets/prompts/decision-prompts/v12/**`). Easiest place to silently regress a hard-won rule.
+**Acceptance:**
+- [ ] A checklist test (or documented audit) shows each of the six rules present in its owning v12 template.
+- [ ] Template edits follow the prompt-versioning procedure (still `v12`, no `*_VERSION` bump).
+**Verification:** the carry-forward test green; a sample live-shaped prompt inspected per rule.
+**Files:** `assets/prompts/decision-prompts/v12/**`, `tests/llm/*`. **Scope:** M. **Deps:** T2. **Skill:** `prompt-versioning`.
+
+### Task 6 — Hard swap (legacy kept in-tree, uninvoked)
+**Description.** Make `WorldEngineImpl` construct `PipelineActionStateMachine` with the T2 gateway (`WorldEngineImpl.ts:359`); the unchanged call sites drive it. Route per-stage stamps to the real `llm_calls`/`actions` writes (`actions.prompt_version='v12'`). Leave the legacy `ActionStateMachine` and `PROMPT_VERSION` present but no longer invoked — this is the single revert lever until the smoke run clears.
+**Acceptance:**
+- [ ] A live-shaped action runs the full chain and persists `prompt_version='v12'` + per-stage stamps.
+- [ ] The legacy machine still compiles and its tests still pass (it is dead-but-present, not deleted).
+**Verification:** an engine test runs one action through the pipeline against a seed; suite + typecheck green.
+**Files:** `src/engine/WorldEngineImpl.ts`, tests. **Scope:** M. **Deps:** T2, T3, T4, T5.
+
+### Checkpoint — real-model smoke run (the LLM gate)
+Run a scripted character through the **real DeepSeek + v12 templates** on a throwaway/staging DB (fresh migrate, discard after). Not the sim's scripted gateway — the real model.
+- [ ] Classify routes real free-text inputs correctly; no wrong-guess mis-routes.
+- [ ] Decide emits options only; resolve authors coherent prose against the final mutations; no schema/parse failures.
+- [ ] Latency tail per action is acceptable vs the v11 single call.
+- [ ] Human go/no-go before the destructive T7. Any prompt/latency fix loops back to T5/T2.
+
+### Task 7 — Delete v11, wipe, release
+**Description.** Once the smoke clears: delete the legacy `ActionStateMachine` (`machine.ts`) and its critic dual-injection; remove `PROMPT_VERSION` (`prompt-builder.ts:6`) and its three stamp sites (`WorldEngineImpl.ts:568-569,1747`, `DeepseekLlmGateway.ts:161-162`), the `decision-<PROMPT_VERSION>.md` load path + the `current_source.md` byte-identical test (`tests/llm/prompt-builder.test.ts:211-218`). Keep `decision-v11.md` on disk for history, off the load path. Wipe + fresh-migrate the DB. Update `CHANGELOG.md` `[Unreleased]` and cut `0.3.0` per the `releasing` skill.
+**Acceptance:**
+- [ ] `PROMPT_VERSION` and the legacy machine are gone; grep is clean outside history; full suite green without them.
+- [ ] DB wiped and re-migrated on the new schema; a live action confirmed end-to-end on `v12`.
+- [ ] Changelog updated; `0.3.0` release notes name the cutover + the wipe.
+**Verification:** full suite green with no legacy path; typecheck clean; one live action on `v12`.
+**Files:** `src/engine/action/machine.ts` (delete), `src/engine/WorldEngineImpl.ts`, `src/llm/prompt-builder.ts`, `src/llm/DeepseekLlmGateway.ts`, tests, `CHANGELOG.md`, `VERSION`, migrations. **Scope:** L. **Deps:** Checkpoint pass + T1.
+
+## Scope fence
+
+**In scope:** sim balance calibration, the prod pipeline gateway, real classify-fallback, critic re-placement, the carry-forward audit, a real-model smoke run, the hard swap + v11 deletion + DB wipe + `0.3.0`. **Explicitly OUT of scope (do NOT do):**
+- Feature flag, canary, shadow, or any gradual/percentage rollout — the flip is a single commit.
+- Thread B world-scaling — launch scale-neutral (seam at 1); Thread B is a later stage.
+- D3/D4 (free-text conversation/puzzle shapes, security stack beyond the existing SECURITY RULE).
+- Rebalancing beyond T1's scale-neutral calibration — further tuning is post-launch on live data.
+- Any historical `llm_calls`/`actions` migration — the wipe moots it.
+
+## Risks
+
+| Risk | Mitigation |
+|------|-----------|
+| Scene-state (Stage 2) not wired in code → pipeline writes edges nothing reads (wipe doesn't fix code) | Gating prerequisite: verify the prod read path before starting. |
+| Real templates never hit the model until prod | The smoke-run Checkpoint on real DeepSeek is the explicit LLM gate before deletion. |
+| Compounding latency (D multiplies calls per beat) | Smoke run measures the tail; heuristic classify keeps the common case single-hop; round cap bounds combat. |
+| Fallback/critic stack composes over one gateway, not four | Resolved in T2/T4 with the decision documented. |
+| A carry-forward rule silently dropped in v12 templates | T5 is a dedicated audit gate; edits go through `prompt-versioning`. |
+| Hard flip has no gradual safety net | Legacy stays in-tree and uninvoked until the smoke clears (one-commit revert); wipe means no half-migrated state. |
+| Prose critic re-authoring engine numbers | T4 acceptance proves patch-prose-only. |
+
+## Verification (stage exit)
+
+- Every live action runs the full v12 chain: classify routes → decide options only → dice → resolve-mutate → engine finalize → resolve-narrate against the final mutations, each row stamped `v12/<stage>` and `actions.prompt_version='v12'`.
+- `PROMPT_VERSION` and the legacy `ActionStateMachine` are gone; the suite is green without them.
+- The six carry-forward rules are verified present; the sim calibration curves are recorded; the real-model smoke run passed.
+- DB wiped and re-migrated; `0.3.0` cut with release notes naming the cutover. `npm run typecheck` clean; `npm test` green.
+
+---
+
+_Execution note: build task-by-task via delegated subagents (T1 calibration alongside T2 → T3/T4 → T5 → T6, then the smoke-run Checkpoint, then T7), verifying + committing after each per the orchestrated-delegation loop. This is the graduation gate for [[prompt-separation-of-concerns]]; Thread B (Stage 4 world-scaling) and D3/D4 follow it on the now-live pipeline._
