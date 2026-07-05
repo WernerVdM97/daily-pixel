@@ -73,6 +73,24 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
     expect(set.classify).not.toContain('# BASE-RESOLVE — shared rules');
   });
 
+  it('classify is a real routing prompt (not the Stage-1 stub): names all seven ActionTypes, the flags, and carries the SECURITY RULE', () => {
+    const set = loadPromptSet('v12');
+    // Not the stub — the stub is a 3-line placeholder with no routing contract.
+    expect(set.classify).not.toContain('(STUB)');
+    // Names every routable ActionType so the model can pick exactly one (T3 acceptance).
+    for (const category of ACTION_CATEGORIES) {
+      expect(set.classify).toContain(`\`${category}\``);
+    }
+    // The three routing flags the gateway parses back (ProdPipelineGateway.classify).
+    for (const flag of ['unsafe_location', 'needs_roll', 'target_present']) {
+      expect(set.classify).toContain(flag);
+    }
+    // Carry-forward: the SECURITY RULE must survive into the classify template.
+    expect(set.classify).toContain('SECURITY RULE');
+    // Tiny-output contract: the JSON shape the parser expects.
+    expect(set.classify).toContain('"actionType"');
+  });
+
   it('resolve templates are prepended with BASE-resolve.md, not BASE.md', () => {
     const set = loadPromptSet('v12');
     for (const category of ACTION_CATEGORIES) {

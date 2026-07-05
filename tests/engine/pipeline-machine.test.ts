@@ -614,6 +614,32 @@ describe('PipelineActionStateMachine — classify-fallback-total-failure', () =>
     expect(llm.classifyCalls).toHaveLength(1);
     // The rejection never escapes start() as an unhandled rejection/throw.
   });
+
+  it('a heuristic miss whose LLM classify SUCCEEDS pins the returned ActionType + flags (T3)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // The fallback resolves the miss to a concrete type + flags — the machine must pin these
+    // (not re-derive), then proceed into a normal decision beat.
+    llm.classifyResult = {
+      kind: 'hit',
+      actionType: 'skill',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+    };
+    llm.decideResult = combatDecideResult({ distilledType: 'tinker' });
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // "ponder the void" matches zero heuristic tables → a miss → the LLM fallback runs.
+    const result = await machine.start(testChar(), 'ponder the void', testItems);
+
+    expect(llm.classifyCalls).toHaveLength(1);
+    expect(result.resolved).toBe(false);
+    if (!result.resolved) {
+      expect(result.state.actionType).toBe('skill');
+      expect(result.state.flags).toEqual({ unsafe_location: false, needs_roll: true, target_present: true });
+    }
+    // The pinned type is what DECIDE was routed with — proof it wasn't silently re-derived.
+    expect(llm.decideCalls[0].actionType).toBe('skill');
+    expect(llm.decideCalls[0].flags.needs_roll).toBe(true);
+  });
 });
 
 /**
