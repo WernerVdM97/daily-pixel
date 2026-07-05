@@ -204,31 +204,16 @@ function signed(n: number): string {
 }
 
 /**
- * v9 markdown briefing. Renders context as a scene to read, not a struct to parse — uses
- * markdown's structural features (headings, tables, labels), skips decorative bold/italic.
- * Section order: control → you → scene → present → story → reference → the ask.
+ * The scene body shared by `buildUserMessage` (v9 decide/legacy briefing) and the v12 pipeline's
+ * `buildResolveUserMessage` (`pipeline-messages.ts`) — everything from `## You` through
+ * `## What you're attempting`, i.e. after the PHASE/beat-count header and before the
+ * CONTINUE/RESOLVE_ROLL/reviewer-note trailing additions, which are caller-specific. Extracted
+ * (T2) so the two prose layouts can never drift apart; `buildUserMessage` below must still
+ * produce byte-identical output to before the extraction (guarded by prompt-builder.test.ts's
+ * fine-grained assertions).
  */
-export function buildUserMessage(ctx: LlmContext): string {
-  // Explicit loop phase so the model never infers game state from prose.
-  //   NEW_ACTION   — first beat; open a decision or resolve outright.
-  //   CONTINUE     — a prior choice exists but no verdict yet; produce the NEXT beat.
-  //   RESOLVE_ROLL — dice have decided; narrate the attached ROLL RESULT only.
-  const phase = ctx.rollOutcome
-    ? 'RESOLVE_ROLL'
-    : (ctx.previousDecisions && ctx.previousDecisions.length > 0 ? 'CONTINUE' : 'NEW_ACTION');
-
+export function buildSceneBody(ctx: LlmContext): string[] {
   const out: string[] = [];
-  out.push(`PHASE: ${phase}`);
-
-  // On CONTINUE, tell the model where it is in the beat chain so it can pace toward
-  // resolution before the engine's hard cap fires.
-  if (phase === 'CONTINUE') {
-    const decisionNumber = (ctx.previousDecisions?.length ?? 0) + 1;
-    const isLast = decisionNumber >= MAX_DECISIONS_PER_ACTION;
-    out.push(isLast
-      ? `This is decision ${decisionNumber} of ${MAX_DECISIONS_PER_ACTION} — the final beat. Frame it to reach a natural resolution point (empty decision triggers the resolve stage).`
-      : `Decision ${decisionNumber} of ${MAX_DECISIONS_PER_ACTION}.`);
-  }
 
   // ── You — identity, resources, the ability-checks table (Score + Gear = Bonus) ──
   const c = ctx.character;
@@ -332,6 +317,38 @@ export function buildUserMessage(ctx: LlmContext): string {
   out.push('');
   out.push("## What you're attempting");
   out.push(asBlockquote(ctx.rawInput));
+
+  return out;
+}
+
+/**
+ * v9 markdown briefing. Renders context as a scene to read, not a struct to parse — uses
+ * markdown's structural features (headings, tables, labels), skips decorative bold/italic.
+ * Section order: control → you → scene → present → story → reference → the ask.
+ */
+export function buildUserMessage(ctx: LlmContext): string {
+  // Explicit loop phase so the model never infers game state from prose.
+  //   NEW_ACTION   — first beat; open a decision or resolve outright.
+  //   CONTINUE     — a prior choice exists but no verdict yet; produce the NEXT beat.
+  //   RESOLVE_ROLL — dice have decided; narrate the attached ROLL RESULT only.
+  const phase = ctx.rollOutcome
+    ? 'RESOLVE_ROLL'
+    : (ctx.previousDecisions && ctx.previousDecisions.length > 0 ? 'CONTINUE' : 'NEW_ACTION');
+
+  const out: string[] = [];
+  out.push(`PHASE: ${phase}`);
+
+  // On CONTINUE, tell the model where it is in the beat chain so it can pace toward
+  // resolution before the engine's hard cap fires.
+  if (phase === 'CONTINUE') {
+    const decisionNumber = (ctx.previousDecisions?.length ?? 0) + 1;
+    const isLast = decisionNumber >= MAX_DECISIONS_PER_ACTION;
+    out.push(isLast
+      ? `This is decision ${decisionNumber} of ${MAX_DECISIONS_PER_ACTION} — the final beat. Frame it to reach a natural resolution point (empty decision triggers the resolve stage).`
+      : `Decision ${decisionNumber} of ${MAX_DECISIONS_PER_ACTION}.`);
+  }
+
+  out.push(...buildSceneBody(ctx));
 
   // ── CONTINUE / RESOLVE_ROLL additions ──
   if (ctx.previousDecisions && ctx.previousDecisions.length > 0) {
