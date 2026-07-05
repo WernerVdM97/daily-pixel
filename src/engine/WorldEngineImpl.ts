@@ -919,6 +919,13 @@ export class WorldEngineImpl implements WorldEngine {
     items: ItemData[],
     opts: { kind?: ActionKind; wage?: number },
   ): Promise<ActionStartResult> {
+    // No AbortError catch here — all 6 observed decide timeouts in the v12 QA session
+    // were beat-2 CONTINUE calls (stepActionPipeline path). A beat-1 decide timeout is
+    // theoretically possible but unobserved; catching it would require restructuring the
+    // roll-drain transaction (the roll hasn't been drained yet pre-start()) and plumbing a
+    // timed-out ActionOutcome through ActionStartResult, which is designed for
+    // divine-intervention outcomes only. If beat-1 timeouts become common, add a catch
+    // mirroring stepActionPipeline with a no-drain refund (roll was never spent).
     const machine = this.machine as PipelineActionStateMachine;
     const startResult = await machine.start(char, rawInput, items, opts.kind, opts.wage);
     const internalState = startResult.state;
@@ -1167,12 +1174,7 @@ export class WorldEngineImpl implements WorldEngine {
           const bailRefunded =
             result.outcome.outcome === "bailed" && row.last_bail_refund_day !== today;
           if (systemRefund || bailRefunded) {
-            const allowance =
-              DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
-            const afterRes = this.charRepo.findById(characterId)!;
-            this.charRepo.update(characterId, {
-              rolls_remaining: Math.min(allowance, afterRes.rolls_remaining + 1),
-            });
+            this.refundRoll(characterId);
             if (bailRefunded && !systemRefund) {
               this.stampRefundDay(characterId, "last_bail_refund_day", today);
             }
@@ -1240,6 +1242,41 @@ export class WorldEngineImpl implements WorldEngine {
         state: this.toPublicState(result.state),
         nextDecision: result.nextDecision,
       };
+    } catch (_err) {
+      const err = _err as Error & { name?: string };
+      if (err.name === 'AbortError' || (err.message ?? '').toLowerCase().includes('abort')) {
+        // DeepSeek decide timeout — resolve as timed_out instead of re-throwing so the
+        // player isn't re-served the same stuck decision (v12 QA §1: each timed-out
+        // CONTINUE beat re-presented the identical decision screen).
+        const timeoutState: PipelineInternalActionState = {
+          ...internalState,
+          lastActionAt: Date.now(),
+        };
+        this.charRepo.update(characterId, { last_action_state: null });
+        // Stamina cost mirrors bail — applied directly since we bypass applyResolution.
+        const newStamina = Math.max(0, row.stamina - 1);
+        this.charRepo.update(characterId, { stamina: newStamina });
+        // System timeout always refunds the roll (not subject to once-per-day grace).
+        this.refundRoll(characterId);
+        return {
+          resolved: true,
+          state: this.toPublicState(timeoutState),
+          outcome: {
+            distilledType: internalState.distilledType,
+            finalDc: internalState.accumulatedDc,
+            playerRolled: null,
+            outcome: 'timed_out',
+            mutations: [{ type: 'modify_stamina', amount: -1 }],
+            outcomeText:
+              "The Warden's voice grows distant. Your action hangs in the air, unresolved.",
+            rollStat: internalState.rollStat,
+            systemRefund: true,
+            rollsDelta: 0,
+            rollRefunded: true,
+          },
+        };
+      }
+      throw err;
     } finally {
       this.steppingActions.delete(characterId);
     }
@@ -1305,12 +1342,7 @@ export class WorldEngineImpl implements WorldEngine {
         const bailRefunded =
           result.outcome.outcome === "bailed" && row.last_bail_refund_day !== today;
         if (systemRefund || bailRefunded) {
-          const allowance =
-            DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
-          const afterRes = this.charRepo.findById(characterId)!;
-          this.charRepo.update(characterId, {
-            rolls_remaining: Math.min(allowance, afterRes.rolls_remaining + 1),
-          });
+          this.refundRoll(characterId);
           if (bailRefunded && !systemRefund) {
             this.stampRefundDay(characterId, "last_bail_refund_day", today);
           }
@@ -1967,6 +1999,18 @@ export class WorldEngineImpl implements WorldEngine {
     this.charRepo.update(characterId, { [column]: day });
   }
 
+  /** Refund one roll (add 1 to `rolls_remaining`, capped at today's total allowance including
+   *  Saturday bonus). Used by bail, timeout, and no-op refund paths — the caller still owns
+   *  grace-day stamping (`stampRefundDay`) and `rollRefunded` / `rollsDelta` bookkeeping. */
+  private refundRoll(characterId: number): void {
+    const allowance =
+      DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
+    const row = this.charRepo.findById(characterId)!;
+    this.charRepo.update(characterId, {
+      rolls_remaining: Math.min(allowance, row.rolls_remaining + 1),
+    });
+  }
+
   /**
    * D2 timeout. If the state has been idle past the 30-min timeout, atomically clear
    * it, write a `timed_out` action row (no mutations — the intended travel does NOT
@@ -2024,14 +2068,8 @@ export class WorldEngineImpl implements WorldEngine {
       });
       this.charRepo.update(characterId, { last_action_state: null });
       if (refunded && row) {
-        // Hand the spent roll back and stamp the day. Cap at the day's ACTUAL allowance
-        // (incl. the Saturday bonus) — capping at the bare weekday allowance would silently
-        // eat a Saturday bonus roll from a player who'd already used it before timing out.
-        const allowance =
-          DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
-        this.charRepo.update(characterId, {
-          rolls_remaining: Math.min(allowance, row.rolls_remaining + 1),
-        });
+        // Hand the spent roll back and stamp the day.
+        this.refundRoll(characterId);
         this.stampRefundDay(characterId, "last_timeout_refund_day", today);
       }
     })();

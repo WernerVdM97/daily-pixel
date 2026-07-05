@@ -38,6 +38,7 @@ import type {
   PipelineResolveMutateResult,
   PipelineResolveNarrateInput,
   PipelineResolveNarrateResult,
+  PipelineStageResult,
 } from './types.js';
 
 export interface ProdPipelineGatewayConfig {
@@ -88,7 +89,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     this.promptSet = config.promptSet ?? loadPromptSet('v12');
   }
 
-  async classify(rawInput: string, context: LlmContext): Promise<ClassifyHit> {
+  async classify(rawInput: string, context: LlmContext): Promise<PipelineStageResult<ClassifyHit>> {
     const userMessage = buildClassifyUserMessage(rawInput, context);
     return this.runStage({
       context,
@@ -117,7 +118,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     });
   }
 
-  async decide(input: PipelineDecideInput): Promise<PipelineDecideResult> {
+  async decide(input: PipelineDecideInput): Promise<PipelineStageResult<PipelineDecideResult>> {
     const { actionType, context } = input;
     const hasPrevious = Boolean(context.previousDecisions && context.previousDecisions.length > 0);
     const templates = this.promptSet.decide[actionType as ActionCategory];
@@ -175,7 +176,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     });
   }
 
-  async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineResolveMutateResult> {
+  async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineStageResult<PipelineResolveMutateResult>> {
     const { actionType, verdict, context } = input;
     const systemPrompt = this.promptSet.resolve[actionType as ActionCategory][verdict];
     const userMessage = buildResolveUserMessage(input, 'RESOLVE-MUTATE');
@@ -194,7 +195,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     });
   }
 
-  async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineResolveNarrateResult> {
+  async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineStageResult<PipelineResolveNarrateResult>> {
     const { actionType, verdict, context } = input;
     const systemPrompt = this.promptSet.resolve[actionType as ActionCategory][verdict];
     const userMessage = buildResolveUserMessage(input, 'RESOLVE-NARRATE');
@@ -219,7 +220,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
    * layer), and record ONE audit row in `finally` regardless of outcome. A recorder error is
    * caught + logged, never rethrown (mirrors DeepseekLlmGateway).
    */
-  private async runStage<T>(req: StageRequest<T>): Promise<T> {
+  private async runStage<T>(req: StageRequest<T>): Promise<{ result: T; callId: number }> {
     const startedAt = Date.now();
     let httpStatus: number | null = null;
     let usage: DeepseekResponse['usage'];
@@ -228,6 +229,8 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     let content: string | null = null;
     let parseOk = false;
     let errorMsg: string | null = null;
+    let result: T | undefined;
+    let callId = 0;
 
     try {
       const res = await callDeepseek({
@@ -263,14 +266,14 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
       }
       parseOk = true;
 
-      return req.parse(raw);
+      result = req.parse(raw);
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : String(err);
       throw err;
     } finally {
       if (this.recorder) {
         try {
-          this.recorder.record({
+          callId = this.recorder.record({
             appVersion: APP_VERSION,
             promptVersion: req.stamp,
             callKind: req.callKind,
@@ -299,6 +302,15 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
         }
       }
     }
+
+    if (result === undefined) {
+      // Unreachable: the only way to leave the try block is via return (early, removed in v12)
+      // or throw — every throw propagates past this line to the caller, so result is always
+      // set by the time execution reaches here. Guard exists for compile-time defence against
+      // a future refactor adding an early-return before `result` is assigned.
+      throw new Error('unreachable: result was never set');
+    }
+    return { result, callId };
   }
 }
 

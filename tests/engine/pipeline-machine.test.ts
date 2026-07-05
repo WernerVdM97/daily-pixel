@@ -16,6 +16,7 @@ import type {
   PipelineResolveMutateResult,
   PipelineResolveNarrateInput,
   PipelineResolveNarrateResult,
+  PipelineStageResult,
 } from '../../src/llm/pipeline/types.js';
 import type { CriticGateway, CriticInput, CriticVerdict, LlmContext } from '../../src/llm/LlmGateway.js';
 
@@ -33,26 +34,26 @@ class MockPipelineLlmGateway implements PipelineLlmGateway {
   resolveMutateCalls: PipelineResolveMutateInput[] = [];
   resolveNarrateCalls: PipelineResolveNarrateInput[] = [];
 
-  async classify(rawInput: string, context: LlmContext): Promise<ClassifyHit> {
+  async classify(rawInput: string, context: LlmContext): Promise<PipelineStageResult<ClassifyHit>> {
     this.classifyCalls.push({ rawInput, context });
     if (this.classifyResult instanceof Error) throw this.classifyResult;
-    return this.classifyResult;
+    return { result: this.classifyResult, callId: 0 };
   }
 
-  async decide(input: PipelineDecideInput): Promise<PipelineDecideResult> {
+  async decide(input: PipelineDecideInput): Promise<PipelineStageResult<PipelineDecideResult>> {
     this.decideCalls.push(input);
     if (!this.decideResult) throw new Error('decide not scripted');
-    return this.decideResult;
+    return { result: this.decideResult, callId: 0 };
   }
 
-  async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineResolveMutateResult> {
+  async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineStageResult<PipelineResolveMutateResult>> {
     this.resolveMutateCalls.push(input);
-    return this.resolveMutateResult;
+    return { result: this.resolveMutateResult, callId: 0 };
   }
 
-  async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineResolveNarrateResult> {
+  async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineStageResult<PipelineResolveNarrateResult>> {
     this.resolveNarrateCalls.push(input);
-    return this.resolveNarrateResult;
+    return { result: this.resolveNarrateResult, callId: 0 };
   }
 }
 
@@ -292,8 +293,8 @@ describe('PipelineDecideResult shape', () => {
 
     expect(llm.decideCalls).toHaveLength(1);
     // decideResult is what the mock returned — assert the raw object has neither key.
-    expect(Object.prototype.hasOwnProperty.call(decideResult, 'mutations')).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(decideResult, 'outcomeText')).toBe(false);
+    expect(Object.hasOwn(decideResult, 'mutations')).toBe(false);
+    expect(Object.hasOwn(decideResult, 'outcomeText')).toBe(false);
 
     // Type-level assertion: PipelineDecideResult declares neither field. If someone widens the
     // interface to add `mutations`/`outcomeText`, `never` collapses and this file fails to
@@ -848,9 +849,9 @@ describe('PipelineActionStateMachine — T4 critic', () => {
     const redecided: PipelineDecideResult = { ...originalDecide, distilledType: 'ambush-corrected' };
     const results = [originalDecide, redecided];
     let callCount = 0;
-    llm.decide = async (input: PipelineDecideInput): Promise<PipelineDecideResult> => {
+    llm.decide = async (input: PipelineDecideInput): Promise<PipelineStageResult<PipelineDecideResult>> => {
       llm.decideCalls.push(input);
-      return results[Math.min(callCount++, results.length - 1)];
+      return { result: results[Math.min(callCount++, results.length - 1)], callId: 0 };
     };
 
     const critic = new MockCriticGateway();

@@ -76,7 +76,7 @@ describe('ProdPipelineLlmGateway — classify', () => {
     const { records, recorder } = capture();
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet() });
 
-    const result = await gw.classify('attack the wolf', minimalContext);
+    const { result } = await gw.classify('attack the wolf', minimalContext);
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const body = bodyOf(fetchFn);
@@ -94,7 +94,7 @@ describe('ProdPipelineLlmGateway — classify', () => {
     const fetchFn = mockFetch(apiResponse({ action_type: 'travel' }));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    const result = await gw.classify('go north', minimalContext);
+    const { result } = await gw.classify('go north', minimalContext);
 
     expect(result).toEqual({
       kind: 'hit',
@@ -150,7 +150,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     const { records, recorder } = capture();
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet() });
 
-    const result = await gw.decide({
+    const { result } = await gw.decide({
       actionType: 'combat',
       flags: { unsafe_location: false, needs_roll: true, target_present: true },
       context: minimalContext,
@@ -203,7 +203,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     };
     const fetchFn = mockFetch(apiResponse(withExtras));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
-    const result = await gw.decide({
+    const { result } = await gw.decide({
       actionType: 'combat',
       flags: { unsafe_location: false, needs_roll: true, target_present: true },
       context: minimalContext,
@@ -213,7 +213,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
 
     const fetchFnBare = mockFetch(apiResponse(decideResponse));
     const gwBare = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFnBare, promptSet: fixturePromptSet() });
-    const bare = await gwBare.decide({
+    const { result: bare } = await gwBare.decide({
       actionType: 'combat',
       flags: { unsafe_location: false, needs_roll: true, target_present: true },
       context: minimalContext,
@@ -233,7 +233,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     const fetchFn = mockFetch(apiResponse(snakeResponse));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    const result = await gw.decide({
+    const { result } = await gw.decide({
       actionType: 'combat',
       flags: { unsafe_location: false, needs_roll: true, target_present: true },
       context: minimalContext,
@@ -257,7 +257,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     }));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    const result = await gw.decide({
+    const { result } = await gw.decide({
       actionType: 'combat',
       flags: { unsafe_location: false, needs_roll: true, target_present: true },
       context: minimalContext,
@@ -270,7 +270,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     const fetchFn = mockFetch(apiResponse({ distilledType: 'wait', stat: 'wisdom', required: false, decision: [] }));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    const result = await gw.decide({
+    const { result } = await gw.decide({
       actionType: 'other',
       flags: { unsafe_location: false, needs_roll: false, target_present: false },
       context: minimalContext,
@@ -300,7 +300,7 @@ describe('ProdPipelineLlmGateway — resolveMutate', () => {
     const { records, recorder } = capture();
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet() });
 
-    const result = await gw.resolveMutate({
+    const { result } = await gw.resolveMutate({
       actionType: 'combat',
       decision,
       chosenOption: { label: 'Track the wolf', dcModifier: -2 },
@@ -340,7 +340,7 @@ describe('ProdPipelineLlmGateway — resolveMutate', () => {
     }));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    const result = await gw.resolveMutate({
+    const { result } = await gw.resolveMutate({
       actionType: 'combat',
       decision,
       chosenOption: { label: 'Track the wolf', dcModifier: -2 },
@@ -358,7 +358,7 @@ describe('ProdPipelineLlmGateway — resolveMutate', () => {
     const fetchFn = mockFetch(apiResponse({}));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    const result = await gw.resolveMutate({
+    const { result } = await gw.resolveMutate({
       actionType: 'combat',
       decision,
       chosenOption: { label: 'Track the wolf', dcModifier: -2 },
@@ -417,7 +417,7 @@ describe('ProdPipelineLlmGateway — resolveNarrate', () => {
     const { records, recorder } = capture();
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet() });
 
-    const result = await gw.resolveNarrate({
+    const { result } = await gw.resolveNarrate({
       actionType: 'combat',
       decision,
       chosenOption: { label: 'Track the wolf', dcModifier: -2 },
@@ -444,7 +444,7 @@ describe('ProdPipelineLlmGateway — resolveNarrate', () => {
     const fetchFn = mockFetch(apiResponse({ outcomeText: 'You win.\r\nGood job.\r' }));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    const result = await gw.resolveNarrate({
+    const { result } = await gw.resolveNarrate({
       actionType: 'combat',
       decision,
       chosenOption: { label: 'Track the wolf', dcModifier: -2 },
@@ -513,9 +513,12 @@ describe('ProdPipelineLlmGateway — errors propagate (no retry, no fallback wra
 
     // classify succeeds; the recorder throwing in `finally` must not break the resolved value.
     await expect(gw.classify('x', minimalContext)).resolves.toEqual({
-      kind: 'hit',
-      actionType: 'combat',
-      flags: { unsafe_location: false, needs_roll: false, target_present: false },
+      result: {
+        kind: 'hit',
+        actionType: 'combat',
+        flags: { unsafe_location: false, needs_roll: false, target_present: false },
+      },
+      callId: 0,
     });
   });
 });

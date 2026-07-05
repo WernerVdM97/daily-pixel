@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Pipeline DeepSeek timeout bumped to 60s** — the per-call abort moves from 15s→60s so CONTINUE-beat decide calls have headroom to finish before the re-click poison loop triggers.
+
+### Fixed
+- **Pipeline decide timeout now resolves gracefully** — when a decide call times out (AbortError), the engine resolves the action as `timed_out` instead of re-throwing and re-presenting the same stuck decision screen. The roll is refunded (system fault grace), stamina −1 is applied, and state is cleared so the player moves on.
+
+### Internal
+- **Pipeline LLM call IDs now wired into `llmCallIds`** — `ProdPipelineLlmGateway.runStage()` returns the `llm_calls` row ID alongside the stage result; every pipeline stage (classify, decide, resolveMutate, resolveNarrate) accumulates its call ID into `PipelineInternalActionState.llmCallIds`, which flows through to the existing `linkAction()` backfill at resolution time so the full audit chain is mineable. `PipelineStageResult<T>` wraps all gateway returns in `{ result, callId }`.
+
 ## [0.2.8] - 2026-07-05
 ### Added
 - **Owner identity on public outcome messages** *(F#3, F#8)* — the character's owner (as a `<@discordId>` mention with pings suppressed) now appears next to the character name on the shared public outcomes so testers can tell who's who.

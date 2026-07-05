@@ -11,6 +11,7 @@ import { NpcRepository } from '../../src/db/repositories/npc.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
 import { LocationEdgeRepository } from '../../src/db/repositories/locationEdge.js';
 import type { LlmDecision } from '../../src/llm/LlmGateway.js';
+import { PipelineActionStateMachine } from '../../src/engine/action/PipelineActionStateMachine.js';
 import { APP_VERSION } from '../../src/version.js';
 
 // RED: tests fail because WorldEngineImpl doesn't exist yet
@@ -958,6 +959,110 @@ describe('WorldEngineImpl — pipeline path step() serialisation (T6)', () => {
 
     // Clean up: the hung promise is still pending — closeDb will clean up.
     stepPromise.catch(() => {});
+    closeDb();
+  });
+});
+
+describe('WorldEngineImpl — pipeline decide timeout (v12 QA §1)', () => {
+  it('resolves step as timed_out when the pipeline decide call throws AbortError', async () => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+
+    const user = userRepo.create('777777777');
+    const characterId = charRepo.create(user.id, {
+      name: 'Thorn',
+      class: 'Rogue',
+      upbringing: 'Village',
+      race: 'Human',
+      alignment: 'chaotic neutral',
+      day_job: 'Thief',
+      stats: JSON.stringify({ physical: 2, wisdom: 1, intelligence: 0, charisma: 0 }),
+      health: 8,
+      max_health: 8,
+      max_stamina: 10,
+      stamina: 10,
+      rolls_remaining: 3,
+      location: "The Warden's Oak",
+      wealth: 5,
+      last_action_state: null,
+    }).id;
+
+    // Mock fetch for start path only — heuristic hits on "attack" so only the decide
+    // call reaches the gateway (no classify fallback).
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                distilledType: 'combat',
+                stat: 'physical',
+                baseDc: 12,
+                required: false,
+                decision: [{ label: 'Attack', dcModifier: 0, stat: 'physical' }],
+              }),
+            },
+          }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: '__divine__', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlm: { apiKey: 'test-key', model: 'test-model', fetch: mockFetch as unknown as typeof fetch },
+      rollD20: () => 15,
+    });
+
+    // Start succeeds — heuristic classify hits, decide returns mock response, roll drained, state persisted.
+    const startResult = await engine.startAction(characterId, 'attack the goblin');
+    expect(startResult.firstDecision).toBeDefined();
+    expect(startResult.outcome).toBeUndefined();
+
+    // Roll was drained: 3 → 2.
+    const before = charRepo.findById(characterId)!;
+    expect(before.rolls_remaining).toBe(2);
+    expect(before.last_action_state).not.toBeNull();
+
+    // Spy on PipelineActionStateMachine.step to throw AbortError — simulates a
+    // DeepSeek decide timeout on the CONTINUE beat.
+    const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const stepSpy = vi.spyOn(PipelineActionStateMachine.prototype, 'step')
+      .mockRejectedValueOnce(abortErr);
+
+    // stepAction catches AbortError and resolves as timed_out.
+    const stepResult = await engine.stepAction(characterId, 'Attack');
+
+    expect(stepResult.resolved).toBe(true);
+    if (!stepResult.resolved) throw new Error('expected resolved');
+
+    expect(stepResult.outcome.outcome).toBe('timed_out');
+    expect(stepResult.outcome.rollRefunded).toBe(true);
+    expect(stepResult.outcome.systemRefund).toBe(true);
+    expect(stepResult.outcome.mutations).toEqual([{ type: 'modify_stamina', amount: -1 }]);
+    expect(stepResult.outcome.playerRolled).toBeNull();
+    expect(stepResult.outcome.outcomeText).toContain("The Warden's voice grows distant");
+
+    // State was cleared.
+    const after = charRepo.findById(characterId)!;
+    expect(after.last_action_state).toBeNull();
+
+    // Stamina −1 applied.
+    expect(after.stamina).toBe(9);
+
+    // Roll refunded (system fault → unconditional refund, no once-per-day grace).
+    expect(after.rolls_remaining).toBe(3);
+
+    stepSpy.mockRestore();
     closeDb();
   });
 });

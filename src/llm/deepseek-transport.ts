@@ -55,7 +55,7 @@ export async function callDeepseek(req: DeepseekRequest): Promise<DeepseekRespon
   };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), req.timeoutMs ?? 15000);
+  const timeout = setTimeout(() => controller.abort(), req.timeoutMs ?? 60000);
 
   try {
     const response = await req.fetchFn(DEEPSEEK_URL, {

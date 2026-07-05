@@ -110,11 +110,18 @@ export interface PipelineResolveNarrateResult {
  * through this interface. Task 1 defines the shape; no implementation is wired up here beyond
  * the stub in `classifier.ts` (`notImplementedClassifyFallback`).
  */
+/** Every pipeline gateway method returns its primary result plus the llm_calls row id
+ *  recorded for this stage call (or 0 when no recorder is wired). */
+export interface PipelineStageResult<T> {
+  result: T;
+  callId: number;
+}
+
 export interface PipelineLlmGateway {
   /** Called only on a heuristic miss. Must resolve to a hit — the fallback is the last stage
    *  that can still route the action; it has no further fallback beneath it. */
-  classify(rawInput: string, context: LlmContext): Promise<ClassifyHit>;
-  decide(input: PipelineDecideInput): Promise<PipelineDecideResult>;
-  resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineResolveMutateResult>;
-  resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineResolveNarrateResult>;
+  classify(rawInput: string, context: LlmContext): Promise<PipelineStageResult<ClassifyHit>>;
+  decide(input: PipelineDecideInput): Promise<PipelineStageResult<PipelineDecideResult>>;
+  resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineStageResult<PipelineResolveMutateResult>>;
+  resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineStageResult<PipelineResolveNarrateResult>>;
 }
