@@ -25,7 +25,7 @@ The sim alone is not enough because it never sends the real templates to the mod
 
 - [x] **Stage 1 backbone built** — `PipelineActionStateMachine` runs the full chain in the sim with the D5b inversion and per-stage stamping seams (`src/engine/action/PipelineActionStateMachine.ts`, `src/llm/pipeline/*`).
 - [x] **Stage 3 combat sim-proven** — win/floor/cap resolve through the pipeline with per-round logging and metrics (T5 shipped, `c228790`).
-- [ ] **Stage 2 scene-state wired in CODE, not just migrated** — the `relations` migration exists (`202607041000_scene_relations.ts`), but the prod read path (context building surfacing edges to the pipeline; persistence across live beats) must be confirmed wired. The DB wipe rebaselines the *data*, but it does not wire un-wired *code*. **Verify this first** — likeliest hidden blocker.
+- [x] **Stage 2 scene-state wired in CODE, not just migrated** — *Verified 2026-07-05: **sim-only**. `RelationRepository` is instantiated only in `PipelineSimEngine` (`:92`); prod (`WorldEngineImpl`) has no relation repo, no `getSceneRelations` read-back on its `contextResolver`, and `applyResolution` (`:500`) never persists `applied.relationsToSet/relationsToUpdate`. NOT subsumed by T6 — relations are not structurally inside `PipelineActionStateMachine` (persistence + read closure live in the sim host). Reassuring: no legacy path touches relations, so the applied-but-empty tables cannot break v11 — this is dormant groundwork, not a live hazard. Now **owned**: the terminal-outcome host wiring → **Task 0** (do first, non-destructive); the multi-beat combat persist loop is folded into **Task 6** (it needs the live pipeline step contract).*
 - [>] **Stage 4 world-scaling — NOT in scope.** Launch scale-neutral (seam at 1, [[stage-3-combat-spine-plan]] D7); Thread B is a later stage on live data.
 
 ## Settled decisions (this round)
@@ -62,6 +62,16 @@ PipelineActionStateMachine
 `finalizeMutations` already exists as a pure function shared by both paths (`WorldEngineImpl.ts:664` → `geography-finalize.ts`), so the D5b inversion needs no new extraction; the prod gateway just routes resolve-narrate against the finalized set.
 
 ## Task breakdown
+
+### Task 0 — Prod scene-state host wiring (the gating prerequisite)
+**Description.** Close the sim-only gap so the scene-state spine is live the moment T6 installs `PipelineActionStateMachine`, not dead. Give `WorldEngineImpl` the host `PipelineSimEngine` already has (`:92,:99-108,:263-314`), all behind the still-legacy machine so it is inert until T6: (a) instantiate one `RelationRepository` in the constructor (mirror `locationRepo`/`edgeRepo`, `:285-286`); (b) widen the local `contextResolver` (`:310`) to a `PipelineContextResolver` and add `getSceneRelations(node) => relationRepo.forNode(node.type, node.ref)` and `getCurrentDay() => this.currentDayNumber()` — optional hooks the pipeline context builder (`pipeline-context.ts:75`) consumes and the legacy machine ignores; (c) in `applyResolution`, after `applyMutations` (`:500`), persist `applied.relationsToSet/relationsToUpdate` inside the existing `db.transaction`. De-duplicate rather than triplicate: extract the sim's inline persist-resolve loop (`PipelineSimEngine.persistRelations`, `:323-345`) into a shared `persistAuthoredRelations(...)` in `relation-wiring.ts` (which already owns `resolveAuthoredRelation`, imported by both hosts) and call it from BOTH — behaviour-preserving for the sim. To feed the helper's `nearbyNpcs`, extract the resolver's `getNearbyNpcs` body (`:311-317`) into a private `nearbyNpcsAt(location)` used by both the resolver and the persist call.
+**Acceptance:**
+- [ ] `WorldEngineImpl` constructs exactly one `RelationRepository`; its `contextResolver` is a `PipelineContextResolver` exposing `getSceneRelations` + `getCurrentDay` backed by that repo / `currentDayNumber()`.
+- [ ] `applyResolution` persists authored relations via the shared helper, inside the existing `db.transaction`; an unresolvable endpoint drops-with-warn (never throws), mirroring the sim (`:329-343`).
+- [ ] `persistAuthoredRelations` is unit-tested against an in-memory `RelationRepository`: `set`, `updateProps`, and the unresolved-endpoint drop. The sim calls the same helper with identical behaviour (sim suite green).
+- [ ] Zero behaviour change on the live v11 path — the legacy machine emits no relation mutations, so persistence is a no-op and no existing engine test changes.
+**Verification:** `npm run typecheck` clean; `npm test` green (engine + sim); the helper test proves round-trip persistence + the drop-with-warn path.
+**Files:** `src/engine/WorldEngineImpl.ts`, `src/engine/action/relation-wiring.ts` (new export), `src/sim/PipelineSimEngine.ts` (call the shared helper), `tests/**` (helper unit test). **Scope:** M. **Deps:** prerequisites (verified). **Must land before T6.**
 
 ### Task 1 — Sim calibration (the balance gate)
 **Description.** Run the existing combat scenarios through the sim and tune to acceptable curves, scale-neutral. Adjust the band table / enemy-HP derive in `combat-dc.ts` (and add scenarios if a case is unproven) until win/death/reward rates and round counts read sensibly. Capture the chosen constants + the curves in a short calibration record so the flip is defensible. No prod code changes here.
@@ -106,10 +116,11 @@ PipelineActionStateMachine
 **Files:** `assets/prompts/decision-prompts/v12/**`, `tests/llm/*`. **Scope:** M. **Deps:** T2. **Skill:** `prompt-versioning`.
 
 ### Task 6 — Hard swap (legacy kept in-tree, uninvoked)
-**Description.** Make `WorldEngineImpl` construct `PipelineActionStateMachine` with the T2 gateway (`WorldEngineImpl.ts:359`); the unchanged call sites drive it. Route per-stage stamps to the real `llm_calls`/`actions` writes (`actions.prompt_version='v12'`). Leave the legacy `ActionStateMachine` and `PROMPT_VERSION` present but no longer invoked — this is the single revert lever until the smoke run clears.
+**Description.** Make `WorldEngineImpl` construct `PipelineActionStateMachine` with the T2 gateway (`WorldEngineImpl.ts:359`); the unchanged call sites drive it. Route per-stage stamps to the real `llm_calls`/`actions` writes (`actions.prompt_version='v12'`). Leave the legacy `ActionStateMachine` and `PROMPT_VERSION` present but no longer invoked — this is the single revert lever until the smoke run clears. **Also wire the multi-beat half of the scene-state spine deferred from Task 0:** prod has no non-terminal mutation apply path today (the legacy machine never returns non-terminal `mutations`), but the pipeline machine's combat rounds do — so `stepAction`'s non-terminal branch (`:997+`) must apply `result.mutations` and persist relations across beats (mirror `PipelineSimEngine.stepAction`, `:195-221`), reusing the Task 0 `persistAuthoredRelations` helper.
 **Acceptance:**
 - [ ] A live-shaped action runs the full chain and persists `prompt_version='v12'` + per-stage stamps.
 - [ ] The legacy machine still compiles and its tests still pass (it is dead-but-present, not deleted).
+- [ ] Non-terminal combat beats apply their mutations and persist relations across beats (the multi-beat half of the scene-state spine, deferred from Task 0).
 **Verification:** an engine test runs one action through the pipeline against a seed; suite + typecheck green.
 **Files:** `src/engine/WorldEngineImpl.ts`, tests. **Scope:** M. **Deps:** T2, T3, T4, T5.
 
@@ -142,7 +153,7 @@ Run a scripted character through the **real DeepSeek + v12 templates** on a thro
 
 | Risk | Mitigation |
 |------|-----------|
-| Scene-state (Stage 2) not wired in code → pipeline writes edges nothing reads (wipe doesn't fix code) | Gating prerequisite: verify the prod read path before starting. |
+| Scene-state (Stage 2) not wired in code → pipeline writes edges nothing reads (wipe doesn't fix code) | Verified sim-only (2026-07-05); now owned by **Task 0** (terminal host wiring, do first) + **Task 6** (multi-beat loop). Both land before the smoke run. |
 | Real templates never hit the model until prod | The smoke-run Checkpoint on real DeepSeek is the explicit LLM gate before deletion. |
 | Compounding latency (D multiplies calls per beat) | Smoke run measures the tail; heuristic classify keeps the common case single-hop; round cap bounds combat. |
 | Fallback/critic stack composes over one gateway, not four | Resolved in T2/T4 with the decision documented. |
@@ -159,4 +170,4 @@ Run a scripted character through the **real DeepSeek + v12 templates** on a thro
 
 ---
 
-_Execution note: build task-by-task via delegated subagents (T1 calibration alongside T2 → T3/T4 → T5 → T6, then the smoke-run Checkpoint, then T7), verifying + committing after each per the orchestrated-delegation loop. This is the graduation gate for [[prompt-separation-of-concerns]]; Thread B (Stage 4 world-scaling) and D3/D4 follow it on the now-live pipeline._
+_Execution note: build task-by-task via delegated subagents (T0 prereq first, then T1 calibration alongside T2 → T3/T4 → T5 → T6, then the smoke-run Checkpoint, then T7), verifying + committing after each per the orchestrated-delegation loop. This is the graduation gate for [[prompt-separation-of-concerns]]; Thread B (Stage 4 world-scaling) and D3/D4 follow it on the now-live pipeline._

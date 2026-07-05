@@ -18,6 +18,7 @@ import type { ActionRepository } from "../db/repositories/action.js";
 import type { NpcRepository } from "../db/repositories/npc.js";
 import { LocationRepository } from "../db/repositories/location.js";
 import { LocationEdgeRepository } from "../db/repositories/locationEdge.js";
+import { RelationRepository } from "../db/repositories/relation.js";
 import { CharacterLocationRepository } from "../db/repositories/characterLocation.js";
 import { MetaRepository } from "../db/repositories/meta.js";
 import { LlmCallRepository } from "../db/repositories/llm-call.js";
@@ -31,8 +32,9 @@ import { APP_VERSION } from "../version.js";
 import {
   ActionStateMachine,
   type InternalActionState,
-  type WorldContextResolver,
 } from "./action/machine.js";
+import type { PipelineContextResolver } from "./action/pipeline-context.js";
+import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
 import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
 import { effectiveStats } from "./action/dc.js";
@@ -246,6 +248,9 @@ export class WorldEngineImpl implements WorldEngine {
   private npcRepo: NpcRepository;
   private locationRepo: LocationRepository;
   private edgeRepo: LocationEdgeRepository;
+  /** Stage 5 Task 0 — the prod host's scene-state repo, dormant under the legacy machine (which
+   *  emits no relation mutations) but live the moment T6 installs the pipeline machine. */
+  private relationRepo: RelationRepository;
   /** T5a: the shared geography-finalize closure (mint/route/collapse/validate), extracted so the
    *  pipeline sim can reuse the SAME logic over its own seeded repos — see geography-finalize.ts.
    *  Built in the constructor body (not a field initializer) since it closes over
@@ -284,6 +289,7 @@ export class WorldEngineImpl implements WorldEngine {
     this.npcRepo = config.npcRepo;
     this.locationRepo = new LocationRepository(config.db);
     this.edgeRepo = new LocationEdgeRepository(config.db);
+    this.relationRepo = new RelationRepository(config.db);
     this.geographyFinalize = createGeographyFinalize({
       locationRepo: this.locationRepo,
       edgeRepo: this.edgeRepo,
@@ -307,14 +313,8 @@ export class WorldEngineImpl implements WorldEngine {
       },
     });
 
-    const contextResolver: WorldContextResolver = {
-      getNearbyNpcs: (location: string) => {
-        return this.npcRepo
-          .findByLocation(location)
-          .filter((n) => n.description)
-          .sort((a, b) => a.id - b.id)
-          .map((n) => ({ id: n.id, name: n.name, description: n.description! }));
-      },
+    const contextResolver: PipelineContextResolver = {
+      getNearbyNpcs: (location: string) => this.nearbyNpcsAt(location),
       getNearbyPcs: (location: string, excludeCharId: number) => {
         const allChars = this.charRepo.findAll();
         return allChars
@@ -348,6 +348,12 @@ export class WorldEngineImpl implements WorldEngine {
           .frontierExits(location)
           .map((f) => ({ direction: f.direction, teaser: f.teaser, difficulty: f.difficulty })),
       }),
+      // Stage 5 Task 0 — the pipeline context builder's optional scene-state read-back
+      // (`pipeline-context.ts:75`) and per-day combat floor hook. The legacy machine's
+      // `WorldContextResolver` never reads these; they're inert until T6 installs the pipeline
+      // machine (structural widening only, no behaviour change on the live v11 path).
+      getSceneRelations: (node) => this.relationRepo.forNode(node.type, node.ref),
+      getCurrentDay: () => this.currentDayNumber(),
     };
 
     // Critic (opt-in): wrap gateway for DECISION beats; pass critic to the machine for the
@@ -362,6 +368,17 @@ export class WorldEngineImpl implements WorldEngine {
       contextResolver,
       config.critic,
     );
+  }
+
+  /** Extracted out of `contextResolver.getNearbyNpcs` (Stage 5 Task 0) so the relation-persist
+   *  call in `applyResolution` resolves `npc` endpoints against the SAME source, rather than a
+   *  second copy of this npc-mapping. */
+  private nearbyNpcsAt(location: string): NearbyNpc[] {
+    return this.npcRepo
+      .findByLocation(location)
+      .filter((n) => n.description)
+      .sort((a, b) => a.id - b.id)
+      .map((n) => ({ id: n.id, name: n.name, description: n.description! }));
   }
 
   // ── Character lifecycle ──
@@ -554,6 +571,17 @@ export class WorldEngineImpl implements WorldEngine {
     for (const { name, quantity } of itemsRemoved) {
       this.itemRepo.decrementByName(characterId, name, quantity);
     }
+
+    // Stage 5 Task 0 — host wiring for the scene-state spine (dormant under the legacy machine,
+    // which emits no relation mutations; live the moment T6 installs the pipeline machine).
+    // Inside the caller's existing db.transaction (both callers wrap applyResolution in one).
+    persistAuthoredRelations(
+      this.relationRepo,
+      applied.relationsToSet,
+      applied.relationsToUpdate,
+      { id: characterId },
+      this.nearbyNpcsAt(row.location),
+    );
 
     logAppliedMutations(characterId, outcome, row, applied);
 

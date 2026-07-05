@@ -1,5 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
-import { resolveRelationEndpoint, resolveAuthoredRelation, type NearbyNpc } from '../../src/engine/action/relation-wiring.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../src/db/migrate.js';
+import { RelationRepository } from '../../src/db/repositories/relation.js';
+import {
+  resolveRelationEndpoint,
+  resolveAuthoredRelation,
+  persistAuthoredRelations,
+  type NearbyNpc,
+} from '../../src/engine/action/relation-wiring.js';
 import type { AuthoredRelation } from '../../src/engine/action/mutations.js';
 
 const npcs: NearbyNpc[] = [
@@ -90,6 +98,91 @@ describe('resolveAuthoredRelation', () => {
       props: {},
     };
     expect(resolveAuthoredRelation(relation, { id: 3 }, [])).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+});
+
+// Stage 5 Task 0 — the shared host-wiring helper both WorldEngineImpl and PipelineSimEngine call
+// from their resolution paths. Exercised against a real in-memory RelationRepository (mirrors
+// tests/db/relation.test.ts's setup) rather than a mock, since the point of this helper is the
+// resolve-then-persist round trip through the repo.
+describe('persistAuthoredRelations', () => {
+  let db: Database.Database;
+  let repo: RelationRepository;
+  const npcs: NearbyNpc[] = [
+    { id: 42, name: 'Grum the Smith', description: 'A burly blacksmith.' },
+  ];
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    repo = new RelationRepository(db);
+  });
+  afterEach(() => db.close());
+
+  it('set path: a resolvable pc -> location set_relation persists a row', () => {
+    const relation: AuthoredRelation = {
+      from: { node: 'pc' },
+      to: { node: 'location', name: 'The Old Mill' },
+      relType: 'knows_secret',
+      props: { learnedDay: 3 },
+    };
+    persistAuthoredRelations(repo, [relation], [], { id: 1 }, []);
+
+    expect(repo.count()).toBe(1);
+    const edges = repo.forNode('pc', '1');
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ from_type: 'pc', from_ref: '1', to_type: 'location', to_ref: 'The Old Mill', rel_type: 'knows_secret' });
+    expect(JSON.parse(edges[0].props)).toEqual({ learnedDay: 3 });
+  });
+
+  it('updateProps path: a follow-up update_relation on that edge merges its prop delta', () => {
+    const setRelation: AuthoredRelation = {
+      from: { node: 'pc' },
+      to: { node: 'npc', name: 'Grum the Smith' },
+      relType: 'trust',
+      props: { score: 5 },
+    };
+    persistAuthoredRelations(repo, [setRelation], [], { id: 1 }, npcs);
+
+    const updateRelation: AuthoredRelation = { ...setRelation, props: { score: 2 } };
+    persistAuthoredRelations(repo, [], [updateRelation], { id: 1 }, npcs);
+
+    const edges = repo.forNode('npc', '42');
+    expect(edges).toHaveLength(1);
+    expect(JSON.parse(edges[0].props)).toEqual({ score: 7 });
+  });
+
+  it('updateProps path: update_relation on a MISSING edge warns and no-ops (never throws)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const relation: AuthoredRelation = {
+      from: { node: 'pc' },
+      to: { node: 'npc', name: 'Grum the Smith' },
+      relType: 'trust',
+      props: { score: 2 },
+    };
+
+    expect(() => persistAuthoredRelations(repo, [], [relation], { id: 1 }, npcs)).not.toThrow();
+
+    expect(repo.count()).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('drop path: an npc endpoint not among nearbyNpcs is dropped — no row, no throw', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const relation: AuthoredRelation = {
+      from: { node: 'pc' },
+      to: { node: 'npc', name: 'A Stranger' },
+      relType: 'trust',
+      props: { score: 1 },
+    };
+
+    expect(() => persistAuthoredRelations(repo, [relation], [], { id: 1 }, npcs)).not.toThrow();
+
+    expect(repo.count()).toBe(0);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });

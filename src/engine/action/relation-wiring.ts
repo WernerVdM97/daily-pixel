@@ -1,4 +1,4 @@
-import type { RelationKey, NodeType } from '../../db/repositories/relation.js';
+import type { RelationRepository, RelationKey, NodeType } from '../../db/repositories/relation.js';
 import type { AuthoredRelation, RelationEndpoint } from './mutations.js';
 
 /** The shape `WorldContextResolver.getNearbyNpcs` returns — duplicated locally rather than
@@ -74,4 +74,35 @@ export function resolveAuthoredRelation(
     toRef: to.ref,
     relType: relation.relType,
   };
+}
+
+/**
+ * Resolve + persist authored relation mutations against a RelationRepository. Shared by the
+ * prod engine (WorldEngineImpl.applyResolution) and the sim host (PipelineSimEngine). Endpoints
+ * are resolved via resolveAuthoredRelation against `nearbyNpcs`; an unresolvable edge is
+ * dropped-with-warn (never throws). `update_relation` on a missing edge warns and is skipped.
+ */
+export function persistAuthoredRelations(
+  repo: RelationRepository,
+  relationsToSet: AuthoredRelation[],
+  relationsToUpdate: AuthoredRelation[],
+  char: { id: number },
+  nearbyNpcs: NearbyNpc[],
+): void {
+  for (const relation of relationsToSet) {
+    const key = resolveAuthoredRelation(relation, char, nearbyNpcs);
+    if (!key) continue;
+    repo.set({ ...key, props: relation.props });
+  }
+
+  for (const relation of relationsToUpdate) {
+    const key = resolveAuthoredRelation(relation, char, nearbyNpcs);
+    if (!key) continue;
+    const updated = repo.updateProps(key, relation.props);
+    if (!updated) {
+      console.warn(
+        `[relation-wiring] dropping update_relation — no existing edge for ${key.fromType}:${key.fromRef} -> ${key.toType}:${key.toRef} (${key.relType})`,
+      );
+    }
+  }
 }
