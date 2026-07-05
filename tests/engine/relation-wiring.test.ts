@@ -171,6 +171,45 @@ describe('persistAuthoredRelations', () => {
     warn.mockRestore();
   });
 
+  it('a single call mixing both arrays applies all effects together: 2 new edges from relationsToSet plus 1 existing edge merged via relationsToUpdate', () => {
+    // Seeded directly via repo.set (not persistAuthoredRelations) so this edge predates the
+    // call under test and its update is unambiguously attributable to relationsToUpdate.
+    repo.set({ fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'trust', props: { score: 5 } });
+
+    const newLocationRelation: AuthoredRelation = {
+      from: { node: 'pc' },
+      to: { node: 'location', name: 'The Old Mill' },
+      relType: 'knows_secret',
+      props: { learnedDay: 3 },
+    };
+    const newNpcRelation: AuthoredRelation = {
+      from: { node: 'pc' },
+      to: { node: 'npc', name: 'Grum the Smith' },
+      relType: 'likes',
+      props: { score: 1 },
+    };
+    const updateRelation: AuthoredRelation = {
+      from: { node: 'pc' },
+      to: { node: 'npc', name: 'Grum the Smith' },
+      relType: 'trust',
+      props: { score: 2 },
+    };
+
+    persistAuthoredRelations(repo, [newLocationRelation, newNpcRelation], [updateRelation], { id: 1 }, npcs);
+
+    expect(repo.count()).toBe(3);
+
+    const locationEdge = repo.forNode('location', 'The Old Mill');
+    expect(locationEdge).toHaveLength(1);
+    expect(JSON.parse(locationEdge[0].props)).toEqual({ learnedDay: 3 });
+
+    const likesEdge = repo.find({ fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'likes' });
+    expect(likesEdge && JSON.parse(likesEdge.props)).toEqual({ score: 1 });
+
+    const trustEdge = repo.find({ fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'trust' });
+    expect(trustEdge && JSON.parse(trustEdge.props)).toEqual({ score: 7 });
+  });
+
   it('drop path: an npc endpoint not among nearbyNpcs is dropped — no row, no throw', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const relation: AuthoredRelation = {

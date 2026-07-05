@@ -572,8 +572,13 @@ export class WorldEngineImpl implements WorldEngine {
       this.itemRepo.decrementByName(characterId, name, quantity);
     }
 
-    // Stage 5 Task 0 — host wiring for the scene-state spine (dormant under the legacy machine,
-    // which emits no relation mutations; live the moment T6 installs the pipeline machine).
+    // Stage 5 Task 0 — host wiring for the scene-state spine. The legacy machine never
+    // constructs relation mutations, so in practice applied.relationsToSet/Update are always
+    // empty here and this call is inert — not live until T6 installs the pipeline machine. The
+    // only way a row could be written under v11 today is a malformed/injected LLM relation
+    // mutation (set_relation/update_relation are in the global WORLD_MUTATION_TYPES), which
+    // nothing in the v11 read path consumes (getSceneRelations is pipeline-only) and which the
+    // T7 cutover wipe clears — so it's observably inert, not structurally gated.
     // Inside the caller's existing db.transaction (both callers wrap applyResolution in one).
     persistAuthoredRelations(
       this.relationRepo,
