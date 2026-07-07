@@ -1377,3 +1377,90 @@ describe('PipelineActionStateMachine — §2 v12 QA: auto-resolve + single-optio
     expect(result.resolved).toBe(false);
   });
 });
+
+/**
+ * decide-scene-narration E2E acceptance — combat rounds simulating the dev-DB 34/35
+ * pattern where every continue-decide returns `decision: []`. Verifies every spec criterion:
+ * per-round narration + combatStatus, ≥2 mechanically distinct options + flee, never a
+ * flee-only screen. Deliberately two consecutive rounds to prove the backstop survives
+ * round-over-round (the enemy re-initialises in unit tests without a DB, but the backstop
+ * fires independently each round — the dead-end is gone either way).
+ */
+describe('PipelineActionStateMachine — decide-scene-narration: E2E acceptance (empty-decision backstop multi-round)', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('two consecutive empty continue-decides both fire the backstop, narrate, show combatStatus, offer distinct options + flee, and never flee-only', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({ decision: [], narration: 'The goblin snarls, teeth bared — it circles left, looking for an opening.' }),
+      combatEnemyDecideResult({ decision: [], narration: 'Your blade scrapes its tattered leather — it stumbles but rights itself, furious now.' }),
+    ];
+    // Two rounds of contested rolls (glanced band).
+    const rolls = [10, 10, 10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const started = await machine.start(testChar(), 'attack the goblin', testItems);
+      expect(started.resolved).toBe(false);
+      if (started.resolved) throw new Error('expected unresolved start');
+      expect(started.firstDecision.narration).toBeUndefined();
+      expect(started.firstDecision.prompt).toBe('Combat — what do you do?');
+
+      // ── Round 1 ──
+      const step1 = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+      expect(step1.resolved).toBe(false);
+      if (step1.resolved) throw new Error('expected unresolved round 1');
+
+      // Narration threads through.
+      expect(step1.nextDecision.narration).toBe('The goblin snarls, teeth bared — it circles left, looking for an opening.');
+      // CombatStatus shows banded enemy condition + player HP movement.
+      expect(step1.nextDecision.combatStatus).toMatch(/Goblin: [▓░]{5} (Healthy|Bloodied|Battered|Critical)/);
+      expect(step1.nextDecision.combatStatus).toMatch(/ · You: /);
+      // Never leaks exact enemy HP — banded only. The enemy portion (Goblin: ... up to the
+      // first · separator) must have no digit before HP; the player's side (You: N HP) is fine.
+      expect(step1.nextDecision.combatStatus).not.toMatch(/Goblin:[^·]*\d HP/);
+      // ≥2 distinct backstop options; flee is a separate bail option (dcModifier: null).
+      const realOptions1 = step1.nextDecision.options.filter(o => o.dcModifier !== null);
+      expect(realOptions1.map(o => o.label)).toEqual(['Press the attack', 'Fight defensively']);
+      const backstop1 = realOptions1.filter(o => o.label !== 'Flee the fight');
+      expect(backstop1).toHaveLength(2);
+      expect(backstop1[0].dcModifier).not.toEqual(backstop1[1].dcModifier);
+      // Backstop flag set.
+      expect(step1.combatBeat?.emptyDecisionFallback).toBe(true);
+
+      // ── Round 2 (backstop fires again independently) ──
+      const step2 = await machine.step(step1.state, 'Press the attack', testChar(), testItems);
+      expect(step2.resolved).toBe(false);
+      if (step2.resolved) throw new Error('expected unresolved round 2');
+
+      expect(step2.nextDecision.narration).toBe('Your blade scrapes its tattered leather — it stumbles but rights itself, furious now.');
+      expect(step2.nextDecision.combatStatus).toMatch(/Goblin: [▓░]{5} (Healthy|Bloodied|Battered|Critical)/);
+      expect(step2.nextDecision.combatStatus).toMatch(/ · You: /);
+      expect(step2.nextDecision.combatStatus).not.toMatch(/Goblin:[^·]*\\d HP/);
+      const realOptions2 = step2.nextDecision.options.filter(o => o.dcModifier !== null);
+      expect(realOptions2.map(o => o.label)).toEqual(['Press the attack', 'Fight defensively']);
+      const backstop2 = realOptions2.filter(o => o.label !== 'Flee the fight');
+      expect(backstop2).toHaveLength(2);
+      expect(backstop2[0].dcModifier).not.toEqual(backstop2[1].dcModifier);
+      expect(step2.combatBeat?.emptyDecisionFallback).toBe(true);
+
+      // Two warns — one per empty decision.
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
