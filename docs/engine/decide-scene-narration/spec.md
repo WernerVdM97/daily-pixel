@@ -132,12 +132,11 @@ Branch `feat/scene-state-prod-host`. Reconcile this section against `git log` be
 - `cbffe6a` — spec finalised (this doc, status decided) + README registration.
 - `c804706` — Batch 3 prompts: the four v12 decide-set edits + byte-identical `current_source/` mirror. Lead-reviewed for spec conformance (prose, no code review subagent).
 - `de4a9f1` — Batch 1 contract + engine threading + 7 unit tests. Independently verified (typecheck + tests + read of `handleCombatStep`/`toActionDecision`/`ensureBail`). Adversarially reviewed; findings resolved by `c3236e7`.
-- `a92c0df` — Batch 4 display: `buildDecisionMessage`/`buildStoryThread`/option icons + hint, the three prompt-only surfaces, footer, +6 tests / 2 conscious amendments. Lead-verified (typecheck + 1224 tests + scope) but **not yet adversarially reviewed.**
+- `a92c0df` — Batch 4 display: `buildDecisionMessage`/`buildStoryThread`/option icons + hint, the three prompt-only surfaces, footer, +6 tests / 2 conscious amendments. Lead-verified + adversarially reviewed (no findings).
 
 **Resolved — findings fixed, verified (typecheck + 1226 tests), committed:**
 - `c3236e7` — fix(engine): harden combat backstop order + wire combatRoundSummary into prompt. (1) Moved the flee-label dedup to a standalone filter step before the emptiness check, with a test for a wayward same-label-real-option input. (2) Wired `combatRoundSummary` (band, HP deltas, chosen option) into `buildUserMessage` so DECIDE narrates the resolved round faithfully; `ProdPipelineGateway.decide()` already calls `buildUserMessage`, so both v9 and v12 paths are covered. +2 tests (the rendered message string, not just the context object).
 
 **Remaining work:**
-- Adversarial review of the display batch (`a92c0df`), then triage/fix.
 - Batch 5 docs + changelog + closeout: amend [[prompt-v12-pipeline]] and cross-note [[prompt-separation-of-concerns]] (DECIDE authors CONTINUE scene-framing narration; per-round combat narration is a future prose-critic faithfulness surface) via `docs-authoring`; add a `CHANGELOG.md` `[Unreleased]` entry via `changelog`; fix this spec's Testing bullet re the "decide-shape guard test" (finding 4: no such test exists — the guard asserts only absence of `mutations`/`outcomeText`, so the amendment is moot).
 - Acceptance (end-to-end, not yet done): a multi-round fight via a sim combat scenario or dev Discord reproducing the dev-DB 34/35 `"decision": []` mid-fight pattern — every round narrates the prior exchange with the status line, offers ≥2 mechanically distinct options plus flee, and a flee-only screen never appears.
