@@ -2,6 +2,7 @@
 title: "T4 — v12 combat prompt templates: spec handoff"
 status: shipped
 domain: engine
+superseded_by: "implemented in code"
 phase: poc
 tags: [combat, engine, prompt, pipeline, thread-c, stage-3, templates, spec]
 related: ["[[stage-3-combat-spine-plan]]", "[[prompt-v12-combat]]", "[[v12-prompt-set-versioning]]"]

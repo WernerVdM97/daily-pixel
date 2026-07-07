@@ -2,6 +2,7 @@
 title: "T3 iteration 2 — floor + loss ladder: spec handoff"
 status: shipped
 domain: engine
+superseded_by: "implemented in code"
 phase: poc
 tags: [combat, engine, pipeline, thread-c, stage-3, floor, spec]
 related: ["[[stage-3-combat-spine-plan]]", "[[prompt-v12-combat]]"]

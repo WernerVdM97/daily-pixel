@@ -1,7 +1,8 @@
 ---
 title: "Stage 2 — Scene-state spine + travel gate: build plan"
-status: decided
+status: shipped
 domain: engine
+superseded_by: "implemented in code"
 phase: poc
 tags: [llm, pipeline, scene-state, graph, thread-d, stage-2]
 related: ["[[prompt-separation-of-concerns]]", "[[prompt-v12-scene-state]]", "[[prompt-v12-pipeline]]", "[[stage-1-thread-d-backbone-plan]]", "[[action-engine-framework]]", "[[mutation-vocabulary-refinement]]"]

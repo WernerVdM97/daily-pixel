@@ -1,7 +1,8 @@
 ---
 title: "Stage 1 — Thread D backbone: build plan"
-status: decided
+status: shipped
 domain: engine
+superseded_by: "implemented in code"
 phase: poc
 tags: [llm, pipeline, thread-d, stage-1, sim]
 related: ["[[prompt-separation-of-concerns]]", "[[prompt-v12-pipeline]]", "[[v12-prompt-set-versioning]]", "[[stage-0a-sim-harness-plan]]", "[[action-engine-framework]]", "[[prompt-v12-scene-state]]"]
