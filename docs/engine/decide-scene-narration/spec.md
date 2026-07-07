@@ -131,12 +131,11 @@ Branch `feat/scene-state-prod-host`. Reconcile this section against `git log` be
 **Landed (committed, verified by lead):**
 - `cbffe6a` — spec finalised (this doc, status decided) + README registration.
 - `c804706` — Batch 3 prompts: the four v12 decide-set edits + byte-identical `current_source/` mirror. Lead-reviewed for spec conformance (prose, no code review subagent).
-- `de4a9f1` — Batch 1 contract + engine threading + 7 unit tests. Independently verified (typecheck + tests + read of `handleCombatStep`/`toActionDecision`/`ensureBail`). **Then adversarially reviewed — two accepted Critical findings still OPEN, see below.**
+- `de4a9f1` — Batch 1 contract + engine threading + 7 unit tests. Independently verified (typecheck + tests + read of `handleCombatStep`/`toActionDecision`/`ensureBail`). Adversarially reviewed; findings resolved by `c3236e7`.
 - `a92c0df` — Batch 4 display: `buildDecisionMessage`/`buildStoryThread`/option icons + hint, the three prompt-only surfaces, footer, +6 tests / 2 conscious amendments. Lead-verified (typecheck + 1224 tests + scope) but **not yet adversarially reviewed.**
 
-**Open — accepted review findings on `de4a9f1` (delegate to a fixer, verify, commit as one atomic fix):**
-1. Backstop bypass (`PipelineActionStateMachine.ts` ~L606-652). The empty-decision zero-check runs before the flee-dedup filter, so a single real option labelled exactly `Flee the fight` (non-null `dcModifier`) survives `toActionDecision`, is then stripped by the label dedup, and produces a silent flee-only screen with no `emptyDecisionFallback` and no warn. Fix: run the dedup first (or compute real options = non-flee-labelled + non-null-`dcModifier`), then fire the injection/warn/flag on *that* count, not raw `nextDecision.options.length`. Add a test for the same-label-real-option input (the existing backstop test covers only `decision: []`).
-2. `combatRoundSummary` never rendered (`src/llm/prompt-builder.ts` `buildUserMessage`/`buildSceneBody`). It is attached to `LlmContext` and populated but no prompt-builder path reads it into the combat CONTINUE user message, so DECIDE narrates blind — the feature is inert. Fix: render band + HP deltas + chosen option (label+stat) into the CONTINUE user message. Add a test asserting the *rendered message string* carries it, not just the mock context property (the current test at `tests/engine/pipeline-machine.test.ts` only checks the captured context object).
+**Resolved — findings fixed, verified (typecheck + 1226 tests), committed:**
+- `c3236e7` — fix(engine): harden combat backstop order + wire combatRoundSummary into prompt. (1) Moved the flee-label dedup to a standalone filter step before the emptiness check, with a test for a wayward same-label-real-option input. (2) Wired `combatRoundSummary` (band, HP deltas, chosen option) into `buildUserMessage` so DECIDE narrates the resolved round faithfully; `ProdPipelineGateway.decide()` already calls `buildUserMessage`, so both v9 and v12 paths are covered. +2 tests (the rendered message string, not just the context object).
 
 **Remaining work:**
 - Adversarial review of the display batch (`a92c0df`), then triage/fix.
