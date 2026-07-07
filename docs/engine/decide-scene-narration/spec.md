@@ -107,13 +107,13 @@ Steps 2 and 3 are independent of each other and can run in parallel after step 1
 - Combat backstop: an empty combat continue-decide injects "Press the attack" and "Fight defensively", never a flee-only screen, and sets `emptyDecisionFallback` on the beat log.
 - Mechanical diversity: a combat decide whose options all share one stat and one `dcModifier` triggers the diversity warn.
 - Display: narration renders quoted above the CTA (absent on beat 1); `combatStatus` renders on combat continue-screens only; each option carries its stat emoji and difficulty hint; a missing stat does not crash; the raw label (no emoji/arrow) is what echoes on click and persists as `chosen`; `buildStoryThread` renders per-beat narration plus choice and the collapsed form still fits the cap.
-- Regression: the existing pipeline and combat suites stay green, with two conscious amendments rather than silent breakage: the exact option-string assertions in `tests/discord/action-decision.test.ts` gain the new prefix/suffix, and the decide-shape guard test (asserting the result carries no prose) is amended to permit `narration`.
+- Regression: the existing pipeline and combat suites stay green, with conscious amendments rather than silent breakage: the exact option-string assertions in `tests/discord/action-decision.test.ts` gain the new stat-emoji prefix and dcArrow suffix.
 - Acceptance (end-to-end): a multi-round fight, via a sim combat scenario or dev Discord, reproducing the dev-DB actions 34/35 pattern (a decide that returns `"decision": []` mid-fight). Every round narrates the previous exchange with the status line, offers at least two mechanically distinct options plus flee, and a flee-only screen never appears; the original dead-end is demonstrably gone, not just unit-covered.
 
 ## Docs and changelog
 
-- Amend [[prompt-v12-pipeline]] and cross-note [[prompt-separation-of-concerns]] to record the amendment (DECIDE authors scene-framing narration on CONTINUE), with the rationale that scene-framing is not outcome-authoring and combat narration only dresses engine-resolved round truth. Note that per-round combat narration is now a faithfulness surface the parked prose critic ([[prompt-v12-pipeline]] D7) would later cover. Via the `docs-authoring` skill.
-- Add a `CHANGELOG.md` `[Unreleased]` entry via the `changelog` skill.
+- [x] Amend [[prompt-v12-pipeline]] and cross-note [[prompt-separation-of-concerns]] to record the amendment (DECIDE authors scene-framing narration on CONTINUE), with the rationale that scene-framing is not outcome-authoring and combat narration only dresses engine-resolved round truth. Note that per-round combat narration is now a faithfulness surface the parked prose critic ([[prompt-v12-pipeline]] D7) would later cover.
+- [x] Add a `CHANGELOG.md` `[Unreleased]` entry.
 
 ## Out of scope
 

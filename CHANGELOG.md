@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - **Pipeline DeepSeek timeout bumped to 60s** — the per-call abort moves from 15s→60s so CONTINUE-beat decide calls have headroom to finish before the re-click poison loop triggers.
+- **DECIDE now authors scene-framing `narration` on CONTINUE beats** — restoring the v12 action screen's game-master voice after the pipeline split stripped it. The LLM sets the scene from the second decision onward (the consequence of the player's last choice); the first beat stays lean, framed by the player's own input. Combat rounds narrate the just-resolved exchange faithfully against engine-owned dice truth. Each option renders with its stat emoji and a difficulty hint, and the gamebook story thread reads as scene → choice, not a repeated generic prompt. No extra LLM calls — narration travels alongside the decide result. Commits `c804706`–`c84c6c5`. Closes `docs/engine/decide-scene-narration/spec.md`.
 
 ### Fixed
 - **Day-job work no longer blocked at a wild workplace** — the daily-work safety gate now exempts a job's own seeded workplace, so Hunters and Herbalists (workplace The Forest Edge, `is_safe: 0`) can work while standing there. The gate still blocks day-job work on any *other* unsafe or unknown/procedural ground, preserving the original intent.

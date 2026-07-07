@@ -67,6 +67,16 @@ Free-text drives **conversations & puzzles**; **combat stays buttons + roll**. I
 - [!] **Two engine-level levers the data surfaced** (rule design, not prompt-tuning): (1) **no-op contradiction** — "never emit an empty turn" vs "nothing should change" forces the model to fabricate a result on a full-HP `"Rest"`; let genuine no-ops resolve empty ([[mutation-vocabulary-refinement]] §5a). (2) **CONTINUE re-derivation** — mid-beat state rebuilt from prose every call; the D1/D2 scene-state spine ([[prompt-v12-scene-state]]) removes it.
 - [!] **Stage-3 handoff must carry `final_mutations`.** Critic-v1 prod data (38 calls, 76% ok) shows every *minor* issue was `outcome_text` written against the *authored* mutations, not the engine's post-adjustment set. Feeding resolve the final world state eliminates the class by design. The staged approach is confirmed viable at scale — the extra stage costs ~5 s and a bounded re-decide fixes structural failures in one pass.
 
+### D5c — Amendment: DECIDE authors scene-framing `narration` on CONTINUE ([[decide-scene-narration]])
+
+> **Deliberate, bounded amendment to the "DECIDE authors options only" decision.**
+
+Stage 1's exit criteria stated "decide emits options only"; [[decide-scene-narration]] amends this: DECIDE now also authors an optional `narration` field on CONTINUE beats (from the second decision onward). Scene-framing before a choice is not outcome-authoring — RESOLVE still owns final mutations and the terminal outcome. For combat, the just-resolved round's mechanical truth is engine-owned and passed into DECIDE as `combatRoundSummary`, so narration only dresses the dice result.
+
+Per-round combat narration is now a faithfulness surface the parked prose critic (D7) would later cover: a slip in a round's narration compounds, so the critic's fidelity check over free prose applies to it as well as the final outcome.
+
+In code: `PipelineDecideResult.narration` (optional, parsed by `ProdPipelineGateway.decide()`), threaded through `ActionDecision` and `ActionDecisionRecord`; rendered by `buildDecisionMessage` and `buildStoryThread`. The first beat (NEW_ACTION) authors no `narration` — the player's own input frames it.
+
 ## D7 — Verification: validators first, two critics, no LLM state-authoring
 
 **Deterministic-first.** Every check that *can* be deterministic lives in the ⚙️ engine as a validator (the suite + the mutation-coherence gate are specified in [[action-engine-framework]]); the 🗣️ LLM critics handle only what needs semantic judgment over free prose. **No critic ever authors or edits mutations/state** — the sole auto-repair is the deterministic scene-location/travel gate, where the destination is a *declared field*, not a guess.
