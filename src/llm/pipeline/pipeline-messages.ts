@@ -32,10 +32,15 @@ export function buildClassifyUserMessage(rawInput: string, context: LlmContext):
  *  `PipelineActionStateMachine`'s private `toActionDecision`/`capitalize` helpers. Needed because
  *  `PipelineDecideResult` deliberately carries no `prompt` field (D5b: DECIDE never authors prose,
  *  only options) — see T2 spec §3's "decision-prompt" ambiguity, resolved by rebuilding the same
- *  generic framing the machine itself shows the player for this decision. */
+ *  generic framing the machine itself shows the player for this decision.
+ *
+ *  decide-scene-narration amendment: the framing line's wording changed from the old
+ *  "choose your approach:" to the CTA "what do you do?" (it now sits under DECIDE's own
+ *  `narration` on CONTINUE beats — see `PipelineDecideResult.narration`), so this reconstruction
+ *  is kept in lockstep with `toActionDecision`'s CTA wording. */
 function reconstructDecisionPrompt(distilledType: string): string {
   const capitalized = distilledType ? distilledType.charAt(0).toUpperCase() + distilledType.slice(1) : distilledType;
-  return `${capitalized} — choose your approach:`;
+  return `${capitalized} — what do you do?`;
 }
 
 /**

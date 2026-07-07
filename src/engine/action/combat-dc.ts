@@ -42,6 +42,10 @@ export interface CombatBeatLog {
   marker: 'combat_round';
   /** Set only on the beat where the once-per-day survive-at-1 floor fired (the desperate-choice beat). */
   floorSave?: boolean;
+  /** Set only on the beat where the combat empty-decision backstop fired (decide-scene-narration
+   *  spec): the fresh continue-decide returned zero real options and the engine injected the two
+   *  deterministic fallback options, so a flee-only screen never reaches the player. Telemetry. */
+  emptyDecisionFallback?: boolean;
 }
 
 /** Enemy `d20` bonus ceiling: `clamp(baseDc - 10, 0, ENEMY_BONUS_MAX)`. */

@@ -48,6 +48,18 @@ export interface LlmContext {
    *  v12-template concern deferred to later work). Only the pipeline path populates this — the
    *  legacy resolver (`machine.ts`) has no scene-state channel. Omitted when empty. */
   sceneState?: SceneStateEdge[];
+  /** decide-scene-narration follow-up: a structured summary of the just-resolved combat round,
+   *  consumed only by the combat CONTINUE user message so narration can acknowledge the approach
+   *  the player took and stay faithful to the dice. Deliberately NOT `rollOutcome` above — that
+   *  field switches the phase to RESOLVE_ROLL; this is a distinct field so the phase stays
+   *  CONTINUE (the round's mechanical truth is engine-owned; DECIDE only dresses it). */
+  combatRoundSummary?: {
+    band: 'clean' | 'glanced' | 'trade' | 'heavy';
+    playerHpDelta: number;
+    enemyHpDelta: number;
+    /** The option the player chose to trigger this round, so narration can acknowledge it. */
+    chosenOption: { label: string; stat?: string };
+  };
 }
 
 /** One edge of the scene-state graph (Stage 2 decision 3/4), read back into `LlmContext` as

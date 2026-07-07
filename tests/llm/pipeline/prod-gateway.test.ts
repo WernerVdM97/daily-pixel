@@ -222,6 +222,28 @@ describe('ProdPipelineLlmGateway — decide', () => {
     expect(bare.combatEnemy).toBeUndefined();
   });
 
+  it('parses narration when present, and omits it when absent (decide-scene-narration T2 spec §1)', async () => {
+    const withNarration = { ...decideResponse, narration: 'The wolf circles, hackles raised.' };
+    const fetchFn = mockFetch(apiResponse(withNarration));
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
+    const { result } = await gw.decide({
+      actionType: 'combat',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+      context: minimalContext,
+    });
+    expect(result.narration).toBe('The wolf circles, hackles raised.');
+
+    const fetchFnBare = mockFetch(apiResponse(decideResponse));
+    const gwBare = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFnBare, promptSet: fixturePromptSet() });
+    const { result: bare } = await gwBare.decide({
+      actionType: 'combat',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+      context: minimalContext,
+    });
+    // Without the conditional copy in the parse callback, `narration` would be silently dropped.
+    expect(bare.narration).toBeUndefined();
+  });
+
   it('parses snake_case fields defensively (distilled_type, base_dc, dc_modifier)', async () => {
     const snakeResponse = {
       distilled_type: 'hunt',

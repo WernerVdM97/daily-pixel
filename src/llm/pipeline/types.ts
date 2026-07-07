@@ -63,6 +63,11 @@ export interface PipelineDecideResult {
    *  DECIDE on the first combat beat (T3 decision 3). Absent or failing to resolve → defaults
    *  to a location-anchored minion named generically. */
   combatEnemy?: { name: string; anchor: 'npc' | 'location' };
+  /** decide-scene-narration follow-up: scene-framing prose, authored on CONTINUE beats only
+   *  (this amends the "DECIDE authors no prose" decision above — see the spec's Decisions
+   *  section). Absent on NEW_ACTION and on empty-decision (resolve-now) results. Never a
+   *  success/failure verdict — that stays RESOLVE-NARRATE's job. */
+  narration?: string;
 }
 
 /** Input to RESOLVE-MUTATE: a structured (not re-parsed prose) handoff of the decision that

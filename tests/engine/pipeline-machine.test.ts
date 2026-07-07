@@ -26,6 +26,11 @@ import type { CriticGateway, CriticInput, CriticVerdict, LlmContext } from '../.
 class MockPipelineLlmGateway implements PipelineLlmGateway {
   classifyResult: ClassifyHit | Error = new Error('classify not scripted');
   decideResult: PipelineDecideResult | null = null;
+  /** Optional per-call override queue (decide-scene-narration spec): when non-empty, `decide()`
+   *  shifts one value per call instead of returning the static `decideResult` — needed for tests
+   *  where the establishing decide and the continue decide must return different shapes (e.g.
+   *  the combat empty-decision backstop). Falls back to `decideResult` once exhausted. */
+  decideResultQueue: PipelineDecideResult[] = [];
   resolveMutateResult: PipelineResolveMutateResult = { mutations: [] };
   resolveNarrateResult: PipelineResolveNarrateResult = { outcomeText: 'It happens.' };
 
@@ -42,6 +47,9 @@ class MockPipelineLlmGateway implements PipelineLlmGateway {
 
   async decide(input: PipelineDecideInput): Promise<PipelineStageResult<PipelineDecideResult>> {
     this.decideCalls.push(input);
+    if (this.decideResultQueue.length > 0) {
+      return { result: this.decideResultQueue.shift() as PipelineDecideResult, callId: 0 };
+    }
     if (!this.decideResult) throw new Error('decide not scripted');
     return { result: this.decideResult, callId: 0 };
   }
@@ -763,6 +771,262 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
     if (step.resolved) throw new Error('expected unresolved step');
 
     expect(step.combatBeat).toBeUndefined();
+  });
+});
+
+/**
+ * decide-scene-narration follow-up (v12 polish): DECIDE authors `narration` on CONTINUE beats
+ * only — an amendment to D5b's "DECIDE authors no prose" — and the engine threads it onto the
+ * next screen and the beat's `ActionDecisionRecord` (both `step()` record sites). The first
+ * beat (NEW_ACTION) stays lean regardless, since DECIDE never authors narration there.
+ */
+describe('PipelineActionStateMachine — decide-scene-narration: narration threading', () => {
+  it('NEW_ACTION stays narration-free and the CTA reads "what do you do?"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // 'skirmish', no `narration` field
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    const started = await machine.start(testChar(), 'search the ruins', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    expect(started.firstDecision.narration).toBeUndefined();
+    expect(started.firstDecision.prompt).toBe('Skirmish — what do you do?');
+  });
+
+  it('a non-combat CONTINUE threads narration onto nextDecision and the normal step() record', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      decision: [
+        { label: 'Search the room', dcModifier: 0 },
+        { label: 'Check the ledger', dcModifier: 1 },
+      ],
+    };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const started = await machine.start(testChar(), 'investigate the room', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    expect(started.firstDecision.narration).toBeUndefined();
+
+    // Beat 2 (CONTINUE) — DECIDE authors narration this time.
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      narration: 'The ledger names a debt long overdue.',
+      decision: [
+        { label: 'Follow the debt', dcModifier: 0 },
+        { label: 'Move on', dcModifier: -1 },
+      ],
+    };
+    const step1 = await machine.step(started.state, 'Search the room', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step');
+    expect(step1.nextDecision.narration).toBe('The ledger names a debt long overdue.');
+    expect(step1.nextDecision.prompt).toBe('Investigate — what do you do?');
+
+    // Beat 3 hits the MAX_DECISIONS_PER_ACTION beat cap and resolves directly (no third decide
+    // call) — the normal record site for THIS choice still captures beat 2's narration first.
+    const step2 = await machine.step(step1.state, 'Follow the debt', testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+    if (!step2.resolved) return;
+    expect(step2.state.decisions).toHaveLength(2);
+    expect(step2.state.decisions[0].narration).toBeUndefined(); // beat 1 (NEW_ACTION)
+    expect(step2.state.decisions[1].narration).toBe('The ledger names a debt long overdue.'); // beat 2
+  });
+
+  it('bailing off a narrated CONTINUE beat still copies narration onto the bail record', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      decision: [
+        { label: 'Search the room', dcModifier: 0 },
+        { label: 'Check the corner', dcModifier: 1 },
+      ],
+    };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const started = await machine.start(testChar(), 'investigate the room', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      narration: 'A cold draft slips under the door.',
+      decision: [{ label: 'Keep searching', dcModifier: 0 }],
+    };
+    const step1 = await machine.step(started.state, 'Search the room', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step');
+    // required:false + a single real option -> ensureBail added a 'Step back' bail option.
+    const bailOption = step1.nextDecision.options.find(o => o.dcModifier === null);
+    expect(bailOption?.label).toBe('Step back');
+
+    const step2 = await machine.step(step1.state, bailOption!.label, testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+    if (!step2.resolved) return;
+    expect(step2.outcome.outcome).toBe('bailed');
+    expect(step2.state.decisions).toHaveLength(2);
+    expect(step2.state.decisions[0].narration).toBeUndefined(); // beat 1 (NEW_ACTION)
+    expect(step2.state.decisions[1].narration).toBe('A cold draft slips under the door.'); // bail record
+  });
+});
+
+/**
+ * decide-scene-narration follow-up: combat's contested roll resolves the moment the player
+ * picks an option, so every combat continue-screen already sits on a fresh, engine-computed
+ * result. The engine hands that round summary to DECIDE (so narration is faithful to the dice)
+ * and composes `combatStatus` from the same engine truth — banded enemy condition, never exact
+ * enemy HP, plus the player's own exact HP movement.
+ */
+describe('PipelineActionStateMachine — decide-scene-narration: combat continue enrichment', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('enriches the continue-decide context with combatRoundSummary and threads narration + combatStatus', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({
+        narration: 'The goblin snarls, blood streaming from its arm.',
+        decision: [
+          { label: 'Press the attack', dcModifier: 0, stat: 'physical' },
+          { label: 'Aim for the eyes', dcModifier: 2, stat: 'wisdom' },
+        ],
+      }),
+    ];
+
+    // player d20=10, enemy d20=10: playerBonus 3(physical)+2(Iron Sword)=5, enemyBonus
+    // clamp(baseDc-10,0,10)=0. margin=5 -> 'glanced' (enemyHpDelta -3, playerHpDelta 0).
+    // enemyMaxHp=deriveEnemyMaxHp(10)=10 -> round 1 neither wins, floors, nor caps: a CONTINUE.
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(llm.decideCalls).toHaveLength(2);
+    expect(llm.decideCalls[1].context.combatRoundSummary).toEqual({
+      band: 'glanced',
+      playerHpDelta: 0,
+      enemyHpDelta: -3,
+      chosenOption: { label: 'Press the attack' },
+    });
+
+    expect(step.nextDecision.narration).toBe('The goblin snarls, blood streaming from its arm.');
+    // enemyHp 7/10=0.7 -> round(3.5)=4 filled pips (Bloodied band); player took no damage.
+    expect(step.nextDecision.combatStatus).toBe('Goblin: ▓▓▓▓░ Bloodied · You: 0 HP');
+  });
+
+  it('warns (telemetry only, no retry) when the continue options all share stat + dcModifier', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({
+        decision: [
+          { label: 'Strike low', dcModifier: 1, stat: 'physical' },
+          { label: 'Strike high', dcModifier: 1, stat: 'physical' },
+        ],
+      }),
+    ];
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const started = await machine.start(testChar(), 'attack the goblin', testItems);
+      if (started.resolved) throw new Error('expected unresolved start');
+      const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+      expect(step.resolved).toBe(false);
+      if (step.resolved) throw new Error('expected unresolved step');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('mechanical-diversity'),
+        expect.anything(),
+        expect.anything(),
+      );
+      // Telemetry only — no bounded re-decide (unlike the single-option validator, which skips
+      // combat by design; this check has no re-decide ladder at all).
+      expect(llm.decideCalls).toHaveLength(2);
+      expect(step.nextDecision.options.map(o => o.label)).toEqual(['Strike low', 'Strike high', 'Flee the fight']);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+/**
+ * decide-scene-narration follow-up: the combat empty-decision backstop (belt and braces). If
+ * the fresh continue-decide yields zero real options, the engine injects two deterministic
+ * options BEFORE the guaranteed flee append, so a flee-only screen never reaches the player.
+ */
+describe('PipelineActionStateMachine — decide-scene-narration: combat empty-decision backstop', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('injects Press the attack + Fight defensively before flee, and sets emptyDecisionFallback', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({ decision: [] }), // the dev-DB 34/35 pattern: an empty continue decision
+    ];
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const started = await machine.start(testChar(), 'attack the goblin', testItems);
+      if (started.resolved) throw new Error('expected unresolved start');
+      const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+      expect(step.resolved).toBe(false);
+      if (step.resolved) throw new Error('expected unresolved step');
+
+      expect(step.nextDecision.options.map(o => o.label)).toEqual([
+        'Press the attack',
+        'Fight defensively',
+        'Flee the fight',
+      ]);
+      expect(step.nextDecision.options.find(o => o.label === 'Fight defensively')).toEqual({
+        label: 'Fight defensively', dcModifier: -1, stat: 'physical',
+      });
+      // Never a flee-only screen — at least one non-flee option is always present.
+      expect(step.nextDecision.options.some(o => o.label !== 'Flee the fight')).toBe(true);
+
+      expect(step.combatBeat?.emptyDecisionFallback).toBe(true);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 

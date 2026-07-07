@@ -253,6 +253,7 @@ export class PipelineActionStateMachine {
         chosen: choice,
         dcModifier: 0,
         distilledType: state.distilledType,
+        ...(state.pendingDecision.narration ? { narration: state.pendingDecision.narration } : {}),
       };
       const nextState: PipelineInternalActionState = {
         ...state,
@@ -279,6 +280,7 @@ export class PipelineActionStateMachine {
       chosen: choice,
       dcModifier: option.dcModifier,
       distilledType: state.distilledType,
+      ...(state.pendingDecision.narration ? { narration: state.pendingDecision.narration } : {}),
     };
     const newDecisions = [...state.decisions, record];
     const newDc = accumulateDc(state.accumulatedDc, [option.dcModifier]);
@@ -373,7 +375,7 @@ export class PipelineActionStateMachine {
     roundResult: CombatRoundOutcome,
     enemyHpAfter: number,
     ops: string[],
-    opts: { floorSave?: boolean } = {},
+    opts: { floorSave?: boolean; emptyDecisionFallback?: boolean } = {},
   ): CombatBeatLog {
     const materialMutationFired =
       roundResult.enemyHpDelta !== 0 || roundResult.playerHpDelta !== 0 || ops.some(o => o !== 'set_relation');
@@ -387,6 +389,7 @@ export class PipelineActionStateMachine {
       ops,
       marker: 'combat_round',
       ...(opts.floorSave ? { floorSave: true } : {}),
+      ...(opts.emptyDecisionFallback ? { emptyDecisionFallback: true } : {}),
     };
   }
 
@@ -575,7 +578,23 @@ export class PipelineActionStateMachine {
       },
     ];
 
-    const updatedContext = { ...context, sceneState: updatedSceneState };
+    // decide-scene-narration: hand the just-resolved round's mechanical truth to DECIDE so its
+    // narration can acknowledge the approach the player took and stay faithful to the dice.
+    // Deliberately `combatRoundSummary`, not `rollOutcome` — that field switches the phase to
+    // RESOLVE_ROLL, which this call is not.
+    const updatedContext = {
+      ...context,
+      sceneState: updatedSceneState,
+      combatRoundSummary: {
+        band: roundResult.band,
+        playerHpDelta: roundResult.playerHpDelta,
+        enemyHpDelta: roundResult.enemyHpDelta,
+        chosenOption: {
+          label: chosenOption.label,
+          ...(chosenOption.stat ? { stat: chosenOption.stat } : {}),
+        },
+      },
+    };
     // T4: NOT gated — combat truth is engine-owned (the contested roll + band already decided
     // this round), so there is no authored decision content here for the coherence critic to check.
     const { result: decideResult, callId: combatDecideCallId } = await this.llm.decide({
@@ -585,6 +604,43 @@ export class PipelineActionStateMachine {
     });
 
     const nextDecision = toActionDecision(decideResult, state.required);
+
+    // Mechanical-diversity check (decide-scene-narration spec): a combat round needs a genuine
+    // trade-off — at least two options differing on stat or dcModifier. Telemetry only (no
+    // retry), in the `validateSingleOption` console.warn style: icons over a non-choice is this
+    // spec's quiet failure mode, so make it measurable.
+    if (nextDecision.options.length > 1) {
+      const resolvedStat = (o: ActionOption) => o.stat ?? decideResult.stat;
+      const [first, ...rest] = nextDecision.options;
+      const allIdentical = rest.every(
+        (o) => resolvedStat(o) === resolvedStat(first) && o.dcModifier === first.dcModifier,
+      );
+      if (allIdentical) {
+        console.warn(
+          '[combat] mechanical-diversity check failed — all options share stat + dcModifier',
+          `rawInput: ${state.rawInput}`,
+          `options: ${JSON.stringify(nextDecision.options)}`,
+        );
+      }
+    }
+
+    // Combat empty-decision backstop (decide-scene-narration spec, belt-and-braces): the fresh
+    // continue-decide returned zero real options — never present a flee-only screen mid-fight.
+    // Injected BEFORE the guaranteed flee append below, so even the degraded path is a real
+    // choice, not a screen with no decision in miniature.
+    let emptyDecisionFallback = false;
+    if (nextDecision.options.length === 0) {
+      console.warn(
+        '[combat] empty decision detected on a continue round — injecting fallback options',
+        `rawInput: ${state.rawInput}`,
+      );
+      nextDecision.options = [
+        { label: 'Press the attack', dcModifier: 0, stat: state.rollStat },
+        { label: 'Fight defensively', dcModifier: -1, stat: state.rollStat },
+      ];
+      emptyDecisionFallback = true;
+    }
+
     // Engaged combat always offers a voluntary flee (dcModifier: null), caught by step()'s bail
     // path — which leaves the in_combat edge persisted, so the enemy is remembered (plan decision 4).
     // Filter any same-labelled decide option first so the engine's guaranteed-null flee wins step()'s
@@ -594,6 +650,9 @@ export class PipelineActionStateMachine {
       ...nextDecision.options.filter(o => o.label !== COMBAT_FLEE_LABEL),
       { label: COMBAT_FLEE_LABEL, dcModifier: null },
     ];
+    // Engine-composed status line (decide-scene-narration spec): banded enemy condition (never
+    // exact enemy HP) plus the player's own exact HP movement.
+    nextDecision.combatStatus = composeCombatStatus(cs.enemyName, newEnemyHp, cs.enemyMaxHp, playerHpDelta);
     const nextState: PipelineInternalActionState = {
       ...state,
       decisions: newDecisions,
@@ -618,7 +677,10 @@ export class PipelineActionStateMachine {
       state: nextState,
       nextDecision,
       mutations: continueMutations,
-      combatBeat: this.buildCombatBeat(cs, roundResult, newEnemyHp, continueMutations.map(m => m.type)),
+      combatBeat: this.buildCombatBeat(
+        cs, roundResult, newEnemyHp, continueMutations.map(m => m.type),
+        emptyDecisionFallback ? { emptyDecisionFallback: true } : {},
+      ),
     };
   }
 
@@ -1080,8 +1142,10 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** DECIDE authors options only (no `prompt`/outcome_text — settled decision), so the beat's
- *  prompt is always the generic approach-picker, never derived from LLM prose. */
+/** DECIDE authors options only (no `prompt` — settled decision), so the beat's prompt is always
+ *  the generic CTA, never derived from LLM prose. decide-scene-narration amendment: DECIDE now
+ *  also authors `narration` on CONTINUE beats (scene-framing prose, not outcome-authoring) —
+ *  passed through here unchanged; absent on NEW_ACTION, so the first beat stays lean. */
 function toActionDecision(result: PipelineDecideResult, required: boolean): ActionDecision {
   let options: ActionOption[] = required
     ? result.decision.filter(o => o.dcModifier !== null)
@@ -1096,9 +1160,38 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
   });
 
   return {
-    prompt: `${capitalize(result.distilledType)} — choose your approach:`,
+    prompt: `${capitalize(result.distilledType)} — what do you do?`,
     options: ensureBail(options, required),
+    ...(result.narration ? { narration: result.narration } : {}),
   };
+}
+
+/** Enemy HP fraction -> a 5-pip bar + wound word (decide-scene-narration spec). Banded only —
+ *  never the exact HP number — so hidden exact HP keeps tension while still reading as progress. */
+function enemyConditionBand(hpFraction: number): { pips: string; woundWord: string } {
+  const filled = Math.max(0, Math.min(5, Math.round(hpFraction * 5)));
+  const pips = '▓'.repeat(filled) + '░'.repeat(5 - filled);
+  const woundWord =
+    hpFraction >= 0.8 ? 'Healthy'
+    : hpFraction >= 0.4 ? 'Bloodied'
+    : hpFraction >= 0.15 ? 'Battered'
+    : 'Critical';
+  return { pips, woundWord };
+}
+
+/** Signed player HP movement, shown exactly — it's the player's own information (decision above),
+ *  unlike the enemy's banded-only condition. */
+function formatPlayerHpDelta(delta: number): string {
+  if (delta > 0) return `+${delta} HP`;
+  if (delta < 0) return `−${Math.abs(delta)} HP`;
+  return '0 HP';
+}
+
+/** Engine-composed combat status line for a continue-screen: banded enemy condition plus exact
+ *  player HP movement, e.g. "Wolf: ▓▓▓░░ Bloodied · You: −2 HP" (decide-scene-narration spec). */
+function composeCombatStatus(enemyName: string, enemyHp: number, enemyMaxHp: number, playerHpDelta: number): string {
+  const { pips, woundWord } = enemyConditionBand(enemyMaxHp > 0 ? enemyHp / enemyMaxHp : 0);
+  return `${enemyName}: ${pips} ${woundWord} · You: ${formatPlayerHpDelta(playerHpDelta)}`;
 }
 
 function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen: string; dcModifier: number }[] {

@@ -171,6 +171,13 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
           result.combatEnemy = { name: rawEnemy.name, anchor: rawEnemy.anchor };
         }
 
+        // decide-scene-narration: the payload is hand-parsed here, not schema-driven, so
+        // `narration` needs the same conditional copy as sceneLocation/combatEnemy above or it
+        // is silently dropped.
+        if (typeof raw.narration === 'string' && raw.narration.trim() !== '') {
+          result.narration = raw.narration;
+        }
+
         return result;
       },
     });
