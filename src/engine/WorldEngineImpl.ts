@@ -508,6 +508,7 @@ export class WorldEngineImpl implements WorldEngine {
     decisions: ActionDecisionRecord[],
   ): { worldChanged: boolean; provisionalLocations: string[]; actionId: number; rollsMutationDelta: number } {
     // Clear mid-action state (no-op for auto-finish, which never persisted)
+    console.log(`[engine] applyResolution start char=${characterId} type=${outcome.distilledType} outcome=${outcome.outcome}`);
     this.charRepo.update(characterId, { last_action_state: null });
 
     // Geographic resolution (per-player-map-exploration §2): movement is now
@@ -705,6 +706,7 @@ export class WorldEngineImpl implements WorldEngine {
 
     // Net roll change from this resolution's mutations alone (excludes the start-drain, which the
     // caller folds in). Lets stepAction report a true rolls delta instead of the renderer guessing.
+    console.log(`[engine] applyResolution done char=${characterId} actionId=${actionRow.id} worldChanged=${worldChanged}`);
     return {
       worldChanged,
       provisionalLocations,
@@ -887,12 +889,26 @@ export class WorldEngineImpl implements WorldEngine {
       throw new Error("Character not found");
     }
 
-    // Guard: character already mid-action (stale state in DB)
+    // Guard: character already mid-action (stale state in DB).
+    // v12 QA §4: if the state is a resolved-but-unpersisted action (options: [], e.g.
+    // an auto-resolve whose transaction threw and whose last_action_state was restored
+    // by an external write), clear it silently and let the player start fresh — don't
+    // trap them in an unrecoverable stale screen.
     if (row.last_action_state) {
-      this.processingActions.delete(characterId);
-      throw new Error(
-        "You are already mid-action. Finish your current action first.",
-      );
+      const isStaleResolved = this.isStaleResolvedState(row.last_action_state);
+      if (isStaleResolved) {
+        console.warn(
+          `[engine] clearing stale resolved state for character ${characterId} — ` +
+          `options were empty, action never persisted`,
+        );
+        this.charRepo.update(characterId, { last_action_state: null });
+        // Fall through — start a fresh action.
+      } else {
+        this.processingActions.delete(characterId);
+        throw new Error(
+          "You are already mid-action. Finish your current action first.",
+        );
+      }
     }
 
     this.updateLastPlayed(characterId);
@@ -907,6 +923,24 @@ export class WorldEngineImpl implements WorldEngine {
       return await this.startActionLegacy(characterId, row, char, rawInput, items, opts);
     } finally {
       this.processingActions.delete(characterId);
+    }
+  }
+
+  /**
+   * §4 v12 QA: detect a resolved-but-unpersisted stale state. When `last_action_state`
+   * has `pendingDecision.options.length === 0` and carries a narrative prompt, the action
+   * was resolved by the pipeline machine but the persistence transaction threw. The state
+   * is unrecoverable (no options to choose, nothing to step) — clear it so the player can
+   * start fresh instead of being stuck on an empty decision screen.
+   */
+  private isStaleResolvedState(stateJson: string): boolean {
+    try {
+      const parsed = JSON.parse(stateJson);
+      const opts = parsed?.pendingDecision?.options;
+      return Array.isArray(opts) && opts.length === 0 && typeof parsed?.pendingDecision?.prompt === 'string' && parsed.pendingDecision.prompt.length > 0;
+    } catch {
+      // Unparseable state — treat as stale so it gets cleared.
+      return true;
     }
   }
 
@@ -933,12 +967,28 @@ export class WorldEngineImpl implements WorldEngine {
     // Pipeline divine intervention or auto-resolve (§2 v12 QA): both paths resolve outright
     // inside start(). Drain the roll, apply the outcome, and return directly.
     if (startResult.resolved) {
-      this.db.transaction(() => {
-        this.charRepo.update(characterId, {
-          rolls_remaining: Math.max(0, row.rolls_remaining - 1),
-        });
-        this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
-      })();
+      try {
+        this.db.transaction(() => {
+          this.charRepo.update(characterId, {
+            rolls_remaining: Math.max(0, row.rolls_remaining - 1),
+          });
+          this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
+        })();
+      } catch (err) {
+        // The transaction rolled back — roll not drained, action row not inserted.
+        // `last_action_state` may have been set by an external code path (e.g. admin
+        // sleep, a mid-action health update) between when this action started and when
+        // the transaction threw. Clear it explicitly so the character isn't left stuck
+        // in an unrecoverable stale-action screen (v12 QA §4).
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[engine] auto-resolve transaction failed for character ${characterId} ` +
+          `(rawInput: "${rawInput.slice(0, 80)}", distilledType: ${internalState.distilledType}) — ` +
+          `clearing last_action_state; error: ${msg}`,
+        );
+        this.charRepo.update(characterId, { last_action_state: null });
+        throw err;
+      }
       startResult.outcome.rollsDelta = -1;
       return {
         state: this.toPublicState(internalState),
@@ -1978,6 +2028,14 @@ export class WorldEngineImpl implements WorldEngine {
   private persistState(characterId: number, state: InternalActionState | PipelineInternalActionState): void {
     // Stamp lastActionAt on every persist as the basis for the 30-min timeout.
     state.lastActionAt = Date.now();
+    const isResolved = 'pendingDecision' in state &&
+      Array.isArray((state as PipelineInternalActionState).pendingDecision?.options) &&
+      (state as PipelineInternalActionState).pendingDecision.options.length === 0;
+    console.log(
+      `[engine] persistState char=${characterId} ` +
+      `resolved=${isResolved} ` +
+      `opts=${(state as PipelineInternalActionState).pendingDecision?.options?.length ?? '?'}`,
+    );
     this.charRepo.update(characterId, {
       last_action_state: JSON.stringify(state),
     });

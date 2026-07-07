@@ -745,6 +745,7 @@ export class PipelineActionStateMachine {
       state: finalState,
       outcome: {
         distilledType: state.distilledType,
+        category: state.actionType,
         finalDc: newDc,
         playerRolled: d20Roll,
         rollBonus,
@@ -867,6 +868,7 @@ export class PipelineActionStateMachine {
       state: finalState,
       outcome: {
         distilledType: state.distilledType,
+        category: state.distilledType,
         finalDc: newDc,
         playerRolled,
         ...(rollBonus !== undefined ? { rollBonus } : {}),
@@ -1051,6 +1053,7 @@ export class PipelineActionStateMachine {
       state,
       outcome: {
         distilledType: 'divine_intervention',
+        category: 'divine_intervention',
         finalDc: 0,
         playerRolled: null,
         outcome: 'done',
