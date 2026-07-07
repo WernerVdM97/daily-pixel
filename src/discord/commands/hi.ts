@@ -233,11 +233,14 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
     // Pending action: show its decision prompt instead of the greeting
     if (character.lastActionState) {
       const resumeResult = engine.resumeAction(character.id);
-      const prompt = resumeResult.nextDecision.prompt;
+      const { prompt, narration } = resumeResult.nextDecision;
+      // `prompt` is now the bare CTA — narration (the scene) sits above it,
+      // else this panel would show a contentless "what do you do?".
       return [
         "⏳ **Unfinished Action**",
         SEPARATOR,
         "",
+        ...(narration ? [narration, ""] : []),
         prompt,
         "",
         "Press the **Action** button or type `action <what you do>` to continue.",

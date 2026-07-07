@@ -35,6 +35,9 @@ db-backups/*.db-shm
 # Sim harness generated output (scenario .json inputs are tracked; results are not)
 src/sim/scenarios/*.result.json
 src/sim/scenarios/*.csv
+# T1 calibration harness output — reproducible via `npm run calibrate`; the curves are
+# recorded in docs/engine/T1-combat-calibration.md, so the raw artifact is not tracked.
+src/sim/combat-calibration.json
 
 # OS cruft
 Thumbs.db

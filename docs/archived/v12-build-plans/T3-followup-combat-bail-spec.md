@@ -1,3 +1,13 @@
+---
+title: "T3 follow-up — voluntary mid-combat bail (flee at a cost): spec handoff"
+status: shipped
+domain: engine
+superseded_by: "implemented in code"
+phase: poc
+tags: [combat, engine, pipeline, thread-c, stage-3, bail, spec]
+related: ["[[stage-3-combat-spine-plan]]", "[[prompt-v12-combat]]"]
+---
+
 # T3 follow-up — voluntary mid-combat bail (flee at a cost) · spec handoff
 
 **Contract:** make an engaged combat fight offer the player a voluntary "flee at a cost" option on every continuation round, closing the gap between the as-built T3 machine (no voluntary combat bail) and the ratified design. **Read `docs/engine/stage-3-combat-spine-plan.md` first** — decision 4 (a bailed enemy is remembered at its anchor) and the termination-ladder item 3 ("player bail → existing bail path, `-BAIL_STAMINA_COST` stamina, enemy edge left persisted at current `enemyHp`"). Also see `docs/game/prompt-v12-combat.md` §C-a rule 4 ("`required: true` throughout — no clean Skip, only Bail (flee, at a cost)").

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { PipelineActionStateMachine, type PipelineInternalActionState } from '../engine/action/PipelineActionStateMachine.js';
 import { applyMutations, type MutationContext } from '../engine/action/mutations.js';
-import { resolveAuthoredRelation } from '../engine/action/relation-wiring.js';
+import { persistAuthoredRelations } from '../engine/action/relation-wiring.js';
 import type { PipelineContextResolver } from '../engine/action/pipeline-context.js';
 import type { CombatBeatLog } from '../engine/action/combat-dc.js';
 import type {
@@ -198,6 +198,13 @@ export class PipelineSimEngine {
     // Apply non-terminal mutations (e.g. combat round updates, player HP deltas) before
     // the next beat's context is built, so scene-state read-back works across beats.
     if (result.mutations && result.mutations.length > 0) {
+      // Captured before applyMutations/this.char reassignment below — npc relation endpoints
+      // must resolve against the location as of action START, matching
+      // WorldEngineImpl.applyResolution's `row.location` (never mutated, since `row` is the
+      // pre-move DB read). Combat beats never move the character, so this is a no-op capture
+      // here, but keeping the same capture-then-pass shape as applyOutcome avoids a silent
+      // divergence if that ever changes.
+      const preMoveLocation = this.char.location;
       const ctx: MutationContext = {
         currentHealth: this.char.health,
         maxHealth: this.char.maxHealth,
@@ -217,7 +224,7 @@ export class PipelineSimEngine {
         rollsRemaining: applied.rollsRemaining,
         location: applied.location,
       };
-      this.persistRelations(applied.relationsToSet, applied.relationsToUpdate);
+      this.persistRelations(applied.relationsToSet, applied.relationsToUpdate, preMoveLocation);
     }
 
     this.pendingState = result.state;
@@ -269,6 +276,11 @@ export class PipelineSimEngine {
       else if (outcome.outcome === 'failure') this.combatLosses++;
     }
 
+    // Captured before applyMutations/this.char reassignment below — npc relation endpoints must
+    // resolve against the location as of action START (matches WorldEngineImpl.applyResolution's
+    // `row.location`, a pre-move DB read never mutated by the mutation apply that follows it),
+    // since the LLM authored the NPC name from the start-of-beat context, not the post-move one.
+    const preMoveLocation = this.char.location;
     const ctx: MutationContext = {
       currentHealth: this.char.health,
       maxHealth: this.char.maxHealth,
@@ -310,38 +322,30 @@ export class PipelineSimEngine {
       this.decrementItemByName(name, quantity);
     }
 
-    this.persistRelations(applied.relationsToSet, applied.relationsToUpdate);
+    this.persistRelations(applied.relationsToSet, applied.relationsToUpdate, preMoveLocation);
   }
 
   /**
    * Stage 2 T3 persist point — `applied.relationsToSet/relationsToUpdate` carry endpoints AS
-   * AUTHORED (decision 4; `mutations.ts`'s pure applier never does DB lookups). Resolve each via
-   * the pure `relation-wiring.ts` helper against this adapter's own no-npc-store resolver, then
-   * write through the private repo. An unresolvable edge is already warned by the helper —
-   * silently skipped here, never a throw (mirrors `applyGeography`'s drop-with-warn).
+   * AUTHORED (decision 4; `mutations.ts`'s pure applier never does DB lookups). Thin wrapper over
+   * the shared `relation-wiring.ts` helper (Stage 5 Task 0 extraction) so prod (`WorldEngineImpl`)
+   * and this sim host share one resolve+persist implementation. `location` is the resolution
+   * location the caller resolved npc endpoints against — the pre-move location, matching
+   * WorldEngineImpl.applyResolution's `row.location` — not necessarily `this.char.location`,
+   * which may already reflect a move applied earlier in the same call.
    */
   private persistRelations(
     relationsToSet: ReturnType<typeof applyMutations>['relationsToSet'],
     relationsToUpdate: ReturnType<typeof applyMutations>['relationsToUpdate'],
+    location: string,
   ): void {
-    const nearbyNpcs = this.resolver.getNearbyNpcs(this.char.location);
-
-    for (const relation of relationsToSet) {
-      const key = resolveAuthoredRelation(relation, { id: this.char.id }, nearbyNpcs);
-      if (!key) continue;
-      this.relationRepo.set({ ...key, props: relation.props });
-    }
-
-    for (const relation of relationsToUpdate) {
-      const key = resolveAuthoredRelation(relation, { id: this.char.id }, nearbyNpcs);
-      if (!key) continue;
-      const updated = this.relationRepo.updateProps(key, relation.props);
-      if (!updated) {
-        console.warn(
-          `[PipelineSimEngine] dropping update_relation — no existing edge for ${key.fromType}:${key.fromRef} -> ${key.toType}:${key.toRef} (${key.relType})`,
-        );
-      }
-    }
+    persistAuthoredRelations(
+      this.relationRepo,
+      relationsToSet,
+      relationsToUpdate,
+      { id: this.char.id },
+      this.resolver.getNearbyNpcs(location),
+    );
   }
 
   private decrementItemByName(name: string, quantity: number): void {

@@ -8,6 +8,7 @@ import type {
   PipelineResolveMutateResult,
   PipelineResolveNarrateInput,
   PipelineResolveNarrateResult,
+  PipelineStageResult,
 } from '../llm/pipeline/types.js';
 import type { PipelineStage } from '../llm/pipeline/stamping.js';
 import type { PipelineScript, PipelineStageCall } from './types.js';
@@ -58,8 +59,8 @@ export class PipelineScriptedGateway implements PipelineLlmGateway {
     }
   }
 
-  async classify(rawInput: string, context: LlmContext): Promise<ClassifyHit> {
-    return this.timed('classify', () => {
+  async classify(rawInput: string, context: LlmContext): Promise<PipelineStageResult<ClassifyHit>> {
+    const result = this.timed('classify', () => {
       if (!this.script.classify) {
         throw new Error(
           `PipelineScriptedGateway: heuristic classify missed on "${rawInput}" and this scenario's ` +
@@ -71,17 +72,21 @@ export class PipelineScriptedGateway implements PipelineLlmGateway {
       }
       return this.script.classify(rawInput, context);
     });
+    return { result, callId: 0 };
   }
 
-  async decide(input: PipelineDecideInput): Promise<PipelineDecideResult> {
-    return this.timed('decide', () => this.script.decide(input, this.decideCallCount++));
+  async decide(input: PipelineDecideInput): Promise<PipelineStageResult<PipelineDecideResult>> {
+    const result = this.timed('decide', () => this.script.decide(input, this.decideCallCount++));
+    return { result, callId: 0 };
   }
 
-  async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineResolveMutateResult> {
-    return this.timed('resolve-mutate', () => this.script.resolveMutate(input));
+  async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineStageResult<PipelineResolveMutateResult>> {
+    const result = this.timed('resolve-mutate', () => this.script.resolveMutate(input));
+    return { result, callId: 0 };
   }
 
-  async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineResolveNarrateResult> {
-    return this.timed('resolve-narrate', () => this.script.resolveNarrate(input));
+  async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineStageResult<PipelineResolveNarrateResult>> {
+    const result = this.timed('resolve-narrate', () => this.script.resolveNarrate(input));
+    return { result, callId: 0 };
   }
 }

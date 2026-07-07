@@ -1,0 +1,13 @@
+tag: v0.3.0
+title: The Pipeline Milestone
+highlights:
+  - "The game master now narrates each choice's consequence — scene-setting flavour returns to the action screen with stat icons and difficulty hints on every option."
+  - "Pipeline timeouts and stuck-decision bugs are squashed — timed-out decisions resolve gracefully instead of locking your screen."
+  - "Hunters and Herbalists can work at their wild workplaces again — the safety gate no longer blocks your own job site."
+  - "The decision critic now reviews every beat, catching incoherent choices before they reach you."
+notes: >
+  This one's a milestone. The entire v12 action pipeline (classify → decide → dice → resolve)
+  with first-class combat, scene-state relations, and the phase-split prompt set is built and
+  sim-proven behind the scenes. The live cutover is next — for now, the story thread is restored
+  with narrated CONTINUE beats, the engine is much harder to deadlock, and every decision gets
+  a critic pass before it ships. POC beta graduates from 0.2.x to 0.3.0.

@@ -1,7 +1,8 @@
 ---
 title: "Stage 2 — Scene-state spine + travel gate: build plan"
-status: decided
+status: shipped
 domain: engine
+superseded_by: "implemented in code"
 phase: poc
 tags: [llm, pipeline, scene-state, graph, thread-d, stage-2]
 related: ["[[prompt-separation-of-concerns]]", "[[prompt-v12-scene-state]]", "[[prompt-v12-pipeline]]", "[[stage-1-thread-d-backbone-plan]]", "[[action-engine-framework]]", "[[mutation-vocabulary-refinement]]"]
@@ -43,8 +44,8 @@ Pass 1 pins the **structure + vocabulary**; the concrete per-`relType` prop sche
 **Schema** (`relations`): `id INTEGER PK AUTOINCREMENT`, `from_type TEXT NOT NULL CHECK(from_type IN ('pc','npc','location'))`, `from_ref TEXT NOT NULL`, `to_type TEXT NOT NULL CHECK(...)`, `to_ref TEXT NOT NULL`, `rel_type TEXT NOT NULL`, `props TEXT NOT NULL DEFAULT '{}'` (JSON object), `created_by_action_id INTEGER`, `updated_day INTEGER`, `UNIQUE(from_type, from_ref, to_type, to_ref, rel_type)`, plus `idx_relations_to (to_type, to_ref)` mirroring `idx_location_edges_to`.
 **Repository** (`src/db/repositories/relation.ts`, mirror `locationEdge.ts`): `set(edge)` (upsert by the unique key — `INSERT … ON CONFLICT DO UPDATE SET props=…, updated_day=…`), `updateProps(key, propDeltas)` (merge onto an existing edge; returns whether a row existed), `find(key)`, `forNode(type, ref)` (all edges touching a node, both directions — the D1 subgraph read used by T3's context assembly), `remove(key)`. Row type `RelationRow` in `src/db/repositories/types.ts`.
 **Acceptance:**
-- [ ] Migration filename is `YYYYMMDDHHMM_scene_relations.ts` (use a 2026-07 stamp, e.g. `202607041000`), `id` matches the stem, `up()` is idempotent (`CREATE TABLE IF NOT EXISTS`), registered last in `src/db/migrations/index.ts`. New schema is **not** added to `schema.sql`/baseline.
-- [ ] Repo round-trips: `set` then `find` returns the edge; a second `set` on the same key upserts props (no duplicate row); `updateProps` merges numeric deltas and returns `false` for a missing edge; `forNode` returns edges in both directions.
+- [x] Migration filename is `YYYYMMDDHHMM_scene_relations.ts` (use a 2026-07 stamp, e.g. `202607041000`), `id` matches the stem, `up()` is idempotent (`CREATE TABLE IF NOT EXISTS`), registered last in `src/db/migrations/index.ts`. New schema is **not** added to `schema.sql`/baseline.
+- [x] Repo round-trips: `set` then `find` returns the edge; a second `set` on the same key upserts props (no duplicate row); `updateProps` merges numeric deltas and returns `false` for a missing edge; `forNode` returns edges in both directions.
 **Verification:** `npm test -- tests/db/relation.test.ts` green; `npm run typecheck` clean; a test applies the migration to a `:memory:` db and asserts the table + index exist.
 **Files:** `src/db/migrations/<stamp>_scene_relations.ts` (new), `src/db/migrations/index.ts`, `src/db/repositories/relation.ts` (new), `src/db/repositories/types.ts`, `tests/db/relation.test.ts` (new). **Scope:** M. **Deps:** none.
 
@@ -55,15 +56,15 @@ Pass 1 pins the **structure + vocabulary**; the concrete per-`relType` prop sche
 **Collapse:** both ops pass through `collapseStackedDeltas` untouched (not in the collapsible set — `mutations.ts:71`).
 **Drift guard:** the grounding found `MUTATION_TYPES` (`mutations.ts:41`) and the TS union (`WorldEngine.ts:80`) are two independent sources of truth. Add a drift guard mirroring the `ActionCategory` drift-proofing pattern (commit `62b102b`): prefer a single-source refactor if low-risk, else a test asserting `MUTATION_TYPES` exactly equals the union's members.
 **Acceptance:**
-- [ ] `validateMutations` accepts a well-formed `set_relation`/`update_relation` and rejects: unknown `relType`, malformed `Endpoint`, non-scalar/over-clamp `props`.
-- [ ] `applyMutations` places a valid `set_relation` into `AppliedState.relationsToSet` and `update_relation` into `relationsToUpdate`, carrying endpoints **as authored** (npc-name→id resolution + drop-of-unresolvable deferred to T3, per decision 4).
-- [ ] Drift guard present and green; `summariseMutation` and the category map handle both ops.
+- [x] `validateMutations` accepts a well-formed `set_relation`/`update_relation` and rejects: unknown `relType`, malformed `Endpoint`, non-scalar/over-clamp `props`.
+- [x] `applyMutations` places a valid `set_relation` into `AppliedState.relationsToSet` and `update_relation` into `relationsToUpdate`, carrying endpoints **as authored** (npc-name→id resolution + drop-of-unresolvable deferred to T3, per decision 4).
+- [x] Drift guard present and green; `summariseMutation` and the category map handle both ops.
 **Verification:** `npm test -- tests/engine/mutations.test.ts` (extend) green; full suite + `npm run typecheck` clean; **no `applyResolution`/pipeline behaviour change for existing ops** (assert against existing tests).
 **Files:** `src/engine/WorldEngine.ts` (union), `src/engine/action/mutations.ts` (set + validate + apply + AppliedState fields), `src/engine/WorldEngineImpl.ts` (`summariseMutation` `:154`, `CATEGORY_MUTATION_MAP` `:116`), tests. **Scope:** L. **Deps:** T1 (for the `Endpoint`/`RelationRow` types; no runtime call yet).
 
 ### Checkpoint — after T1 + T2 (Pass 1 exit)
-- [ ] Full suite green; typecheck clean; the additions run nowhere yet (storage + pure vocabulary only) — **the live path and every existing test are unchanged.**
-- [ ] Human review before Pass 2 wires the spine into the pipeline.
+- [x] Full suite green; typecheck clean; the additions run nowhere yet (storage + pure vocabulary only) — **the live path and every existing test are unchanged.**
+- [x] Human review before Pass 2 wires the spine into the pipeline.
 
 ### Task 3 — Scene-state spine wiring (D1) · **Pass 2**
 **Description.** Wire `AppliedState.relationsToSet/Update` through to the `RelationRepository` in the pipeline's finalize/persist path; carry scene-state across beats (read `forNode` into the resolve `mutationCtx`); seed the subgraph→markdown context-assembly path ([[prompt-v12-scene-state]] D1 "graph → markdown at ~0 tokens"). **Exit:** a scripted pipeline scenario writes an edge on beat 1 and reads it back on beat 2 (enemy HP / disposition / clue persists across beats). **Files:** `PipelineActionStateMachine.ts` (`resolve` `:245`, `mutationCtx` `:288`), pipeline context assembly, sim. **Deps:** T1, T2.

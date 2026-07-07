@@ -1,7 +1,8 @@
 ---
 title: "Stage 1 — Thread D backbone: build plan"
-status: decided
+status: shipped
 domain: engine
+superseded_by: "implemented in code"
 phase: poc
 tags: [llm, pipeline, thread-d, stage-1, sim]
 related: ["[[prompt-separation-of-concerns]]", "[[prompt-v12-pipeline]]", "[[v12-prompt-set-versioning]]", "[[stage-0a-sim-harness-plan]]", "[[action-engine-framework]]", "[[prompt-v12-scene-state]]"]
@@ -63,47 +64,47 @@ Key inversion point: today narration + mutation authoring happen in one call *be
 ### Task 1 — Pipeline types + heuristic classifier
 **Description.** Define the pipeline's stage contracts (a `PipelineLlmGateway`-shaped interface with `classify` / `decide` / `resolveMutate` / `resolveNarrate`, or an orchestrator + a small stage-tagged gateway) and implement the heuristic classifier: a **wide regex/ngram table** mapping short inputs → `ActionType` + `{unsafe_location, needs_roll, target_present}`, with a typed "miss → needs LLM fallback" result. The LLM fallback itself is a stub/seam (returns a not-implemented marker or a scriptable hook), not a real call in this task.
 **Acceptance:**
-- [ ] A broad set of short n-gram inputs classifies to the correct `ActionType` (rest, obvious travel/combat/social/skill/search verbs); ambiguous input returns a `miss` signal, never a wrong guess.
-- [ ] `ActionType` is the canonical `ActionCategory` union (`LlmGateway.ts:52`) — no new enum.
+- [x] A broad set of short n-gram inputs classifies to the correct `ActionType` (rest, obvious travel/combat/social/skill/search verbs); ambiguous input returns a `miss` signal, never a wrong guess.
+- [x] `ActionType` is the canonical `ActionCategory` union (`LlmGateway.ts:52`) — no new enum.
 **Verification:** `npx vitest run <classifier test>` green; typecheck clean.
 **Files:** `src/llm/pipeline/{types.ts,classifier.ts}` (new), `tests/llm/pipeline/classifier.test.ts`. **Scope:** M. **Deps:** none.
 
 ### Task 2 — `PipelineActionStateMachine` (decide emits options only)
 **Description.** New class mirroring `ActionStateMachine`'s public surface (`start`/`step`/`resume`) so the engine/sim call it identically, but internally: classify-once → decide (options only) → dice → resolve. Reuse `WorldContextResolver`/`buildContext`. Decide must NOT author mutations or `outcome_text`. Resolve-mutate produces proposed mutations from a structured, typed handoff (not prose). Do NOT touch the legacy `machine.ts`. Use a **typed** representation for the divine-intervention fallback — do not overload `distilledType` with the `'__divine__'` string.
 **Acceptance:**
-- [ ] `start`/`step`/`resume` signatures match the legacy machine so a caller can be pointed at either.
-- [ ] Decide output carries options + per-option stat/dc only; asserted empty of mutations/outcome_text.
-- [ ] The handoff into resolve is a typed object, not a re-parsed string.
+- [x] `start`/`step`/`resume` signatures match the legacy machine so a caller can be pointed at either.
+- [x] Decide output carries options + per-option stat/dc only; asserted empty of mutations/outcome_text.
+- [x] The handoff into resolve is a typed object, not a re-parsed string.
 **Verification:** unit tests drive a scripted action to resolution through the new machine; typecheck + full suite green.
 **Files:** `src/engine/action/PipelineActionStateMachine.ts` (new), `tests/engine/pipeline-machine.test.ts`. **Scope:** L. **Deps:** T1.
 
 ### Task 3 — The mutation-finalization inversion
 **Description.** Extract the deterministic finalize (geography `applyGeography:794` → `collapseStackedDeltas:505` → `validateMutations`) from `WorldEngineImpl.applyResolution` into a **pure function** (no DB write) returning `final_mutations`. The pipeline machine calls: resolve-mutate → finalize → resolve-narrate(final_mutations). Legacy `applyResolution` keeps working unchanged (it may call the extracted pure fn internally, but its behaviour must be identical — verify against existing tests).
 **Acceptance:**
-- [ ] A pure `finalizeMutations(proposed, ctx)` exists and is covered by tests; `applyResolution` still passes all its existing tests unchanged.
-- [ ] In the pipeline machine, `outcome_text` is authored against `final_mutations` (prove with a scenario where finalize drops/rewrites a mutation and the text reflects the final set).
+- [x] A pure `finalizeMutations(proposed, ctx)` exists and is covered by tests; `applyResolution` still passes all its existing tests unchanged.
+- [x] In the pipeline machine, `outcome_text` is authored against `final_mutations` (prove with a scenario where finalize drops/rewrites a mutation and the text reflects the final set).
 **Verification:** existing engine tests green (behaviour-preserving extraction); new inversion test green.
 **Files:** `src/engine/WorldEngineImpl.ts` (extract), `src/engine/action/PipelineActionStateMachine.ts`, tests. **Scope:** L. **Deps:** T2.
 
 ### Task 4 — Sim-harness dual-machine integration + metric compare
 **Description.** Add a machine-selector knob to `buildSimEngine`/`SimEngineHandle`; extend the sim gateway to script the pipeline's 3 stages deterministically (`PipelineScriptedGateway` or a stage-tagged `DecisionScript`); let the driver run a scenario through both machines and emit a comparison (per-turn `TurnTrace` diff / the existing metrics side by side). Scripted stages never throw.
 **Acceptance:**
-- [ ] `npm run sim` can run a scenario through the pipeline machine and produces a `SimResult`.
-- [ ] A comparison mode reports legacy vs pipeline metrics for the same scenario + seed.
+- [x] `npm run sim` can run a scenario through the pipeline machine and produces a `SimResult`.
+- [x] A comparison mode reports legacy vs pipeline metrics for the same scenario + seed.
 **Verification:** sim runs end-to-end on both example scenarios; new sim tests green.
 **Files:** `src/sim/{engine-factory.ts,driver.ts,ScriptedLlmGateway.ts,types.ts}`, `tests/sim/*`. **Scope:** L. **Deps:** T2 (T3 for faithful resolve).
 
 ### Task 5 — Per-stage prompt-version stamping + latency measurement
 **Description.** Wire `stampFor` (`prompt-builder.ts:84`) into the pipeline's `llm_calls` records so each stage stamps `v12/classify`, `v12/<type>` (decide), `v12/resolve`; extend `LlmCallRecorder`/`callKind` to carry the stage (today `callKind:'decision'` is a single literal, `DeepseekLlmGateway.ts:163`). Measure the pipeline's latency tail via the sim metrics (the exit criterion "the latency tail is measured").
 **Acceptance:**
-- [ ] Each pipeline stage's llm_calls row is stamped with its `v12/<stage>` version; `actions.prompt_version` carries the set (`v12`).
-- [ ] A latency/stage-count metric is emitted by the sim for a pipeline run.
+- [x] Each pipeline stage's llm_calls row is stamped with its `v12/<stage>` version; `actions.prompt_version` carries the set (`v12`).
+- [x] A latency/stage-count metric is emitted by the sim for a pipeline run.
 **Verification:** a test asserts the stamps; sim metric output shows per-stage counts.
 **Files:** `src/llm/{LlmCallRecorder.ts,pipeline/*}`, `src/sim/metrics.ts`, tests. **Scope:** M. **Deps:** T2.
 
 ### Checkpoint — after T2 and after T3
-- [ ] Full suite green; the **legacy path and all its tests are unchanged** (the parallel machine adds, never edits, live behaviour).
-- [ ] Review with a human before wiring anything toward the live loop.
+- [x] Full suite green; the **legacy path and all its tests are unchanged** (the parallel machine adds, never edits, live behaviour).
+- [x] Review with a human before wiring anything toward the live loop.
 
 ## Scope fence
 
@@ -135,3 +136,9 @@ Key inversion point: today narration + mutation authoring happen in one call *be
 ---
 
 _Execution note: build task-by-task via delegated subagents (T1 → T2 → T3, checkpoint, then T4/T5), verifying + committing after each per the orchestrated-delegation loop. Open questions carried to Stage 2+: critic placement as a 4th DMA; enforced `allowedMutations`; `distilledType` full retirement; real LLM classify fallback._
+
+---
+
+## Execution state
+
+All five tasks (T1–T5) shipped and the checkpoint cleared; `PipelineActionStateMachine` runs the full classify → decide → dice → resolve chain in the sim, including the heuristic classifier, the D5b mutation-finalization inversion, the dual-machine sim comparison mode, and per-stage prompt-version stamping with latency measurement (see [[stage-5-live-cutover-plan]] prerequisites — "Stage 1 backbone built", verified 2026-07-05). The live v11 path and every pre-existing test remain unchanged throughout (decision 1). Open questions carried forward, per the execution note above: critic placement as a 4th DMA; enforced `allowedMutations`; `distilledType` full retirement; a real LLM classify-fallback implementation.

@@ -27,6 +27,7 @@ import {
   PROMPT_VERSION,
   CRITIC_VERSION,
 } from './prompt-builder.js';
+import { callDeepseek } from './deepseek-transport.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
 
@@ -209,65 +210,56 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     // Report up front so the prompt is captured even if the request throws.
     onProgress({ rawPrompt: userMessage });
 
-    const requestBody = {
-      model: this.model,
-      messages: [
-        { role: 'system' as const, content: systemPrompt },
-        { role: 'user' as const, content: userMessage },
-      ],
-      response_format: { type: 'json_object' as const },
-      thinking: { type: 'enabled' as const },
-      temperature: this.temperature,
-      stream: false,
-    };
-
+    // Verbose logging wants the literal request body — `callDeepseek` builds its own internally,
+    // so reconstruct the same shape here purely for the log line (transport extraction note: T2).
     if (this.verbose) {
+      const requestBody = {
+        model: this.model,
+        messages: [
+          { role: 'system' as const, content: systemPrompt },
+          { role: 'user' as const, content: userMessage },
+        ],
+        response_format: { type: 'json_object' as const },
+        thinking: { type: 'enabled' as const },
+        temperature: this.temperature,
+        stream: false,
+      };
       console.log(c.cyan('[llm:request]'), JSON.stringify(requestBody, null, 2));
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const result = await callDeepseek({
+      apiKey: this.apiKey,
+      model: this.model,
+      temperature: this.temperature,
+      systemPrompt,
+      userMessage,
+      thinking: true,
+      fetchFn: this.fetchFn,
+    });
 
-    const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout));
+    onProgress({ httpStatus: result.httpStatus });
 
-    onProgress({ httpStatus: response.status });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      console.error(c.red('[llm:error]'), response.status, errText);
-      throw new Error(`DeepSeek API error ${response.status}: ${errText}`);
+    if (!result.ok) {
+      console.error(c.red('[llm:error]'), result.httpStatus, result.errorText ?? '');
+      throw new Error(`DeepSeek API error ${result.httpStatus}: ${result.errorText ?? ''}`);
     }
 
-    const data = await response.json() as {
-      choices: Array<{ message: { content: string; reasoning_content?: string }; finish_reason?: string }>;
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-    };
-
-    const reasoningContent = data.choices?.[0]?.message?.reasoning_content ?? null;
+    const reasoningContent = result.reasoningContent;
     onProgress({
-      usage: data.usage,
-      finishReason: data.choices?.[0]?.finish_reason ?? null,
+      usage: result.usage,
+      finishReason: result.finishReason,
       reasoningChars: reasoningContent?.length ?? null,
       reasoning: reasoningContent,
     });
 
-    const msg = data.choices?.[0]?.message;
-    const content = msg?.content;
+    const content = result.content;
     if (!content) {
       throw new Error('DeepSeek returned empty response');
     }
 
     if (this.verbose) {
-      if (msg?.reasoning_content) {
-        console.log(c.magenta('[llm:thoughts]'), msg.reasoning_content);
+      if (reasoningContent) {
+        console.log(c.magenta('[llm:thoughts]'), reasoningContent);
       }
       console.log(c.cyan('[llm:response:raw]'), content);
     }
@@ -324,37 +316,22 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       `NARRATIVE: ${input.narrative || '(none given)'}`,
     ].join('\n');
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            { role: 'system' as const, content: CARTOGRAPHER_SYSTEM_PROMPT },
-            { role: 'user' as const, content: userMessage },
-          ],
-          response_format: { type: 'json_object' as const },
-          temperature: this.temperature,
-          stream: false,
-        }),
-        signal: controller.signal,
+      const res = await callDeepseek({
+        apiKey: this.apiKey,
+        model: this.model,
+        temperature: this.temperature,
+        systemPrompt: CARTOGRAPHER_SYSTEM_PROMPT,
+        userMessage,
+        fetchFn: this.fetchFn,
       });
 
-      if (!response.ok) {
-        console.warn(c.yellow('[cartographer] non-200'), response.status);
+      if (!res.ok) {
+        console.warn(c.yellow('[cartographer] non-200'), res.httpStatus);
         return {};
       }
 
-      const data = await response.json() as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const content = data.choices?.[0]?.message?.content;
+      const content = res.content;
       if (!content) return {};
 
       const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -401,8 +378,6 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     } catch (err) {
       console.warn(c.yellow('[cartographer] enrich failed'), err instanceof Error ? err.message : String(err));
       return {};
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
@@ -413,52 +388,34 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   async summarizeWeek(actions: RecapActionInput[]): Promise<RecapResult> {
     const userMessage = JSON.stringify(actions);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    try {
-      const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            { role: 'system' as const, content: RECAP_SYSTEM_PROMPT },
-            { role: 'user' as const, content: userMessage },
-          ],
-          response_format: { type: 'json_object' as const },
-          temperature: this.temperature,
-          stream: false,
-        }),
-        signal: controller.signal,
-      });
+    const result = await callDeepseek({
+      apiKey: this.apiKey,
+      model: this.model,
+      temperature: this.temperature,
+      systemPrompt: RECAP_SYSTEM_PROMPT,
+      userMessage,
+      timeoutMs: 30000,
+      fetchFn: this.fetchFn,
+    });
 
-      if (!response.ok) {
-        throw new Error(`recap non-200: ${response.status}`);
-      }
-
-      const data = await response.json() as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) throw new Error('recap returned empty content');
-
-      const parsed = JSON.parse(content) as Record<string, unknown>;
-      const digest = typeof parsed.digest === 'string' ? stripCR(parsed.digest.trim()) : '';
-      const highlights = Array.isArray(parsed.highlights)
-        ? parsed.highlights
-            .filter((h): h is string => typeof h === 'string' && h.trim() !== '')
-            .map((h) => stripCR(h.trim()))
-        : [];
-      if (digest === '' && highlights.length === 0) {
-        throw new Error('recap had no digest and no highlights');
-      }
-      return { digest, highlights };
-    } finally {
-      clearTimeout(timeout);
+    if (!result.ok) {
+      throw new Error(`recap non-200: ${result.httpStatus}`);
     }
+
+    const content = result.content;
+    if (!content) throw new Error('recap returned empty content');
+
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    const digest = typeof parsed.digest === 'string' ? stripCR(parsed.digest.trim()) : '';
+    const highlights = Array.isArray(parsed.highlights)
+      ? parsed.highlights
+          .filter((h): h is string => typeof h === 'string' && h.trim() !== '')
+          .map((h) => stripCR(h.trim()))
+      : [];
+    if (digest === '' && highlights.length === 0) {
+      throw new Error('recap had no digest and no highlights');
+    }
+    return { digest, highlights };
   }
 
   /**
@@ -483,45 +440,29 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
 
     const userMessage = buildCriticUserMessage(input);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await this.fetchFn('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            { role: 'system' as const, content: buildCriticSystemPrompt() },
-            { role: 'user' as const, content: userMessage },
-          ],
-          response_format: { type: 'json_object' as const },
-          thinking: { type: 'enabled' as const },
-          temperature: this.temperature,
-          stream: false,
-        }),
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
+      const result = await callDeepseek({
+        apiKey: this.apiKey,
+        model: this.model,
+        temperature: this.temperature,
+        systemPrompt: buildCriticSystemPrompt(),
+        userMessage,
+        thinking: true,
+        fetchFn: this.fetchFn,
+      });
 
-      httpStatus = response.status;
-      if (!response.ok) {
-        throw new Error(`critic API error ${response.status}`);
+      httpStatus = result.httpStatus;
+      if (!result.ok) {
+        throw new Error(`critic API error ${result.httpStatus}`);
       }
 
-      const data = await response.json() as {
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string }; finish_reason?: string }>;
-        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-      };
-      const reasoningContent = data.choices?.[0]?.message?.reasoning_content ?? null;
+      const reasoningContent = result.reasoningContent;
       reasoning = reasoningContent;
       reasoningChars = reasoningContent?.length ?? null;
-      usage = data.usage;
-      finishReason = data.choices?.[0]?.finish_reason ?? null;
+      usage = result.usage;
+      finishReason = result.finishReason;
 
-      const content = data.choices?.[0]?.message?.content;
+      const content = result.content;
       if (!content) {
         throw new Error('critic returned empty content');
       }

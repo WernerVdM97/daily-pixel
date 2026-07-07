@@ -13,6 +13,7 @@ import { exampleComparisonScenario } from '../../src/sim/example-comparison-scen
 import { combatWinScenario, combatFloorScenario, combatCapScenario } from '../../src/sim/combat-scenario.js';
 import type { PipelineSimEngine } from '../../src/sim/PipelineSimEngine.js';
 import type { CharacterSeed, DecisionScript, PipelineScript, Scenario } from '../../src/sim/types.js';
+import type { ActionType } from '../../src/llm/pipeline/types.js';
 
 const BASE_CHARACTER: CharacterSeed = {
   class: 'Warrior',
@@ -1327,5 +1328,292 @@ describe('T5 — combat telemetry + metrics', () => {
     expect(table).not.toContain('Combat rounds');
     expect(table).not.toContain('Floor-saves');
     expect(table).not.toContain('Wins/Losses');
+  });
+});
+
+describe('T1b — full-chain pipeline coverage per ActionType', () => {
+  // See docs/engine/stage-5-live-cutover-plan.md, Task 1b: social/skill/other had zero
+  // full-chain sim scenarios, and travel/search were only lightly touched (geography-landing
+  // and scene-state read-back respectively, not the routing shape). Each test below proves,
+  // per ActionType, that CLASSIFY's routing decision propagates unchanged through
+  // decide/resolveMutate/resolveNarrate (point 1), that decide's result is options-only
+  // (point 2, structurally guaranteed by PipelineDecideResult's shape), that resolve produces
+  // a mutation + outcome_text and the turn resolves 'success' (point 3), and that stageCalls
+  // carries the expected stage-name strings emitted by PipelineScriptedGateway (point 4).
+
+  it('a social action ("talk to grum") routes ActionType through the full chain and resolves success', async () => {
+    const decideTypes: ActionType[] = [];
+    const resolveMutateTypes: ActionType[] = [];
+    const resolveNarrateTypes: ActionType[] = [];
+
+    const script: PipelineScript = {
+      decide: (input) => {
+        decideTypes.push(input.actionType);
+        return {
+          distilledType: 'social',
+          stat: 'charisma',
+          baseDc: 8,
+          required: false,
+          decision: [
+            { label: 'Chat with Grum', dcModifier: 0 },
+            { label: 'Step back', dcModifier: null },
+          ],
+        };
+      },
+      resolveMutate: (input) => {
+        resolveMutateTypes.push(input.actionType);
+        return { mutations: [{ type: 'modify_wealth', amount: 5 }] };
+      },
+      resolveNarrate: (input) => {
+        resolveNarrateTypes.push(input.actionType);
+        return { outcomeText: 'Grum warms to your chatter.' };
+      },
+    };
+
+    const result = await runScenario(
+      pipelineScenario({
+        llm: { kind: 'pipeline-scripted', script },
+        week: [[{ input: 'talk to grum', choicePolicy: 'first-real' }]],
+      }),
+    );
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.turns[0].mutationsApplied).toBeGreaterThanOrEqual(1);
+
+    // Point 1: CLASSIFY's routing (social — heuristicClassify's social table matches
+    // "talk to") propagates unchanged through every stage that carries actionType.
+    expect(decideTypes.length).toBeGreaterThanOrEqual(1);
+    expect(decideTypes.every((t) => t === 'social')).toBe(true);
+    expect(resolveMutateTypes).toEqual(['social']);
+    expect(resolveNarrateTypes).toEqual(['social']);
+
+    // Point 4: social is a heuristic HIT, so the gateway's classify() is never invoked.
+    const stageNames = result.stageCalls?.map((c) => c.stage) ?? [];
+    expect(stageNames).toEqual(expect.arrayContaining(['decide', 'resolve-mutate', 'resolve-narrate']));
+    expect(stageNames).not.toContain('classify');
+  });
+
+  it('a skill action ("pick the lock") routes ActionType through the full chain and resolves success', async () => {
+    const decideTypes: ActionType[] = [];
+    const resolveMutateTypes: ActionType[] = [];
+    const resolveNarrateTypes: ActionType[] = [];
+
+    const script: PipelineScript = {
+      decide: (input) => {
+        decideTypes.push(input.actionType);
+        return {
+          distilledType: 'skill',
+          stat: 'physical',
+          baseDc: 10,
+          required: false,
+          decision: [
+            { label: 'Pick it carefully', dcModifier: 0 },
+            { label: 'Step back', dcModifier: null },
+          ],
+        };
+      },
+      resolveMutate: (input) => {
+        resolveMutateTypes.push(input.actionType);
+        return { mutations: [{ type: 'modify_wealth', amount: 5 }] };
+      },
+      resolveNarrate: (input) => {
+        resolveNarrateTypes.push(input.actionType);
+        return { outcomeText: 'The lock clicks open.' };
+      },
+    };
+
+    const result = await runScenario(
+      pipelineScenario({
+        llm: { kind: 'pipeline-scripted', script },
+        week: [[{ input: 'pick the lock', choicePolicy: 'first-real' }]],
+      }),
+    );
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.turns[0].mutationsApplied).toBeGreaterThanOrEqual(1);
+
+    // Point 1: CLASSIFY's routing (skill — heuristicClassify's skill table matches
+    // "pick the lock" verbatim) propagates unchanged through every stage.
+    expect(decideTypes.length).toBeGreaterThanOrEqual(1);
+    expect(decideTypes.every((t) => t === 'skill')).toBe(true);
+    expect(resolveMutateTypes).toEqual(['skill']);
+    expect(resolveNarrateTypes).toEqual(['skill']);
+
+    // Point 4: skill is a heuristic HIT, so the gateway's classify() is never invoked.
+    const stageNames = result.stageCalls?.map((c) => c.stage) ?? [];
+    expect(stageNames).toEqual(expect.arrayContaining(['decide', 'resolve-mutate', 'resolve-narrate']));
+    expect(stageNames).not.toContain('classify');
+  });
+
+  it('a search action ("search the room") routes ActionType through the full chain and resolves success', async () => {
+    const decideTypes: ActionType[] = [];
+    const resolveMutateTypes: ActionType[] = [];
+    const resolveNarrateTypes: ActionType[] = [];
+
+    const script: PipelineScript = {
+      decide: (input) => {
+        decideTypes.push(input.actionType);
+        return {
+          distilledType: 'search',
+          stat: 'wisdom',
+          baseDc: 8,
+          required: false,
+          decision: [
+            { label: 'Search the room', dcModifier: 0 },
+            { label: 'Step back', dcModifier: null },
+          ],
+        };
+      },
+      resolveMutate: (input) => {
+        resolveMutateTypes.push(input.actionType);
+        return { mutations: [{ type: 'modify_wealth', amount: 5 }] };
+      },
+      resolveNarrate: (input) => {
+        resolveNarrateTypes.push(input.actionType);
+        return { outcomeText: 'You turn up a small trinket.' };
+      },
+    };
+
+    const result = await runScenario(
+      pipelineScenario({
+        llm: { kind: 'pipeline-scripted', script },
+        week: [[{ input: 'search the room', choicePolicy: 'first-real' }]],
+      }),
+    );
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.turns[0].mutationsApplied).toBeGreaterThanOrEqual(1);
+
+    // Point 1: CLASSIFY's routing (search — heuristicClassify's search table matches
+    // "search") propagates unchanged through every stage.
+    expect(decideTypes.length).toBeGreaterThanOrEqual(1);
+    expect(decideTypes.every((t) => t === 'search')).toBe(true);
+    expect(resolveMutateTypes).toEqual(['search']);
+    expect(resolveNarrateTypes).toEqual(['search']);
+
+    // Point 4: search is a heuristic HIT, so the gateway's classify() is never invoked.
+    const stageNames = result.stageCalls?.map((c) => c.stage) ?? [];
+    expect(stageNames).toEqual(expect.arrayContaining(['decide', 'resolve-mutate', 'resolve-narrate']));
+    expect(stageNames).not.toContain('classify');
+  });
+
+  it('a travel action ("walk to town square") routes ActionType through the full chain and resolves success', async () => {
+    const decideTypes: ActionType[] = [];
+    const resolveMutateTypes: ActionType[] = [];
+    const resolveNarrateTypes: ActionType[] = [];
+
+    const script: PipelineScript = {
+      decide: (input) => {
+        decideTypes.push(input.actionType);
+        return {
+          distilledType: 'travel',
+          stat: 'physical',
+          baseDc: 5,
+          required: false,
+          decision: [
+            { label: 'Go', dcModifier: 0 },
+            { label: 'Step back', dcModifier: null },
+          ],
+        };
+      },
+      resolveMutate: (input) => {
+        resolveMutateTypes.push(input.actionType);
+        return { mutations: [{ type: 'modify_wealth', amount: 5 }] };
+      },
+      resolveNarrate: (input) => {
+        resolveNarrateTypes.push(input.actionType);
+        return { outcomeText: 'You arrive at the town square.' };
+      },
+    };
+
+    const result = await runScenario(
+      pipelineScenario({
+        llm: { kind: 'pipeline-scripted', script },
+        week: [[{ input: 'walk to town square', choicePolicy: 'first-real' }]],
+      }),
+    );
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.turns[0].mutationsApplied).toBeGreaterThanOrEqual(1);
+
+    // Point 1: CLASSIFY's routing (travel — heuristicClassify's travel table matches
+    // "walk to") propagates unchanged through every stage. needs_roll is false for travel,
+    // so resolve() auto-resolves 'success' with no d20 draw.
+    expect(decideTypes.length).toBeGreaterThanOrEqual(1);
+    expect(decideTypes.every((t) => t === 'travel')).toBe(true);
+    expect(resolveMutateTypes).toEqual(['travel']);
+    expect(resolveNarrateTypes).toEqual(['travel']);
+
+    // Point 4: travel is a heuristic HIT, so the gateway's classify() is never invoked.
+    const stageNames = result.stageCalls?.map((c) => c.stage) ?? [];
+    expect(stageNames).toEqual(expect.arrayContaining(['decide', 'resolve-mutate', 'resolve-narrate']));
+    expect(stageNames).not.toContain('classify');
+  });
+
+  it('an "other" action (heuristic miss + scripted classify()) routes ActionType through the full chain and resolves success', async () => {
+    const decideTypes: ActionType[] = [];
+    const resolveMutateTypes: ActionType[] = [];
+    const resolveNarrateTypes: ActionType[] = [];
+
+    const script: PipelineScript = {
+      // "ponder the mysteries of the oak" hits none of classifier.ts's category tables, so the
+      // heuristic misses and PipelineActionStateMachine.start() falls through to this callback
+      // — the only way an 'other' ActionType can arise (it has no entry in CATEGORY_TABLES).
+      classify: () => ({
+        kind: 'hit',
+        actionType: 'other',
+        flags: { unsafe_location: false, needs_roll: false, target_present: false },
+      }),
+      decide: (input) => {
+        decideTypes.push(input.actionType);
+        return {
+          distilledType: 'other',
+          stat: 'wisdom',
+          baseDc: 5,
+          required: false,
+          decision: [
+            { label: 'Ponder', dcModifier: 0 },
+            { label: 'Step back', dcModifier: null },
+          ],
+        };
+      },
+      resolveMutate: (input) => {
+        resolveMutateTypes.push(input.actionType);
+        return { mutations: [{ type: 'modify_wealth', amount: 5 }] };
+      },
+      resolveNarrate: (input) => {
+        resolveNarrateTypes.push(input.actionType);
+        return { outcomeText: 'You ponder deeply, and feel a little wiser.' };
+      },
+    };
+
+    const result = await runScenario(
+      pipelineScenario({
+        llm: { kind: 'pipeline-scripted', script },
+        week: [[{ input: 'ponder the mysteries of the oak', choicePolicy: 'first-real' }]],
+      }),
+    );
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].outcome).toBe('success');
+    expect(result.turns[0].mutationsApplied).toBeGreaterThanOrEqual(1);
+
+    // Point 1: the scripted classify() callback's 'other' routing propagates unchanged
+    // through every stage.
+    expect(decideTypes.length).toBeGreaterThanOrEqual(1);
+    expect(decideTypes.every((t) => t === 'other')).toBe(true);
+    expect(resolveMutateTypes).toEqual(['other']);
+    expect(resolveNarrateTypes).toEqual(['other']);
+
+    // Point 4: 'other' is a heuristic MISS, so (unlike every heuristic-HIT type above) the
+    // gateway's classify() stage IS invoked and recorded.
+    const stageNames = result.stageCalls?.map((c) => c.stage) ?? [];
+    expect(stageNames).toEqual(
+      expect.arrayContaining(['classify', 'decide', 'resolve-mutate', 'resolve-narrate']),
+    );
   });
 });

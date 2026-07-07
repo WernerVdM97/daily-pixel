@@ -1,7 +1,8 @@
 ---
 title: "Stage 0a — Sim Harness (implementation plan)"
-status: decided
+status: shipped
 domain: engine
+superseded_by: "implemented in code"
 phase: poc
 tags:
   - engine

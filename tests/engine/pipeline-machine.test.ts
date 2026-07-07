@@ -16,8 +16,9 @@ import type {
   PipelineResolveMutateResult,
   PipelineResolveNarrateInput,
   PipelineResolveNarrateResult,
+  PipelineStageResult,
 } from '../../src/llm/pipeline/types.js';
-import type { LlmContext } from '../../src/llm/LlmGateway.js';
+import type { CriticGateway, CriticInput, CriticVerdict, LlmContext } from '../../src/llm/LlmGateway.js';
 
 // Deliberately NOT the legacy `MockLlmGateway` (single-decision-shaped) — the pipeline needs
 // 4 distinct scriptable stages and sharing the legacy fixture would couple the two machines'
@@ -25,6 +26,11 @@ import type { LlmContext } from '../../src/llm/LlmGateway.js';
 class MockPipelineLlmGateway implements PipelineLlmGateway {
   classifyResult: ClassifyHit | Error = new Error('classify not scripted');
   decideResult: PipelineDecideResult | null = null;
+  /** Optional per-call override queue (decide-scene-narration spec): when non-empty, `decide()`
+   *  shifts one value per call instead of returning the static `decideResult` — needed for tests
+   *  where the establishing decide and the continue decide must return different shapes (e.g.
+   *  the combat empty-decision backstop). Falls back to `decideResult` once exhausted. */
+  decideResultQueue: PipelineDecideResult[] = [];
   resolveMutateResult: PipelineResolveMutateResult = { mutations: [] };
   resolveNarrateResult: PipelineResolveNarrateResult = { outcomeText: 'It happens.' };
 
@@ -33,26 +39,42 @@ class MockPipelineLlmGateway implements PipelineLlmGateway {
   resolveMutateCalls: PipelineResolveMutateInput[] = [];
   resolveNarrateCalls: PipelineResolveNarrateInput[] = [];
 
-  async classify(rawInput: string, context: LlmContext): Promise<ClassifyHit> {
+  async classify(rawInput: string, context: LlmContext): Promise<PipelineStageResult<ClassifyHit>> {
     this.classifyCalls.push({ rawInput, context });
     if (this.classifyResult instanceof Error) throw this.classifyResult;
-    return this.classifyResult;
+    return { result: this.classifyResult, callId: 0 };
   }
 
-  async decide(input: PipelineDecideInput): Promise<PipelineDecideResult> {
+  async decide(input: PipelineDecideInput): Promise<PipelineStageResult<PipelineDecideResult>> {
     this.decideCalls.push(input);
+    if (this.decideResultQueue.length > 0) {
+      return { result: this.decideResultQueue.shift() as PipelineDecideResult, callId: 0 };
+    }
     if (!this.decideResult) throw new Error('decide not scripted');
-    return this.decideResult;
+    return { result: this.decideResult, callId: 0 };
   }
 
-  async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineResolveMutateResult> {
+  async resolveMutate(input: PipelineResolveMutateInput): Promise<PipelineStageResult<PipelineResolveMutateResult>> {
     this.resolveMutateCalls.push(input);
-    return this.resolveMutateResult;
+    return { result: this.resolveMutateResult, callId: 0 };
   }
 
-  async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineResolveNarrateResult> {
+  async resolveNarrate(input: PipelineResolveNarrateInput): Promise<PipelineStageResult<PipelineResolveNarrateResult>> {
     this.resolveNarrateCalls.push(input);
-    return this.resolveNarrateResult;
+    return { result: this.resolveNarrateResult, callId: 0 };
+  }
+}
+
+/** Scriptable critic double for the T4 describe block below — one verdict per call by default
+ *  (`verdict`), or a queue via `verdicts` for tests that need the ladder to change between calls
+ *  (e.g. major-then-not-recritiqued). */
+class MockCriticGateway implements CriticGateway {
+  verdict: CriticVerdict = { ok: true, severity: 'minor', issues: [] };
+  calls: CriticInput[] = [];
+
+  async critique(input: CriticInput): Promise<CriticVerdict> {
+    this.calls.push(input);
+    return this.verdict;
   }
 }
 
@@ -279,8 +301,8 @@ describe('PipelineDecideResult shape', () => {
 
     expect(llm.decideCalls).toHaveLength(1);
     // decideResult is what the mock returned — assert the raw object has neither key.
-    expect(Object.prototype.hasOwnProperty.call(decideResult, 'mutations')).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(decideResult, 'outcomeText')).toBe(false);
+    expect(Object.hasOwn(decideResult, 'mutations')).toBe(false);
+    expect(Object.hasOwn(decideResult, 'outcomeText')).toBe(false);
 
     // Type-level assertion: PipelineDecideResult declares neither field. If someone widens the
     // interface to add `mutations`/`outcomeText`, `never` collapses and this file fails to
@@ -614,6 +636,32 @@ describe('PipelineActionStateMachine — classify-fallback-total-failure', () =>
     expect(llm.classifyCalls).toHaveLength(1);
     // The rejection never escapes start() as an unhandled rejection/throw.
   });
+
+  it('a heuristic miss whose LLM classify SUCCEEDS pins the returned ActionType + flags (T3)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // The fallback resolves the miss to a concrete type + flags — the machine must pin these
+    // (not re-derive), then proceed into a normal decision beat.
+    llm.classifyResult = {
+      kind: 'hit',
+      actionType: 'skill',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+    };
+    llm.decideResult = combatDecideResult({ distilledType: 'tinker' });
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // "ponder the void" matches zero heuristic tables → a miss → the LLM fallback runs.
+    const result = await machine.start(testChar(), 'ponder the void', testItems);
+
+    expect(llm.classifyCalls).toHaveLength(1);
+    expect(result.resolved).toBe(false);
+    if (!result.resolved) {
+      expect(result.state.actionType).toBe('skill');
+      expect(result.state.flags).toEqual({ unsafe_location: false, needs_roll: true, target_present: true });
+    }
+    // The pinned type is what DECIDE was routed with — proof it wasn't silently re-derived.
+    expect(llm.decideCalls[0].actionType).toBe('skill');
+    expect(llm.decideCalls[0].flags.needs_roll).toBe(true);
+  });
 });
 
 /**
@@ -723,5 +771,696 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
     if (step.resolved) throw new Error('expected unresolved step');
 
     expect(step.combatBeat).toBeUndefined();
+  });
+});
+
+/**
+ * decide-scene-narration follow-up (v12 polish): DECIDE authors `narration` on CONTINUE beats
+ * only — an amendment to D5b's "DECIDE authors no prose" — and the engine threads it onto the
+ * next screen and the beat's `ActionDecisionRecord` (both `step()` record sites). The first
+ * beat (NEW_ACTION) stays lean regardless, since DECIDE never authors narration there.
+ */
+describe('PipelineActionStateMachine — decide-scene-narration: narration threading', () => {
+  it('NEW_ACTION stays narration-free and the CTA reads "what do you do?"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // 'skirmish', no `narration` field
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    const started = await machine.start(testChar(), 'search the ruins', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    expect(started.firstDecision.narration).toBeUndefined();
+    expect(started.firstDecision.prompt).toBe('Skirmish — what do you do?');
+  });
+
+  it('a non-combat CONTINUE threads narration onto nextDecision and the normal step() record', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      decision: [
+        { label: 'Search the room', dcModifier: 0 },
+        { label: 'Check the ledger', dcModifier: 1 },
+      ],
+    };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const started = await machine.start(testChar(), 'investigate the room', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    expect(started.firstDecision.narration).toBeUndefined();
+
+    // Beat 2 (CONTINUE) — DECIDE authors narration this time.
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      narration: 'The ledger names a debt long overdue.',
+      decision: [
+        { label: 'Follow the debt', dcModifier: 0 },
+        { label: 'Move on', dcModifier: -1 },
+      ],
+    };
+    const step1 = await machine.step(started.state, 'Search the room', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step');
+    expect(step1.nextDecision.narration).toBe('The ledger names a debt long overdue.');
+    expect(step1.nextDecision.prompt).toBe('Investigate — what do you do?');
+
+    // Beat 3 hits the MAX_DECISIONS_PER_ACTION beat cap and resolves directly (no third decide
+    // call) — the normal record site for THIS choice still captures beat 2's narration first.
+    const step2 = await machine.step(step1.state, 'Follow the debt', testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+    if (!step2.resolved) return;
+    expect(step2.state.decisions).toHaveLength(2);
+    expect(step2.state.decisions[0].narration).toBeUndefined(); // beat 1 (NEW_ACTION)
+    expect(step2.state.decisions[1].narration).toBe('The ledger names a debt long overdue.'); // beat 2
+  });
+
+  it('bailing off a narrated CONTINUE beat still copies narration onto the bail record', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      decision: [
+        { label: 'Search the room', dcModifier: 0 },
+        { label: 'Check the corner', dcModifier: 1 },
+      ],
+    };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const started = await machine.start(testChar(), 'investigate the room', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = {
+      distilledType: 'investigate',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      narration: 'A cold draft slips under the door.',
+      decision: [{ label: 'Keep searching', dcModifier: 0 }],
+    };
+    const step1 = await machine.step(started.state, 'Search the room', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step');
+    // required:false + a single real option -> ensureBail added a 'Step back' bail option.
+    const bailOption = step1.nextDecision.options.find(o => o.dcModifier === null);
+    expect(bailOption?.label).toBe('Step back');
+
+    const step2 = await machine.step(step1.state, bailOption!.label, testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+    if (!step2.resolved) return;
+    expect(step2.outcome.outcome).toBe('bailed');
+    expect(step2.state.decisions).toHaveLength(2);
+    expect(step2.state.decisions[0].narration).toBeUndefined(); // beat 1 (NEW_ACTION)
+    expect(step2.state.decisions[1].narration).toBe('A cold draft slips under the door.'); // bail record
+  });
+});
+
+/**
+ * decide-scene-narration follow-up: combat's contested roll resolves the moment the player
+ * picks an option, so every combat continue-screen already sits on a fresh, engine-computed
+ * result. The engine hands that round summary to DECIDE (so narration is faithful to the dice)
+ * and composes `combatStatus` from the same engine truth — banded enemy condition, never exact
+ * enemy HP, plus the player's own exact HP movement.
+ */
+describe('PipelineActionStateMachine — decide-scene-narration: combat continue enrichment', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('enriches the continue-decide context with combatRoundSummary and threads narration + combatStatus', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({
+        narration: 'The goblin snarls, blood streaming from its arm.',
+        decision: [
+          { label: 'Press the attack', dcModifier: 0, stat: 'physical' },
+          { label: 'Aim for the eyes', dcModifier: 2, stat: 'wisdom' },
+        ],
+      }),
+    ];
+
+    // player d20=10, enemy d20=10: playerBonus 3(physical)+2(Iron Sword)=5, enemyBonus
+    // clamp(baseDc-10,0,10)=0. margin=5 -> 'glanced' (enemyHpDelta -3, playerHpDelta 0).
+    // enemyMaxHp=deriveEnemyMaxHp(10)=10 -> round 1 neither wins, floors, nor caps: a CONTINUE.
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(llm.decideCalls).toHaveLength(2);
+    expect(llm.decideCalls[1].context.combatRoundSummary).toEqual({
+      band: 'glanced',
+      playerHpDelta: 0,
+      enemyHpDelta: -3,
+      chosenOption: { label: 'Press the attack' },
+    });
+
+    expect(step.nextDecision.narration).toBe('The goblin snarls, blood streaming from its arm.');
+    // enemyHp 7/10=0.7 -> round(3.5)=4 filled pips (Bloodied band); player took no damage.
+    expect(step.nextDecision.combatStatus).toBe('Goblin: ▓▓▓▓░ Bloodied · You: 0 HP');
+  });
+
+  it('warns (telemetry only, no retry) when the continue options all share stat + dcModifier', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({
+        decision: [
+          { label: 'Strike low', dcModifier: 1, stat: 'physical' },
+          { label: 'Strike high', dcModifier: 1, stat: 'physical' },
+        ],
+      }),
+    ];
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const started = await machine.start(testChar(), 'attack the goblin', testItems);
+      if (started.resolved) throw new Error('expected unresolved start');
+      const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+      expect(step.resolved).toBe(false);
+      if (step.resolved) throw new Error('expected unresolved step');
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('mechanical-diversity'),
+        expect.anything(),
+        expect.anything(),
+      );
+      // Telemetry only — no bounded re-decide (unlike the single-option validator, which skips
+      // combat by design; this check has no re-decide ladder at all).
+      expect(llm.decideCalls).toHaveLength(2);
+      expect(step.nextDecision.options.map(o => o.label)).toEqual(['Strike low', 'Strike high', 'Flee the fight']);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+/**
+ * decide-scene-narration follow-up: the combat empty-decision backstop (belt and braces). If
+ * the fresh continue-decide yields zero real options, the engine injects two deterministic
+ * options BEFORE the guaranteed flee append, so a flee-only screen never reaches the player.
+ */
+describe('PipelineActionStateMachine — decide-scene-narration: combat empty-decision backstop', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('injects Press the attack + Fight defensively before flee, and sets emptyDecisionFallback', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({ decision: [] }), // the dev-DB 34/35 pattern: an empty continue decision
+    ];
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const started = await machine.start(testChar(), 'attack the goblin', testItems);
+      if (started.resolved) throw new Error('expected unresolved start');
+      const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+      expect(step.resolved).toBe(false);
+      if (step.resolved) throw new Error('expected unresolved step');
+
+      expect(step.nextDecision.options.map(o => o.label)).toEqual([
+        'Press the attack',
+        'Fight defensively',
+        'Flee the fight',
+      ]);
+      expect(step.nextDecision.options.find(o => o.label === 'Fight defensively')).toEqual({
+        label: 'Fight defensively', dcModifier: -1, stat: 'physical',
+      });
+      // Never a flee-only screen — at least one non-flee option is always present.
+      expect(step.nextDecision.options.some(o => o.label !== 'Flee the fight')).toBe(true);
+
+      expect(step.combatBeat?.emptyDecisionFallback).toBe(true);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('fires the backstop when the only decide-authored option is a wayward "Flee the fight"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      // A wayward LLM authors a real (non-null dcModifier) 'Flee the fight' despite BASE Rule 3 —
+      // it must be stripped as the guaranteed flee's duplicate BEFORE the emptiness check runs,
+      // not after, or the backstop wrongly skips and the screen ends up flee-only.
+      combatEnemyDecideResult({ decision: [{ label: 'Flee the fight', dcModifier: 1, stat: 'physical' }] }),
+    ];
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const started = await machine.start(testChar(), 'attack the goblin', testItems);
+      if (started.resolved) throw new Error('expected unresolved start');
+      const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+      expect(step.resolved).toBe(false);
+      if (step.resolved) throw new Error('expected unresolved step');
+
+      expect(step.nextDecision.options.map(o => o.label)).toEqual([
+        'Press the attack',
+        'Fight defensively',
+        'Flee the fight',
+      ]);
+      // Exactly one flee option — the engine's guaranteed one, not the wayward authored one.
+      expect(step.nextDecision.options.filter(o => o.label === 'Flee the fight')).toHaveLength(1);
+      expect(step.nextDecision.options.find(o => o.label === 'Flee the fight')).toEqual({
+        label: 'Flee the fight', dcModifier: null,
+      });
+      // Never a flee-only screen — at least one non-flee option is always present.
+      expect(step.nextDecision.options.some(o => o.label !== 'Flee the fight')).toBe(true);
+
+      expect(step.combatBeat?.emptyDecisionFallback).toBe(true);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+/**
+ * T4 — critic re-placement (D7): the single `CriticGateway.critique` interface invoked at two
+ * in-machine sites (gated coherence critic over DECIDE, faithfulness prose critic over
+ * RESOLVE-NARRATE). The critic is an OPTIONAL 5th constructor param — every describe block above
+ * this one constructs the machine without one, so those 20 tests staying green already proves the
+ * no-critic path is untouched; the explicit no-critic test below (#6) is a cheap extra belt.
+ */
+describe('PipelineActionStateMachine — T4 critic', () => {
+  it('prose critic patches outcomeText only — mutations stay byte-identical to a no-critic run', async () => {
+    const buildLlm = () => {
+      const llm = new MockPipelineLlmGateway();
+      llm.decideResult = combatDecideResult();
+      llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -2 }] };
+      llm.resolveNarrateResult = { outcomeText: 'You land a clean hit.' };
+      return llm;
+    };
+    const forceResolve = (llm: MockPipelineLlmGateway) => {
+      llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    };
+
+    // Baseline: no critic at all — captures the exact mutations array T4 must not disturb.
+    const baselineLlm = buildLlm();
+    const baselineMachine = new PipelineActionStateMachine(baselineLlm, () => 20);
+    const baselineStarted = await baselineMachine.start(testChar(), 'attack the goblin', testItems);
+    if (baselineStarted.resolved) throw new Error('expected unresolved start');
+    forceResolve(baselineLlm);
+    const baselineStep = await baselineMachine.step(baselineStarted.state, 'Strike hard', testChar(), testItems);
+    if (!baselineStep.resolved) throw new Error('expected resolved step');
+
+    // Critic run: a minor prose defect patches outcomeText only.
+    const llm = buildLlm();
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: false, severity: 'minor', issues: ['prose drifted from the final mutations'], patch: { outcomeText: 'patched' } };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    forceResolve(llm);
+    const step = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcomeText).toBe('patched');
+    // This is the acceptance criterion in concrete form: the prose critic never receives or
+    // returns mutations, so the finalized array is exactly what the no-critic run produced.
+    expect(step.outcome.mutations).toEqual(baselineStep.outcome.mutations);
+  });
+
+  it('resolution major defect keeps the original outcomeText and leaves mutations untouched', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult();
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -2 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You land a clean hit.' };
+
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: false, severity: 'major', issues: ['structurally wrong'] };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcomeText).toBe('You land a clean hit.');
+    expect(step.outcome.mutations).toEqual([{ type: 'modify_health', amount: -2 }]);
+  });
+
+  it('coherence gate: a major verdict on a required decide beat triggers exactly ONE bounded re-decide', async () => {
+    const llm = new MockPipelineLlmGateway();
+    const originalDecide: PipelineDecideResult = {
+      distilledType: 'ambush',
+      stat: 'physical',
+      baseDc: 14,
+      required: true,
+      decision: [
+        { label: 'Fight back', dcModifier: 3 },
+        { label: 'Dodge', dcModifier: -2 },
+      ],
+    };
+    // A distinct distilledType on the re-decide result lets the assertion below prove the
+    // RETURNED decision is the second (re-decided) call, not the discarded first one.
+    const redecided: PipelineDecideResult = { ...originalDecide, distilledType: 'ambush-corrected' };
+    const results = [originalDecide, redecided];
+    let callCount = 0;
+    llm.decide = async (input: PipelineDecideInput): Promise<PipelineStageResult<PipelineDecideResult>> => {
+      llm.decideCalls.push(input);
+      return { result: results[Math.min(callCount++, results.length - 1)], callId: 0 };
+    };
+
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: false, severity: 'major', issues: ['combat silently converted'] };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+
+    // Grew by exactly 1 (the original decide + the one bounded re-decide).
+    expect(llm.decideCalls).toHaveLength(2);
+    expect(llm.decideCalls[1].context.criticNote).toContain('combat silently converted');
+    // The re-decide is NOT itself re-critiqued.
+    expect(critic.calls).toHaveLength(1);
+    if (started.resolved) throw new Error('expected unresolved start');
+    expect(started.state.distilledType).toBe('ambush-corrected');
+  });
+
+  it('coherence gate: an ok verdict passes the decide result through untouched (no re-decide)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'ambush',
+      stat: 'physical',
+      baseDc: 14,
+      required: true,
+      decision: [
+        { label: 'Fight back', dcModifier: 3 },
+        { label: 'Dodge', dcModifier: -2 },
+      ],
+    };
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: true, severity: 'minor', issues: [] };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    await machine.start(testChar(), 'attack the goblin', testItems);
+
+    expect(llm.decideCalls).toHaveLength(1);
+    expect(critic.calls).toHaveLength(1);
+  });
+
+  it('coherence gate: fires on every decide beat (required gate removed — §3 v12 QA)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // required: false
+    const critic = new MockCriticGateway();
+    critic.verdict = { ok: true, severity: 'minor', issues: [] };
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    await machine.start(testChar(), 'attack the goblin', testItems);
+
+    // §3: critic now fires on every decide beat, not just required ones.
+    expect(critic.calls).toHaveLength(1);
+    expect(critic.calls[0].beat).toBe('decision');
+  });
+
+  it('no critic constructed — critic logic is entirely a no-op', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult();
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -2 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You land a clean hit.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20); // no critic param at all
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+    if (step.resolved) {
+      expect(step.outcome.outcomeText).toBe('You land a clean hit.');
+      expect(step.outcome.mutations).toEqual([{ type: 'modify_health', amount: -2 }]);
+      expect(step.outcome.llmCallIds).toEqual([]);
+    }
+  });
+});
+
+describe('PipelineActionStateMachine — §2 v12 QA: auto-resolve + single-option validator', () => {
+  it('auto-resolve: start() returns resolved:true when LLM returns decision:[] on beat 1', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Travel — no branching needed, LLM returns empty decision array.
+    llm.decideResult = {
+      distilledType: 'travel',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = { mutations: [{ type: 'set_location', location: 'The Dark Woods' }] };
+    llm.resolveNarrateResult = { outcomeText: 'You journey into the dark woods.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 15);
+    const result = await machine.start(testChar(), 'travel to the dark woods', testItems);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.outcome).toBe('success');
+      expect(result.outcome.outcomeText).toBe('You journey into the dark woods.');
+      expect(result.outcome.mutations).toEqual([{ type: 'set_location', location: 'The Dark Woods' }]);
+      // resolveMutate was called with the synthetic option (rawInput as label)
+      expect(llm.resolveMutateCalls).toHaveLength(1);
+      expect(llm.resolveMutateCalls[0].chosenOption).toEqual({ label: 'travel to the dark woods', dcModifier: 0, stat: 'physical' });
+      expect(llm.resolveNarrateCalls).toHaveLength(1);
+      // No decisions were presented — decisions array is empty
+      expect(result.state.decisions).toEqual([]);
+    }
+  });
+
+  it('auto-resolve: no-roll action (needs_roll:false) auto-resolves as success without calling rollD20', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'rest',
+      stat: 'wisdom',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_stamina', amount: 3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You rest beneath the oak.' };
+
+    let rollCalled = false;
+    const machine = new PipelineActionStateMachine(llm, () => { rollCalled = true; return 1; });
+    const result = await machine.start(testChar(), 'rest at the campfire', testItems);
+
+    expect(result.resolved).toBe(true);
+    expect(rollCalled).toBe(false);
+    if (result.resolved) {
+      expect(result.outcome.outcome).toBe('success');
+      expect(result.outcome.playerRolled).toBeNull();
+      expect(result.outcome.mutations).toEqual([{ type: 'modify_stamina', amount: 3 }]);
+    }
+  });
+
+  it('auto-resolve: does not trigger when LLM returns 1+ real options (normal path)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // 2 options
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const result = await machine.start(testChar(), 'attack the goblin', testItems);
+
+    expect(result.resolved).toBe(false);
+    if (!result.resolved) {
+      expect(result.firstDecision.options.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('single-option validator: triggers one bounded re-decide when decision has exactly 1 option', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // First decide returns a single option — validator should trigger re-decide.
+    // The re-decide returns a proper 2-option spread.
+    llm.decideResult = {
+      distilledType: 'interact',
+      stat: 'wisdom',
+      baseDc: 12,
+      required: false,
+      decision: [{ label: 'The Warden pauses...', dcModifier: -2, stat: 'wisdom' }],
+    };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // Override the mock's decideResult AFTER the first decide call, so the re-decide gets
+    // the corrected 2-option result. The mock always returns `this.decideResult` — we need
+    // it to change between calls. Use a simple counter approach via the decideCalls spy.
+    const result = await machine.start(testChar(), 'talk to the warden', testItems);
+
+    // The validator fired: first decide returned 1 option, re-decide got the (still 1-option)
+    // result because our mock always returns the same value. The re-decide itself passes through.
+    // We verify the validator was invoked by checking decide was called twice (original + re-decide).
+    expect(llm.decideCalls.length).toBe(2);
+    // The second call should carry the criticNote with the validator's guidance.
+    expect(llm.decideCalls[1].context.criticNote).toContain('single option');
+    expect(result.resolved).toBe(false);
+  });
+
+  it('single-option validator: does not trigger when decision has 2+ options', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatDecideResult(); // 2 options
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    await machine.start(testChar(), 'attack the goblin', testItems);
+
+    // Only one decide call — validator didn't trigger a re-decide.
+    expect(llm.decideCalls.length).toBe(1);
+  });
+
+  it('single-option validator: does not trigger on empty decision (auto-resolve path)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'travel',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You travel.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const result = await machine.start(testChar(), 'go to the forest', testItems);
+
+    // Validator sees 0 options → no-op. Auto-resolve triggers instead.
+    expect(llm.decideCalls.length).toBe(1);
+    expect(result.resolved).toBe(true);
+  });
+
+  it('single-option validator: triggers on a single bail-only option (re-decides for real choices)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'travel',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      decision: [{ label: 'Proceed', dcModifier: null }],
+    };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    const result = await machine.start(testChar(), 'go to the forest', testItems);
+
+    // Validator triggers on decision.length === 1 regardless of dcModifier.
+    // A single bail-only option IS a single option — the validator re-decides.
+    expect(llm.decideCalls.length).toBe(2);
+    expect(result.resolved).toBe(false);
+  });
+});
+
+/**
+ * decide-scene-narration E2E acceptance — combat rounds simulating the dev-DB 34/35
+ * pattern where every continue-decide returns `decision: []`. Verifies every spec criterion:
+ * per-round narration + combatStatus, ≥2 mechanically distinct options + flee, never a
+ * flee-only screen. Deliberately two consecutive rounds to prove the backstop survives
+ * round-over-round (the enemy re-initialises in unit tests without a DB, but the backstop
+ * fires independently each round — the dead-end is gone either way).
+ */
+describe('PipelineActionStateMachine — decide-scene-narration: E2E acceptance (empty-decision backstop multi-round)', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('two consecutive empty continue-decides both fire the backstop, narrate, show combatStatus, offer distinct options + flee, and never flee-only', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({ decision: [], narration: 'The goblin snarls, teeth bared — it circles left, looking for an opening.' }),
+      combatEnemyDecideResult({ decision: [], narration: 'Your blade scrapes its tattered leather — it stumbles but rights itself, furious now.' }),
+    ];
+    // Two rounds of contested rolls (glanced band).
+    const rolls = [10, 10, 10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const started = await machine.start(testChar(), 'attack the goblin', testItems);
+      expect(started.resolved).toBe(false);
+      if (started.resolved) throw new Error('expected unresolved start');
+      expect(started.firstDecision.narration).toBeUndefined();
+      expect(started.firstDecision.prompt).toBe('Combat — what do you do?');
+
+      // ── Round 1 ──
+      const step1 = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+      expect(step1.resolved).toBe(false);
+      if (step1.resolved) throw new Error('expected unresolved round 1');
+
+      // Narration threads through.
+      expect(step1.nextDecision.narration).toBe('The goblin snarls, teeth bared — it circles left, looking for an opening.');
+      // CombatStatus shows banded enemy condition + player HP movement.
+      expect(step1.nextDecision.combatStatus).toMatch(/Goblin: [▓░]{5} (Healthy|Bloodied|Battered|Critical)/);
+      expect(step1.nextDecision.combatStatus).toMatch(/ · You: /);
+      // Never leaks exact enemy HP — banded only. The enemy portion (Goblin: ... up to the
+      // first · separator) must have no digit before HP; the player's side (You: N HP) is fine.
+      expect(step1.nextDecision.combatStatus).not.toMatch(/Goblin:[^·]*\d HP/);
+      // ≥2 distinct backstop options; flee is a separate bail option (dcModifier: null).
+      const realOptions1 = step1.nextDecision.options.filter(o => o.dcModifier !== null);
+      expect(realOptions1.map(o => o.label)).toEqual(['Press the attack', 'Fight defensively']);
+      const backstop1 = realOptions1.filter(o => o.label !== 'Flee the fight');
+      expect(backstop1).toHaveLength(2);
+      expect(backstop1[0].dcModifier).not.toEqual(backstop1[1].dcModifier);
+      // Backstop flag set.
+      expect(step1.combatBeat?.emptyDecisionFallback).toBe(true);
+
+      // ── Round 2 (backstop fires again independently) ──
+      const step2 = await machine.step(step1.state, 'Press the attack', testChar(), testItems);
+      expect(step2.resolved).toBe(false);
+      if (step2.resolved) throw new Error('expected unresolved round 2');
+
+      expect(step2.nextDecision.narration).toBe('Your blade scrapes its tattered leather — it stumbles but rights itself, furious now.');
+      expect(step2.nextDecision.combatStatus).toMatch(/Goblin: [▓░]{5} (Healthy|Bloodied|Battered|Critical)/);
+      expect(step2.nextDecision.combatStatus).toMatch(/ · You: /);
+      expect(step2.nextDecision.combatStatus).not.toMatch(/Goblin:[^·]*\\d HP/);
+      const realOptions2 = step2.nextDecision.options.filter(o => o.dcModifier !== null);
+      expect(realOptions2.map(o => o.label)).toEqual(['Press the attack', 'Fight defensively']);
+      const backstop2 = realOptions2.filter(o => o.label !== 'Flee the fight');
+      expect(backstop2).toHaveLength(2);
+      expect(backstop2[0].dcModifier).not.toEqual(backstop2[1].dcModifier);
+      expect(step2.combatBeat?.emptyDecisionFallback).toBe(true);
+
+      // Two warns — one per empty decision.
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

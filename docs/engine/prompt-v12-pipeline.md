@@ -39,9 +39,9 @@ The backbone Thread B slots into. Today one call does everything for a beat — 
 - [c] **Latency & cost.** 2–3 calls where there was ~1 — but not the binding constraint (D5). Keep Stage 1 tiny (or heuristic); decompose where it pays (combat, ambiguous intent), keep pure travel/rest single-call, cache the classifier.
 - [c] **Handoff fidelity.** The handoff must be a **structured, typed payload**, not prose the next stage re-parses.
 - [!] **This breaks one-file prompt-versioning.** `AGENTS.md` assumes a single `decision-v<N>.md` + one `PROMPT_VERSION`. A pipeline has several templates, so the convention must extend to a **versioned prompt set** (`decision-prompts/v12/{classify,decide/*/{BASE,phases/*,*.md},resolve/*/{BASE,success,failure}.md}`) stamped together, so an outcome still traces to the exact set. Settle the layout *before* building.
-- [?] Is Stage 1 an LLM call or cheap heuristics (verb/keyword) with an LLM fallback for ambiguous input? Heuristic-first dodges most of the latency hit.
-- [?] How does the pipeline map onto the PHASE model (`NEW_ACTION` / `CONTINUE` / `RESOLVE_ROLL`)? Roughly classify+decide replace `NEW_ACTION`/`CONTINUE` and resolve replaces `RESOLVE_ROLL`, but the mapping needs spelling out.
-- [?] Does the Stage-1 type *replace* the LLM-authored `distilled_type` or seed it? (Likely replaces — the classifier becomes the source of truth.)
+- [?] Is Stage 1 an LLM call or cheap heuristics (verb/keyword) with an LLM fallback for ambiguous input? Heuristic-first dodges most of the latency hit. **→ decided in [[stage-1-thread-d-backbone-plan]]: heuristic-first with an LLM classify fallback on a miss; a total failure (miss AND fallback failure) routes to the typed divine-intervention outcome, never a wrong guess.**
+- [?] How does the pipeline map onto the PHASE model (`NEW_ACTION` / `CONTINUE` / `RESOLVE_ROLL`)? Roughly classify+decide replace `NEW_ACTION`/`CONTINUE` and resolve replaces `RESOLVE_ROLL`, but the mapping needs spelling out. **→ decided in [[stage-1-thread-d-backbone-plan]]: spelled out in its pipeline contract — classify+decide serve `NEW_ACTION`/`CONTINUE` (phase-split decide templates), resolve replaces `RESOLVE_ROLL`.**
+- [?] Does the Stage-1 type *replace* the LLM-authored `distilled_type` or seed it? (Likely replaces — the classifier becomes the source of truth.) **→ decided in [[stage-1-thread-d-backbone-plan]]: the classifier's `ActionType` is the routing truth; `distilledType` is demoted, its full retirement carried forward as an open question.**
 
 > The scene-state spine the pipeline carries across beats (D1), its graph-shaped mutation vocabulary (D2), and the travel/location coherence it should close (D6) live in the sibling part [[prompt-v12-scene-state]].
 
@@ -66,6 +66,16 @@ Free-text drives **conversations & puzzles**; **combat stays buttons + roll**. I
 - [!] **The spiral tracks rule-surface, not player-input length.** Mining `llm_calls` (dev + prod, v9/v10): the heaviest reasoning traces come from *trivial* inputs (e.g. `"Rest"` → ~8k reasoning chars) re-reasoning over the monolithic ~5,600-token rulebook carried every call; the v9 critic's scoped prompt runs ~38% leaner. **This is the quantified case for Thread D** — inject only the per-type slice. Flywheel: shorter templates → less spiral → faster + cheaper.
 - [!] **Two engine-level levers the data surfaced** (rule design, not prompt-tuning): (1) **no-op contradiction** — "never emit an empty turn" vs "nothing should change" forces the model to fabricate a result on a full-HP `"Rest"`; let genuine no-ops resolve empty ([[mutation-vocabulary-refinement]] §5a). (2) **CONTINUE re-derivation** — mid-beat state rebuilt from prose every call; the D1/D2 scene-state spine ([[prompt-v12-scene-state]]) removes it.
 - [!] **Stage-3 handoff must carry `final_mutations`.** Critic-v1 prod data (38 calls, 76% ok) shows every *minor* issue was `outcome_text` written against the *authored* mutations, not the engine's post-adjustment set. Feeding resolve the final world state eliminates the class by design. The staged approach is confirmed viable at scale — the extra stage costs ~5 s and a bounded re-decide fixes structural failures in one pass.
+
+### D5c — Amendment: DECIDE authors scene-framing `narration` on CONTINUE ([[decide-scene-narration]])
+
+> **Deliberate, bounded amendment to the "DECIDE authors options only" decision.**
+
+Stage 1's exit criteria stated "decide emits options only"; [[decide-scene-narration]] amends this: DECIDE now also authors an optional `narration` field on CONTINUE beats (from the second decision onward). Scene-framing before a choice is not outcome-authoring — RESOLVE still owns final mutations and the terminal outcome. For combat, the just-resolved round's mechanical truth is engine-owned and passed into DECIDE as `combatRoundSummary`, so narration only dresses the dice result.
+
+Per-round combat narration is now a faithfulness surface the parked prose critic (D7) would later cover: a slip in a round's narration compounds, so the critic's fidelity check over free prose applies to it as well as the final outcome.
+
+In code: `PipelineDecideResult.narration` (optional, parsed by `ProdPipelineGateway.decide()`), threaded through `ActionDecision` and `ActionDecisionRecord`; rendered by `buildDecisionMessage` and `buildStoryThread`. The first beat (NEW_ACTION) authors no `narration` — the player's own input frames it.
 
 ## D7 — Verification: validators first, two critics, no LLM state-authoring
 

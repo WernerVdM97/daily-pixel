@@ -73,6 +73,24 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
     expect(set.classify).not.toContain('# BASE-RESOLVE — shared rules');
   });
 
+  it('classify is a real routing prompt (not the Stage-1 stub): names all seven ActionTypes, the flags, and carries the SECURITY RULE', () => {
+    const set = loadPromptSet('v12');
+    // Not the stub — the stub is a 3-line placeholder with no routing contract.
+    expect(set.classify).not.toContain('(STUB)');
+    // Names every routable ActionType so the model can pick exactly one (T3 acceptance).
+    for (const category of ACTION_CATEGORIES) {
+      expect(set.classify).toContain(`\`${category}\``);
+    }
+    // The three routing flags the gateway parses back (ProdPipelineGateway.classify).
+    for (const flag of ['unsafe_location', 'needs_roll', 'target_present']) {
+      expect(set.classify).toContain(flag);
+    }
+    // Carry-forward: the SECURITY RULE must survive into the classify template.
+    expect(set.classify).toContain('SECURITY RULE');
+    // Tiny-output contract: the JSON shape the parser expects.
+    expect(set.classify).toContain('"actionType"');
+  });
+
   it('resolve templates are prepended with BASE-resolve.md, not BASE.md', () => {
     const set = loadPromptSet('v12');
     for (const category of ACTION_CATEGORIES) {
@@ -200,5 +218,89 @@ describe('stampFor — derived per-stage telemetry stamp', () => {
 
   it('accepts an explicit version override', () => {
     expect(stampFor('travel', 'v13')).toBe('v13/travel');
+  });
+});
+
+describe('Carry-forward checklist (v8–v11 rules that must survive the v12 rewrite)', () => {
+  it('rule 1 — refunds (no-op/timeout free roll, once per day) are ENGINE-owned, not a prompt rule (T6 must preserve the refund calls on the pipeline path)', () => {
+    const typesFile = readFileSync(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'src',
+        'db',
+        'repositories',
+        'types.ts',
+      ),
+      'utf-8',
+    );
+    // This rule was never a prompt rule — it lives entirely in DB state, so there is no
+    // template anchor to assert. Lock the columns that carry it instead.
+    expect(typesFile).toContain('last_noop_refund_day');
+    expect(typesFile).toContain('last_timeout_refund_day');
+  });
+
+  it('rule 2 — KNOWN LOCATIONS reuse/lazy-create (move_to vs cross_frontier) is owned by resolve/BASE.md and reaches every category', () => {
+    const set = loadPromptSet('v12');
+    for (const category of ACTION_CATEGORIES) {
+      for (const ver of ['success', 'failure'] as const) {
+        const tpl = set.resolve[category][ver];
+        expect(tpl).toContain('move_to');
+        expect(tpl).toContain('cross_frontier');
+        expect(tpl).toContain('Never invent a name for `move_to`');
+      }
+    }
+  });
+
+  it('rule 3 — no dead turns is owned by decide/BASE.md and reaches every category in both phases', () => {
+    const set = loadPromptSet('v12');
+    for (const category of ACTION_CATEGORIES) {
+      for (const phase of ['newAction', 'continue'] as const) {
+        const tpl = set.decide[category][phase];
+        expect(tpl).toContain('no dead turns');
+        expect(tpl).toContain('pure travel/rest');
+      }
+    }
+  });
+
+  it('rule 4 — SECURITY RULE carries into every assembled decide string, every assembled resolve string, and classify', () => {
+    const set = loadPromptSet('v12');
+    expect(set.classify).toContain('SECURITY RULE');
+    for (const category of ACTION_CATEGORIES) {
+      for (const phase of ['newAction', 'continue'] as const) {
+        expect(set.decide[category][phase]).toContain('SECURITY RULE');
+      }
+      for (const ver of ['success', 'failure'] as const) {
+        expect(set.resolve[category][ver]).toContain('SECURITY RULE');
+      }
+    }
+  });
+
+  it('rule 5 — markdown framing survives: "markdown briefing" in every decide/resolve string, "No markdown fences" in classify', () => {
+    const set = loadPromptSet('v12');
+    expect(set.classify).toContain('No markdown fences');
+    for (const category of ACTION_CATEGORIES) {
+      for (const phase of ['newAction', 'continue'] as const) {
+        expect(set.decide[category][phase]).toContain('markdown briefing');
+      }
+      for (const ver of ['success', 'failure'] as const) {
+        expect(set.resolve[category][ver]).toContain('markdown briefing');
+      }
+    }
+  });
+
+  it('rule 6 — per-option stat & ability check is owned by decide/BASE.md and reaches every category in both phases', () => {
+    const set = loadPromptSet('v12');
+    for (const category of ACTION_CATEGORIES) {
+      for (const phase of ['newAction', 'continue'] as const) {
+        const tpl = set.decide[category][phase];
+        expect(tpl).toContain('ability check');
+        // Anchor the per-option half on the enforcement bullet itself, not the bare `stat`
+        // field name — the JSON contract / field-reference docs mention `stat` regardless of
+        // whether the per-option variety rule survives, so a bare `stat` check is false comfort.
+        expect(tpl).toContain('Each option SHOULD declare its own');
+      }
+    }
   });
 });

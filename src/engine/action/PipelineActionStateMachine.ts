@@ -1,4 +1,5 @@
-import type { LlmDecisionOption, SceneStateEdge } from '../../llm/LlmGateway.js';
+import type { LlmContext, LlmDecision, LlmDecisionOption, SceneStateEdge, CriticGateway, CriticInput } from '../../llm/LlmGateway.js';
+import { buildContextDigest } from '../../llm/prompt-builder.js';
 import type {
   ActionType,
   RoutingFlags,
@@ -134,6 +135,10 @@ export class PipelineActionStateMachine {
       proposed: WorldMutation[],
       ctx: MutationContext,
     ) => { mutations: WorldMutation[]; minted: string[] } = (proposed) => ({ mutations: proposed, minted: [] }),
+    // Optional (D7): absent by default, so every existing caller (and the sim, which never
+    // injects one) takes the no-critic path through `critiqueDecide`/`critiqueNarration` below —
+    // both are unconditional no-ops without a critic, keeping this the zero-risk default.
+    private critic?: CriticGateway,
   ) {}
 
   async start(
@@ -150,26 +155,59 @@ export class PipelineActionStateMachine {
     const context = buildPipelineContext(this.resolver, char, rawInput, [], items);
 
     // CLASSIFY fires once per action (settled decision #4): heuristic first, LLM fallback only
-    // on a miss. A fallback rejection is the one way `start()` resolves outright in this
-    // pipeline — DECIDE itself never authors mutations/outcome_text (D5b split), so short of
-    // this failure mode, start() always returns `resolved: false`.
+    // on a miss. A fallback rejection resolves outright. DECIDE itself never authors
+    // mutations/outcome_text (D5b split), but when the LLM returns `decision: []` on beat 1,
+    // the resolve pipeline runs inside start() and returns `resolved: true` — the auto-resolve
+    // path restored per §2 v12 QA.
     const classifyResult = heuristicClassify(rawInput);
     let actionType: ActionType;
     let flags: RoutingFlags;
+    const gatewayCallIds: number[] = [];
     if (classifyResult.kind === 'hit') {
       actionType = classifyResult.actionType;
       flags = classifyResult.flags;
     } else {
       try {
-        const hit = await this.llm.classify(rawInput, context);
+        const { result: hit, callId: classifyCallId } = await this.llm.classify(rawInput, context);
         actionType = hit.actionType;
         flags = hit.flags;
+        if (classifyCallId !== 0) gatewayCallIds.push(classifyCallId);
       } catch {
         return this.resolveDivineIntervention(rawInput, kind, wage);
       }
     }
 
-    const decideResult = await this.llm.decide({ actionType, flags, context });
+    const { result: rawDecideResult, callId: decideCallId } = await this.llm.decide({ actionType, flags, context });
+    if (decideCallId !== 0) gatewayCallIds.push(decideCallId);
+    const { result: afterCritic, criticCallIds } = await this.critiqueDecide(rawDecideResult, actionType, flags, context);
+    const { result: decideResult, validatorCallIds } = await this.validateSingleOption(afterCritic, actionType, flags, context);
+
+    // §2 v12 QA: auto-resolve on first-beat `decision: []` — the LLM returned an empty
+    // decision array, signalling this action needs no player branching. Jump straight to
+    // the resolve pipeline instead of serving a bail-only screen.
+    if (decideResult.decision.length === 0) {
+      const syntheticOption: ActionOption = { label: rawInput, dcModifier: 0, stat: decideResult.stat };
+      const allCallIds = [...gatewayCallIds, ...criticCallIds, ...validatorCallIds];
+      const preState: PipelineInternalActionState = {
+        rawInput,
+        decisions: [],
+        accumulatedDc: decideResult.baseDc,
+        kind,
+        wage,
+        actionType,
+        flags,
+        pendingDecision: { prompt: '', options: [] },
+        distilledType: decideResult.distilledType,
+        rollStat: decideResult.stat,
+        required: decideResult.required,
+        lastDecideResult: decideResult,
+        lastActionAt: Date.now(),
+        ...(allCallIds.length > 0 ? { llmCallIds: allCallIds } : {}),
+      };
+      const resolved = await this.resolve(preState, char, items, decideResult.baseDc, [], syntheticOption);
+      return { resolved: true, state: resolved.state, outcome: resolved.outcome };
+    }
+
     const firstDecision = toActionDecision(decideResult, decideResult.required);
 
     const state: PipelineInternalActionState = {
@@ -186,6 +224,11 @@ export class PipelineActionStateMachine {
       required: decideResult.required,
       lastDecideResult: decideResult,
       lastActionAt: Date.now(),
+      // llmCallIds accumulates every recorded LLM call in this action (gateway stages +
+      // critic). Filter zeros: callId===0 means no recorder was wired for that call.
+      ...([...gatewayCallIds, ...criticCallIds, ...validatorCallIds].length > 0
+        ? { llmCallIds: [...gatewayCallIds, ...criticCallIds, ...validatorCallIds] }
+        : {}),
     };
 
     return { resolved: false, state, firstDecision };
@@ -210,6 +253,7 @@ export class PipelineActionStateMachine {
         chosen: choice,
         dcModifier: 0,
         distilledType: state.distilledType,
+        ...(state.pendingDecision.narration ? { narration: state.pendingDecision.narration } : {}),
       };
       const nextState: PipelineInternalActionState = {
         ...state,
@@ -236,6 +280,7 @@ export class PipelineActionStateMachine {
       chosen: choice,
       dcModifier: option.dcModifier,
       distilledType: state.distilledType,
+      ...(state.pendingDecision.narration ? { narration: state.pendingDecision.narration } : {}),
     };
     const newDecisions = [...state.decisions, record];
     const newDc = accumulateDc(state.accumulatedDc, [option.dcModifier]);
@@ -261,7 +306,15 @@ export class PipelineActionStateMachine {
     }
 
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
-    const decideResult = await this.llm.decide({ actionType: state.actionType, flags: state.flags, context });
+    const { result: rawDecideResult, callId: stepDecideCallId } = await this.llm.decide({ actionType: state.actionType, flags: state.flags, context });
+    // Gate runs on the fresh decideResult BEFORE the realOptions split below, so a major re-decide
+    // (or a pass-through) feeds BOTH the zero-real-options resolve-trigger check and the normal
+    // continue branch from the same single critic pass — no second gate call for either branch.
+    const { result: afterCritic, criticCallIds } = await this.critiqueDecide(
+      rawDecideResult, state.actionType, state.flags, context,
+    );
+    const { result: decideResult, validatorCallIds } = await this.validateSingleOption(afterCritic, state.actionType, state.flags, context);
+    const beatCallIds = [stepDecideCallId, ...criticCallIds, ...validatorCallIds].filter(id => id !== 0);
     const realOptions = decideResult.decision.filter(o => o.dcModifier !== null);
 
     if (realOptions.length === 0) {
@@ -275,6 +328,9 @@ export class PipelineActionStateMachine {
           ...stateWithStat.lastDecideResult,
           sceneLocation: decideResult.sceneLocation ?? stateWithStat.lastDecideResult.sceneLocation,
         },
+        ...(beatCallIds.length > 0
+          ? { llmCallIds: [...(stateWithStat.llmCallIds ?? []), ...beatCallIds] }
+          : {}),
       };
       return this.resolve(stateForResolve, char, items, newDc, newDecisions, option);
     }
@@ -287,6 +343,9 @@ export class PipelineActionStateMachine {
       pendingDecision: nextDecision,
       distilledType: decideResult.distilledType || state.distilledType,
       lastDecideResult: decideResult,
+      ...(beatCallIds.length > 0
+        ? { llmCallIds: [...(stateWithStat.llmCallIds ?? []), ...beatCallIds] }
+        : {}),
     };
 
     return { resolved: false, state: nextState, nextDecision };
@@ -316,7 +375,7 @@ export class PipelineActionStateMachine {
     roundResult: CombatRoundOutcome,
     enemyHpAfter: number,
     ops: string[],
-    opts: { floorSave?: boolean } = {},
+    opts: { floorSave?: boolean; emptyDecisionFallback?: boolean } = {},
   ): CombatBeatLog {
     const materialMutationFired =
       roundResult.enemyHpDelta !== 0 || roundResult.playerHpDelta !== 0 || ops.some(o => o !== 'set_relation');
@@ -330,6 +389,7 @@ export class PipelineActionStateMachine {
       ops,
       marker: 'combat_round',
       ...(opts.floorSave ? { floorSave: true } : {}),
+      ...(opts.emptyDecisionFallback ? { emptyDecisionFallback: true } : {}),
     };
   }
 
@@ -518,23 +578,86 @@ export class PipelineActionStateMachine {
       },
     ];
 
-    const updatedContext = { ...context, sceneState: updatedSceneState };
-    const decideResult = await this.llm.decide({
+    // decide-scene-narration: hand the just-resolved round's mechanical truth to DECIDE so its
+    // narration can acknowledge the approach the player took and stay faithful to the dice.
+    // Deliberately `combatRoundSummary`, not `rollOutcome` — that field switches the phase to
+    // RESOLVE_ROLL, which this call is not.
+    const updatedContext = {
+      ...context,
+      sceneState: updatedSceneState,
+      combatRoundSummary: {
+        band: roundResult.band,
+        playerHpDelta: roundResult.playerHpDelta,
+        enemyHpDelta: roundResult.enemyHpDelta,
+        chosenOption: {
+          label: chosenOption.label,
+          ...(chosenOption.stat ? { stat: chosenOption.stat } : {}),
+        },
+      },
+    };
+    // T4: NOT gated — combat truth is engine-owned (the contested roll + band already decided
+    // this round), so there is no authored decision content here for the coherence critic to check.
+    const { result: decideResult, callId: combatDecideCallId } = await this.llm.decide({
       actionType: state.actionType,
       flags: state.flags,
       context: updatedContext,
     });
 
     const nextDecision = toActionDecision(decideResult, state.required);
+
+    // Mechanical-diversity check (decide-scene-narration spec): a combat round needs a genuine
+    // trade-off — at least two options differing on stat or dcModifier. Telemetry only (no
+    // retry), in the `validateSingleOption` console.warn style: icons over a non-choice is this
+    // spec's quiet failure mode, so make it measurable.
+    if (nextDecision.options.length > 1) {
+      const resolvedStat = (o: ActionOption) => o.stat ?? decideResult.stat;
+      const [first, ...rest] = nextDecision.options;
+      const allIdentical = rest.every(
+        (o) => resolvedStat(o) === resolvedStat(first) && o.dcModifier === first.dcModifier,
+      );
+      if (allIdentical) {
+        console.warn(
+          '[combat] mechanical-diversity check failed — all options share stat + dcModifier',
+          `rawInput: ${state.rawInput}`,
+          `options: ${JSON.stringify(nextDecision.options)}`,
+        );
+      }
+    }
+
+    // Strip any same-labelled decide option first, BEFORE the emptiness backstop below — a
+    // wayward LLM could author a real 'Flee the fight' despite BASE Rule 3, and counting it as a
+    // "real" option would let the backstop skip while the flee-dedup then strips it anyway,
+    // leaving a silent flee-only screen. The engine's guaranteed-null flee is appended after the
+    // backstop instead, so it always wins step()'s label lookup.
+    nextDecision.options = nextDecision.options.filter(o => o.label !== COMBAT_FLEE_LABEL);
+
+    // Combat empty-decision backstop (decide-scene-narration spec, belt-and-braces): the fresh
+    // continue-decide returned zero real (non-flee) options — never present a flee-only screen
+    // mid-fight. Injected BEFORE the guaranteed flee append below, so even the degraded path is a
+    // real choice, not a screen with no decision in miniature.
+    let emptyDecisionFallback = false;
+    if (nextDecision.options.length === 0) {
+      console.warn(
+        '[combat] empty decision detected on a continue round — injecting fallback options',
+        `rawInput: ${state.rawInput}`,
+      );
+      nextDecision.options = [
+        { label: 'Press the attack', dcModifier: 0, stat: state.rollStat },
+        { label: 'Fight defensively', dcModifier: -1, stat: state.rollStat },
+      ];
+      emptyDecisionFallback = true;
+    }
+
     // Engaged combat always offers a voluntary flee (dcModifier: null), caught by step()'s bail
     // path — which leaves the in_combat edge persisted, so the enemy is remembered (plan decision 4).
-    // Filter any same-labelled decide option first so the engine's guaranteed-null flee wins step()'s
-    // label lookup (a wayward LLM could author a real 'Flee the fight' despite BASE Rule 3).
     // ensureBail can't add this — it returns early for required actions, which combat always is.
     nextDecision.options = [
-      ...nextDecision.options.filter(o => o.label !== COMBAT_FLEE_LABEL),
+      ...nextDecision.options,
       { label: COMBAT_FLEE_LABEL, dcModifier: null },
     ];
+    // Engine-composed status line (decide-scene-narration spec): banded enemy condition (never
+    // exact enemy HP) plus the player's own exact HP movement.
+    nextDecision.combatStatus = composeCombatStatus(cs.enemyName, newEnemyHp, cs.enemyMaxHp, playerHpDelta);
     const nextState: PipelineInternalActionState = {
       ...state,
       decisions: newDecisions,
@@ -543,6 +666,9 @@ export class PipelineActionStateMachine {
       distilledType: decideResult.distilledType || state.distilledType,
       lastDecideResult: decideResult,
       combatAnchor: heldAnchor,
+      ...(combatDecideCallId !== 0
+        ? { llmCallIds: [...(state.llmCallIds ?? []), combatDecideCallId] }
+        : {}),
     };
 
     const continueMutations: WorldMutation[] = [
@@ -556,7 +682,10 @@ export class PipelineActionStateMachine {
       state: nextState,
       nextDecision,
       mutations: continueMutations,
-      combatBeat: this.buildCombatBeat(cs, roundResult, newEnemyHp, continueMutations.map(m => m.type)),
+      combatBeat: this.buildCombatBeat(
+        cs, roundResult, newEnemyHp, continueMutations.map(m => m.type),
+        emptyDecisionFallback ? { emptyDecisionFallback: true } : {},
+      ),
     };
   }
 
@@ -586,7 +715,7 @@ export class PipelineActionStateMachine {
     const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
 
     // RESOLVE-MUTATE for ancillary loot only (the LLM never authors enemyHp/core damage).
-    const { mutations: proposedMutations } = await this.llm.resolveMutate({
+    const { result: combatMutate, callId: combatMutateCallId } = await this.llm.resolveMutate({
       actionType: state.actionType,
       decision: decisionForHandoff,
       chosenOption: chosenOptionForHandoff,
@@ -594,6 +723,8 @@ export class PipelineActionStateMachine {
       d20Roll,
       context,
     });
+    const proposedMutations = combatMutate.mutations;
+    const combatResolveCallIds: number[] = combatMutateCallId !== 0 ? [combatMutateCallId] : [];
 
     // D6 travel-coherence gate.
     const gatedMutations = applyTravelCoherenceGate(
@@ -636,7 +767,7 @@ export class PipelineActionStateMachine {
     const { mutations: finalMutations } = this.finalize(mutationsWithCombat, mutationCtx);
 
     // RESOLVE-NARRATE.
-    const { outcomeText } = await this.llm.resolveNarrate({
+    const { result: combatNarrate, callId: combatNarrateCallId } = await this.llm.resolveNarrate({
       actionType: state.actionType,
       decision: decisionForHandoff,
       chosenOption: chosenOptionForHandoff,
@@ -645,6 +776,14 @@ export class PipelineActionStateMachine {
       finalMutations: finalMutations as unknown[],
       context,
     });
+    const rawOutcomeText = combatNarrate.outcomeText;
+    if (combatNarrateCallId !== 0) combatResolveCallIds.push(combatNarrateCallId);
+
+    // Faithfulness prose critic (D7): may only patch outcomeText. `finalMutations` is already
+    // finalized above and never handed back for modification — see critiqueNarration's contract.
+    const { outcomeText, criticCallIds } = await this.critiqueNarration(
+      rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context,
+    );
 
     const mutations = [...finalMutations];
     if (state.wage && state.wage > 0) {
@@ -673,6 +812,7 @@ export class PipelineActionStateMachine {
       state: finalState,
       outcome: {
         distilledType: state.distilledType,
+        category: state.actionType,
         finalDc: newDc,
         playerRolled: d20Roll,
         rollBonus,
@@ -680,7 +820,7 @@ export class PipelineActionStateMachine {
         outcome: verdict,
         mutations,
         outcomeText,
-        llmCallIds: state.llmCallIds ?? [],
+        llmCallIds: [...(state.llmCallIds ?? []), ...combatResolveCallIds, ...criticCallIds],
         hpZero: (playerHpDelta < 0 && (char.health + playerHpDelta) <= 0) || undefined,
         combatBeat,
       },
@@ -723,7 +863,7 @@ export class PipelineActionStateMachine {
     const decisionForHandoff = state.lastDecideResult;
     const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
 
-    const { mutations: proposedMutations } = await this.llm.resolveMutate({
+    const { result: mutateResult, callId: resolveMutateCallId } = await this.llm.resolveMutate({
       actionType: state.actionType,
       decision: decisionForHandoff,
       chosenOption: chosenOptionForHandoff,
@@ -731,6 +871,8 @@ export class PipelineActionStateMachine {
       d20Roll,
       context,
     });
+    const proposedMutations = mutateResult.mutations;
+    const resolveCallIds: number[] = resolveMutateCallId !== 0 ? [resolveMutateCallId] : [];
 
     // D6 travel-coherence gate: structural backstop against a scene that narrated elsewhere with
     // no relocate mutation (the forge→forest teleport). Injects intent only — geography enforces
@@ -758,7 +900,7 @@ export class PipelineActionStateMachine {
     };
     const { mutations: finalMutations } = this.finalize(gatedMutations, mutationCtx);
 
-    const { outcomeText } = await this.llm.resolveNarrate({
+    const { result: narrateResult, callId: resolveNarrateCallId } = await this.llm.resolveNarrate({
       actionType: state.actionType,
       decision: decisionForHandoff,
       chosenOption: chosenOptionForHandoff,
@@ -767,6 +909,14 @@ export class PipelineActionStateMachine {
       finalMutations: finalMutations as unknown[],
       context,
     });
+    const rawOutcomeText = narrateResult.outcomeText;
+    if (resolveNarrateCallId !== 0) resolveCallIds.push(resolveNarrateCallId);
+
+    // Faithfulness prose critic (D7): may only patch outcomeText. `finalMutations` is already
+    // finalized above and never handed back for modification — see critiqueNarration's contract.
+    const { outcomeText, criticCallIds } = await this.critiqueNarration(
+      rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context,
+    );
 
     const mutations = [...finalMutations];
     if (state.wage && state.wage > 0) {
@@ -785,6 +935,7 @@ export class PipelineActionStateMachine {
       state: finalState,
       outcome: {
         distilledType: state.distilledType,
+        category: state.distilledType,
         finalDc: newDc,
         playerRolled,
         ...(rollBonus !== undefined ? { rollBonus } : {}),
@@ -792,7 +943,7 @@ export class PipelineActionStateMachine {
         outcome: verdict,
         mutations,
         outcomeText,
-        llmCallIds: state.llmCallIds ?? [],
+        llmCallIds: [...(state.llmCallIds ?? []), ...resolveCallIds, ...criticCallIds],
       },
     };
   }
@@ -803,6 +954,144 @@ export class PipelineActionStateMachine {
    * `'__divine__'` the way `FallbackLlmGateway.ts` does) — `isDivineIntervention: true` on the
    * outcome is the only signal. Never lets the rejection escape `start()`.
    */
+  /**
+   * D7 two-critic-split resolution (settled by the lead): a SINGLE `CriticGateway.critique`
+   * interface (the critic-v1 prompt, branching on `beat`) is invoked at two pipeline sites — a
+   * gated coherence critic over DECIDE (major → one bounded re-decide, below) and a faithfulness
+   * prose critic over RESOLVE-NARRATE (patches `outcome_text` only, see `critiqueNarration`). Not
+   * two prompts/interfaces: the D5b split already structurally prevents the prose critic from
+   * altering mutations (the machine applies only `patch.outcomeText`; the finalized mutation array
+   * is never handed to the critic for modification), so a separate "prose-only" interface would
+   * add versioning + wiring for zero behavioural gain.
+   *
+   * No critic injected → unconditional no-op (`{ result: decideResult, criticCallIds: [] }`), so
+   * every caller that doesn't wire one in (all existing tests + the sim) is byte-identical to
+   * pre-T4 behaviour.
+   */
+  private async critiqueDecide(
+    decideResult: PipelineDecideResult,
+    actionType: ActionType,
+    flags: RoutingFlags,
+    context: LlmContext,
+  ): Promise<{ result: PipelineDecideResult; criticCallIds: number[] }> {
+    if (!this.critic) return { result: decideResult, criticCallIds: [] };
+
+    // §3 v12 QA: removed the `required` gate — the decision critic now fires on
+    // every decide beat, catching single-option and other LLM quality issues that
+    // would otherwise pass through unchecked (e.g. add_item on a travel action).
+    // TODO: re-evaluate after more testing data — anomaly-based gating
+    // (e.g. decision.length < 2 or baseDc out of range) may be a lighter
+    // alternative once we have enough critic verdicts to compare.
+    const input: CriticInput = {
+      beat: 'decision',
+      decision: adaptDecideToLlmDecision(decideResult),
+      contextDigest: buildContextDigest(context),
+      playerInput: context.rawInput,
+      warnings: [],
+    };
+    const verdict = await this.critic.critique(input);
+    const criticCallIds = verdict._llmCallId !== undefined ? [verdict._llmCallId] : [];
+
+    if (verdict.ok) return { result: decideResult, criticCallIds };
+
+    // Minor: a decide beat is options-only (no player-facing prose field) — `patch` has nowhere
+    // to land, so treat minor the same as ok (pass through unchanged).
+    if (verdict.severity === 'minor') return { result: decideResult, criticCallIds };
+
+    // Major: ONE bounded re-decide with the critic's issues as guidance. NOT re-critiqued —
+    // a correction is not itself subject to correction (mirrors CritiquedLlmGateway's ladder).
+    const note = verdict.issues.join('; ') || 'incoherent with the scene';
+    try {
+      const { result: redecided, callId: redecideCallId } = await this.llm.decide({ actionType, flags, context: { ...context, criticNote: note } });
+      const callIds = redecideCallId !== 0 ? [...criticCallIds, redecideCallId] : criticCallIds;
+      return { result: redecided, criticCallIds: callIds };
+    } catch (err) {
+      console.warn('[critic] re-decide failed — keeping original', err instanceof Error ? err.message : String(err));
+      return { result: decideResult, criticCallIds };
+    }
+  }
+
+  /**
+   * §2 v12 QA: deterministic single-option validator. After the critic pass, if the final
+   * decision has exactly one option, trigger ONE bounded re-decide with guidance to produce
+   * real choices or return []. The re-decide output is NOT re-critiqued (mirrors the critic's
+   * own re-decide ladder — a correction is not itself subject to correction).
+   */
+  private async validateSingleOption(
+    decideResult: PipelineDecideResult,
+    actionType: ActionType,
+    flags: RoutingFlags,
+    context: LlmContext,
+  ): Promise<{ result: PipelineDecideResult; validatorCallIds: number[] }> {
+    if (decideResult.decision.length !== 1) {
+      return { result: decideResult, validatorCallIds: [] };
+    }
+
+    // Combat beats are linear per round — single-option "Press the attack" is expected
+    // and the combat sub-mode handler owns the entire round flow. Skip the validator.
+    if (actionType === 'combat') {
+      return { result: decideResult, validatorCallIds: [] };
+    }
+
+    console.warn(
+      '[validator] single-option decision detected',
+      `rawInput: ${context.rawInput}`,
+      `option: ${JSON.stringify(decideResult.decision[0])}`,
+    );
+
+    const note = 'You returned only a single option. The player needs real choices. Generate 2-4 distinct approaches or return [] if this should resolve outright.';
+    try {
+      const { result: redecided, callId } = await this.llm.decide({
+        actionType,
+        flags,
+        context: { ...context, criticNote: note },
+      });
+      return { result: redecided, validatorCallIds: callId !== 0 ? [callId] : [] };
+    } catch (err) {
+      console.warn('[validator] single-option re-decide failed — keeping original', err instanceof Error ? err.message : String(err));
+      return { result: decideResult, validatorCallIds: [] };
+    }
+  }
+
+  /**
+   * Faithfulness prose critic over RESOLVE-NARRATE. Returns ONLY a (possibly patched) string —
+   * it never receives or returns mutations, so the caller's `finalMutations` array is untouched
+   * by construction: the prose critic structurally cannot alter a finalized mutation.
+   *
+   * No critic injected → unconditional no-op, matching `critiqueDecide`.
+   */
+  private async critiqueNarration(
+    outcomeText: string,
+    verdict: 'success' | 'failure',
+    decideResult: PipelineDecideResult,
+    finalMutations: unknown[],
+    context: LlmContext,
+  ): Promise<{ outcomeText: string; criticCallIds: number[] }> {
+    if (!this.critic) return { outcomeText, criticCallIds: [] };
+
+    const input: CriticInput = {
+      beat: 'resolution',
+      rollOutcome: verdict,
+      decision: adaptNarrationToLlmDecision(decideResult, outcomeText, finalMutations),
+      finalMutations,
+      contextDigest: buildContextDigest(context),
+      playerInput: context.rawInput,
+      warnings: [],
+    };
+    const v = await this.critic.critique(input);
+    const criticCallIds = v._llmCallId !== undefined ? [v._llmCallId] : [];
+
+    if (!v.ok && v.severity === 'minor' && v.patch?.outcomeText) {
+      outcomeText = v.patch.outcomeText;
+    } else if (!v.ok && v.severity === 'major') {
+      // Dice + mutations are already finalized; a structural defect can't be safely re-narrated,
+      // so keep the original text (mirrors legacy machine.ts's resolveWithRoll critic hook).
+      console.warn('[critic] major defect on resolution beat — keeping original text:', v.issues.join('; '));
+    }
+
+    return { outcomeText, criticCallIds };
+  }
+
   private resolveDivineIntervention(
     rawInput: string,
     kind: ActionKind,
@@ -831,6 +1120,7 @@ export class PipelineActionStateMachine {
       state,
       outcome: {
         distilledType: 'divine_intervention',
+        category: 'divine_intervention',
         finalDc: 0,
         playerRolled: null,
         outcome: 'done',
@@ -857,8 +1147,10 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** DECIDE authors options only (no `prompt`/outcome_text — settled decision), so the beat's
- *  prompt is always the generic approach-picker, never derived from LLM prose. */
+/** DECIDE authors options only (no `prompt` — settled decision), so the beat's prompt is always
+ *  the generic CTA, never derived from LLM prose. decide-scene-narration amendment: DECIDE now
+ *  also authors `narration` on CONTINUE beats (scene-framing prose, not outcome-authoring) —
+ *  passed through here unchanged; absent on NEW_ACTION, so the first beat stays lean. */
 function toActionDecision(result: PipelineDecideResult, required: boolean): ActionDecision {
   let options: ActionOption[] = required
     ? result.decision.filter(o => o.dcModifier !== null)
@@ -873,9 +1165,38 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
   });
 
   return {
-    prompt: `${capitalize(result.distilledType)} — choose your approach:`,
+    prompt: `${capitalize(result.distilledType)} — what do you do?`,
     options: ensureBail(options, required),
+    ...(result.narration ? { narration: result.narration } : {}),
   };
+}
+
+/** Enemy HP fraction -> a 5-pip bar + wound word (decide-scene-narration spec). Banded only —
+ *  never the exact HP number — so hidden exact HP keeps tension while still reading as progress. */
+function enemyConditionBand(hpFraction: number): { pips: string; woundWord: string } {
+  const filled = Math.max(0, Math.min(5, Math.round(hpFraction * 5)));
+  const pips = '▓'.repeat(filled) + '░'.repeat(5 - filled);
+  const woundWord =
+    hpFraction >= 0.8 ? 'Healthy'
+    : hpFraction >= 0.4 ? 'Bloodied'
+    : hpFraction >= 0.15 ? 'Battered'
+    : 'Critical';
+  return { pips, woundWord };
+}
+
+/** Signed player HP movement, shown exactly — it's the player's own information (decision above),
+ *  unlike the enemy's banded-only condition. */
+function formatPlayerHpDelta(delta: number): string {
+  if (delta > 0) return `+${delta} HP`;
+  if (delta < 0) return `−${Math.abs(delta)} HP`;
+  return '0 HP';
+}
+
+/** Engine-composed combat status line for a continue-screen: banded enemy condition plus exact
+ *  player HP movement, e.g. "Wolf: ▓▓▓░░ Bloodied · You: −2 HP" (decide-scene-narration spec). */
+function composeCombatStatus(enemyName: string, enemyHp: number, enemyMaxHp: number, playerHpDelta: number): string {
+  const { pips, woundWord } = enemyConditionBand(enemyMaxHp > 0 ? enemyHp / enemyMaxHp : 0);
+  return `${enemyName}: ${pips} ${woundWord} · You: ${formatPlayerHpDelta(playerHpDelta)}`;
 }
 
 function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen: string; dcModifier: number }[] {
@@ -884,4 +1205,33 @@ function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen
     chosen: r.chosen,
     dcModifier: r.dcModifier,
   }));
+}
+
+/** Adapts a DECIDE-beat result into the single `LlmDecision` shape the critic-v1 prompt expects
+ *  (it reads a `decision`/`prompt`/`mutations`/`outcome_text`-shaped object regardless of beat). */
+function adaptDecideToLlmDecision(r: PipelineDecideResult): LlmDecision {
+  return {
+    distilledType: r.distilledType,
+    stat: r.stat,
+    baseDc: r.baseDc,
+    required: r.required,
+    done: false,
+    decision: r.decision,
+  };
+}
+
+/** Adapts a finalized RESOLVE-NARRATE beat (verdict-shaped, `done: true`) into the same
+ *  `LlmDecision` shape — `mutations`/`outcomeText` carried through for the critic's context only,
+ *  never fed back into the machine's own mutation handling. */
+function adaptNarrationToLlmDecision(r: PipelineDecideResult, outcomeText: string, finalMutations: unknown[]): LlmDecision {
+  return {
+    distilledType: r.distilledType,
+    stat: r.stat,
+    baseDc: r.baseDc,
+    required: r.required,
+    done: true,
+    decision: [],
+    mutations: finalMutations,
+    outcomeText,
+  };
 }

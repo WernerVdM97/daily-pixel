@@ -45,6 +45,13 @@ export interface StatBlock {
 export interface ActionDecision {
   prompt: string;
   options: ActionOption[];
+  /** decide-scene-narration follow-up: DECIDE's scene-framing prose for this beat, authored on
+   *  CONTINUE only — absent on the first beat, so it stays lean. Threaded onto the record too
+   *  (`ActionDecisionRecord.narration`) so the story-thread can render it per beat. */
+  narration?: string;
+  /** Engine-composed status line for a combat continue-screen (banded enemy condition plus
+   *  exact player HP movement). Screen-only — never persisted onto the record. */
+  combatStatus?: string;
 }
 
 export interface ActionOption {
@@ -62,6 +69,9 @@ export interface ActionDecisionRecord {
   dcModifier: number;
   /** The LLM's distilled_type for the beat this choice was made on — the breadcrumb trail. */
   distilledType?: string;
+  /** The scene-framing narration shown alongside this beat's prompt (see `ActionDecision.narration`),
+   *  carried onto the record so the story-thread can render it per beat. Absent on the first beat. */
+  narration?: string;
 }
 
 /** Drives the story-thread label ("Work:" vs "Quest:"). Defaults to 'quest' when unset. */

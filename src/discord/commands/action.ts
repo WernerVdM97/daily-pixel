@@ -19,6 +19,7 @@ import {
 import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
+import { STAT_LABELS } from '../../engine/stat-format.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
 import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji, dayJobEmoji } from '../format.js';
@@ -119,11 +120,12 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
 
         // No options → stale/broken state: show the prompt with a warning, no buttons.
         if (resumeResult.nextDecision.options.length === 0) {
+          const staleBody = resumeResult.nextDecision.prompt || 'Your previous action could not be recovered.';
           await interaction.editReply({
             embeds: [
               new EmbedBuilder()
                 .setTitle('⏳ Stale Action')
-                .setDescription(resumeResult.nextDecision.prompt || 'Your previous action could not be recovered.')
+                .setDescription(withNarration(resumeResult.nextDecision.narration, staleBody))
                 .setColor(0x95a5a6)
                 .toJSON(),
             ],
@@ -262,7 +264,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
           embeds: [
             new EmbedBuilder()
               .setTitle('⚔️ Action')
-              .setDescription(result.firstDecision.prompt)
+              .setDescription(withNarration(result.firstDecision.narration, result.firstDecision.prompt))
               .setColor(0x95a5a6)
               .toJSON(),
           ],
@@ -434,15 +436,33 @@ function dcArrow(mod: number | null | undefined): string {
   return mod < 0 ? '🟢⬇️' : '🔴⬆️';
 }
 
+/** Stat emoji for an option's `stat`, degrading gracefully (no icon) when the
+ *  stat is missing or unrecognised — never a crash, never a placeholder glyph. */
+function statEmoji(stat: string | undefined): string {
+  if (!stat) return '';
+  const info = STAT_LABELS[stat];
+  return info ? info.emoji : '';
+}
+
+/** Compose the narration block above a prompt-only surface (unfinished-action
+ *  panel, stale-action embed, divine-intervention embed) — `prompt` alone is a
+ *  contentless "what do you do?" once narration carries the scene. */
+function withNarration(narration: string | undefined, prompt: string): string {
+  return narration ? `${narration}\n\n${prompt}` : prompt;
+}
+
 /**
  * Render the "story so far" as a gamebook thread: the quest line, then each
- * prior beat as the DM's prompt (quoted) plus the player's choice (bold).
- * `collapse` drops prompt bodies to a choice-only breadcrumb — the
- * graceful-degradation form for when the full thread overflows the embed cap.
+ * prior beat as its narration — the consequence of the choice before it,
+ * quoted — plus the player's choice (bold). The first beat authors no
+ * narration (lean, framed by the player's own input), so that beat renders
+ * as choice-only. `collapse` drops narration to a choice-only breadcrumb —
+ * the graceful-degradation form for when the full thread overflows the
+ * embed cap.
  */
 function buildStoryThread(
   rawInput: string,
-  decisions: Array<{ prompt: string; chosen: string; dcModifier?: number }>,
+  decisions: Array<{ prompt: string; chosen: string; dcModifier?: number; narration?: string }>,
   collapse = false,
   kind: ActionKind = 'quest',
   workEmoji = '🛠️',
@@ -457,7 +477,7 @@ function buildStoryThread(
       out.push(`> ↳ *${choice}*`);
     } else {
       out.push('');
-      out.push(quoteLines(d.prompt));
+      if (d.narration) out.push(quoteLines(d.narration));
       out.push(`↪ **${choice}**`);
     }
   }
@@ -465,9 +485,14 @@ function buildStoryThread(
 }
 
 export function buildDecisionMessage(
-  decision: { prompt: string; options: Array<{ label: string; dcModifier: number | null }> },
+  decision: {
+    prompt: string;
+    narration?: string;
+    combatStatus?: string;
+    options: Array<{ label: string; dcModifier: number | null; stat?: string }>;
+  },
   decisionIdx: number,
-  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number }>; accumulatedDc?: number; kind?: ActionKind },
+  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; narration?: string }>; accumulatedDc?: number; kind?: ActionKind },
   char?: { stats: { physical: number; wisdom: number; intelligence: number; charisma: number }; dayJob?: string },
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
@@ -488,6 +513,11 @@ export function buildDecisionMessage(
   if (state) {
     blocks.push(buildStoryThread(state.rawInput, state.decisions, false, state.kind, workEmoji));
   }
+  // Narration (the consequence of the last choice) sits quoted above the CTA;
+  // combatStatus is a plain (unquoted) status line between the two on combat
+  // continue-screens. Absent on the first beat — just the quest line + CTA.
+  if (decision.narration) blocks.push(quoteLines(decision.narration));
+  if (decision.combatStatus) blocks.push(decision.combatStatus);
   blocks.push(quoteLines(decision.prompt));
 
   // List real (non-bail) options in the body as A./B./C. so button captions can
@@ -532,7 +562,13 @@ export function buildDecisionMessage(
     } else {
       const letter = LETTERS[letterIdx++] ?? String(origIdx + 1);
       const favoured = origIdx === favouredIdx;
-      optionLines.push(`**${letter}.** ${opt.label}${favoured ? ' 🟢' : ''}`);
+      // Emoji and difficulty arrow are render-only decorations on this line —
+      // `opt.label` itself (used for the button and for `chosen`) stays raw.
+      const icon = statEmoji(opt.stat);
+      const arrow = dcArrow(opt.dcModifier);
+      const prefix = icon ? `${icon} ` : '';
+      const suffix = arrow ? ` ${arrow}` : '';
+      optionLines.push(`**${letter}.** ${prefix}${opt.label}${suffix}${favoured ? ' 🟢' : ''}`);
       buttons.push(
         new ButtonBuilder()
           .setCustomId(choiceCid(decisionIdx, origIdx))
@@ -556,7 +592,7 @@ export function buildDecisionMessage(
 
   const footerText = favouredIdx >= 0
     ? '🟢 a safer path catches your eye'
-    : (decisionIdx === 0 ? 'Choose your approach' : `Decision ${decisionIdx + 1}`);
+    : (decisionIdx === 0 ? 'What do you do?' : `Decision ${decisionIdx + 1}`);
 
   const embed = new EmbedBuilder()
     .setTitle('🤔 Decision')
@@ -588,7 +624,7 @@ export function buildOutcomeEmbed(
   outcome: ActionOutcome,
   character: CharacterData | null | undefined,
   scene: string | null | undefined,
-  state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string }>; kind?: ActionKind },
+  state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string; narration?: string }>; kind?: ActionKind },
   opts?: { compact?: boolean },
   engine?: WorldEngine,
 ): ReturnType<EmbedBuilder['toJSON']> {

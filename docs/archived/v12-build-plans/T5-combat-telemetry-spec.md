@@ -1,3 +1,13 @@
+---
+title: "T5 — per-round combat beat logging + sim combat scenario + metrics: spec handoff"
+status: shipped
+domain: engine
+superseded_by: "implemented in code"
+phase: poc
+tags: [combat, engine, pipeline, thread-c, stage-3, telemetry, sim, spec]
+related: ["[[stage-3-combat-spine-plan]]", "[[prompt-v12-pipeline]]"]
+---
+
 # T5 — per-round combat beat logging + sim combat scenario + metrics · spec handoff
 
 **Contract:** the final Stage-3 task. Make each combat round emit a structured **beat log** (the data that later settles the parked prose-critic trigger, [[prompt-v12-pipeline]] §D7), aggregate combat outcomes into **sim metrics**, and add a **sim combat scenario** that exercises win / floor+desperate-choice / cap-derive. **Read `docs/engine/stage-3-combat-spine-plan.md` Task 5 first** (the contract) plus its "Settled decisions" block (ratified — do not re-litigate). This spec fixes every implementation-level decision so you do not guess.

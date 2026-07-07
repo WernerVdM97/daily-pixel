@@ -4,7 +4,25 @@ All notable changes to The Warden's Oak are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.0] - 2026-07-07
+
+### Changed
+- **DECIDE now authors scene-framing `narration` on CONTINUE beats** — restoring the v12 action screen's game-master voice after the pipeline split stripped it. The LLM sets the scene from the second decision onward (the consequence of the player's last choice); the first beat stays lean, framed by the player's own input. Combat rounds narrate the just-resolved exchange faithfully against engine-owned dice truth. Each option renders with its stat emoji and a difficulty hint, and the gamebook story thread reads as scene → choice, not a repeated generic prompt. No extra LLM calls — narration travels alongside the decide result. Commits `c804706`–`c84c6c5`. Closes `docs/engine/decide-scene-narration/spec.md`.
+- **Pipeline DeepSeek timeout bumped to 60s** — the per-call abort moves from 15s→60s so CONTINUE-beat decide calls have headroom to finish before the re-click poison loop triggers.
+
+### Fixed
+- **Day-job work no longer blocked at a wild workplace** — the daily-work safety gate now exempts a job's own seeded workplace, so Hunters and Herbalists (workplace The Forest Edge, `is_safe: 0`) can work while standing there. The gate still blocks day-job work on any *other* unsafe or unknown/procedural ground, preserving the original intent.
+- **Pipeline decide timeout now resolves gracefully** — when a decide call times out (AbortError), the engine resolves the action as `timed_out` instead of re-throwing and re-presenting the same stuck decision screen. The roll is refunded (system fault grace), stamina −1 is applied, and state is cleared so the player moves on.
+- **Decision critic now fires on every decide beat** — the `required` gate that restricted `critiqueDecide()` to high-stakes beats only is removed. The critic now reviews every LLM-generated decision, catching single-option outputs and incoherent choices (e.g. `add_item` on a travel action) that would previously pass through unchecked. A re-decide on `major` verdicts gives the LLM one chance to fix the issue with the critic's guidance.
+- **Auto-resolve restored on first-beat `decision: []`** — when the LLM returns an empty decision array on beat 1, the resolve pipeline (RESOLVE-MUTATE → RESOLVE-NARRATE) runs inside `start()` instead of serving a bail-only decision screen. Travel and similar deterministic actions now resolve in one shot with a full outcome.
+- **Auto-resolve transaction errors now clear stale state** — when `applyResolution` throws inside `startActionPipeline`, the catch block clears `last_action_state` before re-throwing. Previously an external write (e.g. admin sleep) could restore a resolved-but-unpersisted state, trapping the player on an empty decision screen. The `startAction` guard now also detects resolved-but-unpersisted states and silently clears them.
+- **Single-option validator added** — after the critic pass, if the final decision has exactly one option, a bounded re-decide fires with guidance to produce real choices (2-4 distinct approaches) or return `[]` to resolve outright.
+- **Pipeline outcomes now carry `category`** — `PipelineActionStateMachine.resolve()`, `resolveCombat()`, and `resolveDivineIntervention()` all set `outcome.category` so the geography-finalize telemetry can flag mutation-category deviations on pipeline-resolved actions, matching the legacy path.
+
+### Internal
+- **Pipeline LLM call IDs now wired into `llmCallIds`** — `ProdPipelineLlmGateway.runStage()` returns the `llm_calls` row ID alongside the stage result; every pipeline stage accumulates its call ID into `PipelineInternalActionState.llmCallIds`, which flows through to the existing `linkAction()` backfill at resolution time so the full audit chain is mineable.
+- **`LLM_LOG_ALL_PROMPTS` env var added** — when set to `1`, `ProdPipelineGateway.runStage()` logs raw prompts and DeepSeek reasoning content on every call regardless of success/failure. Intended as a QA debugging tool; turn off in steady state.
+- **Archived shipped v12 build-plan docs** — Stage 0a–3 build plans and T3–T5 child-task specs moved to `docs/archived/v12-build-plans/`; superseded by the living code.
 
 ## [0.2.8] - 2026-07-05
 ### Added

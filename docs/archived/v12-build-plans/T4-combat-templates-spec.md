@@ -1,3 +1,13 @@
+---
+title: "T4 — v12 combat prompt templates: spec handoff"
+status: shipped
+domain: engine
+superseded_by: "implemented in code"
+phase: poc
+tags: [combat, engine, prompt, pipeline, thread-c, stage-3, templates, spec]
+related: ["[[stage-3-combat-spine-plan]]", "[[prompt-v12-combat]]", "[[v12-prompt-set-versioning]]"]
+---
+
 # T4 — v12 combat prompt templates (spec handoff)
 
 **Contract:** encode the C-a combat rules into the v12 combat prompt templates (decide + resolve success/failure) per the Stage 3 plan's Task 4. **Read `docs/engine/stage-3-combat-spine-plan.md` first** (the ratified decisions block, especially decision 3 "engine owns the numbers", and the "Task 4" section) and **`docs/game/prompt-v12-combat.md` §C-a** (the four prompt-level rules this task encodes). Then read the files listed below for grounding.

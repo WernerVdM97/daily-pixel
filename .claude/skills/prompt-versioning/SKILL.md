@@ -20,7 +20,7 @@ Each family lives in `assets/prompts/<family>/`, loaded once at boot in `src/llm
 | Decision | `assets/prompts/decision-prompts/` | `PROMPT_VERSION` | `decision-<vN>.md` | `<vN>` |
 | Critic | `assets/prompts/critic/` | `CRITIC_VERSION` | `critic-<vN>.md` | `critic-<vN>` |
 
-New families follow the same shape: own folder, own `*_VERSION` constant, `<family>-<vN>.md` files, and a `current_source.md` mirror.
+New families follow the same shape: own folder, own `*_VERSION` constant, `<family>-<vN>.md` files, and a `current_source.md` mirror (single-file) or a `current_source/` directory mirror (set-based — see below).
 
 ## Rules (every family)
 
@@ -34,5 +34,5 @@ A family whose runtime unit spans several templates fired together for one outco
 
 - **Layout — directory per set:** `assets/prompts/<family>/<vN>/{template-a,template-b,…}.md`. Every template in the directory belongs to that version; there is no cross-version mixing.
 - **One set-version constant, derived per-call stamps.** A single `*_SET_VERSION` constant (e.g. `PROMPT_SET_VERSION`) names the set; never hand-maintain a version constant per template inside it — that breaks "the set is stamped together" and adds bookkeeping for nothing. Per-call telemetry stamps the *stage within the set* as `${version}/${template}` (e.g. `'v12/combat'`), derived by a small helper (`stampFor`), never a hardcoded string.
-- **No `current_source.md` mirror.** The single-file mirror exists because "current" means one file; a set has no single active file, so the versioned directory itself *is* the canonical, immutable-once-published unit — don't add a mirror for it.
-- **Never edit a published set in place** — same rule as single-file families, at the directory level: copy `<family>/<old>/` → `<family>/<new>/`, edit the new directory, bump the `*_SET_VERSION` constant. Keep old set directories so past rows stay attributable.
+- **Mirror the active set to a `current_source/` directory.** Generalises the single-file `current_source.md` rule to a set: keep `assets/prompts/<family>/current_source/` byte-identical to the version directory the `*_SET_VERSION` constant points at, so `current_source/` is always the canonical "current" set no matter what the active version is named. Re-sync it whenever the active set changes.
+- **Never edit a *published* set in place** — once a set has produced attributable rows you must preserve (it's live in prod / past the cutover), copy `<family>/<old>/` → `<family>/<new>/`, edit the new directory, bump the `*_SET_VERSION` constant, and re-point `current_source/` at the new version. Keep old set directories so past rows stay attributable. A set still *in development* (pre-cutover, its only rows in a dev DB that gets wiped) may be edited in place — just keep `current_source/` in sync.
