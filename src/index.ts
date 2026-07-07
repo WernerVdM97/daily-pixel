@@ -2031,8 +2031,14 @@ ${headInfo}`);
         }
         // Block daily work from unsafe ground (unknown/procedural locations count as
         // unsafe, mirroring the unsafe-soul count). Freeform `/action` is unaffected.
+        // Exception: your job is unsafe
+        const workplace = getWorkplaceLocation(char.dayJob, dayJobs, {
+          characterId: char.id,
+          dayNumber,
+        });
+        const atWorkplace = workplace !== null && char.location === workplace;
         const here = engine.getLocation(char.location);
-        if (!here?.isSafe) {
+        if (!here?.isSafe && !atWorkplace) {
           await interaction.reply({
             content: `⚠️ **It's no place for honest work here.**\nThe ${char.location} is too dangerous — make for safer ground before you set to your trade.`,
             flags: MessageFlags.Ephemeral,
@@ -2055,11 +2061,6 @@ _${idleMsg}_`)
 
         // ── Commute from the Oak to the workplace ──
         if (char.location === "The Warden's Oak") {
-          const workplace = getWorkplaceLocation(char.dayJob, dayJobs, {
-            characterId: char.id,
-            dayNumber,
-          });
-
           if (workplace && workplace !== char.location) {
             charRepo.update(char.id, {
               stamina: Math.max(0, char.stamina - 1),
