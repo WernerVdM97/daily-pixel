@@ -1028,6 +1028,47 @@ describe('PipelineActionStateMachine — decide-scene-narration: combat empty-de
       warnSpy.mockRestore();
     }
   });
+
+  it('fires the backstop when the only decide-authored option is a wayward "Flee the fight"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      // A wayward LLM authors a real (non-null dcModifier) 'Flee the fight' despite BASE Rule 3 —
+      // it must be stripped as the guaranteed flee's duplicate BEFORE the emptiness check runs,
+      // not after, or the backstop wrongly skips and the screen ends up flee-only.
+      combatEnemyDecideResult({ decision: [{ label: 'Flee the fight', dcModifier: 1, stat: 'physical' }] }),
+    ];
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const started = await machine.start(testChar(), 'attack the goblin', testItems);
+      if (started.resolved) throw new Error('expected unresolved start');
+      const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+      expect(step.resolved).toBe(false);
+      if (step.resolved) throw new Error('expected unresolved step');
+
+      expect(step.nextDecision.options.map(o => o.label)).toEqual([
+        'Press the attack',
+        'Fight defensively',
+        'Flee the fight',
+      ]);
+      // Exactly one flee option — the engine's guaranteed one, not the wayward authored one.
+      expect(step.nextDecision.options.filter(o => o.label === 'Flee the fight')).toHaveLength(1);
+      expect(step.nextDecision.options.find(o => o.label === 'Flee the fight')).toEqual({
+        label: 'Flee the fight', dcModifier: null,
+      });
+      // Never a flee-only screen — at least one non-flee option is always present.
+      expect(step.nextDecision.options.some(o => o.label !== 'Flee the fight')).toBe(true);
+
+      expect(step.combatBeat?.emptyDecisionFallback).toBe(true);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });
 
 /**

@@ -359,6 +359,20 @@ export function buildUserMessage(ctx: LlmContext): string {
     }
   }
 
+  // Combat continue only: the contested roll for this round is already resolved (engine-owned),
+  // so hand DECIDE the mechanical truth to narrate faithfully. Deliberately not folded into the
+  // ROLL RESULT block below — that phase is RESOLVE_ROLL, this stays CONTINUE.
+  if (ctx.combatRoundSummary) {
+    const { band, playerHpDelta, enemyHpDelta, chosenOption } = ctx.combatRoundSummary;
+    out.push('');
+    out.push('### This round (just resolved)');
+    out.push(`- Approach: ${chosenOption.label}${chosenOption.stat ? ` (${chosenOption.stat})` : ''}`);
+    out.push(`- Result band: ${band}`);
+    out.push(`- Player HP change: ${playerHpDelta}`);
+    out.push(`- Enemy HP change: ${enemyHpDelta}`);
+    out.push('Narrate this round faithfully to the numbers above — do not invent a different outcome.');
+  }
+
   // Narration pass: the dice have already decided. Narrate THIS verdict.
   if (ctx.rollOutcome) {
     out.push('');

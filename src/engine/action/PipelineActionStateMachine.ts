@@ -624,10 +624,17 @@ export class PipelineActionStateMachine {
       }
     }
 
+    // Strip any same-labelled decide option first, BEFORE the emptiness backstop below — a
+    // wayward LLM could author a real 'Flee the fight' despite BASE Rule 3, and counting it as a
+    // "real" option would let the backstop skip while the flee-dedup then strips it anyway,
+    // leaving a silent flee-only screen. The engine's guaranteed-null flee is appended after the
+    // backstop instead, so it always wins step()'s label lookup.
+    nextDecision.options = nextDecision.options.filter(o => o.label !== COMBAT_FLEE_LABEL);
+
     // Combat empty-decision backstop (decide-scene-narration spec, belt-and-braces): the fresh
-    // continue-decide returned zero real options — never present a flee-only screen mid-fight.
-    // Injected BEFORE the guaranteed flee append below, so even the degraded path is a real
-    // choice, not a screen with no decision in miniature.
+    // continue-decide returned zero real (non-flee) options — never present a flee-only screen
+    // mid-fight. Injected BEFORE the guaranteed flee append below, so even the degraded path is a
+    // real choice, not a screen with no decision in miniature.
     let emptyDecisionFallback = false;
     if (nextDecision.options.length === 0) {
       console.warn(
@@ -643,11 +650,9 @@ export class PipelineActionStateMachine {
 
     // Engaged combat always offers a voluntary flee (dcModifier: null), caught by step()'s bail
     // path — which leaves the in_combat edge persisted, so the enemy is remembered (plan decision 4).
-    // Filter any same-labelled decide option first so the engine's guaranteed-null flee wins step()'s
-    // label lookup (a wayward LLM could author a real 'Flee the fight' despite BASE Rule 3).
     // ensureBail can't add this — it returns early for required actions, which combat always is.
     nextDecision.options = [
-      ...nextDecision.options.filter(o => o.label !== COMBAT_FLEE_LABEL),
+      ...nextDecision.options,
       { label: COMBAT_FLEE_LABEL, dcModifier: null },
     ];
     // Engine-composed status line (decide-scene-narration spec): banded enemy condition (never

@@ -158,6 +158,26 @@ describe('buildUserMessage — v9 markdown briefing', () => {
     expect(msg).toContain('ROLL RESULT: FAILURE — narrate this outcome');
   });
 
+  it('renders combatRoundSummary on a combat CONTINUE so DECIDE narrates the resolved round, not blind', () => {
+    const msg = buildUserMessage(fullContext({
+      previousDecisions: [{ prompt: 'A goblin attacks', chosen: 'Press the attack', dcModifier: 0 }],
+      combatRoundSummary: {
+        band: 'glanced',
+        playerHpDelta: 0,
+        enemyHpDelta: -3,
+        chosenOption: { label: 'Press the attack', stat: 'physical' },
+      },
+    }));
+    // Stays CONTINUE — combatRoundSummary must never be routed through rollOutcome, which
+    // would flip the phase to RESOLVE_ROLL.
+    expect(msg).toMatch(/^PHASE: CONTINUE\n/);
+    expect(msg).toContain('### This round (just resolved)');
+    expect(msg).toContain('- Result band: glanced');
+    expect(msg).toContain('- Player HP change: 0');
+    expect(msg).toContain('- Enemy HP change: -3');
+    expect(msg).toContain('- Approach: Press the attack (physical)');
+  });
+
   it('appends a Reviewer note (not a blockquote) when a criticNote is present', () => {
     const msg = buildUserMessage(fullContext({ criticNote: 'narration says you win but the roll FAILED' }));
     expect(msg).toContain('## Reviewer note');
