@@ -20,7 +20,7 @@ related:
 ---
 _Restore the LLM's scene-setting to the v12 action screen: the game master narrates the consequence of each choice, options become concrete actions in response, every option shows its stat icon, and combat continue-rounds can no longer dead-end into a flee-only screen._
 
-> Follow-up to the v12 pipeline cutover ([[prompt-separation-of-concerns]]). This amends one v12 decision (DECIDE authors no prose) and hardens the combat continue-path. Baseline copies of the prompt set as it stands before this change live in [`./current_source/`](./current_source/).
+> Follow-up to the v12 pipeline cutover ([[prompt-separation-of-concerns]]). This amends one v12 decision (DECIDE authors no prose) and hardens the combat continue-path.
 
 ---
 
@@ -60,7 +60,7 @@ The framing line (`prompt`) changes from `"<Type> — choose your approach:"` to
 
 ## Prompt templates (v12 set)
 
-All edits go through the `prompt-versioning` skill. The set is amended in place within v12 (v12 is mid-cutover and has not shipped a release; v13 is reserved for the post-cutover roadmap). The `current_source/` mirror is the pre-change baseline to diff against.
+All edits go through the `prompt-versioning` skill. The set is amended **in place within `v12/`**: v12 is pre-cutover and its only rows live in a dev DB that Stage 5 wipes at the flip, so nothing attributable-forever breaks, and `v13/` stays reserved for the post-cutover roadmap ([[prompt-v13-roadmap]]). After each edit, re-sync the `assets/prompts/decision-prompts/current_source/` directory mirror so it stays byte-identical to `v12/` (the set-based generalisation of the single-file `current_source.md` rule, now documented in the `prompt-versioning` skill). No `PROMPT_SET_VERSION` bump.
 
 - **`decide/BASE.md`** — rewrite Rule 4 (Scene Framing). Options are concrete actions the player takes, stated crisply; light sensory flavour in a label is fine, but the scene itself is no longer carried by the labels. Add the `narration` field to the JSON contract and the field reference, documented as CONTINUE-only scene-framing prose that never states a roll verdict or a mutation.
 - **`phases/CONTINUE.md`** — rewrite. (1) Author `narration`: one to three sentences, game-master voice, describing the situation the player now faces as a consequence of the last choice, never a success/failure verdict. (2) Options are actions in response to that scene. (3) Scope the *"committed action to empty decision / prefer 2-3 beats"* guidance to non-combat only; empty decision remains the legitimate resolve-now signal for search/skill/travel/rest, and combat continues until the engine ends it.
