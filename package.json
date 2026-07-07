@@ -13,7 +13,7 @@
     "calibrate": "tsx src/sim/calibrate-combat.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^12.11.1",
     "discord.js": "^14.18.0",
     "js-yaml": "^4.1.0"
   },
