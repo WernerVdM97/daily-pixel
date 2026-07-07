@@ -123,3 +123,22 @@ Steps 2 and 3 are independent of each other and can run in parallel after step 1
 - No first-beat opening narration (consequence beats only, by decision above).
 - The legacy `machine.ts` path is untouched, deliberately: it has its own `toActionDecision` with the old framing line and its own record construction, and gets neither narration nor the backstop. This spec touches the pipeline state machine only; the legacy path lives only until the Stage 5 flip.
 - Flee costs (flee is currently a free exit, which caps combat tension), round-over-round escalation tuning, and fun telemetry beyond `emptyDecisionFallback` (rounds-per-fight, flee-rate) are follow-ups, not this spec.
+
+## Execution state (orchestrated delegation)
+
+Branch `feat/scene-state-prod-host`. Reconcile this section against `git log` before resuming: verify the commits below exist and `npm run typecheck && npm test` is green (baseline was 1224 passing at last checkpoint) before building on top.
+
+**Landed (committed, verified by lead):**
+- `cbffe6a` — spec finalised (this doc, status decided) + README registration.
+- `c804706` — Batch 3 prompts: the four v12 decide-set edits + byte-identical `current_source/` mirror. Lead-reviewed for spec conformance (prose, no code review subagent).
+- `de4a9f1` — Batch 1 contract + engine threading + 7 unit tests. Independently verified (typecheck + tests + read of `handleCombatStep`/`toActionDecision`/`ensureBail`). **Then adversarially reviewed — two accepted Critical findings still OPEN, see below.**
+- `a92c0df` — Batch 4 display: `buildDecisionMessage`/`buildStoryThread`/option icons + hint, the three prompt-only surfaces, footer, +6 tests / 2 conscious amendments. Lead-verified (typecheck + 1224 tests + scope) but **not yet adversarially reviewed.**
+
+**Open — accepted review findings on `de4a9f1` (delegate to a fixer, verify, commit as one atomic fix):**
+1. Backstop bypass (`PipelineActionStateMachine.ts` ~L606-652). The empty-decision zero-check runs before the flee-dedup filter, so a single real option labelled exactly `Flee the fight` (non-null `dcModifier`) survives `toActionDecision`, is then stripped by the label dedup, and produces a silent flee-only screen with no `emptyDecisionFallback` and no warn. Fix: run the dedup first (or compute real options = non-flee-labelled + non-null-`dcModifier`), then fire the injection/warn/flag on *that* count, not raw `nextDecision.options.length`. Add a test for the same-label-real-option input (the existing backstop test covers only `decision: []`).
+2. `combatRoundSummary` never rendered (`src/llm/prompt-builder.ts` `buildUserMessage`/`buildSceneBody`). It is attached to `LlmContext` and populated but no prompt-builder path reads it into the combat CONTINUE user message, so DECIDE narrates blind — the feature is inert. Fix: render band + HP deltas + chosen option (label+stat) into the CONTINUE user message. Add a test asserting the *rendered message string* carries it, not just the mock context property (the current test at `tests/engine/pipeline-machine.test.ts` only checks the captured context object).
+
+**Remaining work:**
+- Adversarial review of the display batch (`a92c0df`), then triage/fix.
+- Batch 5 docs + changelog + closeout: amend [[prompt-v12-pipeline]] and cross-note [[prompt-separation-of-concerns]] (DECIDE authors CONTINUE scene-framing narration; per-round combat narration is a future prose-critic faithfulness surface) via `docs-authoring`; add a `CHANGELOG.md` `[Unreleased]` entry via `changelog`; fix this spec's Testing bullet re the "decide-shape guard test" (finding 4: no such test exists — the guard asserts only absence of `mutations`/`outcomeText`, so the amendment is moot).
+- Acceptance (end-to-end, not yet done): a multi-round fight via a sim combat scenario or dev Discord reproducing the dev-DB 34/35 `"decision": []` mid-fight pattern — every round narrates the prior exchange with the status line, offers ≥2 mechanically distinct options plus flee, and a flee-only screen never appears.
