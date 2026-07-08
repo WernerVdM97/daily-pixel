@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
 import type { CriticInput } from '../../src/llm/LlmGateway.js';
 import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
+import { DeepCapturePolicy } from '../../src/llm/capture-policy.js';
 
 const criticInput: CriticInput = {
   beat: 'resolution',
@@ -102,12 +103,12 @@ describe('DeepseekLlmGateway.critique', () => {
     expect(records[0].parseOk).toBe(true);
   });
 
-  it('captures thinking on every call when logThinkingAll is set', async () => {
+  it('captures thinking on every call when mode is "all"', async () => {
     const { records, recorder } = makeRecorder();
     const gw = new DeepseekLlmGateway({
       apiKey: 'k',
       recorder,
-      logThinkingAll: true,
+      capturePolicy: new DeepCapturePolicy('all'),
       fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }, { reasoning: 'checked verdict vs prose — consistent' }),
     });
     await gw.critique(criticInput);
@@ -115,11 +116,11 @@ describe('DeepseekLlmGateway.critique', () => {
     expect(records[0].reasoningChars).toBe('checked verdict vs prose — consistent'.length);
   });
 
-  it('omits thinking on a clean call when logThinkingAll is off (but still gauges its length)', async () => {
+  it('omits thinking on a clean call when mode is "spiral" (but still gauges its length)', async () => {
     const { records, recorder } = makeRecorder();
     const gw = new DeepseekLlmGateway({
       apiKey: 'k',
-      recorder, // logThinkingAll defaults false
+      recorder, // capturePolicy defaults to mode 'spiral'
       fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }, { reasoning: 'some thinking' }),
     });
     await gw.critique(criticInput);
@@ -156,7 +157,7 @@ describe('DeepseekLlmGateway.critique', () => {
   it('on a flagged verdict, records the severity AND always keeps thinking + raw prompt (toggle off)', async () => {
     const { records, recorder } = makeRecorder();
     const gw = new DeepseekLlmGateway({
-      apiKey: 'k', recorder, // logThinkingAll off, not a spiral
+      apiKey: 'k', recorder, // capturePolicy defaults to mode 'spiral', not a spiral here
       fetch: mockFetch(
         { ok: false, severity: 'minor', issues: ['win narration on a FAILURE'], patch: { outcome_text: 'fixed' } },
         { reasoning: 'verdict vs prose mismatch' },

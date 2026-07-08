@@ -4,6 +4,13 @@ All notable changes to The Warden's Oak are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- **Logging/debug env vars consolidated** — `LOG_LLM_THINKING_ALL`, `LLM_LOG_ALL_PROMPTS`, and `REASONING_SPIRAL_CHARS` are removed (no aliasing); replaced by `LLM_LOG_THINKING=errors|spiral|all` (default `spiral`) and `LLM_SPIRAL_CHARS`, read once at boot via `src/config/env.ts`. A stale var still set in `.env` now logs a loud `[env]` boot warning naming its replacement instead of silently doing nothing.
+- **Pipeline gateway now honours the spiral threshold** — `ProdPipelineLlmGateway` previously ignored `REASONING_SPIRAL_CHARS` entirely, so a 15.8k-char reasoning chain was dropped in prod; both gateways now share one `DeepCapturePolicy` (`src/llm/capture-policy.ts`).
+- **`VERBOSE_LLM` now covers the v12 pipeline too** — previously a documented no-op on `ProdPipelineGatewayConfig`, it now logs a per-stage summary (stage, model, latency, tokens, response snippet) under the `[pipeline]` prefix, matching the legacy gateway's console logging.
+
 ## [0.3.0] - 2026-07-07
 
 ### Changed

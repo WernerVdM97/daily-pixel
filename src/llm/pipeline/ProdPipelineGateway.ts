@@ -22,12 +22,14 @@ import {
   type LlmContext,
 } from '../LlmGateway.js';
 import type { LlmCallRecorder } from '../LlmCallRecorder.js';
+import { DeepCapturePolicy } from '../capture-policy.js';
 import { buildUserMessage, buildContextDigest, loadPromptSet, type PromptSet } from '../prompt-builder.js';
 import { callDeepseek, type DeepseekResponse } from '../deepseek-transport.js';
 import { buildClassifyUserMessage, buildResolveUserMessage } from './pipeline-messages.js';
 import { stripCR, parseStat, parseOptionStat, resolveNpcHandles } from './pipeline-parse.js';
 import { stampForPipelineStage, callKindForPipelineStage } from './stamping.js';
 import { APP_VERSION } from '../../version.js';
+import { c } from '../../util/colors.js';
 import type {
   ActionType,
   ClassifyHit,
@@ -51,9 +53,12 @@ export interface ProdPipelineGatewayConfig {
   recorder?: LlmCallRecorder;
   /** Injectable prompt set for tests. Defaults to `loadPromptSet('v12')`. */
   promptSet?: PromptSet;
-  /** If true, this gateway currently has no verbose logging of its own (unlike
-   *  DeepseekLlmGateway) — accepted for shape-parity with that config and future use. */
+  /** If true, console-log a one-line summary per stage (stage label, model, latency, token
+   *  usage, response snippet) — mirrors DeepseekLlmGateway's verbose logging. */
   verbose?: boolean;
+  /** Governs when raw prompt + reasoning are persisted alongside a call. Defaults to
+   *  `new DeepCapturePolicy()` (mode 'spiral', {@link SPIRAL_CHARS_DEFAULT} threshold). */
+  capturePolicy?: DeepCapturePolicy;
 }
 
 /** Parameters shared by every stage call — the request half of `runStage` below. */
@@ -79,6 +84,8 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
   private fetchFn: typeof fetch;
   private recorder?: LlmCallRecorder;
   private promptSet: PromptSet;
+  private verbose: boolean;
+  private capturePolicy: DeepCapturePolicy;
 
   constructor(config: ProdPipelineGatewayConfig) {
     this.apiKey = config.apiKey;
@@ -87,6 +94,8 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
     this.promptSet = config.promptSet ?? loadPromptSet('v12');
+    this.verbose = config.verbose ?? false;
+    this.capturePolicy = config.capturePolicy ?? new DeepCapturePolicy();
   }
 
   async classify(rawInput: string, context: LlmContext): Promise<PipelineStageResult<ClassifyHit>> {
@@ -274,12 +283,27 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
       parseOk = true;
 
       result = req.parse(raw);
+
+      if (this.verbose) {
+        const latencyMs = Date.now() - startedAt;
+        const snippet = content.length > 200 ? `${content.slice(0, 200)}…` : content;
+        console.log(
+          c.cyan(`[pipeline:${req.stageLabel}]`),
+          `model=${this.model} latency=${latencyMs}ms tokens=${usage?.total_tokens ?? '?'}`,
+          snippet,
+        );
+      }
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : String(err);
       throw err;
     } finally {
       if (this.recorder) {
         try {
+          const reasoningChars = reasoningContent?.length ?? null;
+          // Diagnostic = the stage went wrong (transport error or unparseable response); tier is
+          // always 0 here (no internal retry, unlike DeepseekLlmGateway's fallback tiers).
+          const isDiagnostic = errorMsg !== null || !parseOk;
+          const captureDeep = this.capturePolicy.shouldCapture({ diagnostic: isDiagnostic, reasoningChars });
           callId = this.recorder.record({
             appVersion: APP_VERSION,
             promptVersion: req.stamp,
@@ -297,11 +321,11 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
             promptTokens: usage?.prompt_tokens ?? null,
             completionTokens: usage?.completion_tokens ?? null,
             totalTokens: usage?.total_tokens ?? null,
-            reasoningChars: reasoningContent?.length ?? null,
+            reasoningChars,
             latencyMs: Date.now() - startedAt,
             finishReason,
-            rawPrompt: (errorMsg !== null || !parseOk || process.env.LLM_LOG_ALL_PROMPTS === '1') ? req.userMessage : null,
-            reasoning: (errorMsg !== null || !parseOk || process.env.LLM_LOG_ALL_PROMPTS === '1') ? reasoningContent : null,
+            rawPrompt: captureDeep ? req.userMessage : null,
+            reasoning: captureDeep ? reasoningContent : null,
             criticSeverity: null,
           });
         } catch (recErr) {
