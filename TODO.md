@@ -4,16 +4,16 @@
 ## scratchpad (humans start here)
 
 ### TBD — POC polish (small UI wins, no spark warranted)
+- [ ] establish POC polish scope game doc
+- [ ] morning and evening messages should have some custom prose or interesting message.
 - [ ] drop the ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? 
 - [ ] add /hi to 'A new hero joins the Oak' message.
 - [ ] dynamically request or load context. Instead of sending the LLM all possible context, give it an NCP-like interaction layer.
-    - scripts or command that perform lookups from the world state that is provided to the decision DMA
+    - scripts or command that perform lookups from the world state that is provided to the decision and mutations DMAs
 - [ ] populate more locaiton edges in the sees
 - [ ] improve daily work options
-- [ ] some jobs must be performable in unsafe areas.
 - [ ] on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.
    - also show the emojis of the chosen class, upbringing, and race in the selected crossed out list
-- [ ] establish POC polish scope game doc
 - [ ] hints on action message
   - one action remaining, low stamina, unsafe location
 - [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
@@ -24,19 +24,43 @@
    - also, 0 hp should do this but also roll the dice, mkaing a death save...
 - [ ] bug: autoresolved rest showed refunded but not the inspiration text?
 
+### Prompt v12 closeout
+
+1. Finish Stage 5 — T7 is not actually done. docs/engine/stage-5-live-cutover-plan.md still has the Checkpoint (real-model smoke run) and Task 7 unchecked, and I verified the code matches: src/engine/action/machine.ts (the legacy v11 ActionStateMachine) still exists and prompt-builder.ts:6 still exports PROMPT_VERSION = 'v11'. The release was cut and prod runs v12, but the legacy path was never deleted. The dead-code sweep (machine, PROMPT_VERSION + its stamp sites, critic dual-injection, the current_source.md test) is the outstanding tail of the plan. Arguably the prod QA session already served as the smoke gate, so this is mostly a cleanup task plus ticking the doc closed.
+2. Then the v13 roadmap (docs/engine/prompt-v13-roadmap.md), which gives an explicit suggested order:
+    1. F#21 — divine intervention rework (small, player-facing, do early): the fallback must not cost a roll, must refund, and must read as a system failure, not an in-world outcome.
+    2. D3/D4 — conversation & puzzle shapes + the free-text security stack: the biggest unspecced chunk; can be specced immediately since the relationship edges are already live. Needs a stage-N-style build plan before implementation.
+    3. (after a few live weeks of telemetry) Prose-critic trigger decision from the CombatBeatLog data, recorded as a decisions/ doc.
+    4. Stage 4 — Thread B world scaling: also wants live curves before tuning; the scale seam sits at 1.
+
+### Player requests — prod data review (2026-07-08)
+
+Fresh reports from a single QA session (snapshot `warden-20260708-201456`, character BendiusOver — mostly a combat playtest). `F#`/`B#` cite the `feedback`/`bug_reports` row. Cross-refs to existing items noted inline; where an item just re-surfaces a known one, treat this as a fresh datapoint rather than a new task.
+
+**Bugs**
+- [ ] **`max_stamina` gain not persisted** — player received `+2` max stamina but `/stats` still shows 2 (B#2). This is the known `CharacterRepository.update` allow-list gap (see MVP item below) surfacing in prod — prioritise the fix.
+- [ ] **Action-count footer mismatch** — footer showed `-1` but total 4 actions when the player was on 3 previously (B#1). Reconcile the remaining-actions delta vs. total display.
+- [ ] **Possible infinite inspiration** — player suspected inspiration never decrements / is unbounded (B#3). Verify the inspiration spend/grant accounting.
+- [ ] **Item loss is unclear** — a dropped/consumed item just appears listed, not visibly removed or subtracted (B#4). Make item-loss mutations read as a loss. Overlaps F#… item-usage work in [[improved-item-features]].
+- [ ] **Combat HP formatting is broken/confusing** — after the first decision it showed `0 HP`, with the rider's HP and the player's crammed onto one line (B#5); a later beat flashed `-5 HP` mid-decision and "reads weirdly" though it persisted correctly (10−5=5) (B#6). Clamp/format negative & mid-resolution HP, and split combatant HP onto separate lines.
+
+**Feedback / feature asks**
+- [ ] **NPC coherency — mint on first sight** — narrative said the player sees a caravan, then said they don't; the NPC wasn't persisted to state on first mention (F#1). Mint NPCs immediately so they persist. See [[mvp+npc-economy]], [[mvp-data-model]] (world-state tracking).
+- [ ] **Combat outcome should show the maths** — display each roll and HP bars / damage inflicted in the combat outcome; happy to drop the ASCII art to make room (F#7). Feeds [[mvp-combat]] and relates to the "drop ascii from outcomes" TBD item.
+- [ ] **Richer `/hi` opening prose** — pressing Hi should generate a prose opener that scales with time since last interaction (referencing days or a few actions) and reminds the player of their work, quests, and loose ends (F#2). Extends the existing "morning/evening custom prose" and "add /hi to the new-hero message" TBD items.
+- [ ] **Trim decision emojis** — too many emojis after decisions; the good/bad DC emojis should show only the arrows that convey stakes (drop the green/red), and a spotted passive call should just colour the button green (as it already does) without also listing the emoji (F#3). UI polish; relates to the distilled-type-emoji TBD item.
+- [ ] **Rest button feels underwhelming** — the rest button needs some interaction/weight when pressed and its formatting is off (F#8). Relates to the "autoresolved rest — refunded but no inspiration text?" TBD bug.
+- [ ] **Journal is cluttered** — wants whitespace/formatting to distinguish parts and emphasise successes vs. failures, plus a little more info on quests / investigated / gathered intel (F#6). Fresh datapoint for the "Improved journal/story" MVP item.
+- [ ] **Buttons going missing is annoying — do the menu rework soon** (F#5). Fresh datapoint bumping the "menu framework coupled to views" MVP item / [[discord-interaction-layer]].
+- [ ] **Too many actions available** — "fun but perhaps too broken" (F#4). Fresh datapoint for the "cap rolls per action type + short-rest" MVP item.
+
 ### Player requests — prod data review (2026-07-03)
 
 Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `warden-20260703-133521`). Bug-shaped reports already fixed in `[Unreleased]`/0.2.5–0.2.6 are omitted; these are the requests still open. `F#`/`B#` cite the feedback/bug row. The four POC-sized Discord/comms wins are lumped into the **[[polish-v0.2.8]]** spark; the rest route to MVP/sparks.
-
-- [>] **Show who owns each character on action outcomes** (F#3, F#8) → [[polish-v0.2.8]].
-- [>] **Distinct emoji for release notes vs weekly recap in pins** (F#20) → [[polish-v0.2.8]].
-- [>] **Trim pinned-message noise** (F#18) → [[polish-v0.2.8]].
-- [>] **Weekly-recap thread UX rework** (F#19) → [[polish-v0.2.8]].
 - [ ] **Player-founded structures become real locations** — a player who *starts building* a temple expects it to exist as its own explorable/buildable place, not resolve to an existing or adjacent location (F#4, B#8 — Ulrich's temple). Relates to lazy world growth + world-state tracking [[mvp-data-model]].
 - [ ] **Cross-player buff actions** — praying/blessing "for everyone" should actually apply a buff mutation to the other players present, not no-op (B#11). Needs a multiplayer-aware mutation; see [[multiplayer]].
 - [ ] **Items should be usable, not stat-bonus clutter** — players accumulate notes/keys/etc. that only grant a passive stat bonus and never get *used*; make items actually do something (F#11). Tracked in [[improved-item-features]] but not previously on this list.
 - [ ] **Communal / offering currency separate from personal gold** — a player wanted to spend offering-basket funds (not their own coin) on temple supplies; distinguish a shared/temple purse from personal wealth (F#9). Nuance under the MVP "make wealth spendable/meaningful" item below.
-- [ ] **Rework divine intervention** (F#21) — it's a system-failure fallback, so it must not read or be stored as an action row, must not cost anything, and must refund the roll (or at least the first per day). And it must be clearly signalled to the player as a system failure/fallback, not dressed up as an in-world outcome.
 
 ## MVP — deferred
 
