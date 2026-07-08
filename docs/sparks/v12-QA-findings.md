@@ -91,7 +91,7 @@ The player clicks the only option → bail path → stamina -1 + "You step back 
 
 - [ ] **Deterministic single-option validator.** After `decide()` returns, if `decision.length === 1`, trigger one bounded re-decide with a note: "You returned a single option. The player needs real choices. Generate 2-4 distinct approaches or return [] if this should resolve outright." Surface the DeepSeek reasoning from the single-option call via `PipelineDecideResult._reasoning` so the validator can log what the LLM was thinking.
 - [ ] **Restore auto-resolve on first-beat `decision: []`.** When DECIDE beat 1 returns an empty decision array, trigger the resolve pipeline immediately (RESOLVE-MUTATE → RESOLVE-NARRATE) inside `start()` instead of serving a bail-only screen. The LLM already decides what needs player choices vs. what resolves outright — the engine just needs to honour that signal.
-- [ ] **Env var for unconditional prompt/reasoning logging.** `LLM_LOG_ALL_PROMPTS=1` removes the `errorMsg !== null || !parseOk` guard in `ProdPipelineGateway.runStage()`. Storage cost: prompts are 2-5KB each; fine for QA, turn off in steady state.
+- [x] **Env var for unconditional prompt/reasoning logging.** Shipped then superseded by the logging env-var consolidation (`hotfix/logging-env-vars`, 247b10a): `LLM_LOG_ALL_PROMPTS` is removed in favour of `LLM_LOG_THINKING=errors|spiral|all` (default `spiral`) + `LLM_SPIRAL_CHARS`, shared by both gateways via `DeepCapturePolicy`. Use `LLM_LOG_THINKING=all` for the QA mode this item asked for.
 
 ---
 
