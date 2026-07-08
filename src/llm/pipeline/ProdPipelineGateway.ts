@@ -295,6 +295,13 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
       }
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : String(err);
+      // Unconditional (not gated on this.verbose) — mirrors DeepseekLlmGateway's [llm:error] /
+      // [llm:parse-error] logging so a failed pipeline stage is never silent in prod.
+      if (content !== null) {
+        console.error(c.red(`[pipeline:${req.stageLabel}]`), errorMsg, content.slice(0, 500));
+      } else {
+        console.error(c.red(`[pipeline:${req.stageLabel}]`), errorMsg);
+      }
       throw err;
     } finally {
       if (this.recorder) {

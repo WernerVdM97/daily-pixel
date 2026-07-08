@@ -3,6 +3,8 @@
 // read the same names/semantics — the prod gap this closes was the pipeline silently ignoring
 // a var the legacy gateway honoured.
 
+import { SPIRAL_CHARS_DEFAULT } from '../llm/capture-policy.js';
+
 export type ThinkingLogMode = 'errors' | 'spiral' | 'all';
 
 export interface LoggingEnv {
@@ -27,7 +29,7 @@ export function envInt(value: string | undefined): number | undefined {
   const trimmed = value.trim();
   if (trimmed === '') return undefined;
   const n = Number(trimmed);
-  if (!Number.isFinite(n) || n <= 0) return undefined;
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return undefined;
   return n;
 }
 
@@ -43,7 +45,7 @@ export function readLoggingEnv(env: NodeJS.ProcessEnv = process.env): LoggingEnv
     verbose: envFlag(env.VERBOSE),
     verboseLlm: envFlag(env.VERBOSE_LLM),
     llmLogThinking: parseThinkingMode(env.LLM_LOG_THINKING),
-    llmSpiralChars: envInt(env.LLM_SPIRAL_CHARS) ?? 6000,
+    llmSpiralChars: envInt(env.LLM_SPIRAL_CHARS) ?? SPIRAL_CHARS_DEFAULT,
   };
 }
 

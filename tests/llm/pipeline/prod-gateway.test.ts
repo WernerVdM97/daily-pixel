@@ -638,6 +638,22 @@ describe('ProdPipelineLlmGateway — verbose logging', () => {
     expect(logSpy).not.toHaveBeenCalled();
     logSpy.mockRestore();
   });
+
+  it('logs a [pipeline:<stage>] console.error on a parse failure, unconditionally (even with verbose false)', async () => {
+    const fetchFn = mockFetch({ choices: [{ message: { content: 'not json {' } }] });
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(gw.classify('x', minimalContext)).rejects.toThrow(/failed to parse/i);
+
+    expect(errorSpy).toHaveBeenCalled();
+    const [prefix, ...rest] = errorSpy.mock.calls[0];
+    expect(String(prefix)).toContain('[pipeline:classify]');
+    const joined = rest.join(' ');
+    expect(joined).toContain('failed to parse');
+    expect(joined).toContain('not json {'); // content snippet included on the parse-failure case
+    errorSpy.mockRestore();
+  });
 });
 
 // ── shared transport (deepseek-transport.ts) ──

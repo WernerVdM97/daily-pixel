@@ -33,6 +33,11 @@ describe('envInt', () => {
     expect(envInt('0')).toBeUndefined();
     expect(envInt('-5')).toBeUndefined();
   });
+
+  it('returns undefined for a non-integer (falls back to default)', () => {
+    expect(envInt('6.5')).toBeUndefined();
+    expect(envInt('6000.9')).toBeUndefined();
+  });
 });
 
 describe('readLoggingEnv', () => {
