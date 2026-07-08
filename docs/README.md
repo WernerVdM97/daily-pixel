@@ -108,6 +108,7 @@ deferred depth & polish
 | 🌱     | [World State Projection](./sparks/mvp+world-state-projection.md) | Graph DB → markdown vault at ~0 tokens                    |
 | 🌱     | [Moral Drift](./sparks/mvp+moral-drift.md)                       | Continuous moral vector, derived alignment, governor loop |
 | 🌱     | [Login Streaks](./sparks/mvp+login-streaks.md)                   | Retention incentives, bonus rolls                         |
+| 🌱     | [ANSI Art — Coloured Frames & Splash](./sparks/mvp+ansi-art.md)  | Discord `ansi` colour: tested constraints, colour roles, frame slots, splash |
 
 ---
 
