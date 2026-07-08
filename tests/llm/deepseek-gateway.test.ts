@@ -4,6 +4,7 @@ import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
 import { ACTION_CATEGORIES } from '../../src/llm/LlmGateway.js';
 import type { LlmContext, LlmDecision } from '../../src/llm/LlmGateway.js';
 import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
+import { DeepCapturePolicy } from '../../src/llm/capture-policy.js';
 
 
 
@@ -352,8 +353,8 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
       }),
       text: () => Promise.resolve(''),
     }) as unknown as typeof fetch;
-    // logThinkingAll defaults off; threshold lowered so the 50-char chain counts as a spiral.
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch, recorder, reasoningSpiralChars: 10 });
+    // mode defaults to 'spiral'; threshold lowered so the 50-char chain counts as a spiral.
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch, recorder, capturePolicy: new DeepCapturePolicy('spiral', 10) });
     await gw.decide(minimalContext);
     expect(records[0].reasoning).toBe(spiral);
     expect(records[0].rawPrompt).toContain('## You');
@@ -367,9 +368,9 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
     expect(records[0].rawPrompt).toBeNull(); // not captured on a clean call by default
   });
 
-  it('saves full reasoning AND the raw prompt on every well-formed call when logThinkingAll is set', async () => {
+  it('saves full reasoning AND the raw prompt on every well-formed call when mode is "all"', async () => {
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder, logThinkingAll: true });
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder, capturePolicy: new DeepCapturePolicy('all') });
     await gw.decide(minimalContext);
     expect(records[0].reasoning).toBe('deep thoughts here');
     expect(records[0].rawPrompt).toContain('## You'); // the full v9 markdown prompt is now captured

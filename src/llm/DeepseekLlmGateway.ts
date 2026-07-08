@@ -18,6 +18,7 @@ import {
   type CriticVerdict,
 } from './LlmGateway.js';
 import type { LlmCallRecorder } from './LlmCallRecorder.js';
+import { DeepCapturePolicy } from './capture-policy.js';
 import {
   buildSystemPrompt,
   buildUserMessage,
@@ -41,18 +42,10 @@ export interface DeepseekConfig {
   verbose?: boolean;
   /** Optional audit sink — records every call attempt (success, failure, retry). */
   recorder?: LlmCallRecorder;
-  /** Persist reasoning on EVERY call, not just diagnostic ones (costs DB space). Env: LOG_LLM_THINKING_ALL. */
-  logThinkingAll?: boolean;
-  /**
-   * Always persist reasoning + raw prompt when `reasoning_chars` exceeds this, regardless of
-   * `logThinkingAll` — a long chain is itself a "spiral" signal worth mining. Defaults to
-   * {@link REASONING_SPIRAL_CHARS_DEFAULT}. Env: REASONING_SPIRAL_CHARS.
-   */
-  reasoningSpiralChars?: number;
+  /** Governs when raw prompt + reasoning are persisted alongside a call. Defaults to
+   *  `new DeepCapturePolicy()` (mode 'spiral', {@link SPIRAL_CHARS_DEFAULT} threshold). */
+  capturePolicy?: DeepCapturePolicy;
 }
-
-/** "Spiral" threshold (reasoning chars) past which thinking + prompt are always kept. ~p90 of observed lengths. */
-export const REASONING_SPIRAL_CHARS_DEFAULT = 6000;
 
 /** System prompt for the D3 cartographer — a tiny, focused world-builder. */
 const CARTOGRAPHER_SYSTEM_PROMPT = `You are the cartographer for The Warden's Oak, a dark-fantasy text RPG. A player's action just took them to a place that is NOT yet on the map, so a provisional entry was created. Your job is to chart it.
@@ -104,8 +97,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   private fetchFn: typeof fetch;
   private verbose: boolean;
   private recorder?: LlmCallRecorder;
-  private logThinkingAll: boolean;
-  private reasoningSpiralChars: number;
+  private capturePolicy: DeepCapturePolicy;
 
   constructor(config: DeepseekConfig) {
     this.apiKey = config.apiKey;
@@ -114,8 +106,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.verbose = config.verbose ?? false;
     this.recorder = config.recorder;
-    this.logThinkingAll = config.logThinkingAll ?? false;
-    this.reasoningSpiralChars = config.reasoningSpiralChars ?? REASONING_SPIRAL_CHARS_DEFAULT;
+    this.capturePolicy = config.capturePolicy ?? new DeepCapturePolicy();
   }
 
   async decide(context: LlmContext): Promise<LlmDecision> {
@@ -154,10 +145,9 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
         try {
           // Diagnostic = the call went wrong (transport error, unparseable response, or a retry).
           // Deep-capture (raw prompt + thinking) always fires for these; on well-formed calls it's
-          // opt-in via the env toggle, plus always on a "spiral" (over-long reasoning chain).
+          // gated by the configured DeepCapturePolicy (mode + spiral threshold).
           const isDiagnostic = (context.attemptTier ?? 0) > 0 || errorMsg !== null || !parseOk;
-          const isSpiral = (reasoningChars ?? 0) > this.reasoningSpiralChars;
-          const captureDeep = isDiagnostic || isSpiral || this.logThinkingAll;
+          const captureDeep = this.capturePolicy.shouldCapture({ diagnostic: isDiagnostic, reasoningChars });
           const callId = this.recorder.record({
             appVersion: APP_VERSION,
             promptVersion: PROMPT_VERSION,
@@ -491,12 +481,11 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       if (this.recorder) {
         try {
           // Diagnostic = the critic call went wrong (transport/parse). Deep-capture always fires for
-          // these; on a well-formed call it's opt-in via the env toggle, plus always on a spiral or a
-          // flag (a flag's prompt embeds the critiqued decision, mining output + reason together).
+          // these; on a well-formed call it's gated by DeepCapturePolicy, plus always on a flag (a
+          // flag's prompt embeds the critiqued decision, mining output + reason together).
           const isDiagnostic = errorMsg !== null || !parseOk;
-          const isSpiral = (reasoningChars ?? 0) > this.reasoningSpiralChars;
           const flagged = parseOk && !verdict.ok;
-          const captureDeep = isDiagnostic || isSpiral || this.logThinkingAll || flagged;
+          const captureDeep = this.capturePolicy.shouldCapture({ diagnostic: isDiagnostic, reasoningChars, flagged });
           const callId = this.recorder.record({
             appVersion: APP_VERSION,
             promptVersion: `critic-${CRITIC_VERSION}`,

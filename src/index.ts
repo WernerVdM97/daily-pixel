@@ -50,6 +50,8 @@ import type { WorldEngine } from "./engine/WorldEngine.js";
 import type { ClassDef, ModifierDef } from "./engine/StatComputer.js";
 import type { LlmDecision, LlmContext, RecapGateway, CriticGateway } from "./llm/LlmGateway.js";
 import { DeepseekLlmGateway } from "./llm/DeepseekLlmGateway.js";
+import { DeepCapturePolicy } from "./llm/capture-policy.js";
+import { readLoggingEnv, staleLoggingEnv } from "./config/env.js";
 import {
   FallbackLlmGateway,
   DIVINE_MESSAGE,
@@ -157,8 +159,17 @@ if (!ADMIN_USER_ID) {
   );
 }
 
-const VERBOSE = process.env.VERBOSE === "true";
+const loggingEnv = readLoggingEnv();
+const VERBOSE = loggingEnv.verbose;
 const TICK_CHANNEL_ID = process.env.TICK_CHANNEL_ID ?? "";
+
+// Boot must warn loudly on any removed logging env var so a stale local `.env` doesn't
+// silently regress to defaults.
+for (const warning of staleLoggingEnv()) {
+  console.warn(c.yellow(`[env] ${warning}`));
+}
+
+const capturePolicy = new DeepCapturePolicy(loggingEnv.llmLogThinking, loggingEnv.llmSpiralChars);
 
 /** Commands that need a character; running one without one reroutes to the join wizard. */
 const CHARACTER_GATED_COMMANDS = new Set([
@@ -1186,15 +1197,9 @@ async function main() {
     const deepseek = new DeepseekLlmGateway({
       apiKey: DEEPSEEK_API_KEY,
       ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
-      verbose: process.env.VERBOSE_LLM === "true",
+      verbose: loggingEnv.verboseLlm,
       recorder: new LlmCallRepository(initDb()),
-      // POC: failures always log thinking; set this to also log it on every call.
-      logThinkingAll: process.env.LOG_LLM_THINKING_ALL === "true",
-      // Keep thinking + prompt for "spiral" calls past this many reasoning chars. Only a
-      // positive number is honoured; anything else (unset/empty/NaN/≤0) uses the gateway default.
-      ...(Number(process.env.REASONING_SPIRAL_CHARS) > 0
-        ? { reasoningSpiralChars: Number(process.env.REASONING_SPIRAL_CHARS) }
-        : {}),
+      capturePolicy,
     });
     llm = new FallbackLlmGateway(deepseek, {
       onTier2Fallback: () => {
@@ -1257,7 +1262,8 @@ async function main() {
         apiKey: DEEPSEEK_API_KEY,
         ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
         recorder: new LlmCallRepository(initDb()),
-        verbose: process.env.VERBOSE_LLM === "true",
+        verbose: loggingEnv.verboseLlm,
+        capturePolicy,
       },
     } : {}),
     classDefs: assets.classes as ClassDef[],

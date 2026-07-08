@@ -7,6 +7,7 @@ import { ACTION_CATEGORIES } from '../../../src/llm/LlmGateway.js';
 import type { LlmContext } from '../../../src/llm/LlmGateway.js';
 import type { LlmCallRecord } from '../../../src/llm/LlmCallRecorder.js';
 import type { PipelineDecideResult } from '../../../src/llm/pipeline/types.js';
+import { DeepCapturePolicy } from '../../../src/llm/capture-policy.js';
 
 // A stable, minimal prompt set — real assembled v12 templates are content-tested elsewhere
 // (prompt-set-loader.test.ts); here only stage-routing (which system prompt got sent) matters.
@@ -542,6 +543,116 @@ describe('ProdPipelineLlmGateway — errors propagate (no retry, no fallback wra
       },
       callId: 0,
     });
+  });
+});
+
+// ── deep-capture policy (LLM_LOG_THINKING / LLM_SPIRAL_CHARS — hotfix/logging-env-vars) ──
+
+describe('ProdPipelineLlmGateway — deep-capture policy', () => {
+  function apiResponseWithReasoning(content: unknown, reasoning: string): unknown {
+    return { choices: [{ message: { content: JSON.stringify(content), reasoning_content: reasoning }, finish_reason: 'stop' }] };
+  }
+
+  it('captures rawPrompt/reasoning on a parse-ok call whose reasoning exceeds the spiral threshold', async () => {
+    const spiral = 'x'.repeat(20);
+    const fetchFn = mockFetch(apiResponseWithReasoning({ actionType: 'combat' }, spiral));
+    const { records, recorder } = capture();
+    const gw = new ProdPipelineLlmGateway({
+      apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet(),
+      capturePolicy: new DeepCapturePolicy('spiral', 10),
+    });
+
+    await gw.classify('attack', minimalContext);
+
+    expect(records[0].rawPrompt).not.toBeNull();
+    expect(records[0].reasoning).toBe(spiral);
+  });
+
+  it('omits rawPrompt/reasoning below the threshold in spiral mode', async () => {
+    const short = 'x'.repeat(5);
+    const fetchFn = mockFetch(apiResponseWithReasoning({ actionType: 'combat' }, short));
+    const { records, recorder } = capture();
+    const gw = new ProdPipelineLlmGateway({
+      apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet(),
+      capturePolicy: new DeepCapturePolicy('spiral', 10),
+    });
+
+    await gw.classify('attack', minimalContext);
+
+    expect(records[0].rawPrompt).toBeNull();
+    expect(records[0].reasoning).toBeNull();
+  });
+
+  it('always captures rawPrompt/reasoning in mode "all", even below the spiral threshold', async () => {
+    const short = 'x'.repeat(5);
+    const fetchFn = mockFetch(apiResponseWithReasoning({ actionType: 'combat' }, short));
+    const { records, recorder } = capture();
+    const gw = new ProdPipelineLlmGateway({
+      apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet(),
+      capturePolicy: new DeepCapturePolicy('all'),
+    });
+
+    await gw.classify('attack', minimalContext);
+
+    expect(records[0].rawPrompt).not.toBeNull();
+    expect(records[0].reasoning).toBe(short);
+  });
+
+  it('mode "errors" (default off-spiral) still captures on a diagnostic (non-200) failure', async () => {
+    const fetchFn = mockFetch({ error: 'boom' }, 500);
+    const { records, recorder } = capture();
+    const gw = new ProdPipelineLlmGateway({
+      apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet(),
+      capturePolicy: new DeepCapturePolicy('errors'),
+    });
+
+    await gw.classify('x', minimalContext).catch(() => { /* expected */ });
+
+    expect(records[0].rawPrompt).not.toBeNull();
+  });
+});
+
+// ── verbose per-stage console logging ──
+
+describe('ProdPipelineLlmGateway — verbose logging', () => {
+  it('logs a [pipeline:<stage>] summary line when verbose is true', async () => {
+    const fetchFn = mockFetch(apiResponse({ actionType: 'combat' }));
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet(), verbose: true });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await gw.classify('attack', minimalContext);
+
+    expect(logSpy).toHaveBeenCalled();
+    const [prefix] = logSpy.mock.calls[0];
+    expect(String(prefix)).toContain('[pipeline:classify]');
+    logSpy.mockRestore();
+  });
+
+  it('does not log when verbose is false (default)', async () => {
+    const fetchFn = mockFetch(apiResponse({ actionType: 'combat' }));
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await gw.classify('attack', minimalContext);
+
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+
+  it('logs a [pipeline:<stage>] console.error on a parse failure, unconditionally (even with verbose false)', async () => {
+    const fetchFn = mockFetch({ choices: [{ message: { content: 'not json {' } }] });
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(gw.classify('x', minimalContext)).rejects.toThrow(/failed to parse/i);
+
+    expect(errorSpy).toHaveBeenCalled();
+    const [prefix, ...rest] = errorSpy.mock.calls[0];
+    expect(String(prefix)).toContain('[pipeline:classify]');
+    const joined = rest.join(' ');
+    expect(joined).toContain('failed to parse');
+    expect(joined).toContain('not json {'); // content snippet included on the parse-failure case
+    errorSpy.mockRestore();
   });
 });
 
