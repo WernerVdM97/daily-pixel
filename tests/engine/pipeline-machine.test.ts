@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { deriveEnemyMaxHp } from '../../src/engine/action/combat-dc.js';
 import Database from 'better-sqlite3';
 import { PipelineActionStateMachine } from '../../src/engine/action/PipelineActionStateMachine.js';
 import { createGeographyFinalize } from '../../src/engine/geography-finalize.js';
@@ -19,6 +20,8 @@ import type {
   PipelineStageResult,
 } from '../../src/llm/pipeline/types.js';
 import type { CriticGateway, CriticInput, CriticVerdict, LlmContext } from '../../src/llm/LlmGateway.js';
+import type { PipelineContextResolver } from '../../src/engine/action/pipeline-context.js';
+import type { RelationRow } from '../../src/db/repositories/types.js';
 
 // Deliberately NOT the legacy `MockLlmGateway` (single-decision-shaped) — the pipeline needs
 // 4 distinct scriptable stages and sharing the legacy fixture would couple the two machines'
@@ -1473,5 +1476,284 @@ describe('PipelineActionStateMachine — decide-scene-narration: E2E acceptance 
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+describe('PipelineActionStateMachine — T2b combatFrame on terminal combat outcome', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('a terminal combat WIN outcome carries combatFrame with enemyName, enemyMaxHp, margin', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 6 }),
+    ];
+    // baseDc=6 -> enemyMaxHp=6 -> player crit (nat-20) clean amplified gives -8 enemyHpDelta
+    // -> newEnemyHp = max(0, min(6, 6+(-8))) = 0 -> WIN
+    // playerBonus=5 (physical 3 + Iron Sword 2), enemyBonus=0 -> margin = (20+5)-(1+0) = 24
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    expect(started.resolved).toBe(false);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.combatFrame).toBeDefined();
+    expect(step.outcome.combatFrame?.enemyName).toBe('Goblin');
+    expect(step.outcome.combatFrame?.enemyMaxHp).toBe(deriveEnemyMaxHp(6));
+    expect(step.outcome.combatFrame?.margin).toBe(24);
+  });
+
+  it('a terminal combat LOSS outcome carries combatFrame', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 10 }),
+    ];
+    // Seed a combat_save edge so the save-day check passes (second-lethal-blow today).
+    const resolver: PipelineContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+      getCurrentDay: () => 1,
+      getSceneRelations: () => [{
+        id: 0,
+        from_type: 'pc',
+        from_ref: '1',
+        to_type: 'pc',
+        to_ref: '1',
+        rel_type: 'combat_save',
+        props: JSON.stringify({ savedDay: 1 }),
+        created_by_action_id: null,
+        updated_day: null,
+      }] as RelationRow[],
+    };
+    // player nat-1 -> heavy amplified: playerHpDelta=-3-2=-5. With health=3, 3+(-5)<=0 -> hpZero.
+    // savedDay=1 === currentDay=1 -> LOSS (resolveCombat with verdict='failure').
+    const rolls = [1, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++], resolver);
+    const lowChar = testChar({ health: 3 });
+
+    const started = await machine.start(lowChar, 'attack the goblin', testItems);
+    expect(started.resolved).toBe(false);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', lowChar, testItems);
+    expect(step.resolved).toBe(true);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.combatFrame).toBeDefined();
+    expect(step.outcome.combatFrame?.enemyName).toBe('Goblin');
+    expect(step.outcome.combatFrame?.enemyMaxHp).toBe(deriveEnemyMaxHp(10));
+    expect(typeof step.outcome.combatFrame?.margin).toBe('number');
+  });
+
+  it('a non-combat outcome has combatFrame undefined', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.classifyResult = {
+      kind: 'hit',
+      actionType: 'search',
+      flags: { needs_roll: true, unsafe_location: false, target_present: false },
+    };
+
+    llm.decideResult = combatDecideResult(); // skirmish, non-combat
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You find nothing of interest.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 10);
+
+    const started = await machine.start(testChar(), 'search the area', testItems);
+    expect(started.resolved).toBe(false);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Step 1: non-combat continue.
+    const step1 = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    expect(step1.resolved).toBe(false);
+    if (step1.resolved) throw new Error('expected unresolved step');
+
+    // Step 2: beat cap forces resolve.
+    const step2 = await machine.step(step1.state, 'Strike hard', testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+    if (!step2.resolved) throw new Error('expected resolved step');
+
+    expect(step2.outcome.combatFrame).toBeUndefined();
+  });
+
+  it('the combatFrame is absent on a CONTINUE (non-resolved) step', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 10 }),
+      combatEnemyDecideResult({
+        narration: 'The goblin snarls.',
+        decision: [
+          { label: 'Press the attack', dcModifier: 0 },
+          { label: 'Aim for the eyes', dcModifier: 2, stat: 'wisdom' },
+        ],
+      }),
+    ];
+    // A continue round: glanced band, enemyHp=7 (>0), playerHpDelta=0 (no hpZero).
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    expect(started.resolved).toBe(false);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    // A continue step has no outcome property at all — combatFrame is trivially absent.
+    expect('outcome' in step).toBe(false);
+  });
+});
+
+function stripSgr(s: string): string {
+  const esc = String.fromCharCode(27);
+  return s.replace(new RegExp(esc + '\\[[0-9;]*m', 'g'), '');
+}
+
+describe('PipelineActionStateMachine — T2b B#5/B#6 continue-screen clamping', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('B#5: combatStatus contains header (enemy) and footer (player) with their own HP bars — no crammed one-liner', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult(),
+      combatEnemyDecideResult({
+        narration: 'The goblin snarls.',
+        decision: [
+          { label: 'Press the attack', dcModifier: 0 },
+          { label: 'Aim for the eyes', dcModifier: 2, stat: 'wisdom' },
+        ],
+      }),
+    ];
+    // Glanced band: enemyHpDelta=-3, playerHpDelta=0 -> continue.
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    const cs = step.nextDecision.combatStatus;
+    expect(cs).toBeDefined();
+    // Both combatants present with their own sections.
+    expect(cs).toContain('Goblin');
+    expect(cs).toContain('You');
+    // At least 3 border lines (top, divider, bottom) — header and footer each get their own block.
+    const borders = (cs!.match(/\+[=-]+\+/g) ?? []);
+    expect(borders.length).toBeGreaterThanOrEqual(2);
+    // The old crammed format would put both HP bars on a single line; verify that doesn't happen.
+    const lines = cs!.split('\n').filter(l => !l.startsWith('```'));
+    const hpBarsOnOneLine = lines.filter(l => (l.match(/HP/g) || []).length >= 2);
+    expect(hpBarsOnOneLine).toHaveLength(0);
+  });
+
+  it('B#6: displayed HP clamped to [0, max] — non-lethal heavy damage with floater present', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 10 }),
+      combatEnemyDecideResult({
+        narration: 'The goblin snarls.',
+        decision: [
+          { label: 'Press the attack', dcModifier: 0 },
+          { label: 'Aim for the eyes', dcModifier: 2, stat: 'wisdom' },
+        ],
+      }),
+    ];
+    // Player nat-1 -> heavy amplified: playerHpDelta=-5. With health=8, 8+(-5)=3 > 0 -> continue.
+    const rolls = [1, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+    const woundedChar = testChar({ health: 8, maxHealth: 8 });
+
+    const started = await machine.start(woundedChar, 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', woundedChar, testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    const cs = step.nextDecision.combatStatus;
+    expect(cs).toBeDefined();
+    // Displayed HP should be 3/8 (clamped to [0, max], not negative).
+    const mono = stripSgr(cs!);
+    expect(mono).toContain('3/8');
+    // Floater line shows the damage taken.
+    expect(mono).toContain('-5');
+    // No negative HP value displayed.
+    expect(mono).not.toMatch(/\u2212\d+\/8|-\d+\/8/);
+  });
+
+  it('B#6: when playerHpDelta is 0, no floater line appears for the player', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 10 }),
+      combatEnemyDecideResult({
+        narration: 'The goblin snarls.',
+        decision: [
+          { label: 'Press the attack', dcModifier: 0 },
+          { label: 'Aim for the eyes', dcModifier: 2, stat: 'wisdom' },
+        ],
+      }),
+    ];
+    // Glanced band: playerHpDelta=0 -> no floater.
+    const rolls = [10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    const cs = step.nextDecision.combatStatus;
+    expect(cs).toBeDefined();
+    const mono = stripSgr(cs!);
+    // Player HP 12/12 shows the player took no damage.
+    expect(mono).toContain('12/12');
+    // Count the number of floater lines (lines that start with a sign).
+    // After stripping SGR, floater lines look like: "|    ..." with no leading pipe on the sign itself.
+    // Actually, floater line renders as: "|  -5                    |"
+    // The player section should have NO floater line when playerHpDelta=0.
+    // We can check by counting non-border, non-HP, non-nameplate lines.
+    const lines = mono.split('\n').filter(l => !l.startsWith('```'));
+    // Borders: +---+, nameplates: |  Name..., HP lines: |  HP [...
+    // Floater lines: |  -5... or |  +4...
+    const floaterLines = lines.filter(l => /^\|\s{2}[+-]\d/.test(l));
+    expect(floaterLines).toHaveLength(0);
   });
 });

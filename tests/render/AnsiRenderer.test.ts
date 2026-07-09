@@ -227,6 +227,68 @@ describe("AnsiRenderer", () => {
     });
   });
 
+  describe("bar/hpText (banded HP display)", () => {
+    it("renders the bar string verbatim inside HP [...]", () => {
+      const rendered = renderFrame({
+        header: { name: "GLOOMFANG", hp: 3, maxHp: 20, bar: "▓▓░░░", hpText: "Battered" },
+      });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("HP [▓▓░░░]");
+      expect(mono).toContain("Battered");
+    });
+
+    it("when hpText is a wound word, shows that word instead of hp/maxHp", () => {
+      const rendered = renderFrame({
+        header: { name: "GLOOMFANG", hp: 3, maxHp: 20, bar: "▓▓░░░", hpText: "Battered" },
+      });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("Battered");
+      expect(mono).not.toContain("3/20");
+    });
+
+    it("when hpText is empty string, no suffix after the bracket", () => {
+      const rendered = renderFrame({
+        header: { name: "GLOOMFANG", hp: 3, maxHp: 20, bar: "▓▓░░░", hpText: "" },
+      });
+      const mono = stripSgr(rendered);
+      // The ] must be immediately followed by spaces (padding) with no number or word.
+      const hpLine = mono.split("\n").find((l) => l.includes("HP ["));
+      expect(hpLine).toBeDefined();
+      expect(hpLine).not.toMatch(/3\/20/);
+      expect(hpLine).not.toMatch(/\] [a-zA-Z]/);
+      expect(hpLine).toMatch(/\][ ]*\|/);
+    });
+
+    it("when bar is set but hpText is undefined, falls back to hp/maxHp numbers", () => {
+      const rendered = renderFrame({
+        header: { name: "GLOOMFANG", hp: 3, maxHp: 20, bar: "▓▓░░░" },
+      });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("3/20");
+      expect(mono).toContain("HP [▓▓░░░]");
+    });
+
+    it("banded line still produces exactly 30 visible chars per line (constraint 1)", () => {
+      const rendered = renderFrame({
+        header: { name: "GLOOMFANG", hp: 3, maxHp: 20, bar: "▓▓░░░", hpText: "Battered" },
+      });
+      const lines = rendered.split("\n").filter((l) => l !== "```ansi" && l !== "```");
+      for (const line of lines) {
+        expect(stripSgr(line).length).toBe(30);
+      }
+    });
+
+    it("banded line survives monochrome strip — bar glyphs and wound word visible with SGR stripped (constraint 4)", () => {
+      const rendered = renderFrame({
+        header: { name: "GLOOMFANG", hp: 3, maxHp: 20, bar: "▓▓░░░", hpText: "Battered" },
+      });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("▓▓░░░");
+      expect(mono).toContain("Battered");
+      expect(mono).toContain("GLOOMFANG");
+    });
+  });
+
   describe("code fence integrity against caller-supplied text", () => {
     it("neutralizes a triple-backtick in a name and in a message so only the real fence markers survive", () => {
       const rendered = renderFrame({
