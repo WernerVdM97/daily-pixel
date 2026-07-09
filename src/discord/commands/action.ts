@@ -215,6 +215,23 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     try {
       const result = await engine.startAction(character.id, description);
 
+      // Divine intervention is a system fault, not a real action outcome — render the distinct
+      // grey ⚠️ System embed and stop, BEFORE the generic auto-finish branch below (which would
+      // otherwise repaint it as a normal ✅ DONE outcome and misreport the refunded roll).
+      if (result.outcome?.isDivineIntervention) {
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('⚠️ System')
+              .setDescription(result.outcome.outcomeText)
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+          components: [],
+        });
+        return 'action_divine';
+      }
+
       // Auto-finish: the LLM resolved the action outright (travel/rest) — render
       // the outcome directly, no buttons.
       if (result.outcome) {
@@ -256,21 +273,6 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
           );
         }
         return 'action_autofinished';
-      }
-
-      // done:true immediately (divine intervention) — show the prompt as a grey embed.
-      if (result.firstDecision.options.length === 0) {
-        await interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle('⚠️ System')
-              .setDescription(withNarration(result.firstDecision.narration, result.firstDecision.prompt))
-              .setColor(0x95a5a6)
-              .toJSON(),
-          ],
-          components: [],
-        });
-        return 'action_divine';
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);

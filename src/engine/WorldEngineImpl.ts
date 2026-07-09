@@ -954,7 +954,14 @@ export class WorldEngineImpl implements WorldEngine {
         this.charRepo.update(characterId, { last_action_state: null });
         throw err;
       }
-      startResult.outcome.rollsDelta = -1;
+      // F#21: divine intervention refunds the roll (the DB count is deliberately left untouched
+      // above), so it must NOT report a −1 spend. Every other resolved path drained exactly one roll.
+      if (startResult.outcome.isDivineIntervention) {
+        startResult.outcome.rollsDelta = 0;
+        startResult.outcome.rollRefunded = true;
+      } else {
+        startResult.outcome.rollsDelta = -1;
+      }
       return {
         state: this.toPublicState(internalState),
         firstDecision: internalState.pendingDecision,
