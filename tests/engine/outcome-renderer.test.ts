@@ -653,3 +653,226 @@ describe('distilledActionEmoji', () => {
     expect(distilledActionEmoji('')).toBe('✴️');
   });
 });
+
+// ── Combat outcome rendering (T2b — combat maths frame) ──
+
+describe('combat outcome rendering (T2b — combat maths frame)', () => {
+  const stripSgr = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
+
+  it('shows the AnsiRenderer combat frame instead of a text roll header', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 12,
+      playerRolled: 18,
+      rollBonus: 5,
+      outcome: 'success',
+      outcomeText: 'You defeat the goblin.',
+      mutations: [],
+      combatBeat: {
+        round: 2,
+        band: 'clean',
+        enemyHpBefore: 12,
+        enemyHpAfter: 0,
+        playerHpDelta: 0,
+        materialMutationFired: true,
+        ops: ['set_relation'],
+        marker: 'combat_round',
+      },
+      combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
+    };
+
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }));
+
+    // Text roll header is replaced by the frame — no emoji-dice line
+    expect(result).not.toContain('🎲 18');
+    expect(result).not.toContain('vs 12');
+
+    // Frame contains key pieces
+    expect(result).toContain('Goblin');
+    expect(result).toContain('11');
+    expect(result).toContain('12/12');
+    expect(result).toContain('WIN');
+    expect(result).toContain('Aldric');
+  });
+
+  it('shows the correct damage floater signs on the frame', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 12,
+      playerRolled: 15,
+      rollBonus: 3,
+      outcome: 'success',
+      outcomeText: 'The wolf is driven back.',
+      mutations: [],
+      combatBeat: {
+        round: 1,
+        band: 'heavy',
+        enemyHpBefore: 8,
+        enemyHpAfter: 2,
+        playerHpDelta: -4,
+        materialMutationFired: true,
+        ops: ['set_relation'],
+        marker: 'combat_round',
+      },
+      combatFrame: { enemyName: 'Wolf', enemyMaxHp: 8, margin: 6 },
+    };
+
+    const result = formatOutcome(combatOutcome, ctx());
+    const stripped = stripSgr(result);
+
+    // enemyDelta = 2 - 8 = -6, player delta = -4
+    expect(stripped).toContain('-6');
+    expect(stripped).toContain('-4');
+  });
+
+  it('does not show the floater line when enemyDelta is zero', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 12,
+      playerRolled: 14,
+      rollBonus: 2,
+      outcome: 'success',
+      outcomeText: 'You hold the line.',
+      mutations: [],
+      combatBeat: {
+        round: 1,
+        band: 'glanced',
+        enemyHpBefore: 8,
+        enemyHpAfter: 8,
+        playerHpDelta: -4,
+        materialMutationFired: false,
+        ops: ['set_relation'],
+        marker: 'combat_round',
+      },
+      combatFrame: { enemyName: 'Wolf', enemyMaxHp: 8, margin: 2 },
+    };
+
+    const result = formatOutcome(combatOutcome, ctx());
+    const stripped = stripSgr(result);
+
+    // enemyDelta = 0 → no enemy floater line emitted
+    // The floater pattern would be `|  0` (padded inside the frame), but it's absent
+    expect(stripped).not.toMatch(/^\| {2}0/m);
+    // Player floater -4 is still present
+    expect(stripped).toMatch(/^\| {2}-4/m);
+  });
+
+  it('includes the roll line and verdict line in the frame message box', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 14,
+      playerRolled: 20,
+      rollBonus: 0,
+      outcome: 'success',
+      outcomeText: 'Critical hit!',
+      mutations: [],
+      combatBeat: {
+        round: 3,
+        band: 'clean',
+        enemyHpBefore: 5,
+        enemyHpAfter: 0,
+        playerHpDelta: 0,
+        materialMutationFired: true,
+        ops: ['set_relation'],
+        marker: 'combat_round',
+      },
+      combatFrame: { enemyName: 'Dragon', enemyMaxHp: 20, margin: 20 },
+    };
+
+    const result = formatOutcome(combatOutcome, ctx());
+    const stripped = stripSgr(result);
+
+    expect(stripped).toContain('!d20 20');
+    expect(stripped).toContain('vs DC 14');
+    expect(stripped).toContain('margin +20');
+    expect(stripped).toContain('CLEAN');
+  });
+
+  it('clamps displayed HP values to [0, maxHp] (B#6 for terminal frame)', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 12,
+      playerRolled: 16,
+      rollBonus: 4,
+      outcome: 'success',
+      outcomeText: 'The orc falls.',
+      mutations: [],
+      combatBeat: {
+        round: 2,
+        band: 'clean',
+        enemyHpBefore: 10,
+        enemyHpAfter: 0,
+        playerHpDelta: 0,
+        materialMutationFired: true,
+        ops: ['set_relation'],
+        marker: 'combat_round',
+      },
+      combatFrame: { enemyName: 'Orc', enemyMaxHp: 10, margin: 10 },
+    };
+
+    const result = formatOutcome(combatOutcome, ctx({ health: 2, maxHealth: 10 }));
+
+    // Player HP shows 2/10 (clamped within bounds, not negative)
+    expect(result).toContain('2/10');
+    // Enemy HP shows 0/10 (not negative)
+    expect(result).toContain('0/10');
+  });
+
+  it('result is under 2000 chars', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 12,
+      playerRolled: 18,
+      rollBonus: 5,
+      outcome: 'success',
+      outcomeText: 'You defeat the goblin.',
+      mutations: [],
+      combatBeat: {
+        round: 2,
+        band: 'clean',
+        enemyHpBefore: 12,
+        enemyHpAfter: 0,
+        playerHpDelta: 0,
+        materialMutationFired: true,
+        ops: ['set_relation'],
+        marker: 'combat_round',
+      },
+      combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
+    };
+
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }));
+    expect(result.length).toBeLessThan(2000);
+  });
+
+  it('survives monochrome strip — all numbers and names readable without SGR', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 12,
+      playerRolled: 18,
+      rollBonus: 5,
+      outcome: 'success',
+      outcomeText: 'You defeat the goblin.',
+      mutations: [],
+      combatBeat: {
+        round: 2,
+        band: 'clean',
+        enemyHpBefore: 12,
+        enemyHpAfter: 0,
+        playerHpDelta: 0,
+        materialMutationFired: true,
+        ops: ['set_relation'],
+        marker: 'combat_round',
+      },
+      combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
+    };
+
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }));
+    const stripped = stripSgr(result);
+
+    expect(stripped).toContain('Goblin');
+    expect(stripped).toContain('Aldric');
+    expect(stripped).toContain('12/12');
+    expect(stripped).toContain('+11');
+    expect(stripped).toContain('WIN');
+  });
+});
