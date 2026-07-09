@@ -4,6 +4,7 @@
 
 import type { ActionOutcome, WorldMutation } from './WorldEngine.js';
 import { STAT_LABELS } from './stat-format.js';
+import { renderFrame } from '../render/AnsiRenderer.js';
 
 // ── Public context — only current (post-mutation) values ──
 
@@ -14,6 +15,8 @@ export interface OutcomeRenderContext {
   health: number;
   maxHealth: number;
   wealth: number;
+  /** Player display name for the combat-frame footer nameplate (T2b). */
+  name: string;
 }
 
 // ── Internal: derived from mutations ──
@@ -86,6 +89,12 @@ function formatDelta(delta: number): string {
   return ` (${sign}${delta})`;
 }
 
+/** Bare signed number, e.g. "+4" / "-6" (damage negative, heal positive) — used for the
+ *  combat-frame floaters, which (unlike formatDelta) have no surrounding parens/label. */
+function signed(n: number): string {
+  return n >= 0 ? `+${n}` : `${n}`;
+}
+
 // ── Distilled-action → emoji (for the decision breadcrumb) ──
 
 // Keyword-substring match so variants (combat/fight/duel) share an emoji.
@@ -125,6 +134,51 @@ const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {
   timed_out: { icon: '⏰', label: 'TIMED OUT' },
 };
 
+/**
+ * Combat-maths reveal: an AnsiRenderer frame replacing the text roll-vs-DC header on combat
+ * outcomes. Enemy HP is shown EXACT (unlike the banded mid-fight continue screen) because the
+ * fight is over — hiding it here would just be withholding a number the player already won or
+ * lost by. Message lines are ASCII-only (no emoji) since AnsiRenderer's fixed-width budget
+ * counts glyphs, not display cells, and emoji would silently miscount.
+ */
+function renderCombatFrame(outcome: ActionOutcome, ctx: OutcomeRenderContext): string {
+  const cb = outcome.combatBeat;
+  if (!cb) return ''; // guarded by the caller; keeps this function total for TS narrowing.
+  const cf = outcome.combatFrame;
+
+  const enemyName = cf?.enemyName ?? 'Enemy';
+  const enemyMaxHp = cf?.enemyMaxHp ?? cb.enemyHpAfter;
+  const margin = cf?.margin ?? 0;
+  const enemyDelta = cb.enemyHpAfter - cb.enemyHpBefore;
+
+  const rolled = outcome.playerRolled ?? 0;
+  const bonus = outcome.rollBonus ?? 0;
+  const total = rolled + bonus;
+  const bonusStr = bonus >= 0 ? `+${bonus}` : `${bonus}`;
+  const critMark = outcome.playerRolled === 20 ? '!' : outcome.playerRolled === 1 ? '*' : '';
+  const rollLine = `${critMark}d20 ${rolled} ${bonusStr} = ${total} vs DC ${outcome.finalDc}`.slice(0, 26);
+
+  const marginStr = signed(margin);
+  const verdict = outcome.outcome === 'success' ? 'WIN' : outcome.outcome === 'failure' ? 'LOSS' : outcome.outcome.toUpperCase();
+  const verdictLine = `margin ${marginStr}  ${cb.band.toUpperCase()}  ${verdict}`.slice(0, 26);
+
+  return renderFrame({
+    header: {
+      name: enemyName,
+      hp: cb.enemyHpAfter,
+      maxHp: enemyMaxHp,
+      floater: enemyDelta !== 0 ? signed(enemyDelta) : undefined,
+    },
+    message: [rollLine, verdictLine],
+    footer: {
+      name: ctx.name,
+      hp: ctx.health,
+      maxHp: ctx.maxHealth,
+      floater: cb.playerHpDelta !== 0 ? signed(cb.playerHpDelta) : undefined,
+    },
+  });
+}
+
 // ── Public renderer ──
 
 /**
@@ -139,8 +193,12 @@ export function formatOutcome(
   const d = deriveFromMutations(outcome.mutations);
   const lines: string[] = [];
 
-  // ── Header — roll vs DC ──
-  if (outcome.playerRolled !== null) {
+  // ── Header — roll vs DC, OR (combat outcomes) the AnsiRenderer combat-maths reveal ──
+  // Combat replaces the text header with a frame at the very top of the string (ahead of
+  // everything else) so it survives description-length clipping in buildOutcomeEmbed.
+  if (outcome.combatBeat) {
+    lines.push(renderCombatFrame(outcome, ctx));
+  } else if (outcome.playerRolled !== null) {
     const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '❓', label: outcome.outcome.toUpperCase() };
     const bonus = outcome.rollBonus ?? 0;
     const total = outcome.playerRolled + bonus;

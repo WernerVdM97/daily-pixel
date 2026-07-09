@@ -39,6 +39,7 @@ import {
   type CombatState,
 } from './combat-state.js';
 import { resolveRelationEndpoint, type NearbyNpc } from './relation-wiring.js';
+import { renderFrame } from '../../render/AnsiRenderer.js';
 
 /** ActionState plus the pipeline's internal fields, stored in the JSON column (mirrors
  *  `InternalActionState` in machine.ts, but with `actionType`/`flags` pinned at classify
@@ -655,9 +656,11 @@ export class PipelineActionStateMachine {
       ...nextDecision.options,
       { label: COMBAT_FLEE_LABEL, dcModifier: null },
     ];
-    // Engine-composed status line (decide-scene-narration spec): banded enemy condition (never
-    // exact enemy HP) plus the player's own exact HP movement.
-    nextDecision.combatStatus = composeCombatStatus(cs.enemyName, newEnemyHp, cs.enemyMaxHp, playerHpDelta);
+    // Engine-composed status frame (decide-scene-narration spec, B#5/B#6): banded enemy
+    // condition (never exact enemy HP) plus the player's own exact, clamped HP.
+    nextDecision.combatStatus = composeCombatStatus(
+      cs.enemyName, newEnemyHp, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
+    );
     const nextState: PipelineInternalActionState = {
       ...state,
       decisions: newDecisions,
@@ -823,6 +826,7 @@ export class PipelineActionStateMachine {
         llmCallIds: [...(state.llmCallIds ?? []), ...combatResolveCallIds, ...criticCallIds],
         hpZero: (playerHpDelta < 0 && (char.health + playerHpDelta) <= 0) || undefined,
         combatBeat,
+        combatFrame: { enemyName: cs.enemyName, enemyMaxHp: cs.enemyMaxHp, margin: roundResult.margin },
       },
     };
   }
@@ -1184,19 +1188,30 @@ function enemyConditionBand(hpFraction: number): { pips: string; woundWord: stri
   return { pips, woundWord };
 }
 
-/** Signed player HP movement, shown exactly — it's the player's own information (decision above),
- *  unlike the enemy's banded-only condition. */
-function formatPlayerHpDelta(delta: number): string {
-  if (delta > 0) return `+${delta} HP`;
-  if (delta < 0) return `−${Math.abs(delta)} HP`;
-  return '0 HP';
-}
-
-/** Engine-composed combat status line for a continue-screen: banded enemy condition plus exact
- *  player HP movement, e.g. "Wolf: ▓▓▓░░ Bloodied · You: −2 HP" (decide-scene-narration spec). */
-function composeCombatStatus(enemyName: string, enemyHp: number, enemyMaxHp: number, playerHpDelta: number): string {
+/** Engine-composed combat-status FRAME for a continue-screen (B#5/B#6): enemy and player each
+ *  get their own line inside an AnsiRenderer frame instead of the old crammed one-liner. The
+ *  enemy stays BANDED (never exact HP — hidden exact HP keeps tension); the player is EXACT,
+ *  it's their own information, clamped to >=0 so a lethal round never displays negative HP
+ *  mid-resolution (0/dead is resolved by the terminal outcome, not this continue screen). */
+function composeCombatStatus(
+  enemyName: string,
+  enemyHp: number,
+  enemyMaxHp: number,
+  playerHpDelta: number,
+  playerHp: number,
+  playerMaxHp: number,
+): string {
   const { pips, woundWord } = enemyConditionBand(enemyMaxHp > 0 ? enemyHp / enemyMaxHp : 0);
-  return `${enemyName}: ${pips} ${woundWord} · You: ${formatPlayerHpDelta(playerHpDelta)}`;
+  const displayedPlayerHp = Math.max(0, playerHp + playerHpDelta);
+  return renderFrame({
+    header: { name: enemyName, hp: enemyHp, maxHp: enemyMaxHp, bar: pips, hpText: woundWord },
+    footer: {
+      name: 'You',
+      hp: displayedPlayerHp,
+      maxHp: playerMaxHp,
+      floater: playerHpDelta !== 0 ? (playerHpDelta > 0 ? `+${playerHpDelta}` : `${playerHpDelta}`) : undefined,
+    },
+  });
 }
 
 function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen: string; dcModifier: number }[] {

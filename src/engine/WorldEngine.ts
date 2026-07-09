@@ -170,6 +170,10 @@ export interface ActionOutcome {
    *  path (win / loss / cap-derive). Always undefined (absent) in legacy/v11 outcomes and on
    *  non-combat pipeline outcomes. */
   combatBeat?: CombatBeatLog;
+  /** Combat-frame display data for the terminal AnsiRenderer reveal — set only by the pipeline
+   *  combat spine's terminal path, alongside combatBeat. enemyMaxHp + margin aren't on the
+   *  telemetry CombatBeatLog; enemyName is nowhere else on the outcome. Absent on non-combat. */
+  combatFrame?: { enemyName: string; enemyMaxHp: number; margin: number };
 }
 
 export interface ActionResumeResult {

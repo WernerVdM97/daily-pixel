@@ -637,6 +637,7 @@ export function buildOutcomeEmbed(
     health: character?.health ?? 10,
     maxHealth: character?.maxHealth ?? 10,
     wealth: character?.wealth ?? 0,
+    name: character?.name ?? 'You',
   };
 
   // Location header — emoji prefix from the geography seed, name from character.
@@ -664,7 +665,9 @@ export function buildOutcomeEmbed(
     const parts: string[] = [];
     if (locationLine) parts.push(locationLine);
     if (breadcrumb) parts.push(breadcrumb);
-    if (includeScene && sceneBlock) parts.push(sceneBlock);
+    // Combat outcomes show the AnsiRenderer combat frame (built into outcomeBlock) instead of
+    // the decorative scene art — showing both would be redundant and burn embed-length budget.
+    if (includeScene && sceneBlock && !outcome.combatBeat) parts.push(sceneBlock);
     if (!opts?.compact) {
       parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
     }

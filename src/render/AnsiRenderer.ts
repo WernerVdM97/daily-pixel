@@ -23,6 +23,13 @@ export interface CombatantLine {
   maxHp: number;
   /** Signed damage/heal floater for THIS combatant, e.g. "-6" / "+4". Optional. */
   floater?: string;
+  /** Pre-rendered bar glyphs shown INSTEAD of the computed hp/maxHp fill (e.g. a 5-pip banded
+   *  condition bar). When set, hp/maxHp are still required by the type but are inert for
+   *  display — only the bar string and hpText suffix are rendered. */
+  bar?: string;
+  /** Text shown INSTEAD of "hp/maxHp" (e.g. a wound word). "" hides the number entirely.
+   *  Only meaningful alongside `bar`; ignored otherwise. */
+  hpText?: string;
 }
 
 export interface FrameSpec {
@@ -167,14 +174,34 @@ function nameplateSegments(line: CombatantLine, nameRole: Role): Segment[] {
  * suffix (3+ digit HP), which silently breaks the box. Sizing it from the
  * real suffix length means the line is exactly INTERIOR_WIDTH before
  * fitSegments ever has to pad or truncate anything.
+ *
+ * When `line.bar` is set (banded/exact-HP-hidden combatant), that string is used verbatim
+ * as the bracketed content instead of a computed fill, and `hpText ?? "hp/maxHp"` replaces
+ * the numeric suffix — see the early-return branch below. fitSegments still owns final
+ * width enforcement/truncation for that branch, same as every other line in the frame.
  */
-function hpLineSegments(line: CombatantLine): Segment[] {
+function hpLineSegments(line: CombatantLine, nameRole: Role): Segment[] {
   const clampedMax = Math.max(line.maxHp, 0);
   const clampedHp = Math.min(Math.max(line.hp, 0), clampedMax);
+  const label = '  HP [';
+
+  if (line.bar !== undefined) {
+    // Banded HP has no fraction to colour by fill/empty split, so (unlike the computed path
+    // below) the whole bar takes one colour keyed to who it belongs to.
+    const suffix = line.hpText !== undefined
+      ? (line.hpText ? ` ${line.hpText}` : '')
+      : ` ${Math.round(clampedHp)}/${Math.round(clampedMax)}`;
+    return [
+      { text: label },
+      { text: line.bar, role: nameRole },
+      { text: ']' },
+      { text: suffix },
+    ];
+  }
+
   const fraction = clampedMax > 0 ? clampedHp / clampedMax : 0;
   const fillRole: Role = fraction < LOW_HP_THRESHOLD ? 'threat' : 'life';
 
-  const label = '  HP [';
   const suffix = ` ${Math.round(clampedHp)}/${Math.round(clampedMax)}`;
   const barWidth = Math.max(MIN_HP_BAR_WIDTH, INTERIOR_WIDTH - (label.length + 1 + suffix.length));
 
@@ -224,13 +251,14 @@ function escapeBackticks(text: string): string {
   return text.replace(/`/g, BACKTICK_SUBSTITUTE);
 }
 
-/** Backtick-safe copy of a combatant line: sanitizes name + floater, the
- *  only free-text fields on a CombatantLine. */
+/** Backtick-safe copy of a combatant line: sanitizes name, floater, and hpText —
+ *  the free-text fields on a CombatantLine (bar is always glyph-only, never caller prose). */
 function sanitizeCombatant(line: CombatantLine): CombatantLine {
   return {
     ...line,
     name: escapeBackticks(line.name),
     floater: line.floater !== undefined ? escapeBackticks(line.floater) : line.floater,
+    hpText: line.hpText !== undefined ? escapeBackticks(line.hpText) : line.hpText,
   };
 }
 
@@ -262,7 +290,7 @@ export function renderFrame(spec: FrameSpec): string {
 
   if (header) {
     lines.push(composeLine(nameplateSegments(header, 'threat')));
-    lines.push(composeLine(hpLineSegments(header)));
+    lines.push(composeLine(hpLineSegments(header, 'threat')));
     if (header.floater) lines.push(composeLine(floaterSegments(header.floater)));
   }
 
@@ -278,7 +306,7 @@ export function renderFrame(spec: FrameSpec): string {
 
   if (footer) {
     lines.push(composeLine(nameplateSegments(footer, 'player')));
-    lines.push(composeLine(hpLineSegments(footer)));
+    lines.push(composeLine(hpLineSegments(footer, 'player')));
     if (footer.floater) lines.push(composeLine(floaterSegments(footer.floater)));
   }
 

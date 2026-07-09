@@ -1,24 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
-import { formatOutcome, distilledActionEmoji } from '../../src/engine/OutcomeRenderer.js';
+import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../src/engine/OutcomeRenderer.js';
 
 // ── Helpers ──
 
-function ctx(overrides?: Partial<{
-  stamina: number;
-  maxStamina: number;
-  rollsRemaining: number;
-  health: number;
-  maxHealth: number;
-  wealth: number;
-}>): {
-  stamina: number;
-  maxStamina: number;
-  rollsRemaining: number;
-  health: number;
-  maxHealth: number;
-  wealth: number;
-} {
+function ctx(overrides?: Partial<OutcomeRenderContext>): OutcomeRenderContext {
   return {
     stamina: 8,
     maxStamina: 10,
@@ -26,6 +12,7 @@ function ctx(overrides?: Partial<{
     health: 10,
     maxHealth: 12,
     wealth: 5,
+    name: 'Aldric',
     ...overrides,
   };
 }

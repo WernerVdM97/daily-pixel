@@ -934,7 +934,14 @@ describe('PipelineActionStateMachine — decide-scene-narration: combat continue
 
     expect(step.nextDecision.narration).toBe('The goblin snarls, blood streaming from its arm.');
     // enemyHp 7/10=0.7 -> round(3.5)=4 filled pips (Bloodied band); player took no damage.
-    expect(step.nextDecision.combatStatus).toBe('Goblin: ▓▓▓▓░ Bloodied · You: 0 HP');
+    // CombatStatus is now an AnsiRenderer frame (B#5/B#6): enemy banded on its own line,
+    // player exact HP on a separate footer line.
+    expect(step.nextDecision.combatStatus).toContain('Goblin');
+    expect(step.nextDecision.combatStatus).toMatch(/▓▓▓▓░/);
+    expect(step.nextDecision.combatStatus).toContain('Bloodied');
+    expect(step.nextDecision.combatStatus).toContain('You');
+    expect(step.nextDecision.combatStatus).toContain('12/12'); // player untouched this round
+    expect(step.nextDecision.combatStatus).not.toMatch(/\d+\/10/); // no exact enemy HP leak
   });
 
   it('warns (telemetry only, no retry) when the continue options all share stat + dcModifier', async () => {
@@ -1426,12 +1433,14 @@ describe('PipelineActionStateMachine — decide-scene-narration: E2E acceptance 
 
       // Narration threads through.
       expect(step1.nextDecision.narration).toBe('The goblin snarls, teeth bared — it circles left, looking for an opening.');
-      // CombatStatus shows banded enemy condition + player HP movement.
-      expect(step1.nextDecision.combatStatus).toMatch(/Goblin: [▓░]{5} (Healthy|Bloodied|Battered|Critical)/);
-      expect(step1.nextDecision.combatStatus).toMatch(/ · You: /);
-      // Never leaks exact enemy HP — banded only. The enemy portion (Goblin: ... up to the
-      // first · separator) must have no digit before HP; the player's side (You: N HP) is fine.
-      expect(step1.nextDecision.combatStatus).not.toMatch(/Goblin:[^·]*\d HP/);
+      // CombatStatus is now an AnsiRenderer frame (B#5/B#6): enemy banded condition on the
+      // header line, player on a separate footer line — never a crammed one-liner.
+      expect(step1.nextDecision.combatStatus).toMatch(/[▓░]{5}/);
+      expect(step1.nextDecision.combatStatus).toMatch(/Healthy|Bloodied|Battered|Critical/);
+      expect(step1.nextDecision.combatStatus).toContain('Goblin');
+      expect(step1.nextDecision.combatStatus).toContain('You');
+      // Never leaks exact enemy HP (10/10, 7/10, etc. of the actual maxHp) — banded only.
+      expect(step1.nextDecision.combatStatus).not.toMatch(/\d+\/10/);
       // ≥2 distinct backstop options; flee is a separate bail option (dcModifier: null).
       const realOptions1 = step1.nextDecision.options.filter(o => o.dcModifier !== null);
       expect(realOptions1.map(o => o.label)).toEqual(['Press the attack', 'Fight defensively']);
@@ -1447,9 +1456,11 @@ describe('PipelineActionStateMachine — decide-scene-narration: E2E acceptance 
       if (step2.resolved) throw new Error('expected unresolved round 2');
 
       expect(step2.nextDecision.narration).toBe('Your blade scrapes its tattered leather — it stumbles but rights itself, furious now.');
-      expect(step2.nextDecision.combatStatus).toMatch(/Goblin: [▓░]{5} (Healthy|Bloodied|Battered|Critical)/);
-      expect(step2.nextDecision.combatStatus).toMatch(/ · You: /);
-      expect(step2.nextDecision.combatStatus).not.toMatch(/Goblin:[^·]*\\d HP/);
+      expect(step2.nextDecision.combatStatus).toMatch(/[▓░]{5}/);
+      expect(step2.nextDecision.combatStatus).toMatch(/Healthy|Bloodied|Battered|Critical/);
+      expect(step2.nextDecision.combatStatus).toContain('Goblin');
+      expect(step2.nextDecision.combatStatus).toContain('You');
+      expect(step2.nextDecision.combatStatus).not.toMatch(/\d+\/10/);
       const realOptions2 = step2.nextDecision.options.filter(o => o.dcModifier !== null);
       expect(realOptions2.map(o => o.label)).toEqual(['Press the attack', 'Fight defensively']);
       const backstop2 = realOptions2.filter(o => o.label !== 'Flee the fight');
