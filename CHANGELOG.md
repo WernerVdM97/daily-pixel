@@ -10,7 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Welcome tag on the new-hero broadcast** — the public "✨ A new hero joins the Oak" announcement now mentions the owner (pings suppressed, matching the 0.2.8 identity treatment) and carries the 🌅 `Hi` re-entry button. Commit `068e96b`.
 
 ### Fixed
-- **Divine intervention no longer costs a roll** *(F#21)* — the pipeline's typed fallback refunds the roll, authors no mutations, and renders as ⚠️ System instead of an in-world divine event. Commit `4c51334`.
+- **Divine intervention no longer costs a roll** *(F#21)* — the pipeline's typed classify-fallback refunds the roll, authors no mutations, and renders as a distinct grey ⚠️ System embed (the initial `4c51334` embed was unreachable, so divine mis-rendered as a normal outcome and misreported the refund; now fixed). Commits `4c51334`, `6e04929`, `ecc4741`.
 
 ### Internal
 - **v12 dead-code sweep** — the legacy `ActionStateMachine`, the `PROMPT_VERSION` indirection, the critic dual-injection, and the v11-only tests are deleted; the engine is pipeline-only. Closes stage-5 T7. Commit `72fb32d`.
