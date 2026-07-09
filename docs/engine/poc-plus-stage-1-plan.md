@@ -63,7 +63,7 @@ Two sub-tasks, spec by reference, each its own commit.
 - The announcement gains a components row with the 🌅 `Hi` button (`custom_id: 'nav:hi'`, secondary style); the existing `nav:hi` handler already spawns a per-clicker ephemeral on public messages (pattern at `src/discord/format.ts:224-234`).
 
 **Acceptance:**
-- [/] Live `/join` on the dev bot: the announcement shows the owner mention, no ping fires, and the `Hi` button opens the clicker's own ephemeral `/hi`. _Code landed (`068e96b`) but no live check was recorded — run it before ticking._
+- [x] Live `/join` on the dev bot: the announcement shows the owner mention, no ping fires, and the `Hi` button opens the clicker's own ephemeral `/hi`. _Live-QA'd on the dev bot 2026-07-09 (owner mention visible, no ping, Hi opens the clicker's ephemeral)._
 - [x] The `TODO.md` item "add /hi to 'A new hero joins the Oak' message" is ticked. (Reconciled 2026-07-09.)
 
 **Scope fence:** the `/join` wizard's inline-skills formatting polish (a separate `TODO.md` item) is out; no other commands touched.
@@ -71,6 +71,12 @@ Two sub-tasks, spec by reference, each its own commit.
 ## T2 — `AnsiRenderer` + combat maths reveal (roadmap item 2)
 
 Two deliverables; land as two commits (renderer first, consumer second) so the review can bite each separately.
+
+**Settled before build (lead scout, 2026-07-09) — the plan's original T2b anchors had drifted; these supersede the file list below:**
+- **Both surfaces (lead decision).** The frame targets the continue/decision screen AND the terminal outcome. B#5/B#6 are continue-screen bugs (the crammed `composeCombatStatus` one-liner, `PipelineActionStateMachine.ts:660` → `action.ts:520`); "roll vs DC + margin, both HP bars, no scene art" is the terminal outcome. Ticking every T2b box needs both.
+- **Data plumbing onto `ActionOutcome` (lead decision).** The outcome lacks `enemyMaxHp` and `margin` (`CombatBeatLog` carries neither; `margin` lives only on the transient `CombatRoundOutcome`). `resolveCombat` attaches both to a new optional `ActionOutcome` field — this touches `PipelineActionStateMachine.ts` + `WorldEngine.ts`. **`combat-dc.ts` maths stays read-only** (no band-table/`resolveCombatRound` edits); the fence held.
+- **Corrected anchors:** scene art (the ASCII to drop) is `sceneBlock` in `buildOutcomeEmbed`, `action.ts:651`/`:665` — NOT `OutcomeRenderer.ts`. Dice line is `OutcomeRenderer.ts:143-173` (crit flag `:153`). `formatOutcome` renders no enemy HP today; combat outcomes carry `outcome.combatBeat`.
+- Palette `[?]` ([[mvp+ansi-art]] line 35, Solarized-ish vs standard ANSI) settles during T2b's live check.
 
 ### T2a — `AnsiRenderer`
 
