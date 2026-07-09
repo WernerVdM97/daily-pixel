@@ -16,8 +16,8 @@ allowed-tools: Read, Glob, Grep, Bash, Write, Edit
 - **Char budget**: 2 000 chars per message incl code fences; escape codes count. Colour roughly doubles a frame's cost. Measured: 30-wide frames land at 820–1 250 coloured.
 - **Mobile strips ANSI colour** — the monochrome art must carry all gameplay information alone. Colour is enhancement, never signal.
 - **Author monochrome, colour at render.** `.ascii` fragments stay colour-free; an `AnsiRenderer` applies colour by role. Never store coloured strings as assets (`SceneLoader` width validation counts raw length).
-- Dark fg colours (esp. gray 30) read badly on Discord dark theme for body text; get "dark" from bg fills instead.
-- **Always fill the background.** Never leave space transparent — Discord's dark theme transparency will silhouette art against an unpredictable backdrop. Every cell must carry either a bg colour (40–47), shading glyph (`░ ▒ ▓`), or a solid fill character (`█`). Negative space is filled, not empty.
+- **Never use ANSI black (30 fg or 40 bg).** Discord code blocks render against a dark grey-blue background (#2b2d31). Black foreground is invisible; black background is indistinguishable from the code block itself. Use 90 (bright black / dark gray) for border roles, and get "dark" from shading glyphs (`░ ▒ ▓`) or darker bg colours (41–47) — never 40.
+- **Always fill the background.** Never leave space transparent — Discord's dark theme transparency will silhouette art against an unpredictable backdrop. Every cell must carry either a bg colour (41–47), shading glyph (`░ ▒ ▓`), or a solid fill character (`█`). Negative space is filled, not empty.
 - **Palette first, art second.** Choose an appropriate colour palette for the scene's mood before placing a single glyph. Every frame declares its palette in a comment block at composition time. Use complementary pairs (31↔32, 33↔34/36, 35↔37) for focal contrast; warm/cool push-pull for depth; monochrome ramps (bold + dim + `░▒▓` ≈ 4 steps) for understated moments. A good palette uses 3–4 roles, not all 8.
 - Half-blocks (`█ ▀ ▄ ▐ ▌`), shades (`░ ▒ ▓`) and box-drawing render single-width on desktop; box-drawing on mobile fonts is unverified, so prefer plain ASCII (`\ | / -`) for structural lines like rays.
 
@@ -74,14 +74,14 @@ For **monster portraits** (bestiary, inspect replies) follow the zombie card in 
 
 | Code | Role |
 |---|---|
-| 30 gray | chrome: borders, labels, empty bar segments |
+| 90 bright black | chrome: borders, labels, empty bar segments (always 90, never 30 — 30 black is invisible on Discord's code block bg) |
 | 31 red | threat: enemy names, damage, low HP, eyes |
 | 32 green | life: HP fill, healing, XP gains |
 | 33 yellow | warmth/reward: fire, loot, crits, title lettering |
 | 34/36 blue/cyan | player name/sprite, NPC speech; cool distance (treelines, hills) |
 | 35 magenta | reserved: magic/status |
 | 37 white | emphasis: sprites, item names, big numbers (bold for crits) |
-| bg 40 | panel fill |
+| bg 44 blue | panel fill (never bg 40 — black bg matches code block, invisible) |
 | bg 41/42 | surface bars, ground strips |
 
 ## 4. Shading technique vocabulary
@@ -96,7 +96,7 @@ Derived from the landscape reference (spark doc §11); each maps to a char class
 | Sculpted shadows | `▓`/`▒` flanks, `▀ ▄` scallops | Shadow sides of foliage/objects; pick ONE light source and keep it |
 | Dissolve gradient | `▓ → ▒ → ░ → .` trail | Death/despawn effects; density falls off with distance; advance it across 2–3 posts for free animation |
 | Decorative clusters | small `·`/`*` diamonds | Sparkles, flowers, burst highlights (asymmetric placement) |
-| Ramp sharing | same shade char, colour shifts at render | e.g. dissolve particles red 31 fading to gray 30 |
+| Ramp sharing | same shade char, colour shifts at render | e.g. dissolve particles red 31 fading to bright black 90 |
 
 Composition rules:
 
@@ -159,7 +159,7 @@ d20 gem centrepiece with ASCII burst rays and scatter sparkle; boss dies by diss
 +----------------------------+
 ```
 
-Colour: chrome 30, boss name and damage 31, d20/rays 33 with bold-white 20, player 34, XP 32, loot 33, dissolve particles 31 fading to 30.
+Colour: chrome 90 (never 30 — black invisible on code block bg), boss name and damage 31, d20/rays 33 with bold-white 20, player 34, XP 32, loot 33, dissolve particles 31 fading to 90.
 
 ---
 

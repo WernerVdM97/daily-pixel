@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Internal
+- **POC+ Shared World arc decided** — `docs/game/poc-plus-roadmap.md` flips to `decided` (kill credit, buff vocabulary, broadcast stance, and frame authorship settled; versions unpinned; the v12 tail folded in as item 0) and gains its stage-1 build plan `docs/engine/poc-plus-stage-1-plan.md` (v12 tail + welcome tag + combat maths reveal), written as the orchestrated-delegation handover.
+
 ### Changed
 - **Logging/debug env vars consolidated** — `LOG_LLM_THINKING_ALL`, `LLM_LOG_ALL_PROMPTS`, and `REASONING_SPIRAL_CHARS` are removed (no aliasing); replaced by `LLM_LOG_THINKING=errors|spiral|all` (default `spiral`) and `LLM_SPIRAL_CHARS`, read once at boot via `src/config/env.ts`. A stale var still set in `.env` now logs a loud `[env]` boot warning naming its replacement instead of silently doing nothing.
 - **Pipeline gateway now honours the spiral threshold** — `ProdPipelineLlmGateway` previously ignored `REASONING_SPIRAL_CHARS` entirely, so a 15.8k-char reasoning chain was dropped in prod; both gateways now share one `DeepCapturePolicy` (`src/llm/capture-policy.ts`).
