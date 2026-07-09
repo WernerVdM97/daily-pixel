@@ -170,5 +170,79 @@ describe("AnsiRenderer", () => {
         expect(stripSgr(line).length).toBe(30);
       }
     });
+
+    it("truncates overflowing segments from the tail, preserving leading content", () => {
+      // Frame-level floater is "  " (indent) + text with no self-truncation,
+      // so a 30-char text overflows the 28-wide interior by 4 and forces
+      // fitSegments to actually truncate. If truncation ate from the front
+      // (the historical bug), the leading 2-space indent would be consumed
+      // first and the line would start directly with "A".
+      const rendered = renderFrame({ floater: "A".repeat(30) });
+      const mono = stripSgr(rendered);
+      const floaterLine = mono.split("\n").find((l) => l.includes("A"));
+      expect(floaterLine).toBeDefined();
+      const body = floaterLine!.slice(1, -1); // strip the | | borders
+      expect(body.startsWith("  A")).toBe(true); // leading indent survives
+      expect(body).toBe("  " + "A".repeat(26)); // trailing overflow dropped
+      expect(body.length).toBe(28);
+    });
+  });
+
+  describe("HP line adaptive bar width (wide numeric suffixes)", () => {
+    it("keeps the box intact and shows full 3-digit HP values", () => {
+      const rendered = renderFrame({ header: { name: "GLOOMFANG", hp: 999, maxHp: 999 } });
+      const mono = stripSgr(rendered);
+      const hpLine = mono.split("\n").find((l) => l.includes("999/999"));
+      expect(hpLine).toBeDefined();
+      expect(hpLine).toContain("HP [");
+      expect(hpLine).toContain("]");
+      expect(hpLine!.indexOf("[")).toBeLessThan(hpLine!.indexOf("]"));
+      expect(hpLine!.length).toBe(30);
+    });
+
+    it("keeps the box intact and shows full 4-digit HP values", () => {
+      const rendered = renderFrame({ header: { name: "GLOOMFANG", hp: 9999, maxHp: 9999 } });
+      const mono = stripSgr(rendered);
+      const hpLine = mono.split("\n").find((l) => l.includes("9999/9999"));
+      expect(hpLine).toBeDefined();
+      expect(hpLine).toContain("HP [");
+      expect(hpLine).toContain("]");
+      expect(hpLine!.indexOf("[")).toBeLessThan(hpLine!.indexOf("]"));
+      expect(hpLine!.length).toBe(30);
+    });
+
+    it("still fits exactly for small (1-digit) HP values", () => {
+      const rendered = renderFrame({ header: { name: "RAT", hp: 3, maxHp: 5 } });
+      const mono = stripSgr(rendered);
+      const hpLine = mono.split("\n").find((l) => l.includes("3/5"));
+      expect(hpLine).toBeDefined();
+      expect(hpLine!.length).toBe(30);
+    });
+
+    it("rounds a fractional HP value for display without touching bar fill maths", () => {
+      const rendered = renderFrame({ header: { name: "SPRITE", hp: 5.7, maxHp: 10 } });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("6/10");
+      expect(mono).not.toContain("5.7");
+    });
+  });
+
+  describe("code fence integrity against caller-supplied text", () => {
+    it("neutralizes a triple-backtick in a name and in a message so only the real fence markers survive", () => {
+      const rendered = renderFrame({
+        header: { name: "```GLOOM@everyone", hp: 6, maxHp: 20 },
+        message: ["```@everyone breaks out```"],
+      });
+
+      // Only the opening ```ansi and the single closing ``` should remain;
+      // no stray backtick run from caller text should appear anywhere else.
+      const fenceMatches = rendered.match(/```/g) ?? [];
+      expect(fenceMatches.length).toBe(2);
+      expect(rendered.startsWith("```ansi\n")).toBe(true);
+      expect(rendered.endsWith("\n```")).toBe(true);
+
+      const body = rendered.slice("```ansi\n".length, rendered.length - "\n```".length);
+      expect(body).not.toContain("`");
+    });
   });
 });

@@ -41,10 +41,9 @@ const INTERIOR_WIDTH = FRAME_WIDTH - 2;
 // into the 28-wide interior (design doc §3).
 const MESSAGE_TEXT_WIDTH = 26;
 const MESSAGE_MAX_LINES = 2;
-// Fits label ("HP [") + bracket + a typical 2-3 digit "hp/maxHp" suffix
-// inside the 28-wide interior; see hpLineSegments' truncation note below
-// for what happens with unusually large HP values.
-const HP_BAR_WIDTH = 14;
+// Floor for the adaptively-sized HP bar (see hpLineSegments) so a very
+// long "hp/maxHp" suffix can still shrink the bar without erasing it.
+const MIN_HP_BAR_WIDTH = 6;
 // Below this fraction of max HP, the filled bar segment reads as threat
 // (red) rather than life (green) — chosen per the design doc's "e.g. <40%"
 // suggestion.
@@ -90,16 +89,17 @@ function fitSegments(segments: Segment[], width: number): Segment[] {
   }
   let over = total - width;
   const result: Segment[] = [];
-  for (const seg of segments) {
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const seg = segments[i];
     if (over <= 0) {
-      result.push(seg);
+      result.unshift(seg);
       continue;
     }
     if (seg.text.length <= over) {
       over -= seg.text.length;
       continue;
     }
-    result.push({ text: seg.text.slice(0, seg.text.length - over), role: seg.role });
+    result.unshift({ text: seg.text.slice(0, seg.text.length - over), role: seg.role });
     over = 0;
   }
   return result;
@@ -156,7 +156,17 @@ function nameplateSegments(line: CombatantLine, nameRole: Role): Segment[] {
  * filled/empty boundary in the plain bar string — hpBar always emits all
  * filled glyphs before all empty ones, so the first EMPTY_GLYPH marks it.
  * The displayed hp is clamped the same way hpBar clamps its fill, so the
- * number on screen always agrees with the bar next to it.
+ * number on screen always agrees with the bar next to it. Displayed
+ * numbers are rounded (game HP is always integer; this only guards
+ * against a stray fractional value reaching the renderer).
+ *
+ * The bar width is sized to whatever's left of the interior after the
+ * fixed "  HP [", "]", and the actual "{hp}/{maxHp}" suffix — a fixed bar
+ * width would either get padded (small numbers) or, worse, force
+ * fitSegments to eat into the "  HP [" label to make room for a wide
+ * suffix (3+ digit HP), which silently breaks the box. Sizing it from the
+ * real suffix length means the line is exactly INTERIOR_WIDTH before
+ * fitSegments ever has to pad or truncate anything.
  */
 function hpLineSegments(line: CombatantLine): Segment[] {
   const clampedMax = Math.max(line.maxHp, 0);
@@ -164,17 +174,21 @@ function hpLineSegments(line: CombatantLine): Segment[] {
   const fraction = clampedMax > 0 ? clampedHp / clampedMax : 0;
   const fillRole: Role = fraction < LOW_HP_THRESHOLD ? 'threat' : 'life';
 
-  const bar = hpBar(line.hp, line.maxHp, HP_BAR_WIDTH);
+  const label = '  HP [';
+  const suffix = ` ${Math.round(clampedHp)}/${Math.round(clampedMax)}`;
+  const barWidth = Math.max(MIN_HP_BAR_WIDTH, INTERIOR_WIDTH - (label.length + 1 + suffix.length));
+
+  const bar = hpBar(line.hp, line.maxHp, barWidth);
   const emptyIndex = bar.indexOf(EMPTY_GLYPH);
   const filledPart = emptyIndex === -1 ? bar : bar.slice(0, emptyIndex);
   const emptyPart = emptyIndex === -1 ? '' : bar.slice(emptyIndex);
 
   return [
-    { text: '  HP [' },
+    { text: label },
     { text: filledPart, role: fillRole },
     { text: emptyPart, role: 'chrome' },
     { text: ']' },
-    { text: ` ${clampedHp}/${clampedMax}` },
+    { text: suffix },
   ];
 }
 
@@ -197,6 +211,29 @@ function spriteSegments(line: string): Segment[] {
   return [{ text: line }];
 }
 
+// Visual stand-in for a backtick in caller-supplied text. A literal ` would
+// close the ```ansi fence early (or open a nested inline-code span),
+// leaking the rest of the frame as raw Discord markdown — reachable via an
+// LLM-authored enemy name or a user-supplied character name, so the
+// renderer (which owns the fence) must guarantee no caller text can ever
+// contain one.
+const BACKTICK_SUBSTITUTE = "ʼ";
+
+/** Strip any fence-breaking backticks out of one piece of caller text. */
+function escapeBackticks(text: string): string {
+  return text.replace(/`/g, BACKTICK_SUBSTITUTE);
+}
+
+/** Backtick-safe copy of a combatant line: sanitizes name + floater, the
+ *  only free-text fields on a CombatantLine. */
+function sanitizeCombatant(line: CombatantLine): CombatantLine {
+  return {
+    ...line,
+    name: escapeBackticks(line.name),
+    floater: line.floater !== undefined ? escapeBackticks(line.floater) : line.floater,
+  };
+}
+
 /** Message line: 2-space indent + up to 26 chars of text, truncated
  *  (not wrapped) if longer — the message box is a hard budget, not a
  *  reflow target; callers are expected to pre-wrap flavour text. */
@@ -215,32 +252,40 @@ function messageSegments(line: string): Segment[] {
 export function renderFrame(spec: FrameSpec): string {
   const lines: string[] = [borderLine()];
 
-  if (spec.header) {
-    lines.push(composeLine(nameplateSegments(spec.header, 'threat')));
-    lines.push(composeLine(hpLineSegments(spec.header)));
-    if (spec.header.floater) lines.push(composeLine(floaterSegments(spec.header.floater)));
+  // Sanitize every caller-supplied string up front so nothing composed
+  // below can carry a fence-breaking backtick into the output.
+  const header = spec.header && sanitizeCombatant(spec.header);
+  const footer = spec.footer && sanitizeCombatant(spec.footer);
+  const sprite = spec.sprite?.map(escapeBackticks);
+  const message = spec.message?.map(escapeBackticks);
+  const floater = spec.floater !== undefined ? escapeBackticks(spec.floater) : spec.floater;
+
+  if (header) {
+    lines.push(composeLine(nameplateSegments(header, 'threat')));
+    lines.push(composeLine(hpLineSegments(header)));
+    if (header.floater) lines.push(composeLine(floaterSegments(header.floater)));
   }
 
-  if (spec.sprite) {
-    for (const fragment of spec.sprite) {
+  if (sprite) {
+    for (const fragment of sprite) {
       lines.push(composeLine(spriteSegments(fragment)));
     }
   }
 
-  if (spec.floater) {
-    lines.push(composeLine(floaterSegments(spec.floater)));
+  if (floater) {
+    lines.push(composeLine(floaterSegments(floater)));
   }
 
-  if (spec.footer) {
-    lines.push(composeLine(nameplateSegments(spec.footer, 'player')));
-    lines.push(composeLine(hpLineSegments(spec.footer)));
-    if (spec.footer.floater) lines.push(composeLine(floaterSegments(spec.footer.floater)));
+  if (footer) {
+    lines.push(composeLine(nameplateSegments(footer, 'player')));
+    lines.push(composeLine(hpLineSegments(footer)));
+    if (footer.floater) lines.push(composeLine(floaterSegments(footer.floater)));
   }
 
   lines.push(borderLine());
 
-  if (spec.message && spec.message.length > 0) {
-    const capped = spec.message.slice(0, MESSAGE_MAX_LINES);
+  if (message && message.length > 0) {
+    const capped = message.slice(0, MESSAGE_MAX_LINES);
     for (const messageLine of capped) {
       lines.push(composeLine(messageSegments(messageLine)));
     }
