@@ -4,7 +4,8 @@
 ## scratchpad (humans start here)
 
 ### TBD — POC polish (small UI wins, no spark warranted)
-- [ ] establish POC polish scope game doc
+- [ ] movement on low difficulty terrain can be deterministic for up to a total of 3 effort, 3 times 1 difficulty edges. Or a 1 and 2 difficulty edge. When traversing a 3 (or greater) difficulty edge in one action, the travel prompt has to trigger.
+  - actions that involve movement but isn't it directly, like prompting to search the library from the wardens oak, should ensure that the travel beat is first evaluated (could auto travel, or demand travel as a seperate action).
 - [ ] morning and evening messages should have some custom prose or interesting message.
 - [ ] drop the ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? 
 - [ ] add /hi to 'A new hero joins the Oak' message.
