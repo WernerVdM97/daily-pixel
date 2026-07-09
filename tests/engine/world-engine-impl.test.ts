@@ -173,3 +173,86 @@ describe('WorldEngineImpl — pipeline decide timeout (v12 QA §1)', () => {
 });
 
 
+describe('WorldEngineImpl — classify-stage throw → divine intervention (F#21)', () => {
+  it('refunds the roll, authors no mutations, and resolves as a flagged system fault', async () => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+
+    const user = userRepo.create('999999999');
+    const characterId = charRepo.create(user.id, {
+      name: 'Garrick',
+      class: 'Fighter',
+      upbringing: 'Village',
+      race: 'Human',
+      alignment: 'lawful good',
+      day_job: 'Guard',
+      stats: JSON.stringify({ physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }),
+      health: 10,
+      max_health: 10,
+      max_stamina: 10,
+      stamina: 10,
+      rolls_remaining: 3,
+      location: "The Warden's Oak",
+      wealth: 5,
+      last_action_state: null,
+    }).id;
+
+    // The rawInput must MISS heuristicClassify (zero category matches) so the pipeline falls
+    // through to the LLM classify stage; a heuristic hit would classify server-side and never
+    // reach the gateway. The classify fetch then rejects, and PipelineActionStateMachine.start's
+    // catch routes to resolveDivineIntervention. `mockRejectedValue` covers any call, but only
+    // classify ever fires here — divine intervention resolves outright, so no decide call follows.
+    const mockFetch = vi.fn<typeof fetch>().mockRejectedValue(new Error('classify transport failure'));
+
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: '__divine__', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlm: { apiKey: 'test-key', model: 'test-model', fetch: mockFetch as unknown as typeof fetch },
+      rollD20: () => 15,
+    });
+
+    const startResult = await engine.startAction(characterId, 'flibbertigibbet wobble');
+
+    // Resolved outright (no decision screen), with the divine-intervention outcome.
+    expect(startResult.outcome).toBeDefined();
+    const outcome = startResult.outcome!;
+
+    // Names itself a system fault — the `isDivineIntervention` flag is exactly what
+    // action.ts:262-273 keys the grey "⚠️ System" embed off (empty-option firstDecision below).
+    expect(outcome.isDivineIntervention).toBe(true);
+    expect(outcome.outcome).toBe('done');
+
+    // No mutations authored on the outcome.
+    expect(outcome.mutations).toEqual([]);
+
+    // ⚠️ System presentation contract: firstDecision carries no options (→ action.ts's
+    // `options.length === 0` divine branch) and the system-fault prompt.
+    expect(startResult.firstDecision).toBeDefined();
+    expect(startResult.firstDecision!.options).toHaveLength(0);
+    expect(startResult.firstDecision!.prompt).toContain('refunded');
+
+    // Refunded roll: the DB count is untouched (system fault is not a real action), no stuck
+    // decision state persisted, and no world mutation landed on the character's resources.
+    const after = charRepo.findById(characterId)!;
+    expect(after.rolls_remaining).toBe(3);
+    expect(after.last_action_state).toBeNull();
+    expect(after.health).toBe(10);
+    expect(after.stamina).toBe(10);
+    expect(after.wealth).toBe(5);
+
+    // Heuristic missed → exactly one LLM classify attempt, no retry, no follow-on decide.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    closeDb();
+  });
+});
+
+
