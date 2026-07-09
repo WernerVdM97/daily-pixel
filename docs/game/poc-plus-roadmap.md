@@ -27,7 +27,7 @@ _The player-facing engagement arc for the `0.3.x` line, the final POC round befo
 
 ## North star
 
-**Persisted-state multiplayer — shared mutations on shared world state.** Actions leave marks others can feel: a public event everyone sees, a buff one player lays on another, a boss whose wounds persist across every hunter and every day. The POC proved the solo daily ritual works; this arc proves the world is *shared*, not just co-located. It is deliberately buttons-first and scale-neutral, same as the `0.3.0` flip.
+**Persisted-state multiplayer — shared mutations on shared world state.** Actions leave marks others can feel: a public event everyone sees, a buff one player lays on another, a boss whose wounds persist across every hunter and every day. The POC proved the solo daily ritual works; this arc proves the world is _shared_, not just co-located. It is deliberately buttons-first and scale-neutral, same as the `0.3.0` flip.
 
 ## How the arc runs (for the lead)
 
@@ -40,7 +40,7 @@ This doc is the durable memory across sessions; the stage plans are the executor
 
 Tracking:
 
-- [ ] **Stage 1** — v12 tail + welcome tag + combat maths reveal ([[poc-plus-stage-1-plan]])
+- [x] **Stage 1** — v12 tail + welcome tag + combat maths reveal ([[poc-plus-stage-1-plan]]) _Done 2026-07-09; branch `poc-plus/stage-1-t2`, commit `94ecbee`. Live check pending (bot smoke-tests OK; needs human operator)._
 - [ ] **Stage 2** — nat 1/20 global broadcast (plan authored by the lead at stage start)
 - [ ] **Stage 3** — cross-player buffs (plan authored by the lead at stage start)
 - [ ] **Stage 4** — Saturday shared-boss hunt (plan authored by the lead at stage start)
@@ -52,12 +52,12 @@ Two of the five items want coloured frames, and [[mvp+ansi-art]] already mocked 
 ## The arc, ordered by efficiency × reward
 
 | # | Item | Code | Reward | Release cut |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 0 | v12 closeout tail (F#21 + dead-code sweep) | S | Clean baseline; system failures stop costing rolls | with item 1 |
 | 1 | Welcome tag | XS | Warm social onboarding | next `0.3.x` (with #0) |
 | 2 | Combat maths reveal | S–M | Dopamine + highest info payoff; builds the renderer | own `0.3.x` |
 | 3 | Nat 1/20 global broadcast | S | Viral show-off; builds the broadcast plumbing | own `0.3.x` |
-| 4 | Cross-player buffs | S–M | First mutation that lands on *another* player | own `0.3.x` |
+| 4 | Cross-player buffs | S–M | First mutation that lands on _another_ player | own `0.3.x` |
 | 5 | Saturday shared-boss hunt | M | Flagship of the north star; a weekly ritual | own `0.3.x` |
 
 Version numbers are deliberately unpinned (settles this doc's old cadence question): each cut takes the next `0.3.x` at the time it lands, per the `releasing` skill. The tail rides item 1's release because F#21 is player-facing and the sweep is invisible.
@@ -91,7 +91,7 @@ Show the fight's actual numbers in the combat outcome: the dice, the contested m
 
 ## 3 · Nat 1/20 global broadcast
 
-On any natural 1 or 20, post a short public shout-out to the shared channel, rendered as a fun **ANSI re-enactment frame** of the moment (the crit that felled the boar, the fumble into the ravine). The first genuinely *shared* event: everyone sees it happen.
+On any natural 1 or 20, post a short public shout-out to the shared channel, rendered as a fun **ANSI re-enactment frame** of the moment (the crit that felled the boar, the fumble into the ravine). The first genuinely _shared_ event: everyone sees it happen.
 
 - [>] Extends the `TODO.md` "global broadcast on a natural 1 or 20" item and the deferred "richer community feedback — let players show off" MVP item.
 - [p] Crit/fumble detection already exists (`dc.ts:71`, `combat-dc.ts:134`, `OutcomeRenderer.ts:153`); this hooks that signal to a public post. The 0.2.8 public-outcome path (thread posts, `Hi` button) is the posting precedent; what is new is the trigger and the frame.
@@ -102,7 +102,7 @@ On any natural 1 or 20, post a short public shout-out to the shared channel, ren
 
 ## 4 · Cross-player buffs
 
-A "for everyone" action (pray, bless, rally) applies a real buff **mutation to the other players present**, instead of no-opping. The first mutation whose effect a player *feels* from someone else's turn.
+A "for everyone" action (pray, bless, rally) applies a real buff **mutation to the other players present**, instead of no-opping. The first mutation whose effect a player _feels_ from someone else's turn.
 
 - [>] Lands B#11 (praying/blessing "for everyone" should actually buff nearby players); the purest small expression of the persisted-multiplayer north star ([[pitch-and-pillars]]).
 - [>] Needs "nearby players" awareness — the same `## Threat presence` "Nearby in this area" block designed in [[threat-encounter-system]] §4, built minimally here (list co-located PCs) so item 5 inherits it.
@@ -112,7 +112,7 @@ A "for everyone" action (pray, bless, rally) applies a real buff **mutation to t
 
 ## 5 · Saturday shared-boss hunt
 
-A **minimal slice** of [[threat-encounter-system]]: one scripted weekly boss that appears Saturday with a hint, carrying **shared, persisted HP** in the `relations` table. Every hunter fights the *same* foe; damage persists across players and days; the kill fires a global broadcast (item 3). The flagship of the arc — the world visibly bearing the marks of many hands.
+A **minimal slice** of [[threat-encounter-system]]: one scripted weekly boss that appears Saturday with a hint, carrying **shared, persisted HP** in the `relations` table. Every hunter fights the _same_ foe; damage persists across players and days; the kill fires a global broadcast (item 3). The flagship of the arc — the world visibly bearing the marks of many hands.
 
 - [>] Carves §7 (Saturday events) + §4 (shared threat pool) out of [[threat-encounter-system]], deferring the rest of that system (see fences below).
 - [p] Reuses everything below it: live combat (`0.3.0`), the broadcast plumbing (item 3), the "nearby players" awareness (item 4), the shared-HP edge shape already designed in §4 (`threat_pending` / `in_combat` / `threat_defeated` on the `relations` table, SQLite-persistent by construction).
@@ -149,7 +149,7 @@ Each has a default; decide at that stage's plan time, against live data, and rec
 
 ## Scope fences (what stays deferred)
 
-- [>] **Threat system proper** — the stochastic encounter gate, three tiers, density curve, approach modifiers, and sim-harness tuning stay in the full [[threat-encounter-system]] and v13. Item 5 ships *one scripted boss with shared HP*, nothing more.
+- [>] **Threat system proper** — the stochastic encounter gate, three tiers, density curve, approach modifiers, and sim-harness tuning stay in the full [[threat-encounter-system]] and v13. Item 5 ships _one scripted boss with shared HP_, nothing more.
 - [>] **ANSI splash showpiece** — the 40-wide title splash and block-letter fonts stay in [[mvp+ansi-art]] §4. This arc ships combat + broadcast frames only.
 - [>] **Broadcast opt-out preference** — a per-player "don't broadcast me" flag is MVP scope; POC ships without it.
 - [>] **Login streaks** — reads as MVP retention, not this arc ([[mvp+login-streaks]]).

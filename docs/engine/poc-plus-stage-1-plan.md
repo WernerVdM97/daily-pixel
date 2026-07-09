@@ -39,6 +39,7 @@ Two sub-tasks, spec by reference, each its own commit.
 **Description.** `0.3.0` shipped with the legacy v11 path in-tree; T7's wipe and release halves happened, the code sweep did not. Delete: the legacy `ActionStateMachine` (`src/engine/action/machine.ts`); the critic dual-injection in `WorldEngineImpl` (~`:363`); `PROMPT_VERSION` (`src/llm/prompt-builder.ts:6`) and its stamp sites (`WorldEngineImpl.ts:568-569,1747`, `DeepseekLlmGateway.ts:161-162`); the `decision-<PROMPT_VERSION>.md` load path; the `current_source.md` byte-identical test (`tests/llm/prompt-builder.test.ts:211-218`). Keep `decision-v11.md` on disk, off the load path.
 
 **Acceptance:**
+
 - [x] Grep for `PROMPT_VERSION` is clean, and `ActionStateMachine` matches nothing but `PipelineActionStateMachine` (the substring is expected), outside git history and the kept v11 asset; full suite green without the deleted path. (`72fb32d`; re-verified 2026-07-09, 1122 tests green.)
 - [x] Doc loop: tick T7 (and note the Checkpoint — the 2026-07-08 prod QA session stood in as the smoke gate) in [[stage-5-live-cutover-plan]], flip that doc to `shipped`, archive it per conventions, update the map of content. (Doc loop reconciled 2026-07-09, one session after the code landed.)
 
@@ -49,20 +50,23 @@ Two sub-tasks, spec by reference, each its own commit.
 **Description.** The typed divine-intervention fallback (`PipelineActionStateMachine.resolveDivineIntervention()`) is a system failure presented as an in-world outcome. Rework the player-facing behaviour: refund the roll (system-fault grace, the same seam as the `0.3.0` timeout refund), author no lasting mutations, and render the outcome visually distinct from in-world outcomes so it reads as a system hiccup, not narrative. Likely files: `src/engine/action/PipelineActionStateMachine.ts`, `src/engine/OutcomeRenderer.ts`, `src/discord/commands/action.ts` (presentation); the lead scouts the exact seams before handoff.
 
 **Acceptance:**
+
 - [x] A forced classify-stage throw produces: a refunded roll, no mutations, and an outcome that names itself a system failure with distinct visual treatment. _Two commits. (1) Regression test (`tests/engine/world-engine-impl.test.ts` — "classify-stage throw → divine intervention (F#21)") covers the DB-level refund (roll count unchanged) + `outcome.mutations` empty. (2) A fresh-context review then caught the presentation half broken in prod — the `⚠️ System` embed was dead code behind the `:220` auto-finish branch, so divine rendered as a plain `✅ DONE` outcome showing `🎲 (-1)`. Fixed: divine now routes to the grey `⚠️ System` embed at `action.ts:221` (before auto-finish; the dead block removed), and `WorldEngineImpl:957` reports `rollsDelta:0` + `rollRefunded:true` for divine — covered by `tests/discord/action-divine.test.ts` (asserts `'action_divine'` + the ⚠️ System embed, never the auto-finish outcome embed). Divine originates only in `start()`, so the start-path fix is complete. Suite green (1124)._
 - [x] The `TODO.md` closeout item and [[prompt-v13-roadmap]] §4's checkbox are ticked. (Reconciled 2026-07-09.)
 
-**Scope fence:** the fallback's *routing* (typed path, when it fires) is already correct and stays; only the player-facing cost/refund/presentation changes.
+**Scope fence:** the fallback's _routing_ (typed path, when it fires) is already correct and stays; only the player-facing cost/refund/presentation changes.
 
 ## T1 — Welcome tag (roadmap item 1)
 
 **Files:** `src/discord/commands/join.ts` (public announcement, ~`:199-211`).
 
 **Deliverables:**
+
 - The "✨ A new hero joins the Oak" `followUp` gains the owner mention: `<@discordId>` alongside the character name in the embed description, with `allowedMentions: { users: [] }` on the `followUp` so no ping fires (matches the `0.2.8` owner-identity treatment; pattern at `src/discord/commands/action.ts:238`).
 - The announcement gains a components row with the 🌅 `Hi` button (`custom_id: 'nav:hi'`, secondary style); the existing `nav:hi` handler already spawns a per-clicker ephemeral on public messages (pattern at `src/discord/format.ts:224-234`).
 
 **Acceptance:**
+
 - [x] Live `/join` on the dev bot: the announcement shows the owner mention, no ping fires, and the `Hi` button opens the clicker's own ephemeral `/hi`. _Live-QA'd on the dev bot 2026-07-09 (owner mention visible, no ping, Hi opens the clicker's ephemeral)._
 - [x] The `TODO.md` item "add /hi to 'A new hero joins the Oak' message" is ticked. (Reconciled 2026-07-09.)
 
@@ -73,6 +77,7 @@ Two sub-tasks, spec by reference, each its own commit.
 Two deliverables; land as two commits (renderer first, consumer second) so the review can bite each separately.
 
 **Settled before build (lead scout, 2026-07-09) — the plan's original T2b anchors had drifted; these supersede the file list below:**
+
 - **Both surfaces (lead decision).** The frame targets the continue/decision screen AND the terminal outcome. B#5/B#6 are continue-screen bugs (the crammed `composeCombatStatus` one-liner, `PipelineActionStateMachine.ts:660` → `action.ts:520`); "roll vs DC + margin, both HP bars, no scene art" is the terminal outcome. Ticking every T2b box needs both.
 - **Data plumbing onto `ActionOutcome` (lead decision).** The outcome lacks `enemyMaxHp` and `margin` (`CombatBeatLog` carries neither; `margin` lives only on the transient `CombatRoundOutcome`). `resolveCombat` attaches both to a new optional `ActionOutcome` field — this touches `PipelineActionStateMachine.ts` + `WorldEngine.ts`. **`combat-dc.ts` maths stays read-only** (no band-table/`resolveCombatRound` edits); the fence held.
 - **Corrected anchors:** scene art (the ASCII to drop) is `sceneBlock` in `buildOutcomeEmbed`, `action.ts:651`/`:665` — NOT `OutcomeRenderer.ts`. Dice line is `OutcomeRenderer.ts:143-173` (crit flag `:153`). `formatOutcome` renders no enemy HP today; combat outcomes carry `outcome.combatBeat`.
@@ -106,22 +111,24 @@ hpBar(hp: number, maxHp: number, width: number): string; // display clamped to [
 **Files:** `src/engine/OutcomeRenderer.ts` (dice line at `:153-173`, crit flag at `:153`); data source `src/engine/action/combat-dc.ts` (`playerRolled`, signed margin, severity bands, `enemyHpBefore/After`) which is **read-only** for this task — this is a rendering job, not a maths job.
 
 **Deliverables:**
+
 - Combat outcomes drop the ASCII scene art and render an `AnsiRenderer` frame instead: the dice line (roll vs DC, margin, severity), one HP-bar line per combatant on separate lines, and signed damage floaters from the HP deltas.
 - Displayed HP clamped to `[0, max]` (B#6: no mid-resolution `-5 HP`), combatants never crammed onto one line (B#5).
 
 **Acceptance:**
-- [ ] A live combat beat on the dev bot shows roll vs DC + margin, both HP bars on separate lines, and a damage floater; no scene art. Desktop shows colour; phone shows clean monochrome.
-- [ ] B#5 and B#6 are irreproducible.
-- [ ] Frame stays < 2 000 chars incl. fences (prior measurements: 820–1 250).
-- [ ] `TODO.md` ticks: F#7 "show the maths", the combat half of "drop ascii from action outcomes", and the B#5/B#6 rows.
+
+- [ ] A live combat beat on the dev bot shows roll vs DC + margin, both HP bars on separate lines, and a damage floater; no scene art. Desktop shows colour; phone shows clean monochrome. _Bot smoke-tests OK (startup clean, Daily-TEST#3255 online, 13 commands registered 2026-07-09); needs a human operator to fire `/action` on Discord and verify the frame._
+- [x] B#5 and B#6 are irreproducible. _1168 tests green incl. 3 dedicated B#5/B#6 continue-screen assertions + 2 outcome-renderer terminal-frame clamping tests._
+- [x] Frame stays < 2 000 chars incl. fences (prior measurements: 820–1 250). _Measured ~577 chars worst-case (4-digit HP + 2-line message + banded bar)._
+- [x] `TODO.md` ticks: F#7 "show the maths", the combat half of "drop ascii from action outcomes", and the B#5/B#6 rows.
 
 **Scope fences (whole of T2):** no splash or block-letter fonts ([[mvp+ansi-art]] §4 stays deferred); no prompt-template changes; no broadcast plumbing (that is stage 2); non-combat outcomes keep their scene art.
 
 ## Stage exit
 
-- [ ] All task acceptance boxes green; typecheck + suite green.
-- [ ] Releases cut and changelog current per merge.
-- [ ] Doc loop: this plan's boxes ticked; [[poc-plus-roadmap]]'s tracking list updated (stage 1 done); `TODO.md` rows struck; [[stage-5-live-cutover-plan]] archived; map of content updated.
+- [x] All task acceptance boxes green; typecheck + suite green. _Except the operator live check (above) — pending human verification on Discord._
+- [ ] Releases cut and changelog current per merge. _Changelog updated; release cut needs merge to dev then a `0.3.x` bump per the releasing skill._
+- [x] Doc loop: this plan's boxes ticked; [[poc-plus-roadmap]]'s tracking list updated (stage 1 done); `TODO.md` rows struck; [[stage-5-live-cutover-plan]] archived; map of content updated.
 - [ ] Recommend `/clear`, then resume with:
 
-> Resuming the POC+ arc — parent tracking doc [[poc-plus-roadmap]], active plan [[poc-plus-stage-1-plan]]. Branch `<branch>`, last commit `<sha>`, `<Tn>` just completed; next is `<Tn+1>`. Before building: reconcile the docs' claimed state against the repo (checkboxes vs `git log`, tests green) and fix any drift first.
+> Resuming the POC+ arc — parent tracking doc [[poc-plus-roadmap]], active plan [[poc-plus-stage-1-plan]]. Branch `poc-plus/stage-1-t2`, last commit `94ecbee`, T2 just completed (live check pending); next is stage 2 (nat 1/20 global broadcast). Before building: reconcile the docs' claimed state against the repo (checkboxes vs `git log`, tests green) and fix any drift first.

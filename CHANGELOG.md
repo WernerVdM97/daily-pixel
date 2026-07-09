@@ -7,16 +7,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+
 - **Welcome tag on the new-hero broadcast** — the public "✨ A new hero joins the Oak" announcement now mentions the owner (pings suppressed, matching the 0.2.8 identity treatment) and carries the 🌅 `Hi` re-entry button. Commit `068e96b`.
+- **Combat maths reveal** — combat outcomes now render an ANSI-coloured frame showing the dice roll vs DC, the margin, and per-combatant HP bars with signed damage floaters. The ASCII scene art is dropped from combat outcomes to make room. Enemy HP is banded (condition bar + wound word) on the continue screen and exact on the terminal outcome. Header and footer each get their own HP-bar line, never crammed onto one line. Displayed HP is clamped to `[0, max]`, never negative. Built on the new `AnsiRenderer` (`src/render/`). Commits `500efca`–`94ecbee`. Closes F#7, B#5, B#6, and the combat half of the "drop ascii from outcomes" TODO item.
 
 ### Fixed
+
 - **Divine intervention no longer costs a roll** *(F#21)* — the pipeline's typed classify-fallback refunds the roll, authors no mutations, and renders as a distinct grey ⚠️ System embed (the initial `4c51334` embed was unreachable, so divine mis-rendered as a normal outcome and misreported the refund; now fixed). Commits `4c51334`, `6e04929`, `ecc4741`.
 
 ### Internal
+
 - **v12 dead-code sweep** — the legacy `ActionStateMachine`, the `PROMPT_VERSION` indirection, the critic dual-injection, and the v11-only tests are deleted; the engine is pipeline-only. Closes stage-5 T7. Commit `72fb32d`.
 - **POC+ Shared World arc decided** — `docs/game/poc-plus-roadmap.md` flips to `decided` (kill credit, buff vocabulary, broadcast stance, and frame authorship settled; versions unpinned; the v12 tail folded in as item 0) and gains its stage-1 build plan `docs/engine/poc-plus-stage-1-plan.md` (v12 tail + welcome tag + combat maths reveal), written as the orchestrated-delegation handover.
+- **`AnsiRenderer` built** — new `src/render/AnsiRenderer.ts` module for coloured Discord `ansi`-fenced frames with colour-by-role, 30-char width enforcement, and backtick escaping. Intended as the shared renderer for the POC+ arc (combat frames now, broadcast frames in stage 2). Commits `500efca`, `712d946`.
 
 ### Changed
+
 - **Logging/debug env vars consolidated** — `LOG_LLM_THINKING_ALL`, `LLM_LOG_ALL_PROMPTS`, and `REASONING_SPIRAL_CHARS` are removed (no aliasing); replaced by `LLM_LOG_THINKING=errors|spiral|all` (default `spiral`) and `LLM_SPIRAL_CHARS`, read once at boot via `src/config/env.ts`. A stale var still set in `.env` now logs a loud `[env]` boot warning naming its replacement instead of silently doing nothing.
 - **Pipeline gateway now honours the spiral threshold** — `ProdPipelineLlmGateway` previously ignored `REASONING_SPIRAL_CHARS` entirely, so a 15.8k-char reasoning chain was dropped in prod; both gateways now share one `DeepCapturePolicy` (`src/llm/capture-policy.ts`).
 - **`VERBOSE_LLM` now covers the v12 pipeline too** — previously a documented no-op on `ProdPipelineGatewayConfig`, it now logs a per-stage summary (stage, model, latency, tokens, response snippet) under the `[pipeline:<stage>]` prefix. Stage errors and parse failures are now always logged to console (unconditionally), with the verbose flag adding the per-stage success summary on top.
@@ -24,10 +30,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.3.0] - 2026-07-07
 
 ### Changed
+
 - **DECIDE now authors scene-framing `narration` on CONTINUE beats** — restoring the v12 action screen's game-master voice after the pipeline split stripped it. The LLM sets the scene from the second decision onward (the consequence of the player's last choice); the first beat stays lean, framed by the player's own input. Combat rounds narrate the just-resolved exchange faithfully against engine-owned dice truth. Each option renders with its stat emoji and a difficulty hint, and the gamebook story thread reads as scene → choice, not a repeated generic prompt. No extra LLM calls — narration travels alongside the decide result. Commits `c804706`–`c84c6c5`. Closes `docs/engine/decide-scene-narration/spec.md`.
 - **Pipeline DeepSeek timeout bumped to 60s** — the per-call abort moves from 15s→60s so CONTINUE-beat decide calls have headroom to finish before the re-click poison loop triggers.
 
 ### Fixed
+
 - **Day-job work no longer blocked at a wild workplace** — the daily-work safety gate now exempts a job's own seeded workplace, so Hunters and Herbalists (workplace The Forest Edge, `is_safe: 0`) can work while standing there. The gate still blocks day-job work on any *other* unsafe or unknown/procedural ground, preserving the original intent.
 - **Pipeline decide timeout now resolves gracefully** — when a decide call times out (AbortError), the engine resolves the action as `timed_out` instead of re-throwing and re-presenting the same stuck decision screen. The roll is refunded (system fault grace), stamina −1 is applied, and state is cleared so the player moves on.
 - **Decision critic now fires on every decide beat** — the `required` gate that restricted `critiqueDecide()` to high-stakes beats only is removed. The critic now reviews every LLM-generated decision, catching single-option outputs and incoherent choices (e.g. `add_item` on a travel action) that would previously pass through unchecked. A re-decide on `major` verdicts gives the LLM one chance to fix the issue with the critic's guidance.
@@ -37,33 +45,42 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Pipeline outcomes now carry `category`** — `PipelineActionStateMachine.resolve()`, `resolveCombat()`, and `resolveDivineIntervention()` all set `outcome.category` so the geography-finalize telemetry can flag mutation-category deviations on pipeline-resolved actions, matching the legacy path.
 
 ### Internal
+
 - **Pipeline LLM call IDs now wired into `llmCallIds`** — `ProdPipelineLlmGateway.runStage()` returns the `llm_calls` row ID alongside the stage result; every pipeline stage accumulates its call ID into `PipelineInternalActionState.llmCallIds`, which flows through to the existing `linkAction()` backfill at resolution time so the full audit chain is mineable.
 - **`LLM_LOG_ALL_PROMPTS` env var added** — when set to `1`, `ProdPipelineGateway.runStage()` logs raw prompts and DeepSeek reasoning content on every call regardless of success/failure. Intended as a QA debugging tool; turn off in steady state.
 - **Archived shipped v12 build-plan docs** — Stage 0a–3 build plans and T3–T5 child-task specs moved to `docs/archived/v12-build-plans/`; superseded by the living code.
 
 ## [0.2.8] - 2026-07-05
+
 ### Added
+
 - **Owner identity on public outcome messages** *(F#3, F#8)* — the character's owner (as a `<@discordId>` mention with pings suppressed) now appears next to the character name on the shared public outcomes so testers can tell who's who.
 - **`Hi` button on public outcomes** — action outcomes posted to the weekly thread now carry a 🌅 `Hi` re-entry button ahead of the feedback/bug buttons, so a reader can jump straight into play from the thread. The `nav:hi` handler already spawns a fresh per-clicker ephemeral on public messages, so no new routing was needed.
 
 ### Changed
+
 - **Release notes get their own pin icon** *(F#20)* — 📬 now marks release announcements in the pin list, distinct from the weekly recap's 📜.
 - **Saturday threat pins are now self-replacing** *(F#18)* — only the latest week's wilderness threat stays pinned; older ones are cleaned up automatically.
 - **Weekly chronicle moves to the bottom of a locked thread** *(F#19b)* — at Monday finalize, the recap digest is posted as a new message at the bottom of the week's thread and the thread is locked; the pinned header stays as the archive anchor.
 
 ### Fixed
+
 - **Players now join the week's thread when their outcome posts** *(F#19a)* — the acting player is added to the recap thread (`thread.members.add`) just before the outcome is broadcast. The owner mention is ping-suppressed and so never subscribed them, leaving the thread out of their sidebar and the outcome unseen; the add is idempotent and best-effort (a failed add still posts the outcome).
 - **Outcome footer now shows `max_stamina` changes** — a `modify_max_stamina` mutation renders a labelled `(max +N)` or `(max −N)` suffix on the stamina line so ceiling gains are no longer silently invisible.
 - **Private outcome reply no longer duplicates the story thread** *(F#19c)* — the private embed now shows only the outcome text + stats, not the full gamebook trail the player just saw in the decision embed.
 
 ### Internal
+
 - **v12 action-pipeline groundwork (not live)** — an offline sim harness plus a parallel `PipelineActionStateMachine` (classify → decide → dice → resolve), first-class combat + scene-state relations, and the phase-split v12 prompt set (per-phase `decide/`, per-verdict `resolve/`, `MAX_DECISIONS_PER_ACTION` cap) all landed behind the sim; prod still runs v11, with the live cutover tracked for `0.3.0` (see [[stage-5-live-cutover-plan]]).
 
 ## [0.2.7] - 2026-07-01
+
 ### Added
+
 - **One free bail per day** — the first time you step back from a decision each day refunds the roll (mirrors the no-op/timeout "made whole" graces); later bails that day still spend it, and bailing always costs stamina. Guarded migration `202606300000_player_last_bail_refund_day` adds `player_characters.last_bail_refund_day` (own column so the bail grace never burns — or is burned by — the no-op/timeout graces).
 
 ### Changed
+
 - **`/hi` header shows the place's own glyph** — drops the hardcoded 🏠 for the location's map emoji (📍 fallback) + safety glyph, mirroring the 0.2.6 `/look` fix.
 - **Character-gated commands reroute to character creation** — running `/hi` (or `/look`, `/stats`, `/map`, `/backpack`, `/journal`, `/action`, `/sleep`) before you have a character now opens the join wizard instead of a "type /join" dead-end.
 - **`/look` paths and `/map` drill-in roads show the destination's glyph** — each path/road line carries the destination's place emoji + safe/wild glyph (full-map node parity), not just its name.
@@ -72,6 +89,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Saturday threat warned at dawn** — the wilderness-threat heads-up folds into the 05:30 morning message (place + hint); the full reveal and NPC spawn still happen at the 12:00 beat.
 
 ### Fixed
+
 - **Edge bearings are now inverted on the far side of a road** — `/look` paths and the decision-prompt context now show the compass direction as seen from where you stand, not the stored canonical direction (feedback #14, bug #12). `neighbours()` returns directions relative to the queried node; reverse edges get `oppositeDirection()` applied in the repo.
 - **Null-region nodes no longer orphan to "Elsewhere" on `/map`** — a place whose cartographer enrichment is absent or predated the region logic now inherits its nearest BFS ancestor's region, so it groups with its geographic neighbours (feedback #14, bug #12).
 - **Frontier crossings now show the destination in the outcome footer** — a `cross_frontier` travel (e.g. arriving at Eastvale for the first time) now renders the `→ Place` line, matching `set_location` (feedback #16).
@@ -80,12 +98,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Degenerate decision beats no longer reach the player** — a beat that would present ≤1 real option (no real choice) is retried once; if still degenerate it resolves as a refundable no-op (the roll is free, no grace consumed) rather than a dead-end single-button "decision". The degenerate first call is always logged to `llm_calls.validation_warnings`. Universal shape guard from [[mutation-vocabulary-refinement]] §5a, shipped standalone ahead of the v11 framework.
 
 ### Internal
+
 - **`ActionOutcome.systemRefund`** — engine flag marking a system-fault no-op (degenerate decision shape) that always hands the roll back, independent of the per-day no-op/timeout/bail graces. The per-turn **stamina clamp** (polish-v0.2.7 Feedback #1) is deferred to v11 — per-action-type caps key off the `category` enum the mutation refactor introduces.
 - **Agent conventions folded into auto-discovered skills** — moved the per-task sections of `AGENTS.md` (git/releasing, changelog, prompt-versioning, docs) into `.claude/skills/` and migrated the game-dev skills from `agent/skills/` (flattened so Claude Code auto-discovers them). `AGENTS.md` now keeps only always-on guardrails + a skills index.
 - **Trimmed `docs/CONVENTIONS.md` (169→103 lines)** — deduped the frontmatter block and list-marker catalog into `docs/templates/doc-template.md` and the index rule into `docs/README.md`; CONVENTIONS stays the single source of truth for the rules and now points at those homes instead of restating them.
 
 ## [0.2.6] - 2026-06-28
+
 ### Added
+
 - **Feedback & bug reports record the app build that produced them** — `feedback` and `bug_reports` gain a nullable `app_version` column (the `VERSION` build), stamped on every `/feedback`/`/bug` submission for the same data-mining attribution `actions`/`llm_calls` already carry. Guarded migration `202606280000_feedback_bug_app_version`; pre-existing rows stay NULL.
 - **`/map` — your map of the world** — an ephemeral, region-grouped hub-and-spoke tree drawn with box-drawing connectors (`├─ │ └─`) so levels read on mobile, sections divided by Discord separators, and an **Unexplored paths** section listing frontier exits grouped by where they leave from. Each node line carries an `emoji · safe/wild · effort` glyph row. Progress is a count ("N charted · M roads into the unknown"), never a fraction; `/map <region|place>` drills in with **fuzzy matching** (tolerates typos/casing — `/map town` finds Town Square, focusing on the roads connected to it); over-long maps collapse a region tail into `+K more` and never silently truncate. A 🗺️ **Map** button cross-links from the other info pages (Hi/Journal/Stats/Backpack/Look).
 - **`/journal` is now a chronicle** — drops the known-locations list (that's `/map`'s job) and shows your recent actions tagged with where each happened (location emoji + name) and a ✓/✗ outcome glyph.
@@ -95,28 +116,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`cross_frontier` mutation — the exploration verb** — crossing a frontier exit `{ direction, name }` is the ONLY way new ground is born: it mints the destination, binds the exit (shared for everyone after), and fires the cartographer to chart it. A failed roll doesn't break new ground.
 
 ### Changed
+
 - **`/look` shows the location's own emoji and its exits** — the header used a hardcoded 🏠; it now shows the place's map glyph (📍 fallback), and a new **🧭 Paths** section lists the charted neighbours (direction → name + effort) and uncharted frontier exits you can see from where you stand. New `engine.getExits` + `emoji` on `LocationInfo`.
 - **Movement is graph-validated (decision prompt → v10)** — `set_location` now only reaches a charted, reachable node (unknown/unreachable targets are dropped — no more teleport-anywhere / lazy-create-from-thin-air). The decision prompt swaps the global `Known locations` list for a local **"Exits from here"** block (charted exits to travel to · uncharted frontiers to cross) and teaches `set_location` vs `cross_frontier`. `PROMPT_VERSION` → `v10` (`decision-v10.md` + `current_source.md`). New players start with the home Vale already discovered.
 - **`actions.location_name`** — each action snapshots the origin location the character acted from (audit/provenance; deliberately a name snapshot, not an FK).
 
 ### Fixed
+
 - **LLM-authored place names, regions, and frontier teasers are sanitized before they're stored** — a coined name like `**The** ## Void` is stripped of markdown/section/mention control chars, whitespace-collapsed, and length-capped (`sanitizeAuthored`) at the mint/cartographer boundary, so it can't break `/map` layout or inject a fake section into the decision prompt. Teasers also gain a hard length cap so they can't bloat every future prompt from that node.
 - **`/map`'s "no match" message renders an unknown query literally** — a markdown-laden `/map <arg>` (e.g. `**boom**`) now shows inside an inline-code span instead of formatting the error line.
 - **Same-action `cross_frontier` + `set_location` to the just-minted place no longer depends on emit order** — `applyGeography` resolves frontier crossings in a first pass, so a follow-up `set_location` to the new place validates regardless of order.
 - **Geography migration surfaces real `ALTER TABLE` failures** — the idempotent `addColumn` now swallows only the duplicate-column case; a locked DB / disk-full / permission error throws instead of being masked as "already migrated".
 
 ### Internal
+
 - New repos `locationEdge` / `characterLocation`; `geography.ts` pure routing; `applyGeography` replaces the lazy-create path in the engine (now two-pass, with a `resolveCrossFrontier` helper that guards the frontier-bind result). Frontier-crossing protocol recorded in [[mutation-vocabulary-refinement]] (`cross_frontier` is a distinct verb; the `set_location → move_to` rename stays v11).
 
 ## [0.2.5] - 2026-06-27
+
 ### Added
-- **Feedback & bug reports capture the action they came from** — the Feedback/Bug buttons on an action outcome now thread that action's id through the button → modal → submission, and `submitFeedback`/`submitBug` store it in a new nullable `action_id` FK on `feedback` and `bug_reports` 
+
+- **Feedback & bug reports capture the action they came from** — the Feedback/Bug buttons on an action outcome now thread that action's id through the button → modal → submission, and `submitFeedback`/`submitBug` store it in a new nullable `action_id` FK on `feedback` and `bug_reports`
 - **Markdown LLM input + coherence critic (decision prompt v9)** — decision context is now a markdown briefing (pre-joined `Score + Gear = Bonus` ability-check table, structured inventory, scene safety tag, split NPC/player lists, story-so-far, known locations, player input as a blockquote; Warden lore moved to an out-of-character GM note) instead of a `key=value`/JSON dump. Response JSON contract unchanged. Adds a coherence critic (on by default; `ENABLE_COHERENCE_CRITIC=false` to disable): a second pass that rewrites only the prose to match engine truth — never mutations/DC/rolls — and fails open. Critic calls audited in `llm_calls` as `call_kind=critic`.
 - **YAML asset schema validation (fail-fast at boot + tests)** — every char-creation asset is validated against `src/assets/asset-schemas.ts` on load, so a malformed file crashes boot with a precise file+entry+field message instead of flowing a `NaN` into `computeStats`. New `tests/assets/` cover schema, modifier completeness, a `computeStats` round-trip over every class×background×race, cross-file integrity, and a release-notes tag=filename sweep. Seeded locations now exported from `migrate.ts` as the single source of truth.
-- **Weekly recap thread (Monday rollover)** — each week gets one pinned header + thread in the play channel; public action outcomes post into that week's thread (the private outcome is unchanged). Mondays (with the 03:30 UTC tick, aligning to the action refresh) rewrite the prior week's header into a short LLM chronicle and open a fresh week; headers stay pinned as an archive. Best-effort: LLM failure falls back to a count summary, an unreachable thread falls back to the channel, and a current-week thread is recreated on boot only when genuinely deleted (Discord `10003`) — a transient fetch failure keeps the current week. **Requires _Create Public Threads_ + _Send Messages in Threads_** (plus _Manage Messages_ for pinning).
+- **Weekly recap thread (Monday rollover)** — each week gets one pinned header + thread in the play channel; public action outcomes post into that week's thread (the private outcome is unchanged). Mondays (with the 03:30 UTC tick, aligning to the action refresh) rewrite the prior week's header into a short LLM chronicle and open a fresh week; headers stay pinned as an archive. Best-effort: LLM failure falls back to a count summary, an unreachable thread falls back to the channel, and a current-week thread is recreated on boot only when genuinely deleted (Discord `10003`) — a transient fetch failure keeps the current week. **Requires *Create Public Threads* + *Send Messages in Threads*** (plus *Manage Messages* for pinning).
 - **Pinned announcements** — the bot pins the latest leaderboard (unpinning older), and every release-notes and Saturday-threat message. Best-effort: needs **Manage Messages** in the announcement channel, else messages still post unpinned.
 
 ### Fixed
+
 - **No-op roll refunds are now visible — and a roll grant no longer stacks on the refund** — an auto-finished no-op (e.g. a "look") refunds the roll, but the footer's `🎲` line inferred the change from a heuristic (`rolled? −1 : 0`) and showed nothing, so the unchanged count read as a bug. The engine now reports the real roll accounting on the outcome (`rollsDelta` + `rollRefunded`); the footer shows `🎲 N (refunded)` on a genuine net-zero refund, and the true delta otherwise (a charged no-op the heuristic previously got wrong). Separately, a resolution that **grants** rolls (`modify_rolls_remaining` > 0, e.g. a "rest") now counts as world-changing, so the action is charged like any other — a +1 grant nets against the −1 cost (stays put) instead of stacking a free roll on top of the refund. The footer now also reports the start-drained roll on **bail**, **server-timeout**, and **divine-intervention** outcomes — a `−1` (or `(refunded)` on a refunded timeout) it previously omitted because those resolutions carry no dice roll. (Player-reported.)
 - **Nav buttons on an action outcome no longer crash with `DiscordAPIError[50035]`** — clicking Hi/Journal/Action/Rest on the (legacy-embed) outcome message tried to `update()` it into a Components-V2 payload, which preserves the old embeds and clashes with the V2 flag. The nav dispatcher now edits in place only for a V2 ephemeral source and spawns a fresh per-clicker ephemeral otherwise, via a pure `navResponseMode` helper. (`MESSAGE_CANNOT_USE_LEGACY_FIELDS_WITH_COMPONENTS_V2`.)
 - **Player-discovered locations now get scene tags** — the D3 cartographer enrichment was filling a provisional location's `is_safe` + `description` but never its `tags`, so every explored/created place stayed `tags=NULL` and always rendered the fallback `unknown` ASCII scene. The cartographer now picks 3-6 tags from the scene palette, and `enrichProvisional` persists them (COALESCE — a tagless enrichment leaves any existing tags intact).
@@ -128,6 +155,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Timeout roll-refund keeps the Saturday bonus** — the refund now caps at the day's real allowance (4 on Saturday), not the bare weekday 3, so a Saturday timeout no longer silently eats the bonus roll.
 
 ### Changed
+
 - **`/hi` vitals are emoji-only** — the header's HP/Stamina/Rolls/Wealth line drops the text labels, leaving just `❤️ ⚡ 🎲 💰` with their values (also affects the post-join ephemeral `/hi` screen).
 - **Action-outcome buttons split private vs public** — the private ephemeral outcome view now carries the global nav row (**Hi**, **Journal**, **Action**/**Rest**) plus **Feedback** (💬) and **Bug Report** (🐛); it previously had no buttons. The public Oak's-log copy is trimmed to just Feedback + Bug Report (the nav row, which spawned a per-clicker ephemeral, is dropped).
 - **Char-creation emoji moved into the YAML** — each class/background/race/alignment/day-job entry carries its own `emoji:` (validated non-empty at boot) and `/join` reads it off the def, removing five hardcoded name→emoji maps. Character-only surfaces (`/stats`, `/hi`, `/action`, outcome broadcasts) resolve via a boot-seeded registry in `format.ts`; the `/join` ledger and headings derive from one `STEPS` table.
@@ -144,16 +172,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Day-job prompts lead with the task** — preset work now sends the LLM the task label (e.g. `Walk the rounds`) ahead of its flavour hook, so the action reads as a clear, payable task instead of atmosphere alone. Reworked the few entries that weren't actually paid work (inn meal → wait tables, listen for news → muck out stables, practise a tune → compose to commission).
 
 ### Internal
+
 - **`llm_calls.call_kind` split into its own idempotent migration (`202606250001`).** It was added inside the baseline migration, which never re-runs once recorded — so on every existing DB the column was missing on upgrade and *every* `llm_calls` insert silently failed (audit data lost). Now a standalone guarded `ALTER`, with a regression test that upgrades a baseline-recorded DB.
 - **Review hardening** — the critic re-decide carries its corrective note through the tier-1 stripped retry; the resolution critic skips canned divine-intervention narration; a failed outcome broadcast can no longer repaint a resolved action as an error; `pinReplacing` only unpins the bot's own boards; and the weekly finalize fetches its header before spending the LLM digest call.
 - **Decision-pipeline integration tests** — `tests/engine/decision-pipeline.test.ts` drives start→step→resolve through the real `WorldEngineImpl` (not the machine in isolation), asserting the persistence seam: roll drained, character deltas + item rows applied on success, failure reward-strip reflected in the stored character, action row written, and `resumeAction` rehydrating from the DB with no fresh LLM call. Plus `navResponseMode` unit tests guarding the 50035 update-vs-reply decision.
 
 ## [0.2.4] — 2026-06-21
+
 ### Added
+
 - **Lazy world growth — locations created from play (D3)** — a resolved `set_location` to an unknown place now creates a provisional `locations` row immediately (unsafe, placeholder, `enrichment_pending`) so the player lands somewhere renderable; an async "cartographer" LLM call then fills `is_safe` + a real description and clears the flag (idempotent, never blocks resolution). A name matching an existing location (any casing) reuses that row.
 - **`KNOWN LOCATIONS` in the decision prompt (v8)** — the LLM receives the full charted-location list and is told to prefer exact known names, inventing a new name only for genuine off-map exploration.
 
 ### Changed
+
 - **Roll economy — a roll is the price of a *resolved* action, not a started one (D1)** — a world-changing or actually-rolled auto-resolve still costs a roll; a true no-op now refunds it, but only the first no-op per character per day.
 - **Timeouts are made whole and explained (D2)** — a 30-minute server-side timeout now refunds the roll (first per character per day) and renders an explicit in-character message naming the delay and whether the roll was refunded, instead of a grey "ghost" card.
 - **Unsafe-rest HP cost is now explained (G2)** — resting away from the Oak/workplace still costs 1 HP, but `/sleep` now names the rule, the location, and how to avoid it. No mechanic change.
@@ -163,6 +195,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Divine-intervention fallback copy** — now reads "The Warden's hand" (was lowercase), consistent with the NPC's name.
 
 ### Fixed
+
 - **Outcome footer no longer shows a stale `🎲 N/2`** — the daily allowance is 3 (Saturday 4), so the hardcoded `/2` rendered nonsense (`🎲 3/2`); the footer now prints the bare roll count and the spent roll as `(−1)`.
 - **`/stats` stamina now shows its ceiling** — reads `N/maxStamina`, consistent with `/hi` (was a bare number).
 - **Empty LLM turns no longer burn a roll** — the decision gateway rejects and retries a completely empty response (no options, mutations, or outcome text).
@@ -171,6 +204,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`countSoulsInUnsafe()` hardening** — the 18:30 goodnight count builds a name→safety map once and treats an unknown location as unsafe.
 
 ### Internal
+
 - `package.json` version synced to `VERSION` (`0.2.3`).
 - `expectTimestamp` (user repo) inlines the `users` table instead of interpolating a table-name param — removes an injection-shaped footgun.
 - `/journal` command handler is now `async`, matching every other command.
@@ -178,7 +212,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `.env.example` documents `SLEEP_ADMIN_TICK` and `CLEAR_CHANNEL_ID`.
 
 ## [0.2.3] — 2026-06-19
+
 ### Added
+
 - **Player-facing release notes** — a YAML file per release tag (`assets/release-notes/<tag>.yml`) holds non-technical highlights; on boot, if the running tag differs from the `last_release_announced` meta and a file exists, the bot posts them with a Request/Feedback button (routes to `submitFeedback`) and stamps the meta (fires once per tag). No file → nothing posts, meta untouched. Gated on `TICK_CHANNEL_ID`.
 - **Saturday wilderness threat** — at 12:00 UTC Saturdays the afternoon beat names one unsafe location, spawns a themed hostile NPC there, and nudges players to engage. Location rotates weekly through the five wilderness spots. New `WorldEngine.spawnNpc()` (no `created_by_action_id`); idempotent per UTC day via `last_threat_date`.
 - **Wealth + might leaderboards** — Wed and Sun at 12:00 UTC the afternoon beat posts richest-by-coin and mightiest-by-ability boards. New `WorldEngine.getLeaderboards(limit)`; idempotent via `last_leaderboard_date`.
@@ -191,6 +227,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Daily work blocked at unsafe locations** — quick day-job buttons refuse to start from an unsafe/unknown location with an in-character nudge; freeform `/action <description>` is unaffected.
 
 ### Changed
+
 - **Daily action allotment raised 2 → 3** — characters start each day with 3 rolls (creation and nightly reset).
 - **Saturday bonus roll for everyone** — the Saturday (UTC) tick grants +1 roll (4 total), tied to the real-world weekday; the threat announcement calls it out.
 - **"Sleep" nav button renamed to "Rest" (🏕️)** — now hides once you've rested for the day (was lingering while out of rolls). Internal command id stays `sleep`.
@@ -200,12 +237,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Daily announcement times** — morning moved 07:30 → 05:30 UTC; goodnight at 18:30. Day cycle (UTC): `03:30` tick · `05:30` morning · `18:30` goodnight.
 
 ### Fixed
+
 - **Stale stats on auto-finished actions** — the custom-modal and day-job quick-action paths rendered from the pre-action snapshot (old roll count/stamina, wrong nav buttons). Both now re-read the character after `startAction`. The `/action <description>` path was already correct.
 - **Missing Feedback / Bug Report buttons on auto-finished actions** — those paths now attach the 💬 Feedback and 🐛 Bug Report buttons too.
 - **Mid-action resolve no longer dead-ends** — `step()` now infers resolution from no real options (mirroring `start()`), instead of gating on the deprecated `done` flag; also dropped a stale `done: true` narration instruction and reworded a false-positiving validation warning.
 
 ## [0.2.2] — 2026-06-18
+
 ### Added
+
 - **The Warden NPC** — a seeded silent, hooded figure at the Oak who tends the fire and offers stew. Added to `seedNpcs()` in `migrate.ts` with class `Warden`.
 - **The Warden's location frozen on world tick** — `Warden`-class NPCs are skipped in the nightly movement loop.
 - **Warden emoji in `/look`** — renders with `🔥` in the entities list.
@@ -236,6 +276,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`player_characters.last_played_at` + `actions.narrative` columns** — new dated migration backing the goodnight/rest features. Schema-only.
 
 ### Changed
+
 - **`done` is inferred from the absence of options (P1)** — the action machine resolves a choice-less, non-required beat immediately instead of trusting the LLM's `done` flag (dead-ending on a lone "Step back"). Divine intervention and required actions are unchanged; emits an `[action] auto-finished` log line.
 - **Loading screen echoes the player's choice (P2)** — the interim message shows `**You:** <input or chosen option>` above the spinner.
 - **Tick decoupled from announcement** — the 3:30 UTC tick and 7:30 announcement are now separate schedulers; the tick writes `last_tick_players_affected` / `last_tick_npc_movement_count` meta the announcement reads later.
@@ -247,17 +288,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`/hi` location safety display** — safety emoji moved onto the location name instead of a separate badge.
 
 ### Fixed
+
 - **Out of rolls now offers Sleep, not a dead Action button** — `Action` is hidden exactly when `Sleep` appears (out of rolls, not mid-action); the two are now mutually exclusive. `Action` still shows mid-action so a player can resume.
 - **`ephemeral` reply-option deprecation** — replaced `{ ephemeral: true }` with `flags: MessageFlags.Ephemeral` across `action.ts`, `join.ts`, `index.ts`; `buildComponentPayload` folds the bit into the Components V2 `flags` bitfield.
 - `MockWorldEngine` now implements all `WorldEngine` interface methods (`updateLastPlayed`, `modifyHealth`, `countSoulsInUnsafe`).
 
 ### Chore
+
 - **`biome.json`** — formatter config enforcing `indentStyle: space, indentWidth: 2`.
 - **Post-PR#14 code-review cleanup** — renamed `computeItemBonus` → `itemStatModifier` and `computeRollBonus` → `abilityCheckBonus`; reindented `hi.ts` to 2-space; removed the dead `_getScene` param; added rogue/scout/guard archetypes to `npcEmoji`. See `docs/sparks/handover-code-review-post-pr14.md`.
 
 ## [0.2.1] — 2026-06-16
 
 ### Added
+
 - **Admin error DMs** — `notifyAdmin()` now routes all interaction catches, startup fatalities, `unhandledRejection`, and `uncaughtException` to the admin via DM instead of a silent `console.error`. The `uncaughtException` handler exits so systemd restarts; the DM is best-effort and self-guarding (no client / no admin / failed DM degrades to log).
 - **Profanity filter** — `PROFANITY_FILTER` env var accepts comma-separated regex patterns (case-insensitive, unicode). Matching custom action text is blocked before reaching the engine with a generic rejection message. Full unit test coverage including unset/empty, multiple patterns, word boundaries, and unicode.
 - **Double-click guard on `/join` wizard** — a per-user in-flight lock drops duplicate button clicks before any Discord API call, preventing duplicate character creation or stale interaction errors.
@@ -267,23 +311,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`safeErrorReply()` helper** — picks `followUp` when the interaction has already been acknowledged, swallows any failure so a dead interaction never takes the process down.
 
 ### Changed
+
 - **Error handling hardening** — all slash command and button catches route through `notifyAdmin()` + `safeErrorReply()` instead of bare `console.error` + `interaction.reply()`.
 - **`scripts/clear-channel.sh` rewritten** — replaced fragile grep-based JSON field extraction with Python `json.load()`. No longer depends on Discord field ordering. Bot ID resolution and pagination also use Python now.
 - **`scripts/deploy-check.sh` tracks `main`** — was watching the stale `POC` branch. Now auto-deploys from `main` on hourly timer.
 - **`initDb()` auto-creates `data/` directory** — a fresh clone no longer crashes on first boot because `better-sqlite3` can't create parent directories.
 
 ### Fixed
+
 - **Crash on "Interaction has already been acknowledged" (40060)** — the slash-command catch blindly called `interaction.reply()`, which throws 40060 on already-acked interactions; with no `client.on('error')` listener this crashed the bot. Now uses `safeErrorReply()` and routes the event to admin via the new client error listener.
 - **`/join` buttons throwing "Unknown interaction" (10062)** — stale button clicks or double-clicks on expired wizard tokens no longer escape the handler. All join catches use `safeNotify()` (chooses `reply` vs `followUp` and swallows failures).
 - **Crash on missing `data/` directory** — `initDb()` now `mkdir -p`s the SQLite parent dir before opening the database.
 - **`clear-channel.sh` pagination truncation** — `head -1` on each page limited deletion to 1 message per batch. Now processes the full `messages` array.
 
 ### Chore
+
 - Bumped to 0.2.1 — crash hardening & profanity filter
 
 ## [0.2.0] — 2026-06-16 — POC BETA
 
 ### Added
+
 - **Components V2 infrastructure** — native Separator components, `buildComponentPayload()` for command output, shared `getNavButtons()` navigation bar across all commands
 - **Per-option stat system** — each decision option can specify which ability the roll tests (`stat`); `computeRollBonus()` composes character ability + item modifiers
 - **`modify_max_stamina` mutation** — LLM can raise/lower the stamina ceiling; current stamina clamps to new max
@@ -294,6 +342,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`scripts/clear-channel.sh`** — admin script to bulk-delete bot messages from a Discord channel via REST API
 
 ### Changed
+
 - **Rolls are now ability checks** — d20 + character ability score + item bonuses vs DC (was d20 + item bonuses only)
 - **Decision screen restyled** — quoted 🧭 Quest path trail, effective DC per option, passive-insight colouring, `base_dc` minimum raised 8 → 10
 - **Join wizard data-driven** — all options loaded from `assets/char-creation/*.yml`; emoji + descriptions on buttons, progress ledger with strike-through, Start Over on every step
@@ -303,11 +352,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Join announcement simplified** — public "A new hero joins the Oak" embed shows title + Oak image only (no hero description)
 
 ### Fixed
+
 - Item quantity no longer multiplies modifier in bonus calculation
 - `formatCharacterHeader` indentation consistency
 - Alignment title-casing throughout ("lawful good" → "Lawful Good")
 
 ### Chore
+
 - Bumped to 0.2.0 — POC BETA release
 - Prompt files reorganized into `assets/prompts/decision-prompts/`
 - POC build docs archived under `docs/archived/poc/
@@ -315,6 +366,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.1.8] — 2026-06-16
 
 ### Added
+
 - UI polish pass: nat20/nat1 highlights, command nav bar, native Separator components
 - Per-option stat system on decision screens; passive-insight hints (🟢 earned only)
 - `modify_max_stamina` LLM mutation
@@ -326,6 +378,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Stat name abbreviation with emojis (`💪 PHY`, `🧠 WIS`, etc.)
 
 ### Changed
+
 - Rolls are now full ability checks: `d20 + ability score + item bonuses` vs DC
 - Decision screen restyled with quest path trail, per-option DC, passive-insight colouring
 - Outcome renderer overhaul: 🌟/💥 crit highlights, stat emoji prefix, bold roll calculus, action-type emoji labels
@@ -335,11 +388,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `/help` formatting cleaned up with native Separators
 
 ### Fixed
+
 - Item quantity no longer multiplies modifier in bonus calculation
 - `formatCharacterHeader` indentation consistency
 - Alignment title-casing
 
 ### Chore
+
 - Prompt files reorganised into `assets/prompts/decision-prompts/`
 - POC build docs archived under `docs/archived/poc/`
 - `status: shipped` added to docs conventions
@@ -347,6 +402,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.1.7] — 2026-06-16
 
 ### Added
+
 - **Decision breadcrumb trail** — emoji trail (🔍 → 🗣️ → ⚔️) on action outcomes, backed by 28+ keyword emoji map
 - **Action terminal states `bailed` and `done`** — bail resolves as neutral `↩ Bailed` (−1 stamina); LLM `done`/no-choices auto-finishes as neutral `✓ Done`
 - `/hi` now shows current location name, description, and safety status
@@ -358,6 +414,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`decision-v4` prompt** — roll-first resolution blocks, honour-player-intent rule, decisions must advance, item breakage/loss recipe, expanded mutations, refined JSON contract
 
 ### Changed
+
 - **Roll-first resolution** — bot rolls the dice *before* the LLM narrates; second "narration" call tells the LLM the verdict, so outcome text and mutations match the dice
 - **Roll line shows stat bonus separately** — `🎲 8 + 7 vs 11 ✓ Success`
 - **Standardised outcome footer** — emoji stat glyphs with separator above, items/location on own line
@@ -367,6 +424,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Validation warnings persisted as data, not just logged
 
 ### Fixed
+
 - **Failed actions no longer reward the player** — beneficial mutations dropped, flat −2 stamina penalty added on failure
 - **Auto-finish coverage** — day-job button and custom-modal paths now render auto-finished outcomes (was `/action <description>` only)
 - **Bail rendered as green Success** — now neutral `↩ Bailed`
@@ -378,12 +436,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.1.6] — 2026-06-15
 
 ### Changed
+
 - **Outcome rendering now shows all changes**: items gained/lost, location changes, health/wealth/stamina deltas derived directly from mutations (no longer relies on buggy caller-provided flags)
 - **v3 system prompt**: mandatory mutations on resolution, concrete mutation recipes per scenario (combat→damage, travel→set_location, failure→cost, success→cost+reward)
 - Player inventory passed to LLM context so it can make informed remove_item/add_item decisions
 - Available location names passed to LLM context — location names must match seeded DB locations exactly
 
 ### Fixed
+
 - Mutations validation no longer crashes on malformed entries — invalid mutations are filtered, valid ones applied, errors logged (per spec)
 - Idle messages now show during all three loading states (previously only day-job quick action showed them)
 - `add_item` mutations from LLM with `stat: null` no longer crash — prompt now explicitly requires stat value, and engine drops malformed entries
@@ -394,15 +454,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.1.5] — 2026-06-15
 
 ### Added
+
 - Item set selection step (step 7) in `/join` wizard, filtered by chosen class
 - Starting items auto-assigned from `item-sets.yml` on character creation
 - `VERSION` file and startup log line (`[version] 0.1.5` in yellow)
 - `scripts/clear-admin.sh` for clearing a user's character from the DB
 
 ### Changed
+
 - `/look` is now ephemeral (player-only visibility)
 
 ### Fixed
+
 - Prevent spawning parallel `/action` instances for the same character (in-memory mutex + DB guard)
 - Custom modal submit now deletes the stale day-job menu message so only the action scene shows
 - Button clicks in `/join` wizard immediately grey out via `deferUpdate` — no more double-click lag
@@ -410,15 +473,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.1.4] — 2026-06-15
 
 ### Added
+
 - Bail button always shown via `ensureBail` fallback ("Step back" if LLM omits it)
 - `Custom…` button on day-job menu opens modal for free-text action input
 - Final action outcome posted as public follow-up to the channel
 
 ### Changed
+
 - Day-job buttons blank immediately on click, show "Starting…" then decision
 - Block new actions when out of rolls with a friendly message instead of empty menu
 
 ### Fixed
+
 - Day-job buttons use `deferUpdate` — greys out all buttons, prevents double-clicks
 - LLM outcome text shown as prompt when `done:true` returned with no options
 - Roll economy enforced at `/action` entry point
@@ -426,32 +492,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.1.3] — 2026-06-15
 
 ### Added
+
 - ASCII scene rendering in `/hi` (oak), `/look`, and `/action` (current location)
 - Day-job quick action buttons when `/action` called with no description
 - Action trail shown during decisions (original input, previous choices, current prompt)
 - Action trail shown in final outcome (each decision + DC, then roll result)
 
 ### Changed
+
 - `/action` is now ephemeral — prevents cross-user button conflicts
 - LLM reasoning content logged as `[llm:thoughts]` when verbose
 
 ### Fixed
+
 - Non-array mutations from LLM guarded against and validated
 - Variable ordering in decision cap logic fixed
 
 ## [0.1.2] — 2026-06-15
 
 ### Added
+
 - Loading state with greyed buttons during LLM processing
 - All commands classified as ephemeral or public (`stats`, `backpack`, `journal`, `bug`, `feedback`, `help`, `hi`, `join` are player-only)
 - Color-coded log tags with ANSI
 
 ### Changed
+
 - Decision cap reduced from 3 to 2
 - Switched from `message.edit` to Discord built-in spinner + `editReply` for button updates
 - Static imports for `join`/`action` handlers — removes latency on every button click
 
 ### Fixed
+
 - LLM response validation: warn on missing label, wrong stat, bad `dc_modifier`
 - Action button clicks resolve via stored pending decisions (option label, not index)
 - DeepSeek thinking mode enabled, 15s fetch timeout added
@@ -460,17 +532,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.1.1] — 2026-06-11
 
 ### Added
+
 - Probabilistic `/action` flow: LLM-driven decisions, roll mechanics, outcome resolution
 - Action state machine with per-character mid-action persistence and resume
 - Mutations system: health, stamina, wealth, location, items, NPCs
 - `VERBOSE` and `VERBOSE_LLM` env vars for debugging
 
 ### Fixed
+
 - `/action` description is optional — blank resumes mid-action, missing + no mid-action shows usage
 
 ## [0.1.0] — 2026-06-10
 
 ### Added
+
 - Project scaffold: TypeScript, `better-sqlite3`, Discord.js, DeepSeek LLM gateway
 - 9-table SQLite schema with idempotent migrations
 - 6-step `/join` character creation wizard
