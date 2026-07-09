@@ -1,8 +1,8 @@
 ---
 title: ANSI Art Classification & Rendering Framework
-status: spark
-domain: spark
-phase: mvp+
+status: exploring
+domain: engine
+phase: mvp
 tags:
   - ansi
   - ascii
@@ -17,6 +17,8 @@ related:
 ---
 _A classification framework that maps every player-facing scenario to an ANSI art **register** — a fixed structural template with deterministic (engine-owned) and generative (LLM-authored) slots. Defines the full taxonomy of registers, their chrome/slot budgets, colour-role conventions, and the slot-binding rules that keep every frame structurally sound regardless of whether its content came from dice math or an LLM._
 
+> **Scope:** the classification taxonomy (register shapes, slot contracts, colour vocabulary) is MVP — it guides the `AnsiRenderer` architecture from day one. Individual registers are phased: COMBAT_FRAME, COMBAT_CRIT, DATA_CARD, BROADCAST_CARD, and DIALOGUE_MODAL are MVP-tier (core-loop surfaces); the remaining nine registers are mvp+ depth and deferred. Each register in §3 carries a `phase` tag so the implementation order is explicit.
+
 ---
 
 # ANSI Art Classification & Rendering Framework
@@ -25,7 +27,7 @@ _A classification framework that maps every player-facing scenario to an ANSI ar
 
 Every ANSI frame the bot emits is an instance of a **register** — a named visual grammar with a fixed chrome (border, structural lines), swappable slots (content zones), and a binding contract that says how each slot gets populated: from engine data, from an LLM prompt, or from a DB-backed fragment.
 
-The mvp+ansi-art spark doc already catalogued 14 of these registers as design references; this doc formalises them into a **machine-readable framework** the `AnsiRenderer` can consume, and cross-references every register against the action-engine pipeline so each scenario knows which register to use.
+The [[mvp+ansi-art]] experiment doc catalogued 14 visual scenarios as design references; this doc formalises them into a **machine-readable framework** the `AnsiRenderer` can consume, and cross-references every register against the action-engine pipeline so each scenario knows which register to use.
 
 A register answers five questions:
 
@@ -55,7 +57,7 @@ The Renderer's job is to assemble a register's chrome plus the current tick's sl
 
 Each register is a row in the rendering matrix. The scenarios column lists every action-engine event that maps to it.
 
-### 3.1 COMBAT_FRAME — standard encounter
+### 3.1 COMBAT_FRAME — standard encounter `[mvp]`
 `combat` · RESOLVE_ROLL · single-enemy fight tick
 
 | Property | Value |
@@ -79,7 +81,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** every non-critical combat tick; the default form for `/action` fight resolutions.
 
-### 3.2 COMBAT_DIAGONAL — size-hierarchy fight
+### 3.2 COMBAT_DIAGONAL — size-hierarchy fight `[mvp+]`
 `combat` · RESOLVE_ROLL · acting-creature-emphasis layout
 
 | Property | Value |
@@ -97,7 +99,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** enemy mauls Warden; the enemy landed a heavy hit; the Warden is on low HP and the frame emphasises the threat.
 
-### 3.3 COMBAT_CRIT — nat-20 kill / dramatic beat
+### 3.3 COMBAT_CRIT — nat-20 kill / dramatic beat `[mvp]`
 `combat` · RESOLVE_ROLL · crit/fumble or kill blow
 
 | Property | Value |
@@ -115,7 +117,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** nat-20 kill blow; nat-1 disaster; enemy death on any roll.
 
-### 3.4 BOSS_INTRO — set-piece encounter opener
+### 3.4 BOSS_INTRO — set-piece encounter opener `[mvp+]`
 `combat` · NEW_ACTION or first CONTINUE · boss/showpiece foe
 
 | Property | Value |
@@ -139,7 +141,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** Saturday shared-boss hunt spawn (POC+ item 5); any named, multi-HP-bar boss; Rotking intro (the existing fragment is an embryonic version of this register).
 
-### 3.5 DIALOGUE_MODAL — loot, NPC speech, confirmations
+### 3.5 DIALOGUE_MODAL — loot, NPC speech, confirmations `[mvp]`
 `social` · any phase · `search` · RESOLVE_ROLL · `skill` · RESOLVE_ROLL
 
 | Property | Value |
@@ -163,7 +165,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** loot found (search resolve); NPC gives an item; confirmation prompt ("Stash these?"); quest hand-in; skill training result; social transaction result.
 
-### 3.6 DATA_CARD — roll result, skill check, stat readout
+### 3.6 DATA_CARD — roll result, skill check, stat readout `[mvp]`
 `skill` · `search` · `combat` · any buttonsRoll resolve
 
 | Property | Value |
@@ -183,7 +185,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** every roll reveal in POC+ item 2 (combat maths reveal); any skill-check tick; inspection of a puzzle clue. This is the "show the maths" frame.
 
-### 3.7 BROADCAST_CARD — nat 1/20 global shoutout
+### 3.7 BROADCAST_CARD — nat 1/20 global shoutout `[mvp]`
 `combat` · `skill` · `search` · `social` · critical roll on any type
 
 | Property | Value |
@@ -203,7 +205,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** POC+ item 3; any nat 1 or 20 on any roll type. The first shared-world visual moment.
 
-### 3.8 WELCOME_CARD — character join / new hero
+### 3.8 WELCOME_CARD — character join / new hero `[mvp+]`
 `/join` command · character creation complete
 
 | Property | Value |
@@ -223,7 +225,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** POC+ item 1 (welcome tag); every `/join` completion.
 
-### 3.9 DAILY_CARD — /hi check-in
+### 3.9 DAILY_CARD — /hi check-in `[mvp+]`
 `/hi` command
 
 | Property | Value |
@@ -244,7 +246,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** every `/hi`; the player's daily anchor frame.
 
-### 3.10 REST_STOP — idle / rest tick
+### 3.10 REST_STOP — idle / rest tick `[mvp+]`
 `rest` · RESOLVE_ROLL · quiet ticks · "nothing happened" beats
 
 | Property | Value |
@@ -266,7 +268,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** `/rest` command; "nothing happened" quiet ticks; camp at a frontier; the rest beat that an async game has in abundance.
 
-### 3.11 ITEM_SHOWCASE — rare+ drop reveal
+### 3.11 ITEM_SHOWCASE — rare+ drop reveal `[mvp+]`
 `search` · `combat` · rare loot awarded
 
 | Property | Value |
@@ -289,7 +291,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** rare+ drop notification; legendary item in bestiary; inspect of a significant item. Common loot stays in DIALOGUE_MODAL — the showcase register itself signals rarity.
 
-### 3.12 MONSTER_PORTRAIT — bestiary / inspect reply
+### 3.12 MONSTER_PORTRAIT — bestiary / inspect reply `[mvp+]`
 `inspect` · bestiary lookup · scan-creature
 
 | Property | Value |
@@ -311,7 +313,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** inspect of a known creature; `/bestiary` lookup; scan result; encounter thumbnail when the player hasn't seen this foe before.
 
-### 3.13 INVENTORY_BENTO — inventory / character sheet / shop
+### 3.13 INVENTORY_BENTO — inventory / character sheet / shop `[mvp+]`
 `/inventory` · `/shop` · character sheet
 
 | Property | Value |
@@ -332,7 +334,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** `/inventory`; `/shop` browse; character sheet view.
 
-### 3.14 SPLASH — title / chapter / version stamp
+### 3.14 SPLASH — title / chapter / version stamp `[mvp+]`
 `/hi` first-ever · chapter transition · version announcement
 
 | Property | Value |
@@ -353,7 +355,7 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 **Scenarios:** `/hi` first-ever splash; chapter transition card; version-up announcement.
 
-**Deferred per POC+ roadmap:** the splash showpiece stays in mvp+ansi-art; the POC+ arc ships combat + broadcast frames only.
+**Implementation phasing:** SPLASH, BOSS_INTRO, and all fragment-backed registers beyond the five MVP registers are deferred past POC+. The POC+ arc ([[poc-plus-roadmap]]) ships COMBAT_FRAME, COMBAT_CRIT, DATA_CARD, and BROADCAST_CARD; DIALOGUE_MODAL follows in early MVP.
 
 ---
 
@@ -361,34 +363,34 @@ Each register is a row in the rendering matrix. The scenarios column lists every
 
 Every player-facing event maps to exactly one register. The Renderer's dispatch table:
 
-| Scenario | Trigger | Register | Width |
-|---|---|---|---|
-| `/join` complete | character creation | WELCOME_CARD | 30 |
-| `/hi` daily check-in | morning/return | DAILY_CARD | 30 |
-| `/hi` first-ever | onboarding | SPLASH | 40 |
-| Combat tick — standard | combat RESOLVE_ROLL | COMBAT_FRAME | 30 |
-| Combat tick — enemy attacks | combat RESOLVE_ROLL, hpDelta < 0 on Warden | COMBAT_DIAGONAL | 30 |
-| Combat tick — crit/fumble | combat RESOLVE_ROLL, crit or fumble flag | COMBAT_CRIT | 30 |
-| Combat tick — enemy death | combat RESOLVE_ROLL, enemyHpAfter = 0 | COMBAT_CRIT | 30 |
-| Boss encounter intro | combat NEW_ACTION, boss/named foe | BOSS_INTRO | 40 |
-| Skill check reveal | skill/search/buttonsRoll RESOLVE_ROLL | DATA_CARD | 24 |
-| Nat 1/20 broadcast | any RESOLVE_ROLL, natural 1 or 20 | BROADCAST_CARD | 30 |
-| Loot found | search RESOLVE_ROLL, add_item mutation | DIALOGUE_MODAL | 28 |
-| Rare+ loot found | search/combat RESOLVE_ROLL, rare item | ITEM_SHOWCASE | 28 |
-| NPC gives item | social RESOLVE_ROLL | DIALOGUE_MODAL | 28 |
-| NPC dialogue | social NEW_ACTION or CONTINUE | DIALOGUE_MODAL | 28 |
-| Transaction confirm | social RESOLVE_ROLL, wealth/item delta | DIALOGUE_MODAL | 28 |
-| Rest/camp outcome | rest RESOLVE_ROLL | REST_STOP | 28 |
-| Idle/quiet tick | rest/social non-roll resolution | REST_STOP | 28 |
-| Inspect creature | `/inspect` or scan | MONSTER_PORTRAIT | 24 |
-| Bestiary entry | bestiary lookup | MONSTER_PORTRAIT | 24 |
-| Inventory view | `/inventory` | INVENTORY_BENTO | 30 |
-| Shop browse | `/shop` | INVENTORY_BENTO | 30 |
-| Character sheet | `/sheet` or `/stats` | INVENTORY_BENTO | 30 |
-| Cross-player buff received | buff mutation lands on recipient | DIALOGUE_MODAL | 28 |
-| Saturday boss spawn | scheduled event, public channel | BOSS_INTRO | 40 |
-| Saturday boss kill | shared HP reaches 0 | COMBAT_CRIT + BROADCAST_CARD | 30 |
-| Version/chapter | chapter transition | SPLASH | 40 |
+| Scenario | Trigger | Register | Width | Phase |
+|---|---|---|---|---|
+| `/join` complete | character creation | WELCOME_CARD | 30 | mvp+ |
+| `/hi` daily check-in | morning/return | DAILY_CARD | 30 | mvp+ |
+| `/hi` first-ever | onboarding | SPLASH | 40 | mvp+ |
+| Combat tick — standard | combat RESOLVE_ROLL | COMBAT_FRAME | 30 | mvp |
+| Combat tick — enemy attacks | combat RESOLVE_ROLL, hpDelta < 0 on Warden | COMBAT_DIAGONAL | 30 | mvp+ |
+| Combat tick — crit/fumble | combat RESOLVE_ROLL, crit or fumble flag | COMBAT_CRIT | 30 | mvp |
+| Combat tick — enemy death | combat RESOLVE_ROLL, enemyHpAfter = 0 | COMBAT_CRIT | 30 | mvp |
+| Boss encounter intro | combat NEW_ACTION, boss/named foe | BOSS_INTRO | 40 | mvp+ |
+| Skill check reveal | skill/search/buttonsRoll RESOLVE_ROLL | DATA_CARD | 24 | mvp |
+| Nat 1/20 broadcast | any RESOLVE_ROLL, natural 1 or 20 | BROADCAST_CARD | 30 | mvp |
+| Loot found | search RESOLVE_ROLL, add_item mutation | DIALOGUE_MODAL | 28 | mvp |
+| Rare+ loot found | search/combat RESOLVE_ROLL, rare item | ITEM_SHOWCASE | 28 | mvp+ |
+| NPC gives item | social RESOLVE_ROLL | DIALOGUE_MODAL | 28 | mvp |
+| NPC dialogue | social NEW_ACTION or CONTINUE | DIALOGUE_MODAL | 28 | mvp |
+| Transaction confirm | social RESOLVE_ROLL, wealth/item delta | DIALOGUE_MODAL | 28 | mvp |
+| Rest/camp outcome | rest RESOLVE_ROLL | REST_STOP | 28 | mvp+ |
+| Idle/quiet tick | rest/social non-roll resolution | REST_STOP | 28 | mvp+ |
+| Inspect creature | `/inspect` or scan | MONSTER_PORTRAIT | 24 | mvp+ |
+| Bestiary entry | bestiary lookup | MONSTER_PORTRAIT | 24 | mvp+ |
+| Inventory view | `/inventory` | INVENTORY_BENTO | 30 | mvp+ |
+| Shop browse | `/shop` | INVENTORY_BENTO | 30 | mvp+ |
+| Character sheet | `/sheet` or `/stats` | INVENTORY_BENTO | 30 | mvp+ |
+| Cross-player buff received | buff mutation lands on recipient | DIALOGUE_MODAL | 28 | mvp |
+| Saturday boss spawn | scheduled event, public channel | BOSS_INTRO | 40 | mvp+ |
+| Saturday boss kill | shared HP reaches 0 | COMBAT_CRIT + BROADCAST_CARD | 30 | mvp |
+| Version/chapter | chapter transition | SPLASH | 40 | mvp+ |
 
 ---
 
@@ -489,7 +491,7 @@ Applied on top of any pose when HP drops. No separate fragment files — the ren
 
 ## 6. Colour roles (the standard vocabulary, per-register overrides)
 
-Base vocabulary from mvp+ansi-art, reused across all registers:
+Base vocabulary from the [[mvp+ansi-art]] colour experiment, reused across all registers:
 
 | Code | Role | Usage pattern |
 |---|---|---|
