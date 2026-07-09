@@ -263,7 +263,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         await interaction.editReply({
           embeds: [
             new EmbedBuilder()
-              .setTitle('⚔️ Action')
+              .setTitle('⚠️ System')
               .setDescription(withNarration(result.firstDecision.narration, result.firstDecision.prompt))
               .setColor(0x95a5a6)
               .toJSON(),

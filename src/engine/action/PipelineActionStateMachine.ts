@@ -103,8 +103,8 @@ export type PipelineStepResult =
  *  `FallbackLlmGateway.ts`'s divine intervention message without importing it, since that
  *  module belongs to the legacy string-sentinel path this machine deliberately does not use. */
 const PIPELINE_DIVINE_MESSAGE =
-  "A flash of light. The Warden's hand on your shoulder. " +
-  'You wake beneath the Oak, your action lost to forces beyond mortal ken.';
+  '⚙️ The world stutters. Your action could not be processed and your action roll ' +
+  'has been refunded.';
 
 /** Stamina cost for bailing out of a real (consequential) decision. Same value as legacy's
  *  private `BAIL_STAMINA_COST` — duplicated locally since that constant isn't exported. */

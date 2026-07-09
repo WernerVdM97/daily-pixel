@@ -924,12 +924,18 @@ export class WorldEngineImpl implements WorldEngine {
     const internalState = startResult.state;
 
     // Pipeline divine intervention or auto-resolve (§2 v12 QA): both paths resolve outright
-    // inside start(). Drain the roll, apply the outcome, and return directly.
+    // inside start(). Drain the roll (unless divine intervention — refund it), apply the
+    // outcome, and return directly.
     if (startResult.resolved) {
       try {
         this.db.transaction(() => {
+          // F#21: divine intervention is a system fault, not a real action — don't drain the
+          // roll (same philosophy as the timeout refund in stepActionPipeline).
+          const rollsRemaining = startResult.outcome.isDivineIntervention
+            ? row.rolls_remaining
+            : Math.max(0, row.rolls_remaining - 1);
           this.charRepo.update(characterId, {
-            rolls_remaining: Math.max(0, row.rolls_remaining - 1),
+            rolls_remaining: rollsRemaining,
           });
           this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
         })();
