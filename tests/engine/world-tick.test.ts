@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
-import { MockLlmGateway } from '../../src/llm/MockLlmGateway.js';
+import { MockPipelineGateway } from '../helpers/MockPipelineGateway.js';
 import { initDb, closeDb, getDb } from '../../src/db/connection.js';
 import { migrate } from '../../src/db/migrate.js';
 import { UserRepository } from '../../src/db/repositories/user.js';
@@ -21,6 +21,7 @@ function createTestChar(
     location?: string;
     rolls_remaining?: number;
     stamina?: number;
+    max_stamina?: number;
     health?: number;
     max_health?: number;
     wealth?: number;
@@ -41,6 +42,7 @@ function createTestChar(
     health: overrides?.health ?? 12,
     max_health: overrides?.max_health ?? 12,
     stamina: overrides?.stamina ?? 10,
+    max_stamina: overrides?.max_stamina ?? 10,
     rolls_remaining: overrides?.rolls_remaining ?? 2,
     location: overrides?.location ?? "The Warden's Oak",
     wealth: overrides?.wealth ?? 5,
@@ -79,18 +81,8 @@ function createNpc(npcRepo: NpcRepository, actionRepo: ActionRepository, charact
   });
 }
 
-function makeEngine(overrides?: { dayJobIncome?: Record<string, number> }): {
-  engine: WorldEngineImpl;
-  llm: MockLlmGateway;
-  userRepo: UserRepository;
-  charRepo: CharacterRepository;
-  itemRepo: ItemRepository;
-  actionRepo: ActionRepository;
-  npcRepo: NpcRepository;
-  locationRepo: LocationRepository;
-  metaRepo: MetaRepository;
-} {
-  const llm = new MockLlmGateway();
+function makeEngine(overrides?: { dayJobIncome?: Record<string, number> }) {
+  const pipelineGateway = new MockPipelineGateway();
   const userRepo = new UserRepository(getDb());
   const charRepo = new CharacterRepository(getDb());
   const itemRepo = new ItemRepository(getDb());
@@ -101,7 +93,7 @@ function makeEngine(overrides?: { dayJobIncome?: Record<string, number> }): {
 
   const engine = new WorldEngineImpl({
     db: getDb(),
-    llm,
+    pipelineLlmGateway: pipelineGateway,
     userRepo,
     charRepo,
     itemRepo,
@@ -111,7 +103,7 @@ function makeEngine(overrides?: { dayJobIncome?: Record<string, number> }): {
     dayJobIncome: overrides?.dayJobIncome ?? { Blacksmith: 10 },
   });
 
-  return { engine, llm, userRepo, charRepo, itemRepo, actionRepo, npcRepo, locationRepo, metaRepo };
+  return { engine, pipelineGateway, userRepo, charRepo, itemRepo, actionRepo, npcRepo, locationRepo, metaRepo };
 }
 
 // ── Tests ──
@@ -368,6 +360,7 @@ describe('world tick', () => {
         health: 10,
         max_health: 10,
         stamina: 10,
+        max_stamina: 10,
         rolls_remaining: 2,
         location: "The Warden's Oak",
         wealth: 20,
@@ -408,6 +401,7 @@ describe('world tick', () => {
         health: 8,
         max_health: 10,
         stamina: 2,
+        max_stamina: 10,
         rolls_remaining: 1,
         location: 'Dark Forest',
         wealth: 20,
@@ -463,6 +457,7 @@ describe('world tick', () => {
         health: 10,
         max_health: 10,
         stamina: 10,
+        max_stamina: 10,
         rolls_remaining: 2,
         location: "The Warden's Oak",
         wealth: 10,

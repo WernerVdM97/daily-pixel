@@ -1,18 +1,14 @@
-// Single source of truth for the prompt version. Selects the prompt file
-// (decision-<PROMPT_VERSION>.md) and is stamped on every actions/llm_calls row so
-// outcomes trace back to the prompt that produced them.
-// To cut a new version: copy decision-<old>.md → decision-<new>.md, edit, bump this
-// string, keep old files, and mirror the new file into current_source.md.
-export const PROMPT_VERSION = 'v11';
+// Prompt versioning is handled by PROMPT_SET_VERSION (v12+). Every actions/llm_calls
+// row is stamped with the prompt set version that produced it.
+// The old v11 PROMPT_VERSION constant and v11 machine have been removed.
 
 // Critic prompt version, independent of PROMPT_VERSION. Stamped on critic llm_calls
 // rows as `critic-<CRITIC_VERSION>` so a verdict traces to the prompt that produced it.
 // Bump it (and add critic-<N>.md) when the critic prompt changes.
 export const CRITIC_VERSION = 'v1';
 
-// v12 prompt-*set* version (docs/decisions/v12-prompt-set-versioning.md). Scaffolding
-// only: no orchestrator consumes loadPromptSet yet, so this never touches the live v11
-// path above. Stage 1 (Thread D) wires the engine onto it and retires PROMPT_VERSION.
+// v12 prompt-*set* version (docs/decisions/v12-prompt-set-versioning.md). The engine
+// now consumes loadPromptSet exclusively — the old v11 PROMPT_VERSION is gone.
 export const PROMPT_SET_VERSION = 'v12';
 
 /** Maximum decision beats per action. Mirrors PipelineActionStateMachine's beat cap: after
@@ -33,15 +29,8 @@ function readPrompt(...segments: string[]): string {
   return readFileSync(path.join(__dirname, '..', '..', 'assets', 'prompts', ...segments), 'utf-8').trim();
 }
 
-/** System prompt, loaded once at boot from the file matching PROMPT_VERSION. */
-const _systemPrompt = readPrompt('decision-prompts', `decision-${PROMPT_VERSION}.md`);
-
 /** Critic system prompt, loaded once at boot from the file matching CRITIC_VERSION. */
 const _criticSystemPrompt = readPrompt('critic', `critic-${CRITIC_VERSION}.md`);
-
-export function buildSystemPrompt(): string {
-  return _systemPrompt;
-}
 
 export function buildCriticSystemPrompt(): string {
   return _criticSystemPrompt;

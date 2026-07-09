@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
-import { MockLlmGateway } from '../../src/llm/MockLlmGateway.js';
+import { MockPipelineGateway } from '../helpers/MockPipelineGateway.js';
 import { initDb, closeDb, getDb } from '../../src/db/connection.js';
 import { migrate, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { UserRepository } from '../../src/db/repositories/user.js';
@@ -25,7 +25,7 @@ describe('WorldEngineImpl — getDiscoveredGraph + routeBetween', () => {
     charLoc = new CharacterLocationRepository(getDb());
     engine = new WorldEngineImpl({
       db: getDb(),
-      llm: new MockLlmGateway(),
+      pipelineLlmGateway: new MockPipelineGateway(),
       userRepo,
       charRepo,
       itemRepo: new ItemRepository(getDb()),
@@ -36,7 +36,10 @@ describe('WorldEngineImpl — getDiscoveredGraph + routeBetween', () => {
     const user = userRepo.create('u1');
     const char = charRepo.create(user.id, {
       name: 'Kael', class: 'Hunter', upbringing: 'Outskirts',
-      race: 'Human', alignment: 'Neutral', day_job: 'Forager', stats: '{}',
+      race: 'Human', alignment: 'Neutral', day_job: 'Forager',
+      stats: JSON.stringify({ physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }),
+      health: 10, max_health: 10, stamina: 10, max_stamina: 10, rolls_remaining: 2,
+      location: "The Warden's Oak", wealth: 5, last_action_state: null,
     });
     characterId = char.id;
   });

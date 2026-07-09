@@ -12,6 +12,7 @@ import { PipelineScriptedGateway } from './PipelineScriptedGateway.js';
 import { PipelineSimEngine } from './PipelineSimEngine.js';
 import { makeRollD20 } from './roll-source.js';
 import type { CharacterSeed, DecisionScript, PipelineScript, RollSource } from './types.js';
+import type { PipelineLlmGateway } from '../llm/pipeline/types.js';
 
 export interface SimEngineHandle {
   engine: WorldEngineImpl;
@@ -76,8 +77,15 @@ export function buildSimEngine(
   rollSource: RollSource,
   script?: DecisionScript,
   dayJobIncome: Record<string, number> = {},
-  pipelineOptions?: PipelineMachineOptions,
+  pipelineOptionsOrGateway?: PipelineMachineOptions | PipelineLlmGateway,
 ): SimEngineHandle | PipelineSimEngineHandle {
+  const pipelineOptions = pipelineOptionsOrGateway && 'machine' in pipelineOptionsOrGateway
+    ? (pipelineOptionsOrGateway as PipelineMachineOptions)
+    : undefined;
+  const gateway = pipelineOptionsOrGateway && !('machine' in pipelineOptionsOrGateway)
+    ? (pipelineOptionsOrGateway as PipelineLlmGateway)
+    : undefined;
+
   if (pipelineOptions?.machine === 'pipeline') {
     if (script) {
       throw new Error(
@@ -118,6 +126,8 @@ export function buildSimEngine(
     itemRepo,
     actionRepo,
     npcRepo,
+    pipelineLlm: gateway ? undefined : { apiKey: 'sim-key', model: 'sim-model' },
+    pipelineLlmGateway: gateway,
     rollD20: makeRollD20(rollSource),
     dayJobIncome,
   });

@@ -20,12 +20,10 @@ import {
 import type { LlmCallRecorder } from './LlmCallRecorder.js';
 import { DeepCapturePolicy } from './capture-policy.js';
 import {
-  buildSystemPrompt,
   buildUserMessage,
   buildContextDigest,
   buildCriticSystemPrompt,
   buildCriticUserMessage,
-  PROMPT_VERSION,
   CRITIC_VERSION,
 } from './prompt-builder.js';
 import { callDeepseek } from './deepseek-transport.js';
@@ -150,7 +148,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
           const captureDeep = this.capturePolicy.shouldCapture({ diagnostic: isDiagnostic, reasoningChars });
           const callId = this.recorder.record({
             appVersion: APP_VERSION,
-            promptVersion: PROMPT_VERSION,
+            promptVersion: 'v12',
             callKind: 'decision',
             model: this.model,
             temperature: this.temperature,
@@ -195,7 +193,6 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       reasoning?: string | null;
     }) => void,
   ): Promise<LlmDecision> {
-    const systemPrompt = buildSystemPrompt();
     const userMessage = buildUserMessage(context);
     // Report up front so the prompt is captured even if the request throws.
     onProgress({ rawPrompt: userMessage });
@@ -206,7 +203,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       const requestBody = {
         model: this.model,
         messages: [
-          { role: 'system' as const, content: systemPrompt },
+          { role: 'system' as const, content: '' },
           { role: 'user' as const, content: userMessage },
         ],
         response_format: { type: 'json_object' as const },
@@ -221,7 +218,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       apiKey: this.apiKey,
       model: this.model,
       temperature: this.temperature,
-      systemPrompt,
+      systemPrompt: '',
       userMessage,
       thinking: true,
       fetchFn: this.fetchFn,

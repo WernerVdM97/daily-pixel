@@ -89,30 +89,7 @@ describe('sim driver — pipeline machine via runScenario (real driver code path
     expect(result.turns[1].rollsRemaining).toBe(1);
   });
 
-  it('a legacy scenario with machine omitted is unaffected (defaults to legacy)', async () => {
-    const legacyLikeCharacter = BASE_CHARACTER;
-    const result = await runScenario({
-      name: 'legacy-default',
-      character: legacyLikeCharacter,
-      rollSource: { kind: 'fixed', value: 20 },
-      llm: {
-        kind: 'scripted',
-        script: () => ({
-          distilledType: 'rest',
-          stat: 'physical',
-          baseDc: 5,
-          required: false,
-          done: true,
-          decision: [],
-          outcomeText: 'You rest.',
-        }),
-      },
-      week: [[{ input: 'rest', choicePolicy: 'first-real' }]],
-      // machine intentionally omitted
-    });
 
-    expect(result.turns).toHaveLength(1);
-  });
 
   it('buildSimEngine(machine: "pipeline") returns a handle with no db/repos (nothing to spin up)', () => {
     const handle = buildSimEngine({ kind: 'fixed', value: 20 }, undefined, undefined, {
@@ -141,23 +118,7 @@ describe('sim driver — pipeline machine via runScenario (real driver code path
   });
 });
 
-describe('sim driver — runComparison', () => {
-  it('runs one scenario through both machines and returns both SimResults', async () => {
-    const { legacy, pipeline } = await runComparison(exampleComparisonScenario);
 
-    expect(legacy.scenario).toBe('goblin-skirmish');
-    expect(pipeline.scenario).toBe('goblin-skirmish');
-    expect(legacy.turns).toHaveLength(1);
-    expect(pipeline.turns).toHaveLength(1);
-
-    // Both machines were hand-scripted to express "the same" turn (Task 4 spec: not
-    // auto-derived from one another, but expected to agree on this simple case).
-    expect(legacy.turns[0].outcome).toBe('success');
-    expect(pipeline.turns[0].outcome).toBe('success');
-    expect(legacy.turns[0].wealth).toBe(5);
-    expect(pipeline.turns[0].wealth).toBe(5);
-  });
-});
 
 describe('sim — a scripted pipeline stage failure fails loudly', () => {
   it('propagates a scenario-author decide() bug uncaught, instead of silently producing wrong data', async () => {
@@ -1299,36 +1260,6 @@ describe('T5 — combat telemetry + metrics', () => {
     expect(summarize(result).combatMetrics).toEqual(result.combatMetrics);
   });
 
-  it('a legacy scenario carries no combatMetrics and renderTable output is unchanged', async () => {
-    const legacyScript: DecisionScript = () => ({
-      prompt: '',
-      distilledType: 'rest',
-      stat: 'physical',
-      baseDc: 0,
-      required: false,
-      done: true,
-      decision: [{ label: 'Rest', dcModifier: 0 }],
-      mutations: [],
-      outcomeText: 'You rest quietly.',
-    });
-
-    const result = await runScenario({
-      name: 'legacy-unaffected',
-      character: BASE_CHARACTER,
-      rollSource: { kind: 'fixed', value: 20 },
-      llm: { kind: 'scripted', script: legacyScript },
-      week: [[{ input: 'rest', choicePolicy: 'first-real' }]],
-    });
-
-    expect(result.combatMetrics).toBeUndefined();
-
-    const summary = summarize(result);
-    expect(summary.combatMetrics).toBeUndefined();
-    const table = renderTable(summary);
-    expect(table).not.toContain('Combat rounds');
-    expect(table).not.toContain('Floor-saves');
-    expect(table).not.toContain('Wins/Losses');
-  });
 });
 
 describe('T1b — full-chain pipeline coverage per ActionType', () => {
