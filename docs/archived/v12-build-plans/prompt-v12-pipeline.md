@@ -1,8 +1,9 @@
 ---
 title: "Prompt v12 — Thread D: The Multi-Stage LLM Pipeline"
-status: decided
-domain: engine
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code (0.3.0)"
 tags:
   - llm
   - prompt

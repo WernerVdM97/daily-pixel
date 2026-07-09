@@ -1,8 +1,9 @@
 ---
 title: "Stage 5 — Live cutover: sim-calibrate, then hard-flip v11 → v12 with a DB wipe (build plan)"
-status: exploring
-domain: engine
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code (0.3.0); T7 dead-code sweep tail tracked in POC+ stage 1 plan"
 tags: [llm, pipeline, thread-d, cutover, stage-5, prod]
 related: ["[[prompt-separation-of-concerns]]", "[[prompt-v12-pipeline]]", "[[stage-0a-sim-harness-plan]]", "[[stage-1-thread-d-backbone-plan]]", "[[stage-2-scene-state-spine-plan]]", "[[stage-3-combat-spine-plan]]", "[[v12-prompt-set-versioning]]", "[[action-engine-framework]]"]
 ---

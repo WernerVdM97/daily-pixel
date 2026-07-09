@@ -1,8 +1,9 @@
 ---
 title: "T1 — combat calibration: scale-neutral balance baseline"
-status: decided
-domain: engine
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code (0.3.0)"
 tags: [combat, engine, sim, balance, stage-5, calibration]
 related: ["[[stage-5-live-cutover-plan]]", "[[prompt-v12-combat]]"]
 ---

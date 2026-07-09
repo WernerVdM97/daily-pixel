@@ -1,8 +1,9 @@
 ---
 title: "Prompt v12 — Scene-State: Deterministic Spine, Graph Shape & Location Coherence (D1/D2/D6)"
-status: decided
-domain: engine
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code (0.3.0)"
 tags:
   - graph
   - engine

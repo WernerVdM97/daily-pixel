@@ -1,8 +1,9 @@
 ---
 title: Decision Prompt v12 — First-Class Combat, World Scaling & Multi-Stage Pipeline
-status: decided
-domain: engine
+status: shipped
+domain: archived
 phase: poc
+superseded_by: "implemented in code (0.3.0)"
 tags:
   - llm
   - prompt
