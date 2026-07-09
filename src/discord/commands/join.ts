@@ -2,6 +2,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ComponentType,
   EmbedBuilder,
   MessageFlags,
   ModalBuilder,
@@ -208,7 +209,13 @@ export async function handleInteraction(
 
       release();
 
-      await i.followUp({ embeds: [createdEmbed.toJSON()], files: imageFiles(OAK_IMAGE) }).catch(() => {});
+      await i.followUp({
+  content: `<@${userId}>`,
+  embeds: [createdEmbed.toJSON()],
+  files: imageFiles(OAK_IMAGE),
+  allowedMentions: { users: [] },
+  components: [{ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, custom_id: 'nav:hi', label: 'Hi', emoji: { name: '🌅' }, style: ButtonStyle.Secondary }] }],
+}).catch(() => {});
 
       // Replace the finished wizard with the player's ephemeral /hi screen.
       const hiPayload = renderHiScreen ? await renderHiScreen(userId) : undefined;
