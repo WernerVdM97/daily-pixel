@@ -8,7 +8,7 @@
   - actions that involve movement but isn't it directly, like prompting to search the library from the wardens oak, should ensure that the travel beat is first evaluated (could auto travel, or demand travel as a seperate action).
 - [ ] morning and evening messages should have some custom prose or interesting message.
 - [ ] drop the ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? 
-- [ ] add /hi to 'A new hero joins the Oak' message.
+- [x] add /hi to 'A new hero joins the Oak' message. → shipped as the POC+ welcome tag (owner mention + 🌅 Hi button, `068e96b`).
 - [ ] dynamically request or load context. Instead of sending the LLM all possible context, give it an NCP-like interaction layer.
     - scripts or command that perform lookups from the world state that is provided to the decision and mutations DMAs
 - [ ] populate more locaiton edges in the sees
@@ -27,9 +27,9 @@
 
 ### Prompt v12 closeout
 
-1. Finish Stage 5 — T7 is not actually done. docs/engine/stage-5-live-cutover-plan.md still has the Checkpoint (real-model smoke run) and Task 7 unchecked, and I verified the code matches: src/engine/action/machine.ts (the legacy v11 ActionStateMachine) still exists and prompt-builder.ts:6 still exports PROMPT_VERSION = 'v11'. The release was cut and prod runs v12, but the legacy path was never deleted. The dead-code sweep (machine, PROMPT_VERSION + its stamp sites, critic dual-injection, the current_source.md test) is the outstanding tail of the plan. Arguably the prod QA session already served as the smoke gate, so this is mostly a cleanup task plus ticking the doc closed.
+1. ~~Finish Stage 5~~ **Done** (`72fb32d`, POC+ stage 1 T0a) — the T7 dead-code sweep landed: legacy machine, PROMPT_VERSION + stamp sites, critic dual-injection, and the current_source.md test are gone; the 2026-07-08 prod QA session stood in as the smoke gate.
 2. Then the v13 roadmap (docs/engine/prompt-v13-roadmap.md), which gives an explicit suggested order:
-    1. F#21 — divine intervention rework (small, player-facing, do early): the fallback must not cost a roll, must refund, and must read as a system failure, not an in-world outcome.
+    1. ~~F#21 — divine intervention rework~~ **Done** (`4c51334`, POC+ stage 1 T0b) — the fallback refunds the roll, authors no mutations, and reads as ⚠️ System.
     2. D3/D4 — conversation & puzzle shapes + the free-text security stack: the biggest unspecced chunk; can be specced immediately since the relationship edges are already live. Needs a stage-N-style build plan before implementation.
     3. (after a few live weeks of telemetry) Prose-critic trigger decision from the CombatBeatLog data, recorded as a decisions/ doc.
     4. Stage 4 — Thread B world scaling: also wants live curves before tuning; the scale seam sits at 1.
@@ -74,7 +74,7 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
 - [ ] use both models differently, flash for generating quick responses and daily work, pro for decision trees.
 - [ ] **LLM latency** *(deferred from [[polish-v0.2.8]], 2026-07-04)* — the 2026-07-04 snapshot shows mean ~12.8s, 94 calls >20s, 26 >30s (max 47.5s); this is what surfaces to players as `timed_out`/`bailed` outcomes. Rein in reasoning length and tighten the timeout+fallback. Overlaps the model-split above and the thinking-on/off experiments in [[mvp-llm-prompt-architecture]].
 - [ ] **Auto-resolve roll refund** *(deferred from [[polish-v0.2.8]], 2026-07-04)* — bug reports say a `done` auto-resolve can consume a roll while doing nothing / not refund it (B#1, B#10). The no-op/timeout/bail refund graces already exist and this list concluded there's no deterministic double-decrement in `startAction`, so the job is to verify the `done` path specifically hands the roll back on a true no-op. Part of the broader auto-resolve wound owned by the prompt refactor.
-- [ ] saturday special event, spawn an "evil npc" somewhere with a hint. Incentivise hunting it/them and add npc death mutation
+- [>] saturday special event, spawn an "evil npc" somewhere with a hint. Incentivise hunting it/them and add npc death mutation → minimal slice (one scripted weekly boss, shared HP) now [[poc-plus-roadmap]] item 5; npc death mutation and the wider event pool stay MVP.
 - [ ] choose age
 - [ ] Improved journal/story
   - track or show quests or hints?

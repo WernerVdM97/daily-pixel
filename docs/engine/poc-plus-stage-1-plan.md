@@ -39,8 +39,8 @@ Two sub-tasks, spec by reference, each its own commit.
 **Description.** `0.3.0` shipped with the legacy v11 path in-tree; T7's wipe and release halves happened, the code sweep did not. Delete: the legacy `ActionStateMachine` (`src/engine/action/machine.ts`); the critic dual-injection in `WorldEngineImpl` (~`:363`); `PROMPT_VERSION` (`src/llm/prompt-builder.ts:6`) and its stamp sites (`WorldEngineImpl.ts:568-569,1747`, `DeepseekLlmGateway.ts:161-162`); the `decision-<PROMPT_VERSION>.md` load path; the `current_source.md` byte-identical test (`tests/llm/prompt-builder.test.ts:211-218`). Keep `decision-v11.md` on disk, off the load path.
 
 **Acceptance:**
-- [ ] Grep for `PROMPT_VERSION` is clean, and `ActionStateMachine` matches nothing but `PipelineActionStateMachine` (the substring is expected), outside git history and the kept v11 asset; full suite green without the deleted path.
-- [ ] Doc loop: tick T7 (and note the Checkpoint — the 2026-07-08 prod QA session stood in as the smoke gate) in [[stage-5-live-cutover-plan]], flip that doc to `shipped`, archive it per conventions, update the map of content.
+- [x] Grep for `PROMPT_VERSION` is clean, and `ActionStateMachine` matches nothing but `PipelineActionStateMachine` (the substring is expected), outside git history and the kept v11 asset; full suite green without the deleted path. (`72fb32d`; re-verified 2026-07-09, 1122 tests green.)
+- [x] Doc loop: tick T7 (and note the Checkpoint — the 2026-07-08 prod QA session stood in as the smoke gate) in [[stage-5-live-cutover-plan]], flip that doc to `shipped`, archive it per conventions, update the map of content. (Doc loop reconciled 2026-07-09, one session after the code landed.)
 
 **Scope fence:** no other v13 threads, no template edits, no DB work (the wipe already happened).
 
@@ -49,8 +49,8 @@ Two sub-tasks, spec by reference, each its own commit.
 **Description.** The typed divine-intervention fallback (`PipelineActionStateMachine.resolveDivineIntervention()`) is a system failure presented as an in-world outcome. Rework the player-facing behaviour: refund the roll (system-fault grace, the same seam as the `0.3.0` timeout refund), author no lasting mutations, and render the outcome visually distinct from in-world outcomes so it reads as a system hiccup, not narrative. Likely files: `src/engine/action/PipelineActionStateMachine.ts`, `src/engine/OutcomeRenderer.ts`, `src/discord/commands/action.ts` (presentation); the lead scouts the exact seams before handoff.
 
 **Acceptance:**
-- [ ] A forced classify-stage throw produces: a refunded roll, no mutations, and an outcome that names itself a system failure with distinct visual treatment.
-- [ ] The `TODO.md` closeout item and [[prompt-v13-roadmap]] §4's checkbox are ticked.
+- [/] A forced classify-stage throw produces: a refunded roll, no mutations, and an outcome that names itself a system failure with distinct visual treatment. _Code landed (`4c51334`) but shipped without a test and no live check was recorded — verify (test or forced live throw) before ticking._
+- [x] The `TODO.md` closeout item and [[prompt-v13-roadmap]] §4's checkbox are ticked. (Reconciled 2026-07-09.)
 
 **Scope fence:** the fallback's *routing* (typed path, when it fires) is already correct and stays; only the player-facing cost/refund/presentation changes.
 
@@ -63,8 +63,8 @@ Two sub-tasks, spec by reference, each its own commit.
 - The announcement gains a components row with the 🌅 `Hi` button (`custom_id: 'nav:hi'`, secondary style); the existing `nav:hi` handler already spawns a per-clicker ephemeral on public messages (pattern at `src/discord/format.ts:224-234`).
 
 **Acceptance:**
-- [ ] Live `/join` on the dev bot: the announcement shows the owner mention, no ping fires, and the `Hi` button opens the clicker's own ephemeral `/hi`.
-- [ ] The `TODO.md` item "add /hi to 'A new hero joins the Oak' message" is ticked.
+- [/] Live `/join` on the dev bot: the announcement shows the owner mention, no ping fires, and the `Hi` button opens the clicker's own ephemeral `/hi`. _Code landed (`068e96b`) but no live check was recorded — run it before ticking._
+- [x] The `TODO.md` item "add /hi to 'A new hero joins the Oak' message" is ticked. (Reconciled 2026-07-09.)
 
 **Scope fence:** the `/join` wizard's inline-skills formatting polish (a separate `TODO.md` item) is out; no other commands touched.
 

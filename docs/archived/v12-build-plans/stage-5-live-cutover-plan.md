@@ -137,18 +137,21 @@ PipelineActionStateMachine
 
 ### Checkpoint — real-model smoke run (the LLM gate)
 Run a scripted character through the **real DeepSeek + v12 templates** on a throwaway/staging DB (fresh migrate, discard after). Not the sim's scripted gateway — the real model.
-- [ ] The script exercises **all seven `ActionType`s** (incl. `social`/`skill`/`other`, which only meet the real templates here — T1b covers them scripted, this is their first real-model contact), not just combat/travel.
-- [ ] Classify routes real free-text inputs correctly; no wrong-guess mis-routes.
-- [ ] Decide emits options only; resolve authors coherent prose against the final mutations; no schema/parse failures.
-- [ ] Latency tail per action is acceptable vs the v11 single call.
-- [ ] Human go/no-go before the destructive T7. Any prompt/latency fix loops back to T5/T2.
+
+> **Stood in by the 2026-07-08 prod QA session** (snapshot `warden-20260708-201456`, character BendiusOver): `0.3.0` was cut and run live in prod before the sweep, so a dedicated scripted smoke run never happened; the QA session served as the gate and T7's sweep landed after it (`72fb32d`, POC+ stage 1 T0a). The boxes below record the original bar, not individually verified line items.
+
+- [-] The script exercises **all seven `ActionType`s** (incl. `social`/`skill`/`other`, which only meet the real templates here — T1b covers them scripted, this is their first real-model contact), not just combat/travel.
+- [-] Classify routes real free-text inputs correctly; no wrong-guess mis-routes.
+- [-] Decide emits options only; resolve authors coherent prose against the final mutations; no schema/parse failures.
+- [-] Latency tail per action is acceptable vs the v11 single call.
+- [x] Human go/no-go before the destructive T7. Any prompt/latency fix loops back to T5/T2. (The QA session + decision to sweep was the go.)
 
 ### Task 7 — Delete v11, wipe, release
 **Description.** Once the smoke clears: delete the legacy `ActionStateMachine` (`machine.ts`) and its critic dual-injection; remove `PROMPT_VERSION` (`prompt-builder.ts:6`) and its three stamp sites (`WorldEngineImpl.ts:568-569,1747`, `DeepseekLlmGateway.ts:161-162`), the `decision-<PROMPT_VERSION>.md` load path + the `current_source.md` byte-identical test (`tests/llm/prompt-builder.test.ts:211-218`). Keep `decision-v11.md` on disk for history, off the load path. Wipe + fresh-migrate the DB. Update `CHANGELOG.md` `[Unreleased]` and cut `0.3.0` per the `releasing` skill.
 **Acceptance:**
-- [ ] `PROMPT_VERSION` and the legacy machine are gone; grep is clean outside history; full suite green without them.
-- [ ] DB wiped and re-migrated on the new schema; a live action confirmed end-to-end on `v12`.
-- [ ] Changelog updated; `0.3.0` release notes name the cutover + the wipe.
+- [x] `PROMPT_VERSION` and the legacy machine are gone; grep is clean outside history; full suite green without them. (Landed late as POC+ stage 1 T0a, `72fb32d`, 2026-07-09.)
+- [x] DB wiped and re-migrated on the new schema; a live action confirmed end-to-end on `v12`. (Done at the `0.3.0` cut, 2026-07-07.)
+- [x] Changelog updated; `0.3.0` release notes name the cutover + the wipe. (Done at the `0.3.0` cut; the sweep itself is in the post-`0.3.0` `[Unreleased]`.)
 **Verification:** full suite green with no legacy path; typecheck clean; one live action on `v12`.
 **Files:** `src/engine/action/machine.ts` (delete), `src/engine/WorldEngineImpl.ts`, `src/llm/prompt-builder.ts`, `src/llm/DeepseekLlmGateway.ts`, tests, `CHANGELOG.md`, `VERSION`, migrations. **Scope:** L. **Deps:** Checkpoint pass + T1.
 

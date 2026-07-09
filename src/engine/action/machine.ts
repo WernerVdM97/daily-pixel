@@ -1,7 +1,7 @@
 import type { WorldMutation } from '../WorldEngine.js';
 
 /**
- * Injectable resolver for world context — decouples ActionStateMachine from specific
+ * Injectable resolver for world context — decouples the action machine from specific
  * repositories while letting it populate the LLM context with live world state.
  */
 export interface WorldContextResolver {

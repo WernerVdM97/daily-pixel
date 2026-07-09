@@ -6,7 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Welcome tag on the new-hero broadcast** — the public "✨ A new hero joins the Oak" announcement now mentions the owner (pings suppressed, matching the 0.2.8 identity treatment) and carries the 🌅 `Hi` re-entry button. Commit `068e96b`.
+
+### Fixed
+- **Divine intervention no longer costs a roll** *(F#21)* — the pipeline's typed fallback refunds the roll, authors no mutations, and renders as ⚠️ System instead of an in-world divine event. Commit `4c51334`.
+
 ### Internal
+- **v12 dead-code sweep** — the legacy `ActionStateMachine`, the `PROMPT_VERSION` indirection, the critic dual-injection, and the v11-only tests are deleted; the engine is pipeline-only. Closes stage-5 T7. Commit `72fb32d`.
 - **POC+ Shared World arc decided** — `docs/game/poc-plus-roadmap.md` flips to `decided` (kill credit, buff vocabulary, broadcast stance, and frame authorship settled; versions unpinned; the v12 tail folded in as item 0) and gains its stage-1 build plan `docs/engine/poc-plus-stage-1-plan.md` (v12 tail + welcome tag + combat maths reveal), written as the orchestrated-delegation handover.
 
 ### Changed
