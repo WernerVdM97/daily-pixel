@@ -98,6 +98,10 @@ import {
   buildLeaderboardAnnouncement,
   LEADERBOARD_MARKER,
 } from "./discord/afternoon.js";
+import {
+  buildMorningAnnouncement,
+  buildEveningAnnouncement,
+} from "./discord/announcements.js";
 import { pinMessage, pinReplacing, pinKeepingNewest } from "./discord/pin.js";
 import {
   broadcastOutcome,
@@ -484,25 +488,8 @@ async function runGoodnightAnnouncement(
 
   try {
     const soulsInUnsafe = engine.countSoulsInUnsafe();
-    const lines: string[] =
-      soulsInUnsafe > 0
-        ? [
-            "🌙 **Night falls over the Oak.**",
-            "",
-            "The fire burns low and the dark draws close. " +
-              `**${soulsInUnsafe}** soul(s) are still out beyond the safe paths — ` +
-              "the wilds are patient, and they are not kind.",
-            "",
-            "Will they make it back? Rest, those who can.",
-          ]
-        : [
-            "🌙 **Night falls over the Oak.**",
-            "",
-            "Every soul is home beneath the boughs tonight. The dark presses " +
-              "against the firelight, but the Oak stands watch.",
-            "",
-            "Rest. Dawn comes when the world wills it.",
-          ];
+    const day = Number(engine.getMeta("day_number") ?? "1");
+    const content = buildEveningAnnouncement({ day, soulsInUnsafe });
 
     const channel = await client.channels.fetch(channelId);
     if (channel?.isTextBased() && "send" in channel) {
@@ -520,7 +507,7 @@ async function runGoodnightAnnouncement(
             components: unknown[];
           }) => Promise<unknown>;
         }
-      ).send({ content: lines.join("\n"), components: [row] });
+      ).send({ content, components: [row] });
 
       engine.setMeta("last_goodnight_date", today);
       console.log(
@@ -622,33 +609,18 @@ async function runMorningAnnouncement(
       engine.getMeta("last_tick_npc_movement_count") ?? "0",
     );
 
-    const flavor =
-      Number(dayNumber) <= 3
-        ? "The warden watches the horizon. The fire crackles, steady and low."
-        : "The smoke on the eastern horizon has thickened. The warden hasn't spoken since yesterday.";
-
-    const lines: string[] = [
-      `🌅 **Day ${dayNumber} begins.**`,
-      "",
-      flavor,
-      "",
-      "The Oak awaits. `/hi` to begin.",
-    ];
-
-    if (playersAffected > 0 || npcMovementCount > 0) {
-      lines.push("");
-      lines.push(
-        `─ ${playersAffected} soul(s) stirred, ${npcMovementCount} NPC(s) on the move.`,
-      );
-    }
-
     // Saturday: fold an early heads-up of the day's wilderness threat into the dawn message, so the
     // warning lands at 05:30 — not only at the 12:00 reveal (which names + spawns the foe).
     const now = new Date();
-    if (now.getUTCDay() === 6) {
-      lines.push("");
-      lines.push(buildThreatHeadsUp(pickWeeklyThreat(now)));
-    }
+    const threatHeadsUp =
+      now.getUTCDay() === 6 ? buildThreatHeadsUp(pickWeeklyThreat(now)) : undefined;
+
+    const content = buildMorningAnnouncement({
+      day: Number(dayNumber),
+      playersAffected,
+      npcMovementCount,
+      threatHeadsUp,
+    });
 
     const channel = await client.channels.fetch(channelId);
     if (channel?.isTextBased() && "send" in channel) {
@@ -668,7 +640,7 @@ async function runMorningAnnouncement(
           }) => Promise<unknown>;
         }
       ).send({
-        content: lines.join("\n"),
+        content,
         components: [row],
       });
 

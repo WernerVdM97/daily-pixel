@@ -8,6 +8,7 @@ import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { mapError } from "../../engine/ErrorMapper.js";
 import { SEPARATOR } from "../format.js";
 import { announceCollapse } from "../collapse.js";
+import { buildMorningAnnouncement } from "../announcements.js";
 import { getWorkplaceLocation, type DayJobDef } from "./hi.js";
 
 export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
@@ -28,27 +29,13 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
       try {
         const result = engine.tick(true);
 
-        // Scaling flavor text per day range
-        const flavor =
-          result.dayNumber <= 3
-            ? "The warden watches the horizon. The fire crackles, steady and low."
-            : "The smoke on the eastern horizon has thickened. The warden hasn't spoken since yesterday.";
-
-        const lines: string[] = [];
-        lines.push(`🌅 **Day ${result.dayNumber} begins.**`);
-        lines.push("");
-        lines.push(flavor);
-        lines.push("");
-        lines.push(`The Oak awaits. \`/hi\` to begin.`);
-
-        if (result.playersAffected > 0 || result.npcMovements.length > 0) {
-          lines.push("");
-          lines.push(
-            `─ ${result.playersAffected} soul(s) stirred, ${result.npcMovements.length} NPC(s) on the move.`,
-          );
-        }
-
-        return lines.join("\n");
+        // Shares the morning builder with the live cron post (index.ts) so the two never
+        // drift — same day, same prose, whichever path advances the world.
+        return buildMorningAnnouncement({
+          day: result.dayNumber,
+          playersAffected: result.playersAffected,
+          npcMovementCount: result.npcMovements.length,
+        });
       } catch (e) {
         console.error("[sleep] tick failed:", e);
         return mapError(e);
