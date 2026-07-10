@@ -32,6 +32,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Decision emojis trimmed** *(F#3)* — decision options now show only the stakes arrow (⬇️ easier / ⬆️ harder) for DC shifts, and a spotted passive insight is conveyed solely by the favoured button's green colour — the doubled-up 🟢/🔴 dots are gone from the option text and the footer hint.
 - **Logging/debug env vars consolidated** — `LOG_LLM_THINKING_ALL`, `LLM_LOG_ALL_PROMPTS`, and `REASONING_SPIRAL_CHARS` are removed (no aliasing); replaced by `LLM_LOG_THINKING=errors|spiral|all` (default `spiral`) and `LLM_SPIRAL_CHARS`, read once at boot via `src/config/env.ts`. A stale var still set in `.env` now logs a loud `[env]` boot warning naming its replacement instead of silently doing nothing.
 - **Pipeline gateway now honours the spiral threshold** — `ProdPipelineLlmGateway` previously ignored `REASONING_SPIRAL_CHARS` entirely, so a 15.8k-char reasoning chain was dropped in prod; both gateways now share one `DeepCapturePolicy` (`src/llm/capture-policy.ts`).
 - **`VERBOSE_LLM` now covers the v12 pipeline too** — previously a documented no-op on `ProdPipelineGatewayConfig`, it now logs a per-stage summary (stage, model, latency, tokens, response snippet) under the `[pipeline:<stage>]` prefix. Stage errors and parse failures are now always logged to console (unconditionally), with the verbose flag adding the per-stage success summary on top.

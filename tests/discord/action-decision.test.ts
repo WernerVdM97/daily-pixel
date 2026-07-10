@@ -21,8 +21,8 @@ describe('buildDecisionMessage — A/B/C buttons', () => {
     const desc = (msg.embeds[0] as any).description as string;
     // decide-scene-narration: each option carries its stat emoji (from STAT_LABELS)
     // as a prefix and a dcArrow difficulty hint as a suffix — render-only decoration.
-    expect(desc).toContain('**A.** 💪 Track the wolf quietly 🟢⬇️');
-    expect(desc).toContain('**B.** 🧠 Charge in 🔴⬆️');
+    expect(desc).toContain('**A.** 💪 Track the wolf quietly ⬇️');
+    expect(desc).toContain('**B.** 🧠 Charge in ⬆️');
     expect(desc).not.toContain('Step back'); // terminal option lives on the button only
   });
 
@@ -77,15 +77,20 @@ describe('buildDecisionMessage — hidden DCs & earned passive-insight hint', ()
     expect(desc).not.toMatch(/DC\s*\d/);
   });
 
-  it('lights exactly one option green when insight warrants it (clear safest path, within reach)', () => {
+  it('lights exactly one option green when insight warrants it (clear safest path, within reach) — button colour only, no redundant emoji', () => {
     // WIS 2 → passive insight 12 ≥ best DC 10, and 16 − 10 = 6 ≥ margin.
     const char = { stats: { physical: 0, wisdom: 2, intelligence: 0, charisma: 0 } };
     const btns = buttons(buildDecisionMessage(decision, 0, state, char));
     expect(btns.filter(b => b.style === SUCCESS)).toHaveLength(1);
     expect(btns[0].style).toBe(SUCCESS);   // Easy path
     expect(btns[1].style).toBe(SECONDARY); // Hard path
-    const desc = (buildDecisionMessage(decision, 0, state, char).embeds[0] as any).description as string;
-    expect(desc).toContain('🟢');
+    const msg = buildDecisionMessage(decision, 0, state, char);
+    const desc = (msg.embeds[0] as any).description as string;
+    const footer = (msg.embeds[0] as any).footer.text as string;
+    // The passive tell is the footer prose plus the button colour — never a
+    // redundant emoji in the option text itself.
+    expect(desc).not.toContain('🟢');
+    expect(footer).toBe('a safer path catches your eye');
   });
 
   it('gives no hint to a character whose insight cannot reach the easiest option', () => {
@@ -129,11 +134,11 @@ describe('buildDecisionMessage — hidden DCs & earned passive-insight hint', ()
     const desc = (msg.embeds[0] as any).description as string;
     expect(desc).toContain('> 🧭 **Quest:** hunt the stag');
     // Prior beat: its narration (the consequence of the choice before it) is
-    // quoted, the player's choice is bold, with a green/red difficulty arrow
-    // (−1 modifier → easier → green down). The beat's own `prompt` (CTA) never
-    // renders in the thread.
+    // quoted, the player's choice is bold, with a difficulty arrow (−1
+    // modifier → easier → down). The beat's own `prompt` (CTA) never renders
+    // in the thread.
     expect(desc).toContain('> The stag freezes at the treeline.');
-    expect(desc).toContain('↪ **Track it 🟢⬇️**');
+    expect(desc).toContain('↪ **Track it ⬇️**');
     expect(desc).not.toContain('Hunt — what do you do?');
     // The current scene's CTA is quoted too.
     expect(desc).toContain('> A fork in the road.');
@@ -170,11 +175,11 @@ describe('buildOutcomeEmbed — quoted recap', () => {
     expect(desc).toContain('> 🧭 **Quest:** hunt the stag');
     // First beat: no narration to quote, choice-only.
     expect(desc).not.toContain('Hunt — what do you do?');
-    expect(desc).toContain('↪ **Track it 🟢⬇️**');
+    expect(desc).toContain('↪ **Track it ⬇️**');
     // Second beat: its narration is quoted, player choice bold, with a difficulty
-    // arrow instead of a raw DC number (negative → green down, positive → red up).
+    // arrow instead of a raw DC number (negative → down, positive → up).
     expect(desc).toContain('> A twig snaps — the stag bolts toward the ford.');
-    expect(desc).toContain('↪ **Cut it off at the river 🔴⬆️**');
+    expect(desc).toContain('↪ **Cut it off at the river ⬆️**');
     // No raw DC numbers leak into the recap.
     expect(desc).not.toMatch(/DC\s*[+-]?\d/);
     // The final outcome narration is the focal (unquoted) text.
@@ -308,7 +313,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
       options: [{ label: 'Track the wolf quietly', dcModifier: -2 }],
     }, 0);
     const desc = (msg.embeds[0] as any).description as string;
-    expect(desc).toBe('> Scout — what do you do?\n\n**A.** Track the wolf quietly 🟢⬇️');
+    expect(desc).toBe('> Scout — what do you do?\n\n**A.** Track the wolf quietly ⬇️');
   });
 
   it('renders combatStatus as a plain (unquoted) line between narration and the CTA on combat continue-screens', () => {

@@ -430,12 +430,12 @@ function clip(text: string, max: number): string {
 
 /**
  * Qualitative difficulty arrow for a DC modifier — no raw numbers. Negative
- * lowered the DC (easier → green down), positive raised it (harder → red up),
- * zero shows nothing.
+ * lowered the DC (easier → down), positive raised it (harder → up), zero
+ * shows nothing.
  */
 function dcArrow(mod: number | null | undefined): string {
   if (mod == null || mod === 0) return '';
-  return mod < 0 ? '🟢⬇️' : '🔴⬆️';
+  return mod < 0 ? '⬇️' : '⬆️';
 }
 
 /** Stat emoji for an option's `stat`, degrading gracefully (no icon) when the
@@ -570,7 +570,7 @@ export function buildDecisionMessage(
       const arrow = dcArrow(opt.dcModifier);
       const prefix = icon ? `${icon} ` : '';
       const suffix = arrow ? ` ${arrow}` : '';
-      optionLines.push(`**${letter}.** ${prefix}${opt.label}${suffix}${favoured ? ' 🟢' : ''}`);
+      optionLines.push(`**${letter}.** ${prefix}${opt.label}${suffix}`);
       buttons.push(
         new ButtonBuilder()
           .setCustomId(choiceCid(decisionIdx, origIdx))
@@ -593,7 +593,7 @@ export function buildDecisionMessage(
   if (truncated.length > MAX_EMBED_DESC) truncated = clip(truncated, MAX_EMBED_DESC);
 
   const footerText = favouredIdx >= 0
-    ? '🟢 a safer path catches your eye'
+    ? 'a safer path catches your eye'
     : (decisionIdx === 0 ? 'What do you do?' : `Decision ${decisionIdx + 1}`);
 
   const embed = new EmbedBuilder()
