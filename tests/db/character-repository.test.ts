@@ -77,6 +77,13 @@ describe('CharacterRepository', () => {
     expect(updated!.name).toBe('Aldric');
   });
 
+  it('persists max_stamina through an update', () => {
+    const created = charRepo.create(userId, charData);
+    charRepo.update(created.id, { max_stamina: 15 });
+    const updated = charRepo.findById(created.id);
+    expect(updated!.max_stamina).toBe(15);
+  });
+
   it('enforces unique user_id (one character per user)', () => {
     charRepo.create(userId, charData);
     expect(() => charRepo.create(userId, charData)).toThrow();

@@ -13,6 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`max_stamina` gains now persist** *(B#2)* — `CharacterRepository.update`'s field allow-list omitted `max_stamina`, so a `+N` max-stamina reward never saved (the player saw the gain but `/stats` kept the base value). Added to the allow-list, audited the list against the schema (no other column was missing), and dropped the raw-SQL workaround in `src/sim/driver.ts` that routed around the gap.
 - **Divine intervention no longer costs a roll** *(F#21)* — the pipeline's typed classify-fallback refunds the roll, authors no mutations, and renders as a distinct grey ⚠️ System embed (the initial `4c51334` embed was unreachable, so divine mis-rendered as a normal outcome and misreported the refund; now fixed). Commits `4c51334`, `6e04929`, `ecc4741`.
 
 ### Internal
