@@ -25,7 +25,7 @@
 - [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
 - [ ] hitting 0 stamina blocks more actions that day. pass out can be evaluated similarly to global message.
   - also, 0 hp should do this but also roll the dice, mkaing a death save...
-- [ ] bug: autoresolved rest showed refunded but not the inspiration text?
+- [ ] bug: autoresolved rest showed refunded but not the inspiration text? → accounting root cause fixed as B#3 (`807bb13`); whether the grant *text* renders is verified under [[poc-plus-0.3.1-polish-plan]] F#8.
 
 ### ANSI frame polish — T2 live-check follow-up (2026-07-10)
 
@@ -81,10 +81,10 @@ Fresh reports from a single QA session (snapshot `warden-20260708-201456`, chara
 
 **Bugs**
 
-- [ ] **`max_stamina` gain not persisted** — player received `+2` max stamina but `/stats` still shows 2 (B#2). This is the known `CharacterRepository.update` allow-list gap (see MVP item below) surfacing in prod — prioritise the fix.
-- [ ] **Action-count footer mismatch** — footer showed `-1` but total 4 actions when the player was on 3 previously (B#1). Reconcile the remaining-actions delta vs. total display.
-- [ ] **Possible infinite inspiration** — player suspected inspiration never decrements / is unbounded (B#3). Verify the inspiration spend/grant accounting.
-- [ ] **Item loss is unclear** — a dropped/consumed item just appears listed, not visibly removed or subtracted (B#4). Make item-loss mutations read as a loss. Overlaps F#… item-usage work in [[improved-item-features]].
+- [x] ~~**`max_stamina` gain not persisted**~~ (B#2) → **Fixed** (`7513181`, 0.3.1 branch): `max_stamina` added to the `CharacterRepository.update` allow-list, schema audit found no other gap, sim raw-SQL workaround dropped.
+- [x] ~~**Action-count footer mismatch**~~ (B#1) → **Resolved by B#3** (`807bb13`, recorded `c491f94`): the rolls-grant clobbering the start drain was the whole mismatch; impossible on every resolved path now.
+- [x] ~~**Possible infinite inspiration**~~ (B#3) → **Leak found and fixed** (`807bb13`, 0.3.1 branch): the auto-resolve branch applied a rolls-grant off the stale pre-drain value, clobbering the start drain; drain now applied before the outcome, regression-tested.
+- [x] ~~**Item loss is unclear**~~ (B#4) → **Fixed** (`d660b19` + tests `4cddda3`, 0.3.1 branch): losses render as a real minus glyph mirroring the gain format, never a Discord list bullet. Item *usage* still tracked in [[improved-item-features]].
 
 **Feedback / feature asks**
 
@@ -122,7 +122,7 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
   - track or show quests or hints?
   - add clue system? also grants +1 roll
 - [>] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty. → now designed in [[per-player-map-exploration]] (engine-owned routing + `stamina = Σ edge difficulty`; `distance` reserved for the time mechanic).
-- [ ] **`CharacterRepository.update` allow-list omits `max_stamina`** — the column exists and is settable, but `update`'s field allow-list leaves it out, so `max_stamina` can't be persisted through the repo (the sim harness routes around it with raw SQL in `src/sim/driver.ts`). Add it to the allow-list (and audit the list against the schema for other gaps) so callers don't have to bypass the repo.
+- [x] ~~**`CharacterRepository.update` allow-list omits `max_stamina`**~~ → **Fixed** (`7513181`, 0.3.1 branch, B#2): added to the allow-list, schema audit found no other gap, the `src/sim/driver.ts` raw-SQL workaround dropped.
 - [ ] **schema: normalise location references to FK ids** — locations are keyed by `name` (TEXT) everywhere (`player_characters.location`, `npcs.location`, `location_edges`, `actions.location_name`). `actions.location_name` is a deliberate point-in-time *snapshot* (keep it), but a future polish pass should decide whether the live-reference tables move to `location_id` FKs consistently — a holistic refactor, not a lone divergence. See [[per-player-map-exploration]] §6.
 - [ ] use reactions as a way of buffering input before a button is pressed (expend items or use certain abilities to amplify actions, also works for trades)
   `this is cool!!!`

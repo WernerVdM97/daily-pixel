@@ -168,25 +168,25 @@ Independent of Part 1; each its own commit; snapshot `warden-20260708-201456`, c
 
 `CharacterRepository.update`'s field allow-list omits `max_stamina`, so a `+N` max-stamina gain never persists (player saw `+2`, `/stats` still showed base). This is also the MVP allow-list item surfacing in prod. Add `max_stamina` to the allow-list, audit the list against the schema for other gaps, and drop the `src/sim/driver.ts` raw-SQL workaround that routes around it.
 
-- [ ] `max_stamina` persists through the repo; sim harness no longer needs raw SQL; allow-list audited.
+- [x] `max_stamina` persists through the repo; sim harness no longer needs raw SQL; allow-list audited. → **Done** (`7513181`): allow-list gains `max_stamina`, schema audit found no other gap, raw-SQL workaround dropped.
 
 ### B#1 — action-count footer mismatch
 
 Footer showed `-1` but total 4 actions when the player was on 3 previously. Reconcile the remaining-actions delta vs the total display.
 
-- [ ] The footer's delta and total agree with the actual remaining-actions count across a multi-action day.
+- [x] The footer's delta and total agree with the actual remaining-actions count across a multi-action day. → **Resolved by B#3** (`807bb13`, recorded `c491f94`): the mismatch was the auto-resolve rolls-grant clobbering the start drain, not a display bug; impossible on every resolved path now.
 
 ### B#3 — verify inspiration accounting
 
 Player suspected inspiration never decrements / is unbounded. Verify the spend/grant accounting end to end; fix a leak if one exists, otherwise record why it is correct so the report can be closed.
 
-- [ ] Inspiration spend and grant are accounted correctly, proven by a test or a written trace.
+- [x] Inspiration spend and grant are accounted correctly, proven by a test or a written trace. → **Leak found and fixed** (`807bb13`): the auto-resolve branch applied a `modify_rolls_remaining` grant off the stale pre-drain value, so the start drain was clobbered (3 rolls → 4). Drain now applied to the in-memory row before the outcome, mirroring the step path; regression-tested.
 
 ### B#4 — make item loss read as a loss
 
 A dropped/consumed item just appears listed, not visibly removed or subtracted. Make item-loss mutations read as a loss in the outcome. Overlaps [[improved-item-features]].
 
-- [ ] A remove/consume-item mutation renders as a visible loss in the outcome.
+- [x] A remove/consume-item mutation renders as a visible loss in the outcome. → **Done** (`d660b19`, tests `4cddda3`): losses render with a real minus glyph (`−`), mirroring the gain format (emoji, `×N`), never a Discord list bullet.
 
 ---
 
