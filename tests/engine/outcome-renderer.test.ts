@@ -548,6 +548,24 @@ describe('OutcomeRenderer — rolls delta', () => {
     expect(result).toContain('🎲 2 (refunded)');
   });
 
+  it('shows both the refund suffix and the inspired line on a refunded rest that also granted a roll (F#8)', () => {
+    // Regression for the reported bug: an auto-resolved rest whose roll was refunded
+    // (rollRefunded, net rollsDelta 0) also carried a modify_rolls_remaining grant — the old
+    // `!outcome.rollRefunded` gate suppressed the inspired line whenever ANY refund fired,
+    // silently swallowing the grant. Refund and grant are independent facts; both must render.
+    const outcome: ActionOutcome = {
+      ...base,
+      playerRolled: null,
+      outcome: 'done',
+      rollsDelta: 0,
+      rollRefunded: true,
+      mutations: [{ type: 'modify_rolls_remaining', amount: 1 }],
+    };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
+    expect(result).toContain('🎲 2 (refunded)');
+    expect(result).toContain('✨ inspired (+1 roll)');
+  });
+
   it('shows the real delta (not "refunded") when a mutation also moved rolls', () => {
     // rollRefunded set, but a roll mutation made the net non-zero — must not mislabel as a refund.
     const outcome: ActionOutcome = {

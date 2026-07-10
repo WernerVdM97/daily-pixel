@@ -111,9 +111,14 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
     let penaltyLine = "";
     if (wasUnsafe) {
       const updated = engine.modifyHealth(interaction.user.id, -1);
+      // Own section, own line per clause — the crammed single-sentence version read as an
+      // aside rather than a real penalty (player report: rest formatting feels "off").
       penaltyLine = [
-        `⚠️ **Resting on unsafe ground costs 1 HP.** You bedded down at **${unsafeFromName}**, far from the Oak's protection — no safe fire, no walls, one eye open all night.`,
+        `⚠️ **Resting on unsafe ground costs 1 HP.**`,
+        `You bedded down at **${unsafeFromName}**, far from the Oak's protection — no safe fire, no walls, one eye open all night.`,
+        "",
         `The night was rough — you lost **1 HP**.${updated ? ` (${updated.health}/${updated.maxHealth} ❤️)` : ""}`,
+        "",
         `_Return to the Oak (or your workplace) **before** resting to avoid this._`,
       ].join("\n");
       // A collapse from the penalty is announced publicly (not just to the actor).
@@ -130,6 +135,9 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
       ? "The Oak's familiar boughs cradle you once more."
       : "You bank the fire and bed down beneath the Oak.";
 
+    // Each SEPARATOR marks a real section break (header/arrival, unsafe penalty, closing
+    // prose) so buildComponentPayload renders distinct Container blocks instead of one
+    // undifferentiated wall of text.
     const lines: string[] = [
       "🏕️ **The Warden's Oak**",
       SEPARATOR,
@@ -137,10 +145,12 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
       locationLine,
     ];
     if (penaltyLine) {
+      lines.push(SEPARATOR);
       lines.push("");
       lines.push(penaltyLine);
     }
 
+    lines.push(SEPARATOR);
     lines.push("");
     lines.push("The day turns when the world wills it — not when you do.");
     lines.push("");

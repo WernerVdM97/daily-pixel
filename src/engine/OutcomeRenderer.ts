@@ -273,7 +273,11 @@ export function formatOutcome(
   }
   // A positive roll grant that nets to zero against the action cost is invisible in the 🎲
   // counter — surface it explicitly so the player knows they were rewarded (feedback #13).
-  if (!outcome.rollRefunded && d.rollsDelta > 0 && rollsDelta === 0) {
+  // This must fire independently of `rollRefunded`: a refund and a grant are separate facts
+  // (the footer's "(refunded)" suffix below has its own `rollRefunded` gate), so an
+  // auto-resolved action whose roll was refunded must still show the grant it also carried
+  // (B#3 follow-up — the reported "auto-resolved rest showed refunded but no inspiration text").
+  if (d.rollsDelta > 0 && rollsDelta === 0) {
     changes.push(`✨ inspired (+${d.rollsDelta} roll)`);
   }
 

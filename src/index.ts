@@ -2329,6 +2329,40 @@ _${idleMsg}_`)
         return;
       }
 
+      // /sleep (Rest) gets an immediate acknowledging beat before the result lands — mirrors
+      // the ⏳ day-job envelope (action.ts:2050-2062) so the click reads as having weight, even
+      // though restAtOak resolves synchronously with nothing to actually wait on.
+      if (navTarget === "sleep") {
+        try {
+          const msgFlags = interaction.message?.flags;
+          const mode = navResponseMode({
+            ephemeral: msgFlags?.has(MessageFlags.Ephemeral) ?? false,
+            componentsV2: msgFlags?.has(MessageFlags.IsComponentsV2) ?? false,
+          });
+          const loadingPayload = buildComponentPayload(
+            `🏕️ **Bedding down…**\n_${randomIdleMessage()}_`,
+            { ephemeral: true },
+          );
+          if (mode === "update") {
+            await interaction.update(loadingPayload);
+          } else {
+            await interaction.reply(loadingPayload);
+          }
+
+          const sleepHandler = registry.get("sleep");
+          const result = sleepHandler
+            ? await sleepHandler({ user: { id: interaction.user.id } } as never)
+            : "Something went wrong.";
+
+          // No nav bar on /sleep (global message) — matches the generic nav path below.
+          const payload = buildComponentPayload(result, { ephemeral: true });
+          await interaction.editReply(payload);
+        } catch (err) {
+          void notifyAdmin("Nav (sleep) failed", err);
+        }
+        return;
+      }
+
       const navHandler = registry.get(navTarget);
       if (!navHandler) return;
 
@@ -2338,9 +2372,9 @@ _${idleMsg}_`)
           user: { id: interaction.user.id },
         } as never);
 
-        // No nav bar on /action (own buttons) or /sleep (global message);
-        // otherwise exclude the current command's own button.
-        const noNav = navTarget === "action" || navTarget === "sleep";
+        // No nav bar on /action (own buttons); /sleep has its own early-return branch
+        // above and never reaches here. Otherwise exclude the current command's own button.
+        const noNav = navTarget === "action";
         const navButtons =
           noNav || !char ? undefined : getNavButtons(char, navTarget);
         const payload = buildComponentPayload(result, {
