@@ -303,11 +303,24 @@ function buildStepMessage(state: WizardState): {
     1: state.name, 2: state.class, 3: state.upbringing, 4: state.race,
     5: titleCase(state.alignment), 6: state.dayJob, 7: state.itemSet,
   };
+  // Raw (pre-titleCase) persisted values — these are what each option's `value` matches,
+  // so they're the lookup key for the chosen option's own emoji.
+  const rawChosen: Record<number, string | undefined> = {
+    2: state.class, 3: state.upbringing, 4: state.race,
+    5: state.alignment, 6: state.dayJob, 7: state.itemSet,
+  };
+  // Graceful miss: a custom/renamed value with no matching def yields "" — never "undefined".
+  const chosenEmoji = (n: number): string => {
+    const raw = rawChosen[n];
+    if (!raw) return "";
+    const match = buildStepOptions(n, _defs, state.class).find(o => o.value === raw);
+    return match ? `${match.emoji} ` : "";
+  };
   const stepLine = (n: number) => {
     const { icon, heading } = STEPS[n];
     const value = chosen[n];
     if (state.step === n) return `${icon} **${heading}** ◀`;
-    if (value) return `${icon} ~~${heading}~~ → **${value}**`;
+    if (value) return `${icon} ~~${heading}~~ → ${chosenEmoji(n)}**${value}**`;
     return `${icon} ${heading}`;
   };
 
@@ -335,10 +348,16 @@ function buildStepMessage(state: WizardState): {
     const opts = buildStepOptions(state.step, _defs, state.class);
     const heading = STEPS[state.step]?.heading ?? "";
 
-    // Options block: emoji + bold name + the stats it boosts + description, one per line.
+    // Options block: emoji + bold name on their own line, stat bonuses (if any) set off
+    // as a blockquote, description on its own line — crowds less than one long dashed line.
     const list = opts
-      .map(o => `${o.emoji} **${o.label}**${o.statBonuses ? ` ${o.statBonuses}` : ""} — ${o.description}`)
-      .join("\n");
+      .map(o => {
+        const lines = [`${o.emoji} **${o.label}**`];
+        if (o.statBonuses) lines.push(`> ${o.statBonuses}`);
+        if (o.description) lines.push(o.description);
+        return lines.join("\n");
+      })
+      .join("\n\n");
     blocks.push(`__**${heading}**__\n${list}`);
     embed.setFooter({ text: `Step ${state.step} of ${totalSteps} — ${heading}` });
 
