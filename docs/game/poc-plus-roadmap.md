@@ -40,8 +40,9 @@ This doc is the durable memory across sessions; the stage plans are the executor
 
 Tracking:
 
-- [x] **Stage 1** — v12 tail + welcome tag + combat maths reveal ([[poc-plus-stage-1-plan]]) _Done 2026-07-09; branch `poc-plus/stage-1-t2`, commit `94ecbee`. Live check pending (bot smoke-tests OK; needs human operator)._
-- [ ] **Stage 2** — nat 1/20 global broadcast (plan authored by the lead at stage start)
+- [x] **Stage 1** — v12 tail + welcome tag + combat maths reveal ([[poc-plus-stage-1-plan]]) _Done 2026-07-09; branch `poc-plus/stage-1-t2`, commit `94ecbee`. T2 live check ran 2026-07-10: passed on content (colour on desktop, clean monochrome on mobile) but surfaced renderer styling/architecture debt, spun into the `0.3.1` polish release below._
+- [/] **`0.3.1` polish & hardening** — interstitial release before stage 2 ([[poc-plus-0.3.1-polish-plan]]) _Not an arc stage; finishes the combat-readability arc by paying down the T2 live-check debt (the `ANSI frame polish` block), plus the 2026-07-08 prod bug batch and small UX wins. Bundled large so stage 2 opens on a standardised renderer. Branch `poc-plus/0.3.1-polish`. Scoped with the user 2026-07-10._
+- [ ] **Stage 2** — nat 1/20 global broadcast (plan authored by the lead at stage start; opens the release after `0.3.1`)
 - [ ] **Stage 3** — cross-player buffs (plan authored by the lead at stage start)
 - [ ] **Stage 4** — Saturday shared-boss hunt (plan authored by the lead at stage start)
 

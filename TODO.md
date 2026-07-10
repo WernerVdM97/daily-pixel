@@ -29,6 +29,8 @@
 
 ### ANSI frame polish — T2 live-check follow-up (2026-07-10)
 
+> **Now tasked in [[poc-plus-0.3.1-polish-plan]]** (with the 2026-07-08 prod bug batch and the small UX wins below) as the `0.3.1` polish release. This block is Part 1 of that plan; tick these rows as its tasks land.
+
 The T2 live check passed on content (colours good on desktop, monochrome clean on mobile) but surfaced styling and architecture debt. Standardise before stage 2 builds broadcast frames on the same renderer. Go in order: A settles the facts B–D depend on.
 
 **A — settle first**

@@ -117,7 +117,7 @@ hpBar(hp: number, maxHp: number, width: number): string; // display clamped to [
 
 **Acceptance:**
 
-- [ ] A live combat beat on the dev bot shows roll vs DC + margin, both HP bars on separate lines, and a damage floater; no scene art. Desktop shows colour; phone shows clean monochrome. _Bot smoke-tests OK (startup clean, Daily-TEST#3255 online, 13 commands registered 2026-07-09); needs a human operator to fire `/action` on Discord and verify the frame._
+- [x] A live combat beat on the dev bot shows roll vs DC + margin, both HP bars on separate lines, and a damage floater; no scene art. Desktop shows colour; phone shows clean monochrome. _Live-checked 2026-07-10: content passed (colour on desktop, clean monochrome on mobile). The check also surfaced renderer debt, chiefly the black `chrome` border being unreadable on Discord's dark code-block bg, plus palette/architecture gaps. That debt is not a T2 regression; it is tracked and paid down in the `0.3.1` polish release ([[poc-plus-0.3.1-polish-plan]])._
 - [x] B#5 and B#6 are irreproducible. _1168 tests green incl. 3 dedicated B#5/B#6 continue-screen assertions + 2 outcome-renderer terminal-frame clamping tests._
 - [x] Frame stays < 2 000 chars incl. fences (prior measurements: 820–1 250). _Measured ~577 chars worst-case (4-digit HP + 2-line message + banded bar)._
 - [x] `TODO.md` ticks: F#7 "show the maths", the combat half of "drop ascii from action outcomes", and the B#5/B#6 rows.
