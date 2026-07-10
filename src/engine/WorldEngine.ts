@@ -227,6 +227,10 @@ export interface JournalAction {
   /** Where the action happened (origin snapshot, §6) + its map glyph, for the chronicle. */
   location?: string | null;
   locationEmoji?: string | null;
+  /** Player-facing "intel gathered" facts derived from this action's applied mutations
+   *  (a location revealed, an NPC met) — read-only intel already sitting on the action
+   *  row, surfaced for the journal rather than tracked separately (F#6). */
+  discoveries?: string[];
 }
 
 /** A discovered node in a player's fog-of-war view of the shared graph (§5). */

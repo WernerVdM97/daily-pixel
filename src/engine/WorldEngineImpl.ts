@@ -159,6 +159,30 @@ function summariseMutation(m: WorldMutation): string {
   }
 }
 
+/** Player-facing "intel gathered" lines for the journal chronicle (F#6) — parses the same
+ *  `applied_mutations` JSON already sitting on the action row (no new tracking) and surfaces
+ *  only the two mutation kinds that read as intel: a location revealed, an NPC met. Other
+ *  mutation kinds (stat/item churn) aren't narratively "intel" so stay out of the journal. */
+function journalDiscoveries(appliedMutationsJson: string | null): string[] {
+  if (!appliedMutationsJson) return [];
+  let mutations: WorldMutation[];
+  try {
+    mutations = JSON.parse(appliedMutationsJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(mutations)) return [];
+
+  const facts: string[] = [];
+  for (const m of mutations) {
+    const name = typeof m?.name === "string" ? m.name.trim() : "";
+    if (!name) continue;
+    if (m.type === "reveal_location") facts.push(`🗺️ Discovered **${name}**`);
+    else if (m.type === "add_npc" || m.type === "spawn_npc") facts.push(`🤝 Met **${name}**`);
+  }
+  return facts;
+}
+
 /** Only the character fields that changed, as `before→after` pairs. */
 function stateDeltas(before: CharacterRow, after: AppliedStateView): string {
   const parts: string[] = [];
@@ -1330,6 +1354,7 @@ export class WorldEngineImpl implements WorldEngine {
         locationEmoji: r.location_name
           ? this.locationRepo.findByName(r.location_name)?.emoji ?? "📍"
           : null,
+        discoveries: journalDiscoveries(r.applied_mutations),
       })),
     };
   }

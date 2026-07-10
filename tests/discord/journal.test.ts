@@ -29,7 +29,7 @@ describe("/journal", () => {
     expect(result).toContain("/map"); // points the player at the map instead
   });
 
-  it("renders a chronicle: each action tagged with where it happened + outcome glyph", async () => {
+  it("renders a chronicle under its own header, each action tagged with where it happened + a bold outcome tag", async () => {
     engine.setJournal({
       knownLocations: [],
       currentLocation: "Wolf Hollow",
@@ -41,8 +41,59 @@ describe("/journal", () => {
     });
     const handler = makeJournalCommand(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
-    expect(result).toContain("🐺 Wolf Hollow · drove off a starving wolf ✓");
-    expect(result).toContain("🪨 The Sunken Road · searched the broken shrine ✗");
+    expect(result).toContain("**📜 Chronicle**");
+    expect(result).toContain("🐺 Wolf Hollow · drove off a starving wolf — ✅ **Success**");
+    expect(result).toContain("🪨 The Sunken Road · searched the broken shrine — ❌ **Failed**");
+  });
+
+  it("hangs discoveries off the action that produced them, as a box-drawing rail", async () => {
+    engine.setJournal({
+      knownLocations: [],
+      currentLocation: "Wolf Hollow",
+      npcsEncountered: [],
+      recentActions: [
+        {
+          type: "explore",
+          outcome: "success",
+          createdAt: "2026-01-02T12:00:00Z",
+          narrative: "pressed on past the tree line",
+          location: "Wolf Hollow",
+          locationEmoji: "🐺",
+          discoveries: ["🗺️ Discovered **Whispering Vale**", "🤝 Met **Old Tom**"],
+        },
+      ],
+    });
+    const handler = makeJournalCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+    expect(result).toContain("🐺 Wolf Hollow · pressed on past the tree line — ✅ **Success**");
+    expect(result).toContain("└─ 🗺️ Discovered **Whispering Vale**");
+    expect(result).toContain("└─ 🤝 Met **Old Tom**");
+  });
+
+  it("omits the discovery rail when an action has none", async () => {
+    engine.setJournal({
+      knownLocations: [],
+      currentLocation: "Wolf Hollow",
+      npcsEncountered: [],
+      recentActions: [
+        { type: "combat", outcome: "success", createdAt: "2026-01-02T12:00:00Z", narrative: "drove off a starving wolf", location: "Wolf Hollow", locationEmoji: "🐺" },
+      ],
+    });
+    const handler = makeJournalCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+    expect(result).not.toContain("└─");
+  });
+
+  it("gives NPCs Encountered its own header", async () => {
+    engine.setJournal({
+      knownLocations: [],
+      currentLocation: "The Warden's Oak",
+      npcsEncountered: [{ name: "Greta", class: "Blacksmith", location: "The Warden's Oak" }],
+      recentActions: [],
+    });
+    const handler = makeJournalCommand(engine);
+    const result = await handler({ user: { id: "user-1" } } as never);
+    expect(result).toContain("**🧑‍🤝‍🧑 NPCs Encountered**");
   });
 
   it("shows NPCs encountered with name, class, and location", async () => {
@@ -76,7 +127,7 @@ describe("/journal", () => {
     expect(result).toContain("Stranger");
   });
 
-  it("falls back to the action type + outcome glyph when there's no narrative or location", async () => {
+  it("falls back to the action type + a bold outcome tag when there's no narrative or location", async () => {
     engine.setJournal({
       knownLocations: [],
       currentLocation: "The Warden's Oak",
@@ -89,8 +140,8 @@ describe("/journal", () => {
     const handler = makeJournalCommand(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
 
-    expect(result).toContain("hunt ✓");
-    expect(result).toContain("travel ✗");
+    expect(result).toContain("hunt — ✅ **Success**");
+    expect(result).toContain("travel — ❌ **Failed**");
     expect(result).toContain("(on the road)"); // no location → placeholder
   });
 

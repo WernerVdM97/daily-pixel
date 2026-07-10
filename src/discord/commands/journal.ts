@@ -15,24 +15,34 @@ export function makeJournalCommand(engine: WorldEngine) {
     lines.push(`📖 **${character.name}'s Journal**`);
     lines.push(SEPARATOR);
 
-    // Chronicle — recent actions, each tagged with the place it happened in.
-    lines.push("");
+    // Chronicle — recent actions, each tagged with the place it happened in. Outcomes get a
+    // bold, colour-coded tag (not a bare ✓/✗) so a run of failures reads at a glance; any intel
+    // the action turned up (a place revealed, an NPC met) hangs off it as a rail, matching the
+    // /backpack box-drawing convention.
+    lines.push("**📜 Chronicle**");
     if (journal.recentActions.length === 0) {
       lines.push("*No actions recorded yet — your story is unwritten.*");
     } else {
       for (const action of journal.recentActions) {
-        const glyph = action.outcome === "success" ? " ✓" : action.outcome === "failure" ? " ✗" : "";
+        const outcomeTag =
+          action.outcome === "success" ? " — ✅ **Success**"
+          : action.outcome === "failure" ? " — ❌ **Failed**"
+          : "";
         const where = action.location ? `${action.locationEmoji ?? "📍"} ${action.location}` : "🧭 (on the road)";
         const what = action.narrative
           ? (action.narrative.length > 140 ? action.narrative.slice(0, 137) + "…" : action.narrative)
           : action.type;
-        lines.push(`${where} · ${what}${glyph}`);
+        lines.push(`${where} · ${what}${outcomeTag}`);
+        for (const discovery of action.discoveries ?? []) {
+          lines.push(`    └─ ${discovery}`);
+        }
       }
     }
 
     // NPCs encountered — who you've crossed paths with.
     lines.push("");
-    lines.push("**NPCs Encountered:**");
+    lines.push(SEPARATOR);
+    lines.push("**🧑‍🤝‍🧑 NPCs Encountered**");
     if (journal.npcsEncountered.length === 0) {
       lines.push("  *You have met no NPCs yet.*");
     } else {
