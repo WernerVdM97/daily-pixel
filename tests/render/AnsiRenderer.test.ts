@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderFrame, hpBar, type FrameSpec } from "../../src/render/AnsiRenderer.js";
+import { renderFrame, hpBar, PALETTES, type FrameSpec } from "../../src/render/AnsiRenderer.js";
 
 const stripSgr = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -305,6 +305,63 @@ describe("AnsiRenderer", () => {
 
       const body = rendered.slice("```ansi\n".length, rendered.length - "\n```".length);
       expect(body).not.toContain("`");
+    });
+  });
+
+  describe("palette-driven rendering (ANSI-B)", () => {
+    // Captured from renderFrame(fullCombatFrame()) BEFORE the palette module
+    // landed, when `chrome` was still hardcoded to SGR 30 (black). ANSI-B's
+    // standing acceptance is that the combat frame's output is byte-identical
+    // to this except the chrome colour, so this fixture is the baseline proof
+    // rather than a re-derived one — see poc-plus-0.3.1-polish-plan.md "ANSI-B".
+    const preChangeFixture =
+      "```ansi\n" +
+      "\x1b[30m+----------------------------+\x1b[0m\n" +
+      "\x1b[30m|\x1b[0m  \x1b[31mGLOOMFANG\x1b[0m           Lv 4  \x1b[30m|\x1b[0m\n" +
+      "\x1b[30m|\x1b[0m  HP [\x1b[31m█████\x1b[0m\x1b[30m░░░░░░░░░░░\x1b[0m] 6/20\x1b[30m|\x1b[0m\n" +
+      "\x1b[30m|\x1b[0m  \x1b[31m-6\x1b[0m                        \x1b[30m|\x1b[0m\n" +
+      "\x1b[30m|\x1b[0m  \x1b[34mWARDEN\x1b[0m              Lv 3  \x1b[30m|\x1b[0m\n" +
+      "\x1b[30m|\x1b[0m  HP [\x1b[32m████████████\x1b[0m\x1b[30m░░░\x1b[0m] 24/30\x1b[30m|\x1b[0m\n" +
+      "\x1b[30m|\x1b[0m  \x1b[31m-3\x1b[0m                        \x1b[30m|\x1b[0m\n" +
+      "\x1b[30m+----------------------------+\x1b[0m\n" +
+      "\x1b[30m|\x1b[0m  A wild GLOOMFANG lunges   \x1b[30m|\x1b[0m\n" +
+      "\x1b[30m|\x1b[0m  from the bracken!         \x1b[30m|\x1b[0m\n" +
+      "\x1b[30m+----------------------------+\x1b[0m\n" +
+      "```";
+
+    it("renders the combat frame byte-identical to the pre-palette fixture once chrome (37) is reconciled back to 30", () => {
+      const rendered = renderFrame(fullCombatFrame(), PALETTES.house);
+      const reconciled = rendered.replace(/\x1b\[37m/g, "\x1b[30m");
+      expect(reconciled).toBe(preChangeFixture);
+    });
+
+    it("defaults to the house palette when no palette argument is given", () => {
+      const withDefault = renderFrame(fullCombatFrame());
+      const withExplicitHouse = renderFrame(fullCombatFrame(), PALETTES.house);
+      expect(withDefault).toBe(withExplicitHouse);
+    });
+
+    it("only differs from the pre-palette fixture on chrome's SGR code, no other codes changed", () => {
+      const rendered = renderFrame(fullCombatFrame(), PALETTES.house);
+      const renderedCodes = rendered.match(/\x1b\[[0-9;]*m/g) ?? [];
+      const fixtureCodes = preChangeFixture.match(/\x1b\[[0-9;]*m/g) ?? [];
+      expect(renderedCodes.length).toBe(fixtureCodes.length);
+      for (let i = 0; i < renderedCodes.length; i++) {
+        const rendCode = renderedCodes[i];
+        const fixCode = fixtureCodes[i];
+        if (rendCode === fixCode) continue;
+        // The only permitted divergence: chrome moved 30 -> 37.
+        expect(fixCode).toBe("\x1b[30m");
+        expect(rendCode).toBe("\x1b[37m");
+      }
+    });
+
+    it("a non-default palette actually changes the emitted SGR codes", () => {
+      const houseRendered = renderFrame(fullCombatFrame(), PALETTES.house);
+      const gloomRendered = renderFrame(fullCombatFrame(), PALETTES.gloom);
+      expect(gloomRendered).not.toBe(houseRendered);
+      // Monochrome content is unaffected by palette choice — only colour codes differ.
+      expect(stripSgr(gloomRendered)).toBe(stripSgr(houseRendered));
     });
   });
 });

@@ -14,7 +14,12 @@
 // See docs/sparks/mvp+ansi-art.md §2-3 for the colour-role convention and
 // the frame/slot layout this module implements.
 
-export type Role = 'chrome' | 'threat' | 'life' | 'warmth' | 'player' | 'emphasis';
+import { PALETTES, type Palette, type Role } from './palette.js';
+
+// Re-exported so existing importers of `Role`/`PALETTES` from this module
+// don't need to churn — `src/render/palette.ts` is the module of record.
+export type { Role, Palette };
+export { PALETTES };
 
 export interface CombatantLine {
   name: string;
@@ -59,20 +64,19 @@ const LOW_HP_THRESHOLD = 0.4;
 const FILLED_GLYPH = '█';
 const EMPTY_GLYPH = '░';
 
-const SGR: Record<Role, number> = {
-  chrome: 30,
-  threat: 31,
-  life: 32,
-  warmth: 33,
-  player: 34,
-  emphasis: 37,
-};
+// Palette `chrome` values (borders/labels) sit at 37 (white), not the historical
+// 30 (black) — black is unreadable against Discord's dark code-block background,
+// confirmed live 2026-07-10. 37 is the safe default within the SGR range already
+// proven to render (30-37); it reconciles to bright 90 (dim grey, the intended
+// "chrome" register) once ANSI-A's live probe confirms bright 90-97 also renders
+// in a Discord `ansi` block. See docs/engine/poc-plus-0.3.1-polish-plan.md "ANSI-B".
 
-/** Wrap text in a role's SGR code + reset. Skips empty text so blank
- *  segments don't spend chars on escape codes that colour nothing. */
-function paint(role: Role, text: string): string {
+/** Wrap text in a role's SGR code + reset, looked up from the active
+ *  palette. Skips empty text so blank segments don't spend chars on escape
+ *  codes that colour nothing. */
+function paint(role: Role, text: string, palette: Palette): string {
   if (text.length === 0) return '';
-  return `\x1b[${SGR[role]}m${text}\x1b[0m`;
+  return `\x1b[${palette.sgr[role]}m${text}\x1b[0m`;
 }
 
 interface Segment {
@@ -113,15 +117,15 @@ function fitSegments(segments: Segment[], width: number): Segment[] {
 }
 
 /** Render one interior-width line between chrome-coloured `|` borders. */
-function composeLine(segments: Segment[]): string {
+function composeLine(segments: Segment[], palette: Palette): string {
   const fitted = fitSegments(segments, INTERIOR_WIDTH);
-  const body = fitted.map((s) => (s.role ? paint(s.role, s.text) : s.text)).join('');
-  return paint('chrome', '|') + body + paint('chrome', '|');
+  const body = fitted.map((s) => (s.role ? paint(s.role, s.text, palette) : s.text)).join('');
+  return paint('chrome', '|', palette) + body + paint('chrome', '|', palette);
 }
 
 /** A full-width `+----...----+` border/divider row. */
-function borderLine(): string {
-  return paint('chrome', '+' + '-'.repeat(INTERIOR_WIDTH) + '+');
+function borderLine(palette: Palette): string {
+  return paint('chrome', '+' + '-'.repeat(INTERIOR_WIDTH) + '+', palette);
 }
 
 /**
@@ -277,8 +281,8 @@ function messageSegments(line: string): Segment[] {
  * border (acts as the bottom border if there's no message, or a divider
  * before the message box if there is), message lines, closing border.
  */
-export function renderFrame(spec: FrameSpec): string {
-  const lines: string[] = [borderLine()];
+export function renderFrame(spec: FrameSpec, palette: Palette = PALETTES.house): string {
+  const lines: string[] = [borderLine(palette)];
 
   // Sanitize every caller-supplied string up front so nothing composed
   // below can carry a fence-breaking backtick into the output.
@@ -289,35 +293,35 @@ export function renderFrame(spec: FrameSpec): string {
   const floater = spec.floater !== undefined ? escapeBackticks(spec.floater) : spec.floater;
 
   if (header) {
-    lines.push(composeLine(nameplateSegments(header, 'threat')));
-    lines.push(composeLine(hpLineSegments(header, 'threat')));
-    if (header.floater) lines.push(composeLine(floaterSegments(header.floater)));
+    lines.push(composeLine(nameplateSegments(header, 'threat'), palette));
+    lines.push(composeLine(hpLineSegments(header, 'threat'), palette));
+    if (header.floater) lines.push(composeLine(floaterSegments(header.floater), palette));
   }
 
   if (sprite) {
     for (const fragment of sprite) {
-      lines.push(composeLine(spriteSegments(fragment)));
+      lines.push(composeLine(spriteSegments(fragment), palette));
     }
   }
 
   if (floater) {
-    lines.push(composeLine(floaterSegments(floater)));
+    lines.push(composeLine(floaterSegments(floater), palette));
   }
 
   if (footer) {
-    lines.push(composeLine(nameplateSegments(footer, 'player')));
-    lines.push(composeLine(hpLineSegments(footer, 'player')));
-    if (footer.floater) lines.push(composeLine(floaterSegments(footer.floater)));
+    lines.push(composeLine(nameplateSegments(footer, 'player'), palette));
+    lines.push(composeLine(hpLineSegments(footer, 'player'), palette));
+    if (footer.floater) lines.push(composeLine(floaterSegments(footer.floater), palette));
   }
 
-  lines.push(borderLine());
+  lines.push(borderLine(palette));
 
   if (message && message.length > 0) {
     const capped = message.slice(0, MESSAGE_MAX_LINES);
     for (const messageLine of capped) {
-      lines.push(composeLine(messageSegments(messageLine)));
+      lines.push(composeLine(messageSegments(messageLine), palette));
     }
-    lines.push(borderLine());
+    lines.push(borderLine(palette));
   }
 
   return '```ansi\n' + lines.join('\n') + '\n```';
