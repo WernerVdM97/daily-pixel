@@ -4,6 +4,8 @@ Canonical **monochrome mocks** of the opening frame shown for each classified ac
 
 Author monochrome; colour is applied by role at render time (mobile strips colour, so the monochrome body must carry all meaning). Each `.ascii` file's frontmatter documents its register, slots, colour roles, binding (engine / LLM / fragment), and what belongs in the replied message body.
 
+**Single-width glyphs only (hard rule).** Every character must occupy exactly one monospace cell — no emoji or Miscellaneous-Symbols / Dingbats glyphs (`⚠ ☺ ✦ ❖ ✓ ✗`), which render double-width in Discord and push the border out of line. The same trap catches East-Asian-Ambiguous punctuation like `§` and `→` (use `#` and `>`). Use ASCII, box-drawing, block/shade, and Geometric-Shapes glyphs only. See the `ansi-frames` skill §1.
+
 ## Where an opening frame sits in the pipeline
 
 The action pipeline **always** shows an opening frame after `classify` and before the first decision:

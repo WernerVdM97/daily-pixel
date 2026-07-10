@@ -39,6 +39,8 @@ A register answers five questions:
 
 The Renderer never invents structure — it always operates inside a register's constraints. This is how we guarantee every frame passes the mobile-monochrome test, stays under 2 000 chars, and reads as polished regardless of the quality of any single LLM-generated sentence inside it.
 
+**Single-width glyphs only (hard rule).** Every character a register emits must occupy exactly one monospace cell, or the right border drifts on that row. Emoji and Miscellaneous-Symbols / Dingbats glyphs (`⚠ ☺ ✦ ❖ ✓ ✗`, ~U+2600–U+27BF and the emoji planes) render double-width in Discord and mobile; use ASCII, box-drawing, block/shade, and Geometric-Shapes (`■ ▪ ● ◄`) only. Beware too East-Asian-Ambiguous punctuation Discord widens — `§`→`#`, `→`→`>` — and prefer plain ASCII for anything outside the tested-safe set. This constrains monospace frame art, not ordinary Discord embed text. See the `ansi-frames` skill §1 and `docs/sparks/mvp+ansi-art.md` §1.
+
 ---
 
 ## 2. The three ownership zones (applied to ANSI)
@@ -186,7 +188,7 @@ Not a single register but a **family**: the opening frame (§2c) is rendered in 
 | Property | Value |
 |---|---|
 | Width | 28 cols (26 interior) |
-| Chrome | Ornamental dash-dot rim `.-·-._.-·-.` in one dim colour run; crest interrupt `+==< ≡☺≡ >==+` top centre; corner sparkles `✦`/`❖`. Nested: bright outer double-line, dimmer inner rim |
+| Chrome | Ornamental dash-dot rim `.-·-._.-·-.` in one dim colour run; crest interrupt `+==< ≡@≡ >==+` top centre; corner sparkles single-width `*`/`+` (never the double-width `✦`/`❖`). Nested: bright outer double-line, dimmer inner rim |
 | Event line | `•` bullet event line — what happened (LLM-authored, e.g. "You found GLOWCAP!") |
 | Detail line | `+` indented detail line — quantity/context (LLM, e.g. "+ 3 mushrooms, foraged") |
 | Question line | The prompt question (LLM) |
@@ -214,7 +216,7 @@ Not a single register but a **family**: the opening frame (§2c) is rendered in 
 | Label line | Dim caps `ROLL RESULT` or `SKILL CHECK` (90 gray) |
 | Focal number | Big centred number `19` (37 white bold) with right-aligned dim context `d20` (90 gray) |
 | Calculation line | `+2 STR +2 bond = 23` — stat bonuses + item bonuses + total. Engine-owned |
-| Verdict line | `DC 15 ✓ SUCCESS (+7 margin)` — colour-coded: 32 green for success, 31 red for failure. `✓`/`✗` shape-redundant |
+| Verdict line | `DC 15 + SUCCESS (+7 margin)` — colour-coded: 32 green for success, 31 red for failure. ASCII `+`/`x` markers shape-redundant (never the double-width `✓`/`✗`) |
 | Flavour line | One line of dim prose (LLM). Two colour switches total in the whole card |
 | Char budget | ~160–250 — the cheapest register |
 
@@ -524,7 +526,7 @@ Applied on top of any pose when HP drops. No separate fragment files — the ren
 |---|---|---|
 | **Solid** (default) | Full outline + fill | HP ≥ 50% |
 | **Chipped** | Contour `▒` dither patches at edges, 2-3 chips. Scales: more chips as HP drops | HP < 50% |
-| **Crumbling** | Heavy `▒ ░` degradation, floating `.`/`✦` fragments drifting up-right | HP < 15% |
+| **Crumbling** | Heavy `▒ ░` degradation, floating `.`/`*` fragments drifting up-right | HP < 15% |
 | **Dissolved** | Contour thinned to stipple, fill dropped, residual sparkles | HP = 0 (non-crit death) |
 
 ---
