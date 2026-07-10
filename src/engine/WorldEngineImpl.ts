@@ -927,6 +927,7 @@ export class WorldEngineImpl implements WorldEngine {
     // inside start(). Drain the roll (unless divine intervention — refund it), apply the
     // outcome, and return directly.
     if (startResult.resolved) {
+      let res: ReturnType<typeof this.applyResolution>;
       try {
         this.db.transaction(() => {
           // F#21: divine intervention is a system fault, not a real action — don't drain the
@@ -937,7 +938,12 @@ export class WorldEngineImpl implements WorldEngine {
           this.charRepo.update(characterId, {
             rolls_remaining: rollsRemaining,
           });
-          this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
+          // B#3: mutate row in place so applyResolution's baseCtx — and its returned
+          // rollsMutationDelta — are computed off the drained value, not the stale pre-drain
+          // count. Otherwise a same-resolution modify_rolls_remaining grant clobbers the drain
+          // instead of stacking with it (mirrors the post-drain row the step path re-reads).
+          row.rolls_remaining = rollsRemaining;
+          res = this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
         })();
       } catch (err) {
         // The transaction rolled back — roll not drained, action row not inserted.
@@ -960,7 +966,7 @@ export class WorldEngineImpl implements WorldEngine {
         startResult.outcome.rollsDelta = 0;
         startResult.outcome.rollRefunded = true;
       } else {
-        startResult.outcome.rollsDelta = -1;
+        startResult.outcome.rollsDelta = -1 + res!.rollsMutationDelta;
       }
       return {
         state: this.toPublicState(internalState),
