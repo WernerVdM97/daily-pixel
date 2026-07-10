@@ -1778,6 +1778,25 @@ ${headInfo}`);
           );
           return;
         }
+
+        // Thinking screen — matches the ⏳ envelope /action and the day-job button
+        // path already show, so the player isn't staring at a blank spinner during
+        // the LLM call that startAction below makes.
+        const clippedDescription =
+          description.length > 280
+            ? description.slice(0, 279).trimEnd() + "…"
+            : description;
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setDescription(
+                `**You:** ${clippedDescription}\n\n⏳ **Thinking…**\n_${randomIdleMessage()}_`,
+              )
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+        });
+
         const result = await engine.startAction(char.id, description);
         if (result.outcome) {
           // Re-read AFTER startAction so the embed + nav reflect the spent roll and
@@ -1840,7 +1859,9 @@ ${headInfo}`);
         void notifyAdmin("Action (custom modal) failed", err);
         const msg = err instanceof Error ? err.message : String(err);
         await interaction
-          .editReply({ content: `❌ **Could not act.**\n${msg}` })
+          // Discord's edit-message endpoint leaves omitted fields untouched, so the
+          // thinking-page embed would otherwise persist alongside this error content.
+          .editReply({ content: `❌ **Could not act.**\n${msg}`, embeds: [] })
           .catch(() => {});
       }
       return;
