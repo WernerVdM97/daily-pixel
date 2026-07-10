@@ -8,16 +8,16 @@
 - [ ] migrate ascii to ansi in semantics, source files, and references
 - [ ] movement on low difficulty terrain can be deterministic for up to a total of 3 effort, 3 times 1 difficulty edges. Or a 1 and 2 difficulty edge. When traversing a 3 (or greater) difficulty edge in one action, the travel prompt has to trigger.
   - actions that involve movement but isn't it directly, like prompting to search the library from the wardens oak, should ensure that the travel beat is first evaluated (could auto travel, or demand travel as a seperate action).
-- [ ] morning and evening messages should have some custom prose or interesting message.
+- [ ] morning and evening messages should have some custom prose or interesting message maybe even art.
 - [x] drop the ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? → **Combat half done** (POC+ stage 1 T2b): scene art suppressed for combat outcomes only; non-combat outcomes keep their art. Full removal tracked as a separate decision per the T2 scope fence.
-- [x] add /hi to 'A new hero joins the Oak' message. → shipped as the POC+ welcome tag (owner mention + 🌅 Hi button, `068e96b`).
+  - [ ] combat still isn't shown good. We need to list and display each dice role and outcome per decision.
 - [ ] dynamically request or load context. Instead of sending the LLM all possible context, give it an NCP-like interaction layer.
   - scripts or command that perform lookups from the world state that is provided to the decision and mutations DMAs
-- [ ] populate more locaiton edges in the sees
+- [ ] populate more locaiton edges in the seeds
 - [ ] improve daily work options
 - [ ] on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.
   - also show the emojis of the chosen class, upbringing, and race in the selected crossed out list
-- [ ] hints on action message
+- [ ] hints on action messages, the initial one when calling just /action
   - one action remaining, low stamina, unsafe location
 - [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
 - [ ] custom (free-text) actions need a real "thinking" screen — three dots + "thinking…" as its own page. Preset day-job actions already show a ⏳ "Starting…" loading envelope (`action.ts:204`); the custom-modal path shows nothing before `engine.startAction`.
@@ -64,7 +64,7 @@ The T2 live check passed on content (colours good on desktop, monochrome clean o
 - [ ] Implement the universal **art-post + reply-body** delivery ([[ansi-art-classification-framework]] §2b): the frame is its own message, the narration/options/speech a reply beneath it. Today the frame is inline in the decision embed (`buildDecisionMessage` `combatStatus`), so this is a two-message delivery change, not just a render path — relates to C (decouple render from engine).
 - [ ] Gated on fragment art: the opening frame's sprite/scene slots (enemy, NPC bust, campfire, PC poses) need the `fragments` catalogue ([[ansi-art-classification-framework]] §9), which is mvp+/deferred. Until it exists, `skill`/`other`/`travel` openers stay placeholder scenes (PC sprite only) per the wireframes.
 
-### Prompt v12 closeout
+### action pipeline framework refactor closeout
 
 1. ~~Finish Stage 5~~ **Done** (`72fb32d`, POC+ stage 1 T0a) — the T7 dead-code sweep landed: legacy machine, PROMPT_VERSION + stamp sites, critic dual-injection, and the current_source.md test are gone; the 2026-07-08 prod QA session stood in as the smoke gate.
 2. Then the v13 roadmap (docs/engine/prompt-v13-roadmap.md), which gives an explicit suggested order:
@@ -83,12 +83,10 @@ Fresh reports from a single QA session (snapshot `warden-20260708-201456`, chara
 - [ ] **Action-count footer mismatch** — footer showed `-1` but total 4 actions when the player was on 3 previously (B#1). Reconcile the remaining-actions delta vs. total display.
 - [ ] **Possible infinite inspiration** — player suspected inspiration never decrements / is unbounded (B#3). Verify the inspiration spend/grant accounting.
 - [ ] **Item loss is unclear** — a dropped/consumed item just appears listed, not visibly removed or subtracted (B#4). Make item-loss mutations read as a loss. Overlaps F#… item-usage work in [[improved-item-features]].
-- [x] **Combat HP formatting is broken/confusing** — after the first decision it showed `0 HP`, with the rider's HP and the player's crammed onto one line (B#5); a later beat flashed `-5 HP` mid-decision and "reads weirdly" though it persisted correctly (10−5=5) (B#6). Clamp/format negative & mid-resolution HP, and split combatant HP onto separate lines. → **Fixed in POC+ stage 1 T2b** (`500efca`–`94ecbee`): AnsiRenderer frames with per-combatant HP-bar lines, banded condition bars on continue, exact clamped HP on terminal.
 
 **Feedback / feature asks**
 
 - [ ] **NPC coherency — mint on first sight** — narrative said the player sees a caravan, then said they don't; the NPC wasn't persisted to state on first mention (F#1). Mint NPCs immediately so they persist. See [[mvp+npc-economy]], [[mvp-data-model]] (world-state tracking).
-- [x] **Combat outcome should show the maths** — display each roll and HP bars / damage inflicted in the combat outcome; happy to drop the ASCII art to make room (F#7). → **Shipped in POC+ stage 1 T2b** (`500efca`–`94ecbee`): AnsiRenderer combat frame with dice line, margin, per-combatant HP bars, and damage floaters; scene art dropped for combat outcomes.
 - [ ] **Richer `/hi` opening prose** — pressing Hi should generate a prose opener that scales with time since last interaction (referencing days or a few actions) and reminds the player of their work, quests, and loose ends (F#2). Extends the existing "morning/evening custom prose" and "add /hi to the new-hero message" TBD items.
 - [ ] **Trim decision emojis** — too many emojis after decisions; the good/bad DC emojis should show only the arrows that convey stakes (drop the green/red), and a spotted passive call should just colour the button green (as it already does) without also listing the emoji (F#3). UI polish; relates to the distilled-type-emoji TBD item.
 - [ ] **Rest button feels underwhelming** — the rest button needs some interaction/weight when pressed and its formatting is off (F#8). Relates to the "autoresolved rest — refunded but no inspiration text?" TBD bug.
