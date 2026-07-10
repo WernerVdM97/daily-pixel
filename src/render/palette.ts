@@ -10,6 +10,14 @@
 // `chrome` sits at 37 (white) rather than the historical 30 (black, invisible
 // on Discord's dark code-block background) — see AnsiRenderer.ts's comment on
 // the same constant for the full rationale and the pending 90-role reconciliation.
+// That parks `chrome` on the same code as `emphasis` in the house palette;
+// `emphasis` (and `warmth`) are not yet emitted by any segment builder, so the
+// collision is inert — the first frame to wire `emphasis` must split them
+// (the 90-reconciliation naturally does).
+//
+// A missed dynamic lookup (`PALETTES['typo']` -> undefined) falls back to the
+// house palette via renderFrame's default parameter; only an explicit `null`
+// would bypass it. Don't pass null.
 
 export type Role = 'chrome' | 'threat' | 'life' | 'warmth' | 'player' | 'emphasis';
 
