@@ -40,6 +40,8 @@ One fixed chrome, swappable slots (matches the fragment library):
 
 Splashes use the piped border instead: `o══════╡@╞══════o` corners, `║` sides, block-letter fonts (3-row and 4-row dicts).
 
+**Delivery — art post + reply body (universal).** Every frame is its own Discord message (the art post); the message body (narration, options, buttons, NPC speech) is a reply beneath it. The frame is visual only. **Opening frames** — the scene-setter shown after `classify` and before the first decision, one per classified action type (`combat`, `travel`, `social`, `skill`, `search`, `rest`, `other`) — follow this strictly: for `social` the NPC's speech lives in the reply, so the frame is a mute bust; for `skill`/`other` the scene slot is a placeholder player character. See the wireframes in `assets/ansi/wireframes/` and the OPENING family in `docs/engine/ansi-art-classification-framework.md` §3.0.
+
 For **menu/inventory frames** (inventory, shop, character sheet) follow the bento item-grid reference in the spark doc §5: triple border (outer `█`-run frame + inner light box-drawing line, black-bg gutters), irregular one-icon-per-panel bento grid, rivet dots (`·`/`▪`) at panel corners and junctions, `≡ $ ≡` cash plaque as live text glyphs, flat two-tone fills with **zero dither** — dither belongs to scenes, flat fills to UI. Two warm + two cool tones per icon; the full palette is near-1:1 ANSI (gold→33, orange→31, lavender→35, white accents→37 sparse).
 
 For **dialogue/prompt frames** (loot found, NPC speech, confirmations) follow the modal reference in the spark doc §6: ornamental dash-dot rim (`.-·-._.-·-.`) in one dim colour run, crest interrupting the border centre (`< ≡☺≡ >` — crest-interrupts-the-border is house style), corner sparkles (`✦`/`❖`), the 4-beat layout (event line `•`, detail line `+`, question, choices), inline colour on single keywords (item name in 37 white, quantity in 37 white, flavour/species name in 33 yellow, keyword in 34/36 cyan — one word per role), and shape-redundant selection markers (`●` filled vs `·` hollow) so state survives mobile's colour strip. Actual Yes/No lives in Discord buttons; in-frame choice rows are decoration only.
@@ -109,6 +111,7 @@ Composition rules:
 
 ## 5. Workflow (always)
 
+0. **Consult the wireframe library first (mandatory).** Before authoring any frame, read the canonical monochrome mocks in `assets/ansi/wireframes/` — per classified action type, a slot template (`opening-<type>.slots.ascii`, the generic grid of `[slot]` placeholders) beside a filled example (`opening-<type>.ascii`), width-validated by `tests/render/opening-wireframes.test.ts`. They are the inspiration input: match their width, slot layout, and register choice rather than inventing structure. Each file's frontmatter documents its register, slots, colour roles, binding, and what belongs in the replied message body.
 1. Pick width from the audience rule in §1. Interior = width − 2.
 2. Compose the monochrome frame as a Python list of strings in the scratchpad and **assert every line is exactly the interior width** before showing anything:
 

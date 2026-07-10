@@ -354,6 +354,7 @@ Undead head in the same dashed card system; the model for **monster portraits** 
 ## 20. Implications & direction
 
 [I] Build a small `AnsiRenderer`: keep `.ascii` fragments **colour-free**, apply colour by role at render time (chrome/bar/sprite/floater slots), so mobile fallback and the 30-char width validation both operate on the monochrome source.
+[I] **Delivery convention (settled 2026-07-10): art post + reply body.** Every frame is its own Discord message; the narration/options/speech are a reply beneath it — universal across the art/Discord messaging engine. Formalised in [[ansi-art-classification-framework]] §2b, with the pre-decision **opening frame** (one per classified action type) in §2c/§3.0 and canonical monochrome wireframes under `assets/ansi/wireframes/`.
 [!] If coloured strings are ever stored as assets, `SceneLoader` width validation must strip SGR codes before counting (`SceneLoader.ts` counts raw length today).
 [I] Splash-as-PNG hybrid: for the one screen where fidelity matters, attach a rendered image (full colour on every client incl. mobile) and keep ANSI for in-game frames — pairs with the Aseprite pixel-art pipeline in [[mvp-ascii-render-pipeline]].
 [I] Generator scripts (frame markup → validated `.ans`, block-letter fonts, width ruler) were session scratch — rebuild as repo tooling if this graduates.

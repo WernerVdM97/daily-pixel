@@ -53,9 +53,48 @@ The Renderer's job is to assemble a register's chrome plus the current tick's sl
 
 ---
 
+## 2b. The art-post + reply-body message convention (universal)
+
+Every frame the bot emits follows one delivery pattern, applied across the whole art/Discord messaging engine, not just combat: the rendered frame is its own Discord message — the **art post** — and the **message body** (narration, the lettered options, the interaction buttons, the NPC's speech) is posted as a **reply** beneath it. The frame is visual only; prose and interactive state live in the reply.
+
+This keeps the two ownership sides cleanly separated at the transport layer, too: the art post carries deterministic/hybrid visual output, the reply carries generative text and Discord-native components. It also sidesteps the embed-description length ceiling (art and prose no longer compete for one 4 096-char budget) and lets the frame render as a raw `ansi` fence rather than being nested inside an embed.
+
+For `social` the split is load-bearing: the NPC's actual line goes in the reply body, so the opening frame is a mute bust. For `skill` and `other` — open-ended types with no bespoke scene yet — the frame's scene slot is a placeholder (the player character) and the reply carries everything specific.
+
+## 2c. The opening frame — a pre-decision scene-setter
+
+The action pipeline **always** shows one frame after `classify` (which routes the free-text action to one of seven types) and before the first decision:
+
+```
+/action <text> → classify → OPENING FRAME (art post) → reply: narration + options → … decisions … → outcome
+```
+
+The opening frame is a **scene-setter**, not a data readout: it announces what the action *is* (the foe faced, the NPC met, the campfire reached), carries no roll maths (that is DATA_CARD at resolve time) and no interactive state. It maps each classified type to the closest register (see the OPENING family in §3.0). Canonical monochrome wireframes for all seven live in `assets/ansi/wireframes/` — each as a **slot template** (`opening-<type>.slots.ascii`, the generic grid of `[data_slot]` / `[ fragment ]` placeholders) beside a **filled example** (`opening-<type>.ascii`) — width-validated by `tests/render/opening-wireframes.test.ts`, and are the mandatory inspiration input for any AI-authored opening frame.
+
+---
+
 ## 3. Register catalog — the complete taxonomy
 
 Each register is a row in the rendering matrix. The scenarios column lists every action-engine event that maps to it.
+
+### 3.0 OPENING — pre-decision scene-setter family `[mvp]`
+any type · post-`classify`, pre-first-decision · one per classified action type
+
+Not a single register but a **family**: the opening frame (§2c) is rendered in whichever register best fits the classified type, at a uniform 30-col (28 interior) width so it always reads on mobile. It is always a scene-setter — visual only, no roll maths, no interactive state — with the narration and options delivered in the replied message body (§2b).
+
+| Type | Register used | Scene slot | Reply body carries |
+|---|---|---|---|
+| `combat` | COMBAT_FRAME (opener variant) | foe nameplate + full HP + enemy sprite; player footer | encounter narration + options |
+| `travel` | SCENE (route strip) | origin → winding path → rumoured destination, PC at start | destination + travel cost, or first fork |
+| `social` | DIALOGUE_MODAL (bust) | NPC bust behind dash-dot rim + crest | the NPC's actual speech + response options |
+| `skill` | SCENE (focus placeholder) | PC at a task rig (placeholder until a skill-specific frag exists) | the attempt + stat/DC framing |
+| `search` | SCENE (scavenge) | PC peering with a lens, `?` clue glyphs, ground strip | what is rummaged + options |
+| `rest` | REST_STOP (campfire) | resting PC + campfire, `z Z` sleep glyphs | rest offer + recovery framing |
+| `other` | SCENE (minimal placeholder) | bare PC — the catch-all has no bespoke scene yet | whatever the action was + options |
+
+**Binding:** scene/header/footer slots are engine-owned where the data exists (enemy from the combat edge, location names from the map, PC sprite from `pc_class` fragments); the enemy/NPC/campfire art is a hybrid fragment lookup; the `skill`/`other`/`travel` scenes fall back to a placeholder + PC sprite until dedicated fragments exist. Zero LLM involvement in the frame itself — all generative text is in the reply.
+
+**Scenarios:** every `/action` invocation, immediately after routing. Canonical monochrome wireframes (slot template + filled example): `assets/ansi/wireframes/opening-<type>.slots.ascii` and `opening-<type>.ascii`.
 
 ### 3.1 COMBAT_FRAME — standard encounter `[mvp]`
 `combat` · RESOLVE_ROLL · single-enemy fight tick
@@ -365,6 +404,7 @@ Every player-facing event maps to exactly one register. The Renderer's dispatch 
 
 | Scenario | Trigger | Register | Width | Phase |
 |---|---|---|---|---|
+| Opening frame (any action) | post-`classify`, pre-first-decision | OPENING (per type, §3.0) | 30 | mvp |
 | `/join` complete | character creation | WELCOME_CARD | 30 | mvp+ |
 | `/hi` daily check-in | morning/return | DAILY_CARD | 30 | mvp+ |
 | `/hi` first-ever | onboarding | SPLASH | 40 | mvp+ |
@@ -679,17 +719,17 @@ fragments:
     poses:
       idle: |
         ┌──────────────────┐
-        │   /\  /\        │
-        │  ( ◉◉ )        │
-        │   \/  \/        │
-        │  ═══╤═══        │
+        │   /\  /\         │
+        │  ( ◉  ◉ )        │
+        │   \/  \/         │
+        │  ═══╤═══         │
         └──────────────────┘
       hurt: |
         ┌──────────────────┐
-        │   /\  /\        │
-        │  ( ◉- )  ▒▒     │
-        │   \/  \/ ▒      │
-        │  ═══╤═══        │
+        │   /\  /\         │
+        │  ( ◉  - ) ▒▒     │
+        │   \/  \/  ▒      │
+        │  ═══╤═══         │
         └──────────────────┘
   - entity_type: item
     entity_key: glowcap
