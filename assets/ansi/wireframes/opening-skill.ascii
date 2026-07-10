@@ -1,0 +1,22 @@
+---
+tags: [opening, skill, wireframe]
+register: "SCENE (focus placeholder)"
+summary: "Player char at a task rig; open-ended, so a placeholder stands in."
+slots: "label, player sprite, task-rig placeholder"
+colour: "player 34; rig 90 chrome; '??' 90 chrome"
+binding: "sprite pc_class(idle); rig placeholder until a skill-specific frag exists"
+reply: "What they attempt + the stat/DC framing and options."
+pairs_with: "opening-skill.slots.ascii (the slot template)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  SKILL                     |
+|                            |
+|          ,^.               |
+|         ( o )              |
+|         /|_|\   ??         |
+|          / \   (  )        |
+|      ======[==]======      |
+|       |            |       |
+|                            |
++----------------------------+

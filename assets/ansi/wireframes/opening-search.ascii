@@ -1,0 +1,21 @@
+---
+tags: [opening, search, wireframe]
+register: "SCENE (scavenge)"
+summary: "Player peering with a lens over a speckled ground; '?' clue glyphs."
+slots: "label, player sprite(lens pose), clue glyphs, ground strip"
+colour: "player 34; '?' 33 warmth(reward-to-find); ground 90 chrome"
+binding: "sprite pc_class; clues+ground engine(static scatter)"
+reply: "What they rummage through + options."
+pairs_with: "opening-search.slots.ascii (the slot template)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  SEARCH                    |
+|                            |
+|     ,^.        ?           |
+|    ( o )     ?    ?        |
+|    /|Q|\                   |
+|     / \     .   ,    .     |
+|  .,·.,·.,·.,·.,·.,·.,·.,·. |
+|                            |
++----------------------------+

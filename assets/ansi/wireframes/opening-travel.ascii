@@ -1,0 +1,24 @@
+---
+tags: [opening, travel, wireframe]
+register: "SCENE (route strip)"
+summary: "Origin -> winding path -> rumoured destination, player at the start."
+slots: "label, scene(route+terrain), player sprite"
+colour: "origin 34 player; distant terrain 36 cool; '????' 90 chrome"
+binding: "scene engine(origin/dest names + edge difficulty); sprite pc_class"
+reply: "Where they set out for + travel cost, or the first fork's options."
+pairs_with: "opening-travel.slots.ascii (the slot template)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  TRAVEL                    |
+|                            |
+|  OAK                       |
+|   (=)._                    |
+|       '._      ^  ^  ^     |
+|          '._  ^ /\ ^  ^    |
+|             '.(  )  ^  ^   |
+|       ,^.     '._          |
+|      ( _ )       '._  ???? |
+|      /|_|\          '-(o)  |
+|                            |
++----------------------------+

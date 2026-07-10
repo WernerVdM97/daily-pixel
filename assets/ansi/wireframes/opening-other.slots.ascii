@@ -1,0 +1,19 @@
+---
+tags: [opening, other, wireframe, template]
+register: "SCENE (minimal placeholder)"
+summary: "SLOT TEMPLATE: the generic grid. [data_slot] engine values, [ fragment ]( dims/pose ) hybrid art slots."
+slots: "label('. . .'), player sprite"
+binding: "sprite pc_class(idle); everything else placeholder"
+reply: "Whatever the action was + options — the frame just says 'we heard you'."
+pairs_with: "opening-other.ascii (the filled example)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  [label]                   |
+|                            |
+|        [ pc_small ]        |
+|      ( placeholder )       |
+|                            |
+|  ( no bespoke scene yet )  |
+|                            |
++----------------------------+
