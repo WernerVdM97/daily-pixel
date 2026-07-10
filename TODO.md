@@ -54,13 +54,13 @@ The T2 live check passed on content (colours good on desktop, monochrome clean o
 
 - [ ] Track every round: append `{roll, bonus, dc, margin, band, enemyHpDelta, playerHpDelta}` per round to a combat round log (CombatState props or the decision record) instead of discarding the transient `roundResult`.
 - [ ] Show the round's maths between decisions: the continue frame currently renders HP bands only (no dice line), the first beat has no frame, and a fight that resolves on its first choice shows only the terminal frame — so rolls are only ever visible at the end. Every roll should be visible when it happens.
-- [ ] De-noise the terminal frame using the skill §12 data-card hierarchy (dim label, focal number, calc line, colour-coded outcome, flavour); stop duplicating what the embed's stats footer already shows.
+- [ ] De-noise the terminal frame using the data-card hierarchy (skill §2 "data cards", per [[mvp+ansi-art]] §12's roll-card reference: dim label, focal number, calc line, colour-coded outcome, flavour); stop duplicating what the embed's stats footer already shows.
 
 **E — doc loop**
 
 - [ ] Fold every settled decision back into the `ansi-frames` skill and [[mvp+ansi-art]]; tick the stage-1 plan's live-check box with the border defect logged.
 
-**F — opening frame + delivery (new surface, designed 2026-07-10)**
+**F — opening frame + delivery (new surface, designed 2026-07-10; tasked at full scope in [[poc-plus-0.3.1-polish-plan]] ANSI-F)**
 
 - [ ] Implement the opening frame: after `classify` and before the first decision, render the per-type OPENING register (wireframes in `assets/ansi/wireframes/`; spec in [[ansi-art-classification-framework]] §2c/§3.0). Depends on B landing first (palette + readable chrome).
 - [ ] Implement the universal **art-post + reply-body** delivery ([[ansi-art-classification-framework]] §2b): the frame is its own message, the narration/options/speech a reply beneath it. Today the frame is inline in the decision embed (`buildDecisionMessage` `combatStatus`), so this is a two-message delivery change, not just a render path — relates to C (decouple render from engine).

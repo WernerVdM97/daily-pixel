@@ -26,24 +26,24 @@ _Build plan for the `0.3.1` polish/hardening release: the interstitial cut betwe
 
 The T2 live check (2026-07-10) passed on content (colour good on desktop, clean monochrome on mobile) but surfaced styling and architecture debt in the very `AnsiRenderer` that stage 2's broadcast frames will reuse. Building broadcast frames on the current renderer (black `chrome`, no palette module, engine-composed frame strings) would mean throwing that work away twice. So this release standardises the renderer first, then ships it alongside a batch of cheap prod fixes and UX polish that were already queued. Stage 2 begins a fresh `0.3.x` on top.
 
-Scope was chosen with the user 2026-07-10: **ANSI frame polish block + prod bug batch (B#1-B#4) + small UX polish**. NPC coherency (F#1) stays out for the next round.
+Scope was chosen with the user 2026-07-10: **ANSI frame polish block + prod bug batch (B#1-B#4) + small UX polish**. NPC coherency (F#1) stays out for the next round. At plan review (same day) ANSI-F was expanded from delivery-only to full opening-frame scope: all seven classified types, placeholder scenes for fragment-gated slots.
 
 ## How to run
 
-One loop per task, per the `orchestrated-delegation` skill: lead scouts and finalises the executor handoff, executor builds, lead verifies (baseline below plus the task's acceptance), commit, reviewer critiques adversarially, lead triages, fixer lands accepted findings, verify, commit. Branch `poc-plus/0.3.1-polish` off `dev`; atomic commit per task; merge to `dev` keeping the changelog current per merge; cut `0.3.1` at the end. Branching and release per the `releasing` skill; changelog per the `changelog` skill.
+One loop per task, per the `orchestrated-delegation` skill: lead scouts and finalises the executor handoff, executor builds, lead verifies (baseline below plus the task's acceptance), commit, reviewer critiques adversarially, lead triages, fixer lands accepted findings, verify, commit. Branch `poc-plus/0.3.1-polish` off `dev`; atomic commit per task; defer merge to `dev` but keep the changelog current per task; merge at the end; changelog per the `changelog` skill.
 
 **Verification baseline (every task):** `npm run typecheck` clean, `npm test` green. Player-facing tasks additionally get one live check on the dev bot.
 
 **Live-check batching:** several tasks need a human operator on Discord (the renderer/frame tasks especially, and ANSI-A which cannot be settled any other way). Build everything code-doable, then hand the operator one consolidated live-check script covering all pending visual verifications in a single session.
 
-**Existing preview piping:** `scripts/send-ansi.ts` already DMs every `.ansi` file in `docs/assets/ansi/test/colour/` to the admin user as `ansi`-fenced blocks, so a visual check is self-serve: drop probe/frame `.ansi` files in that dir, run the script, eyeball the DM on desktop and mobile. Use it as the delivery for ANSI-A's probe frame and for batching the renderer/frame checks, rather than authoring a bespoke harness. Caveat: the script hardcodes the `/home/werner/...` Linux deploy-host paths (`.env` and the ANSI dir), so it runs on the host, not this dev Mac, until parameterised.
+**Existing preview piping:** two scripts pipe output to the admin DM for a self-serve visual check, rather than authoring a bespoke harness. `scripts/send-ansi.ts` batch-DMs every `.ansi` file in `docs/assets/ansi/test/colour/` as `ansi`-fenced blocks (drop probe/frame files in that dir, run it, eyeball the DM on desktop and mobile) — use it as the bulk delivery for ANSI-A's probe frame and for batching the renderer/frame checks. Caveat: it hardcodes the `/home/werner/...` Linux deploy-host paths, so it runs on the host, not this dev Mac, until parameterised. `scripts/send-dm.ts` (`npm run send-dm`) is the general-purpose complement: it DMs one arbitrary message from a CLI arg, a file, or piped stdin (with optional `--fence ansi`/`--title`), and exports `sendToAdmin(payload)` so a throwaway tsx script can import a real `src/` builder (`AnsiRenderer.renderFrame`, `buildDecisionMessage`, an embed) and post its actual rendered output for manual validation. It resolves `.env` relative to the repo, so it runs on the dev Mac and the host unchanged — reach for it whenever a task needs one structured/rendered artefact checked rather than a directory of static `.ansi` files.
 
 ## Ordering & dependencies
 
 The ANSI block is a chain; the bug and UX batches are independent and interleave freely (good candidates for parallel executors).
 
-- **ANSI-A → ANSI-B → {ANSI-C → ANSI-D}, ANSI-F.** A settles the facts B needs; C decouples so D and F have a clean seam.
-- ANSI-A is human-gated (live SGR test). B builds against the safe default (standard `ansi` 30-37 render; `chrome` moved off black to a readable role) and reconciles once A returns, so B is not hard-blocked.
+- **ANSI-A → ANSI-B → ANSI-C → {ANSI-D, ANSI-F}.** A settles the facts B needs (SGR ranges, palette hex, box-drawing on mobile); C decouples render from engine so D and F compose their frames presentation-side.
+- ANSI-A is human-gated (live SGR + glyph test). B builds against the safe default (standard `ansi` 30-37 render; `chrome` moved off black to a readable role) and reconciles once A returns, so B is not hard-blocked; only B's border step waits on A's box-drawing verdict.
 - Bugs (B#1-B#4) and UX polish depend on nothing here.
 - Release cut is last, gated on everything.
 
@@ -53,43 +53,73 @@ The ANSI block is a chain; the bug and UX batches are independent and interleave
 
 Source of truth for the block is the `ANSI frame polish — T2 live-check follow-up (2026-07-10)` section in `TODO.md`; this plan tasks it. The block's doc-loop step (its item E) folds into each task's close, not a standalone task: every settled fact goes back into the `ansi-frames` skill and [[mvp+ansi-art]] as its task lands.
 
-### ANSI-A — settle bright-SGR + palette facts (block item A)
+### ANSI-A — settle bright-SGR + palette + glyph facts (block item A)
 
-**Description.** Two live-only questions block the renderer work. (1) The `ansi-frames` skill mandates `chrome=90` (bright), but [[mvp+ansi-art]] line 27 (live-tested) says only fg 30-37 render in a Discord `ansi` block. (2) [[mvp+ansi-art]] line 35's palette `[?]` (Solarized-ish vs standard ANSI hex) is unsettled. Both need one live session in a real Discord `ansi` code block.
+**Description.** Three live-only questions block the renderer work. (1) The `ansi-frames` skill mandates `chrome=90` (bright), but [[mvp+ansi-art]] line 27 (live-tested) says only fg 30-37 render in a Discord `ansi` block. (2) [[mvp+ansi-art]] line 35's palette `[?]` (Solarized-ish vs standard ANSI hex) is unsettled. (3) [[mvp+ansi-art]] line 33's `[?]` — do box-drawing/half-block glyphs stay single-width on mobile fonts — gates ANSI-B's border step. All three settle in one live session in a real Discord `ansi` code block.
+
+**Probe contract.** The probe frame(s) exercise, each as a labelled row: fg `30-37`; bright `90-97`; bg `40-47`; a glyph row (`═ ║ ─ │ █ ▀ ▄ ▌ ▐ ░ ▒ ▓` plus box corners) against a width ruler so single-width holds can be read off directly; and a labelled colour-comparison row to settle Solarized-ish vs standard ANSI hex.
 
 **Deliverables:**
 
-- A minimal probe frame exercising fg 30-37, bright 90-97, and the candidate bg codes, dropped as `.ansi` file(s) in `docs/assets/ansi/test/colour/` so `scripts/send-ansi.ts` delivers it to the admin DM (see "Existing preview piping" above), plus a written operator checklist ("does row X render in colour? on mobile?").
-- After the verdict: correct the losing document (skill vs [[mvp+ansi-art]]), and record the settled palette hex in one place the renderer reads.
+- Probe `.ansi` file(s) per the contract above, dropped in `docs/assets/ansi/test/colour/` so `scripts/send-ansi.ts` delivers them to the admin DM (see "Existing preview piping" above), plus a written operator checklist mirroring the probe rows ("does row X render in colour? on mobile? do the glyphs align with the ruler?").
+- After the verdict: correct the losing document (skill vs [[mvp+ansi-art]]), resolve the line 33 and line 35 `[?]` markers, and record the settled palette hex in the palette module's doc comment (the renderer reads roles→SGR; hex exists for colour-matching embeds and docs, never read at render).
 
 **Acceptance:**
 
 - [ ] Operator confirms which SGR ranges render on desktop and mobile; the contradiction is resolved and the losing doc corrected.
 - [ ] The palette `[?]` is settled and recorded.
+- [ ] The box-drawing/half-block mobile verdict is recorded (un-gates ANSI-B's border step).
 
 **Scope fence:** investigation + doc correction only; the renderer change is ANSI-B.
 
 ### ANSI-B — renderer standardisation (block item B)
 
-**Files:** `src/render/AnsiRenderer.ts` (`SGR` map at ~`:62`, `chrome: 30`).
+**Files:** `src/render/AnsiRenderer.ts` (`SGR` map at `:62-69`, `chrome: 30` at `:63`), new `src/render/palette.ts`.
+
+**Contract.** `src/render/palette.ts` owns the colour vocabulary: `Role` moves there from `AnsiRenderer.ts`, alongside
+
+```ts
+export interface Palette { name: string; sgr: Record<Role, number>; }
+export const PALETTES: Record<string, Palette>; // 'house' default + mood variants (e.g. ember, gloom)
+```
+
+`renderFrame(spec, palette = PALETTES.house)`: the renderer takes a palette, each frame declares which it uses (skill §1 "palette first"), and the settled hex from ANSI-A lives in the module's doc comment.
 
 **Deliverables:**
 
 - Move `chrome` off `30` (black is unreadable on Discord's dark code-block background, seen live 2026-07-10) to whatever ANSI-A proves readable; default target is a mid-grey/white role until A returns.
-- Extract the role→SGR map into a palette module: named universal palettes (a house default plus mood variants), the renderer takes a palette, and each frame declares which palette it uses (skill §1 "palette first").
-- Prettier borders per the skill's border vocabulary (§2 chrome, ornamental rim, crest interrupt for special frames). Box-drawing needs a mobile render check first (flagged unverified in the skill §1), so gate any box-drawing borders on that check.
+- Extract the role→SGR map into the palette module per the contract above.
+- Prettier borders per the skill's border vocabulary (§2 chrome, ornamental rim, crest interrupt for special frames), gated on ANSI-A's box-drawing mobile verdict.
 
 **Acceptance:**
 
 - [ ] `chrome` renders readably on Discord dark bg (live).
-- [ ] Palette lives in its own module; the renderer is palette-driven; existing combat frame unchanged in output except the chrome colour.
+- [ ] Palette lives in its own module; the renderer is palette-driven; the existing combat frame's output is byte-identical except the chrome colour.
+- [ ] Border prettification landed (or explicitly deferred on a negative box-drawing verdict), with its output changes live-checked.
 - [ ] Width (≤30 pre-colour) and char-budget (<2000 incl. fences) tests still green.
 
 ### ANSI-C — decouple render from engine (block item C)
 
 **Files:** `src/engine/action/PipelineActionStateMachine.ts` (`composeCombatStatus` ~`:1196`, call site ~`:661`), `src/engine/OutcomeRenderer.ts`, the Discord presentation layer.
 
-**Description.** The engine currently composes a rendered ANSI string and persists it in state JSON (`pendingDecision.combatStatus`). Move composition to the presentation side: the engine emits structured combat status (band word, pips fraction, player hp/max/delta) on `ActionDecision`; the Discord layer composes the frame. In-flight actions carry the old string, so the read must tolerate both shapes. Rehome the `OutcomeRenderer` → `AnsiRenderer` dependency on the same principle, so `src/render/` is imported only from the presentation side.
+**Description.** The engine currently composes a rendered ANSI string and persists it in state JSON (`pendingDecision.combatStatus`). Move composition to the presentation side: the engine emits structured combat status on `ActionDecision` per the contract below; the Discord layer composes the frame. In-flight actions carry the old string, so the read must tolerate both shapes. Rehome the `OutcomeRenderer` → `AnsiRenderer` dependency on the same principle, so `src/render/` is imported only from the presentation side.
+
+**Contract.**
+
+```ts
+export interface CombatStatusData {
+  enemyName: string;
+  woundWord: string;              // banded, never exact HP
+  pips: { filled: number; total: number };
+  playerHp: number;               // clamped >= 0
+  playerMaxHp: number;
+  playerHpDelta: number;
+}
+// ActionDecision.combatStatus?: CombatStatusData | string
+// string = legacy in-flight shape; the presentation layer renders either (tolerant read)
+```
+
+The engine keeps the banding maths (`enemyConditionBand` yields `woundWord` + `pips.filled`) and emits `CombatStatusData`; `composeCombatStatus`'s frame assembly (glyphs, `renderFrame`) moves beside its consumer, `buildDecisionMessage` in `src/discord/commands/action.ts` (~`:522`).
 
 **Acceptance:**
 
@@ -99,29 +129,34 @@ Source of truth for the block is the `ANSI frame polish — T2 live-check follow
 
 ### ANSI-D — combat visibility, per-round maths (block item D)
 
-**Description.** Every roll should be visible when it happens. Today the continue frame renders HP bands only (no dice line), the first beat has no frame, and a fight that resolves on its first choice shows only the terminal frame, so rolls are only ever visible at the end. Track every round (append `{roll, bonus, dc, margin, band, enemyHpDelta, playerHpDelta}` to a combat round log on `CombatState` or the decision record, instead of discarding the transient `roundResult`), surface the round's maths between decisions, and de-noise the terminal frame per the skill §12 data-card hierarchy (dim label, focal number, calc line, colour-coded outcome, flavour), dropping what the embed's stats footer already shows.
+**Description.** Every roll should be visible when it happens. Today the continue frame renders HP bands only (no dice line), the first beat has no frame, and a fight that resolves on its first choice shows only the terminal frame, so rolls are only ever visible at the end. Track every round per the contract below, surface the round's maths between decisions, and de-noise the terminal frame per the data-card hierarchy (skill §2 "data cards", following [[mvp+ansi-art]] §12's roll-card reference: dim label, focal number, calc line, colour-coded outcome, flavour), dropping what the embed's stats footer already shows.
+
+**Contract.** The round log extends the existing per-beat telemetry rather than minting a parallel type: `CombatBeatLog` (`src/engine/action/combat-dc.ts:29`, emitted on the outcome at `WorldEngine.ts:172`) gains the maths fields it lacks (`playerD20`, `playerBonus`, `dc`, `enemyD20`, `enemyBonus`, `margin` — lifted from the transient `CombatRoundOutcome` instead of discarding it), and the accumulated per-fight list persists on the pending-decision record, NOT on the `in_combat` edge props (those stay lean and clamp-validated, see `combat-state.ts`).
+
+**Mocks first.** Continue-card and terminal-card wireframes (`combat-continue.slots.ascii` beside a filled `combat-continue.ascii`, the same pair for `combat-terminal`) land in `assets/ansi/wireframes/` before the frame code, width-validated (extend `tests/render/opening-wireframes.test.ts` or sibling it) and indexed in the wireframes README — closing the TODO wireframe row's "still to mock" list bar the stage-2 broadcast frame.
 
 **Acceptance:**
 
 - [ ] A per-round log persists each round's maths; nothing is discarded.
 - [ ] The dice line is visible on the continue frame and the first beat, not only at the end (live).
 - [ ] The terminal frame stops duplicating the embed stats footer.
+- [ ] Continue + terminal card mocks exist, width-tested and indexed; the frame code follows them.
 - [ ] Closes the `TODO.md` "combat still isn't shown good, list each dice roll/outcome per decision" item.
 
 **Depends on:** ANSI-C (composes frames from structured status).
 
-### ANSI-F — opening frame + art-post delivery (block item F, scoped)
+### ANSI-F — opening frame + art-post delivery (block item F, full scope)
 
-**Description.** The opening frame (post-`classify`, pre-first-decision scene-setter) and the universal art-post + reply-body delivery convention, both specced in [[ansi-art-classification-framework]] §2b/§2c/§3.0, with wireframes in `assets/ansi/wireframes/`.
+**Description.** The opening frame (post-`classify`, pre-first-decision scene-setter) and the universal art-post + reply-body delivery convention, both specced in [[ansi-art-classification-framework]] §2b/§2c/§3.0, with wireframes for all seven types in `assets/ansi/wireframes/`.
 
-**Scope decision (settle at task start):** the opening frame's sprite/scene slots need the `fragments` catalogue (§9), which is mvp+/deferred, so `skill`/`other`/`travel` openers can only be placeholder scenes for now. **Default for this release: ship the art-post + reply-body delivery change only** (frame as its own message, narration/options/speech as a reply beneath), and defer the per-type opening register until fragments exist. The lead confirms this reduction before building; if fragments are judged in-scope, expand then.
+**Scope decision (settled 2026-07-10, plan review):** ship the full scope — the opening frame for all seven classified types plus the delivery convention (frame as its own message, narration/options/speech as a reply beneath). The `fragments` catalogue (§9) stays mvp+/deferred, so fragment-gated sprite/scene slots render as placeholder scenes (PC sprite only) per the wireframes until it exists; placeholders must read as deliberate, not broken.
 
-**Depends on:** ANSI-B (palette + readable chrome). Relates to ANSI-C (the two-message delivery is a presentation change, not an engine one).
+**Depends on:** ANSI-B (palette + readable chrome) and ANSI-C (frames composed presentation-side; the two-message delivery is a presentation change, not an engine one).
 
 **Acceptance:**
 
-- [ ] (Reduced default) The frame posts as its own message with the narration/options as a reply, on the combat surface; live-checked.
-- [ ] Any deferral is logged in `TODO.md` and [[ansi-art-classification-framework]].
+- [ ] The opening frame posts post-`classify` as its own message with the narration/options as a reply, for all seven classified types; live-checked.
+- [ ] Fragment-gated slots render placeholder scenes per the wireframes; the fragments catalogue remains deferred, logged in `TODO.md` and [[ansi-art-classification-framework]].
 
 ---
 
@@ -183,23 +218,35 @@ Improve formatting around the inline skills next to class/race/upbringing (more 
 
 - [ ] Inline skills are readable; chosen options show their emoji in the selected list.
 
-### Morning/evening prose + action hints + custom-action thinking screen
+### Morning/evening prose
 
-Morning and evening messages get custom prose or an interesting message (maybe art). The initial `/action` message gains hints (one action remaining, low stamina, unsafe location). Custom (free-text) actions get a real "thinking" screen (three dots + "thinking…") as its own page, matching the preset day-job loading envelope.
+Morning and evening messages get custom prose or an interesting message (maybe art).
 
-- [ ] Morning/evening messages carry custom prose; `/action` shows relevant hints; the custom-action path shows a thinking screen before `engine.startAction`.
+- [ ] Morning/evening messages carry custom prose.
+
+### `/action` hints
+
+The initial `/action` message gains hints (one action remaining, low stamina, unsafe location).
+
+- [ ] `/action` shows relevant hints.
+
+### Custom-action thinking screen
+
+Custom (free-text) actions get a real "thinking" screen (three dots + "thinking…") as its own page, matching the preset day-job loading envelope (`action.ts:204`); today the custom-modal path shows nothing before `engine.startAction`.
+
+- [ ] The custom-action path shows a thinking screen before `engine.startAction`.
 
 ---
 
 ## Release cut (0.3.1)
 
-Once the bundle is on `dev` and the changelog is current, per the `releasing` skill:
+Once the bundle is all user accpeted and the changelog is current:
 
-- [ ] Merge `dev` → `main` (`--no-ff`).
 - [ ] Bump `VERSION` `0.3.0` → `0.3.1`; sync `package.json` `"version"`.
 - [ ] Promote `[Unreleased]` → `[0.3.1]` with today's date.
 - [ ] Add `assets/release-notes/v0.3.1.yml` (player-facing highlights: combat maths now clearer, the bug fixes, the UX wins; non-technical).
 - [ ] Tag `v0.3.1`, push the tag.
+- [ ] prompt user to cmplete the merge
 
 ## Scope fences
 
@@ -207,7 +254,8 @@ Once the bundle is on `dev` and the changelog is current, per the `releasing` sk
 - [>] No splash or block-letter fonts ([[mvp+ansi-art]] §4 stays deferred).
 - [>] No prompt-template changes.
 - [>] NPC coherency (F#1, mint-on-first-sight) is deferred to the next round.
-- [>] The `fragments` catalogue stays mvp+; ANSI-F ships the delivery change only unless the lead expands it.
+- [>] The `fragments` catalogue stays mvp+; ANSI-F's fragment-gated slots ship as placeholder scenes (PC sprite only) per the wireframes.
+- [>] The stage-2 broadcast-frame mock stays out; ANSI-D mocks the continue and terminal cards only.
 - [>] Non-combat outcomes keep their scene art (unchanged from stage 1).
 
 ## Doc loop (stage exit)
