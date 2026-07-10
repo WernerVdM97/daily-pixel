@@ -198,25 +198,25 @@ Independent; each its own commit. Sourced from the `TODO.md` TBD list and the 20
 
 Too many emojis after decisions. The good/bad DC emojis should show only the arrows that convey stakes (drop the green/red); a spotted passive call should just colour the button green (as it already does) without also listing the emoji. Relates to the distilled-type-emoji TODO item.
 
-- [ ] Decision options show only the stakes arrows; spotted passive is button-colour only; no redundant green/red emoji.
+- [x] Decision options show only the stakes arrows; spotted passive is button-colour only; no redundant green/red emoji. → **Done** (`4815832`); live check batched.
 
 ### F#8 — give the rest button weight
 
 The rest button feels underwhelming and its formatting is off; give it some interaction/weight when pressed. Verify the linked bug: an autoresolved rest showed refunded but no inspiration text.
 
-- [ ] Rest reads with weight and correct formatting; inspiration text shows when granted.
+- [x] Rest reads with weight and correct formatting; inspiration text shows when granted. → **Done** (`e426bc4`): nav:sleep gets an immediate "Bedding down…" beat, the rest body splits into sections, and the inspired line's `!rollRefunded` gate is dropped (refund and grant render together, regression-tested). Live check batched.
 
 ### F#6 — declutter the journal
 
 Whitespace/formatting to distinguish parts and emphasise successes vs failures, plus a little more info on quests / investigated / gathered intel.
 
-- [ ] Journal sections are visually distinct; successes vs failures are emphasised; quest/intel info added.
+- [x] Journal sections are visually distinct; successes vs failures are emphasised; quest/intel info added. → **Done** (`3114411`): separator-bound Chronicle/NPCs sections, bold outcome tags, intel rails parsed from the already-stored `applied_mutations` (no new tracking). Live check batched.
 
 ### Join-screen formatting
 
 Improve formatting around the inline skills next to class/race/upbringing (more line feeds and bold), and show the emojis of the chosen class/upbringing/race in the selected crossed-out list.
 
-- [ ] Inline skills are readable; chosen options show their emoji in the selected list.
+- [x] Inline skills are readable; chosen options show their emoji in the selected list. → **Done** (`311369f`): label / blockquoted bonuses / description on their own lines; ledger emoji looked up on the raw persisted value with a graceful miss. Live check batched.
 
 ### Morning/evening prose
 

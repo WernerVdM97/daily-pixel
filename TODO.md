@@ -15,8 +15,7 @@
   - scripts or command that perform lookups from the world state that is provided to the decision and mutations DMAs
 - [ ] populate more locaiton edges in the seeds
 - [ ] improve daily work options
-- [ ] on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.
-  - also show the emojis of the chosen class, upbringing, and race in the selected crossed out list
+- [x] ~~on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.~~ → **Done** (`311369f`, 0.3.1 branch): label / blockquoted bonuses / description split onto their own lines; the ledger shows the chosen option's own emoji.
 - [ ] hints on action messages, the initial one when calling just /action
   - one action remaining, low stamina, unsafe location
 - [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
@@ -25,7 +24,7 @@
 - [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
 - [ ] hitting 0 stamina blocks more actions that day. pass out can be evaluated similarly to global message.
   - also, 0 hp should do this but also roll the dice, mkaing a death save...
-- [ ] bug: autoresolved rest showed refunded but not the inspiration text? → accounting root cause fixed as B#3 (`807bb13`); whether the grant *text* renders is verified under [[poc-plus-0.3.1-polish-plan]] F#8.
+- [x] ~~bug: autoresolved rest showed refunded but not the inspiration text?~~ → **Done**: accounting root cause fixed as B#3 (`807bb13`); the display gate (inspired line suppressed by any refund) fixed under F#8 (`e426bc4`).
 
 ### ANSI frame polish — T2 live-check follow-up (2026-07-10)
 
@@ -90,9 +89,9 @@ Fresh reports from a single QA session (snapshot `warden-20260708-201456`, chara
 
 - [ ] **NPC coherency — mint on first sight** — narrative said the player sees a caravan, then said they don't; the NPC wasn't persisted to state on first mention (F#1). Mint NPCs immediately so they persist. See [[mvp+npc-economy]], [[mvp-data-model]] (world-state tracking).
 - [ ] **Richer `/hi` opening prose** — pressing Hi should generate a prose opener that scales with time since last interaction (referencing days or a few actions) and reminds the player of their work, quests, and loose ends (F#2). Extends the existing "morning/evening custom prose" and "add /hi to the new-hero message" TBD items.
-- [ ] **Trim decision emojis** — too many emojis after decisions; the good/bad DC emojis should show only the arrows that convey stakes (drop the green/red), and a spotted passive call should just colour the button green (as it already does) without also listing the emoji (F#3). UI polish; relates to the distilled-type-emoji TBD item.
-- [ ] **Rest button feels underwhelming** — the rest button needs some interaction/weight when pressed and its formatting is off (F#8). Relates to the "autoresolved rest — refunded but no inspiration text?" TBD bug.
-- [ ] **Journal is cluttered** — wants whitespace/formatting to distinguish parts and emphasise successes vs. failures, plus a little more info on quests / investigated / gathered intel (F#6). Fresh datapoint for the "Improved journal/story" MVP item.
+- [x] ~~**Trim decision emojis**~~ (F#3) → **Done** (`4815832`, 0.3.1 branch): stakes arrows only, green button as the sole passive tell.
+- [x] ~~**Rest button feels underwhelming**~~ (F#8) → **Done** (`e426bc4`, 0.3.1 branch): pressed "Bedding down…" beat, sectioned rest body, and the inspired line now renders alongside a refund (the linked TBD bug).
+- [x] ~~**Journal is cluttered**~~ (F#6) → **Done** (`3114411`, 0.3.1 branch): sectioned Chronicle/NPCs, bold outcome tags, intel rails from stored mutations. Deeper quest/story tracking stays with the "Improved journal/story" MVP item.
 - [ ] **Buttons going missing is annoying — do the menu rework soon** (F#5). Fresh datapoint bumping the "menu framework coupled to views" MVP item / [[discord-interaction-layer]].
 - [ ] **Too many actions available** — "fun but perhaps too broken" (F#4). Fresh datapoint for the "cap rolls per action type + short-rest" MVP item.
 
