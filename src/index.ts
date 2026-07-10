@@ -127,6 +127,7 @@ import {
   setPendingDecision,
   buildDecisionMessage,
   buildOutcomeEmbed,
+  buildActionHints,
   consumeMenuMessage,
   stashMenuMessage,
   CID_DAYJOB,
@@ -2289,9 +2290,19 @@ _${idleMsg}_`)
             characterId: char.id,
             dayNumber,
           });
+          const hints = buildActionHints({
+            rollsRemaining: char.rollsRemaining,
+            stamina: char.stamina,
+            maxStamina: char.maxStamina,
+            isSafe: engine.getLocation(char.location)?.isSafe ?? true,
+          });
+          const menuDescription =
+            hints.length > 0
+              ? `Pick a task to start:\n\n${hints.join("\n")}`
+              : "Pick a task to start:";
           const embed = new EmbedBuilder()
             .setTitle(`${dayJobEmoji(char.dayJob)} ${char.dayJob} — Daily Work`)
-            .setDescription("Pick a task to start:")
+            .setDescription(menuDescription)
             .setColor(0xdaa520);
 
           const row = new ActionRowBuilder<ButtonBuilder>();

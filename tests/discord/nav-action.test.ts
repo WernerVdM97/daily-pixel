@@ -129,4 +129,47 @@ describe("action entry-point routing (nav:action / /action)", () => {
     const replyArg = intr.reply.mock.calls[0][0];
     expect(replyArg.components?.length ?? 0).toBeGreaterThan(0);
   });
+
+  it("carries no hints in the menu embed when nothing is amiss", async () => {
+    engine.setMeta("day_number", "1");
+    engine.setCharacter(
+      baseChar({ rollsRemaining: 3, stamina: 10, maxStamina: 10, lastActionState: null }),
+    );
+    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const intr = mockChatInteraction("ready", null);
+    await handler(intr as never);
+
+    const replyArg = intr.reply.mock.calls[0][0];
+    const description = replyArg.embeds[0].description as string;
+    expect(description).toBe("Pick a task to start:");
+  });
+
+  it("surfaces every applicable hint in the menu embed", async () => {
+    engine.setMeta("day_number", "1");
+    engine.setLocation({
+      name: "The Deep Mire",
+      description: "A treacherous bog.",
+      tags: ["mock"],
+      isSafe: false,
+      emoji: "🌫️",
+    });
+    engine.setCharacter(
+      baseChar({
+        rollsRemaining: 1,
+        stamina: 1,
+        maxStamina: 10,
+        location: "The Deep Mire",
+        lastActionState: null,
+      }),
+    );
+    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const intr = mockChatInteraction("beleaguered", null);
+    await handler(intr as never);
+
+    const replyArg = intr.reply.mock.calls[0][0];
+    const description = replyArg.embeds[0].description as string;
+    expect(description).toContain("🎲 Last action of the day");
+    expect(description).toContain("😮‍💨 You're running on fumes (1/10 stamina).");
+    expect(description).toContain("⚠️ This place isn't safe");
+  });
 });

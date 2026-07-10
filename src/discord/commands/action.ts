@@ -39,6 +39,41 @@ function choiceCid(decisionIdx: number, optionIdx: number): string {
   return `${CID_PREFIX}${decisionIdx}:${optionIdx}`;
 }
 
+// ── /action hints ──
+
+export interface ActionHintContext {
+  rollsRemaining: number;
+  stamina: number;
+  maxStamina: number;
+  isSafe: boolean;
+}
+
+// "Running on fumes" at 25% of max stamina, floored at 2 so low-max characters
+// still get the warning at very low absolute stamina rather than never triggering.
+const LOW_STAMINA_RATIO = 0.25;
+const LOW_STAMINA_FLOOR = 2;
+
+/** Contextual hints for the bare `/action` day-job menu — shared by the slash
+ *  path (action.ts) and the `nav:action` button path (index.ts) so they can't drift. */
+export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }: ActionHintContext): string[] {
+  const hints: string[] = [];
+
+  if (rollsRemaining === 1) {
+    hints.push('🎲 Last action of the day — make it count.');
+  }
+
+  const lowStaminaThreshold = Math.max(LOW_STAMINA_FLOOR, Math.round(maxStamina * LOW_STAMINA_RATIO));
+  if (stamina <= lowStaminaThreshold) {
+    hints.push(`😮‍💨 You're running on fumes (${stamina}/${maxStamina} stamina).`);
+  }
+
+  if (!isSafe) {
+    hints.push("⚠️ This place isn't safe — trouble may find you.");
+  }
+
+  return hints;
+}
+
 // Most recent pending decision per user, so button clicks can resolve the
 // option label from its index.
 const pendingDecisions = new Map<string, ActionDecision>();
@@ -158,9 +193,18 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       try {
         const dayNumber = Number(engine.getMeta('day_number') ?? '1');
         const jobActions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
+        const hints = buildActionHints({
+          rollsRemaining: character.rollsRemaining,
+          stamina: character.stamina,
+          maxStamina: character.maxStamina,
+          isSafe: engine.getLocation(character.location)?.isSafe ?? true,
+        });
+        const description = hints.length > 0
+          ? `Pick a task to start:\n\n${hints.join('\n')}`
+          : 'Pick a task to start:';
         const embed = new EmbedBuilder()
           .setTitle(`${dayJobEmoji(character.dayJob)} ${character.dayJob} — Daily Work`)
-          .setDescription('Pick a task to start:')
+          .setDescription(description)
           .setColor(0xdaa520);
 
         const row = new ActionRowBuilder<ButtonBuilder>();
