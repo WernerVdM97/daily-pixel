@@ -17,6 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Internal
 
+- **Opening-frame wireframe library** — canonical monochrome `.ascii` mocks under `assets/ansi/wireframes/`, per classified action type a slot template beside a filled example, width-validated by `tests/render/opening-wireframes.test.ts`. Reference art for the `AnsiRenderer`, not yet emitted at runtime. Introduces the **opening frame** (post-`classify` scene-setter) and the universal **art-post + reply-body** delivery convention, formalised in `docs/engine/ansi-art-classification-framework.md` §2b/§2c/§3.0.
 - **v12 dead-code sweep** — the legacy `ActionStateMachine`, the `PROMPT_VERSION` indirection, the critic dual-injection, and the v11-only tests are deleted; the engine is pipeline-only. Closes stage-5 T7. Commit `72fb32d`.
 - **POC+ Shared World arc decided** — `docs/game/poc-plus-roadmap.md` flips to `decided` (kill credit, buff vocabulary, broadcast stance, and frame authorship settled; versions unpinned; the v12 tail folded in as item 0) and gains its stage-1 build plan `docs/engine/poc-plus-stage-1-plan.md` (v12 tail + welcome tag + combat maths reveal), written as the orchestrated-delegation handover.
 - **`AnsiRenderer` built** — new `src/render/AnsiRenderer.ts` module for coloured Discord `ansi`-fenced frames with colour-by-role, 30-char width enforcement, and backtick escaping. Intended as the shared renderer for the POC+ arc (combat frames now, broadcast frames in stage 2). Commits `500efca`, `712d946`.
