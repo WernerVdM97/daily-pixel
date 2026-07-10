@@ -293,6 +293,25 @@ describe('OutcomeRenderer — failure', () => {
     expect(changesLine).toContain('−');
   });
 
+  it('renders emoji and quantity on a lost item', () => {
+    const outcome: ActionOutcome = {
+      ...failureOutcome,
+      mutations: [{ type: 'remove_item', name: 'Torch', emoji: '🔥', quantity: 3 }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 7 }));
+    expect(result).toContain('− 🔥 Torch ×3');
+  });
+
+  it('omits the ×1 suffix for a single-quantity lost item', () => {
+    const outcome: ActionOutcome = {
+      ...failureOutcome,
+      mutations: [{ type: 'remove_item', name: 'Torch', emoji: '🔥', quantity: 1 }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 7 }));
+    expect(result).toContain('− 🔥 Torch');
+    expect(result).not.toContain('×1');
+  });
+
   it('shows health with delta on failure', () => {
     const outcome: ActionOutcome = {
       ...failureOutcome,
