@@ -278,7 +278,19 @@ describe('OutcomeRenderer — failure', () => {
       mutations: [{ type: 'remove_item', name: 'Iron Sword' }],
     };
     const result = formatOutcome(outcome, ctx({ stamina: 7 }));
-    expect(result).toContain('- Iron Sword');
+    expect(result).toContain('− Iron Sword');
+  });
+
+  it('does not render a loss-only outcome as a Discord bullet', () => {
+    const outcome: ActionOutcome = {
+      ...failureOutcome,
+      mutations: [{ type: 'remove_item', name: 'Rusty Key' }],
+    };
+    const result = formatOutcome(outcome, ctx({ stamina: 7 }));
+    const changesLine = result.split('\n').find(line => line.includes('Rusty Key'));
+    expect(changesLine).toBeDefined();
+    expect(changesLine!.startsWith('- ')).toBe(false);
+    expect(changesLine).toContain('−');
   });
 
   it('shows health with delta on failure', () => {
@@ -595,7 +607,7 @@ describe('OutcomeRenderer — complex outcome', () => {
     }));
 
     expect(result).toContain('+ 🦊 Wolf Pelt');
-    expect(result).toContain('- Torch');
+    expect(result).toContain('− Torch');
     expect(result).toContain('→ Wolf Den');
     expect(result).toContain('❤️ 7/12 (-3)');
     expect(result).toContain('⚡ 6/10 (-2)');

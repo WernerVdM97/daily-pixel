@@ -28,7 +28,7 @@ interface MutationDeltas {
   wealthDelta: number;
   rollsDelta: number;
   itemsGained: Array<{ emoji: string; name: string }>;
-  itemsLost: string[];
+  itemsLost: Array<{ emoji?: string; name: string; quantity?: number }>;
   newLocation: string | null;
 }
 
@@ -68,9 +68,18 @@ function deriveFromMutations(mutations: WorldMutation[]): MutationDeltas {
           name: String(m.name ?? ''),
         });
         break;
-      case 'remove_item':
-        d.itemsLost.push(String(m.name ?? ''));
+      case 'remove_item': {
+        // `remove_item` carries no `emoji` today (prompt/mutation apply omit it — see
+        // mutations.ts ~479-484); read it defensively so a future addition renders for free
+        // instead of silently dropping the glyph.
+        const quantity = Number(m.quantity ?? 1);
+        d.itemsLost.push({
+          ...(typeof m.emoji === 'string' && m.emoji ? { emoji: m.emoji } : {}),
+          name: String(m.name ?? ''),
+          ...(quantity > 1 ? { quantity } : {}),
+        });
         break;
+      }
       case 'set_location':
       case 'cross_frontier':
         d.newLocation = String(m.name ?? '');
@@ -252,8 +261,12 @@ export function formatOutcome(
   for (const item of d.itemsGained) {
     changes.push(`+ ${item.emoji} ${item.name}`);
   }
-  for (const name of d.itemsLost) {
-    changes.push(`- ${name}`);
+  for (const item of d.itemsLost) {
+    // U+2212 minus (not ASCII "- ") — a leading "- " is Discord's unordered-list marker,
+    // which turns a loss-only line into a bullet instead of reading as a subtraction.
+    const emojiPart = item.emoji ? `${item.emoji} ` : '';
+    const qtyPart = item.quantity && item.quantity > 1 ? ` ×${item.quantity}` : '';
+    changes.push(`− ${emojiPart}${item.name}${qtyPart}`);
   }
   if (d.newLocation) {
     changes.push(`→ ${d.newLocation}`);
