@@ -49,7 +49,9 @@ export interface CombatStatusData {
   enemyName: string;
   woundWord: string;
   pips: { filled: number; total: number };
-  /** Clamped >= 0 so a lethal round never displays negative HP mid-resolution. */
+  /** DISPLAY value only — already has playerHpDelta applied and is clamped >= 0 so a lethal
+   *  round never displays negative HP mid-resolution. A future consumer must render this as-is
+   *  and must NOT add playerHpDelta again. */
   playerHp: number;
   playerMaxHp: number;
   playerHpDelta: number;

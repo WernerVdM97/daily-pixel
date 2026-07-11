@@ -68,6 +68,36 @@ describe("buildActionHints", () => {
     expect(hints).toEqual(["😮‍💨 You're running on fumes (2/4 stamina)."]);
   });
 
+  it("does not flag a 1/1 character at full stamina, despite being under the floor threshold", () => {
+    const hints = buildActionHints({
+      rollsRemaining: 3,
+      stamina: 1,
+      maxStamina: 1,
+      isSafe: true,
+    });
+    expect(hints).toEqual([]);
+  });
+
+  it("does not flag a 2/2 character at full stamina, despite being under the floor threshold", () => {
+    const hints = buildActionHints({
+      rollsRemaining: 3,
+      stamina: 2,
+      maxStamina: 2,
+      isSafe: true,
+    });
+    expect(hints).toEqual([]);
+  });
+
+  it("still flags a character below full stamina even when max stamina is tiny", () => {
+    const hints = buildActionHints({
+      rollsRemaining: 3,
+      stamina: 1,
+      maxStamina: 2,
+      isSafe: true,
+    });
+    expect(hints).toEqual(["😮‍💨 You're running on fumes (1/2 stamina)."]);
+  });
+
   it("flags an unsafe location", () => {
     const hints = buildActionHints({
       rollsRemaining: 3,

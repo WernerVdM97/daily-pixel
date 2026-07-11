@@ -896,6 +896,40 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
     expect(result.length).toBeLessThan(2000);
   });
 
+  it('renders no frame line and does not throw when renderCombatFrame is omitted (pins intended-silent behaviour)', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 12,
+      playerRolled: 18,
+      rollBonus: 5,
+      outcome: 'success',
+      outcomeText: 'You defeat the goblin.',
+      mutations: [],
+      combatBeat: {
+        round: 2,
+        band: 'clean',
+        enemyHpBefore: 12,
+        enemyHpAfter: 0,
+        playerHpDelta: 0,
+        materialMutationFired: true,
+        ops: ['set_relation'],
+        marker: 'combat_round',
+      },
+      combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
+    };
+
+    let result = '';
+    expect(() => {
+      result = formatOutcome(combatOutcome, ctx({ health: 12 }));
+    }).not.toThrow();
+
+    // No frame line rendered (would otherwise contain the enemy name/frame markers) —
+    // the outcome text and footer still render normally.
+    expect(result).not.toContain('Goblin');
+    expect(result).toContain('You defeat the goblin.');
+    expect(result.startsWith('\n')).toBe(true);
+  });
+
   it('survives monochrome strip — all numbers and names readable without SGR', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',

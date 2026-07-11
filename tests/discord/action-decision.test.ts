@@ -316,19 +316,19 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     expect(desc).toBe('> Scout — what do you do?\n\n**A.** Track the wolf quietly ⬇️');
   });
 
-  it('ANSI-C tolerant read: a legacy pre-rendered string combatStatus (old in-flight state) still renders as a plain (unquoted) line, without throwing', () => {
+  it('ANSI-C tolerant read: a legacy pre-rendered string combatStatus (old in-flight state) — the actual output of renderFrame, an already-fenced ```ansi block — renders unmodified, without throwing', () => {
+    const legacyFencedStatus = '```ansi\nWolf: ▓▓▓░░ Bloodied · You: −2 HP\n```';
     const msg = buildDecisionMessage({
       prompt: 'Combat — what do you do?',
       narration: 'The wolf lunges, jaws snapping shut on air.',
-      combatStatus: 'Wolf: ▓▓▓░░ Bloodied · You: −2 HP',
+      combatStatus: legacyFencedStatus,
       options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
-    expect(desc).toContain('Wolf: ▓▓▓░░ Bloodied · You: −2 HP');
-    // Plain line: not prefixed with the blockquote marker.
-    expect(desc).not.toContain('> Wolf: ▓▓▓░░');
-    expect(desc.indexOf('jaws snapping')).toBeLessThan(desc.indexOf('Wolf: ▓▓▓░░'));
-    expect(desc.indexOf('Wolf: ▓▓▓░░')).toBeLessThan(desc.indexOf('Combat — what do you do?'));
+    // Lands unmodified: no re-fencing, no backtick escaping applied over the legacy block.
+    expect(desc).toContain(legacyFencedStatus);
+    expect(desc.indexOf('jaws snapping')).toBeLessThan(desc.indexOf('```ansi'));
+    expect(desc.indexOf('```ansi')).toBeLessThan(desc.indexOf('Combat — what do you do?'));
   });
 
   it('ANSI-C: a structured CombatStatusData combatStatus (current engine shape) is composed into an AnsiRenderer frame', () => {

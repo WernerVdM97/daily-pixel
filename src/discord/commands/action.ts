@@ -64,7 +64,9 @@ export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }
   }
 
   const lowStaminaThreshold = Math.max(LOW_STAMINA_FLOOR, Math.round(maxStamina * LOW_STAMINA_RATIO));
-  if (stamina <= lowStaminaThreshold) {
+  // stamina < maxStamina guards a character at full stamina (e.g. 1/1 or 2/2) from seeing
+  // the warning purely because their max is tiny — "fumes" implies having spent some.
+  if (stamina <= lowStaminaThreshold && stamina < maxStamina) {
     hints.push(`😮‍💨 You're running on fumes (${stamina}/${maxStamina} stamina).`);
   }
 
@@ -539,6 +541,7 @@ function renderCombatStatusFrame(status: CombatStatusData): string {
   return renderFrame({
     header: {
       name: status.enemyName,
+      // hp/maxHp are pip-scale (filled/total), unused when `bar` is set (hpLineSegments takes the bar branch) — exist only to satisfy the type.
       hp: status.pips.filled,
       maxHp: status.pips.total,
       bar,
