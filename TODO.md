@@ -66,6 +66,7 @@ Unexplored paths
 - [ ] hitting 0 stamina blocks more actions that day. pass out can be evaluated similarly to global message.
   - also, 0 hp should do this but also roll the dice, mkaing a death save...
 - [x] ~~bug: autoresolved rest showed refunded but not the inspiration text?~~ → **Done**: accounting root cause fixed as B#3 (`807bb13`); the display gate (inspired line suppressed by any refund) fixed under F#8 (`e426bc4`).
+- [ ] last stand buttons and captions need to look cooler. emojis and shit.
 
 ### ANSI opening-frame follow-ups (2026-07-11, from ANSI-F review)
 
