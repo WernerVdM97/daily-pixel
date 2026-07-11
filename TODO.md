@@ -42,7 +42,7 @@ one would look at the "you are here" first , then aroud you, and having the fore
 - [ ] improve art blocks on messages
   - drop the old ugly scene ascii. this will be only used for look.
   - like the art on the classified outcome page should be redisplayed on the thinking page.
-  - and maintained on the decision outcomes. 
+  - and maintained on the decision outcomes.
   - art should be considered the main viewport, and the discord messaging a sub menu or interaciton layer with inline art blocks.
   - maybe drop the location ascii image from actions
 - [ ] the thinking block might as well show the full decision history exactly like action outcome
