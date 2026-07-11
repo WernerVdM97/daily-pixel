@@ -922,9 +922,9 @@ describe('Mutation v12 T2 (Stage 3) — per-relType prop schemas: in_combat / co
     expect(result.errors[0].message).toContain('round');
   });
 
-  it('rejects in_combat with enemyMaxHp over the ENEMY_HP_MAX clamp (20)', () => {
+  it('rejects in_combat with enemyMaxHp over the ENEMY_HP_MAX clamp (40)', () => {
     const result = validateMutations(
-      [inCombat({ ...combatProps, enemyHp: 21, enemyMaxHp: 21 })],
+      [inCombat({ ...combatProps, enemyHp: 41, enemyMaxHp: 41 })],
       ctx(),
     );
     expect(result.valid).toBe(false);

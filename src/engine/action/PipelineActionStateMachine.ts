@@ -28,6 +28,8 @@ import {
   resolveCombatRound,
   deriveEnemyMaxHp,
   ENEMY_BONUS_MAX,
+  ENEMY_HP_MIN,
+  ENEMY_HP_MAX,
   MAX_COMBAT_ROUNDS,
   type CombatBeatLog,
   type CombatRoundOutcome,
@@ -452,7 +454,11 @@ export class PipelineActionStateMachine {
           anchor = { node: 'location', name: char.location };
         }
 
-        const enemyMaxHp = deriveEnemyMaxHp(state.lastDecideResult.baseDc);
+        // Enemy HP: prefer the LLM-authored maxHp when the NPC is a known entity;
+        // otherwise derive from baseDc (location-anchored minion path).
+        const enemyMaxHp = enemy.maxHp != null
+          ? Math.max(ENEMY_HP_MIN, Math.min(ENEMY_HP_MAX, enemy.maxHp))
+          : deriveEnemyMaxHp(state.lastDecideResult.baseDc);
         cs = {
           enemyName: enemy.name,
           enemyHp: enemyMaxHp,

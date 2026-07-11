@@ -69,7 +69,7 @@ export const ENEMY_BONUS_MAX = 10;
 
 /** `enemyMaxHp` derivation bounds (no world tier yet — decision 7's `scale` seam). */
 export const ENEMY_HP_MIN = 6;
-export const ENEMY_HP_MAX = 20;
+export const ENEMY_HP_MAX = 40;
 
 /** Extra magnitude a crit die adds on top of its forced band, before `scale`. */
 export const CRIT_AMPLIFY_BONUS = 2;

@@ -13,7 +13,7 @@ describe('Combat band constants', () => {
   it('exposes the tunable constants T1 specifies', () => {
     expect(ENEMY_BONUS_MAX).toBe(10);
     expect(ENEMY_HP_MIN).toBe(6);
-    expect(ENEMY_HP_MAX).toBe(20);
+    expect(ENEMY_HP_MAX).toBe(40);
     expect(CRIT_AMPLIFY_BONUS).toBe(2);
     expect(COMBAT_BAND_TABLE.map(b => b.band)).toEqual(['clean', 'glanced', 'trade', 'heavy']);
   });
@@ -186,7 +186,7 @@ describe('deriveEnemyMaxHp', () => {
   });
 
   it('clamps to ENEMY_HP_MAX at scale=1 for a high baseDc', () => {
-    expect(deriveEnemyMaxHp(30, 1)).toBe(ENEMY_HP_MAX);
+    expect(deriveEnemyMaxHp(50, 1)).toBe(ENEMY_HP_MAX);
   });
 
   it('passes through unclamped values in range at scale=1', () => {
@@ -195,7 +195,7 @@ describe('deriveEnemyMaxHp', () => {
   });
 
   it('scales in between, still clamped', () => {
-    expect(deriveEnemyMaxHp(10, 2)).toBe(ENEMY_HP_MAX); // 20, at the ceiling
+    expect(deriveEnemyMaxHp(20, 2)).toBe(ENEMY_HP_MAX); // 40, at the ceiling
     expect(deriveEnemyMaxHp(5, 2)).toBe(10);
     expect(deriveEnemyMaxHp(3, 0.5)).toBe(ENEMY_HP_MIN); // rounds to 2, floored to 6
   });
