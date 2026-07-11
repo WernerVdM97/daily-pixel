@@ -100,22 +100,41 @@ Colour: focal roll `warmth` gold, bold; `+ WIN` / `x LOSS` line `life` / `threat
 
 Chrome as a signal. The same renderer swaps the border register to match the stakes, so a punishing round or a critical hit *looks* different before a word is read:
 
+**standard** — an ordinary round. Single-line box-drawing (`┌─┐│└┘├┤`), the default register.
+
 ```
- standard — an ordinary round        heavy — a punishing round, low HP        crit — a nat-20, rare moment
-┌────────────────────────────┐      ╔════════════════════════════╗      o════════════ ╡@╞ ═══════════o
-│  ...                       │      ║  GLOOMFANG                 ║      ║  CRITICAL HIT              ║
-│  14 +3 = 17       [DC 15]  │      ║  HP [▓░░░░░░░]   BLOODIED  ║      ║  20 * * *         [DC 15]  ║
-│  hit +2 margin      TRADE  │      ║  YOU                       ║      ║  20 +4 = 24                ║
-└────────────────────────────┘      ║  HP [███░░░░░░░░░]   5/24  ║      ║  + CLEAN        margin +9  ║
-                                     ╠════════════════════════════╣      ║  The GLOOMFANG is felled!  ║
-                                     ║  8 +3 = 11        [DC 16]  ║      o════════════════════════════o
-                                     ║  hit -3 margin      HEAVY  ║
-                                     ╚════════════════════════════╝
+┌────────────────────────────┐
+│  ...                       │
+│  14 +3 = 17       [DC 15]  │
+│  hit +2 margin      TRADE  │
+└────────────────────────────┘
 ```
 
-- **standard** — single-line box-drawing (`┌─┐│└┘├┤`). The default register.
-- **heavy** — double-line (`╔═╗║╚╝╠╣`) when the round bites: a HEAVY band, or the player bloodied. The frame itself tenses up.
-- **crit / rare** — an ornamental crest-interrupt rim (`o══╡@╞══o`) reserved for a nat-20 (and, later, rare loot). The format is scarce, so the format itself signals the moment.
+**heavy** — a punishing round, low HP. Double-line (`╔═╗║╚╝╠╣`) when the round bites: a HEAVY band, or the player bloodied. The frame itself tenses up.
+
+```
+╔════════════════════════════╗
+║  GLOOMFANG                 ║
+║  HP [▓░░░░░░░]   BLOODIED  ║
+║  YOU                       ║
+║  HP [███░░░░░░░░░]   5/24  ║
+╠════════════════════════════╣
+║  8 +3 = 11        [DC 16]  ║
+║  hit -3 margin      HEAVY  ║
+╚════════════════════════════╝
+```
+
+**crit / rare** — a nat-20, rare moment. An ornamental crest-interrupt rim (`o══╡@╞══o`) reserved for a nat-20 (and, later, rare loot). The format is scarce, so the format itself signals the moment.
+
+```
+o════════════ ╡@╞ ═══════════o
+║  CRITICAL HIT              ║
+║  20 * * *         [DC 15]  ║
+║  20 +4 = 24                ║
+║  + CLEAN        margin +9  ║
+║  The GLOOMFANG is felled!  ║
+o════════════════════════════o
+```
 
 All three are single-width-safe on desktop and mobile (verified live, ANSI-A 2026-07-11), so escalating the border never breaks the box on a phone.
 
