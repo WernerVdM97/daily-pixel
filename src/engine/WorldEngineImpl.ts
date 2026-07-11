@@ -996,6 +996,7 @@ export class WorldEngineImpl implements WorldEngine {
         state: this.toPublicState(internalState),
         firstDecision: internalState.pendingDecision,
         outcome: startResult.outcome,
+        actionType: internalState.actionType,
       };
     }
 
@@ -1018,6 +1019,7 @@ export class WorldEngineImpl implements WorldEngine {
     return {
       state: this.toPublicState(internalState),
       firstDecision,
+      actionType: internalState.actionType,
     };
   }
 

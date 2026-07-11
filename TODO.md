@@ -25,6 +25,12 @@
   - also, 0 hp should do this but also roll the dice, mkaing a death save...
 - [x] ~~bug: autoresolved rest showed refunded but not the inspiration text?~~ → **Done**: accounting root cause fixed as B#3 (`807bb13`); the display gate (inspired line suppressed by any refund) fixed under F#8 (`e426bc4`).
 
+### ANSI opening-frame follow-ups (2026-07-11, from ANSI-F review)
+
+- [ ] Opening frame on auto-resolved actions: travel/rest often resolve at start with no decision beat, so they show no opening frame today (3 auto-finish call sites + the public-broadcast embed question). Extend the frame to the outcome path.
+- [ ] Resume-mid-action shows no opening frame at decisionIdx 0 (`resumeAction` doesn't carry `actionType`); rare, degrades gracefully.
+- [ ] Combat opening frame renders "Unknown foe" pre-first-step; `PipelineDecideResult.combatEnemy` exists but isn't exposed publicly — enrich when worth it.
+
 ### ANSI frame polish — T2 live-check follow-up (2026-07-10)
 
 > **Now tasked in [[poc-plus-0.3.1-polish-plan]]** (with the 2026-07-08 prod bug batch and the small UX wins below) as the `0.3.1` polish release. This block is Part 1 of that plan; tick these rows as its tasks land.

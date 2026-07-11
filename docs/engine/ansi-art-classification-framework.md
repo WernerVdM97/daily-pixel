@@ -63,6 +63,8 @@ This keeps the two ownership sides cleanly separated at the transport layer, too
 
 For `social` the split is load-bearing: the NPC's actual line goes in the reply body, so the opening frame is a mute bust. For `skill` and `other` — open-ended types with no bespoke scene yet — the frame's scene slot is a placeholder (the player character) and the reply carries everything specific.
 
+**Ephemeral-flow constraint (recorded 2026-07-11, ANSI-F).** Discord cannot reply to an ephemeral interaction response, and the `/action` decision flow is entirely ephemeral — so on that surface the convention degrades to the frame as a **leading embed** ahead of the narration+options embed in the same message. The literal two-message art-post + reply applies to public, non-ephemeral surfaces (weekly-thread outcomes, the stage-2 broadcast frames).
+
 ## 2c. The opening frame — a pre-decision scene-setter
 
 The action pipeline **always** shows one frame after `classify` (which routes the free-text action to one of seven types) and before the first decision:

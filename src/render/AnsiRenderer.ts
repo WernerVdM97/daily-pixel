@@ -45,10 +45,11 @@ export interface FrameSpec {
   footer?: CombatantLine;   // typically the player (bottom nameplate + HP bar)
 }
 
-// Total frame width including the `|`...`|` borders (design doc §3).
-const FRAME_WIDTH = 30;
+// Total frame width including the `|`...`|` borders (design doc §3). Exported (ANSI-F) so the
+// OPENING-frame composer shares the exact same width invariant instead of a re-declared literal.
+export const FRAME_WIDTH = 30;
 // Content width between the two border chars.
-const INTERIOR_WIDTH = FRAME_WIDTH - 2;
+export const INTERIOR_WIDTH = FRAME_WIDTH - 2;
 // Message-box budget: 2 lines x 26 chars, with a 2-char left indent eating
 // into the 28-wide interior (design doc §3).
 const MESSAGE_TEXT_WIDTH = 26;
@@ -78,7 +79,11 @@ function paint(role: Role, text: string, palette: Palette): string {
   return `\x1b[${palette.sgr[role]}m${text}\x1b[0m`;
 }
 
-interface Segment {
+// Exported (ANSI-F): the OPENING-frame family (`OpeningFrameRenderer.ts`) has no
+// nameplate/HP-bar concept, so it composes its own per-type lines directly from these
+// primitives rather than through `FrameSpec` (shaped for the combat card's header/sprite/footer
+// slots only).
+export interface Segment {
   text: string;
   role?: Role;
 }
@@ -115,15 +120,17 @@ function fitSegments(segments: Segment[], width: number): Segment[] {
   return result;
 }
 
-/** Render one interior-width line between chrome-coloured `|` borders. */
-function composeLine(segments: Segment[], palette: Palette): string {
+/** Render one interior-width line between chrome-coloured `|` borders. Exported (ANSI-F) so
+ *  other register composers (e.g. the OPENING family) can build their own line shapes on the
+ *  same width-enforcement/truncation contract without duplicating it. */
+export function composeLine(segments: Segment[], palette: Palette): string {
   const fitted = fitSegments(segments, INTERIOR_WIDTH);
   const body = fitted.map((s) => (s.role ? paint(s.role, s.text, palette) : s.text)).join('');
   return paint('chrome', '|', palette) + body + paint('chrome', '|', palette);
 }
 
-/** A full-width `+----...----+` border/divider row. */
-function borderLine(palette: Palette): string {
+/** A full-width `+----...----+` border/divider row. Exported (ANSI-F) — see `composeLine`. */
+export function borderLine(palette: Palette): string {
   return paint('chrome', '+' + '-'.repeat(INTERIOR_WIDTH) + '+', palette);
 }
 
@@ -249,8 +256,9 @@ function spriteSegments(line: string): Segment[] {
 // contain one.
 const BACKTICK_SUBSTITUTE = "ʼ";
 
-/** Strip any fence-breaking backticks out of one piece of caller text. */
-function escapeBackticks(text: string): string {
+/** Strip any fence-breaking backticks out of one piece of caller text. Exported (ANSI-F) so
+ *  other register composers sanitize free-text slot values the same way this module does. */
+export function escapeBackticks(text: string): string {
   return text.replace(/`/g, BACKTICK_SUBSTITUTE);
 }
 

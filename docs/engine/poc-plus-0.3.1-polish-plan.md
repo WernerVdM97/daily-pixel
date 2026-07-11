@@ -155,8 +155,8 @@ The engine keeps the banding maths (`enemyConditionBand` yields `woundWord` + `p
 
 **Acceptance:**
 
-- [ ] The opening frame posts post-`classify` as its own message with the narration/options as a reply, for all seven classified types; live-checked.
-- [ ] Fragment-gated slots render placeholder scenes per the wireframes; the fragments catalogue remains deferred, logged in `TODO.md` and [[ansi-art-classification-framework]].
+- [x] The opening frame posts post-`classify` as its own message with the narration/options as a reply, for all seven classified types; live-checked. → **Built** (see wave-3 commit): all seven types render; delivery is a leading embed in the same message because Discord can't reply to an ephemeral response (constraint recorded in [[ansi-art-classification-framework]] §2b; the two-message form applies to public surfaces). Known gap logged in `TODO.md`: auto-resolved actions (common for travel/rest) show no frame. Live check batched.
+- [x] Fragment-gated slots render placeholder scenes per the wireframes; the fragments catalogue remains deferred, logged in `TODO.md` and [[ansi-art-classification-framework]]. → **Done**: deliberate PC-only placeholder scenes; fragments stay deferred.
 
 ---
 

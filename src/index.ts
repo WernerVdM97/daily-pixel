@@ -1824,7 +1824,7 @@ ${headInfo}`);
         } else {
           setPendingDecision(interaction.user.id, result.firstDecision);
           await interaction.editReply(
-            buildDecisionMessage(result.firstDecision, 0, result.state, char),
+            buildDecisionMessage(result.firstDecision, 0, result.state, char, result.actionType),
           );
         }
       } catch (err) {
@@ -2154,7 +2154,7 @@ _${idleMsg}_`)
           setPendingDecision(interaction.user.id, result.firstDecision);
           await interaction.webhook.editMessage(
             interaction.message.id,
-            buildDecisionMessage(result.firstDecision, 0, result.state, char),
+            buildDecisionMessage(result.firstDecision, 0, result.state, char, result.actionType),
           );
         }
       } catch (err) {

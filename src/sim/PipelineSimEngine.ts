@@ -170,11 +170,12 @@ export class PipelineSimEngine {
         state: toPublicState(result.state),
         firstDecision: result.state.pendingDecision,
         outcome: result.outcome,
+        actionType: result.state.actionType,
       };
     }
 
     this.pendingState = result.state;
-    return { state: toPublicState(result.state), firstDecision: result.firstDecision };
+    return { state: toPublicState(result.state), firstDecision: result.firstDecision, actionType: result.state.actionType };
   }
 
   async stepAction(characterId: number, choice: string): Promise<ActionStepResult> {

@@ -21,7 +21,10 @@
 // house palette via renderFrame's default parameter; only an explicit `null`
 // would bypass it. Don't pass null.
 
-export type Role = 'chrome' | 'threat' | 'life' | 'warmth' | 'player' | 'emphasis';
+// `status` added for ANSI-F's REST_STOP register (magenta 35 "reserved: magic/status" per the
+// classification framework §6) — no existing segment builder needed a role distinct from
+// `threat`/`life`/`warmth`/`player`/`emphasis` until the opening frame's sleep glyphs (`z Z`).
+export type Role = 'chrome' | 'threat' | 'life' | 'warmth' | 'player' | 'emphasis' | 'status';
 
 export interface Palette {
   name: string;
@@ -39,6 +42,7 @@ const house: Palette = {
     warmth: 33,
     player: 34,
     emphasis: 37,
+    status: 35,
   },
 };
 
@@ -54,6 +58,7 @@ const ember: Palette = {
     warmth: 33,
     player: 35,
     emphasis: 33,
+    status: 35,
   },
 };
 
@@ -68,6 +73,7 @@ const gloom: Palette = {
     warmth: 34,
     player: 36,
     emphasis: 37,
+    status: 35,
   },
 };
 

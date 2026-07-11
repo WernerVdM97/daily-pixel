@@ -390,3 +390,44 @@ describe('Option decorations are render-only — the raw label persists as `chos
     expect(getChoiceLabel('narration-test-user', 0)).toBe('Shoulder-charge the brute');
   });
 });
+
+describe('buildDecisionMessage — ANSI-F opening frame (art post + reply-body delivery)', () => {
+  const decision = { prompt: 'A wolf blocks the path.', options: [{ label: 'Fight', dcModifier: 0 }] };
+  const char = { stats: { physical: 10, wisdom: 10, intelligence: 10, charisma: 10 }, name: 'Aldric', health: 24, maxHealth: 30, location: 'Oakhollow' };
+
+  it('prepends an opening-frame embed ahead of the decision embed on the first decision when actionType is given', () => {
+    const msg = buildDecisionMessage(decision, 0, undefined, char, 'travel');
+    expect(msg.embeds.length).toBe(2);
+    const frameDesc = (msg.embeds[0] as any).description as string;
+    expect(frameDesc).toContain('```ansi');
+    expect(frameDesc).toContain('Oakhollow');
+    // The decision embed (narration/options/CTA — the "reply body") stays SECOND, untouched.
+    const decisionDesc = (msg.embeds[1] as any).description as string;
+    expect(decisionDesc).toContain('Fight');
+  });
+
+  it('omits the opening frame entirely when no actionType is supplied (backward-compatible default)', () => {
+    const msg = buildDecisionMessage(decision, 0, undefined, char);
+    expect(msg.embeds.length).toBe(1);
+  });
+
+  it('never prepends the opening frame on a CONTINUE beat (decisionIdx > 0), even if actionType were passed', () => {
+    const msg = buildDecisionMessage(decision, 1, undefined, char, 'travel');
+    expect(msg.embeds.length).toBe(1);
+  });
+
+  it('renders the combat register with the real PC name/HP and an honest placeholder foe', () => {
+    const msg = buildDecisionMessage(decision, 0, undefined, char, 'combat');
+    const frameDesc = (msg.embeds[0] as any).description as string;
+    expect(frameDesc).toContain('Aldric');
+    expect(frameDesc).toContain('24/30');
+    expect(frameDesc).toContain('Unknown foe');
+  });
+
+  it('degrades gracefully with no character data at all — still renders a frame, just placeholders', () => {
+    const msg = buildDecisionMessage(decision, 0, undefined, undefined, 'other');
+    expect(msg.embeds.length).toBe(2);
+    const frameDesc = (msg.embeds[0] as any).description as string;
+    expect(frameDesc).toContain('```ansi');
+  });
+});

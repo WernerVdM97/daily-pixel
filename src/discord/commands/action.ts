@@ -16,7 +16,7 @@ import {
   type ChatInputCommandInteraction,
   type MessageComponentInteraction,
 } from 'discord.js';
-import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData, CombatStatusData } from '../../engine/WorldEngine.js';
+import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../../engine/stat-format.js';
@@ -26,6 +26,7 @@ import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, class
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 import { renderFrame } from '../../render/AnsiRenderer.js';
+import { renderOpeningFrame, type OpeningFrameSlots } from '../../render/OpeningFrameRenderer.js';
 
 // ── Custom IDs ──
 
@@ -323,7 +324,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character, result.actionType));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -573,7 +574,18 @@ export function buildDecisionMessage(
   },
   decisionIdx: number,
   state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; narration?: string }>; accumulatedDc?: number; kind?: ActionKind },
-  char?: { stats: { physical: number; wisdom: number; intelligence: number; charisma: number }; dayJob?: string },
+  char?: {
+    stats: { physical: number; wisdom: number; intelligence: number; charisma: number };
+    dayJob?: string;
+    name?: string;
+    health?: number;
+    maxHealth?: number;
+    location?: string;
+  },
+  /** ANSI-F: the type `classify` routed this action to. Only present on the very first decision
+   *  screen (`decisionIdx === 0`) — that's the sole "post-classify, pre-first-decision" moment
+   *  the OPENING frame belongs to (classification framework §2c); CONTINUE beats never carry it. */
+  actionType?: ClassifiedActionType,
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -688,8 +700,28 @@ export function buildDecisionMessage(
     );
   }
 
+  // ANSI-F: the OPENING frame (art post) leads the message, the decision embed above IS the
+  // "reply" body (§2b) — narration, options, and the interactive buttons. The delivery convention
+  // calls for the frame as its OWN Discord message with the body as a genuine reply beneath it,
+  // but every /action call site defers/replies ephemeral, and an ephemeral interaction response
+  // cannot be the target of a separate message's reply (Discord never exposes it as a normal,
+  // referenceable channel message). Leading embed in the SAME message is the sanctioned fallback
+  // for that case — a deliberate deviation from the literal two-message convention, flagged for
+  // lead review rather than expanding this task into an ephemeral->public flow redesign.
+  const openingFrameEmbed = actionType && decisionIdx === 0
+    ? new EmbedBuilder()
+      .setDescription(renderOpeningFrame(actionType, {
+        pcName: char?.name,
+        pcHp: char?.health,
+        pcMaxHp: char?.maxHealth,
+        locationName: char?.location,
+      } satisfies OpeningFrameSlots))
+      .setColor(0x2c2f33)
+      .toJSON()
+    : undefined;
+
   return {
-    embeds: [embed.toJSON()],
+    embeds: openingFrameEmbed ? [openingFrameEmbed, embed.toJSON()] : [embed.toJSON()],
     components: components.map(r => r.toJSON()),
   };
 }

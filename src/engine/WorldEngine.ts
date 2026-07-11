@@ -102,6 +102,15 @@ export interface ActionDecisionRecord {
 /** Drives the story-thread label ("Work:" vs "Quest:"). Defaults to 'quest' when unset. */
 export type ActionKind = 'work' | 'quest';
 
+/** The seven `classify`-routed action types (ANSI-F). Duplicated here rather than importing
+ *  `ActionCategory` from `llm/LlmGateway.ts` — this seam file takes no llm/ imports (same
+ *  reasoning as `ActionKind` above); the two are kept in lockstep by construction since both are
+ *  the closed enum the classifier itself owns. Exposed on `ActionStartResult` only (not
+ *  persisted `ActionState`) so presentation can pick the OPENING register (classification
+ *  framework §3.0) without engine internals (`PipelineInternalActionState.actionType`) leaking
+ *  into the public seam. */
+export type ClassifiedActionType = 'combat' | 'travel' | 'social' | 'skill' | 'search' | 'rest' | 'other';
+
 export interface ActionState {
   rawInput: string;
   decisions: ActionDecisionRecord[];
@@ -142,6 +151,12 @@ export interface ActionStartResult {
   /** Present on auto-finish (LLM resolved immediately): mutations already applied and
    *  action row written; caller renders the outcome instead of showing buttons. */
   outcome?: ActionOutcome;
+  /** The type `classify` routed this action to (ANSI-F) — pinned once at CLASSIFY, so it's
+   *  stable for the whole action even though it's only surfaced here, at start. Presentation
+   *  uses it to pick the OPENING frame register (classification framework §3.0); never
+   *  persisted onto `ActionState` (unlike `kind`), since nothing downstream of the first
+   *  decision needs it. */
+  actionType: ClassifiedActionType;
 }
 
 export type ActionStepResult =
