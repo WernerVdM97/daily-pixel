@@ -292,20 +292,18 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       if (result.outcome) {
         const resolvedChar = engine.getCharacter(interaction.user.id);
         const scene = getCurrentScene(interaction.user.id);
-        // Compact embed for private reply (no story thread — the player just saw it in
-        // the decision embed). Full embed for the public thread copy (F#19c).
-        const privateEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, { compact: true }, engine);
-        const publicEmbed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, undefined, engine);
+        // Same embed for both private and public — the player sees the full outcome.
+        const embed = buildOutcomeEmbed(result.outcome, resolvedChar, scene, result.state, undefined, engine);
         const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
         await interaction.editReply({
-          embeds: [privateEmbed],
+          embeds: [embed],
           components: resolvedChar
             ? [...getNavButtons(resolvedChar), ...serviceButtons]
             : serviceButtons,
         });
         const payload = {
           content: `${classEmoji(resolvedChar?.class)} **${resolvedChar?.name ?? 'Unknown'}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
-          embeds: [publicEmbed],
+          embeds: [embed],
           components: getPublicOutcomeButtons(result.outcome.actionId),
           allowedMentions: { users: [] },
         };
@@ -424,14 +422,12 @@ async function applyActionResult(
 
     // Destination scene shown when the character moved.
     const scene = _sceneLookup?.(i.user.id);
-    // Compact for private reply (no story thread — the player just saw it in the
-    // decision embed). Full for the public thread copy (F#19c).
-    const privateEmbed = buildOutcomeEmbed(outcome, character, scene, result.state, { compact: true }, engine);
-    const publicEmbed = buildOutcomeEmbed(outcome, character, scene, result.state, undefined, engine);
+    // Same embed for both private and public — the player sees the full outcome.
+    const embed = buildOutcomeEmbed(outcome, character, scene, result.state, undefined, engine);
 
     const serviceButtons = getOutcomeServiceButtons(outcome.actionId);
     await i.webhook.editMessage(i.message.id, {
-      embeds: [privateEmbed],
+      embeds: [embed],
       components: character
         ? [...getNavButtons(character), ...serviceButtons]
         : serviceButtons,
@@ -441,7 +437,7 @@ async function applyActionResult(
     const charName = character?.name ?? 'Unknown';
     const payload = {
       content: `${classEmoji(character?.class)} **${charName}** <@${i.user.id}> — ${outcome.distilledType}`,
-      embeds: [publicEmbed],
+      embeds: [embed],
       components: getPublicOutcomeButtons(outcome.actionId),
       allowedMentions: { users: [] },
     };
