@@ -137,10 +137,10 @@ The engine keeps the banding maths (`enemyConditionBand` yields `woundWord` + `p
 
 **Acceptance:**
 
-- [ ] A per-round log persists each round's maths; nothing is discarded.
+- [x] A per-round log persists each round's maths; nothing is discarded. → **Done** (`79d48a3`): six maths fields on `CombatBeatLog`, per-fight list on `pendingDecision.combatRounds` + terminal `ActionOutcome.combatRounds`, tolerant read. `dc` = the round's `baseDc` (contested roll, not a threshold).
 - [ ] The dice line is visible on the continue frame and the first beat, not only at the end (live).
 - [ ] The terminal frame stops duplicating the embed stats footer.
-- [ ] Continue + terminal card mocks exist, width-tested and indexed; the frame code follows them.
+- [x] Continue + terminal card mocks exist, width-tested and indexed; the frame code follows them. → **Mocks done** (`d45b5ec`); frame code pending.
 - [ ] Closes the `TODO.md` "combat still isn't shown good, list each dice roll/outcome per decision" item.
 
 **Depends on:** ANSI-C (composes frames from structured status).
