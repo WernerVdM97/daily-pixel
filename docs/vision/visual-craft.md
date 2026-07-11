@@ -105,7 +105,7 @@ Chrome as a signal. The same renderer swaps the border register to match the sta
 ┌────────────────────────────┐      ╔════════════════════════════╗      o════════════ ╡@╞ ═══════════o
 │  ...                       │      ║  GLOOMFANG                 ║      ║  CRITICAL HIT              ║
 │  14 +3 = 17       [DC 15]  │      ║  HP [▓░░░░░░░]   BLOODIED  ║      ║  20 * * *         [DC 15]  ║
-│  hit +2 margin      TRADE  │      ║  YOU                       ║      ║  20 +4 = 24  x2            ║
+│  hit +2 margin      TRADE  │      ║  YOU                       ║      ║  20 +4 = 24                ║
 └────────────────────────────┘      ║  HP [███░░░░░░░░░]   5/24  ║      ║  + CLEAN        margin +9  ║
                                      ╠════════════════════════════╣      ║  The GLOOMFANG is felled!  ║
                                      ║  8 +3 = 11        [DC 16]  ║      o════════════════════════════o
