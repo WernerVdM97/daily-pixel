@@ -23,6 +23,7 @@ import {
   escapeBackticks,
   hpBar,
   PALETTES,
+  INTERIOR_WIDTH,
   type Palette,
   type Role,
   type Segment,
@@ -61,11 +62,18 @@ export interface OpeningFrameSlots {
   enemyName?: string;
 }
 
-// Matches the wireframes' own bar widths (opening-combat.ascii) — the opening frame is a
-// scene-setter, not a live data readout (classification framework §3.0: "carries no roll
-// maths"), so unlike AnsiRenderer's combat-continue frame this bar width is fixed, not adaptive.
+// Matches the wireframes' own bar width (opening-combat.ascii) — the enemy bar is always the
+// "unknown foe" placeholder (never real HP, see enemyName's doc comment above), so unlike
+// AnsiRenderer's combat-continue frame this bar width stays fixed, not adaptive.
 const ENEMY_BAR_WIDTH = 14;
+// Placeholder-branch width only (no real HP, fixed "?/?" suffix, never overflows). The real-HP
+// branch in combatLines sizes its bar adaptively instead — same reason AnsiRenderer's
+// hpLineSegments does: a fixed width would let fitSegments truncate a wide "{hp}/{maxHp}" suffix
+// from the end of the line, silently eating a digit off the HP number itself.
 const PC_BAR_WIDTH = 6;
+// Floor for the adaptively-sized real-HP bar (mirrors AnsiRenderer's MIN_HP_BAR_WIDTH) so a very
+// long "hp/maxHp" suffix can still shrink the bar without erasing it.
+const MIN_PC_BAR_WIDTH = 3;
 // Mirrors AnsiRenderer's own LOW_HP_THRESHOLD (fraction below which a filled bar reads as threat
 // rather than life) — duplicated locally since that constant isn't exported; both frames rely on
 // the same "under ~40%" design-doc convention that shouldn't need re-litigating here.
@@ -143,10 +151,25 @@ function combatLines(slots: OpeningFrameSlots): Segment[][] {
 
   const pcName = clipName(slots.pcName ?? 'Warden', 14);
   const hasPcHp = slots.pcHp !== undefined && slots.pcMaxHp !== undefined;
-  const pcBar = hasPcHp ? hpBar(slots.pcHp!, slots.pcMaxHp!, PC_BAR_WIDTH) : hpBar(0, 0, PC_BAR_WIDTH);
-  const pcFraction = hasPcHp && slots.pcMaxHp! > 0 ? slots.pcHp! / slots.pcMaxHp! : 1;
+
+  // Clamp before display so the printed number always agrees with hpBar's own internal clamp
+  // (mirrors AnsiRenderer.hpLineSegments's guard) — otherwise e.g. pcHp: -5 would print "-5/30"
+  // next to a bar that (correctly) renders empty.
+  const clampedMax = hasPcHp ? Math.max(slots.pcMaxHp!, 0) : 0;
+  const clampedHp = hasPcHp ? Math.min(Math.max(slots.pcHp!, 0), clampedMax) : 0;
+  const pcSuffix = hasPcHp ? ` ${Math.round(clampedHp)}/${Math.round(clampedMax)}` : ' ?/?';
+
+  // Size the real-HP bar from the fixed prefix ('  /|_|\   HP [') + trailing ']' + the actual
+  // suffix length, so the line lands at exactly INTERIOR_WIDTH before fitSegments ever has to
+  // truncate — see PC_BAR_WIDTH's comment for why a fixed width silently ate a digit off 3-digit
+  // HP. The no-HP placeholder branch keeps the short fixed PC_BAR_WIDTH (its suffix never grows).
+  const pcBarPrefixLen = '  /|_|\\   HP ['.length;
+  const pcBarWidth = hasPcHp
+    ? Math.max(MIN_PC_BAR_WIDTH, INTERIOR_WIDTH - pcBarPrefixLen - 1 - pcSuffix.length)
+    : PC_BAR_WIDTH;
+  const pcBar = hasPcHp ? hpBar(clampedHp, clampedMax, pcBarWidth) : hpBar(0, 0, PC_BAR_WIDTH);
+  const pcFraction = hasPcHp && clampedMax > 0 ? clampedHp / clampedMax : 1;
   const pcBarRole: Role = hasPcHp ? (pcFraction < LOW_HP_THRESHOLD ? 'threat' : 'life') : 'chrome';
-  const pcSuffix = hasPcHp ? ` ${Math.round(slots.pcHp!)}/${Math.round(slots.pcMaxHp!)}` : ' ?/?';
 
   return [
     [plain('  '), coloured(enemyName, 'threat')],

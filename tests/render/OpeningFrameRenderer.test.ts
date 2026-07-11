@@ -164,6 +164,26 @@ describe("OpeningFrameRenderer", () => {
       expect(mono).toContain("?/?");
     });
 
+    it("combat keeps all three digits of a 3-digit PC HP number intact (regression: adaptive bar sizing)", () => {
+      const rendered = renderOpeningFrame("combat", { pcName: "Aldric", pcHp: 100, pcMaxHp: 100 });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("100/100");
+      expect(mono).not.toContain("100/10 ");
+    });
+
+    it("combat keeps all digits of the widest realistic PC HP number intact", () => {
+      const rendered = renderOpeningFrame("combat", { pcName: "Aldric", pcHp: 999, pcMaxHp: 999 });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("999/999");
+    });
+
+    it("combat clamps a negative PC HP to 0 in the displayed suffix, agreeing with the (empty) bar", () => {
+      const rendered = renderOpeningFrame("combat", { pcName: "Aldric", pcHp: -5, pcMaxHp: 30 });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("0/30");
+      expect(mono).not.toContain("-5/30");
+    });
+
     it("travel shows the origin location name and the literal rumoured-destination glyph", () => {
       const rendered = renderOpeningFrame("travel", { locationName: "Oakhollow" });
       const mono = stripSgr(rendered);
