@@ -4,7 +4,11 @@ All notable changes to The Warden's Oak are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.1] - 2026-07-11
+
+### Changed
+
+- **Combat frames redesigned** — the between-decisions continue card and the fight-over terminal card rebuilt per the [[visual-craft]] creed: a floated, colour-coded roll readout with the DC boxed and emphasised (`[DC N]`) instead of spelled out, the `d20` label dropped, the band word and `+`/`x` marker carrying the meaning in monochrome, and the HP bars using banded enemy condition pips instead of exact numbers. The border register escalates with intensity and rarity (single box-drawing → heavy double-line when bloodied → ornamental crest-interrupt rim on a nat-20), so a punishing round or a critical hit looks different before a word is read. `src/render/AnsiRenderer.ts` gains the `BorderStyle` ladder and `BORDERS` registry; `src/render/CombatCardRenderer.ts` adds `renderCombatContinueCard` and `bandColor` and redesigns `renderCombatTerminalCard`. Supersedes the plain dice-line readout from `d7a3cb5`.
 
 ### Added
 

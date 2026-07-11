@@ -1,0 +1,17 @@
+tag: v0.3.1
+title: Combat Readability & Polish Release
+date: "2026-07-11"
+highlights:
+  - Combat readability overhaul — every dice roll is now visible between decisions, not just at the end. Floated readout with the DC boxed and emphasised, band-coloured margin, and the threat level carried by the band word itself (monochrome-safe).
+  - The frame signals intensity — borders escalate from standard to heavy when bloodied, and a nat-20 gets a crest-interrupt rim.
+  - Opening frame before every action — a scene-setting ANSI frame leads the decision screen (foe nameplate for combat, location for travel, NPC bust for social).
+  - Custom actions get a real thinking screen — your text plus a Thinking beat before the engine kicks in.
+  - Morning and evening messages carry rotating day-keyed prose — same day, same flavour everywhere.
+  - Action menu hints — last action, low stamina, unsafe location prompts.
+  - Journal decluttered — Chronicle and NPCs split into sections, bold colour-coded success/failure tags, intel rails.
+  - Rest button has weight — Bedding down beat on click, sectioned rest body.
+  - Join-screen skill formatting improved — line breaks, blockquoted bonuses.
+  - Inspiration accounting fixed — drain and grant net correctly on auto-resolved actions.
+  - max_stamina gains now persist — the repo allow-list was missing it, so a +2 reward never saved.
+  - Item losses now read as subtraction, not a Discord list bullet.
+  - Divine intervention no longer costs a roll — fallback refunds as a System message.

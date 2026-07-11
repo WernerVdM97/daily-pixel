@@ -5,6 +5,8 @@
 
 ### TBD — POC polish (small UI wins, no spark warranted)
 
+- [ ] render ansi as images? so mobile works?
+- [ ] travel prompt should inject the current location, edge, and final location state. and routes to get there.
 - [ ] migrate ascii to ansi in semantics, source files, and references
 - [ ] movement on low difficulty terrain can be deterministic for up to a total of 3 effort, 3 times 1 difficulty edges. Or a 1 and 2 difficulty edge. When traversing a 3 (or greater) difficulty edge in one action, the travel prompt has to trigger.
   - actions that involve movement but isn't it directly, like prompting to search the library from the wardens oak, should ensure that the travel beat is first evaluated (could auto travel, or demand travel as a seperate action).
@@ -44,10 +46,10 @@ The T2 live check passed on content (colours good on desktop, monochrome clean o
 
 **B — renderer standardisation**
 
-- [ ] Fix `chrome` away from 30 (`AnsiRenderer.ts:63`) — black borders are unreadable on Discord's dark code-block bg (seen live 2026-07-10). Target whatever A proves readable.
-- [ ] Extract the role→SGR map into a palette module: named universal palettes (house default + mood variants), renderer takes a palette, each frame declares which it uses (skill §1 "palette first").
-- [ ] Prettier borders per the skill's border vocabulary (§2 chrome, ornamental rim, crest interrupt for special frames); box-drawing needs a mobile render check first (flagged unverified in skill §1).
-- [~] Wireframe/mock library: canonical monochrome `.ascii` mocks per frame type under `assets/`, width-validated by tests, referenced by the `ansi-frames` skill as the mandatory inspiration input for any AI-authored frame. → **Opening-frame set done** (2026-07-10): per classified action type (combat/travel/social/skill/search/rest/other) a slot template (`opening-<type>.slots.ascii`) beside a filled example (`opening-<type>.ascii`) under `assets/ansi/wireframes/`, width-validated by `tests/render/opening-wireframes.test.ts`, indexed by a README (template-beside-example gallery) and referenced from the `ansi-frames` skill. Introduced the **opening frame** (post-classify, pre-first-decision scene-setter) and the universal **art-post + reply-body** delivery convention, both folded into [[ansi-art-classification-framework]] (§2b/§2c/§3.0) and [[mvp+ansi-art]]. **Still to mock:** combat continue card, combat terminal card, and the stage-2 broadcast frame.
+- [x] ~~Fix `chrome` away from 30~~ → **Done** (`d98258d`, then `b1a5d28`): chrome at 37; entire renderer redesigned with box-drawing borders, border-style ladder, and palette-driven colours.
+- [x] ~~Extract the role→SGR map into a palette module~~ → **Done** (`d98258d`): `src/render/palette.ts`.
+- [x] ~~Prettier borders~~ → **Done** (`b1a5d28` combat-frame redesign): box-drawing standard/heavy/crit border ladder with crest-interrupt rim; supersedes the ASCII `+`/`-`/`|` defaults.
+- [~] Wireframe/mock library → **Continue + terminal done** (`d45b5ec` mocks, `b1a5d28` redesign); broadcast frame still deferred.
 
 **C — architecture**
 
@@ -56,13 +58,13 @@ The T2 live check passed on content (colours good on desktop, monochrome clean o
 
 **D — combat visibility**
 
-- [ ] Track every round: append `{roll, bonus, dc, margin, band, enemyHpDelta, playerHpDelta}` per round to a combat round log (CombatState props or the decision record) instead of discarding the transient `roundResult`.
-- [ ] Show the round's maths between decisions: the continue frame currently renders HP bands only (no dice line), the first beat has no frame, and a fight that resolves on its first choice shows only the terminal frame — so rolls are only ever visible at the end. Every roll should be visible when it happens.
-- [ ] De-noise the terminal frame using the data-card hierarchy (skill §2 "data cards", per [[mvp+ansi-art]] §12's roll-card reference: dim label, focal number, calc line, colour-coded outcome, flavour); stop duplicating what the embed's stats footer already shows.
+- [x] ~~Track every round~~ → **Done** (`79d48a3`): per-round maths on `CombatBeatLog`.
+- [x] ~~Show the round's maths between decisions~~ → **Done** (`d7a3cb5` then redesigned `b1a5d28`): floated readout with boxed DC; band-coloured margin + band word on the continue card.
+- [x] ~~De-noise the terminal frame~~ → **Done** (`d7a3cb5` redesign `b1a5d28`): pure data card, no HP bars; `d20` label dropped, DC boxed, ASCII `+`/`x` marker.
 
 **E — doc loop**
 
-- [ ] Fold every settled decision back into the `ansi-frames` skill and [[mvp+ansi-art]]; tick the stage-1 plan's live-check box with the border defect logged.
+- [/] Fold every settled decision back into the `ansi-frames` skill and [[mvp+ansi-art]]; tick the stage-1 plan's live-check box with the border defect logged. → **Settled facts recorded** (ANSI-A); border redesign supersedes the logged defect; live-check batched via `scripts/live-check-0.3.1.ts`.
 
 **F — opening frame + delivery (new surface, designed 2026-07-10; tasked at full scope in [[poc-plus-0.3.1-polish-plan]] ANSI-F)**
 
@@ -161,3 +163,7 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
 - **Done / shipped (struck):** preset work labelled `Work:` not `🧭 Quest:` and commute `−1 stamina` shown on the thinking page; the no-op refund scope question (stamina-/roll-only "shrug" is again a refundable no-op — D1 follow-up). All in `[Unreleased]`.
 - **Working as designed (struck):** post-`/join` welcome shows no "Hi" button because that screen *is* the Hi screen (`getNavButtons` filters the current command — `format.ts:137`).
 - **Routed to sparks:** Warden NPC duplicates (hooded figure vs The Warden) → [[mutation-vocabulary-refinement]] §2 (NPC name-resolution); world evolves with time / rising DC / new threats → [[prompt-separation-of-concerns]] Thread B (World Tier); global rumours pulling players toward dangerous unexplored locations → [[prompt-separation-of-concerns]] Thread B + [[per-player-map-exploration]] (`reveal_location` leaf); end-to-end flow tests with mocked LLM + scripted button presses → [[mvp-llm-prompt-architecture]].
+
+# MVP(+)?
+
+- [ ] the ansi art engine should be re written in custom font character that are compiled into an actual image and sent as pixelated art.
