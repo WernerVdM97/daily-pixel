@@ -1,6 +1,7 @@
 ---
 title: "v12 QA — prod data review (2026-07-05)"
-status: spark
+status: shipped
+superseded_by: "implemented in code"
 domain: spark
 tags: [v12, pipeline, llm, prompt-refactor, qa, bug]
 phase: poc
@@ -8,6 +9,8 @@ related:
   - "[[polish-v0.2.8]]"
   - "[[v12-pipeline-plan]]"
 ---
+
+> **Resolved (2026-07-11).** Every concrete recommendation below shipped in `0.3.0`: the 60s per-call timeout, pipeline call-ID wiring into `llmCallIds`, timeout resolving as `timed_out`, the single-option validator, auto-resolve on a first-beat empty `decision[]`, and the critic firing on every decide beat (see the `0.3.0` changelog). The one open checkbox not pursued is the speculative "background-log DeepSeek reasoning on timeout" audit idea (self-labelled Investigate). Kept for history.
 
 Raw findings from ~20 minutes of playtesting v12 on prod (`app_version 0.2.8`, `prompt_version v12`), queried from `data/warden.db`.
 

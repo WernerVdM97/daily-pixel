@@ -42,7 +42,8 @@ Tracking:
 
 - [x] **Stage 1** — v12 tail + welcome tag + combat maths reveal ([[poc-plus-stage-1-plan]]) _Done 2026-07-09; branch `poc-plus/stage-1-t2`, commit `94ecbee`. T2 live check ran 2026-07-10: passed on content (colour on desktop, clean monochrome on mobile) but surfaced renderer styling/architecture debt, spun into the `0.3.1` polish release below. Build plan archived → `archived/poc-plus/`._
 - [x] **`0.3.1` polish & hardening** — interstitial release before stage 2 ([[poc-plus-0.3.1-polish-plan]]) _Done 2026-07-11; released (VERSION 0.3.1, tag `v0.3.1`, merged `poc-plus/0.3.1-polish` → dev). Not an arc stage; finished the combat-readability arc by paying down the T2 live-check debt (the `ANSI frame polish` block: renderer standardised, combat-frame redesign, opening frames for all seven types), plus the 2026-07-08 prod bug batch (B#1-B#4) and small UX wins. Build plan archived → `archived/poc-plus/`._
-- [ ] **Stage 2** — nat 1/20 global broadcast (plan authored by the lead at stage start; opens the release after `0.3.1`)
+- [ ] **`0.3.2` combat-correctness & prod bugs** — second interstitial release before stage 2 ([[poc-plus-0.3.2-polish-plan]]) _Not an arc stage; the 2026-07-11 prod+dev review showed the `0.3.1` combat readout backfired (wins shown as losses, verdict contradicts band+HP, generic "Minion" with DC-derived HP). Makes the combat card tell one true story before crits get broadcast publicly in stage 2, then folds in the fresh non-combat bug batch. Scoped 2026-07-11._
+- [ ] **Stage 2** — nat 1/20 global broadcast (plan authored by the lead at stage start; opens the release after `0.3.2`)
 - [ ] **Stage 3** — cross-player buffs (plan authored by the lead at stage start)
 - [ ] **Stage 4** — Saturday shared-boss hunt (plan authored by the lead at stage start)
 
