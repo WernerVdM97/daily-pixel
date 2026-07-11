@@ -5,8 +5,11 @@
 
 ### TBD — POC polish (small UI wins, no spark warranted)
 
+- [ ] rework this:
+  > [DC 12] — misleading label carried over from non-combat rolls; it's not a threshold the player needs to beat. It's actually the encounter's baseDc (set by the LLM's decide step, e.g. MockLlmGateway/FallbackLlmGateway/DeepSeek output, range ~10-18). It only matters because the enemy's bonus is derived from it: enemyBonus = clamp(baseDc - 10, 0, 10). It also sets the enemy's max HP (deriveEnemyMaxHp). The engine also rolls a hidden enemy d20 each round — its total (enemyD20 + enemyBonus) isn't shown on this mid-fight card, only on the final "COMBAT RESOLVED" card when the fight ends.
+  instead, make that show the dangerouseness of the encounter. use the dc values and map them to something like, easy, medium, hard, risky, fatal, etc.
 - map seems formatted weird:
-```
+``` 
 The Vale (home)
 🌳🛡️ The Warden's Oak
 ├─ 🌿⚠️🏃 The Forest Edge  ◀ you are here
