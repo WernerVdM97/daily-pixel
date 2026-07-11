@@ -1,0 +1,19 @@
+---
+tags: [combat, terminal, wireframe]
+register: "DATA CARD (roll-card reference, mvp+ansi-art.md §12)"
+summary: "Fight-over card: dim caps label, big focal d20 roll, calc line, colour-coded outcome marker, one flavour line. No sprite art."
+slots: "label, roll(raw d20), calc(bonus, total, dc), outcome(marker, verdict, margin), flavour(one line)"
+colour: "label + chrome 90 (dim caps); focal d20 33 warmth, bold; calc line 90 dim; outcome marker+verdict 32 life (win) / 31 threat (loss), margin plain; flavour 90 dim"
+binding: "engine(CombatBeatLog — ANSI-D contract: playerD20, playerBonus, dc, margin, band) + engine(ActionOutcome.outcome for the verdict); flavour is LLM narration, truncated to the message-line budget"
+reply: "Deliberately does NOT repeat what the embed's stats footer already shows (health/stamina/wealth/rolls deltas) — those stay in buildOutcomeEmbed's `❤️ ⚡ 🎲 💰` line beneath. This card is ONLY the fight's final roll maths and verdict; the outcome embed body still carries the narration in full alongside it."
+pairs_with: "combat-terminal.slots.ascii (the slot template)"
+note: "Canonical monochrome MOCK, not a live asset (ANSI-D 'mocks first' — the frame code lands after these mocks). Replaces today's ad hoc two-line message box (OutcomeRenderer.buildCombatFrameSpec) with the data-card register per the skill's §2 hierarchy and the mvp+ansi-art.md §12 roll-card reference: no enemy nameplate/HP bar, no sprite — pure typographic five-beat card, the cheapest register in the library. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide. Uses ASCII '+'/'x' pass/fail markers only (never the ✓/✗ dingbats, skill §1)."
+---
++----------------------------+
+|  COMBAT RESOLVED           |
+|                            |
+|  16                    d20 |
+|  +4 = 20         vs DC 15  |
+|  + WIN           margin +5 |
+|  The GLOOMFANG collapses.  |
++----------------------------+

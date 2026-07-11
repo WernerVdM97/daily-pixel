@@ -168,3 +168,43 @@ slot template                     example
 +----------------------------+    |                            |
                                   +----------------------------+
 ```
+## Combat round-card wireframes
+
+Two more monochrome mocks, sibling to the opening-frame set above but for the *inside* of a fight rather than its start: `combat-continue` (the between-decisions status shown after every round) and `combat-terminal` (the fight-over card). Mocked ahead of the frame code per ANSI-D's "mocks first" step (`docs/engine/poc-plus-0.3.1-polish-plan.md`), tasked because the T2 live check found rolls were only ever visible at the very end of a fight — the continue frame rendered HP bands only, no dice. Width-validated by `tests/render/combat-round-wireframes.test.ts` (same 30-char-per-line invariant, `combat`/`continue`/`terminal` tags instead of `opening`/`<type>`).
+
+| Type       | Register                            | What it sets                                                     |
+| ---------- | ------------------------------------ | ------------------------------------------------------------------ |
+| `continue` | COMBAT_FRAME (continue, dice-line)   | enemy nameplate + banded condition, player HP, round dice maths  |
+| `terminal` | DATA CARD (roll-card reference, §12) | dim label, focal d20, calc line, colour-coded verdict, flavour    |
+
+`combat-terminal` deliberately drops the enemy nameplate/HP-bar and sprite the old ad hoc terminal message box carried — it converts fully to the data-card register (no sprite art at all) and does not repeat what the embed's stats footer (`❤️ ⚡ 🎲 💰`) already shows.
+
+### `continue`
+
+```
+slot template                     example
++----------------------------+    +----------------------------+
+|  [enemy_name]              |    |  GLOOMFANG                 |
+|  COND [==pips==]  [wound]  |    |  COND [▓▓▓░░]      BRUISED |
+|  YOU  HP [==bar==] [hp/max]|    |  YOU   HP [▓▓▓▓▓▓░░] 18/24 |
+|                            |    |                            |
+|  d20 [p_d20]+[bonus] vs DC |    |  d20 14 +3 vs DC 15        |
+|  [dc]   margin [mgn] [band]|    |  margin +2         TRADE   |
++----------------------------+    +----------------------------+
+```
+
+### `terminal`
+
+```
+slot template                     example
++----------------------------+    +----------------------------+
+|  [label]                   |    |  COMBAT RESOLVED           |
+|                            |    |                            |
+|  [p_d20]               d20 |    |  16                    d20 |
+|  +[bonus] = [total]        |    |  +4 = 20         vs DC 15  |
+|  vs DC [dc]                |    |  + WIN           margin +5 |
+|  [marker] [verdict]        |    |  The GLOOMFANG collapses.  |
+|  margin [mgn]              |    +----------------------------+
+|  [flavour_line]            |
++----------------------------+
+```
