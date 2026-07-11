@@ -316,7 +316,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     expect(desc).toBe('> Scout — what do you do?\n\n**A.** Track the wolf quietly ⬇️');
   });
 
-  it('renders combatStatus as a plain (unquoted) line between narration and the CTA on combat continue-screens', () => {
+  it('ANSI-C tolerant read: a legacy pre-rendered string combatStatus (old in-flight state) still renders as a plain (unquoted) line, without throwing', () => {
     const msg = buildDecisionMessage({
       prompt: 'Combat — what do you do?',
       narration: 'The wolf lunges, jaws snapping shut on air.',
@@ -329,6 +329,29 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     expect(desc).not.toContain('> Wolf: ▓▓▓░░');
     expect(desc.indexOf('jaws snapping')).toBeLessThan(desc.indexOf('Wolf: ▓▓▓░░'));
     expect(desc.indexOf('Wolf: ▓▓▓░░')).toBeLessThan(desc.indexOf('Combat — what do you do?'));
+  });
+
+  it('ANSI-C: a structured CombatStatusData combatStatus (current engine shape) is composed into an AnsiRenderer frame', () => {
+    const msg = buildDecisionMessage({
+      prompt: 'Combat — what do you do?',
+      narration: 'The wolf lunges, jaws snapping shut on air.',
+      combatStatus: {
+        enemyName: 'Wolf',
+        woundWord: 'Bloodied',
+        pips: { filled: 3, total: 5 },
+        playerHp: 10,
+        playerMaxHp: 12,
+        playerHpDelta: -2,
+      },
+      options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
+    }, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+    // Composed via AnsiRenderer — a fenced frame, not a plain text line.
+    expect(desc).toContain('```ansi');
+    expect(desc).toContain('Wolf');
+    expect(desc).toContain('Bloodied');
+    expect(desc).toContain('10/12');
+    expect(desc).toContain('-2');
   });
 
   it('omits combatStatus on non-combat screens where the engine never set it', () => {

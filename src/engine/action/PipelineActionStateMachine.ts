@@ -17,6 +17,7 @@ import type {
   WorldMutation,
   CharacterData,
   ItemData,
+  CombatStatusData,
 } from '../WorldEngine.js';
 import { accumulateDc, abilityCheckBonus, resolveRoll, validateDcModifier } from './dc.js';
 import { MAX_DECISIONS_PER_ACTION } from '../../llm/prompt-builder.js';
@@ -39,7 +40,6 @@ import {
   type CombatState,
 } from './combat-state.js';
 import { resolveRelationEndpoint, type NearbyNpc } from './relation-wiring.js';
-import { renderFrame } from '../../render/AnsiRenderer.js';
 
 /** ActionState plus the pipeline's internal fields, stored in the JSON column (mirrors
  *  `InternalActionState` in machine.ts, but with `actionType`/`flags` pinned at classify
@@ -1175,24 +1175,25 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
   };
 }
 
-/** Enemy HP fraction -> a 5-pip bar + wound word (decide-scene-narration spec). Banded only —
- *  never the exact HP number — so hidden exact HP keeps tension while still reading as progress. */
-function enemyConditionBand(hpFraction: number): { pips: string; woundWord: string } {
+/** Enemy HP fraction -> a 5-pip fill count + wound word (decide-scene-narration spec). Banded
+ *  only — never the exact HP number — so hidden exact HP keeps tension while still reading as
+ *  progress. Returns the fill count (not glyphs); the presentation layer renders the pips. */
+function enemyConditionBand(hpFraction: number): { filled: number; woundWord: string } {
   const filled = Math.max(0, Math.min(5, Math.round(hpFraction * 5)));
-  const pips = '▓'.repeat(filled) + '░'.repeat(5 - filled);
   const woundWord =
     hpFraction >= 0.8 ? 'Healthy'
     : hpFraction >= 0.4 ? 'Bloodied'
     : hpFraction >= 0.15 ? 'Battered'
     : 'Critical';
-  return { pips, woundWord };
+  return { filled, woundWord };
 }
 
-/** Engine-composed combat-status FRAME for a continue-screen (B#5/B#6): enemy and player each
- *  get their own line inside an AnsiRenderer frame instead of the old crammed one-liner. The
- *  enemy stays BANDED (never exact HP — hidden exact HP keeps tension); the player is EXACT,
- *  it's their own information, clamped to >=0 so a lethal round never displays negative HP
- *  mid-resolution (0/dead is resolved by the terminal outcome, not this continue screen). */
+/** Engine-composed combat-status DATA for a continue-screen (B#5/B#6, ANSI-C): the engine keeps
+ *  the banding maths only — enemy stays BANDED (never exact HP — hidden exact HP keeps tension);
+ *  the player is EXACT, it's their own information, clamped to >=0 so a lethal round never
+ *  displays negative HP mid-resolution (0/dead is resolved by the terminal outcome, not this
+ *  continue screen). Frame assembly (glyphs, AnsiRenderer) moves to the presentation layer
+ *  (`buildDecisionMessage`) so `src/render/` is never imported engine-side. */
 function composeCombatStatus(
   enemyName: string,
   enemyHp: number,
@@ -1200,18 +1201,17 @@ function composeCombatStatus(
   playerHpDelta: number,
   playerHp: number,
   playerMaxHp: number,
-): string {
-  const { pips, woundWord } = enemyConditionBand(enemyMaxHp > 0 ? enemyHp / enemyMaxHp : 0);
+): CombatStatusData {
+  const { filled, woundWord } = enemyConditionBand(enemyMaxHp > 0 ? enemyHp / enemyMaxHp : 0);
   const displayedPlayerHp = Math.max(0, playerHp + playerHpDelta);
-  return renderFrame({
-    header: { name: enemyName, hp: enemyHp, maxHp: enemyMaxHp, bar: pips, hpText: woundWord },
-    footer: {
-      name: 'You',
-      hp: displayedPlayerHp,
-      maxHp: playerMaxHp,
-      floater: playerHpDelta !== 0 ? (playerHpDelta > 0 ? `+${playerHpDelta}` : `${playerHpDelta}`) : undefined,
-    },
-  });
+  return {
+    enemyName,
+    woundWord,
+    pips: { filled, total: 5 },
+    playerHp: displayedPlayerHp,
+    playerMaxHp,
+    playerHpDelta,
+  };
 }
 
 function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen: string; dcModifier: number }[] {

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../src/engine/OutcomeRenderer.js';
+// Combat-frame tests below inject the presentation-side renderer (ANSI-C: OutcomeRenderer
+// itself never imports src/render/ — see the grep-proof acceptance in the ANSI-C plan section).
+import { renderFrame } from '../../src/render/AnsiRenderer.js';
 
 // ── Helpers ──
 
@@ -730,7 +733,7 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
     };
 
-    const result = formatOutcome(combatOutcome, ctx({ health: 12 }));
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderFrame);
 
     // Text roll header is replaced by the frame — no emoji-dice line
     expect(result).not.toContain('🎲 18');
@@ -766,7 +769,7 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       combatFrame: { enemyName: 'Wolf', enemyMaxHp: 8, margin: 6 },
     };
 
-    const result = formatOutcome(combatOutcome, ctx());
+    const result = formatOutcome(combatOutcome, ctx(), renderFrame);
     const stripped = stripSgr(result);
 
     // enemyDelta = 2 - 8 = -6, player delta = -4
@@ -796,7 +799,7 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       combatFrame: { enemyName: 'Wolf', enemyMaxHp: 8, margin: 2 },
     };
 
-    const result = formatOutcome(combatOutcome, ctx());
+    const result = formatOutcome(combatOutcome, ctx(), renderFrame);
     const stripped = stripSgr(result);
 
     // enemyDelta = 0 → no enemy floater line emitted
@@ -828,7 +831,7 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       combatFrame: { enemyName: 'Dragon', enemyMaxHp: 20, margin: 20 },
     };
 
-    const result = formatOutcome(combatOutcome, ctx());
+    const result = formatOutcome(combatOutcome, ctx(), renderFrame);
     const stripped = stripSgr(result);
 
     expect(stripped).toContain('!d20 20');
@@ -859,7 +862,7 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       combatFrame: { enemyName: 'Orc', enemyMaxHp: 10, margin: 10 },
     };
 
-    const result = formatOutcome(combatOutcome, ctx({ health: 2, maxHealth: 10 }));
+    const result = formatOutcome(combatOutcome, ctx({ health: 2, maxHealth: 10 }), renderFrame);
 
     // Player HP shows 2/10 (clamped within bounds, not negative)
     expect(result).toContain('2/10');
@@ -889,7 +892,7 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
     };
 
-    const result = formatOutcome(combatOutcome, ctx({ health: 12 }));
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderFrame);
     expect(result.length).toBeLessThan(2000);
   });
 
@@ -915,7 +918,7 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
     };
 
-    const result = formatOutcome(combatOutcome, ctx({ health: 12 }));
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderFrame);
     const stripped = stripSgr(result);
 
     expect(stripped).toContain('Goblin');

@@ -42,6 +42,19 @@ export interface StatBlock {
   charisma: number;
 }
 
+/** Structured combat-continue status (ANSI-C): the engine emits only the banding maths (never
+ *  exact enemy HP); the presentation layer composes the frame from this data. Screen-only —
+ *  never persisted onto `ActionDecisionRecord`. */
+export interface CombatStatusData {
+  enemyName: string;
+  woundWord: string;
+  pips: { filled: number; total: number };
+  /** Clamped >= 0 so a lethal round never displays negative HP mid-resolution. */
+  playerHp: number;
+  playerMaxHp: number;
+  playerHpDelta: number;
+}
+
 export interface ActionDecision {
   prompt: string;
   options: ActionOption[];
@@ -49,9 +62,12 @@ export interface ActionDecision {
    *  CONTINUE only — absent on the first beat, so it stays lean. Threaded onto the record too
    *  (`ActionDecisionRecord.narration`) so the story-thread can render it per beat. */
   narration?: string;
-  /** Engine-composed status line for a combat continue-screen (banded enemy condition plus
-   *  exact player HP movement). Screen-only — never persisted onto the record. */
-  combatStatus?: string;
+  /** Engine-composed status for a combat continue-screen (banded enemy condition plus exact
+   *  player HP movement). Screen-only — never persisted onto the record. `string` is the legacy
+   *  in-flight shape (a pre-composed ANSI frame, persisted by the engine before ANSI-C) — an
+   *  action mid-flight across the deploy still carries it in its saved state JSON, so the
+   *  presentation layer's read must tolerate both shapes. */
+  combatStatus?: CombatStatusData | string;
 }
 
 export interface ActionOption {

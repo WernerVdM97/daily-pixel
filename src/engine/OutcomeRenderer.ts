@@ -4,7 +4,6 @@
 
 import type { ActionOutcome, WorldMutation } from './WorldEngine.js';
 import { STAT_LABELS } from './stat-format.js';
-import { renderFrame } from '../render/AnsiRenderer.js';
 
 // ── Public context — only current (post-mutation) values ──
 
@@ -143,16 +142,27 @@ const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {
   timed_out: { icon: '⏰', label: 'TIMED OUT' },
 };
 
+/** Structural mirror of `render/AnsiRenderer.ts`'s `FrameSpec`/`CombatantLine` (the fields this
+ *  module's frame actually uses) — kept as a local shape rather than importing the type so
+ *  `src/render/` has no engine-side importer (ANSI-C); the presentation-side caller's
+ *  `renderFrame` still accepts this structurally. */
+export interface CombatFrameSpec {
+  header: { name: string; hp: number; maxHp: number; floater?: string };
+  message: string[];
+  footer: { name: string; hp: number; maxHp: number; floater?: string };
+}
+
 /**
- * Combat-maths reveal: an AnsiRenderer frame replacing the text roll-vs-DC header on combat
- * outcomes. Enemy HP is shown EXACT (unlike the banded mid-fight continue screen) because the
- * fight is over — hiding it here would just be withholding a number the player already won or
- * lost by. Message lines are ASCII-only (no emoji) since AnsiRenderer's fixed-width budget
- * counts glyphs, not display cells, and emoji would silently miscount.
+ * Combat-maths reveal: structured data for the frame replacing the text roll-vs-DC header on
+ * combat outcomes (rendered by the presentation layer via AnsiRenderer — ANSI-C). Enemy HP is
+ * shown EXACT (unlike the banded mid-fight continue screen) because the fight is over — hiding
+ * it here would just be withholding a number the player already won or lost by. Message lines
+ * are ASCII-only (no emoji) since AnsiRenderer's fixed-width budget counts glyphs, not display
+ * cells, and emoji would silently miscount.
  */
-function renderCombatFrame(outcome: ActionOutcome, ctx: OutcomeRenderContext): string {
+function buildCombatFrameSpec(outcome: ActionOutcome, ctx: OutcomeRenderContext): CombatFrameSpec | null {
   const cb = outcome.combatBeat;
-  if (!cb) return ''; // guarded by the caller; keeps this function total for TS narrowing.
+  if (!cb) return null;
   const cf = outcome.combatFrame;
 
   const enemyName = cf?.enemyName ?? 'Enemy';
@@ -171,7 +181,7 @@ function renderCombatFrame(outcome: ActionOutcome, ctx: OutcomeRenderContext): s
   const verdict = outcome.outcome === 'success' ? 'WIN' : outcome.outcome === 'failure' ? 'LOSS' : outcome.outcome.toUpperCase();
   const verdictLine = `margin ${marginStr}  ${cb.band.toUpperCase()}  ${verdict}`.slice(0, 26);
 
-  return renderFrame({
+  return {
     header: {
       name: enemyName,
       hp: cb.enemyHpAfter,
@@ -185,7 +195,7 @@ function renderCombatFrame(outcome: ActionOutcome, ctx: OutcomeRenderContext): s
       maxHp: ctx.maxHealth,
       floater: cb.playerHpDelta !== 0 ? signed(cb.playerHpDelta) : undefined,
     },
-  });
+  };
 }
 
 // ── Public renderer ──
@@ -194,10 +204,16 @@ function renderCombatFrame(outcome: ActionOutcome, ctx: OutcomeRenderContext): s
  * Format an action outcome into a display string.
  * Change detection (items, location, stat deltas) is derived from `outcome.mutations`;
  * the caller supplies only current post-mutation values for the printed totals.
+ *
+ * `renderCombatFrame` is the presentation-side AnsiRenderer render call (ANSI-C) — this module
+ * only assembles the frame's structured data (`buildCombatFrameSpec`) and never imports
+ * `src/render/` itself. Omitted (e.g. a caller that never renders combat), a combat outcome
+ * simply carries no frame line rather than throwing.
  */
 export function formatOutcome(
   outcome: ActionOutcome,
   ctx: OutcomeRenderContext,
+  renderCombatFrame?: (spec: CombatFrameSpec) => string,
 ): string {
   const d = deriveFromMutations(outcome.mutations);
   const lines: string[] = [];
@@ -206,7 +222,8 @@ export function formatOutcome(
   // Combat replaces the text header with a frame at the very top of the string (ahead of
   // everything else) so it survives description-length clipping in buildOutcomeEmbed.
   if (outcome.combatBeat) {
-    lines.push(renderCombatFrame(outcome, ctx));
+    const spec = buildCombatFrameSpec(outcome, ctx);
+    if (spec && renderCombatFrame) lines.push(renderCombatFrame(spec));
   } else if (outcome.playerRolled !== null) {
     const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '❓', label: outcome.outcome.toUpperCase() };
     const bonus = outcome.rollBonus ?? 0;

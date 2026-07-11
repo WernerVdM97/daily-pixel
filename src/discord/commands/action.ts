@@ -16,7 +16,7 @@ import {
   type ChatInputCommandInteraction,
   type MessageComponentInteraction,
 } from 'discord.js';
-import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData } from '../../engine/WorldEngine.js';
+import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData, CombatStatusData } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../../engine/stat-format.js';
@@ -25,6 +25,7 @@ import { getDayJobActions, type DayJobDef } from './hi.js';
 import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji, dayJobEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
+import { renderFrame } from '../../render/AnsiRenderer.js';
 
 // ── Custom IDs ──
 
@@ -530,11 +531,41 @@ function buildStoryThread(
   return out.join('\n');
 }
 
+/** Frame assembly for a combat continue-screen's status (ANSI-C): the engine emits only the
+ *  banding maths (`CombatStatusData`); this presentation-side function composes the
+ *  AnsiRenderer frame, mirroring the old engine-side `composeCombatStatus`'s layout exactly. */
+function renderCombatStatusFrame(status: CombatStatusData): string {
+  const bar = '▓'.repeat(status.pips.filled) + '░'.repeat(status.pips.total - status.pips.filled);
+  return renderFrame({
+    header: {
+      name: status.enemyName,
+      hp: status.pips.filled,
+      maxHp: status.pips.total,
+      bar,
+      hpText: status.woundWord,
+    },
+    footer: {
+      name: 'You',
+      hp: status.playerHp,
+      maxHp: status.playerMaxHp,
+      floater: status.playerHpDelta !== 0
+        ? (status.playerHpDelta > 0 ? `+${status.playerHpDelta}` : `${status.playerHpDelta}`)
+        : undefined,
+    },
+  });
+}
+
+/** Tolerant read (ANSI-C): a pre-existing in-flight action's saved state still carries the old
+ *  engine-composed ANSI string in `combatStatus` — render either shape without throwing. */
+function renderCombatStatus(combatStatus: CombatStatusData | string): string {
+  return typeof combatStatus === 'string' ? combatStatus : renderCombatStatusFrame(combatStatus);
+}
+
 export function buildDecisionMessage(
   decision: {
     prompt: string;
     narration?: string;
-    combatStatus?: string;
+    combatStatus?: CombatStatusData | string;
     options: Array<{ label: string; dcModifier: number | null; stat?: string }>;
   },
   decisionIdx: number,
@@ -563,7 +594,7 @@ export function buildDecisionMessage(
   // combatStatus is a plain (unquoted) status line between the two on combat
   // continue-screens. Absent on the first beat — just the quest line + CTA.
   if (decision.narration) blocks.push(quoteLines(decision.narration));
-  if (decision.combatStatus) blocks.push(decision.combatStatus);
+  if (decision.combatStatus) blocks.push(renderCombatStatus(decision.combatStatus));
   blocks.push(quoteLines(decision.prompt));
 
   // List real (non-bail) options in the body as A./B./C. so button captions can
@@ -696,7 +727,7 @@ export function buildOutcomeEmbed(
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
   const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
-  const outcomeBlock = formatOutcome(outcome, ctx);
+  const outcomeBlock = formatOutcome(outcome, ctx, renderFrame);
   const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
   // Full gamebook recap: breadcrumb, destination scene, story thread, then the
