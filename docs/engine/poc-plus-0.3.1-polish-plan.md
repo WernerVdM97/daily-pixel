@@ -123,9 +123,9 @@ The engine keeps the banding maths (`enemyConditionBand` yields `woundWord` + `p
 
 **Acceptance:**
 
-- [ ] `ActionDecision` carries structured combat status; no rendered ANSI string is persisted in state going forward.
-- [ ] A pre-existing in-flight state (old string) still renders without throwing (tolerant read, covered by a test).
-- [ ] `src/render/` has no engine-side importer.
+- [x] `ActionDecision` carries structured combat status; no rendered ANSI string is persisted in state going forward. → **Done** (`62cc332`): `CombatStatusData` on the WorldEngine seam.
+- [x] A pre-existing in-flight state (old string) still renders without throwing (tolerant read, covered by a test). → **Done** (`62cc332`).
+- [x] `src/render/` has no engine-side importer. → **Done** (`62cc332`, grep-proven; OutcomeRenderer takes an injected frame renderer).
 
 ### ANSI-D — combat visibility, per-round maths (block item D)
 
@@ -222,19 +222,19 @@ Improve formatting around the inline skills next to class/race/upbringing (more 
 
 Morning and evening messages get custom prose or an interesting message (maybe art).
 
-- [ ] Morning/evening messages carry custom prose.
+- [x] Morning/evening messages carry custom prose. → **Done** (`4570bf6`): shared pure builders in `src/discord/announcements.ts`, flavour rotated deterministically by day; cron posts and the admin `/sleep` tick can no longer drift. Live check batched.
 
 ### `/action` hints
 
 The initial `/action` message gains hints (one action remaining, low stamina, unsafe location).
 
-- [ ] `/action` shows relevant hints.
+- [x] `/action` shows relevant hints. → **Done** (`e6bd651`): shared `buildActionHints` on both the slash and nav paths (last action / low stamina ≤25% floored at 2 / unsafe location). Live check batched.
 
 ### Custom-action thinking screen
 
 Custom (free-text) actions get a real "thinking" screen (three dots + "thinking…") as its own page, matching the preset day-job loading envelope (`action.ts:204`); today the custom-modal path shows nothing before `engine.startAction`.
 
-- [ ] The custom-action path shows a thinking screen before `engine.startAction`.
+- [x] The custom-action path shows a thinking screen before `engine.startAction`. → **Done** (`f5069ec`): player's clipped text + ⏳ Thinking beat; errors clear the thinking page. Live check batched.
 
 ---
 

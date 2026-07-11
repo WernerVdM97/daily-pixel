@@ -8,7 +8,7 @@
 - [ ] migrate ascii to ansi in semantics, source files, and references
 - [ ] movement on low difficulty terrain can be deterministic for up to a total of 3 effort, 3 times 1 difficulty edges. Or a 1 and 2 difficulty edge. When traversing a 3 (or greater) difficulty edge in one action, the travel prompt has to trigger.
   - actions that involve movement but isn't it directly, like prompting to search the library from the wardens oak, should ensure that the travel beat is first evaluated (could auto travel, or demand travel as a seperate action).
-- [ ] morning and evening messages should have some custom prose or interesting message maybe even art.
+- [x] ~~morning and evening messages should have some custom prose or interesting message maybe even art.~~ → **Prose done** (`4570bf6`, 0.3.1 branch): rotating day-keyed flavour via shared builders. Art for announcements not attempted (no spec; would follow the ANSI register work).
 - [x] drop the ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? → **Combat half done** (POC+ stage 1 T2b): scene art suppressed for combat outcomes only; non-combat outcomes keep their art. Full removal tracked as a separate decision per the T2 scope fence.
   - [ ] combat still isn't shown good. We need to list and display each dice role and outcome per decision.
 - [ ] dynamically request or load context. Instead of sending the LLM all possible context, give it an NCP-like interaction layer.
@@ -16,10 +16,9 @@
 - [ ] populate more locaiton edges in the seeds
 - [ ] improve daily work options
 - [x] ~~on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.~~ → **Done** (`311369f`, 0.3.1 branch): label / blockquoted bonuses / description split onto their own lines; the ledger shows the chosen option's own emoji.
-- [ ] hints on action messages, the initial one when calling just /action
-  - one action remaining, low stamina, unsafe location
+- [x] ~~hints on action messages, the initial one when calling just /action (one action remaining, low stamina, unsafe location)~~ → **Done** (`e6bd651`, 0.3.1 branch): shared hint builder on both the slash and nav paths.
 - [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
-- [ ] custom (free-text) actions need a real "thinking" screen — three dots + "thinking…" as its own page. Preset day-job actions already show a ⏳ "Starting…" loading envelope (`action.ts:204`); the custom-modal path shows nothing before `engine.startAction`.
+- [x] ~~custom (free-text) actions need a real "thinking" screen — three dots + "thinking…" as its own page.~~ → **Done** (`f5069ec`, 0.3.1 branch): the modal path shows the player's clipped text + ⏳ Thinking beat before `engine.startAction`; errors clear it.
 - [ ] `/stats` — show how the character builder (race/class) shaped each base score, and make it prettier. The base+gear breakdown already ships (`+6 (+4 base, +2 🎒)`); levels/upskilling/traits and per-race/class char-creator guidance are deferred → MVP below.
 - [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
 - [ ] hitting 0 stamina blocks more actions that day. pass out can be evaluated similarly to global message.
@@ -46,8 +45,8 @@ The T2 live check passed on content (colours good on desktop, monochrome clean o
 
 **C — architecture**
 
-- [ ] Decouple render from engine: `PipelineActionStateMachine.ts:661` composes a rendered ANSI string and persists it in state JSON (`pendingDecision.combatStatus`). Engine should emit structured combat status (band word, pips fraction, player hp/max/delta) on `ActionDecision`; the Discord layer composes the frame. In-flight actions carry the old string — needs a tolerant read.
-- [ ] Rehome the `OutcomeRenderer` → `AnsiRenderer` dependency on the same principle, so `src/render/` is only imported from the presentation side.
+- [x] ~~Decouple render from engine~~ → **Done** (`62cc332`, 0.3.1 branch ANSI-C): engine emits `CombatStatusData`; the Discord layer composes the frame; legacy in-flight strings render via a tolerant read.
+- [x] ~~Rehome the `OutcomeRenderer` → `AnsiRenderer` dependency~~ → **Done** (`62cc332`): frame renderer injected by the caller; `src/render/` has no engine-side importer (grep-proven).
 
 **D — combat visibility**
 
