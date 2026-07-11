@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderFrame, hpBar, PALETTES, type FrameSpec } from "../../src/render/AnsiRenderer.js";
+import { renderFrame, hpBar, BORDERS, PALETTES, type FrameSpec } from "../../src/render/AnsiRenderer.js";
 
 const stripSgr = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -256,7 +256,8 @@ describe("AnsiRenderer", () => {
       expect(hpLine).toBeDefined();
       expect(hpLine).not.toMatch(/3\/20/);
       expect(hpLine).not.toMatch(/\] [a-zA-Z]/);
-      expect(hpLine).toMatch(/\][ ]*\|/);
+      // Default border side is now box-drawing '│', not ASCII '|'.
+      expect(hpLine).toMatch(/\][ ]*│/);
     });
 
     it("when bar is set but hpText is undefined, falls back to hp/maxHp numbers", () => {
@@ -309,51 +310,39 @@ describe("AnsiRenderer", () => {
   });
 
   describe("palette-driven rendering (ANSI-B)", () => {
-    // Captured from renderFrame(fullCombatFrame()) BEFORE the palette module
-    // landed, when `chrome` was still hardcoded to SGR 30 (black). ANSI-B's
-    // standing acceptance is that the combat frame's output is byte-identical
-    // to this except the chrome colour, so this fixture is the baseline proof
-    // rather than a re-derived one — see poc-plus-0.3.1-polish-plan.md "ANSI-B".
-    const preChangeFixture =
-      "```ansi\n" +
-      "\x1b[30m+----------------------------+\x1b[0m\n" +
-      "\x1b[30m|\x1b[0m  \x1b[31mGLOOMFANG\x1b[0m           Lv 4  \x1b[30m|\x1b[0m\n" +
-      "\x1b[30m|\x1b[0m  HP [\x1b[31m█████\x1b[0m\x1b[30m░░░░░░░░░░░\x1b[0m] 6/20\x1b[30m|\x1b[0m\n" +
-      "\x1b[30m|\x1b[0m  \x1b[31m-6\x1b[0m                        \x1b[30m|\x1b[0m\n" +
-      "\x1b[30m|\x1b[0m  \x1b[34mWARDEN\x1b[0m              Lv 3  \x1b[30m|\x1b[0m\n" +
-      "\x1b[30m|\x1b[0m  HP [\x1b[32m████████████\x1b[0m\x1b[30m░░░\x1b[0m] 24/30\x1b[30m|\x1b[0m\n" +
-      "\x1b[30m|\x1b[0m  \x1b[31m-3\x1b[0m                        \x1b[30m|\x1b[0m\n" +
-      "\x1b[30m+----------------------------+\x1b[0m\n" +
-      "\x1b[30m|\x1b[0m  A wild GLOOMFANG lunges   \x1b[30m|\x1b[0m\n" +
-      "\x1b[30m|\x1b[0m  from the bracken!         \x1b[30m|\x1b[0m\n" +
-      "\x1b[30m+----------------------------+\x1b[0m\n" +
-      "```";
-
-    it("renders the combat frame byte-identical to the pre-palette fixture once chrome (37) is reconciled back to 30", () => {
-      const rendered = renderFrame(fullCombatFrame(), PALETTES.house);
-      const reconciled = rendered.replace(/\x1b\[37m/g, "\x1b[30m");
-      expect(reconciled).toBe(preChangeFixture);
-    });
-
     it("defaults to the house palette when no palette argument is given", () => {
       const withDefault = renderFrame(fullCombatFrame());
       const withExplicitHouse = renderFrame(fullCombatFrame(), PALETTES.house);
       expect(withDefault).toBe(withExplicitHouse);
     });
 
-    it("only differs from the pre-palette fixture on chrome's SGR code, no other codes changed", () => {
-      const rendered = renderFrame(fullCombatFrame(), PALETTES.house);
-      const renderedCodes = rendered.match(/\x1b\[[0-9;]*m/g) ?? [];
-      const fixtureCodes = preChangeFixture.match(/\x1b\[[0-9;]*m/g) ?? [];
-      expect(renderedCodes.length).toBe(fixtureCodes.length);
-      for (let i = 0; i < renderedCodes.length; i++) {
-        const rendCode = renderedCodes[i];
-        const fixCode = fixtureCodes[i];
-        if (rendCode === fixCode) continue;
-        // The only permitted divergence: chrome moved 30 -> 37.
-        expect(fixCode).toBe("\x1b[30m");
-        expect(rendCode).toBe("\x1b[37m");
-      }
+    it("uses box-drawing borders by default (standard style — the border ladder redesign)", () => {
+      const rendered = renderFrame(fullCombatFrame());
+      const mono = stripSgr(rendered);
+      expect(mono).toContain('┌');
+      expect(mono).toContain('─');
+      expect(mono).toContain('│');
+      expect(mono).not.toContain('+-'); // ASCII borders are gone
+    });
+
+    it("renders heavy-style double-line borders when told", () => {
+      const rendered = renderFrame(fullCombatFrame(), PALETTES.house, BORDERS.heavy);
+      const mono = stripSgr(rendered);
+      expect(mono).toContain('╔');
+      expect(mono).toContain('═');
+      expect(mono).toContain('║');
+    });
+
+    it("renders crit-style crest with @ interrupt above the frame", () => {
+      const rendered = renderFrame(fullCombatFrame(), PALETTES.house, BORDERS.crit);
+      const mono = stripSgr(rendered);
+      expect(mono).toContain('@');
+      expect(mono).toContain('╡');
+      // The crest line appears before the top border.
+      const crestIdx = mono.indexOf('@');
+      const topBorderIdx = mono.indexOf('╔');
+      expect(crestIdx).toBeGreaterThan(0);
+      expect(crestIdx).toBeLessThan(topBorderIdx);
     });
 
     it("a non-default palette actually changes the emitted SGR codes", () => {

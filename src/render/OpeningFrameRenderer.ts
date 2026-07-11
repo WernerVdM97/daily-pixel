@@ -19,11 +19,14 @@
 
 import {
   composeLine,
-  borderLine,
+  borderTop,
+  borderBottom,
+  BORDERS,
   escapeBackticks,
   hpBar,
   PALETTES,
   INTERIOR_WIDTH,
+  type BorderStyle,
   type Palette,
   type Role,
   type Segment,
@@ -308,13 +311,21 @@ function buildLines(type: OpeningActionType, slots: OpeningFrameSlots): Segment[
  * the same shape as every other AnsiRenderer output — top border, N interior lines, bottom
  * border — so it shares the exact width/budget invariants (`composeLine`/`fitSegments`) the rest
  * of the renderer is tested against, rather than re-deriving them.
+ *
+ * `style` controls the border register — always `standard` for opening frames (the ladder's
+ * heavy/crit tiers are reserved for combat-intensity signalling).
  */
 export function renderOpeningFrame(
   type: OpeningActionType,
   slots: OpeningFrameSlots = {},
   palette: Palette = PALETTES.house,
+  style: BorderStyle = BORDERS.standard,
 ): string {
   const lines = buildLines(type, slots);
-  const body = [borderLine(palette), ...lines.map((segments) => composeLine(segments, palette)), borderLine(palette)];
+  const body = [
+    borderTop(style, palette),
+    ...lines.map((segments) => composeLine(segments, palette, style.side)),
+    borderBottom(style, palette),
+  ];
   return '```ansi\n' + body.join('\n') + '\n```';
 }

@@ -1,11 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { renderCombatTerminalCard, type CombatTerminalCard } from "../../src/render/CombatCardRenderer.js";
-import { PALETTES } from "../../src/render/AnsiRenderer.js";
+import { renderCombatContinueCard, renderCombatTerminalCard, bandColor, type ContinueCardInput, type CombatTerminalCard } from "../../src/render/CombatCardRenderer.js";
+import { BORDERS, PALETTES } from "../../src/render/AnsiRenderer.js";
 
 const stripSgr = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 const FRAME_WIDTH = 30;
-const INTERIOR_WIDTH = 28;
 
 function winCard(overrides: Partial<CombatTerminalCard> = {}): CombatTerminalCard {
   return {
@@ -76,9 +75,9 @@ describe("CombatCardRenderer", () => {
       const rendered = renderCombatTerminalCard(winCard());
       const mono = stripSgr(rendered);
       const lines = mono.split("\n").filter((l) => l !== "```ansi" && l !== "```");
-      const border = "+" + "-".repeat(INTERIOR_WIDTH) + "+";
-      expect(lines[0]).toBe(border);
-      expect(lines[lines.length - 1]).toBe(border);
+      // Box-drawing borders (redesign): ┌──┐ top, └──┘ bottom.
+      expect(lines[0]).toContain('┌');
+      expect(lines[lines.length - 1]).toContain('└');
       expect(lines.length).toBe(8); // 2 borders + 6 content lines
     });
   });
@@ -89,9 +88,10 @@ describe("CombatCardRenderer", () => {
       const mono = stripSgr(rendered);
       expect(mono).toContain("COMBAT RESOLVED");
       expect(mono).toContain("16");
-      expect(mono).toContain("d20");
+      // Redesign: no "d20" label, DC boxed as [DC N] on focal line.
+      expect(mono).toContain("[DC 15]");
+      expect(mono).not.toContain("vs DC");
       expect(mono).toContain("+4 = 20");
-      expect(mono).toContain("vs DC 15");
       expect(mono).toContain("+ WIN");
       expect(mono).toContain("margin +5");
       expect(mono).toContain("The GLOOMFANG collapses.");
@@ -162,6 +162,112 @@ describe("CombatCardRenderer", () => {
     it("renders (coloured, fenced) well under 2000 chars", () => {
       const rendered = renderCombatTerminalCard(winCard());
       expect(rendered.length).toBeLessThan(2000);
+    });
+  });
+
+  describe("continue card", () => {
+    function continueInput(overrides: Partial<ContinueCardInput> = {}): ContinueCardInput {
+      return {
+        enemyName: "GLOOMFANG",
+        woundWord: "BRUISED",
+        pips: { filled: 3, total: 5 },
+        playerHp: 18,
+        playerMaxHp: 24,
+        playerHpDelta: -3,
+        ...overrides,
+      };
+    }
+
+    it("keeps every line at exactly 30 visible chars with a last round", () => {
+      const rendered = renderCombatContinueCard(continueInput({
+        lastRound: { d20: 14, bonus: 3, dc: 15, margin: 2, band: "trade" },
+      }));
+      const lines = rendered.split("\n").filter((l) => l !== "```ansi" && l !== "```");
+      for (const line of lines) {
+        expect(stripSgr(line).length).toBe(FRAME_WIDTH);
+      }
+    });
+
+    it("renders HP bars only (no dice readout) when lastRound is absent", () => {
+      const rendered = renderCombatContinueCard(continueInput());
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("GLOOMFANG");
+      expect(mono).toContain("YOU");
+      expect(mono).toContain("18/24");
+      expect(mono).toContain("[▓▓▓░░]");
+      expect(mono).not.toContain("margin"); // No dice line without a round
+    });
+
+    it("shows the floated dice readout with boxed DC and band word", () => {
+      const rendered = renderCombatContinueCard(continueInput({
+        lastRound: { d20: 14, bonus: 3, dc: 15, margin: 2, band: "trade" },
+      }));
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("14 +3 = 17");
+      expect(mono).toContain("[DC 15]");
+      expect(mono).toContain("hit +2 margin");
+      expect(mono).toContain("TRADE");
+    });
+
+    it("signs a negative margin correctly", () => {
+      const rendered = renderCombatContinueCard(continueInput({
+        lastRound: { d20: 8, bonus: 3, dc: 16, margin: -3, band: "heavy" },
+      }));
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("hit -3 margin");
+      expect(mono).toContain("HEAVY");
+    });
+
+    it("escalates to heavy border when band is heavy", () => {
+      const rendered = renderCombatContinueCard(
+        continueInput({ lastRound: { d20: 8, bonus: 3, dc: 16, margin: -3, band: "heavy" } }),
+        PALETTES.house,
+        BORDERS.heavy,
+      );
+      const mono = stripSgr(rendered);
+      expect(mono).toContain('╔');
+      expect(mono).toContain('║');
+    });
+
+    it("begins and ends with the ansi fence", () => {
+      const rendered = renderCombatContinueCard(continueInput());
+      expect(rendered.startsWith("```ansi\n")).toBe(true);
+      expect(rendered.endsWith("\n```")).toBe(true);
+    });
+
+    it("renders well under 2000 chars", () => {
+      const rendered = renderCombatContinueCard(continueInput({
+        lastRound: { d20: 14, bonus: 3, dc: 15, margin: 2, band: "trade" },
+      }));
+      expect(rendered.length).toBeLessThan(2000);
+    });
+
+    it("survives monochrome strip — all numbers and band word readable (constraint 4)", () => {
+      const rendered = renderCombatContinueCard(continueInput({
+        lastRound: { d20: 14, bonus: 3, dc: 15, margin: 2, band: "trade" },
+      }));
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("14 +3 = 17");
+      expect(mono).toContain("[DC 15]");
+      expect(mono).toContain("+2 margin");
+      expect(mono).toContain("TRADE");
+    });
+  });
+
+  describe("bandColor", () => {
+    it("maps clean/glanced to life", () => {
+      expect(bandColor("clean")).toBe("life");
+      expect(bandColor("glanced")).toBe("life");
+      expect(bandColor("CLEAN")).toBe("life");
+    });
+    it("maps trade to warmth", () => {
+      expect(bandColor("trade")).toBe("warmth");
+    });
+    it("maps heavy to threat", () => {
+      expect(bandColor("heavy")).toBe("threat");
+    });
+    it("falls back to chrome for unknown bands", () => {
+      expect(bandColor("unknown")).toBe("chrome");
     });
   });
 });

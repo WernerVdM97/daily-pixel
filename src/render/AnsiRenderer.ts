@@ -13,6 +13,12 @@
 //
 // See docs/sparks/mvp+ansi-art.md §2-3 for the colour-role convention and
 // the frame/slot layout this module implements.
+//
+// The border ladder ([[visual-craft]]): chrome is a signal — border glyphs
+// escalate with intensity/rarity so a punishing round or a critical hit looks
+// different before a word is read. Three tiers: standard (single box-drawing),
+// heavy (double), crit (heavy sides + ornamental crest rim). All glyphs are
+// single-width (box-drawing), safe on desktop and mobile.
 
 import { PALETTES, type Palette, type Role } from './palette.js';
 
@@ -20,6 +26,37 @@ import { PALETTES, type Palette, type Role } from './palette.js';
 // don't need to churn — `src/render/palette.ts` is the module of record.
 export type { Role, Palette };
 export { PALETTES };
+
+// ─── Border-style ladder ────────────────────────────────────────────
+
+export interface BorderStyle {
+  top: [string, string, string];      // left corner, fill, right corner
+  mid: [string, string, string];       // divider
+  bottom: [string, string, string];
+  side: string;                        // vertical
+  /** Full-width crest line ABOVE the top border (crit only). */
+  crest?: (palette: Palette) => string;
+  /** Full-width crest line BELOW the bottom border (crit only). */
+  crestBottom?: (palette: Palette) => string;
+}
+
+/** Border intensity/rarity ladder — see [[visual-craft]]. */
+export const BORDERS: Record<string, BorderStyle> = {
+  standard: { top: ['┌','─','┐'], mid: ['├','─','┤'], bottom: ['└','─','┘'], side: '│' },
+  heavy:    { top: ['╔','═','╗'], mid: ['╠','═','╣'], bottom: ['╚','═','╝'], side: '║' },
+  crit: {
+    top: ['╔','═','╗'],
+    mid: ['╠','═','╣'],
+    bottom: ['╚','═','╝'],
+    side: '║',
+    crest: (p: Palette) => {
+      const fill = '═'.repeat(10);
+      const rim = `o${fill} ╡@╞ ${fill}o`;
+      return paint('chrome', rim, p).replace(/@/, paint('warmth', '@', p));
+    },
+    crestBottom: (p: Palette) => paint('chrome', `o${'═'.repeat(INTERIOR_WIDTH + 2)}o`, p),
+  },
+};
 
 export interface CombatantLine {
   name: string;
@@ -120,18 +157,34 @@ function fitSegments(segments: Segment[], width: number): Segment[] {
   return result;
 }
 
-/** Render one interior-width line between chrome-coloured `|` borders. Exported (ANSI-F) so
- *  other register composers (e.g. the OPENING family) can build their own line shapes on the
- *  same width-enforcement/truncation contract without duplicating it. */
-export function composeLine(segments: Segment[], palette: Palette): string {
+/** Render one interior-width line between chrome-coloured border glyphs.
+ *  Exported (ANSI-F) — other register composers build their own line shapes
+ *  on the same width-enforcement/truncation contract without duplicating it.
+ *  `sideGlyph` defaults to `│` (standard box-drawing); the border-style
+ *  ladder swaps it for `║` (heavy/crit). */
+export function composeLine(segments: Segment[], palette: Palette, sideGlyph = '│'): string {
   const fitted = fitSegments(segments, INTERIOR_WIDTH);
   const body = fitted.map((s) => (s.role ? paint(s.role, s.text, palette) : s.text)).join('');
-  return paint('chrome', '|', palette) + body + paint('chrome', '|', palette);
+  return paint('chrome', sideGlyph + body + sideGlyph, palette);
 }
 
-/** A full-width `+----...----+` border/divider row. Exported (ANSI-F) — see `composeLine`. */
-export function borderLine(palette: Palette): string {
-  return paint('chrome', '+' + '-'.repeat(INTERIOR_WIDTH) + '+', palette);
+/** A full-width top border row for the given style. Replaces the historical ASCII `borderLine`
+ *  — box-drawing `standard` is the new default for every frame. */
+export function borderTop(style: BorderStyle, palette: Palette): string {
+  const [L, fill, R] = style.top;
+  return paint('chrome', L + fill.repeat(INTERIOR_WIDTH) + R, palette);
+}
+
+/** Divider row (header-body split) for the given style. */
+export function borderMid(style: BorderStyle, palette: Palette): string {
+  const [L, fill, R] = style.mid;
+  return paint('chrome', L + fill.repeat(INTERIOR_WIDTH) + R, palette);
+}
+
+/** A full-width bottom border row for the given style. */
+export function borderBottom(style: BorderStyle, palette: Palette): string {
+  const [L, fill, R] = style.bottom;
+  return paint('chrome', L + fill.repeat(INTERIOR_WIDTH) + R, palette);
 }
 
 /**
@@ -283,13 +336,24 @@ function messageSegments(line: string): Segment[] {
 
 /**
  * Render a full fenced ```ansi block (opening fence, ESC-coloured body,
- * closing fence). Layout order: top border, header nameplate/HP/floater,
- * sprite lines, frame-level floater, footer nameplate/HP/floater, a
- * border (acts as the bottom border if there's no message, or a divider
- * before the message box if there is), message lines, closing border.
+ * closing fence). Layout order: optional crest, top border, header
+ * nameplate/HP/floater, sprite lines, frame-level floater, footer
+ * nameplate/HP/floater, a border (acts as the bottom border if there's
+ * no message, or a divider before the message box if there is), message
+ * lines, closing border, optional crest-bottom.
+ *
+ * `style` controls the border glyphs (standard/heavy/crit) — exported
+ * so every frame type can escalate its border register independently.
  */
-export function renderFrame(spec: FrameSpec, palette: Palette = PALETTES.house): string {
-  const lines: string[] = [borderLine(palette)];
+export function renderFrame(
+  spec: FrameSpec,
+  palette: Palette = PALETTES.house,
+  style: BorderStyle = BORDERS.standard,
+): string {
+  const lines: string[] = [];
+
+  if (style.crest) lines.push(style.crest(palette));
+  lines.push(borderTop(style, palette));
 
   // Sanitize every caller-supplied string up front so nothing composed
   // below can carry a fence-breaking backtick into the output.
@@ -300,36 +364,38 @@ export function renderFrame(spec: FrameSpec, palette: Palette = PALETTES.house):
   const floater = spec.floater !== undefined ? escapeBackticks(spec.floater) : spec.floater;
 
   if (header) {
-    lines.push(composeLine(nameplateSegments(header, 'threat'), palette));
-    lines.push(composeLine(hpLineSegments(header, 'threat'), palette));
-    if (header.floater) lines.push(composeLine(floaterSegments(header.floater), palette));
+    lines.push(composeLine(nameplateSegments(header, 'threat'), palette, style.side));
+    lines.push(composeLine(hpLineSegments(header, 'threat'), palette, style.side));
+    if (header.floater) lines.push(composeLine(floaterSegments(header.floater), palette, style.side));
   }
 
   if (sprite) {
     for (const fragment of sprite) {
-      lines.push(composeLine(spriteSegments(fragment), palette));
+      lines.push(composeLine(spriteSegments(fragment), palette, style.side));
     }
   }
 
   if (floater) {
-    lines.push(composeLine(floaterSegments(floater), palette));
+    lines.push(composeLine(floaterSegments(floater), palette, style.side));
   }
 
   if (footer) {
-    lines.push(composeLine(nameplateSegments(footer, 'player'), palette));
-    lines.push(composeLine(hpLineSegments(footer, 'player'), palette));
-    if (footer.floater) lines.push(composeLine(floaterSegments(footer.floater), palette));
+    lines.push(composeLine(nameplateSegments(footer, 'player'), palette, style.side));
+    lines.push(composeLine(hpLineSegments(footer, 'player'), palette, style.side));
+    if (footer.floater) lines.push(composeLine(floaterSegments(footer.floater), palette, style.side));
   }
 
-  lines.push(borderLine(palette));
+  lines.push(borderBottom(style, palette));
 
   if (message && message.length > 0) {
     const capped = message.slice(0, MESSAGE_MAX_LINES);
     for (const messageLine of capped) {
-      lines.push(composeLine(messageSegments(messageLine), palette));
+      lines.push(composeLine(messageSegments(messageLine), palette, style.side));
     }
-    lines.push(borderLine(palette));
+    lines.push(borderBottom(style, palette));
   }
+
+  if (style.crestBottom) lines.push(style.crestBottom(palette));
 
   return '```ansi\n' + lines.join('\n') + '\n```';
 }

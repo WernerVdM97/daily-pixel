@@ -85,9 +85,13 @@ describe("OpeningFrameRenderer", () => {
         const rendered = renderOpeningFrame(type);
         const mono = stripSgr(rendered);
         const lines = mono.split("\n").filter((l) => l !== "```ansi" && l !== "```");
-        const border = "+" + "-".repeat(FRAME_WIDTH - 2) + "+";
-        expect(lines[0]).toBe(border);
-        expect(lines[lines.length - 1]).toBe(border);
+        // Box-drawing borders (redesign): ┌──┐ top, └──┘ bottom.
+        expect(lines[0]).toContain('┌');
+        expect(lines[0]).toContain('┐');
+        expect(lines[lines.length - 1]).toContain('└');
+        expect(lines[lines.length - 1]).toContain('┘');
+        expect(lines[0].length).toBe(30);
+        expect(lines[lines.length - 1].length).toBe(30);
       });
     }
   });

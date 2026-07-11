@@ -26,9 +26,9 @@ import { getDayJobActions, type DayJobDef } from './hi.js';
 import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji, dayJobEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
-import { renderFrame } from '../../render/AnsiRenderer.js';
+import { BORDERS, PALETTES, type BorderStyle } from '../../render/AnsiRenderer.js';
 import { renderOpeningFrame, type OpeningFrameSlots } from '../../render/OpeningFrameRenderer.js';
-import { renderCombatTerminalCard } from '../../render/CombatCardRenderer.js';
+import { renderCombatContinueCard, renderCombatTerminalCard, type ContinueCardInput, type CombatTerminalCard } from '../../render/CombatCardRenderer.js';
 
 // ── Custom IDs ──
 
@@ -536,47 +536,31 @@ function buildStoryThread(
   return out.join('\n');
 }
 
-/** Signed bonus, e.g. "+3" / "-1" — for the ANSI-D dice line only (the frame's other floaters
- *  already have their own signed formatting inline below). */
-function signedBonus(n: number): string {
-  return n >= 0 ? `+${n}` : `${n}`;
+/** Border-escalation rules for the continue card ([[visual-craft]]):
+ *  - heavy if the last round's band was HEAVY or the player is bloodied (≤25%)
+ *  - standard otherwise */
+function chooseContinueBorder(status: CombatStatusData, lastRound?: CombatBeatLog): BorderStyle {
+  const playerFrac = status.playerMaxHp > 0 ? status.playerHp / status.playerMaxHp : 0;
+  if (lastRound?.band === 'heavy' || playerFrac <= 0.25) return BORDERS.heavy;
+  return BORDERS.standard;
 }
 
-/** Frame assembly for a combat continue-screen's status (ANSI-C, dice line added ANSI-D): the
- *  engine emits only the banding maths (`CombatStatusData`) plus the round log; this
- *  presentation-side function composes the AnsiRenderer frame, mirroring the old engine-side
- *  `composeCombatStatus`'s layout exactly, with the round's dice maths spliced into the
- *  existing message slot when a round has actually been fought. */
+/** Frame assembly for a combat continue-screen's status (ANSI-C, redesigned ANSI-D+):
+ *  delegates to `renderCombatContinueCard` from CombatCardRenderer, with the border
+ *  style chosen by escalation rules. */
 function renderCombatStatusFrame(status: CombatStatusData, lastRound?: CombatBeatLog): string {
-  const bar = '▓'.repeat(status.pips.filled) + '░'.repeat(status.pips.total - status.pips.filled);
-  // No `lastRound` (first beat / pre-combat, or a legacy string `combatStatus` that never reaches
-  // this function) means no dice have been rolled yet this fight — the message slot stays absent
-  // rather than showing stale or fabricated maths.
-  const message = lastRound
-    ? [
-      `d20 ${lastRound.playerD20} ${signedBonus(lastRound.playerBonus)} vs DC ${lastRound.dc}`,
-      `margin ${signedBonus(lastRound.margin)}  ${lastRound.band.toUpperCase()}`,
-    ]
-    : undefined;
-  return renderFrame({
-    header: {
-      name: status.enemyName,
-      // hp/maxHp are pip-scale (filled/total), unused when `bar` is set (hpLineSegments takes the bar branch) — exist only to satisfy the type.
-      hp: status.pips.filled,
-      maxHp: status.pips.total,
-      bar,
-      hpText: status.woundWord,
-    },
-    footer: {
-      name: 'You',
-      hp: status.playerHp,
-      maxHp: status.playerMaxHp,
-      floater: status.playerHpDelta !== 0
-        ? (status.playerHpDelta > 0 ? `+${status.playerHpDelta}` : `${status.playerHpDelta}`)
-        : undefined,
-    },
-    message,
-  });
+  const input: ContinueCardInput = {
+    enemyName: status.enemyName,
+    woundWord: status.woundWord,
+    pips: status.pips,
+    playerHp: status.playerHp,
+    playerMaxHp: status.playerMaxHp,
+    playerHpDelta: status.playerHpDelta,
+    lastRound: lastRound
+      ? { d20: lastRound.playerD20, bonus: lastRound.playerBonus, dc: lastRound.dc, margin: lastRound.margin, band: lastRound.band }
+      : undefined,
+  };
+  return renderCombatContinueCard(input, PALETTES.house, chooseContinueBorder(status, lastRound));
 }
 
 /** Tolerant read (ANSI-C): a pre-existing in-flight action's saved state still carries the old
@@ -787,7 +771,14 @@ export function buildOutcomeEmbed(
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
   const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
-  const outcomeBlock = formatOutcome(outcome, ctx, renderCombatTerminalCard);
+  // Terminal-card escalation ([[visual-craft]]): crit border for nat-20, heavy for nat-1.
+  const terminalRenderer = (card: CombatTerminalCard) => {
+    const style = card.playerD20 === 20 ? BORDERS.crit
+      : card.playerD20 === 1 ? BORDERS.heavy
+      : BORDERS.standard;
+    return renderCombatTerminalCard(card, PALETTES.house, style);
+  };
+  const outcomeBlock = formatOutcome(outcome, ctx, terminalRenderer);
   const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
   // Full gamebook recap: breadcrumb, destination scene, story thread, then the

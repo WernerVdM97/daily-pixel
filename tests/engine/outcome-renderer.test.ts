@@ -753,10 +753,12 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     expect(result).not.toContain('🎲 18');
     expect(result).not.toContain('vs 12');
 
-    // Card contains the round's own maths (from the beat, not the flat outcome fields)
+    // Card contains the round's own maths (from the beat, not the flat outcome fields) — no "vs DC"
+    // text label (redesign: DC is boxed [DC N] on the focal line, not spelled out).
     expect(result).toContain('COMBAT RESOLVED');
     expect(result).toContain('16');
-    expect(result).toContain('vs DC 15');
+    expect(result).toContain('[DC 15]');
+    expect(result).not.toContain('vs DC');
     expect(result).toContain('margin +5');
     expect(result).toContain('WIN');
   });
@@ -800,9 +802,10 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
     const stripped = stripSgr(result);
 
-    expect(stripped).toContain('vs DC 15');
+    expect(stripped).toContain('[DC 15]');
+    expect(stripped).not.toContain('vs DC');
     expect(stripped).toContain('margin +5');
-    expect(stripped).not.toContain('vs DC 11');
+    expect(stripped).not.toContain('[DC 11]');
   });
 
   it('falls back to outcome.combatBeat when combatRounds is absent (pre-ANSI-D shape)', () => {
@@ -821,7 +824,8 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     const stripped = stripSgr(result);
 
     expect(stripped).toContain('20');
-    expect(stripped).toContain('vs DC 14');
+    expect(stripped).toContain('[DC 14]');
+    expect(stripped).not.toContain('vs DC');
     expect(stripped).toContain('margin +20');
   });
 
@@ -927,7 +931,8 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     const stripped = stripSgr(result);
 
     expect(stripped).toContain('16');
-    expect(stripped).toContain('vs DC 15');
+    expect(stripped).toContain('[DC 15]');
+    expect(stripped).not.toContain('vs DC');
     expect(stripped).toContain('margin +5');
     expect(stripped).toContain('WIN');
   });

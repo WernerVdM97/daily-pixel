@@ -348,11 +348,12 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
     // Composed via AnsiRenderer — a fenced frame, not a plain text line.
+    // Continue card redesign: HP floaters are no longer rendered as separate lines;
+    // the displayed HP is already post-delta (10/12).
     expect(desc).toContain('```ansi');
     expect(desc).toContain('Wolf');
     expect(desc).toContain('Bloodied');
     expect(desc).toContain('10/12');
-    expect(desc).toContain('-2');
   });
 
   // ── ANSI-D: the continue frame's dice line (previously the frame showed HP bands only) ──
@@ -386,7 +387,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     playerHpDelta: -2,
   };
 
-  it('shows the round dice line (d20 + margin/band) when combatRounds carries a fought round', () => {
+  it('shows the round dice line (floated calc + boxed DC + margin/band) when combatRounds carries a fought round', () => {
     const msg = buildDecisionMessage({
       prompt: 'Combat — what do you do?',
       combatStatus,
@@ -395,8 +396,13 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
 
-    expect(desc).toContain('d20 14 +3 vs DC 15');
-    expect(desc).toContain('margin +2  TRADE');
+    // Redesign: left-aligned calc "N +B = T", boxed DC "[DC D]" right.
+    // Strip SGR — ANSI codes split segments so 'hit +2 margin' isn't contiguous raw.
+    const mono = desc.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(mono).toContain('14 +3 = 17');
+    expect(mono).toContain('[DC 15]');
+    expect(mono).toContain('hit +2 margin');
+    expect(mono).toContain('TRADE');
   });
 
   it('reads the LAST round of combatRounds (a multi-round fight shows the most recent dice, not the first)', () => {
@@ -411,9 +417,13 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
 
-    expect(desc).toContain('d20 19 +2 vs DC 13');
-    expect(desc).toContain('margin +8  CLEAN');
-    expect(desc).not.toContain('vs DC 11');
+    expect(desc).toContain('19 +2 = 21');
+    expect(desc).toContain('[DC 13]');
+    // Strip SGR for margin checks — colour codes split segments.
+    const mono = desc.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(mono).toContain('hit +8 margin');
+    expect(mono).toContain('CLEAN');
+    expect(desc).not.toContain('[DC 11]');
   });
 
   it('signs a negative bonus and a negative margin correctly', () => {
@@ -425,8 +435,11 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
 
-    expect(desc).toContain('d20 4 -1 vs DC 15');
-    expect(desc).toContain('margin -12  HEAVY');
+    expect(desc).toContain('4 -1 = 3');
+    expect(desc).toContain('[DC 15]');
+    const mono = desc.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(mono).toContain('hit -12 margin');
+    expect(mono).toContain('HEAVY');
   });
 
   it('shows no dice line when combatRounds is absent (first beat / pre-combat) — HP bands render exactly as before', () => {
