@@ -14,7 +14,6 @@
   > [DC 12] — misleading label carried over from non-combat rolls; it's not a threshold the player needs to beat. It's actually the encounter's baseDc (set by the LLM's decide step, e.g. MockLlmGateway/FallbackLlmGateway/DeepSeek output, range ~10-18). It only matters because the enemy's bonus is derived from it: enemyBonus = clamp(baseDc - 10, 0, 10). It also sets the enemy's max HP (deriveEnemyMaxHp). The engine also rolls a hidden enemy d20 each round — its total (enemyD20 + enemyBonus) isn't shown on this mid-fight card, only on the final "COMBAT RESOLVED" card when the fight ends.
   instead, make that show the dangerouseness of the encounter. use the dc values and map them to something like, easy, medium, hard, risky, fatal, etc.
 - map seems formatted weird:
-
 ```
 The Vale (home)
 🌳🛡️ The Warden's Oak
@@ -38,36 +37,32 @@ Unexplored paths
 🌿 The Forest Edge
 └─ 🏃 ➡️ The Stag's Den
 ```
-
-- the bottom unexplored path for the stags den should actually render in the top, but greyed out or something to show its unexplored.
-- one would look at the "you are here" first , then aroud you, and having the forest edge not show there is bad UX
-- [ ] clearing bad people in an unsafe space should grant a short rest if it is your last action of the day. maybe helps your reach the oak during the night? (slightly risky?)
-- [ ] add more art blocks on messages
+the bottom unexplored path for the stags den should actually render in the top, but greyed out or something to show its unexplored.
+one would look at the "you are here" first , then aroud you, and having the forest edge not show there is bad UX
+- [ ] improve art blocks on messages
+  - drop the old ugly scene ascii. this will be only used for look.
   - like the art on the classified outcome page should be redisplayed on the thinking page.
-  - and maintained on the decision outcomes. On consequtive decisions, it should evolve accordingly, sometime zoom or change the scene. etc
+  - and maintained on the decision outcomes. 
   - art should be considered the main viewport, and the discord messaging a sub menu or interaciton layer with inline art blocks.
-  - the outcome message should show (all?) the scenes
   - maybe drop the location ascii image from actions
 - [ ] the thinking block might as well show the full decision history exactly like action outcome
+  - it should also show the main frame block
   - same for the epemeral version of actions responses.
-- [ ] there should be a short version of rest this is usable once per day before or between actions. Drop blocker
 - [ ] footer emoji for location changes should show location emoji
 - [ ] travel prompt should inject the current location, edge, and final location state. and routes to get there.
 - [ ] movement on low difficulty terrain can be deterministic for up to a total of 3 effort, 3 times 1 difficulty edges. Or a 1 and 2 difficulty edge. When traversing a 3 (or greater) difficulty edge in one action, the travel prompt has to trigger.
   - actions that involve movement but isn't it directly, like prompting to search the library from the wardens oak, should ensure that the travel beat is first evaluated (could auto travel, or demand travel as a seperate action).
-- [x] ~~morning and evening messages should have some custom prose or interesting message maybe even art.~~ → **Prose done** (`4570bf6`, 0.3.1 branch): rotating day-keyed flavour via shared builders. Art for announcements not attempted (no spec; would follow the ANSI register work).
-- [x] drop the location ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? → **Combat half done** (POC+ stage 1 T2b): scene art suppressed for combat outcomes only; non-combat outcomes keep their art. Full removal tracked as a separate decision per the T2 scope fence.
-  - [x] ~~combat still isn't shown good. We need to list and display each dice role and outcome per decision.~~ → **Done** (0.3.1): per-round dice line (roll vs boxed DC + margin/band) on the combat continue card, plus the terminal data card.
 - [ ] dynamically request or load context. Instead of sending the LLM all possible context, give it an NCP-like interaction layer.
   - scripts or command that perform lookups from the world state that is provided to the decision and mutations DMAs
 - [ ] populate more locaiton edges in the seeds
 - [ ] improve daily work options
-- [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
-- [ ] `/stats` — show how the character builder (race/class) shaped each base score, and make it prettier. The base+gear breakdown already ships (`+6 (+4 base, +2 🎒)`); levels/upskilling/traits and per-race/class char-creator guidance are deferred → MVP below.
-- [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
-- [ ] hitting 0 stamina blocks more actions that day. pass out can be evaluated similarly to global message.
+- [ ] hitting 0 stamina should block more actions that day.
   - also, 0 hp should do this but also roll the dice, mkaing a death save...
-- [ ] last stand buttons and captions need to look cooler. emojis and shit.
+- [ ] last stand buttons and captions need to look cooler. add emojis or a combat scene frame and shit.
+- [ ] clearing bad people in an unsafe space should grant a short rest if it is your last action of the day. maybe helps your reach the oak during the night? (slightly risky?)
+  - there should be a short version of rest this is usable once per day before or between actions. Drop blocker
+- [ ] On consequtive action decision screens, the art block should evolve/update accordingly, sometime zoom or change the scene. etc
+  - the inline art block no longers has to display HP if the main frame does
 
 ### ANSI — outstanding work (consolidated 2026-07-11)
 
@@ -117,6 +112,7 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
 
 ## MVP — deferred
 
+- [ ] any periodic channel message should be re evaluated.
 - [ ] dnd statblock scraper
 - [ ] menu framework coupled to views — standardise the views/command/message terminology and a tab/subtab layout per message. See [[discord-interaction-layer]] (the interaction-plumbing layer; subtabs are explicitly MVP there).
 - [ ] make wealth (and stamina, health) spendable/meaningful, and define death / 0 HP. The death track is deferred from the POC by design ([[the-poc]]); see [[mvp-progression]] (lifecycle/death), [[mvp-combat]] (HP stakes), [[mvp+npc-economy]] (wealth sink).
