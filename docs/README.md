@@ -19,6 +19,7 @@ mission, pillars, north star
 | ✅      | [Pitch & Pillars](./vision/pitch-and-pillars.md) | Elevator pitch, year-long premise, thematic DNA     |
 | ✅      | [Hazard Map](./vision/hazard-map.md)             | No-gos, rabbit holes, known risks, scope discipline |
 | 🔭     | [World & Setting](./vision/world-setting.md)     | The Oak, the Threat, emergent map                   |
+| ✅      | [Visual Craft](./vision/visual-craft.md)         | Perception, clarity, UX — the visual north star. Monochrome-is-the-asset, colour-as-enhancement, data-card hierarchy, the border intensity/rarity ladder; the `0.3.1` combat-frame redesign as the first worked example. |
 
 ## 🎲 game
 
