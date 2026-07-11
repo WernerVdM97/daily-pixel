@@ -237,6 +237,19 @@ describe("OpeningFrameRenderer", () => {
       expect(mono).not.toContain("-5/30");
     });
 
+    it("combat PC HP suffix keeps one space inside the right border, never flush against it (0.3.2 P1 follow-up)", () => {
+      for (const [hp, maxHp] of [[18, 24], [124, 140], [5, 24], [999, 999]] as const) {
+        const rendered = renderOpeningFrame("combat", { pcName: "Aldric", pcHp: hp, pcMaxHp: maxHp });
+        const mono = stripSgr(rendered);
+        const hpLine = mono.split("\n").find((l) => l.includes(`${hp}/${maxHp}`));
+        expect(hpLine).toBeDefined();
+        // The suffix " N/MM" must be followed by a space, then the border glyph.
+        expect(hpLine).toMatch(new RegExp(`${hp}/${maxHp} .`));
+        // Must NOT be flush: "N/MM│" (no space before border) is the bug.
+        expect(hpLine!).not.toMatch(new RegExp(`${hp}/${maxHp}[│║]`));
+      }
+    });
+
     it("travel shows the origin location name and the literal rumoured-destination glyph", () => {
       const rendered = renderOpeningFrame("travel", { locationName: "Oakhollow" });
       const mono = stripSgr(rendered);

@@ -181,12 +181,12 @@ function combatLines(slots: OpeningFrameSlots): Segment[][] {
   const pcSuffix = hasPcHp ? ` ${Math.round(clampedHp)}/${Math.round(clampedMax)}` : ' ?/?';
 
   // Size the real-HP bar from the fixed prefix ('  /|_|\   HP [') + trailing ']' + the actual
-  // suffix length, so the line lands at exactly INTERIOR_WIDTH before fitSegments ever has to
-  // truncate — see PC_BAR_WIDTH's comment for why a fixed width silently ate a digit off 3-digit
-  // HP. The no-HP placeholder branch keeps the short fixed PC_BAR_WIDTH (its suffix never grows).
+  // suffix length minus one so the HP figure keeps one space inside the right border (matches
+  // CombatCardRenderer's continue-card guard — see that module's `barWidth` calc and its `-1`
+  // comment). The no-HP placeholder branch keeps the short fixed PC_BAR_WIDTH (its suffix never grows).
   const pcBarPrefixLen = '  /|_|\\   HP ['.length;
   const pcBarWidth = hasPcHp
-    ? Math.max(MIN_PC_BAR_WIDTH, INTERIOR_WIDTH - pcBarPrefixLen - 1 - pcSuffix.length)
+    ? Math.max(MIN_PC_BAR_WIDTH, INTERIOR_WIDTH - pcBarPrefixLen - 1 - pcSuffix.length - 1)
     : PC_BAR_WIDTH;
   const pcBar = hasPcHp ? hpBar(clampedHp, clampedMax, pcBarWidth) : hpBar(0, 0, PC_BAR_WIDTH);
   const pcFraction = hasPcHp && clampedMax > 0 ? clampedHp / clampedMax : 1;

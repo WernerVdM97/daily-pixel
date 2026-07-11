@@ -4,6 +4,13 @@ All notable changes to The Warden's Oak are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Private outcome embed now matches the public one** — the ephemeral action-outcome reply previously used a `compact: true` variant that hid the story thread (a deliberate `0.3.1` design choice that proved too sparse). Both the private reply and the public thread copy now share the same full embed, so the player sees the complete gamebook trail in both places.
+- **HP numbers and right-aligned columns on combat cards no longer run flush against the right border** *(0.3.2 P1 follow-up)* — the continue card's right-aligned columns (enemy contested roll, band word, HP deltas) and the opening frame's PC HP suffix were computed to fill exactly to the interior edge, leaving no gap before the border glyph. Both now leave one space, matching the player HP bar that already had it.
+
 ## [0.3.2] - 2026-07-11
 
 ### Changed

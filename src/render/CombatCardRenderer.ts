@@ -67,13 +67,13 @@ function clipWord(text: string, max: number): string {
 
 /**
  * Compose a two-column body line: left segments hug the left edge, right segments the right,
- * with the gap computed exactly so the line already lands at `INTERIOR_WIDTH` before
- * `composeLine`'s `fitSegments` ever has to pad or truncate.
+ * with the gap computed so the right column keeps one space inside the border — the `-1`
+ * undershoots `INTERIOR_WIDTH` and lets `composeLine`'s `fitSegments` pad the right side.
  */
 function twoColumnLine(left: Segment[], right: Segment[]): Segment[] {
   const leftLen = left.reduce((n, s) => n + s.text.length, 0);
   const rightLen = right.reduce((n, s) => n + s.text.length, 0);
-  const gap = Math.max(0, INTERIOR_WIDTH - leftLen - rightLen);
+  const gap = Math.max(0, INTERIOR_WIDTH - leftLen - rightLen - 1);
   return [...left, { text: ' '.repeat(gap) }, ...right];
 }
 
