@@ -8,11 +8,21 @@
 - [ ] **C6 symptom-A — mis-classification accuracy** *(deferred 0.3.2)*: actions the player intends as combat are sometimes classified as `skill`/`rest`, routing to the wrong spine. The auto-resolve guard (C6) prevents a combat-classified action from resolving without a fight, but the upstream classify decision is a prompt-template concern → route via `prompt-versioning` skill, [[prompt-v13-roadmap]].
 - [ ] **C3 residual — LLM-authored/spawn_npc NPCs have NULL health** *(deferred 0.3.2)*: `seedNpcs` now writes `health` (migration `202607112100_npc_combat_health.ts`), but LLM-authored and `spawn_npc` NPCs still get NULL health. `deriveEnemyMaxHp(DC)` is the fallback. Giving `add_npc` a `health` field means the decision prompt needs a `health` vocab slot → v13 prompt-versioning.
 
+[ ] In-app: start a real combat against a named NPC (e.g. Shadow Stag). Verify the continue card shows the NPC's real name (C3).,
+[ ] In-app: bail out of a fight mid-way, then re-engage. The opening frame must show banded condition, not ?/? (C4).,
+  does not work. bail -> /action resume figth -> still Unknown foe ?/?
+  is combat state persisted correctly? no duplicated? see combat-system-v12.md
+  but now when I initiated combat, it showed the name..?
+[y] In-app: fight to last-stand. The desperate-choice screen must show the contested-roll readout + banded condition (C5).,
+[y?] In-app: land the killing blow. The outcome must show the combat opening frame + terminal card (P2), not a bare location scene.,
+[y] In-app: verify the /action 'last action' hint fires only on the genuine last roll (Saturday = 4th, weekday = 3rd). (N3 verified by tests; sanity-check.),
+[y] In-app: cross a frontier to a new location. Verify the description resolves (not perpetual placeholder) within ~15s. (N2),
+[ ] In-app: on a Saturday, verify the threat NPC is at its announced location on /look and stays there (doesn't wander off). (N1),
+[y] In-app: on the unfinished-action screen (/hi), verify the free-text 'or type action <what you do>' line is gone. (N5)
+
 ### TBD — POC polish (small UI wins, no spark warranted)
 
-- [ ] rework this:
-  > [DC 12] — misleading label carried over from non-combat rolls; it's not a threshold the player needs to beat. It's actually the encounter's baseDc (set by the LLM's decide step, e.g. MockLlmGateway/FallbackLlmGateway/DeepSeek output, range ~10-18). It only matters because the enemy's bonus is derived from it: enemyBonus = clamp(baseDc - 10, 0, 10). It also sets the enemy's max HP (deriveEnemyMaxHp). The engine also rolls a hidden enemy d20 each round — its total (enemyD20 + enemyBonus) isn't shown on this mid-fight card, only on the final "COMBAT RESOLVED" card when the fight ends.
-  instead, make that show the dangerouseness of the encounter. use the dc values and map them to something like, easy, medium, hard, risky, fatal, etc.
+- many frame has two spaces for padding left. refactor to 1
 - map seems formatted weird:
 ```
 The Vale (home)
@@ -48,6 +58,7 @@ one would look at the "you are here" first , then aroud you, and having the fore
 - [ ] the thinking block might as well show the full decision history exactly like action outcome
   - it should also show the main frame block
   - same for the epemeral version of actions responses.
+  - it should have a hints block that the player can reed while waiting. periodically scrape the docs and features for interactions lesser known of (like regex resolving, ...)
 - [ ] footer emoji for location changes should show location emoji
 - [ ] travel prompt should inject the current location, edge, and final location state. and routes to get there.
 - [ ] movement on low difficulty terrain can be deterministic for up to a total of 3 effort, 3 times 1 difficulty edges. Or a 1 and 2 difficulty edge. When traversing a 3 (or greater) difficulty edge in one action, the travel prompt has to trigger.
