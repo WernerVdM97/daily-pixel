@@ -93,10 +93,10 @@ export const PALETTES: Record<string, Palette>; // 'house' default + mood varian
 
 **Acceptance:**
 
-- [ ] `chrome` renders readably on Discord dark bg (live).
-- [ ] Palette lives in its own module; the renderer is palette-driven; the existing combat frame's output is byte-identical except the chrome colour.
-- [ ] Border prettification landed (or explicitly deferred on a negative box-drawing verdict), with its output changes live-checked.
-- [ ] Width (≤30 pre-colour) and char-budget (<2000 incl. fences) tests still green.
+- [x] `chrome` moved off black. → **Done** (`d98258d`): `chrome` at 37; live-check batched.
+- [x] Palette lives in its own module; the renderer is palette-driven; the existing combat frame's output is byte-identical except the chrome colour. → **Done** (`d98258d`, review notes `472c1a6`): `src/render/palette.ts` (`Role`, `PALETTES` house/ember/gloom), `renderFrame(spec, palette)`.
+- [/] Border prettification landed (or explicitly deferred), with its output changes live-checked. → **In progress, scope grew.** The box-drawing verdict was positive, and at plan-review 2026-07-11 the user pulled this into a full **combat-frame redesign** (border intensity/rarity ladder + a floated, DC-boxed, colour-coded roll readout, `d20` label dropped). Designed + captured in [[visual-craft]] (the exact frames, colour roles, escalation rules); build contract in the addendum below. Live-check batched.
+- [x] Width (≤30 pre-colour) and char-budget (<2000 incl. fences) tests still green. → **Green** (77 files / 1369 tests as of `fb9fb74`).
 
 ### ANSI-C — decouple render from engine (block item C)
 
@@ -138,10 +138,10 @@ The engine keeps the banding maths (`enemyConditionBand` yields `woundWord` + `p
 **Acceptance:**
 
 - [x] A per-round log persists each round's maths; nothing is discarded. → **Done** (`79d48a3`): six maths fields on `CombatBeatLog`, per-fight list on `pendingDecision.combatRounds` + terminal `ActionOutcome.combatRounds`, tolerant read. `dc` = the round's `baseDc` (contested roll, not a threshold).
-- [ ] The dice line is visible on the continue frame and the first beat, not only at the end (live).
-- [ ] The terminal frame stops duplicating the embed stats footer.
-- [x] Continue + terminal card mocks exist, width-tested and indexed; the frame code follows them. → **Mocks done** (`d45b5ec`); frame code pending.
-- [ ] Closes the `TODO.md` "combat still isn't shown good, list each dice roll/outcome per decision" item.
+- [x] The dice line is visible on the continue frame and the first beat, not only at the end. → **Code done** (`d7a3cb5`, reviewed `0c18503`): last round's `d20 N +B vs DC D` / `margin ±M BAND` spliced from `combatRounds.at(-1)`. Live-check batched. (NB: superseded by the redesign addendum below — the readout is being rebuilt floated/coloured.)
+- [x] The terminal frame stops duplicating the embed stats footer. → **Done** (`d7a3cb5`): terminal is now a data card (no enemy nameplate/HP bar/player footer); `CombatCardRenderer`.
+- [x] Continue + terminal card mocks exist, width-tested and indexed; the frame code follows them. → **Mocks done** (`d45b5ec`); frame code done (`d7a3cb5`).
+- [x] Closes the `TODO.md` "combat still isn't shown good, list each dice roll/outcome per decision" item. → **Code done** (`d7a3cb5`); live-check batched.
 
 **Depends on:** ANSI-C (composes frames from structured status).
 
@@ -237,6 +237,19 @@ Custom (free-text) actions get a real "thinking" screen (three dots + "thinking�
 - [x] The custom-action path shows a thinking screen before `engine.startAction`. → **Done** (`f5069ec`): player's clipped text + ⏳ Thinking beat; errors clear the thinking page. Live check batched.
 
 ---
+
+## Addendum — combat-frame redesign (border ladder + roll readout)
+
+Added 2026-07-11: what ANSI-B's border step grew into once the user saw a live-faithful preview. Authority for the visual target is [[visual-craft]] (exact width-validated frames, colour-role mapping, escalation rules); this is the build contract. Not yet built — the executor spec was drafted; a fresh lead should re-derive it from [[visual-craft]] + the current renderer and run the delegation loop.
+
+**Scope (user chose "full redesign now"):**
+
+- **Border-style ladder** in `src/render/AnsiRenderer.ts`: a `BorderStyle` interface + `BORDERS` registry — `standard` (single box-drawing `┌─┐│└┘├┤`), `heavy` (double `╔═╗║╚╝╠╣`), `crit` (ornamental crest rim `o══╡@╞══o`, `@` painted `warmth`). Box-drawing `standard` becomes the DEFAULT for every frame (replacing `+`/`-`/`|`) — that IS the border prettification. Split `borderLine` → `borderTop`/`borderMid`/`borderBottom(palette, style)`; `composeLine`/`renderFrame` take the style. `OpeningFrameRenderer` inherits `standard` (glyphs change, layout unchanged).
+- **Two bespoke combat cards** in `src/render/CombatCardRenderer.ts` (both compose from primitives; engine still supplies structured data only — ANSI-C boundary holds): a redesigned **terminal card** (drop the `d20` label, box + emphasise `[DC N]` on the focal line, calc without "vs DC", label by verdict `COMBAT WON/LOST/CRITICAL HIT`) and a new **continue card** `renderCombatContinueCard(status, lastRound?)` replacing `action.ts`'s `renderCombatStatusFrame` (enemy banded pips + player HP bar + a floated, colour-coded readout: `{d20} +{bonus} = {total}` left, `[DC N]` right; `hit {±margin} margin` left, `{BAND}` right).
+- **Escalation rules:** continue → `heavy` if `band === 'heavy'` or player ≤ 25% HP, else `standard`. Terminal → `crit` if `playerD20 === 20`, `heavy` if `playerD20 === 1`, else `standard`. Band-word favourability colour: clean/glanced → life, trade → warmth, heavy → threat.
+- **Constraints:** no bold/dim SGR compositing (palette is one code per role — prominence via position + colour); mobile-monochrome must carry meaning (sign + band word + marker); every interior line exactly 28; import boundaries stay clean both ways; do not touch the engine or the wireframe `.ascii` mocks.
+
+**Status:** designed + documented ([[visual-craft]], `928bb0f`/`4dce48e`); a Discord-faithful colour preview artifact exists (private). Frame CODE from `d7a3cb5` (the plain dice line + first-cut terminal card) is the thing being rebuilt/superseded by this redesign. After it lands: adversarial review, then it folds into the consolidated live-check batch.
 
 ## Release cut (0.3.1)
 
