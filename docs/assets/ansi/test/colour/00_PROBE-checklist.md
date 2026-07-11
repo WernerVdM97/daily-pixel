@@ -12,18 +12,18 @@ For each row: read the label off the frame, tick both boxes once you've checked 
 
 Question: which of these codes render as colour at all, and which show as plain/default text?
 
-| Code | Desktop: renders colour? | Mobile: renders colour? |
-|---|---|---|
-| 30 black | [ ] | [ ] |
-| 31 red | [ ] | [ ] |
-| 32 green | [ ] | [ ] |
-| 33 yellow | [ ] | [ ] |
-| 34 blue | [ ] | [ ] |
-| 35 magenta | [ ] | [ ] |
-| 36 cyan | [ ] | [ ] |
-| 37 white | [ ] | [ ] |
+| Code       | Desktop: renders colour? | Mobile: renders colour? |
+| ---------- | ------------------------ | ----------------------- |
+| 30 black   | [ x]                     | [ ]                     |
+| 31 red     | [x ]                     | [ ]                     |
+| 32 green   | [ x]                     | [ ]                     |
+| 33 yellow  | [x ]                     | [ ]                     |
+| 34 blue    | [x ]                     | [ ]                     |
+| 35 magenta | [x ]                     | [ ]                     |
+| 36 cyan    | [x ]                     | [ ]                     |
+| 37 white   | [x ]                     | [ ]                     |
 
-Verdict: ____________________ (which codes render, which don't, on each platform)
+Verdict: mobile is always monochrome. desktop colours look good! (are there more options?)
 
 ---
 
@@ -42,7 +42,7 @@ Question: does the bright range render as colour anywhere, or does it fall back 
 | 96 cyan | [ ] | [ ] |
 | 97 white | [ ] | [ ] |
 
-Verdict: ____________________ (does 90-97 ever render as colour; does `chrome=90` hold or does the skill need correcting to a 30-37 code)
+Verdict: it definitely looks "whiter" on desktop but identical on mobile. Also no colours on desktop nor phone.
 
 ---
 
@@ -50,18 +50,18 @@ Verdict: ____________________ (does 90-97 ever render as colour; does `chrome=90
 
 Question: which background codes render as a coloured band vs plain/no fill?
 
-| Code | Desktop: renders colour? | Mobile: renders colour? |
-|---|---|---|
-| 40 black | [ ] | [ ] |
-| 41 red | [ ] | [ ] |
-| 42 green | [ ] | [ ] |
-| 43 yellow | [ ] | [ ] |
-| 44 blue | [ ] | [ ] |
-| 45 magenta | [ ] | [ ] |
-| 46 cyan | [ ] | [ ] |
-| 47 white | [ ] | [ ] |
+| Code       | Desktop: renders colour? | Mobile: renders colour? |
+| ---------- | ------------------------ | ----------------------- |
+| 40 black   | [ x]                     | [ ]                     |
+| 41 red     | [x ]                     | [ ]                     |
+| 42 green   | [x ]                     | [ ]                     |
+| 43 yellow  | [x ]                     | [ ]                     |
+| 44 blue    | [x ]                     | [ ]                     |
+| 45 magenta | [x ]                     | [ ]                     |
+| 46 cyan    | [x ]                     | [ ]                     |
+| 47 white   | [x ]                     | [ ]                     |
 
-Verdict: ____________________
+Verdict: renders colour quite nicely on desktop. BUT on mobile its completely transparent or missing. Does not seem viable
 
 ---
 
@@ -69,14 +69,14 @@ Verdict: ____________________
 
 Question: do the box-drawing and half-block/shade glyphs stay single-width, i.e. does each glyph in the two glyph rows sit under exactly one digit of the ruler above and below it, with the right border landing in the same column on every row?
 
-| Row | Glyphs | Desktop: aligned to ruler? | Mobile: aligned to ruler? |
-|---|---|---|---|
-| 1 | `═ ║ ─ │ █ ▀ ▄ ▌ ▐ ░ ▒ ▓` | [ ] | [ ] |
-| 2 | `┌ ┐ └ ┘ ╔ ╗ ╚ ╝` | [ ] | [ ] |
+| Row | Glyphs                    | Desktop: aligned to ruler? | Mobile: aligned to ruler? |
+| --- | ------------------------- | -------------------------- | ------------------------- |
+| 1   | `═ ║ ─ │ █ ▀ ▄ ▌ ▐ ░ ▒ ▓` | [x]                        | [x]                       |
+| 2   | `┌ ┐ └ ┘ ╔ ╗ ╚ ╝`         | [x]                        | [x]                       |
 
 If a row is misaligned, note which glyph(s) broke it and by how many columns: ____________________
 
-Verdict: ____________________ (settles `mvp+ansi-art.md` line 33's `[?]` — safe for ANSI-B's border step, or fall back to plain ASCII `\ | / -`)
+Verdict: all of them look good
 
 ---
 
@@ -84,18 +84,18 @@ Verdict: ____________________ (settles `mvp+ansi-art.md` line 33's `[?]` — saf
 
 Question: for each code, does the rendered colour match the Solarized-ish hint or the standard-ANSI hint printed under it?
 
-| Code | Hint shown | Desktop: matches which? (solz / std / neither) |
-|---|---|---|
-| 33 yellow | `solz=gold/olive` vs `std=lemon` | ____ |
-| 34 blue | `solz=cyan-blue` vs `std=navy` | ____ |
-| 37 white | `solz=cream` vs `std=lt-gray` | ____ |
+| Code      | Hint shown                       | Desktop: matches which? (solz / std / neither) |
+| --------- | -------------------------------- | ---------------------------------------------- |
+| 33 yellow | `solz=gold/olive` vs `std=lemon` | looks more like a dark yellow or light orange  |
+| 34 blue   | `solz=cyan-blue` vs `std=navy`   | looks like a azure or ocean blue               |
+| 37 white  | `solz=cream` vs `std=lt-gray`    | cream is accurate. or milky white              |
 
-Verdict: ____________________ (settles `mvp+ansi-art.md` line 35's `[?]`; record the winning hypothesis and, once known, the actual hex per code for the palette module's doc comment)
+Verdict: **Solarized-ish wins** — 33 gold/dark-orange (not lemon), 34 azure (not navy), 37 cream. Standard-ANSI hypothesis rejected; hex recorded in `src/render/palette.ts` and `mvp+ansi-art.md`.
 
 ---
 
 ## Close-out
 
-- [ ] fg 30-37 vs 90-97 contradiction resolved; losing doc (skill or spark) corrected.
-- [ ] Palette `[?]` settled and hex recorded.
-- [ ] Box-drawing/half-block mobile verdict recorded; ANSI-B's border step un-gated (or explicitly deferred on a negative verdict).
+- [x] fg 30-37 vs 90-97 contradiction resolved (90-97 render nothing; 30-37 only): the `ansi-frames` skill lost — its chrome=90 guidance corrected to 37; chrome=37 recorded as final in `palette.ts`/`AnsiRenderer.ts`. Bonus fact recorded: bg 40-47 are desktop-only (invisible on mobile).
+- [x] Palette `[?]` settled (Solarized-ish) and hex recorded in `palette.ts` + `mvp+ansi-art.md`.
+- [x] Box-drawing/half-block mobile verdict recorded (single-width everywhere) — ANSI-B's border step un-gated.

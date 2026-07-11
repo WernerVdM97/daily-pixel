@@ -66,9 +66,9 @@ Source of truth for the block is the `ANSI frame polish — T2 live-check follow
 
 **Acceptance:**
 
-- [ ] Operator confirms which SGR ranges render on desktop and mobile; the contradiction is resolved and the losing doc corrected.
-- [ ] The palette `[?]` is settled and recorded.
-- [ ] The box-drawing/half-block mobile verdict is recorded (un-gates ANSI-B's border step).
+- [x] Operator confirms which SGR ranges render on desktop and mobile; the contradiction is resolved and the losing doc corrected. → **Settled 2026-07-11**: fg 30-37 desktop-only colour, mobile monochrome; **90-97 render nothing anywhere** (skill's chrome=90 lost, corrected to 37 final); bonus fact: **bg 40-47 are desktop-only, invisible on mobile** (recorded in skill + spark).
+- [x] The palette `[?]` is settled and recorded. → **Solarized-ish confirmed** (33 gold, 34 azure, 37 cream); hex in `palette.ts` doc comment + spark doc.
+- [x] The box-drawing/half-block mobile verdict is recorded (un-gates ANSI-B's border step). → **Single-width everywhere** (ruler-verified desktop + mobile); border prettification un-gated, queued after the ANSI-D/F wave lands.
 
 **Scope fence:** investigation + doc correction only; the renderer change is ANSI-B.
 

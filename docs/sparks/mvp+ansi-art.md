@@ -24,16 +24,16 @@ Findings and mock-ups from an ANSI-colour experiment (2026-07-08): Discord `ansi
 
 ## 1. What Discord actually supports
 
-- ` ```ansi ` code blocks render SGR escape codes on **desktop and browser only**: `0` reset, `1` bold, `4` underline, fg `30-37`, bg `40-47`. Fixed Solarized-ish palette, no RGB.
+- ` ```ansi ` code blocks render SGR escape codes on **desktop and browser only**: `0` reset, `1` bold, `4` underline, fg `30-37`, bg `40-47`. Fixed Solarized-ish palette, no RGB. **Bright fg `90-97` does not render colour anywhere** (probe-tested 2026-07-11: no colour on desktop or mobile; desktop shows slightly "whiter" plain default text). **bg `40-47` render on desktop only — completely invisible on mobile** (same session): bg fills are desktop enhancement, never meaning.
 - **Mobile strips the codes** and shows plain monochrome art — layout intact, colour gone. Graceful degradation, but colour must never carry gameplay-critical information on its own.
 - Escape codes count toward the 2 000-char message limit. Measured budgets: 30-wide interaction frames 820–1 250 chars incl fences; the 40-wide splash with bg fills + piped border lands at ~1 945 (near the ceiling).
 - Wrap thresholds (via a ruler message, `30…56` cols): **40 cols max on the phone** (Nothing 2a, default font), desktop comfortably beyond 56. Existing 30-char loader cap stays right for anything mobile players must read; 40 is the ceiling for showpieces.
-- Dark fg colours (esp. gray `30`) read badly on Discord's dark chat background. Prefer light fg (white/tan) and get "dark" from **bg fills** instead.
-- Half-blocks (`█ ▀ ▄ ▐ ▌`), shade blocks (`░ ▒ ▓`) and box-drawing (`═ ║`, heavy `━ ┃`) render single-width on desktop.
+- Dark fg colours (esp. gray `30`) read badly on Discord's dark chat background. Prefer light fg (white/tan) and get "dark" from shading glyphs; bg fills can layer desktop darkness but vanish on mobile (2026-07-11 probe), so they never carry it alone.
+- Half-blocks (`█ ▀ ▄ ▐ ▌`), shade blocks (`░ ▒ ▓`) and box-drawing (`═ ║`, heavy `━ ┃`, corners) render single-width on desktop **and mobile** (ruler-verified 2026-07-11).
 - **Single-width glyphs only (hard rule).** Every glyph in a frame must occupy exactly one monospace cell or the right border drifts. Emoji and Miscellaneous-Symbols / Dingbats glyphs (`⚠ ☺ ✦ ❖ ✓ ✗`, ~U+2600–U+27BF and the emoji planes) render double-width in Discord and mobile. Confirmed live: a single `⚠` header pushed its row out by one column in the colour test set. Stay inside ASCII + box-drawing + block/shade + Geometric-Shapes (`■ ▪ ● ◄`); substitute `!` / `@` / `*` / `x` for the symbol glyphs above. Watch too for East-Asian-Ambiguous punctuation Discord widens (confirmed live: a `§` in the colour test set overshot its row) — use `#` for `§` and `>` for `→`; when unsure, prefer plain ASCII. Applies to monospace frame art only, not ordinary embed text.
 
-[?] Do half-blocks/box-drawing stay single-width on all mobile fonts? Splash rendered on the Nothing but a broader device pass hasn't happened.
-[?] A May 2026 comment on the community ANSI guide says Discord moved the palette from Solarized-custom toward standard ANSI colours — re-verify hex values before building UI that colour-matches them.
+[x] ~~Do half-blocks/box-drawing stay single-width on all mobile fonts?~~ **Settled 2026-07-11** (ANSI-A probe 4, ruler-aligned on desktop and the phone): half-blocks, shades, and box-drawing incl. corners are single-width everywhere tested. Box-drawing borders are safe.
+[x] ~~Discord palette: Solarized-custom vs standard ANSI?~~ **Settled 2026-07-11** (ANSI-A probe 5): Solarized-ish confirmed — 33 reads gold/dark-orange (not lemon), 34 azure/ocean (not navy), 37 cream. The standard-ANSI migration claim is rejected. Colour-matching hex (community Solarized-custom set, consistent with the probe observations; reference only, never read at render): 30 `#4f545c`, 31 `#dc322f`, 32 `#859900`, 33 `#b58900`, 34 `#268bd2`, 35 `#d33682`, 36 `#2aa198`, 37 ≈ cream/off-white (`#fdf6e3`-ish).
 
 ## 2. Colour-role convention
 

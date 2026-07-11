@@ -16,10 +16,11 @@ allowed-tools: Read, Glob, Grep, Bash, Write, Edit
 - **Char budget**: 2 000 chars per message incl code fences; escape codes count. Colour roughly doubles a frame's cost. Measured: 30-wide frames land at 820–1 250 coloured.
 - **Mobile strips ANSI colour** — the monochrome art must carry all gameplay information alone. Colour is enhancement, never signal.
 - **Author monochrome, colour at render.** `.ascii` fragments stay colour-free; an `AnsiRenderer` applies colour by role. Never store coloured strings as assets (`SceneLoader` width validation counts raw length).
-- **Never use ANSI black (30 fg or 40 bg).** Discord code blocks render against a dark grey-blue background (#2b2d31). Black foreground is invisible; black background is indistinguishable from the code block itself. Use 90 (bright black / dark gray) for border roles, and get "dark" from shading glyphs (`░ ▒ ▓`) or darker bg colours (41–47) — never 40.
-- **Always fill the background.** Never leave space transparent — Discord's dark theme transparency will silhouette art against an unpredictable backdrop. Every cell must carry either a bg colour (41–47), shading glyph (`░ ▒ ▓`), or a solid fill character (`█`). Negative space is filled, not empty.
+- **Never use ANSI black (30 fg or 40 bg).** Discord code blocks render against a dark grey-blue background (#2b2d31). Black foreground is invisible; black background is indistinguishable from the code block itself. Border/chrome roles use 37 white — **the bright range 90–97 does not render colour at all** (confirmed live 2026-07-11, desktop and mobile: it falls back to plain default text). Get "dark" from shading glyphs (`░ ▒ ▓`) — never 40.
+- **bg colours (41–47) are desktop-only** (confirmed live 2026-07-11: rendered on desktop, completely invisible on mobile). Treat bg fills as pure desktop enhancement; darkness and meaning must be carried by glyphs.
+- **Always fill the background.** Never leave space transparent — Discord's dark theme transparency will silhouette art against an unpredictable backdrop. Every cell must carry a shading glyph (`░ ▒ ▓`) or a solid fill character (`█`); a bg colour (41–47) may layer on top for desktop but never substitutes for a glyph fill (mobile loses it). Negative space is filled, not empty.
 - **Palette first, art second.** Choose an appropriate colour palette for the scene's mood before placing a single glyph. Every frame declares its palette in a comment block at composition time. Use complementary pairs (31↔32, 33↔34/36, 35↔37) for focal contrast; warm/cool push-pull for depth; monochrome ramps (bold + dim + `░▒▓` ≈ 4 steps) for understated moments. A good palette uses 3–4 roles, not all 8.
-- Half-blocks (`█ ▀ ▄ ▐ ▌`), shades (`░ ▒ ▓`) and box-drawing render single-width on desktop; box-drawing on mobile fonts is unverified, so prefer plain ASCII (`\ | / -`) for structural lines like rays.
+- Half-blocks (`█ ▀ ▄ ▐ ▌`), shades (`░ ▒ ▓`) and box-drawing (including corners `┌ ┐ └ ┘ ╔ ╗ ╚ ╝`) render single-width on desktop **and mobile** (confirmed live 2026-07-11 against a column ruler) — box-drawing is safe for borders and structural lines.
 - **Single-width glyphs only (hard rule, non-negotiable).** Every character must occupy exactly one monospace cell, so columns and the right border always line up. Emoji and the Miscellaneous-Symbols / Dingbats glyphs (`⚠ ☺ ✦ ❖ ✓ ✗`, roughly U+2600–U+27BF plus the emoji planes) render **double-width** in Discord and on mobile, silently shoving that row's border out by a column. Stay inside the tested-safe set: ASCII, box-drawing, block/shade, and Geometric-Shapes glyphs (`■ ▪ ● ◄`). **Also beware East-Asian-Ambiguous punctuation that Discord silently widens** even though it looks innocuous: `§` and `→` both render double-width (confirmed live) — use `#` and `>`. When any non-ASCII glyph is not in the tested-safe set, assume it may be wide and prefer plain ASCII. Substitutes: warning `!`, crest face `@`, sparkle `*` or `+`, pass/fail `+` / `x`, section ref `#`, arrow `>`. This governs monospace frame art only (`.ascii`/`.ansi`, code-block frames); ordinary Discord embed and message text may still use emoji freely. Validate before shipping: strip ANSI codes, assert every line is exactly the interior width counting emoji/symbol glyphs as 2.
 
 ## 2. Frame chrome and slots
@@ -77,7 +78,7 @@ For **monster portraits** (bestiary, inspect replies) follow the zombie card in 
 
 | Code | Role |
 |---|---|
-| 90 bright black | chrome: borders, labels, empty bar segments (always 90, never 30 — 30 black is invisible on Discord's code block bg) |
+| 37 white | chrome: borders, labels, empty bar segments (never 30 — black is invisible on Discord's code block bg; never 90 — the bright range doesn't render, confirmed live 2026-07-11) |
 | 31 red | threat: enemy names, damage, low HP, eyes |
 | 32 green | life: HP fill, healing, XP gains |
 | 33 yellow | warmth/reward: fire, loot, crits, title lettering |
@@ -99,7 +100,7 @@ Derived from the landscape reference (spark doc §11); each maps to a char class
 | Sculpted shadows | `▓`/`▒` flanks, `▀ ▄` scallops | Shadow sides of foliage/objects; pick ONE light source and keep it |
 | Dissolve gradient | `▓ → ▒ → ░ → .` trail | Death/despawn effects; density falls off with distance; advance it across 2–3 posts for free animation |
 | Decorative clusters | small `·`/`*` diamonds | Sparkles, flowers, burst highlights (asymmetric placement) |
-| Ramp sharing | same shade char, colour shifts at render | e.g. dissolve particles red 31 fading to bright black 90 |
+| Ramp sharing | same shade char, colour shifts at render | e.g. dissolve particles red 31 fading to uncoloured default text (90–97 don't render — fade via plain runs) |
 
 Composition rules:
 

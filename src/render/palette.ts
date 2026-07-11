@@ -1,15 +1,17 @@
 // Colour vocabulary for AnsiRenderer frames — the module of record for
 // `Role` and the role->SGR mappings a frame can select between (a "palette").
 //
-// The settled palette hex (Solarized-ish vs standard ANSI terminal hex) is
-// still pending the ANSI-A live probe (docs/engine/poc-plus-0.3.1-polish-plan.md
-// "ANSI-A"); once settled it belongs here as a doc note. Hex is documentation
-// only — Discord's `ansi` fence only honours SGR codes, so nothing in this
-// file ever reads a hex value to render; roles map straight to SGR numbers.
+// Settled by the ANSI-A live probe (2026-07-11): Discord's `ansi` palette is
+// the Solarized-custom set, NOT standard ANSI. Colour-matching hex (reference
+// only — Discord honours SGR codes, nothing here reads hex at render):
+//   30 #4f545c · 31 #dc322f · 32 #859900 · 33 #b58900 (gold, not lemon)
+//   34 #268bd2 (azure) · 35 #d33682 · 36 #2aa198 · 37 ≈ cream (#fdf6e3-ish)
+// Also settled: bright fg 90-97 render NO colour anywhere (plain default
+// text), and bg 40-47 are desktop-only (invisible on mobile).
 //
 // `chrome` sits at 37 (white) rather than the historical 30 (black, invisible
-// on Discord's dark code-block background) — see AnsiRenderer.ts's comment on
-// the same constant for the full rationale and the pending 90-role reconciliation.
+// on Discord's dark code-block background). This is final, not interim: the
+// once-planned reconciliation to bright 90 is dead — 90-97 don't render.
 // That parks `chrome` on the same code as `emphasis` in the house palette;
 // `emphasis` (and `warmth`) are not yet emitted by any segment builder, so the
 // collision is inert — the first frame to wire `emphasis` must split them

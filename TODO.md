@@ -33,8 +33,8 @@ The T2 live check passed on content (colours good on desktop, monochrome clean o
 
 **A — settle first**
 
-- [ ] Live-test bright SGR codes (90–97) in a Discord `ansi` block: the `ansi-frames` skill mandates chrome=90, but [[mvp+ansi-art]] line 27 (live-tested) says only fg 30–37 render. Settle the contradiction and correct the losing document.
-- [ ] Settle the [[mvp+ansi-art]] line 35 palette `[?]` (Solarized-ish vs standard ANSI hex) in the same live session.
+- [x] ~~Live-test bright SGR codes (90–97)~~ → **Settled 2026-07-11** (ANSI-A probes): 90-97 render no colour anywhere; the skill's chrome=90 lost and is corrected to 37 (final). Also settled: bg 40-47 desktop-only; box-drawing single-width on mobile.
+- [x] ~~Settle the [[mvp+ansi-art]] line 35 palette `[?]`~~ → **Solarized-ish confirmed** (same session); hex recorded in `src/render/palette.ts` + the spark doc.
 
 **B — renderer standardisation**
 

@@ -66,10 +66,9 @@ const EMPTY_GLYPH = '░';
 
 // Palette `chrome` values (borders/labels) sit at 37 (white), not the historical
 // 30 (black) — black is unreadable against Discord's dark code-block background,
-// confirmed live 2026-07-10. 37 is the safe default within the SGR range already
-// proven to render (30-37); it reconciles to bright 90 (dim grey, the intended
-// "chrome" register) once ANSI-A's live probe confirms bright 90-97 also renders
-// in a Discord `ansi` block. See docs/engine/poc-plus-0.3.1-polish-plan.md "ANSI-B".
+// confirmed live 2026-07-10. 37 is final: the ANSI-A probe (2026-07-11) proved
+// bright 90-97 render no colour at all in a Discord `ansi` block, so the
+// once-planned 90 "dim grey chrome" register does not exist. See src/render/palette.ts.
 
 /** Wrap text in a role's SGR code + reset, looked up from the active
  *  palette. Skips empty text so blank segments don't spend chars on escape
