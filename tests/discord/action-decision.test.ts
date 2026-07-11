@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildDecisionMessage, buildOutcomeEmbed, setPendingDecision, getChoiceLabel } from '../../src/discord/commands/action.js';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
+import type { CombatBeatLog } from '../../src/engine/action/combat-dc.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function buttons(msg: ReturnType<typeof buildDecisionMessage>): any[] {
@@ -352,6 +353,108 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     expect(desc).toContain('Bloodied');
     expect(desc).toContain('10/12');
     expect(desc).toContain('-2');
+  });
+
+  // ── ANSI-D: the continue frame's dice line (previously the frame showed HP bands only) ──
+
+  function round(overrides: Partial<CombatBeatLog> = {}): CombatBeatLog {
+    return {
+      round: 1,
+      band: 'trade',
+      enemyHpBefore: 10,
+      enemyHpAfter: 8,
+      playerHpDelta: -2,
+      playerD20: 14,
+      playerBonus: 3,
+      dc: 15,
+      enemyD20: 10,
+      enemyBonus: 2,
+      margin: 2,
+      materialMutationFired: true,
+      ops: ['modify_health'],
+      marker: 'combat_round',
+      ...overrides,
+    };
+  }
+
+  const combatStatus = {
+    enemyName: 'Wolf',
+    woundWord: 'Bloodied',
+    pips: { filled: 3, total: 5 },
+    playerHp: 10,
+    playerMaxHp: 12,
+    playerHpDelta: -2,
+  };
+
+  it('shows the round dice line (d20 + margin/band) when combatRounds carries a fought round', () => {
+    const msg = buildDecisionMessage({
+      prompt: 'Combat — what do you do?',
+      combatStatus,
+      combatRounds: [round()],
+      options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
+    }, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+
+    expect(desc).toContain('d20 14 +3 vs DC 15');
+    expect(desc).toContain('margin +2  TRADE');
+  });
+
+  it('reads the LAST round of combatRounds (a multi-round fight shows the most recent dice, not the first)', () => {
+    const msg = buildDecisionMessage({
+      prompt: 'Combat — what do you do?',
+      combatStatus,
+      combatRounds: [
+        round({ round: 1, playerD20: 5, dc: 11, margin: -4, band: 'heavy' }),
+        round({ round: 2, playerD20: 19, playerBonus: 2, dc: 13, margin: 8, band: 'clean' }),
+      ],
+      options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
+    }, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+
+    expect(desc).toContain('d20 19 +2 vs DC 13');
+    expect(desc).toContain('margin +8  CLEAN');
+    expect(desc).not.toContain('vs DC 11');
+  });
+
+  it('signs a negative bonus and a negative margin correctly', () => {
+    const msg = buildDecisionMessage({
+      prompt: 'Combat — what do you do?',
+      combatStatus,
+      combatRounds: [round({ playerD20: 4, playerBonus: -1, dc: 15, margin: -12, band: 'heavy' })],
+      options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
+    }, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+
+    expect(desc).toContain('d20 4 -1 vs DC 15');
+    expect(desc).toContain('margin -12  HEAVY');
+  });
+
+  it('shows no dice line when combatRounds is absent (first beat / pre-combat) — HP bands render exactly as before', () => {
+    const msg = buildDecisionMessage({
+      prompt: 'Combat — what do you do?',
+      combatStatus,
+      options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
+    }, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+
+    expect(desc).not.toContain('d20');
+    expect(desc).not.toContain('margin');
+    // HP band content still present, unaffected
+    expect(desc).toContain('Wolf');
+    expect(desc).toContain('Bloodied');
+  });
+
+  it('shows no dice line when combatRounds is an empty array', () => {
+    const msg = buildDecisionMessage({
+      prompt: 'Combat — what do you do?',
+      combatStatus,
+      combatRounds: [],
+      options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
+    }, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+
+    expect(desc).not.toContain('d20');
+    expect(desc).not.toContain('margin');
   });
 
   it('omits combatStatus on non-combat screens where the engine never set it', () => {

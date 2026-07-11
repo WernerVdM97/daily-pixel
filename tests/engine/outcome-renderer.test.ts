@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
+import type { CombatBeatLog } from '../../src/engine/action/combat-dc.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../src/engine/OutcomeRenderer.js';
-// Combat-frame tests below inject the presentation-side renderer (ANSI-C: OutcomeRenderer
+// Combat-card tests below inject the presentation-side renderer (ANSI-C: OutcomeRenderer
 // itself never imports src/render/ — see the grep-proof acceptance in the ANSI-C plan section).
-import { renderFrame } from '../../src/render/AnsiRenderer.js';
+import { renderCombatTerminalCard } from '../../src/render/CombatCardRenderer.js';
 
 // ── Helpers ──
 
@@ -706,12 +707,34 @@ describe('distilledActionEmoji', () => {
   });
 });
 
-// ── Combat outcome rendering (T2b — combat maths frame) ──
+// ── Combat outcome rendering (ANSI-D — terminal data card, replaces the T2b message-box frame) ──
 
-describe('combat outcome rendering (T2b — combat maths frame)', () => {
+describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
   const stripSgr = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
 
-  it('shows the AnsiRenderer combat frame instead of a text roll header', () => {
+  // Full-shape CombatBeatLog fixture (ANSI-D added playerD20/playerBonus/dc/enemyD20/enemyBonus/margin
+  // — the card is built from these, not the flat outcome.playerRolled/rollBonus/finalDc fields).
+  function beat(overrides: Partial<CombatBeatLog> = {}): CombatBeatLog {
+    return {
+      round: 2,
+      band: 'clean',
+      enemyHpBefore: 12,
+      enemyHpAfter: 0,
+      playerHpDelta: 0,
+      playerD20: 16,
+      playerBonus: 4,
+      dc: 15,
+      enemyD20: 3,
+      enemyBonus: 2,
+      margin: 5,
+      materialMutationFired: true,
+      ops: ['set_relation'],
+      marker: 'combat_round',
+      ...overrides,
+    };
+  }
+
+  it('shows the terminal data card instead of a text roll header', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 12,
@@ -720,154 +743,129 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       outcome: 'success',
       outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: {
-        round: 2,
-        band: 'clean',
-        enemyHpBefore: 12,
-        enemyHpAfter: 0,
-        playerHpDelta: 0,
-        materialMutationFired: true,
-        ops: ['set_relation'],
-        marker: 'combat_round',
-      },
-      combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
+      combatBeat: beat(),
+      combatRounds: [beat()],
     };
 
-    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderFrame);
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderCombatTerminalCard);
 
-    // Text roll header is replaced by the frame — no emoji-dice line
+    // Text roll header is replaced by the card — no emoji-dice line
     expect(result).not.toContain('🎲 18');
     expect(result).not.toContain('vs 12');
 
-    // Frame contains key pieces
-    expect(result).toContain('Goblin');
-    expect(result).toContain('11');
-    expect(result).toContain('12/12');
+    // Card contains the round's own maths (from the beat, not the flat outcome fields)
+    expect(result).toContain('COMBAT RESOLVED');
+    expect(result).toContain('16');
+    expect(result).toContain('vs DC 15');
+    expect(result).toContain('margin +5');
     expect(result).toContain('WIN');
-    expect(result).toContain('Aldric');
   });
 
-  it('shows the correct damage floater signs on the frame', () => {
+  it('drops the enemy nameplate/HP bar and player footer the old message-box frame carried (data-card de-noise)', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 12,
-      playerRolled: 15,
-      rollBonus: 3,
+      playerRolled: 18,
+      rollBonus: 5,
       outcome: 'success',
-      outcomeText: 'The wolf is driven back.',
+      outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: {
-        round: 1,
-        band: 'heavy',
-        enemyHpBefore: 8,
-        enemyHpAfter: 2,
-        playerHpDelta: -4,
-        materialMutationFired: true,
-        ops: ['set_relation'],
-        marker: 'combat_round',
-      },
-      combatFrame: { enemyName: 'Wolf', enemyMaxHp: 8, margin: 6 },
+      combatBeat: beat(),
+      combatRounds: [beat()],
     };
 
-    const result = formatOutcome(combatOutcome, ctx(), renderFrame);
-    const stripped = stripSgr(result);
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderCombatTerminalCard);
 
-    // enemyDelta = 2 - 8 = -6, player delta = -4
-    expect(stripped).toContain('-6');
-    expect(stripped).toContain('-4');
+    // No nameplate/HP-bar content at all — the card is presentation-only maths, not a status readout.
+    expect(result).not.toContain('HP [');
+    expect(result).not.toContain('Aldric');
   });
 
-  it('does not show the floater line when enemyDelta is zero', () => {
+  it('prefers the LAST round of combatRounds over an earlier one (multi-round fight shows the deciding blow)', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 12,
-      playerRolled: 14,
-      rollBonus: 2,
+      playerRolled: 18,
+      rollBonus: 5,
       outcome: 'success',
-      outcomeText: 'You hold the line.',
+      outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: {
-        round: 1,
-        band: 'glanced',
-        enemyHpBefore: 8,
-        enemyHpAfter: 8,
-        playerHpDelta: -4,
-        materialMutationFired: false,
-        ops: ['set_relation'],
-        marker: 'combat_round',
-      },
-      combatFrame: { enemyName: 'Wolf', enemyMaxHp: 8, margin: 2 },
+      combatBeat: beat({ round: 2, playerD20: 16, dc: 15, margin: 5 }),
+      combatRounds: [
+        beat({ round: 1, playerD20: 3, dc: 11, margin: -6 }),
+        beat({ round: 2, playerD20: 16, dc: 15, margin: 5 }),
+      ],
     };
 
-    const result = formatOutcome(combatOutcome, ctx(), renderFrame);
+    const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
     const stripped = stripSgr(result);
 
-    // enemyDelta = 0 → no enemy floater line emitted
-    // The floater pattern would be `|  0` (padded inside the frame), but it's absent
-    expect(stripped).not.toMatch(/^\| {2}0/m);
-    // Player floater -4 is still present
-    expect(stripped).toMatch(/^\| {2}-4/m);
+    expect(stripped).toContain('vs DC 15');
+    expect(stripped).toContain('margin +5');
+    expect(stripped).not.toContain('vs DC 11');
   });
 
-  it('includes the roll line and verdict line in the frame message box', () => {
+  it('falls back to outcome.combatBeat when combatRounds is absent (pre-ANSI-D shape)', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
-      finalDc: 14,
-      playerRolled: 20,
-      rollBonus: 0,
+      finalDc: 12,
+      playerRolled: 18,
+      rollBonus: 5,
       outcome: 'success',
-      outcomeText: 'Critical hit!',
+      outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: {
-        round: 3,
-        band: 'clean',
-        enemyHpBefore: 5,
-        enemyHpAfter: 0,
-        playerHpDelta: 0,
-        materialMutationFired: true,
-        ops: ['set_relation'],
-        marker: 'combat_round',
-      },
-      combatFrame: { enemyName: 'Dragon', enemyMaxHp: 20, margin: 20 },
+      combatBeat: beat({ playerD20: 20, dc: 14, margin: 20 }),
     };
 
-    const result = formatOutcome(combatOutcome, ctx(), renderFrame);
+    const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
     const stripped = stripSgr(result);
 
-    expect(stripped).toContain('!d20 20');
+    expect(stripped).toContain('20');
     expect(stripped).toContain('vs DC 14');
     expect(stripped).toContain('margin +20');
-    expect(stripped).toContain('CLEAN');
   });
 
-  it('clamps displayed HP values to [0, maxHp] (B#6 for terminal frame)', () => {
+  it('marks a loss with the "x" marker and LOSS verdict, coloured threat', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 15,
+      playerRolled: 3,
+      rollBonus: 1,
+      outcome: 'failure',
+      outcomeText: 'The wolf overwhelms you.',
+      mutations: [],
+      combatBeat: beat({ playerD20: 3, playerBonus: 1, dc: 15, margin: -9 }),
+      combatRounds: [beat({ playerD20: 3, playerBonus: 1, dc: 15, margin: -9 })],
+    };
+
+    const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
+    const stripped = stripSgr(result);
+
+    expect(stripped).toContain('x LOSS');
+    expect(stripped).toContain('margin -9');
+    expect(result).toContain('\x1b[31m'); // threat role applied to the marker+verdict segment
+  });
+
+  it('takes the flavour line from the first line of outcomeText, truncated to 26 chars', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 12,
-      playerRolled: 16,
-      rollBonus: 4,
+      playerRolled: 18,
+      rollBonus: 5,
       outcome: 'success',
-      outcomeText: 'The orc falls.',
+      outcomeText: 'The GLOOMFANG collapses in a heap of ash.\nA second paragraph never shown.',
       mutations: [],
-      combatBeat: {
-        round: 2,
-        band: 'clean',
-        enemyHpBefore: 10,
-        enemyHpAfter: 0,
-        playerHpDelta: 0,
-        materialMutationFired: true,
-        ops: ['set_relation'],
-        marker: 'combat_round',
-      },
-      combatFrame: { enemyName: 'Orc', enemyMaxHp: 10, margin: 10 },
+      combatBeat: beat(),
+      combatRounds: [beat()],
     };
 
-    const result = formatOutcome(combatOutcome, ctx({ health: 2, maxHealth: 10 }), renderFrame);
+    const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
+    // Isolate the card (the fenced ```ansi block) from the full outcome text repeated
+    // verbatim later in the embed body — the card's flavour line is the one under test.
+    const cardBlock = stripSgr(result).match(/```ansi\n([\s\S]*?)\n```/)?.[1] ?? '';
 
-    // Player HP shows 2/10 (clamped within bounds, not negative)
-    expect(result).toContain('2/10');
-    // Enemy HP shows 0/10 (not negative)
-    expect(result).toContain('0/10');
+    expect(cardBlock).toContain('The GLOOMFANG collapses');
+    expect(cardBlock).not.toContain('second paragraph');
   });
 
   it('result is under 2000 chars', () => {
@@ -879,24 +877,15 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       outcome: 'success',
       outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: {
-        round: 2,
-        band: 'clean',
-        enemyHpBefore: 12,
-        enemyHpAfter: 0,
-        playerHpDelta: 0,
-        materialMutationFired: true,
-        ops: ['set_relation'],
-        marker: 'combat_round',
-      },
-      combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
+      combatBeat: beat(),
+      combatRounds: [beat()],
     };
 
-    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderFrame);
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderCombatTerminalCard);
     expect(result.length).toBeLessThan(2000);
   });
 
-  it('renders no frame line and does not throw when renderCombatFrame is omitted (pins intended-silent behaviour)', () => {
+  it('renders no card line and does not throw when renderCombatFrame is omitted (pins intended-silent behaviour)', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 12,
@@ -905,17 +894,8 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       outcome: 'success',
       outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: {
-        round: 2,
-        band: 'clean',
-        enemyHpBefore: 12,
-        enemyHpAfter: 0,
-        playerHpDelta: 0,
-        materialMutationFired: true,
-        ops: ['set_relation'],
-        marker: 'combat_round',
-      },
-      combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
+      combatBeat: beat(),
+      combatRounds: [beat()],
     };
 
     let result = '';
@@ -923,14 +903,14 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       result = formatOutcome(combatOutcome, ctx({ health: 12 }));
     }).not.toThrow();
 
-    // No frame line rendered (would otherwise contain the enemy name/frame markers) —
+    // No card rendered (would otherwise contain the card's own label) —
     // the outcome text and footer still render normally.
-    expect(result).not.toContain('Goblin');
+    expect(result).not.toContain('COMBAT RESOLVED');
     expect(result).toContain('You defeat the goblin.');
     expect(result.startsWith('\n')).toBe(true);
   });
 
-  it('survives monochrome strip — all numbers and names readable without SGR', () => {
+  it('survives monochrome strip — all numbers and the verdict readable without SGR', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 12,
@@ -939,26 +919,16 @@ describe('combat outcome rendering (T2b — combat maths frame)', () => {
       outcome: 'success',
       outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: {
-        round: 2,
-        band: 'clean',
-        enemyHpBefore: 12,
-        enemyHpAfter: 0,
-        playerHpDelta: 0,
-        materialMutationFired: true,
-        ops: ['set_relation'],
-        marker: 'combat_round',
-      },
-      combatFrame: { enemyName: 'Goblin', enemyMaxHp: 12, margin: 11 },
+      combatBeat: beat(),
+      combatRounds: [beat()],
     };
 
-    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderFrame);
+    const result = formatOutcome(combatOutcome, ctx({ health: 12 }), renderCombatTerminalCard);
     const stripped = stripSgr(result);
 
-    expect(stripped).toContain('Goblin');
-    expect(stripped).toContain('Aldric');
-    expect(stripped).toContain('12/12');
-    expect(stripped).toContain('+11');
+    expect(stripped).toContain('16');
+    expect(stripped).toContain('vs DC 15');
+    expect(stripped).toContain('margin +5');
     expect(stripped).toContain('WIN');
   });
 });

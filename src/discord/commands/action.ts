@@ -18,6 +18,7 @@ import {
 } from 'discord.js';
 import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
+import type { CombatBeatLog } from '../../engine/action/combat-dc.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../../engine/stat-format.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
@@ -27,6 +28,7 @@ import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 import { renderFrame } from '../../render/AnsiRenderer.js';
 import { renderOpeningFrame, type OpeningFrameSlots } from '../../render/OpeningFrameRenderer.js';
+import { renderCombatTerminalCard } from '../../render/CombatCardRenderer.js';
 
 // ── Custom IDs ──
 
@@ -534,11 +536,28 @@ function buildStoryThread(
   return out.join('\n');
 }
 
-/** Frame assembly for a combat continue-screen's status (ANSI-C): the engine emits only the
- *  banding maths (`CombatStatusData`); this presentation-side function composes the
- *  AnsiRenderer frame, mirroring the old engine-side `composeCombatStatus`'s layout exactly. */
-function renderCombatStatusFrame(status: CombatStatusData): string {
+/** Signed bonus, e.g. "+3" / "-1" — for the ANSI-D dice line only (the frame's other floaters
+ *  already have their own signed formatting inline below). */
+function signedBonus(n: number): string {
+  return n >= 0 ? `+${n}` : `${n}`;
+}
+
+/** Frame assembly for a combat continue-screen's status (ANSI-C, dice line added ANSI-D): the
+ *  engine emits only the banding maths (`CombatStatusData`) plus the round log; this
+ *  presentation-side function composes the AnsiRenderer frame, mirroring the old engine-side
+ *  `composeCombatStatus`'s layout exactly, with the round's dice maths spliced into the
+ *  existing message slot when a round has actually been fought. */
+function renderCombatStatusFrame(status: CombatStatusData, lastRound?: CombatBeatLog): string {
   const bar = '▓'.repeat(status.pips.filled) + '░'.repeat(status.pips.total - status.pips.filled);
+  // No `lastRound` (first beat / pre-combat, or a legacy string `combatStatus` that never reaches
+  // this function) means no dice have been rolled yet this fight — the message slot stays absent
+  // rather than showing stale or fabricated maths.
+  const message = lastRound
+    ? [
+      `d20 ${lastRound.playerD20} ${signedBonus(lastRound.playerBonus)} vs DC ${lastRound.dc}`,
+      `margin ${signedBonus(lastRound.margin)}  ${lastRound.band.toUpperCase()}`,
+    ]
+    : undefined;
   return renderFrame({
     header: {
       name: status.enemyName,
@@ -556,13 +575,16 @@ function renderCombatStatusFrame(status: CombatStatusData): string {
         ? (status.playerHpDelta > 0 ? `+${status.playerHpDelta}` : `${status.playerHpDelta}`)
         : undefined,
     },
+    message,
   });
 }
 
 /** Tolerant read (ANSI-C): a pre-existing in-flight action's saved state still carries the old
- *  engine-composed ANSI string in `combatStatus` — render either shape without throwing. */
-function renderCombatStatus(combatStatus: CombatStatusData | string): string {
-  return typeof combatStatus === 'string' ? combatStatus : renderCombatStatusFrame(combatStatus);
+ *  engine-composed ANSI string in `combatStatus` — render either shape without throwing. A
+ *  legacy string never carries a round log either (it predates `combatRounds`), so `lastRound`
+ *  is simply ignored on that branch rather than threaded through. */
+function renderCombatStatus(combatStatus: CombatStatusData | string, lastRound?: CombatBeatLog): string {
+  return typeof combatStatus === 'string' ? combatStatus : renderCombatStatusFrame(combatStatus, lastRound);
 }
 
 export function buildDecisionMessage(
@@ -570,6 +592,9 @@ export function buildDecisionMessage(
     prompt: string;
     narration?: string;
     combatStatus?: CombatStatusData | string;
+    /** ANSI-D: this beat's round log (accumulated so far), so the continue frame can splice in
+     *  the last round's dice maths — see `renderCombatStatusFrame`'s `lastRound` param. */
+    combatRounds?: CombatBeatLog[];
     options: Array<{ label: string; dcModifier: number | null; stat?: string }>;
   },
   decisionIdx: number,
@@ -609,7 +634,7 @@ export function buildDecisionMessage(
   // combatStatus is a plain (unquoted) status line between the two on combat
   // continue-screens. Absent on the first beat — just the quest line + CTA.
   if (decision.narration) blocks.push(quoteLines(decision.narration));
-  if (decision.combatStatus) blocks.push(renderCombatStatus(decision.combatStatus));
+  if (decision.combatStatus) blocks.push(renderCombatStatus(decision.combatStatus, decision.combatRounds?.at(-1)));
   blocks.push(quoteLines(decision.prompt));
 
   // List real (non-bail) options in the body as A./B./C. so button captions can
@@ -762,7 +787,7 @@ export function buildOutcomeEmbed(
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
   const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
-  const outcomeBlock = formatOutcome(outcome, ctx, renderFrame);
+  const outcomeBlock = formatOutcome(outcome, ctx, renderCombatTerminalCard);
   const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
   // Full gamebook recap: breadcrumb, destination scene, story thread, then the
