@@ -714,6 +714,12 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
       enemyHpBefore: 10,
       enemyHpAfter: 7,
       playerHpDelta: 0,
+      playerD20: 10,
+      playerBonus: 5,
+      dc: 10,
+      enemyD20: 10,
+      enemyBonus: 0,
+      margin: 5,
       materialMutationFired: true,
       ops: ['set_relation'],
       marker: 'combat_round',
@@ -745,6 +751,12 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
       enemyHpBefore: 10,
       enemyHpAfter: 9,
       playerHpDelta: -5,
+      playerD20: 1,
+      playerBonus: 5,
+      dc: 10,
+      enemyD20: 10,
+      enemyBonus: 0,
+      margin: -4,
       materialMutationFired: true,
       ops: ['modify_health', 'set_relation', 'set_relation'],
       marker: 'combat_round',
@@ -774,6 +786,99 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
     if (step.resolved) throw new Error('expected unresolved step');
 
     expect(step.combatBeat).toBeUndefined();
+  });
+});
+
+/**
+ * ANSI-D — the accumulated per-fight round log (`ActionDecision.combatRounds` /
+ * `ActionOutcome.combatRounds`). The multi-round accumulation case needs a DB-backed resolver to
+ * round-trip `in_combat` between separate `step()` calls (see the `PipelineSimEngine` test,
+ * tests/sim/pipeline-sim.test.ts, 'T5 — combat telemetry + metrics'); the two cases below —
+ * first-round-kill and the legacy tolerant read — don't need persisted scene-state, so they stay
+ * here against the raw machine.
+ */
+describe('PipelineActionStateMachine — ANSI-D combatRounds', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('a first-round-kill fight has exactly one entry in combatRounds, matching the terminal combatBeat', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult({ baseDc: 6 })];
+
+    // baseDc=6 -> enemyMaxHp=6; player nat-20 (clean, amplified -8) kills outright in round 1.
+    // playerBonus=5 (physical 3 + Iron Sword 2), enemyBonus=clamp(6-10,0,10)=0, dc=6,
+    // margin=(20+5)-(1+0)=24 (mirrors the combatFrame test above using the same rolls/baseDc).
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.combatRounds).toHaveLength(1);
+    expect(step.outcome.combatRounds?.[0]).toEqual({
+      round: 1,
+      band: 'clean',
+      enemyHpBefore: 6,
+      enemyHpAfter: 0,
+      playerHpDelta: 0,
+      playerD20: 20,
+      playerBonus: 5,
+      dc: 6,
+      enemyD20: 1,
+      enemyBonus: 0,
+      margin: 24,
+      materialMutationFired: true,
+      ops: ['set_relation'],
+      marker: 'combat_round',
+    });
+    // Nothing derived twice: the sole round-log entry IS the terminal combatBeat, not a
+    // second computation of the same round's maths.
+    expect(step.outcome.combatBeat).toEqual(step.outcome.combatRounds?.[0]);
+  });
+
+  it('a legacy in-flight state whose pendingDecision has no combatRounds key reads tolerantly (empty, never throws)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult();
+
+    // Two clean glanced rounds (no crit/floor/cap) so both step()s land on CONTINUE.
+    const rolls = [10, 10, 10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const round1 = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (round1.resolved) throw new Error('expected unresolved step');
+    expect(round1.nextDecision.combatRounds).toHaveLength(1);
+
+    // Simulate a fight in flight from before ANSI-D shipped: the persisted state's
+    // pendingDecision JSON never had a `combatRounds` key at all (not merely `undefined`).
+    const { combatRounds: _legacyOmitted, ...legacyPendingDecision } = round1.state.pendingDecision;
+    const legacyState = { ...round1.state, pendingDecision: legacyPendingDecision };
+
+    const round2 = await machine.step(legacyState, 'Press the attack', testChar(), testItems);
+    expect(round2.resolved).toBe(false);
+    if (round2.resolved) throw new Error('expected unresolved step');
+
+    // Tolerant read: a missing list starts fresh from `[]`, never throws, and never carries
+    // phantom rounds forward from a key that was never there.
+    expect(round2.nextDecision.combatRounds).toHaveLength(1);
+    expect(round2.nextDecision.combatRounds?.[0].round).toBe(1);
   });
 });
 

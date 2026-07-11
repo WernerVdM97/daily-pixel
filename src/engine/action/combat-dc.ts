@@ -34,6 +34,22 @@ export interface CombatBeatLog {
   enemyHpAfter: number;
   /** Signed player-HP delta the band applied this round (0 on clean/glanced). */
   playerHpDelta: number;
+  /** Player's raw d20 this round (ANSI-D) — lifted from the transient `CombatRoundOutcome`
+   *  the round already computed, never re-rolled or re-derived. */
+  playerD20: number;
+  /** Player's total ability-check bonus applied to `playerD20` this round. */
+  playerBonus: number;
+  /** The base DC this round's `enemyBonus` was derived from (`clamp(dc - 10, 0, ENEMY_BONUS_MAX)`)
+   *  — NOT a pass/fail threshold; a combat round is a contested roll (`resolveCombatRound`),
+   *  not a `resolveRoll` check against a DC. Carried for the maths-visibility card only. */
+  dc: number;
+  /** Enemy's raw d20 this round — lifted alongside `playerD20`, same source. */
+  enemyD20: number;
+  /** Enemy's total bonus applied to `enemyD20` this round. */
+  enemyBonus: number;
+  /** `(playerD20 + playerBonus) - (enemyD20 + enemyBonus)` — lifted from `CombatRoundOutcome`,
+   *  the same margin that picked this round's `band`. */
+  margin: number;
   /** Did a state-changing (narratable) mutation fire this beat? enemyHp always moves in combat, so this is expected ~always true — that IS the §D7 signal. */
   materialMutationFired: boolean;
   /** The mutation op `type` names emitted this beat, in emission order (e.g. ['set_relation', 'modify_health']). */

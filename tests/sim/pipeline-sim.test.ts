@@ -1170,6 +1170,73 @@ describe('T5 — combat telemetry + metrics', () => {
     expect(engine.getCombatMetrics()).toEqual({ roundsFought: 2, floorSaves: 0, wins: 1, losses: 0 });
   });
 
+  /**
+   * ANSI-D — the accumulated per-fight round log. Reuses the same 2-round WIN scenario as the
+   * combatBeat test above (round 1 CONTINUE at enemyHp 12→4, round 2 WIN at 4→0) specifically
+   * because it's DB-backed (`PipelineSimEngine`'s real `RelationRepository`) — the raw machine's
+   * default no-op resolver can't round-trip `in_combat` between two separate `step()` calls, so a
+   * genuine multi-round accumulation can only be proven through this harness.
+   */
+  it('a multi-round fight accumulates one CombatBeatLog entry per round, maths matching each round', async () => {
+    const handle = buildSimEngine({ kind: 'sequence', values: [20, 1, 20, 1] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    await engine.startAction(1, 'fight the goblin');
+
+    // Round 1: player nat-20 (clean, amplified) vs enemy d20=1. BASE_CHARACTER physical=5, no
+    // items -> playerBonus=5; baseDc=12 -> enemyBonus=clamp(12-10,0,10)=2. margin=(20+5)-(1+2)=22.
+    const step1 = await engine.stepAction(1, 'Press the attack');
+    expect(step1.resolved).toBe(false);
+    const nextDecision = (step1 as { resolved: false; nextDecision: { combatRounds?: unknown[] } }).nextDecision;
+    expect(nextDecision.combatRounds).toHaveLength(1);
+    expect(nextDecision.combatRounds?.[0]).toEqual({
+      round: 1,
+      band: 'clean',
+      enemyHpBefore: 12,
+      enemyHpAfter: 4,
+      playerHpDelta: 0,
+      playerD20: 20,
+      playerBonus: 5,
+      dc: 12,
+      enemyD20: 1,
+      enemyBonus: 2,
+      margin: 22,
+      materialMutationFired: true,
+      ops: ['set_relation'],
+      marker: 'combat_round',
+    });
+
+    // Round 2: same roll pair -> another clean crit, enemy depleted -> WIN. The round-2 entry's
+    // own maths are identical to round 1's (same rolls/bonuses), but it's a DISTINCT beat
+    // (enemyHpBefore/After shift, and the terminal write clamps to 0) — nothing discarded, nothing
+    // recomputed for round 1's already-settled entry.
+    const step2 = await engine.stepAction(1, 'Press the attack');
+    expect(step2.resolved).toBe(true);
+    const outcome = (step2 as { resolved: true; outcome: { combatRounds?: unknown[] } }).outcome;
+    expect(outcome.combatRounds).toHaveLength(2);
+    expect(outcome.combatRounds?.[0]).toEqual(nextDecision.combatRounds?.[0]);
+    expect(outcome.combatRounds?.[1]).toEqual({
+      round: 2,
+      band: 'clean',
+      enemyHpBefore: 4,
+      enemyHpAfter: 0,
+      playerHpDelta: 0,
+      playerD20: 20,
+      playerBonus: 5,
+      dc: 12,
+      enemyD20: 1,
+      enemyBonus: 2,
+      margin: 22,
+      materialMutationFired: true,
+      ops: ['set_relation', 'modify_wealth'],
+      marker: 'combat_round',
+    });
+  });
+
   it('a win finalizes the in_combat edge at enemyHp 0 (defeated foe not resumed by the next fight)', async () => {
     // The terminal set_relation must land, or the edge lingers at the last CONTINUE round's HP and
     // a fresh fight would re-establish onto a still-"active" (enemyHp > 0) edge (plan decision 5).

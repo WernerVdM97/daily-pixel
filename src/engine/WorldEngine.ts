@@ -70,6 +70,13 @@ export interface ActionDecision {
    *  action mid-flight across the deploy still carries it in its saved state JSON, so the
    *  presentation layer's read must tolerate both shapes. */
   combatStatus?: CombatStatusData | string;
+  /** Every `CombatBeatLog` fought so far this encounter, in order (ANSI-D). Lives beside
+   *  `combatStatus` on the seam per the same pattern (ANSI-C, commit 62cc332): this type is
+   *  `PipelineInternalActionState.pendingDecision`'s shape, and that field IS what's serialized
+   *  to the action's JSON state column each beat, so accumulating here is what makes the list
+   *  survive between decisions of a multi-round fight. Missing (not just empty) on any in-flight
+   *  fight saved before this field existed — read it as `?? []`, never assume presence. */
+  combatRounds?: CombatBeatLog[];
 }
 
 export interface ActionOption {
@@ -192,6 +199,11 @@ export interface ActionOutcome {
    *  combat spine's terminal path, alongside combatBeat. enemyMaxHp + margin aren't on the
    *  telemetry CombatBeatLog; enemyName is nowhere else on the outcome. Absent on non-combat. */
   combatFrame?: { enemyName: string; enemyMaxHp: number; margin: number };
+  /** Full per-fight round log (ANSI-D), terminal round inclusive — the same accumulation as
+   *  `ActionDecision.combatRounds`, surfaced here too so the terminal presentation layer reads
+   *  the whole fight off the outcome without reaching into engine state. Absent on non-combat
+   *  outcomes. */
+  combatRounds?: CombatBeatLog[];
 }
 
 export interface ActionResumeResult {
