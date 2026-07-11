@@ -63,6 +63,11 @@ function coloured(t: string, role: Role): Segment {
 function twoColumnLine(left: Segment[], right: Segment[]): Segment[] {
   const leftLen = left.reduce((n, s) => n + s.text.length, 0);
   const rightLen = right.reduce((n, s) => n + s.text.length, 0);
+  // Clamped to 0 rather than allowed to go negative: if left+right ever exceeded INTERIOR_WIDTH,
+  // fitSegments truncates the composed line from the END — i.e. it would eat into this line's
+  // right-aligned column (`vs DC`, `margin`, `d20`), the meaningful data, not padding. Safe today
+  // because the real bounds (dc <= 30, d20 in [1,20], realistic bonuses) keep every line's
+  // left+right well under INTERIOR_WIDTH, but an uncapped-bonus change could trip it.
   const gap = Math.max(0, INTERIOR_WIDTH - leftLen - rightLen);
   return [...left, { text: ' '.repeat(gap) }, ...right];
 }

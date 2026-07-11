@@ -913,6 +913,65 @@ describe('T3 iteration 2 — floor + loss ladder', () => {
     expect(lethalOutcome.outcome).toBe('failure');
     expect(lethalOutcome.hpZero).toBe(true);
   });
+
+  /**
+   * ANSI-D — floor-save then last-stand is a second, genuinely-fought round, not a re-render of
+   * the floor beat: `combatRounds` must carry both entries (the once-per-day survive beat, then
+   * the last-stand round), sharing `round: 1` by design ("round" is the label the floor snapshot
+   * was taken at, not a beat id) but otherwise distinct — different dice, and the continue
+   * frame's `combatRounds.at(-1)` must resolve to the last-stand beat, never the stale floor one.
+   */
+  it('floor-save then last stand accumulates two distinct combatRounds entries, both labelled round 1', async () => {
+    const handle = buildSimEngine({ kind: 'sequence', values: [1, 10, 20, 1] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: lowHpChar,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    await engine.startAction(1, 'fight the goblin');
+
+    // Round 1: player d20=1, enemy d20=10 → heavy, would-be-lethal at lowHpChar's 2 HP →
+    // floor-save fires (see 'first lethal blow triggers desperate-choice' above for the maths).
+    const desperate = await engine.stepAction(1, 'Press the attack');
+    expect(desperate.resolved).toBe(false);
+    const desperateDecision = (desperate as {
+      resolved: false;
+      nextDecision: { combatRounds?: { round: number; band: string; playerD20: number; enemyD20: number; floorSave?: boolean }[] };
+    }).nextDecision;
+    expect(desperateDecision.combatRounds).toHaveLength(1);
+    const floorBeat = desperateDecision.combatRounds![0];
+    expect(floorBeat.round).toBe(1);
+    expect(floorBeat.floorSave).toBe(true);
+
+    // Last stand, roll [20, 1]: player nat-20 forces a clean band regardless of margin (see
+    // 'last stand continues combat with player at 1 HP' above) — a normal fought round, appended
+    // as a second beat still labelled round 1.
+    const stand = await engine.stepAction(1, 'Last stand');
+    expect(stand.resolved).toBe(false);
+    const standDecision = (stand as {
+      resolved: false;
+      nextDecision: { combatRounds?: { round: number; band: string; playerD20: number; enemyD20: number; floorSave?: boolean }[] };
+    }).nextDecision;
+
+    expect(standDecision.combatRounds).toHaveLength(2);
+    const [entry0, entry1] = standDecision.combatRounds!;
+
+    // The floor beat is carried forward unchanged, not recomputed.
+    expect(entry0).toBe(floorBeat);
+    expect(entry0.round).toBe(1);
+    expect(entry1.round).toBe(1);
+
+    // Two separately-resolved rounds, not the same beat duplicated.
+    expect(entry1).not.toBe(entry0);
+    expect(entry1.playerD20).not.toBe(entry0.playerD20);
+    expect(entry1.enemyD20).not.toBe(entry0.enemyD20);
+    expect(entry1.band).not.toBe(entry0.band);
+    expect(entry1.floorSave).toBeUndefined();
+
+    // A continue/terminal frame's `combatRounds.at(-1)` shows the last-stand round's maths.
+    expect(standDecision.combatRounds!.at(-1)).toBe(entry1);
+  });
 });
 
 describe('T3 follow-up — voluntary mid-combat bail (flee at a cost)', () => {
