@@ -5,6 +5,43 @@
 
 ### TBD — POC polish (small UI wins, no spark warranted)
 
+- map seems formatted weird:
+```
+The Vale (home)
+🌳🛡️ The Warden's Oak
+├─ 🌿⚠️🏃 The Forest Edge  ◀ you are here
+│  └─ 🌲⚠️🧗 The Dark Pines
+├─ 🛤️⚠️🚶 The East Road
+│  └─ 🏚️⚠️🧗 The Broken Keep
+├─ 🌊⚠️🏃 The River Crossing
+├─ ⛪🛡️🚶 The Shrine of the First Flame
+└─ 🏛️🛡️🚶 Town Square
+   ├─ 🔥🛡️🚶 The Town Forge
+   ├─ 📚🛡️🚶 The Warden's Library
+   └─ 🍺🛡️🚶 The Weary Lantern Inn
+Unexplored paths
+🛤️ The East Road
+└─ 🏃 ↗️ the road runs on to the eastern town
+🌲 The Dark Pines
+└─ 🧗 ⬇️ the trees never thin — the deep woods swallow the trail
+🌊 The River Crossing
+└─ 🧗 ⬅️ downriver the banks close in, and caves breathe cold air
+🌿 The Forest Edge
+└─ 🏃 ➡️ The Stag's Den
+```
+  - the bottom unexplored path for the stags den should actually render in the top, but greyed out or something to show its unexplored. 
+  - one would look at the "you are here" first , then aroud you, and having the forest edge not show there is bad UX
+- [ ] clearing bad people in an unsafe space should grant a short rest if it is your last action of the day. maybe helps your reach the oak during the night? (slightly risky?)
+- [ ] add more art blocks on messages
+  - like the art on the classified outcome page should be redisplayed on the thinking page.
+  - and maintained on the decision outcomes. On consequtive decisions, it should evolve accordingly, sometime zoom or change the scene. etc
+  - art should be considered the main viewport, and the discord messaging a sub menu or interaciton layer with inline art blocks.
+  - the outcome message should show (all?) the scenes
+  - maybe drop the location ascii image from actions
+- [ ] the thinking block might as well show the full decision history exactly like action outcome
+  - same for the epemeral version of actions responses.
+- [ ] there should be a short version of rest this is usable once per day before or between actions. Drop blocker
+- [ ] footer emoji for location changes should show location emoji
 - [ ] render ansi as images? so mobile works?
 - [ ] travel prompt should inject the current location, edge, and final location state. and routes to get there.
 - [ ] migrate ascii to ansi in semantics, source files, and references
