@@ -51,21 +51,17 @@ Unexplored paths
 - [ ] movement on low difficulty terrain can be deterministic for up to a total of 3 effort, 3 times 1 difficulty edges. Or a 1 and 2 difficulty edge. When traversing a 3 (or greater) difficulty edge in one action, the travel prompt has to trigger.
   - actions that involve movement but isn't it directly, like prompting to search the library from the wardens oak, should ensure that the travel beat is first evaluated (could auto travel, or demand travel as a seperate action).
 - [x] ~~morning and evening messages should have some custom prose or interesting message maybe even art.~~ → **Prose done** (`4570bf6`, 0.3.1 branch): rotating day-keyed flavour via shared builders. Art for announcements not attempted (no spec; would follow the ANSI register work).
-- [x] drop the ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? → **Combat half done** (POC+ stage 1 T2b): scene art suppressed for combat outcomes only; non-combat outcomes keep their art. Full removal tracked as a separate decision per the T2 scope fence.
+- [x] drop the location ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? → **Combat half done** (POC+ stage 1 T2b): scene art suppressed for combat outcomes only; non-combat outcomes keep their art. Full removal tracked as a separate decision per the T2 scope fence.
   - [ ] combat still isn't shown good. We need to list and display each dice role and outcome per decision.
 - [ ] dynamically request or load context. Instead of sending the LLM all possible context, give it an NCP-like interaction layer.
   - scripts or command that perform lookups from the world state that is provided to the decision and mutations DMAs
 - [ ] populate more locaiton edges in the seeds
 - [ ] improve daily work options
-- [x] ~~on the join screen. lets improve the formatting around the inline skills displayed next to class, race and upbringing. perhaps use more line feeds and bold.~~ → **Done** (`311369f`, 0.3.1 branch): label / blockquoted bonuses / description split onto their own lines; the ledger shows the chosen option's own emoji.
-- [x] ~~hints on action messages, the initial one when calling just /action (one action remaining, low stamina, unsafe location)~~ → **Done** (`e6bd651`, 0.3.1 branch): shared hint builder on both the slash and nav paths.
 - [ ] derived/distilled action should show as an emoji next to the decision head while the action evolves — today the decision title is hardcoded `🤔 Decision` (`action.ts:552`) and the distilled-type emoji only appears on the outcome breadcrumb (`buildOutcomeEmbed`).
-- [x] ~~custom (free-text) actions need a real "thinking" screen — three dots + "thinking…" as its own page.~~ → **Done** (`f5069ec`, 0.3.1 branch): the modal path shows the player's clipped text + ⏳ Thinking beat before `engine.startAction`; errors clear it.
 - [ ] `/stats` — show how the character builder (race/class) shaped each base score, and make it prettier. The base+gear breakdown already ships (`+6 (+4 base, +2 🎒)`); levels/upskilling/traits and per-race/class char-creator guidance are deferred → MVP below.
 - [ ] global broadcast on a natural 1 or 20 — a short public shout-out when anyone crits or fumbles. (Wider community feedback — tagging, showing off — is deferred → MVP below.)
 - [ ] hitting 0 stamina blocks more actions that day. pass out can be evaluated similarly to global message.
   - also, 0 hp should do this but also roll the dice, mkaing a death save...
-- [x] ~~bug: autoresolved rest showed refunded but not the inspiration text?~~ → **Done**: accounting root cause fixed as B#3 (`807bb13`); the display gate (inspired line suppressed by any refund) fixed under F#8 (`e426bc4`).
 - [ ] last stand buttons and captions need to look cooler. emojis and shit.
 
 ### ANSI opening-frame follow-ups (2026-07-11, from ANSI-F review)
@@ -126,22 +122,11 @@ The T2 live check passed on content (colours good on desktop, monochrome clean o
 
 Fresh reports from a single QA session (snapshot `warden-20260708-201456`, character BendiusOver — mostly a combat playtest). `F#`/`B#` cite the `feedback`/`bug_reports` row. Cross-refs to existing items noted inline; where an item just re-surfaces a known one, treat this as a fresh datapoint rather than a new task.
 
-**Bugs**
-
-- [x] ~~**`max_stamina` gain not persisted**~~ (B#2) → **Fixed** (`7513181`, 0.3.1 branch): `max_stamina` added to the `CharacterRepository.update` allow-list, schema audit found no other gap, sim raw-SQL workaround dropped.
-- [x] ~~**Action-count footer mismatch**~~ (B#1) → **Resolved by B#3** (`807bb13`, recorded `c491f94`): the rolls-grant clobbering the start drain was the whole mismatch; impossible on every resolved path now.
-- [x] ~~**Possible infinite inspiration**~~ (B#3) → **Leak found and fixed** (`807bb13`, 0.3.1 branch): the auto-resolve branch applied a rolls-grant off the stale pre-drain value, clobbering the start drain; drain now applied before the outcome, regression-tested.
-- [x] ~~**Item loss is unclear**~~ (B#4) → **Fixed** (`d660b19` + tests `4cddda3`, 0.3.1 branch): losses render as a real minus glyph mirroring the gain format, never a Discord list bullet. Item *usage* still tracked in [[improved-item-features]].
-
 **Feedback / feature asks**
 
 - [ ] **NPC coherency — mint on first sight** — narrative said the player sees a caravan, then said they don't; the NPC wasn't persisted to state on first mention (F#1). Mint NPCs immediately so they persist. See [[mvp+npc-economy]], [[mvp-data-model]] (world-state tracking).
 - [ ] **Richer `/hi` opening prose** — pressing Hi should generate a prose opener that scales with time since last interaction (referencing days or a few actions) and reminds the player of their work, quests, and loose ends (F#2). Extends the existing "morning/evening custom prose" and "add /hi to the new-hero message" TBD items.
-- [x] ~~**Trim decision emojis**~~ (F#3) → **Done** (`4815832`, 0.3.1 branch): stakes arrows only, green button as the sole passive tell.
-- [x] ~~**Rest button feels underwhelming**~~ (F#8) → **Done** (`e426bc4`, 0.3.1 branch): pressed "Bedding down…" beat, sectioned rest body, and the inspired line now renders alongside a refund (the linked TBD bug).
-- [x] ~~**Journal is cluttered**~~ (F#6) → **Done** (`3114411`, 0.3.1 branch): sectioned Chronicle/NPCs, bold outcome tags, intel rails from stored mutations. Deeper quest/story tracking stays with the "Improved journal/story" MVP item.
 - [ ] **Buttons going missing is annoying — do the menu rework soon** (F#5). Fresh datapoint bumping the "menu framework coupled to views" MVP item / [[discord-interaction-layer]].
-- [ ] **Too many actions available** — "fun but perhaps too broken" (F#4). Fresh datapoint for the "cap rolls per action type + short-rest" MVP item.
 
 ### Player requests — prod data review (2026-07-03)
 
