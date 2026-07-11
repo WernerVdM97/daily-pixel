@@ -155,6 +155,55 @@ describe("OpeningFrameRenderer", () => {
       expect(mono).toContain("Gloomfang");
     });
 
+    it("combat opening frame names a known foe, not the Unknown-foe fallback (0.3.2 C4 part 1)", () => {
+      const rendered = renderOpeningFrame("combat", { enemyName: "Shadow Stag" });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("Shadow Stag");
+      expect(mono).not.toContain("Unknown foe");
+    });
+
+    it("combat re-entry (enemyCondition set) shows the banded wound word + pip bar, never exact HP (0.3.2 C4 part 2)", () => {
+      const rendered = renderOpeningFrame("combat", {
+        enemyName: "Shadow Stag",
+        enemyCondition: { woundWord: "Battered", filled: 1, total: 5 },
+      });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("Shadow Stag");
+      expect(mono).toContain("Battered");
+      expect(mono).toContain("▓░░░░");
+
+      // The enemy HP line (identified by the wound word) carries no numeric HP anywhere —
+      // banded only. The PC footer line legitimately still shows its own "?/?" placeholder
+      // (no pcHp/pcMaxHp slot passed here), so the "no numbers" assertion is scoped to the
+      // enemy line, not the whole frame.
+      const enemyLine = mono.split("\n").find((l) => l.includes("Battered"));
+      expect(enemyLine).toBeDefined();
+      expect(enemyLine).not.toContain("?/?");
+      expect(enemyLine).not.toMatch(/\d+\/\d+/);
+
+      // Width/border invariants still hold — same frame shape as every other opening frame.
+      const lines = rendered.split("\n");
+      for (const line of lines) {
+        if (line === "```ansi" || line === "```") continue;
+        expect(stripSgr(line).length).toBe(FRAME_WIDTH);
+      }
+    });
+
+    it("combat with no enemyCondition (fresh fight) renders byte-identical to the pre-C4 placeholder output", () => {
+      const withoutCondition = renderOpeningFrame("combat", { enemyName: "Shadow Stag" });
+      const mono = stripSgr(withoutCondition);
+      // Exactly today's placeholder vocabulary — no band leaks in when enemyCondition is absent.
+      expect(mono).toContain("?/?");
+      expect(mono).not.toContain("Battered");
+      expect(mono).not.toContain("Bloodied");
+      expect(mono).not.toContain("Critical");
+      expect(mono).not.toContain("▓");
+
+      // Re-rendering with the exact same slots (no enemyCondition) is deterministic/stable.
+      const again = renderOpeningFrame("combat", { enemyName: "Shadow Stag" });
+      expect(again).toBe(withoutCondition);
+    });
+
     it("combat shows real PC HP when both pcHp/pcMaxHp are supplied", () => {
       const rendered = renderOpeningFrame("combat", { pcName: "Aldric", pcHp: 24, pcMaxHp: 30 });
       const mono = stripSgr(rendered);

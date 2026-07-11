@@ -760,7 +760,15 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     expect(result).toContain('vs 3 +2 = 5');
     expect(result).not.toContain('[DC');
     expect(result).toContain('margin +5');
-    expect(result).toContain('WIN');
+    // POC+ 0.3.2 C2 — the fight-terminal verdict is past tense (WON/LOST), reserved for the
+    // fight-ending beat, distinct from the per-round band-led readout on the continue card.
+    expect(result).toContain('WON');
+    // Both combatants' HP deltas surface beside the band word (band+deltas+verdict = one story).
+    // Coloured segments insert SGR codes between words, so strip before checking substrings
+    // that span a colour boundary (mirrors this file's other stripSgr-based assertions).
+    const strippedForDeltas = stripSgr(result);
+    expect(strippedForDeltas).toContain('you 0');
+    expect(strippedForDeltas).toContain('foe -12');
   });
 
   it('drops the enemy nameplate/HP bar and player footer the old message-box frame carried (data-card de-noise)', () => {
@@ -830,7 +838,7 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     expect(stripped).toContain('margin +20');
   });
 
-  it('marks a loss with the "x" marker and LOSS verdict, coloured threat, band name shown not flavour', () => {
+  it('marks a loss with the "x" marker and LOST verdict (past tense — POC+ 0.3.2 C2), coloured threat, band name shown not flavour', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 15,
@@ -839,16 +847,19 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
       outcome: 'failure',
       outcomeText: 'The wolf overwhelms you.',
       mutations: [],
-      combatBeat: beat({ playerD20: 3, playerBonus: 1, enemyD20: 10, enemyBonus: 4, margin: -9, band: 'heavy' }),
-      combatRounds: [beat({ playerD20: 3, playerBonus: 1, enemyD20: 10, enemyBonus: 4, margin: -9, band: 'heavy' })],
+      combatBeat: beat({ playerD20: 3, playerBonus: 1, enemyD20: 10, enemyBonus: 4, margin: -9, band: 'heavy', playerHpDelta: -3, enemyHpAfter: 11 }),
+      combatRounds: [beat({ playerD20: 3, playerBonus: 1, enemyD20: 10, enemyBonus: 4, margin: -9, band: 'heavy', playerHpDelta: -3, enemyHpAfter: 11 })],
     };
 
     const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
     const stripped = stripSgr(result);
 
-    expect(stripped).toContain('x LOSS');
+    expect(stripped).toContain('x LOST');
     expect(stripped).toContain('margin -9');
     expect(result).toContain('\x1b[31m'); // threat role applied to the marker+verdict segment
+    // Heavy band: player takes the harder hit, enemy the lighter one — both surface beside the band word.
+    expect(stripped).toContain('you -3');
+    expect(stripped).toContain('foe -1');
   });
 
   it('shows the band name instead of outcomeText prose (F#22 — flavour never fits the terminal card line)', () => {
@@ -937,6 +948,34 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     expect(stripped).toContain('vs 3 +2 = 5');
     expect(stripped).not.toContain('[DC');
     expect(stripped).toContain('margin +5');
-    expect(stripped).toContain('WIN');
+    expect(stripped).toContain('WON');
+    expect(stripped).toContain('you 0');
+    expect(stripped).toContain('foe -12');
+  });
+
+  it('shows a trade-band terminal beat with the asymmetric HP deltas and the WON verdict together (POC+ 0.3.2 C2)', () => {
+    const combatOutcome: ActionOutcome = {
+      distilledType: 'combat',
+      finalDc: 12,
+      playerRolled: 13,
+      rollBonus: 2,
+      outcome: 'success',
+      outcomeText: 'You trade blows and come out ahead.',
+      mutations: [],
+      // player 13+2=15, enemy 12+2=14, margin +1 -> trade, edge-win: player -1, enemy -2.
+      combatBeat: beat({
+        band: 'trade', playerD20: 13, playerBonus: 2, enemyD20: 12, enemyBonus: 2, margin: 1,
+        playerHpDelta: -1, enemyHpBefore: 12, enemyHpAfter: 10,
+      }),
+    };
+
+    const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
+    const stripped = stripSgr(result);
+
+    expect(stripped).toContain('TRADE');
+    expect(stripped).toContain('you -1');
+    expect(stripped).toContain('foe -2');
+    expect(stripped).toContain('+ WON');
+    expect(stripped).toContain('margin +1');
   });
 });

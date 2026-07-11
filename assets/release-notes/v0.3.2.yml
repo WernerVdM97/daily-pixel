@@ -1,0 +1,13 @@
+tag: v0.3.2
+title: Combat Correctness & Bug Fix Release
+date: "2026-07-11"
+highlights:
+  - "⚔️ Combat now reads as one true story — the continue card shows the contested roll, not a misleading solo DC; the band word, both HP deltas, and the verdict cohere."
+  - "🦌 Foes fight at their real HP and name — the 24-HP stag is no longer a generic Minion 6/14."
+  - "🩸 Re-entering a fight shows remembered damage — bailing leaves the enemy hurt, and the opening frame reflects it with a wound band (Bloodied/Battered/Critical)."
+  - "🔒 Combat never silently auto-resolves — a boss fight always runs at least one contested round."
+  - "🎨 The kill blow now shows the combat frame (not a bare location scene) paired with the dice reveal."
+  - "📐 HP numbers have breathing room — no more N/MM flush against the border."
+  - "🗺️ Crossed frontiers now enrich reliably — no more perpetual placeholders at new locations."
+  - "📍 Saturday threats stay put — the weekend danger no longer wanders off before you arrive."
+  - "🐛 Fixed: impossible free-text continue, plus verified Saturday hint and inspiration grant are working as designed."

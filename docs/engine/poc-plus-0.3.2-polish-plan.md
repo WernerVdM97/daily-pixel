@@ -47,6 +47,15 @@ Part 1 is the reason for the release and goes first; C1 and C3 settle the facts 
 - C5, C6, and all of Part 2 and Part 3 are independent.
 - Release cut is last, gated on everything.
 
+## Confirmed decisions (scope lock, 2026-07-11)
+
+Locked with the release owner before any executor was spawned. These bind the tasks below; where a task's original prose differs, this section wins.
+
+- **C1 — DC becomes a danger tier.** The continue card shows the contested roll (player total vs enemy total) exactly like the terminal card, and the `[DC N]` value is *demoted* to a worded encounter-danger tier (easy / medium / hard / risky / fatal — the five-tier `TODO.md` ladder), never a per-beat threshold. This deliberately pulls the `TODO.md` "map DC to easy/medium/hard/fatal" item into `0.3.2`.
+- **C2 — asymmetric trade + band-led verdict.** Two coupled changes: (1) the `trade` band's HP deltas become margin-signed — edge-win (`margin > 0`): you `-1`, foe `-2`; dead tie (`margin == 0`): you `-2`, foe `-2` (unchanged, keeps `combatCapScenario` green); edge-loss (`margin < 0`): you `-2`, foe `-1`. `clean`/`glanced`/`heavy` and all crit overrides are untouched (crits never route to `trade`). (2) Per-round beats are **band-led with both HP deltas and no WIN/LOSS word**; an unqualified WON/LOST appears only on the fight-ending beat. **This is a deliberate exception to the "no combat re-tune" fence** (see the amended fence below) — a bounded, trade-band-only delta change the owner signed off, because it fixes the "I rolled higher yet we both lost 2 HP" grievance at the mechanic, not just the label.
+- **C6 — lead surfaces, owner decides.** The investigate-first gate is not the lead's to close alone: the lead reproduces, records the root cause, and brings the branch recommendation (bounded routing fix here vs guard + defer classify-template to v13) to the release owner, who picks the path that ships.
+- **Execution — Part 3 runs concurrently in a worktree.** N1–N5 (non-combat) run in an isolated git worktree lane in parallel with Parts 1–2 on the main branch; the lead lands the worktree's commits with care for merge order. Parts 1 and 2 stay sequential (shared cards).
+
 ---
 
 ## Part 1 — combat correctness
@@ -207,7 +216,7 @@ Independent of Parts 1 and 2; a good parallel-executor lane. Each its own commit
 ## Scope fences
 
 - [>] No Stage-2 broadcast plumbing (nat 1/20 global broadcast stays the next release; the killing-blow frame in P2 is private-outcome only).
-- [>] No change to `resolveCombatRound`, the band table, or the margin maths: `0.3.2` makes the readout tell the truth, it does not re-tune combat.
+- [>] No change to `resolveCombatRound`, the band table, or the margin maths — **with one signed-off exception (C2 above): the `trade` band's HP deltas become margin-signed.** Nothing else in the resolution logic, no other band, and no crit path moves. The readout truthfulness remains the release's spine; this is the single bounded re-tune the owner accepted.
 - [>] No classify-prompt-template change unless C6 explicitly routes there via the `prompt-versioning` skill and the v13 set.
 - [>] Feature asks from the same review are deferred to their homes, not built here: nat-20 extra rewards (adjacent to Stage 2), the "why do non-final decisions have a stat / do DC modifiers stack" design question ([[per-option-stat-and-ability-checks]] follow-up), the menu/nav-button rework (F#5, [[discord-interaction-layer]]), fast travel ([[per-player-map-exploration]]), and the new-hero welcome-screen emoji.
 - [>] The `fragments` catalogue stays mvp+; combat/opening frames keep placeholder scenes.
@@ -229,3 +238,31 @@ Once the bundle is user-accepted and the changelog is current:
 - [ ] [[poc-plus-roadmap]] tracking updated (`0.3.2` recorded before Stage 2); map of content current.
 - [ ] Archive this plan → `archived/poc-plus/` once shipped (per the `0.3.1` precedent).
 - [ ] Recommend `/clear`, then resume with the Stage 2 handover.
+
+---
+
+## Execution state (updated 2026-07-11, mid-build — handover)
+
+Branch `poc-plus/0.3.2-polish` off `dev`. Working tree clean at commit `06d78b9`. Baseline: `npm run typecheck` clean, `npm test` green (**1434 tests**). Each combat task ran the full orchestrated-delegation loop (executor → lead verify → commit → adversarial reviewer → lead triage → fixer → verify → commit).
+
+**Done and committed (Part 1 C1–C5 + Part 2 not yet started):**
+- **C1** — continue card shows the contested roll + demotes `[DC N]` to a danger-tier tag. Build `420493b`; review-fix `d9366b0`.
+- **C2** — asymmetric `trade` band + band-led HP-delta readout on both cards. Build `183498d`; review-fix `d693934`.
+- **C3** — seed real enemy name + HP from the NPC at combat start, `enemyMaxHp` held fixed. Build `2831fc5`; review-fix `cc28965`; residual doc `eb0ef2b`. **The C3 review caught a blocker:** the real-health branch was dead code because `npcs.health` was NULL for every NPC (`seedNpcs` never set it; `add_npc` has no health vocab). Fixed by a backfill migration (`202607112100_npc_combat_health.ts`, Shadow Stag=24 etc., idempotent) + `seedNpcs` now writes health + stripped the new `health` from the LLM context. Residual logged in `TODO.md`: **LLM-authored/`spawn_npc` NPCs (incl. the Saturday threat) still have NULL health → derive from DC; giving `add_npc` a `health` field is a decision-prompt change → v13.**
+- **C4** — opening frame shows the re-entry banded enemy condition (wound word + pips, never numbers) read from the persisted `in_combat` edge a bail leaves behind; foe-naming plumbing (`combatEnemyName`) confirmed already wired (Part 1 verify-only). Build `9d43daf`; review hardening `8e82a12`. Engine emits band DATA (`ActionStartResult.combatEnemyCondition`); render boundary preserved.
+- **C5** — verify-and-gate: the last-stand/bail (desperate-choice) screen **already** shows the full post-C1/C2 contested-roll readout + banded condition — the shared `renderCombatStatusFrame` plus the desperate decision's `combatStatus`+`combatRounds` (B#19, shipped 0.3.1) cover it once C1/C2 landed. **No production change needed;** locked with an acceptance test (`06d78b9`) whose decision shape mirrors the engine floor branch. (Button cosmetics — "Last stand" renders as a lettered `A` — are a separate `TODO.md` item, out of scope.)
+
+**C6 — INVESTIGATED, root cause recorded, OWNER DECISION LOCKED (2026-07-11). Not yet coded.**
+- **Root cause (verified 2026-07-11):** the first-beat auto-resolve branch `if (decideResult.decision.length === 0)` (`PipelineActionStateMachine.ts:191`) fires for **any** action type, including combat — it calls the generic `this.resolve(...)` (skill-style) with NO contested-roll spine. So when DECIDE returns an empty `decision[]` for a combat-classified action, the fight auto-resolves to a one-shot outcome with no combat screens/dice (symptom B: "switched to combat but never showed any combat screens… just autoresolved"). Combat's real spine only runs via `step()` → `handleCombatStep`, gated on `state.actionType === 'combat' && state.required` (`:299`), which needs a first decision with a pickable option.
+- **DECISION (owner-locked): guard here + defer classify to v13.** **(1) Land the guard here** — in the `:191` branch, when `actionType === 'combat'`, do NOT auto-resolve; synthesise a combat first decision (a single required "Engage"/"Press the attack" option, not bail-only) so at least one contested round runs. Fails closed to a real fight, not a shrug. Bounded engine/routing change, no prompt edit; add a test asserting a combat action with an empty DECIDE `decision[]` yields an unresolved start whose first `step()` runs `handleCombatStep` (a contested round), never a one-shot resolve. **(2) Defer to v13** — the mis-classification accuracy (combat read as skill/rest, symptom A) is a classify-prompt-template concern → route via the `prompt-versioning` skill + [[prompt-v13-roadmap]]; log the residual in `TODO.md` + the v13 roadmap. **No owner re-ask needed — code the guard directly.**
+
+**Part 3 — N1–N5 BUILT in an isolated worktree, awaiting land (NOT yet on `poc-plus/0.3.2-polish`).**
+- Worktree branch `worktree-agent-a64f7a101513aa1f8` (path `.claude/worktrees/agent-a64f7a101513aa1f8`). Baseline there was 1383 (branched pre-combat-tests) → 1389 green after 6 added tests. Commits to land, **oldest→newest**: `bd57611`(N5 copy) → `4f63bc5`(N4 WAD doc) → `20c4c28`(N2 cartographer) → `697f057`(N1 threat anchor) → `d6df2e0`(N3 Saturday-hint regression lock).
+- Outcomes: **N1** fixed (threat NPC now anchors at its `home_location`, tick wander skips anchored NPCs; `spawnNpc` idempotent). **N2** fixed (engine now diffs `enrichment_pending` before/after the machine call to recover truly-minted rows and fires the cartographer on both step + auto-resolve paths; residual: failed enrichment is logged, not retried — logged in `TODO.md`). **N3** verified already-correct (hint keys off `rolls_remaining===1`, not a hardcoded threshold), regression-locked with Saturday tests. **N4** working-as-designed (roll drained once, grant nets correctly; trace recorded, UX follow-up kept open). **N5** fixed (removed the impossible free-text hint from the unfinished-action panel, `hi.ts:246`).
+- **Landing care:** N1/N2/N3 add `[Unreleased]` CHANGELOG entries and N1/N2/N4 append to `TODO.md`, so expect trivial merge adjacency there. N3 touches `action.ts` `buildActionHints` only (combat lane touched other parts of `action.ts` — check for adjacency). **The lead must adversarially verify each N-commit's diff before landing** (the worktree agent self-reported; not yet lead-reviewed). Recommended: cherry-pick in the stated order onto `poc-plus/0.3.2-polish`, run typecheck+suite after each, reconcile CHANGELOG/TODO.
+
+**Remaining work:** C6 (owner-confirm the split, then code the guard + test + its review loop) · Part 2 P1 (terminal card prose fit + right-edge padding) · P2 (killing blow gets margin + real frame) · land Part 3 (verify + cherry-pick the 5 commits) · live-check batch on the dev bot (combat cards; **add "watch danger-tier flicker across rounds"** and "watch enemy-HP stability across a last-stand re-entry") · release cut 0.3.2 (VERSION bump, changelog promote, `assets/release-notes/v0.3.2.yml`, tag, prompt owner to merge).
+
+**Changelog `[Unreleased]`** carries C1, C2, C3, C4 entries (C5 needed none — no new behaviour). Part 3's entries live on the worktree branch until landed. Keep adding per task.
+
+**Open decisions locked with the owner (scope-lock section):** C1 danger-tier, C2 asymmetric-trade exception + band-led, C6 = **guard here + defer classify to v13 (owner-locked 2026-07-11, code directly)**, Part 3 concurrent worktree lane.

@@ -32,7 +32,10 @@ export interface CombatBeatLog {
   band: CombatBand;
   enemyHpBefore: number;
   enemyHpAfter: number;
-  /** Signed player-HP delta the band applied this round (0 on clean/glanced). */
+  /** ACTUAL applied signed player-HP delta this round (floored/clamped to real HP where a
+   *  nominal band delta would overshoot 0 or the floor-save's 1 HP) — symmetric with the
+   *  enemy's `enemyHpAfter - enemyHpBefore`. NOT the raw band nominal from `CombatRoundOutcome`;
+   *  those diverge on lethal blows and the desperate-choice floor. */
   playerHpDelta: number;
   /** Player's raw d20 this round (ANSI-D) — lifted from the transient `CombatRoundOutcome`
    *  the round already computed, never re-rolled or re-derived. */
@@ -172,6 +175,21 @@ export function resolveCombatRound(
     band = def.band;
     enemyHpDelta = def.enemyHpDelta;
     playerHpDelta = def.playerHpDelta;
+
+    // POC+ 0.3.2 C2 — signed-off, bounded exception to the "no combat re-tune" fence
+    // (scope-lock section of the 0.3.2 plan): the `trade` band's flat -2/-2 read as
+    // "I rolled higher yet we both lost 2 HP" (grievance, not a display bug), so the margin's
+    // own sign now decides who takes the lighter hit. Contained to this margin-decided branch
+    // and the `trade` band only — no crit path routes here (they all force `clean`/`heavy`
+    // above), and `clean`/`glanced`/`heavy` deltas are untouched.
+    if (band === 'trade') {
+      if (margin > 0) {
+        playerHpDelta = -1; // player edged the contest — takes the lighter hit
+      } else if (margin < 0) {
+        enemyHpDelta = -1; // enemy edged the contest — takes the lighter hit
+      }
+      // margin === 0: dead tie, symmetric -2/-2 stands (keeps combatCapScenario green).
+    }
   }
 
   return {
@@ -192,4 +210,22 @@ export function resolveCombatRound(
 export function deriveEnemyMaxHp(baseDc: number, scale = 1): number {
   const raw = Math.round(baseDc * scale);
   return Math.max(ENEMY_HP_MIN, Math.min(ENEMY_HP_MAX, raw));
+}
+
+export type DangerTier = 'easy' | 'medium' | 'hard' | 'risky' | 'fatal';
+
+/**
+ * Map a combat DC to a worded encounter-danger tier (POC+ 0.3.2 C1; pulls in
+ * the TODO.md "map DC to easy/medium/hard/fatal" item). This is a first-cut,
+ * tunable ladder — thresholds anchored so the sim's baseline goblin (baseDc
+ * 12) reads "medium". This labels the foe's overall danger for display only;
+ * it must never be read as a per-beat pass/fail threshold (that's the margin's
+ * job, not the DC's — see `resolveCombatRound`'s doc comment).
+ */
+export function dangerTier(dc: number): DangerTier {
+  if (dc <= 9) return 'easy';
+  if (dc <= 13) return 'medium';
+  if (dc <= 17) return 'hard';
+  if (dc <= 21) return 'risky';
+  return 'fatal';
 }

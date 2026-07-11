@@ -24,6 +24,7 @@ import { LlmCallRepository } from "../db/repositories/llm-call.js";
 import { APP_VERSION } from "../version.js";
 import {
   PipelineActionStateMachine,
+  enemyConditionBand,
 } from "./action/PipelineActionStateMachine.js";
 import type {
   PipelineInternalActionState,
@@ -33,6 +34,9 @@ import type { PipelineLlmGateway } from "../llm/pipeline/types.js";
 import type { PipelineContextResolver } from "./action/pipeline-context.js";
 import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
+import { readCombatState } from "./action/combat-state.js";
+import type { NodeType } from "../db/repositories/relation.js";
+import type { SceneStateEdge } from "../llm/LlmGateway.js";
 import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
 import { effectiveStats } from "./action/dc.js";
 import {
@@ -391,7 +395,7 @@ export class WorldEngineImpl implements WorldEngine {
       .findByLocation(location)
       .filter((n) => n.description)
       .sort((a, b) => a.id - b.id)
-      .map((n) => ({ id: n.id, name: n.name, description: n.description! }));
+      .map((n) => ({ id: n.id, name: n.name, description: n.description!, health: n.health }));
   }
 
   // ── Character lifecycle ──
@@ -726,6 +730,21 @@ export class WorldEngineImpl implements WorldEngine {
    * structural fields (never trusts the LLM for hierarchy — map §4): emoji falls
    * back to 📍, region to the crossing region, tier to 2. Never awaited/throws.
    */
+  /** Names of every location still awaiting cartographer enrichment. */
+  private pendingEnrichmentNames(): Set<string> {
+    return new Set(
+      this.locationRepo.findAll().filter((l) => l.enrichment_pending === 1).map((l) => l.name),
+    );
+  }
+
+  /** Provisional rows that became enrichment-pending across an action (i.e. minted by it).
+   *  The mint happens inside the machine's finalize, and `applyResolution` re-runs finalize
+   *  against an already-bound frontier edge — so it reports no minted names (N2). Diffing the
+   *  pending set around the machine call is how the engine recovers what was actually minted. */
+  private mintedSince(before: Set<string>): string[] {
+    return [...this.pendingEnrichmentNames()].filter((name) => !before.has(name));
+  }
+
   private fireCartographer(provisionalNames: string[], narrative: string): void {
     if (!this.cartographer || provisionalNames.length === 0) return;
     const cartographer = this.cartographer;
@@ -944,6 +963,9 @@ export class WorldEngineImpl implements WorldEngine {
     // divine-intervention outcomes only. If beat-1 timeouts become common, add a catch
     // mirroring stepActionPipeline with a no-drain refund (roll was never spent).
     const machine = this.machine as PipelineActionStateMachine;
+    // Snapshot before the machine finalizes: a frontier crossed inside start() mints its
+    // provisional row here, so the diff after resolution is what it minted (N2).
+    const pendingBefore = this.pendingEnrichmentNames();
     const startResult = await machine.start(char, rawInput, items, opts.kind, opts.wage);
     const internalState = startResult.state;
 
@@ -992,6 +1014,12 @@ export class WorldEngineImpl implements WorldEngine {
       } else {
         startResult.outcome.rollsDelta = -1 + res!.rollsMutationDelta;
       }
+      // A single-beat frontier crossing (e.g. a simple "cross north into the woods" travel
+      // that auto-resolves in start()) mints a provisional location — schedule its async
+      // enrichment. Omitting it left crossed frontiers stuck on the placeholder scene forever
+      // (N2). Fired after the transaction commits so the cartographer's own async read sees the
+      // minted row.
+      this.fireCartographer(this.mintedSince(pendingBefore), startResult.outcome.outcomeText);
       return {
         state: this.toPublicState(internalState),
         firstDecision: internalState.pendingDecision,
@@ -1022,10 +1050,52 @@ export class WorldEngineImpl implements WorldEngine {
       firstDecision,
       actionType: internalState.actionType,
       combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
+      combatEnemyCondition: this.readPersistedEnemyCondition(characterId, internalState),
     };
   }
 
+  /**
+   * ANSI-F re-entry (0.3.2 C4): a prior bail leaves the `in_combat` edge persisted
+   * (`PipelineActionStateMachine.ts` handleBail), so a re-engaging combat action can read the
+   * foe's damage back and surface a BANDED condition on the opening frame instead of the empty
+   * "unknown" placeholder. Only called from the non-resolved `startActionPipeline` return (no
+   * opening frame renders on the auto-resolve path, so it's never worth computing there).
+   *
+   * Guarded so a stale/mismatched edge never leaks onto a fresh or different fight: the action
+   * must be `combat`, a sane persisted `CombatState` must exist, the enemy must still be alive,
+   * genuinely damaged (not full HP — a full-HP edge reads identically to a fresh fight, so
+   * banding it would show a "condition" that isn't actually new information), and its name must
+   * match the current foe case-insensitively (a differently-named leftover edge from a previous,
+   * unrelated encounter must not be attributed to this one).
+   */
+  private readPersistedEnemyCondition(
+    characterId: number,
+    internalState: PipelineInternalActionState,
+  ): { woundWord: string; filled: number; total: number } | undefined {
+    if (internalState.actionType !== 'combat') return undefined;
 
+    const currentEnemyName = internalState.lastDecideResult.combatEnemy?.name;
+    if (!currentEnemyName) return undefined;
+
+    // Mirrors `pipeline-context.ts`'s scene-relations projection (buildPipelineContext) —
+    // the DB row shape back into the `SceneStateEdge` shape `readCombatState` expects.
+    const rows = this.relationRepo.forNode('pc', String(characterId));
+    const edges: SceneStateEdge[] = rows.map((row) => ({
+      from: { type: row.from_type as NodeType, ref: row.from_ref },
+      to: { type: row.to_type as NodeType, ref: row.to_ref },
+      relType: row.rel_type,
+      props: JSON.parse(row.props) as Record<string, number | string | boolean>,
+    }));
+
+    const combatState = readCombatState(edges);
+    if (!combatState) return undefined;
+    if (combatState.enemyHp <= 0 || combatState.enemyMaxHp <= 0) return undefined;
+    if (combatState.enemyHp >= combatState.enemyMaxHp) return undefined;
+    if (combatState.enemyName.toLowerCase() !== currentEnemyName.toLowerCase()) return undefined;
+
+    const { filled, woundWord } = enemyConditionBand(combatState.enemyHp / combatState.enemyMaxHp);
+    return { woundWord, filled, total: 5 };
+  }
 
   async stepAction(
     characterId: number,
@@ -1079,6 +1149,9 @@ export class WorldEngineImpl implements WorldEngine {
 
     try {
       const machine = this.machine as PipelineActionStateMachine;
+      // Snapshot before the machine finalizes so a frontier crossed on this beat is recovered
+      // by diff — applyResolution's re-finalize can't report it (N2, see mintedSince).
+      const pendingBefore = this.pendingEnrichmentNames();
       const result = await machine.step(internalState, choice, char, items);
 
       if (result.resolved) {
@@ -1094,7 +1167,6 @@ export class WorldEngineImpl implements WorldEngine {
           };
         }
 
-        let provisionalLocations: string[] = [];
         this.db.transaction(() => {
           const res = this.applyResolution(
             characterId,
@@ -1103,7 +1175,6 @@ export class WorldEngineImpl implements WorldEngine {
             result.state.rawInput,
             result.state.decisions,
           );
-          provisionalLocations = res.provisionalLocations;
 
           // T6 — refund calls: confirm the refund-day logic (bail/timeout/systemRefund)
           // still fires on the pipeline path, not just the legacy path. The pipeline machine
@@ -1127,7 +1198,7 @@ export class WorldEngineImpl implements WorldEngine {
           result.outcome.actionId = res.actionId;
         })();
 
-        this.fireCartographer(provisionalLocations, result.outcome.outcomeText);
+        this.fireCartographer(this.mintedSince(pendingBefore), result.outcome.outcomeText);
 
         return {
           resolved: true,
@@ -1479,12 +1550,23 @@ export class WorldEngineImpl implements WorldEngine {
     description?: string;
     location: string;
   }): void {
+    // Idempotent: the weekly threat rotation can land the same foe back at a spot it still
+    // occupies (an un-killed threat from a prior cycle), so don't stack a duplicate mob.
+    const alreadyHere = this.npcRepo
+      .findByLocation(data.location)
+      .some((n) => n.name.trim().toLowerCase() === data.name.trim().toLowerCase());
+    if (alreadyHere) return;
+
     this.npcRepo.create({
       name: data.name,
       class: data.class,
       race: data.race,
       description: data.description,
       location: data.location,
+      // Anchor the placed threat to its announced location: the nightly NPC wander below
+      // holds any NPC standing at its home_location in place, so async players arriving over
+      // the following days still find the foe where the world announced it (N1).
+      homeLocation: data.location,
     });
   }
 
@@ -1654,6 +1736,11 @@ export class WorldEngineImpl implements WorldEngine {
           this.npcRepo.update(npc.id, { wealth: (npc.wealth ?? 0) + 5 });
           continue;
         }
+
+        // Anchored NPCs (scripted Saturday threats — see spawnNpc) hold their post at their
+        // home_location instead of wandering, so a threat announced at a location stays there
+        // for the whole weekend rather than drifting off on the next tick (N1).
+        if (npc.home_location && npc.location === npc.home_location) continue;
 
         // 80% chance to move; multiplier in seed avoids collisions across NPCs.
         const seed = npc.id * 100000 + newDay;

@@ -8,6 +8,7 @@ export interface NearbyNpc {
   id: number;
   name: string;
   description: string;
+  health?: number | null;
 }
 
 /**

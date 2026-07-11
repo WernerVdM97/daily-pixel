@@ -243,7 +243,7 @@ export function makeHiCommand(engine: WorldEngine, dayJobs: DayJobDef[]) {
         ...(narration ? [narration, ""] : []),
         prompt,
         "",
-        "Press the **Action** button or type `action <what you do>` to continue.",
+        "Press the **Action** button to continue.",
       ].join("\n");
     }
 

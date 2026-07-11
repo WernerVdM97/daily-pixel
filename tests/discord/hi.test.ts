@@ -4,9 +4,10 @@ import {
   getDayJobActions,
   getWorkplaceLocation,
   isWeekend,
+  makeHiCommand,
   COMMON_ACTIONS,
 } from "../../src/discord/commands/hi.js";
-import type { CharacterData, StatBlock } from "../../src/engine/WorldEngine.js";
+import type { CharacterData, StatBlock, WorldEngine } from "../../src/engine/WorldEngine.js";
 
 function makeChar(overrides?: Partial<CharacterData>): CharacterData {
   const stats: StatBlock = {
@@ -197,6 +198,27 @@ describe("getWorkplaceLocation", () => {
     );
     // At least 2 different destinations across 5 days (not guaranteed but extremely likely)
     expect(new Set(destinations).size).toBeGreaterThan(1);
+  });
+});
+
+describe("unfinished-action screen", () => {
+  // A pending action resumes verbatim — the description is ignored on resume — so the
+  // screen must not advertise a free-text `action <what you do>` continue that can't work.
+  function makeEngineWithPending(): WorldEngine {
+    return {
+      getCharacter: () => makeChar({ lastActionState: "mid" as unknown as CharacterData["lastActionState"] }),
+      getLocation: () => ({ name: "The Warden's Oak", emoji: "🌳", isSafe: true }),
+      resumeAction: () => ({ nextDecision: { prompt: "What do you do?", narration: "The path forks." } }),
+      getMeta: () => "1",
+    } as unknown as WorldEngine;
+  }
+
+  it("does not offer the impossible free-text continue instruction", async () => {
+    const hi = makeHiCommand(makeEngineWithPending(), mockDayJobs);
+    const out = await hi({ user: { id: "u1" } });
+    expect(out).toContain("Unfinished Action");
+    expect(out).toContain("Press the **Action** button to continue.");
+    expect(out).not.toContain("action <what you do>");
   });
 });
 

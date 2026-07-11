@@ -3,13 +3,19 @@
 
 ## scratchpad (humans start here)
 
+### 0.3.2 residuals → v13 (prompt-versioning + [[prompt-v13-roadmap]])
+
+- [ ] **C6 symptom-A — mis-classification accuracy** *(deferred 0.3.2)*: actions the player intends as combat are sometimes classified as `skill`/`rest`, routing to the wrong spine. The auto-resolve guard (C6) prevents a combat-classified action from resolving without a fight, but the upstream classify decision is a prompt-template concern → route via `prompt-versioning` skill, [[prompt-v13-roadmap]].
+- [ ] **C3 residual — LLM-authored/spawn_npc NPCs have NULL health** *(deferred 0.3.2)*: `seedNpcs` now writes `health` (migration `202607112100_npc_combat_health.ts`), but LLM-authored and `spawn_npc` NPCs still get NULL health. `deriveEnemyMaxHp(DC)` is the fallback. Giving `add_npc` a `health` field means the decision prompt needs a `health` vocab slot → v13 prompt-versioning.
+
 ### TBD — POC polish (small UI wins, no spark warranted)
 
 - [ ] rework this:
   > [DC 12] — misleading label carried over from non-combat rolls; it's not a threshold the player needs to beat. It's actually the encounter's baseDc (set by the LLM's decide step, e.g. MockLlmGateway/FallbackLlmGateway/DeepSeek output, range ~10-18). It only matters because the enemy's bonus is derived from it: enemyBonus = clamp(baseDc - 10, 0, 10). It also sets the enemy's max HP (deriveEnemyMaxHp). The engine also rolls a hidden enemy d20 each round — its total (enemyD20 + enemyBonus) isn't shown on this mid-fight card, only on the final "COMBAT RESOLVED" card when the fight ends.
   instead, make that show the dangerouseness of the encounter. use the dc values and map them to something like, easy, medium, hard, risky, fatal, etc.
 - map seems formatted weird:
-``` 
+
+```
 The Vale (home)
 🌳🛡️ The Warden's Oak
 ├─ 🌿⚠️🏃 The Forest Edge  ◀ you are here
@@ -32,8 +38,9 @@ Unexplored paths
 🌿 The Forest Edge
 └─ 🏃 ➡️ The Stag's Den
 ```
-  - the bottom unexplored path for the stags den should actually render in the top, but greyed out or something to show its unexplored. 
-  - one would look at the "you are here" first , then aroud you, and having the forest edge not show there is bad UX
+
+- the bottom unexplored path for the stags den should actually render in the top, but greyed out or something to show its unexplored.
+- one would look at the "you are here" first , then aroud you, and having the forest edge not show there is bad UX
 - [ ] clearing bad people in an unsafe space should grant a short rest if it is your last action of the day. maybe helps your reach the oak during the night? (slightly risky?)
 - [ ] add more art blocks on messages
   - like the art on the classified outcome page should be redisplayed on the thinking page.
@@ -71,6 +78,7 @@ Unexplored paths
 - [ ] Opening frame on auto-resolved actions: travel/rest often resolve at start with no decision beat, so they show no opening frame today (3 auto-finish call sites + the public-broadcast embed question). Extend the frame to the outcome path.
 - [ ] Resume-mid-action shows no opening frame at decisionIdx 0 (`resumeAction` doesn't carry `actionType`); rare, degrades gracefully.
 - [ ] Combat opening frame renders "Unknown foe" pre-first-step; `PipelineDecideResult.combatEnemy` exists but isn't exposed publicly — enrich when worth it.
+- [ ] Cartographer enrichment has no active retry sweep (N2 residual): the mint→fire wiring is fixed (`mintedSince` diff fires the async cartographer for freshly-crossed frontiers), but a `enrich()` that throws is only `console.warn`-logged and leaves the row `enrichment_pending = 1` forever — nothing re-attempts it. Add a bounded retry/reconciler (e.g. sweep pending rows on tick, capped by a retry counter) so a transient LLM failure self-heals instead of leaving a permanent placeholder.
 
 **Art depth & migration** (deferred / mvp+):
 
@@ -130,7 +138,7 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
   `this is cool!!!`
   (but does it work with ephemeral..?)
 - [ ] stealth or following mechanics?
-- [ ] mechanic — bonus rolls: an LLM `modify_rolls_remaining: +N` reward is a deliberate mechanic, not a bug (the "extra throw" report traces to this; no deterministic double-decrement exists — a roll is spent exactly once per action in startAction). Design it properly: when/why the world grants an extra roll, and surface it to the player so it reads as a reward. Belongs to the roll-economy work in [[mvp-llm-prompt-architecture]].
+- [ ] mechanic — bonus rolls: an LLM `modify_rolls_remaining: +N` reward is a deliberate mechanic, not a bug (the "extra throw" report traces to this; no deterministic double-decrement exists — a roll is spent exactly once per action in startAction). Design it properly: when/why the world grants an extra roll, and surface it to the player so it reads as a reward. Belongs to the roll-economy work in [[mvp-llm-prompt-architecture]]. **Re-verified for 0.3.2 (N4):** the "why am I getting inspiration multiple times a day?" report against 0.3.1 (after the B#3 clobber fix) is the same working-as-designed mechanic — each `modify_rolls_remaining: +N` grant nets against exactly one drain per action (`startActionPipeline` drains once at `WorldEngineImpl.ts:961/1012`; the grant applies to the drained row so it stacks, never clobbers). Proven by `tests/engine/world-engine-impl.test.ts:326` (grant path nets to delta 0, rolls unchanged) and `:358` (no-grant path drains exactly −1). Closes as WAD; the open UX work above (surface the grant as a named reward) remains the only follow-up. No code change.
 - [>] `[[mvp-llm-prompt-architecture]]` — prompt refactor:
   - optimise prompt to llm as markdown (more friendly) not json. Response can remain json
   - options should still be produced by the llm, but there should be some rolls before to influence it

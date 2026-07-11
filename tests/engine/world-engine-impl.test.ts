@@ -7,6 +7,9 @@ import { CharacterRepository } from '../../src/db/repositories/character.js';
 import { ItemRepository } from '../../src/db/repositories/item.js';
 import { ActionRepository } from '../../src/db/repositories/action.js';
 import { NpcRepository } from '../../src/db/repositories/npc.js';
+import { RelationRepository } from '../../src/db/repositories/relation.js';
+import { LocationRepository } from '../../src/db/repositories/location.js';
+import type { CartographerGateway, CartographerResult } from '../../src/llm/LlmGateway.js';
 import type {
   ClassifyHit,
   PipelineDecideResult,
@@ -380,6 +383,256 @@ describe('WorldEngineImpl — auto-resolve start-path rolls accounting (B#3)', (
     expect(startResult.outcome).toBeDefined();
     expect(charRepo.findById(characterId)!.rolls_remaining).toBe(2);
     expect(startResult.outcome!.rollsDelta).toBe(-1);
+
+    closeDb();
+  });
+});
+
+describe('WorldEngineImpl — cartographer fires on the auto-resolve frontier-crossing path (N2)', () => {
+  // Let the fire-and-forget enrichment IIFE (await enrich → sync enrichProvisional write) settle.
+  async function flush(times = 5): Promise<void> {
+    for (let i = 0; i < times; i++) await new Promise((r) => setImmediate(r));
+  }
+
+  it('enriches a provisional location minted by a single-beat cross_frontier', async () => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const locationRepo = new LocationRepository(getDb());
+
+    const user = userRepo.create('888888888');
+    // "The East Road" NE is a real unbound frontier (assets/world/edges.yml), so a
+    // cross_frontier NE from here mints a fresh provisional row.
+    const characterId = charRepo.create(user.id, {
+      name: 'Mira',
+      class: 'Ranger',
+      upbringing: 'Village',
+      race: 'Human',
+      alignment: 'neutral good',
+      day_job: 'Hunter',
+      stats: JSON.stringify({ physical: 2, wisdom: 2, intelligence: 0, charisma: 0 }),
+      health: 10,
+      max_health: 10,
+      max_stamina: 10,
+      stamina: 10,
+      rolls_remaining: 3,
+      location: 'The East Road',
+      wealth: 0,
+      last_action_state: null,
+    }).id;
+
+    let enrichedName: string | undefined;
+    const cartographer: CartographerGateway = {
+      enrich: async (input): Promise<CartographerResult> => {
+        enrichedName = input.newName;
+        return {
+          is_safe: 0,
+          description: 'A green valley of terraced farms below the eastern ridge.',
+          tags: 'valley,farmland,dusk',
+          region: 'Eastreach',
+          emoji: '🏞️',
+          node_tier: 2,
+          onwardFrontiers: [],
+        };
+      },
+    };
+
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: 'travel', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new AutoResolveMockGateway([{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }]),
+      cartographer,
+      rollD20: () => 15,
+    });
+
+    await engine.startAction(characterId, 'cross the frontier to the north-east');
+    await flush();
+
+    // Pre-fix, this branch minted the row but never called the cartographer, so the
+    // placeholder ("(Mapping…)") stuck forever. It must now fire for the minted name…
+    expect(enrichedName).toBe('Eastvale');
+    // …and the enrichment must persist the real description + scene tags, clearing the placeholder.
+    const row = locationRepo.findByName('Eastvale');
+    expect(row?.description).toBe('A green valley of terraced farms below the eastern ridge.');
+    expect(row?.tags).toContain('valley');
+    expect(row?.enrichment_pending).toBe(0);
+
+    closeDb();
+  });
+});
+describe('WorldEngineImpl — startAction surfaces a persisted enemy condition on re-entry (0.3.2 C4)', () => {
+  /** Scripted decide() with a fixed non-empty option, so start() always lands on the
+   *  non-resolved (real firstDecision) return path — the only one `combatEnemyCondition` is
+   *  computed on. `classify()` is never expected to fire: every rawInput used below
+   *  (`heuristicClassify`) hits on its own keyword table. */
+  class ScriptedGateway implements PipelineLlmGateway {
+    constructor(
+      private readonly distilledType: string,
+      private readonly combatEnemy?: { name: string; anchor: 'npc' | 'location' },
+    ) {}
+
+    async classify(): Promise<PipelineStageResult<ClassifyHit>> {
+      throw new Error("unexpected classify() call — this test's rawInput should heuristic-hit");
+    }
+
+    async decide(): Promise<PipelineStageResult<PipelineDecideResult>> {
+      const result: PipelineDecideResult = {
+        distilledType: this.distilledType,
+        stat: 'physical',
+        baseDc: 12,
+        required: true,
+        decision: [{ label: 'Attack', dcModifier: 0, stat: 'physical' }],
+        ...(this.combatEnemy ? { combatEnemy: this.combatEnemy } : {}),
+      };
+      return { result, callId: 0 };
+    }
+
+    async resolveMutate(): Promise<PipelineStageResult<PipelineResolveMutateResult>> {
+      throw new Error('not exercised — decide() always returns a non-empty option here');
+    }
+
+    async resolveNarrate(): Promise<PipelineStageResult<PipelineResolveNarrateResult>> {
+      throw new Error('not exercised — decide() always returns a non-empty option here');
+    }
+  }
+
+  function seedCharacter(): { userRepo: UserRepository; charRepo: CharacterRepository; characterId: number } {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const user = userRepo.create('999999999');
+    const characterId = charRepo.create(user.id, {
+      name: 'Garrick',
+      class: 'Fighter',
+      upbringing: 'Village',
+      race: 'Human',
+      alignment: 'lawful good',
+      day_job: 'Guard',
+      stats: JSON.stringify({ physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }),
+      health: 10,
+      max_health: 10,
+      max_stamina: 10,
+      stamina: 10,
+      rolls_remaining: 3,
+      location: "The Warden's Oak",
+      wealth: 5,
+      last_action_state: null,
+    }).id;
+    return { userRepo, charRepo, characterId };
+  }
+
+  /** Persists the `in_combat` edge a prior bail would have left behind (anchored at the pc's
+   *  current location, mirroring `combat-state.ts`'s location-anchor shape). */
+  function seedInCombatEdge(
+    characterId: number,
+    props: { enemyName: string; enemyHp: number; enemyMaxHp: number; round: number },
+  ): void {
+    new RelationRepository(getDb()).set({
+      fromType: 'pc',
+      fromRef: String(characterId),
+      toType: 'location',
+      toRef: "The Warden's Oak",
+      relType: 'in_combat',
+      props,
+    });
+  }
+
+  function makeEngine(
+    userRepo: UserRepository,
+    charRepo: CharacterRepository,
+    gateway: PipelineLlmGateway,
+  ): WorldEngineImpl {
+    return new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: '__divine__', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: gateway,
+      rollD20: () => 15,
+    });
+  }
+
+  it('surfaces a banded condition for a persisted damaged edge matching the current foe', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    seedInCombatEdge(characterId, { enemyName: 'Goblin', enemyHp: 5, enemyMaxHp: 20, round: 2 });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+    const startResult = await engine.startAction(characterId, 'attack the goblin');
+
+    // 5/20 = 0.25 → filled = round(0.25*5) = 1 (Math.round), woundWord: >=0.15 and <0.4 → 'Battered'.
+    expect(startResult.combatEnemyCondition).toEqual({ woundWord: 'Battered', filled: 1, total: 5 });
+
+    closeDb();
+  });
+
+  it('leaves combatEnemyCondition undefined when the persisted edge names a different foe', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    seedInCombatEdge(characterId, { enemyName: 'Wolf', enemyHp: 5, enemyMaxHp: 20, round: 2 });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+    const startResult = await engine.startAction(characterId, 'attack the goblin');
+
+    expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('leaves combatEnemyCondition undefined for a full-HP persisted edge (no real re-entry condition to show)', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    seedInCombatEdge(characterId, { enemyName: 'Goblin', enemyHp: 20, enemyMaxHp: 20, round: 1 });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+    const startResult = await engine.startAction(characterId, 'attack the goblin');
+
+    expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('leaves combatEnemyCondition undefined for a non-combat action even with a matching persisted edge', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    seedInCombatEdge(characterId, { enemyName: 'Goblin', enemyHp: 5, enemyMaxHp: 20, round: 2 });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('rest'));
+    const startResult = await engine.startAction(characterId, 'rest by the fire');
+
+    expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('leaves combatEnemyCondition undefined for a genuinely fresh fight (no persisted edge at all)', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    // No seedInCombatEdge: this is the common case — a brand-new combat with nothing persisted.
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+    const startResult = await engine.startAction(characterId, 'attack the goblin');
+
+    expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('matches the remembered foe case-insensitively (the guard is a safety valve, not an exact-string trap)', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    // Persisted edge names the foe 'Goblin'; the new action's DECIDE names it 'goblin'.
+    seedInCombatEdge(characterId, { enemyName: 'Goblin', enemyHp: 5, enemyMaxHp: 20, round: 2 });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'goblin', anchor: 'location' }));
+    const startResult = await engine.startAction(characterId, 'attack the goblin');
+
+    expect(startResult.combatEnemyCondition).toEqual({ woundWord: 'Battered', filled: 1, total: 5 });
 
     closeDb();
   });

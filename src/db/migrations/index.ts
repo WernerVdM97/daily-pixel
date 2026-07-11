@@ -13,6 +13,7 @@ import { migration as feedbackBugAppVersion } from './202606280000_feedback_bug_
 import { migration as playerLastBailRefundDay } from './202606300000_player_last_bail_refund_day.js';
 import { migration as npcHomeLocation } from './202606300001_npc_home_location.js';
 import { migration as sceneRelations } from './202607041000_scene_relations.js';
+import { migration as npcCombatHealth } from './202607112100_npc_combat_health.js';
 
 /**
  * All migrations in apply order. Append new ones at the end — the runner applies
@@ -34,4 +35,5 @@ export const MIGRATIONS: Migration[] = [
   playerLastBailRefundDay,
   npcHomeLocation,
   sceneRelations,
+  npcCombatHealth,
 ];

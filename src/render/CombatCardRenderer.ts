@@ -42,6 +42,29 @@ function coloured(t: string, role: Role): Segment {
   return { text: escapeBackticks(t), role };
 }
 
+/** Clip an already-escaped enemy name to `max` chars. `enemyName` is LLM-authored free
+ *  text with no length validation upstream — without this, `twoColumnLine`'s gap collapses
+ *  to 0 once the name (plus tag) overruns `INTERIOR_WIDTH`, and `composeLine`'s `fitSegments`
+ *  truncates from the END, eating into the danger tag and gluing it to the name with no
+ *  space (e.g. "...Sentinel[med" instead of "...Sentinel [medium]"). Mirrors
+ *  `OpeningFrameRenderer.ts`'s `clipName` — a hard slice, no ellipsis needed for this slot. */
+function clipEnemyName(name: string, max: number): string {
+  return name.length > max ? name.slice(0, max) : name;
+}
+
+/** Clip text at a word boundary with an ellipsis — never truncate mid-word.
+ *  Used as a safety net for any display text that enters the card's interior
+ *  (belt-and-braces; all current card text is engine-composed and short). */
+function clipWord(text: string, max: number): string {
+  if (text.length <= max) return text;
+  // Find the last space before the cutoff.
+  const cut = text.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  if (lastSpace > 0) return cut.slice(0, lastSpace) + '…';
+  // No space found — single very long word; hard-clip.
+  return cut.slice(0, max - 1) + '…';
+}
+
 /**
  * Compose a two-column body line: left segments hug the left edge, right segments the right,
  * with the gap computed exactly so the line already lands at `INTERIOR_WIDTH` before
@@ -52,6 +75,23 @@ function twoColumnLine(left: Segment[], right: Segment[]): Segment[] {
   const rightLen = right.reduce((n, s) => n + s.text.length, 0);
   const gap = Math.max(0, INTERIOR_WIDTH - leftLen - rightLen);
   return [...left, { text: ' '.repeat(gap) }, ...right];
+}
+
+/**
+ * Per-round HP-delta line shared by the CONTINUE and TERMINAL cards (POC+ 0.3.2 C2): the band
+ * word alone doesn't say who paid what, so this line makes the HP outcome explicit beside it.
+ * Left = your delta (life when unhurt at 0, threat when you lost HP — the sign already carries
+ * the meaning in monochrome). Right = the enemy's delta, always life-coloured: enemy HP loss is
+ * good news for the player in every band, so it never reads as a threat colour.
+ */
+function hpDeltaLine(playerHpDelta: number, enemyHpDelta: number): Segment[] {
+  const youRole: Role = playerHpDelta === 0 ? 'life' : 'threat';
+  const youText = playerHpDelta === 0 ? '0' : signed(playerHpDelta);
+  const foeText = enemyHpDelta === 0 ? '0' : signed(enemyHpDelta);
+  return twoColumnLine(
+    [plain('  you '), coloured(youText, youRole)],
+    [coloured(`foe ${foeText}`, 'life')],
+  );
 }
 
 // ─── Band-colour ladder ──────────────────────────────────────────────
@@ -82,18 +122,49 @@ export interface ContinueCardInput {
   lastRound?: {
     d20: number;
     bonus: number;
+    /** Base DC this round's enemy bonus derived from — carried for the danger-tier
+     *  lookup at the call site, not printed as a per-beat threshold (see `dangerTier`). */
     dc: number;
+    enemyD20: number;
+    enemyBonus: number;
     margin: number;
     band: string;
+    /** ACTUAL applied signed player-HP delta this round (clamped/floored to real HP, not
+     *  the raw band nominal) — POC+ 0.3.2 C2: surfaced beside the band word so the band, the
+     *  HP outcome, and (on the terminal card) the verdict all tell one coherent story instead
+     *  of contradicting each other. */
+    playerHpDelta: number;
+    /** Enemy-HP delta this round applied — always <= 0 (every band damages the enemy). */
+    enemyHpDelta: number;
   };
+  /** Resolved encounter-danger word (`dangerTier(dc)` from `combat-dc.ts`), passed in
+   *  because this renderer must not import the engine (ANSI-C boundary). Labels the foe's
+   *  overall danger on the nameplate — never a per-beat threshold. Undefined = no tag shown. */
+  dangerTier?: string;
 }
 
 function buildContinueLines(input: ContinueCardInput): Segment[][] {
   const bar = '▓'.repeat(input.pips.filled) + '░'.repeat(input.pips.total - input.pips.filled);
   const lines: Segment[][] = [];
 
-  // Enemy nameplate
-  lines.push([plain(`  ${escapeBackticks(input.enemyName)}`)]);
+  // Enemy nameplate, with an optional encounter-danger tag (this foe's overall danger,
+  // never a per-beat threshold — see `ContinueCardInput.dangerTier`'s doc comment).
+  if (input.dangerTier) {
+    const hardTiers = ['hard', 'risky', 'fatal'];
+    const tierRole: Role = hardTiers.includes(input.dangerTier) ? 'threat' : 'warmth';
+    const tag = `[${escapeBackticks(input.dangerTier)}]`;
+    // Prefix '  ' (2) + name + >=1 space of gap + tag must fit within INTERIOR_WIDTH.
+    const maxNameLen = INTERIOR_WIDTH - 2 - tag.length - 1;
+    const name = clipEnemyName(escapeBackticks(input.enemyName), maxNameLen);
+    lines.push(twoColumnLine(
+      [plain(`  ${name}`)],
+      [coloured(tag, tierRole)],
+    ));
+  } else {
+    const maxNameLen = INTERIOR_WIDTH - 2;
+    const name = clipEnemyName(escapeBackticks(input.enemyName), maxNameLen);
+    lines.push([plain(`  ${name}`)]);
+  }
   // Enemy banded HP bar
   {
     const label = '  HP [';
@@ -114,7 +185,7 @@ function buildContinueLines(input: ContinueCardInput): Segment[][] {
     // Re-use the INTERIOR_WIDTH budget maths from AnsiRenderer's old hpLineSegments.
     const suffix = ` ${Math.round(clampedHp)}/${Math.round(clampedMax)}`;
     const MIN_BAR = 6;
-    const barWidth = Math.max(MIN_BAR, INTERIOR_WIDTH - (label.length + 1 + suffix.length));
+    const barWidth = Math.max(MIN_BAR, INTERIOR_WIDTH - (label.length + 1 + suffix.length) - 1); // -1 leaves a space inside the right border
     const barStr = hpBar(input.playerHp, input.playerMaxHp, barWidth);
     const emptyIndex = barStr.indexOf('░');
     const filledPart = emptyIndex === -1 ? barStr : barStr.slice(0, emptyIndex);
@@ -133,7 +204,8 @@ function buildContinueLines(input: ContinueCardInput): Segment[][] {
 
 /**
  * Render the combat CONTINUE card: enemy/player HP bars plus, when a round has been fought,
- * a diced readout (floated calc left, boxed DC right; band-coloured margin + band word).
+ * a diced readout (the contested roll — player vs the enemy's total, mirroring the terminal
+ * card's vocabulary — plus a band-coloured margin + band word).
  * `style` is chosen by the caller (action.ts) via escalation rules — this function just
  * draws the border tier it's told to.
  */
@@ -154,28 +226,51 @@ export function renderCombatContinueCard(
   if (input.lastRound) {
     body.push(borderMid(style, palette));
 
-    const { d20, bonus, dc, margin, band } = input.lastRound;
+    const { d20, bonus, enemyD20, enemyBonus, margin, band, playerHpDelta, enemyHpDelta } = input.lastRound;
     const bandRole = bandColor(band);
-    const dcLabel = `[DC ${dc}]`;
+    const enemyTotal = enemyD20 + enemyBonus;
 
-    // Readout line 1: "  {d20} +{bonus} = {total}"  |  "[DC N]"
+    // Focal line: left = player d20 (warmth), right = enemy's contested roll (threat).
+    // Mirrors the terminal card's focal line exactly (CombatCardRenderer.ts buildTerminalLines,
+    // "B#20") — combat is a contested roll against the enemy's hidden total, not a DC pass/fail,
+    // so showing the enemy's dice makes the sign of the margin self-evident instead of the
+    // misleading solo `[DC N]` this replaces.
     body.push(composeLine(
       twoColumnLine(
-        [plain(`  ${d20} ${signed(bonus)} = ${d20 + bonus}`)],
-        [coloured(dcLabel, 'warmth')],
+        [plain('  '), coloured(String(d20), 'warmth')],
+        [coloured(`vs ${enemyD20} ${signed(enemyBonus)} = ${enemyTotal}`, 'threat')],
       ),
       palette,
       style.side,
     ));
 
-    // Readout line 2: "  hit {+/-margin} margin"  |  "{BAND}"
-    const marginStr = margin >= 0 ? `+${margin}` : `${margin}`;
+    // Calc line: "{+/-bonus} = {total}" left, nothing right. Mirrors the terminal calc line.
+    body.push(composeLine(
+      twoColumnLine(
+        [plain(`  ${signed(bonus)} = ${d20 + bonus}`)],
+        [],
+      ),
+      palette,
+      style.side,
+    ));
+
+    // Margin+band line (unchanged behaviour): "  hit {+/-margin} margin"  |  "{BAND}"
     const marginRole: Role = margin >= 0 ? 'life' : 'threat';
     body.push(composeLine(
       twoColumnLine(
-        [plain('  hit '), coloured(`${marginStr} margin`, marginRole)],
+        [plain('  hit '), coloured(`${signed(margin)} margin`, marginRole)],
         [coloured(band.toUpperCase(), bandRole)],
       ),
+      palette,
+      style.side,
+    ));
+
+    // HP-delta line (POC+ 0.3.2 C2): both combatants' HP outcome beside the band word, so
+    // "TRADE" plus "-1/-2" reads as one coherent story instead of leaving the player to infer
+    // who paid what from the band name alone. No WIN/LOSS word here — per-round is band-led;
+    // an unqualified verdict is reserved for the fight-terminal card only.
+    body.push(composeLine(
+      hpDeltaLine(playerHpDelta, enemyHpDelta),
       palette,
       style.side,
     ));
@@ -202,6 +297,12 @@ export interface CombatTerminalCard {
   verdict: string;
   margin: number;
   band: string;
+  /** ACTUAL applied signed player-HP delta the fight-ending round caused, clamped to real
+   *  HP on a lethal blow (POC+ 0.3.2 C2) — see `ContinueCardInput.lastRound.playerHpDelta`'s
+   *  doc comment for the rationale. */
+  playerHpDelta: number;
+  /** Enemy-HP delta the fight-ending round applied — always <= 0. */
+  enemyHpDelta: number;
 }
 
 function buildTerminalLines(card: CombatTerminalCard): Segment[][] {
@@ -209,7 +310,7 @@ function buildTerminalLines(card: CombatTerminalCard): Segment[][] {
   const enemyTotal = card.enemyD20 + card.enemyBonus;
 
   return [
-    [plain(`  ${card.label}`)],
+    [plain(`  ${clipWord(card.label, INTERIOR_WIDTH - 2)}`)],
     [plain(BLANK)],
     // Focal line: left = player d20 (gold), right = enemy's contestant roll (threat).
     // Combat is a contested roll, not a DC pass/fail — showing the enemy's dice makes
@@ -231,6 +332,9 @@ function buildTerminalLines(card: CombatTerminalCard): Segment[][] {
     // Band name — the mechanical truth of the final round, short enough for this line (F#22).
     // Replaces the truncated-prose flavour which was never readable at 26 chars.
     [coloured(`  ${card.band}`, bandColor(card.band))],
+    // HP-delta line (POC+ 0.3.2 C2) — same format/colours as the continue card, so the
+    // terminal card shows band + both HP deltas + the fight verdict together as one story.
+    hpDeltaLine(card.playerHpDelta, card.enemyHpDelta),
   ];
 }
 

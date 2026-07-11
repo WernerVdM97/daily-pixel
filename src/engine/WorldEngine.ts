@@ -161,6 +161,10 @@ export interface ActionStartResult {
    *  pipeline's `combatEnemy` hint when the LLM signalled one. Undefined when not combat or
    *  when the LLM didn't name a specific foe. */
   combatEnemyName?: string;
+  /** ANSI-F re-entry (0.3.2 C4): a persisted in_combat edge from a prior bail means the foe is
+   *  already damaged. The enemy's BANDED condition (wound word + pip fill, never exact HP) for the
+   *  opening frame. Undefined for a fresh fight, a non-combat action, or when no persisted edge matches. */
+  combatEnemyCondition?: { woundWord: string; filled: number; total: number };
 }
 
 export type ActionStepResult =

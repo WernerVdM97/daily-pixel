@@ -210,6 +210,40 @@ describe('llm_calls call_kind / critic_severity — existing-DB backfill (v0.2.4
   });
 });
 
+describe('npc combat health migration — seed backfill', () => {
+  it('backfills seed NPC health for a DB seeded before the column was populated, idempotently and without clobbering', async () => {
+    const old = new Database(':memory:');
+    runMigrations(old);
+
+    // Simulate a DB seeded before health was populated: seed rows carry NULL health.
+    const seedNpc = old.prepare(
+      "INSERT INTO npcs (name, class, description, location, health) VALUES (@name, @class, 'x', @loc, @health)",
+    );
+    seedNpc.run({ name: 'Shadow Stag', class: 'Beast', loc: 'The Dark Pines', health: null });
+    seedNpc.run({ name: 'Grey Wolf', class: 'Beast', loc: 'The Forest Edge', health: null });
+    // A hand-set / already-authored health must survive.
+    seedNpc.run({ name: 'Marta', class: 'Blacksmith', loc: 'Town Square', health: 25 });
+    // A non-seed NPC is left alone (ambient foes derive from the DC).
+    seedNpc.run({ name: 'Random Bandit', class: 'Rogue', loc: 'Somewhere', health: null });
+
+    const { migration } = await import('../../src/db/migrations/202607112100_npc_combat_health.js');
+    migration.up(old);
+
+    const health = (name: string) =>
+      (old.prepare('SELECT health FROM npcs WHERE name = ?').get(name) as { health: number | null }).health;
+    expect(health('Shadow Stag')).toBe(24);
+    expect(health('Grey Wolf')).toBe(16);
+    expect(health('Marta')).toBe(25); // hand-set value not clobbered
+    expect(health('Random Bandit')).toBeNull(); // non-seed NPC untouched
+
+    // Idempotent: a re-run touches nothing and never throws.
+    expect(() => migration.up(old)).not.toThrow();
+    expect(health('Shadow Stag')).toBe(24);
+
+    old.close();
+  });
+});
+
 describe('runMigrations — atomic batch', () => {
   it('rolls the whole batch back when any migration throws', () => {
     const fresh = new Database(':memory:');

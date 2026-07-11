@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveCombatRound,
   deriveEnemyMaxHp,
+  dangerTier,
   COMBAT_BAND_TABLE,
   ENEMY_BONUS_MAX,
   ENEMY_HP_MIN,
@@ -50,24 +51,28 @@ describe('resolveCombatRound — band selection by margin', () => {
     expect(outcome.band).toBe('glanced');
   });
 
-  it('trade: margin at -2 boundary lands in trade, not heavy', () => {
+  it('trade: margin at -2 boundary lands in trade, not heavy (enemy edged it — asymmetric, POC+ 0.3.2 C2)', () => {
     const outcome = resolveCombatRound(8, 0, 10, 0);
     expect(outcome.margin).toBe(-2);
+    expect(outcome.band).toBe('trade');
+    expect(outcome.enemyHpDelta).toBe(-1);
+    expect(outcome.playerHpDelta).toBe(-2);
+  });
+
+  it('trade: margin at 0 (dead even) stays symmetric -2/-2 (POC+ 0.3.2 C2)', () => {
+    const outcome = resolveCombatRound(10, 0, 10, 0);
+    expect(outcome.margin).toBe(0);
     expect(outcome.band).toBe('trade');
     expect(outcome.enemyHpDelta).toBe(-2);
     expect(outcome.playerHpDelta).toBe(-2);
   });
 
-  it('trade: margin at 0 (dead even)', () => {
-    const outcome = resolveCombatRound(10, 0, 10, 0);
-    expect(outcome.margin).toBe(0);
-    expect(outcome.band).toBe('trade');
-  });
-
-  it('trade: just below the glanced boundary (+1)', () => {
+  it('trade: just below the glanced boundary (+1, player edged it — asymmetric, POC+ 0.3.2 C2)', () => {
     const outcome = resolveCombatRound(11, 0, 10, 0);
     expect(outcome.margin).toBe(1);
     expect(outcome.band).toBe('trade');
+    expect(outcome.enemyHpDelta).toBe(-2);
+    expect(outcome.playerHpDelta).toBe(-1);
   });
 
   it('heavy: margin below -2', () => {
@@ -82,6 +87,59 @@ describe('resolveCombatRound — band selection by margin', () => {
     const outcome = resolveCombatRound(7, 0, 10, 0);
     expect(outcome.margin).toBe(-3);
     expect(outcome.band).toBe('heavy');
+  });
+});
+
+describe('resolveCombatRound — trade band asymmetric HP deltas (POC+ 0.3.2 C2)', () => {
+  it('margin > 0 (player edged it): player takes the lighter hit, enemy unchanged', () => {
+    // player 13+2=15, enemy 12+2=14, margin=+1 -> trade, edge-win
+    const outcome = resolveCombatRound(13, 2, 12, 2);
+    expect(outcome.margin).toBe(1);
+    expect(outcome.band).toBe('trade');
+    expect(outcome.playerHpDelta).toBe(-1);
+    expect(outcome.enemyHpDelta).toBe(-2);
+  });
+
+  it('margin < 0 (enemy edged it): enemy takes the lighter hit, player unchanged', () => {
+    // player 12+2=14, enemy 13+2=15, margin=-1 -> trade, edge-loss
+    const outcome = resolveCombatRound(12, 2, 13, 2);
+    expect(outcome.margin).toBe(-1);
+    expect(outcome.band).toBe('trade');
+    expect(outcome.playerHpDelta).toBe(-2);
+    expect(outcome.enemyHpDelta).toBe(-1);
+  });
+
+  it('margin === 0 (dead tie): symmetric -2/-2, untouched', () => {
+    const outcome = resolveCombatRound(10, 5, 10, 5);
+    expect(outcome.margin).toBe(0);
+    expect(outcome.band).toBe('trade');
+    expect(outcome.playerHpDelta).toBe(-2);
+    expect(outcome.enemyHpDelta).toBe(-2);
+  });
+
+  it('scale multiplies the asymmetric override too, without moving the band', () => {
+    const outcome = resolveCombatRound(13, 2, 12, 2, 2);
+    expect(outcome.margin).toBe(1);
+    expect(outcome.band).toBe('trade');
+    expect(outcome.playerHpDelta).toBe(-2); // -1 * 2
+    expect(outcome.enemyHpDelta).toBe(-4); // -2 * 2
+  });
+
+  it('does not touch clean/glanced/heavy deltas — only the trade band is asymmetric', () => {
+    const clean = resolveCombatRound(18, 5, 3, 0);
+    expect(clean.band).toBe('clean');
+    expect(clean.enemyHpDelta).toBe(-6);
+    expect(clean.playerHpDelta).toBe(0);
+
+    const glanced = resolveCombatRound(12, 0, 10, 0);
+    expect(glanced.band).toBe('glanced');
+    expect(glanced.enemyHpDelta).toBe(-3);
+    expect(glanced.playerHpDelta).toBe(0);
+
+    const heavy = resolveCombatRound(5, 0, 15, 0);
+    expect(heavy.band).toBe('heavy');
+    expect(heavy.enemyHpDelta).toBe(-1);
+    expect(heavy.playerHpDelta).toBe(-3);
   });
 });
 
@@ -202,6 +260,47 @@ describe('deriveEnemyMaxHp', () => {
 
   it('rounds fractional results', () => {
     expect(deriveEnemyMaxHp(11, 1.05)).toBe(12); // 11.55 -> 12
+  });
+});
+
+describe('dangerTier — DC to worded encounter-danger tier (POC+ 0.3.2 C1)', () => {
+  it('9 -> easy (top of the easy band)', () => {
+    expect(dangerTier(9)).toBe('easy');
+  });
+
+  it('10 -> medium (bottom of the medium band)', () => {
+    expect(dangerTier(10)).toBe('medium');
+  });
+
+  it('13 -> medium (top of the medium band, anchors the sim baseline goblin baseDc 12)', () => {
+    expect(dangerTier(13)).toBe('medium');
+    expect(dangerTier(12)).toBe('medium');
+  });
+
+  it('14 -> hard (bottom of the hard band)', () => {
+    expect(dangerTier(14)).toBe('hard');
+  });
+
+  it('17 -> hard (top of the hard band)', () => {
+    expect(dangerTier(17)).toBe('hard');
+  });
+
+  it('18 -> risky (bottom of the risky band)', () => {
+    expect(dangerTier(18)).toBe('risky');
+  });
+
+  it('21 -> risky (top of the risky band)', () => {
+    expect(dangerTier(21)).toBe('risky');
+  });
+
+  it('22 -> fatal (bottom of the fatal band, and beyond)', () => {
+    expect(dangerTier(22)).toBe('fatal');
+    expect(dangerTier(100)).toBe('fatal');
+  });
+
+  it('very low DC still resolves to easy', () => {
+    expect(dangerTier(0)).toBe('easy');
+    expect(dangerTier(1)).toBe('easy');
   });
 });
 
