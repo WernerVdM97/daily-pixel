@@ -2363,6 +2363,17 @@ _${idleMsg}_`)
           await interaction.editReply(payload);
         } catch (err) {
           void notifyAdmin("Nav (sleep) failed", err);
+          // The loading beat is already showing — land an error over it so the
+          // player isn't stuck on "Bedding down…" forever (review of e426bc4).
+          try {
+            await interaction.editReply(
+              buildComponentPayload("Something went wrong. Try again in a moment.", {
+                ephemeral: true,
+              }),
+            );
+          } catch {
+            // reply itself failed (e.g. interaction expired) — admin is already notified.
+          }
         }
         return;
       }

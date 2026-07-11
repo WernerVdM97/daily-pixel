@@ -310,11 +310,13 @@ function buildStepMessage(state: WizardState): {
     5: state.alignment, 6: state.dayJob, 7: state.itemSet,
   };
   // Graceful miss: a custom/renamed value with no matching def yields "" — never "undefined".
+  // Skipped when the option's emoji just repeats the step icon (item kits all share 🎒),
+  // which would render the same glyph twice on one ledger line.
   const chosenEmoji = (n: number): string => {
     const raw = rawChosen[n];
     if (!raw) return "";
     const match = buildStepOptions(n, _defs, state.class).find(o => o.value === raw);
-    return match ? `${match.emoji} ` : "";
+    return match && match.emoji !== STEPS[n].icon ? `${match.emoji} ` : "";
   };
   const stepLine = (n: number) => {
     const { icon, heading } = STEPS[n];
