@@ -1,0 +1,18 @@
+---
+tags: [combat, continue, wireframe, template]
+register: "COMBAT_FRAME (continue variant, dice-line addition)"
+summary: "SLOT TEMPLATE: the generic grid. [data_slot] engine values only — this card carries no fragment/sprite art."
+slots: "enemy(name), condition(pips+wound word), player(hp/max), round(player d20+bonus vs DC, margin, band)"
+binding: "engine(CombatBeatLog — ANSI-D contract adds playerD20, playerBonus, dc, margin, band) + engine(CombatStatusData — ANSI-C contract: enemyName, woundWord, pips, playerHp/Max/Delta)"
+reply: "Unlike the opening frame's two-message split, this card stays INLINE in the decision message above the prompt (matches today's combatStatus placement in buildDecisionMessage) — the dice line is new content within that existing slot, not a new message."
+pairs_with: "combat-continue.ascii (the filled example)"
+note: "Canonical monochrome MOCK, not a live asset (ANSI-D 'mocks first' — the frame code lands after these mocks). Shown after EVERY combat round, between decisions, so it must stay compact. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  [enemy_name]              |
+|  COND [==pips==]  [wound]  |
+|  YOU  HP [==bar==] [hp/max]|
+|                            |
+|  d20 [p_d20]+[bonus] vs DC |
+|  [dc]   margin [mgn] [band]|
++----------------------------+

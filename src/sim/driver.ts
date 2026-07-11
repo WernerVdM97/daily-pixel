@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { CharacterRepository } from '../db/repositories/character.js';
 import type { ActionOption, ActionOutcome } from '../engine/WorldEngine.js';
 import { buildSimEngine } from './engine-factory.js';
 import { advanceDays, currentDayNumber } from './time.js';
@@ -17,25 +18,18 @@ import type {
  * `createCharacter` (WorldEngineImpl.ts) only takes class/upbringing/race/alignment/dayJob —
  * stats/health/stamina/wealth/location are derived (computeStats + fixed defaults), not
  * settable at creation. The sim needs a scenario to pin exact starting numbers so curves are
- * reproducible, so this patches the row directly after creation. Raw SQL (not charRepo.update)
- * because CharacterRepository's allow-list omits `max_stamina` — a pre-existing gap in the repo,
- * out of scope to fix here.
+ * reproducible, so this patches the row directly after creation.
  */
 function applySeedOverrides(db: Database.Database, characterId: number, seed: CharacterSeed): void {
-  db.prepare(
-    `UPDATE player_characters
-        SET stats = ?, health = ?, max_health = ?, stamina = ?, max_stamina = ?, wealth = ?, location = ?
-      WHERE id = ?`,
-  ).run(
-    JSON.stringify(seed.stats),
-    seed.health,
-    seed.maxHealth,
-    seed.stamina,
-    seed.maxStamina,
-    seed.wealth,
-    seed.location,
-    characterId,
-  );
+  new CharacterRepository(db).update(characterId, {
+    stats: JSON.stringify(seed.stats),
+    health: seed.health,
+    max_health: seed.maxHealth,
+    stamina: seed.stamina,
+    max_stamina: seed.maxStamina,
+    wealth: seed.wealth,
+    location: seed.location,
+  });
 }
 
 /** Pick a label from the presented options per the turn's ChoicePolicy. Throws (rather than

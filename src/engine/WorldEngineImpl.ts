@@ -159,6 +159,30 @@ function summariseMutation(m: WorldMutation): string {
   }
 }
 
+/** Player-facing "intel gathered" lines for the journal chronicle (F#6) — parses the same
+ *  `applied_mutations` JSON already sitting on the action row (no new tracking) and surfaces
+ *  only the two mutation kinds that read as intel: a location revealed, an NPC met. Other
+ *  mutation kinds (stat/item churn) aren't narratively "intel" so stay out of the journal. */
+function journalDiscoveries(appliedMutationsJson: string | null): string[] {
+  if (!appliedMutationsJson) return [];
+  let mutations: WorldMutation[];
+  try {
+    mutations = JSON.parse(appliedMutationsJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(mutations)) return [];
+
+  const facts: string[] = [];
+  for (const m of mutations) {
+    const name = typeof m?.name === "string" ? m.name.trim() : "";
+    if (!name) continue;
+    if (m.type === "reveal_location") facts.push(`🗺️ Discovered **${name}**`);
+    else if (m.type === "add_npc" || m.type === "spawn_npc") facts.push(`🤝 Met **${name}**`);
+  }
+  return facts;
+}
+
 /** Only the character fields that changed, as `before→after` pairs. */
 function stateDeltas(before: CharacterRow, after: AppliedStateView): string {
   const parts: string[] = [];
@@ -927,6 +951,7 @@ export class WorldEngineImpl implements WorldEngine {
     // inside start(). Drain the roll (unless divine intervention — refund it), apply the
     // outcome, and return directly.
     if (startResult.resolved) {
+      let res: ReturnType<typeof this.applyResolution>;
       try {
         this.db.transaction(() => {
           // F#21: divine intervention is a system fault, not a real action — don't drain the
@@ -937,7 +962,12 @@ export class WorldEngineImpl implements WorldEngine {
           this.charRepo.update(characterId, {
             rolls_remaining: rollsRemaining,
           });
-          this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
+          // B#3: mutate row in place so applyResolution's baseCtx — and its returned
+          // rollsMutationDelta — are computed off the drained value, not the stale pre-drain
+          // count. Otherwise a same-resolution modify_rolls_remaining grant clobbers the drain
+          // instead of stacking with it (mirrors the post-drain row the step path re-reads).
+          row.rolls_remaining = rollsRemaining;
+          res = this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
         })();
       } catch (err) {
         // The transaction rolled back — roll not drained, action row not inserted.
@@ -960,12 +990,14 @@ export class WorldEngineImpl implements WorldEngine {
         startResult.outcome.rollsDelta = 0;
         startResult.outcome.rollRefunded = true;
       } else {
-        startResult.outcome.rollsDelta = -1;
+        startResult.outcome.rollsDelta = -1 + res!.rollsMutationDelta;
       }
       return {
         state: this.toPublicState(internalState),
         firstDecision: internalState.pendingDecision,
         outcome: startResult.outcome,
+        actionType: internalState.actionType,
+        combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
       };
     }
 
@@ -988,6 +1020,8 @@ export class WorldEngineImpl implements WorldEngine {
     return {
       state: this.toPublicState(internalState),
       firstDecision,
+      actionType: internalState.actionType,
+      combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
     };
   }
 
@@ -1324,6 +1358,7 @@ export class WorldEngineImpl implements WorldEngine {
         locationEmoji: r.location_name
           ? this.locationRepo.findByName(r.location_name)?.emoji ?? "📍"
           : null,
+        discoveries: journalDiscoveries(r.applied_mutations),
       })),
     };
   }

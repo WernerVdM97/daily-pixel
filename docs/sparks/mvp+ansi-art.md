@@ -24,15 +24,16 @@ Findings and mock-ups from an ANSI-colour experiment (2026-07-08): Discord `ansi
 
 ## 1. What Discord actually supports
 
-- ` ```ansi ` code blocks render SGR escape codes on **desktop and browser only**: `0` reset, `1` bold, `4` underline, fg `30-37`, bg `40-47`. Fixed Solarized-ish palette, no RGB.
+- ` ```ansi ` code blocks render SGR escape codes on **desktop and browser only**: `0` reset, `1` bold, `4` underline, fg `30-37`, bg `40-47`. Fixed Solarized-ish palette, no RGB. **Bright fg `90-97` does not render colour anywhere** (probe-tested 2026-07-11: no colour on desktop or mobile; desktop shows slightly "whiter" plain default text). **bg `40-47` render on desktop only — completely invisible on mobile** (same session): bg fills are desktop enhancement, never meaning.
 - **Mobile strips the codes** and shows plain monochrome art — layout intact, colour gone. Graceful degradation, but colour must never carry gameplay-critical information on its own.
 - Escape codes count toward the 2 000-char message limit. Measured budgets: 30-wide interaction frames 820–1 250 chars incl fences; the 40-wide splash with bg fills + piped border lands at ~1 945 (near the ceiling).
 - Wrap thresholds (via a ruler message, `30…56` cols): **40 cols max on the phone** (Nothing 2a, default font), desktop comfortably beyond 56. Existing 30-char loader cap stays right for anything mobile players must read; 40 is the ceiling for showpieces.
-- Dark fg colours (esp. gray `30`) read badly on Discord's dark chat background. Prefer light fg (white/tan) and get "dark" from **bg fills** instead.
-- Half-blocks (`█ ▀ ▄ ▐ ▌`), shade blocks (`░ ▒ ▓`) and box-drawing (`═ ║`, heavy `━ ┃`) render single-width on desktop.
+- Dark fg colours (esp. gray `30`) read badly on Discord's dark chat background. Prefer light fg (white/tan) and get "dark" from shading glyphs; bg fills can layer desktop darkness but vanish on mobile (2026-07-11 probe), so they never carry it alone.
+- Half-blocks (`█ ▀ ▄ ▐ ▌`), shade blocks (`░ ▒ ▓`) and box-drawing (`═ ║`, heavy `━ ┃`, corners) render single-width on desktop **and mobile** (ruler-verified 2026-07-11).
+- **Single-width glyphs only (hard rule).** Every glyph in a frame must occupy exactly one monospace cell or the right border drifts. Emoji and Miscellaneous-Symbols / Dingbats glyphs (`⚠ ☺ ✦ ❖ ✓ ✗`, ~U+2600–U+27BF and the emoji planes) render double-width in Discord and mobile. Confirmed live: a single `⚠` header pushed its row out by one column in the colour test set. Stay inside ASCII + box-drawing + block/shade + Geometric-Shapes (`■ ▪ ● ◄`); substitute `!` / `@` / `*` / `x` for the symbol glyphs above. Watch too for East-Asian-Ambiguous punctuation Discord widens (confirmed live: a `§` in the colour test set overshot its row) — use `#` for `§` and `>` for `→`; when unsure, prefer plain ASCII. Applies to monospace frame art only, not ordinary embed text.
 
-[?] Do half-blocks/box-drawing stay single-width on all mobile fonts? Splash rendered on the Nothing but a broader device pass hasn't happened.
-[?] A May 2026 comment on the community ANSI guide says Discord moved the palette from Solarized-custom toward standard ANSI colours — re-verify hex values before building UI that colour-matches them.
+[x] ~~Do half-blocks/box-drawing stay single-width on all mobile fonts?~~ **Settled 2026-07-11** (ANSI-A probe 4, ruler-aligned on desktop and the phone): half-blocks, shades, and box-drawing incl. corners are single-width everywhere tested. Box-drawing borders are safe.
+[x] ~~Discord palette: Solarized-custom vs standard ANSI?~~ **Settled 2026-07-11** (ANSI-A probe 5): Solarized-ish confirmed — 33 reads gold/dark-orange (not lemon), 34 azure/ocean (not navy), 37 cream. The standard-ANSI migration claim is rejected. Colour-matching hex (community Solarized-custom set, consistent with the probe observations; reference only, never read at render): 30 `#4f545c`, 31 `#dc322f`, 32 `#859900`, 33 `#b58900`, 34 `#268bd2`, 35 `#d33682`, 36 `#2aa198`, 37 ≈ cream/off-white (`#fdf6e3`-ish).
 
 ## 2. Colour-role convention
 
@@ -149,8 +150,8 @@ Zelda-style inventory poster; noted as the model for **UI/menu frames** (invento
 Pixel-UI dialogue box ("You have found: 2 RED mushrooms…"); noted as the model for **dialogue and prompt frames** (loot found, NPC speech, confirmations). Third register after scene shading and menu grids.
 
 - **Ornamental rim**: a repeating dash-dot lace (`.-·-._.-·-.`) inside the structural border, one dim colour run — pure cheap ASCII, big perceived polish.
-- **Crest interrupt**: the rim breaks for a centred emblem `< ≡☺≡ >`, exactly the existing `╡@╞` splash convention — treat crest-interrupts-the-border as a house style.
-- **Nested borders**: bright outer double-line, dimmer inner rim, sparkle ornaments (`✦`/`❖`) tucked in the inner corners.
+- **Crest interrupt**: the rim breaks for a centred emblem `< ≡@≡ >` (`@` face, not the double-width `☺` emoji — see §1), exactly the existing `╡@╞` splash convention — treat crest-interrupts-the-border as a house style.
+- **Nested borders**: bright outer double-line, dimmer inner rim, sparkle ornaments (single-width `*`/`+`, never the double-width `✦`/`❖` dingbats — see §1) tucked in the inner corners.
 - **Inline colour semantics in prose**: the word RED in red, quantity in white, flavour name `(Fly Agaric)` in warm yellow, the keyword Inventory in cyan — colour roles applied to single words inside the message box, not just chrome.
 - **Selection state by shape, not colour**: chosen option is a filled pill + label, unchosen a small dot + label. Redundant with colour, so it survives the mobile monochrome strip — textbook for our "colour never carries gameplay info" rule.
 - **Bullet hierarchy** in body text: `•` event line, indented `+` detail line, then the question, then choices — a reusable 4-beat layout for any loot/confirm reply.
@@ -243,8 +244,8 @@ Four colour-selection techniques:
 
 Own mock from the render-pipeline era, previously unindexed; the model for the **data card** register — pure typographic frames with no sprite art at all.
 
-- **Five-beat hierarchy**: dim caps label (`ROLL RESULT`), big focal number (`19`) with right-aligned dim context (`d20`), calculation line (`+2 STR +2 bond = 23`), colour-coded outcome (`DC 15 ✓ SUCCESS (+7 margin)`), dim flavour text.
-- **Colour carries the verdict, position carries the data**: outcome line green 32 / red 31, everything else near-monochrome — mobile-safe because the ✓/✗ and wording are shape-redundant.
+- **Five-beat hierarchy**: dim caps label (`ROLL RESULT`), big focal number (`19`) with right-aligned dim context (`d20`), calculation line (`+2 STR +2 bond = 23`), colour-coded outcome (`DC 15 + SUCCESS (+7 margin)`, ASCII `+`/`x` marker — never `✓`/`✗`, see §1), dim flavour text.
+- **Colour carries the verdict, position carries the data**: outcome line green 32 / red 31, everything else near-monochrome — mobile-safe because the `+`/`x` markers and wording are shape-redundant.
 - The cheapest frame in the whole library: ~8 short lines, two colour switches.
 
 [I] Adopt as the template for every skill-check tick reply; the calculation line doubles as the transparency/audit surface for LLM-driven checks.
@@ -332,7 +333,7 @@ Four bottles, one system; the model for **item families** — how consumables st
 The same key twice: solid orange, then red as a **stippled ghost outline with a sparkle halo**. The lesson is that item *state* is a render treatment of one asset, not new art.
 
 - **Solid = physical/owned**; **broken-dot outline + sparkles = spectral/sought/enchanted/consumed** — the §7 fill-vs-outline discovery trick applied to a single item.
-- Mechanically trivial in our pipeline: the ghost render is derivable from the monochrome fragment (keep contour cells, thin them to `·`/`:` stipple, drop the fill, scatter 3–4 `✦ +` around it) — a render-time transform an `AnsiRenderer` can apply from a state flag.
+- Mechanically trivial in our pipeline: the ghost render is derivable from the monochrome fragment (keep contour cells, thin them to `·`/`:` stipple, drop the fill, scatter 3–4 `* +` around it) — a render-time transform an `AnsiRenderer` can apply from a state flag.
 - **Hue shift doubles the signal**: orange→red alongside solid→ghost; state never rides on colour alone (the shape treatment carries it), consistent with every state mark in this library.
 - Game mappings: quest item not yet found (ghost in the objective card), key consumed on use (ghost in the "used" reply), cursed/enchanted variants (solid + sparkle halo only).
 

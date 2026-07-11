@@ -4,7 +4,6 @@
 
 import type { ActionOutcome, WorldMutation } from './WorldEngine.js';
 import { STAT_LABELS } from './stat-format.js';
-import { renderFrame } from '../render/AnsiRenderer.js';
 
 // ── Public context — only current (post-mutation) values ──
 
@@ -28,7 +27,7 @@ interface MutationDeltas {
   wealthDelta: number;
   rollsDelta: number;
   itemsGained: Array<{ emoji: string; name: string }>;
-  itemsLost: string[];
+  itemsLost: Array<{ emoji?: string; name: string; quantity?: number }>;
   newLocation: string | null;
 }
 
@@ -68,9 +67,18 @@ function deriveFromMutations(mutations: WorldMutation[]): MutationDeltas {
           name: String(m.name ?? ''),
         });
         break;
-      case 'remove_item':
-        d.itemsLost.push(String(m.name ?? ''));
+      case 'remove_item': {
+        // `remove_item` carries no `emoji` today (prompt/mutation apply omit it — see
+        // mutations.ts ~479-484); read it defensively so a future addition renders for free
+        // instead of silently dropping the glyph.
+        const quantity = Number(m.quantity ?? 1);
+        d.itemsLost.push({
+          ...(typeof m.emoji === 'string' && m.emoji ? { emoji: m.emoji } : {}),
+          name: String(m.name ?? ''),
+          ...(quantity > 1 ? { quantity } : {}),
+        });
         break;
+      }
       case 'set_location':
       case 'cross_frontier':
         d.newLocation = String(m.name ?? '');
@@ -87,12 +95,6 @@ function formatDelta(delta: number): string {
   if (delta === 0) return '';
   const sign = delta > 0 ? '+' : '';
   return ` (${sign}${delta})`;
-}
-
-/** Bare signed number, e.g. "+4" / "-6" (damage negative, heal positive) — used for the
- *  combat-frame floaters, which (unlike formatDelta) have no surrounding parens/label. */
-function signed(n: number): string {
-  return n >= 0 ? `+${n}` : `${n}`;
 }
 
 // ── Distilled-action → emoji (for the decision breadcrumb) ──
@@ -134,49 +136,69 @@ const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {
   timed_out: { icon: '⏰', label: 'TIMED OUT' },
 };
 
+/** Structural mirror of `render/CombatCardRenderer.ts`'s `CombatTerminalCard` — kept as a local
+ *  shape rather than importing the type so `src/render/` has no engine-side importer (ANSI-C);
+ *  the presentation-side caller's `renderCombatFrame` still accepts this structurally. */
+export interface CombatTerminalCard {
+  label: string;
+  /** Focal roll — the fight's deciding d20, raw (unsigned). */
+  playerD20: number;
+  /** Signed at render, not here — kept as the raw ability bonus so the card composer decides the
+   *  "+"/"−" glyph the same way every other segment in the render layer does. */
+  bonus: number;
+  total: number;
+  /** Enemy's raw d20 this round — surfaced so the terminal card can show it as a contestant
+   *  roll instead of the misleading solo `[DC N]` (combat is contested, not a DC check). */
+  enemyD20: number;
+  /** Enemy's total ability bonus applied to `enemyD20` this round. */
+  enemyBonus: number;
+  /** ASCII-only pass/fail glyph ("+"/"x") — never a ✓/✗ dingbat (ansi-frames skill §1: mobile
+   *  fonts can't be trusted to carry them, and Discord's own emoji rendering would double-width
+   *  the column). */
+  marker: string;
+  verdict: string;
+  margin: number;
+  /** Combat band name (e.g. GLANCED, TRADE) — the mechanical truth of the final round, short
+   *  enough for a single line in the terminal card. Replaces the truncated-prose flavour line
+   *  (F#22: prose never fits there). */
+  band: string;
+
+}
+
 /**
- * Combat-maths reveal: an AnsiRenderer frame replacing the text roll-vs-DC header on combat
- * outcomes. Enemy HP is shown EXACT (unlike the banded mid-fight continue screen) because the
- * fight is over — hiding it here would just be withholding a number the player already won or
- * lost by. Message lines are ASCII-only (no emoji) since AnsiRenderer's fixed-width budget
- * counts glyphs, not display cells, and emoji would silently miscount.
+ * Combat-maths reveal (ANSI-D): the fight-over data card replacing the old two-line message-box
+ * roll header. Sourced from the ROUND LOG in preference to the flat `outcome.playerRolled`/
+ * `rollBonus`/`finalDc` fields — `combatRounds`' terminal entry carries the same numbers the
+ * round's own band was picked from, so a multi-round fight's last-round maths (not some
+ * fight-wide aggregate) is what the player sees, matching what actually decided the last blow.
+ * Falls back to `outcome.combatBeat` for a fight predating the round-log accumulation (still the
+ * terminal beat, just not list-shaped). Deliberately drops the enemy nameplate/HP bar and the
+ * player footer the old spec carried — those duplicate the embed's own stats footer just below
+ * this card (see `formatOutcome`'s trailing `❤️ ⚡ 🎲 💰` line), which is the whole point of the
+ * data-card register (skill §2): the cheapest, most legible form for a fact already decided.
  */
-function renderCombatFrame(outcome: ActionOutcome, ctx: OutcomeRenderContext): string {
-  const cb = outcome.combatBeat;
-  if (!cb) return ''; // guarded by the caller; keeps this function total for TS narrowing.
-  const cf = outcome.combatFrame;
+function buildCombatTerminalCard(outcome: ActionOutcome, _ctx: OutcomeRenderContext): CombatTerminalCard | null {
+  // `_ctx` is unused today (the card carries no player-stat slot) but kept on the signature for
+  // symmetry with the rest of this module's builders, all of which take the render context.
+  const beat = outcome.combatRounds?.at(-1) ?? outcome.combatBeat;
+  if (!beat) return null;
 
-  const enemyName = cf?.enemyName ?? 'Enemy';
-  const enemyMaxHp = cf?.enemyMaxHp ?? cb.enemyHpAfter;
-  const margin = cf?.margin ?? 0;
-  const enemyDelta = cb.enemyHpAfter - cb.enemyHpBefore;
+  const total = beat.playerD20 + beat.playerBonus;
+  const success = outcome.outcome === 'success';
+  const verdict = success ? 'WIN' : outcome.outcome === 'failure' ? 'LOSS' : outcome.outcome.toUpperCase();
 
-  const rolled = outcome.playerRolled ?? 0;
-  const bonus = outcome.rollBonus ?? 0;
-  const total = rolled + bonus;
-  const bonusStr = bonus >= 0 ? `+${bonus}` : `${bonus}`;
-  const critMark = outcome.playerRolled === 20 ? '!' : outcome.playerRolled === 1 ? '*' : '';
-  const rollLine = `${critMark}d20 ${rolled} ${bonusStr} = ${total} vs DC ${outcome.finalDc}`.slice(0, 26);
-
-  const marginStr = signed(margin);
-  const verdict = outcome.outcome === 'success' ? 'WIN' : outcome.outcome === 'failure' ? 'LOSS' : outcome.outcome.toUpperCase();
-  const verdictLine = `margin ${marginStr}  ${cb.band.toUpperCase()}  ${verdict}`.slice(0, 26);
-
-  return renderFrame({
-    header: {
-      name: enemyName,
-      hp: cb.enemyHpAfter,
-      maxHp: enemyMaxHp,
-      floater: enemyDelta !== 0 ? signed(enemyDelta) : undefined,
-    },
-    message: [rollLine, verdictLine],
-    footer: {
-      name: ctx.name,
-      hp: ctx.health,
-      maxHp: ctx.maxHealth,
-      floater: cb.playerHpDelta !== 0 ? signed(cb.playerHpDelta) : undefined,
-    },
-  });
+  return {
+    label: 'COMBAT RESOLVED',
+    playerD20: beat.playerD20,
+    bonus: beat.playerBonus,
+    total,
+    enemyD20: beat.enemyD20,
+    enemyBonus: beat.enemyBonus,
+    marker: success ? '+' : 'x',
+    verdict,
+    margin: beat.margin,
+    band: beat.band.toUpperCase(),
+  };
 }
 
 // ── Public renderer ──
@@ -185,19 +207,26 @@ function renderCombatFrame(outcome: ActionOutcome, ctx: OutcomeRenderContext): s
  * Format an action outcome into a display string.
  * Change detection (items, location, stat deltas) is derived from `outcome.mutations`;
  * the caller supplies only current post-mutation values for the printed totals.
+ *
+ * `renderCombatFrame` is the presentation-side card render call (ANSI-D) — this module only
+ * assembles the card's structured data (`buildCombatTerminalCard`) and never imports
+ * `src/render/` itself. Omitted (e.g. a caller that never renders combat), a combat outcome
+ * simply carries no card line rather than throwing.
  */
 export function formatOutcome(
   outcome: ActionOutcome,
   ctx: OutcomeRenderContext,
+  renderCombatFrame?: (card: CombatTerminalCard) => string,
 ): string {
   const d = deriveFromMutations(outcome.mutations);
   const lines: string[] = [];
 
-  // ── Header — roll vs DC, OR (combat outcomes) the AnsiRenderer combat-maths reveal ──
-  // Combat replaces the text header with a frame at the very top of the string (ahead of
+  // ── Header — roll vs DC, OR (combat outcomes) the combat-maths data card ──
+  // Combat replaces the text header with a card at the very top of the string (ahead of
   // everything else) so it survives description-length clipping in buildOutcomeEmbed.
   if (outcome.combatBeat) {
-    lines.push(renderCombatFrame(outcome, ctx));
+    const card = buildCombatTerminalCard(outcome, ctx);
+    if (card && renderCombatFrame) lines.push(renderCombatFrame(card));
   } else if (outcome.playerRolled !== null) {
     const meta = OUTCOME_LABELS[outcome.outcome] ?? { icon: '❓', label: outcome.outcome.toUpperCase() };
     const bonus = outcome.rollBonus ?? 0;
@@ -252,15 +281,23 @@ export function formatOutcome(
   for (const item of d.itemsGained) {
     changes.push(`+ ${item.emoji} ${item.name}`);
   }
-  for (const name of d.itemsLost) {
-    changes.push(`- ${name}`);
+  for (const item of d.itemsLost) {
+    // U+2212 minus (not ASCII "- ") — a leading "- " is Discord's unordered-list marker,
+    // which turns a loss-only line into a bullet instead of reading as a subtraction.
+    const emojiPart = item.emoji ? `${item.emoji} ` : '';
+    const qtyPart = item.quantity && item.quantity > 1 ? ` ×${item.quantity}` : '';
+    changes.push(`− ${emojiPart}${item.name}${qtyPart}`);
   }
   if (d.newLocation) {
     changes.push(`→ ${d.newLocation}`);
   }
   // A positive roll grant that nets to zero against the action cost is invisible in the 🎲
   // counter — surface it explicitly so the player knows they were rewarded (feedback #13).
-  if (!outcome.rollRefunded && d.rollsDelta > 0 && rollsDelta === 0) {
+  // This must fire independently of `rollRefunded`: a refund and a grant are separate facts
+  // (the footer's "(refunded)" suffix below has its own `rollRefunded` gate), so an
+  // auto-resolved action whose roll was refunded must still show the grant it also carried
+  // (B#3 follow-up — the reported "auto-resolved rest showed refunded but no inspiration text").
+  if (d.rollsDelta > 0 && rollsDelta === 0) {
     changes.push(`✨ inspired (+${d.rollsDelta} roll)`);
   }
 

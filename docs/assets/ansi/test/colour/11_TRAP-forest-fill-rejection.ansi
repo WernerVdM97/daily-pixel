@@ -1,5 +1,5 @@
 [30m+----------------------------+[0m
-[30m|[0m[33m⚠ DENSITY REJECTED ([0m§13)    [30m|[0m
+[30m|[0m[33m! DENSITY REJECTED ([0m#13)    [30m|[0m
 [30m|[0mSee: eisen-ascii-art.png    [30m|[0m
 [30m|[0mWall-to-wall = anti-pattern [30m|[0m
 [30m|[0mShape-first, shading-second.[30m|[0m
@@ -18,6 +18,6 @@
 [30m|[0m\|/ * \|/ * \|/   \|/       [30m|[0m
 [30m|[0m. , . , . , . , . , .       [30m|[0m
 [30m|[0m                            [30m|[0m
-[30m|[0mTexture islands → 2 trunks  [30m|[0m
+[30m|[0mTexture islands > 2 trunks  [30m|[0m
 [30m|[0m(▒ fill only) Rest = outline[30m|[0m
 [30m+----------------------------+[0m

@@ -1,0 +1,14 @@
+tag: v0.3.1
+title: Combat Readability & Polish Release
+date: "2026-07-11"
+highlights:
+  - "🎲 Every roll is now visible mid-decision, not just at the end — DC boxed, margin colour-banded, threat spelled out in the band word."
+  - "🖼️ Frames escalate with the fight — heavier borders when bloodied, a crest rim on a nat-20."
+  - "🎬 A scene-setting frame now opens every decision — foe, location, or NPC bust."
+  - "✍️ Custom actions get a proper thinking beat before the engine resolves them."
+  - "🌅 Morning/evening messages carry rotating, day-matched flavour."
+  - "💡 Action menu now hints your last move, low stamina, or an unsafe location."
+  - "📖 Journal decluttered — Chronicle vs NPCs sections, bold pass/fail tags, intel rails."
+  - "🛏️ Resting now has weight — a bedding-down beat, sectioned body."
+  - "🧾 Join-screen skills format cleanly with line breaks and blockquoted bonuses."
+  - "🐛 Fixed: inspiration drain/grant on auto-resolved actions, max_stamina rewards not saving, item losses misreading as list bullets, divine intervention wrongly costing a roll."

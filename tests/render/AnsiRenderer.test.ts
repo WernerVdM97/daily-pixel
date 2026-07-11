@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderFrame, hpBar, type FrameSpec } from "../../src/render/AnsiRenderer.js";
+import { renderFrame, hpBar, BORDERS, PALETTES, type FrameSpec } from "../../src/render/AnsiRenderer.js";
 
 const stripSgr = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -256,7 +256,8 @@ describe("AnsiRenderer", () => {
       expect(hpLine).toBeDefined();
       expect(hpLine).not.toMatch(/3\/20/);
       expect(hpLine).not.toMatch(/\] [a-zA-Z]/);
-      expect(hpLine).toMatch(/\][ ]*\|/);
+      // Default border side is now box-drawing '│', not ASCII '|'.
+      expect(hpLine).toMatch(/\][ ]*│/);
     });
 
     it("when bar is set but hpText is undefined, falls back to hp/maxHp numbers", () => {
@@ -305,6 +306,51 @@ describe("AnsiRenderer", () => {
 
       const body = rendered.slice("```ansi\n".length, rendered.length - "\n```".length);
       expect(body).not.toContain("`");
+    });
+  });
+
+  describe("palette-driven rendering (ANSI-B)", () => {
+    it("defaults to the house palette when no palette argument is given", () => {
+      const withDefault = renderFrame(fullCombatFrame());
+      const withExplicitHouse = renderFrame(fullCombatFrame(), PALETTES.house);
+      expect(withDefault).toBe(withExplicitHouse);
+    });
+
+    it("uses box-drawing borders by default (standard style — the border ladder redesign)", () => {
+      const rendered = renderFrame(fullCombatFrame());
+      const mono = stripSgr(rendered);
+      expect(mono).toContain('┌');
+      expect(mono).toContain('─');
+      expect(mono).toContain('│');
+      expect(mono).not.toContain('+-'); // ASCII borders are gone
+    });
+
+    it("renders heavy-style double-line borders when told", () => {
+      const rendered = renderFrame(fullCombatFrame(), PALETTES.house, BORDERS.heavy);
+      const mono = stripSgr(rendered);
+      expect(mono).toContain('╔');
+      expect(mono).toContain('═');
+      expect(mono).toContain('║');
+    });
+
+    it("renders crit-style crest with @ interrupt above the frame", () => {
+      const rendered = renderFrame(fullCombatFrame(), PALETTES.house, BORDERS.crit);
+      const mono = stripSgr(rendered);
+      expect(mono).toContain('@');
+      expect(mono).toContain('╡');
+      // The crest line appears before the top border.
+      const crestIdx = mono.indexOf('@');
+      const topBorderIdx = mono.indexOf('╔');
+      expect(crestIdx).toBeGreaterThan(0);
+      expect(crestIdx).toBeLessThan(topBorderIdx);
+    });
+
+    it("a non-default palette actually changes the emitted SGR codes", () => {
+      const houseRendered = renderFrame(fullCombatFrame(), PALETTES.house);
+      const gloomRendered = renderFrame(fullCombatFrame(), PALETTES.gloom);
+      expect(gloomRendered).not.toBe(houseRendered);
+      // Monochrome content is unaffected by palette choice — only colour codes differ.
+      expect(stripSgr(gloomRendered)).toBe(stripSgr(houseRendered));
     });
   });
 });

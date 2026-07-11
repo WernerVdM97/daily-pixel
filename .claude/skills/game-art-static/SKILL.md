@@ -155,6 +155,7 @@ Draw back-to-front; later layers occlude earlier ones.
 - Fix a target width and compose within it (e.g. a narrow mobile column).
 - One scene per view — switch scenes rather than scroll a large canvas.
 - Clarity first: every glyph should communicate; composition is as much what you leave out.
+- **Monospace ASCII/ANSI art: single-width glyphs only (hard rule).** In a fixed-cell grid every character must be exactly one cell wide, or every row below drifts. Emoji and Miscellaneous-Symbols / Dingbats glyphs (`⚠ ☺ ✦ ❖ ✓ ✗`) render double-width, as does East-Asian-Ambiguous punctuation like `§` and `→`; use ASCII, box-drawing, block/shade, and Geometric-Shapes glyphs only. For Discord frames see the `ansi-frames` skill §1.
 
 ---
 
@@ -167,6 +168,7 @@ Draw back-to-front; later layers occlude earlier ones.
 | Ignore silhouette readability | Test at gameplay distance |
 | Over-detail background | Focus detail on player area |
 | Skip color testing | Test on target display |
+| Use emoji/dingbat glyphs in a monospace grid | Single-width glyphs only (`⚠ ☺ ✦ ✓ ✗` render double-width) |
 
 ---
 

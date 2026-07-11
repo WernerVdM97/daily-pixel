@@ -8,6 +8,7 @@ import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { mapError } from "../../engine/ErrorMapper.js";
 import { SEPARATOR } from "../format.js";
 import { announceCollapse } from "../collapse.js";
+import { buildMorningAnnouncement } from "../announcements.js";
 import { getWorkplaceLocation, type DayJobDef } from "./hi.js";
 
 export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
@@ -28,27 +29,13 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
       try {
         const result = engine.tick(true);
 
-        // Scaling flavor text per day range
-        const flavor =
-          result.dayNumber <= 3
-            ? "The warden watches the horizon. The fire crackles, steady and low."
-            : "The smoke on the eastern horizon has thickened. The warden hasn't spoken since yesterday.";
-
-        const lines: string[] = [];
-        lines.push(`🌅 **Day ${result.dayNumber} begins.**`);
-        lines.push("");
-        lines.push(flavor);
-        lines.push("");
-        lines.push(`The Oak awaits. \`/hi\` to begin.`);
-
-        if (result.playersAffected > 0 || result.npcMovements.length > 0) {
-          lines.push("");
-          lines.push(
-            `─ ${result.playersAffected} soul(s) stirred, ${result.npcMovements.length} NPC(s) on the move.`,
-          );
-        }
-
-        return lines.join("\n");
+        // Shares the morning builder with the live cron post (index.ts) so the two never
+        // drift — same day, same prose, whichever path advances the world.
+        return buildMorningAnnouncement({
+          day: result.dayNumber,
+          playersAffected: result.playersAffected,
+          npcMovementCount: result.npcMovements.length,
+        });
       } catch (e) {
         console.error("[sleep] tick failed:", e);
         return mapError(e);
@@ -111,9 +98,14 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
     let penaltyLine = "";
     if (wasUnsafe) {
       const updated = engine.modifyHealth(interaction.user.id, -1);
+      // Own section, own line per clause — the crammed single-sentence version read as an
+      // aside rather than a real penalty (player report: rest formatting feels "off").
       penaltyLine = [
-        `⚠️ **Resting on unsafe ground costs 1 HP.** You bedded down at **${unsafeFromName}**, far from the Oak's protection — no safe fire, no walls, one eye open all night.`,
+        `⚠️ **Resting on unsafe ground costs 1 HP.**`,
+        `You bedded down at **${unsafeFromName}**, far from the Oak's protection — no safe fire, no walls, one eye open all night.`,
+        "",
         `The night was rough — you lost **1 HP**.${updated ? ` (${updated.health}/${updated.maxHealth} ❤️)` : ""}`,
+        "",
         `_Return to the Oak (or your workplace) **before** resting to avoid this._`,
       ].join("\n");
       // A collapse from the penalty is announced publicly (not just to the actor).
@@ -130,6 +122,9 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
       ? "The Oak's familiar boughs cradle you once more."
       : "You bank the fire and bed down beneath the Oak.";
 
+    // Each SEPARATOR marks a real section break (header/arrival, unsafe penalty, closing
+    // prose) so buildComponentPayload renders distinct Container blocks instead of one
+    // undifferentiated wall of text.
     const lines: string[] = [
       "🏕️ **The Warden's Oak**",
       SEPARATOR,
@@ -137,10 +132,12 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
       locationLine,
     ];
     if (penaltyLine) {
+      lines.push(SEPARATOR);
       lines.push("");
       lines.push(penaltyLine);
     }
 
+    lines.push(SEPARATOR);
     lines.push("");
     lines.push("The day turns when the world wills it — not when you do.");
     lines.push("");

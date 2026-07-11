@@ -6,7 +6,7 @@ import { createGeographyFinalize } from '../../src/engine/geography-finalize.js'
 import { runMigrations, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
 import { LocationEdgeRepository } from '../../src/db/repositories/locationEdge.js';
-import type { CharacterData, ItemData, WorldMutation } from '../../src/engine/WorldEngine.js';
+import type { CharacterData, ItemData, WorldMutation, CombatStatusData } from '../../src/engine/WorldEngine.js';
 import type { MutationContext } from '../../src/engine/action/mutations.js';
 import type {
   ClassifyHit,
@@ -714,6 +714,12 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
       enemyHpBefore: 10,
       enemyHpAfter: 7,
       playerHpDelta: 0,
+      playerD20: 10,
+      playerBonus: 5,
+      dc: 10,
+      enemyD20: 10,
+      enemyBonus: 0,
+      margin: 5,
       materialMutationFired: true,
       ops: ['set_relation'],
       marker: 'combat_round',
@@ -745,6 +751,12 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
       enemyHpBefore: 10,
       enemyHpAfter: 9,
       playerHpDelta: -5,
+      playerD20: 1,
+      playerBonus: 5,
+      dc: 10,
+      enemyD20: 10,
+      enemyBonus: 0,
+      margin: -4,
       materialMutationFired: true,
       ops: ['modify_health', 'set_relation', 'set_relation'],
       marker: 'combat_round',
@@ -774,6 +786,99 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
     if (step.resolved) throw new Error('expected unresolved step');
 
     expect(step.combatBeat).toBeUndefined();
+  });
+});
+
+/**
+ * ANSI-D — the accumulated per-fight round log (`ActionDecision.combatRounds` /
+ * `ActionOutcome.combatRounds`). The multi-round accumulation case needs a DB-backed resolver to
+ * round-trip `in_combat` between separate `step()` calls (see the `PipelineSimEngine` test,
+ * tests/sim/pipeline-sim.test.ts, 'T5 — combat telemetry + metrics'); the two cases below —
+ * first-round-kill and the legacy tolerant read — don't need persisted scene-state, so they stay
+ * here against the raw machine.
+ */
+describe('PipelineActionStateMachine — ANSI-D combatRounds', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('a first-round-kill fight has exactly one entry in combatRounds, matching the terminal combatBeat', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult({ baseDc: 6 })];
+
+    // baseDc=6 -> enemyMaxHp=6; player nat-20 (clean, amplified -8) kills outright in round 1.
+    // playerBonus=5 (physical 3 + Iron Sword 2), enemyBonus=clamp(6-10,0,10)=0, dc=6,
+    // margin=(20+5)-(1+0)=24 (mirrors the combatFrame test above using the same rolls/baseDc).
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.combatRounds).toHaveLength(1);
+    expect(step.outcome.combatRounds?.[0]).toEqual({
+      round: 1,
+      band: 'clean',
+      enemyHpBefore: 6,
+      enemyHpAfter: 0,
+      playerHpDelta: 0,
+      playerD20: 20,
+      playerBonus: 5,
+      dc: 6,
+      enemyD20: 1,
+      enemyBonus: 0,
+      margin: 24,
+      materialMutationFired: true,
+      ops: ['set_relation'],
+      marker: 'combat_round',
+    });
+    // Nothing derived twice: the sole round-log entry IS the terminal combatBeat, not a
+    // second computation of the same round's maths.
+    expect(step.outcome.combatBeat).toEqual(step.outcome.combatRounds?.[0]);
+  });
+
+  it('a legacy in-flight state whose pendingDecision has no combatRounds key reads tolerantly (empty, never throws)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult();
+
+    // Two clean glanced rounds (no crit/floor/cap) so both step()s land on CONTINUE.
+    const rolls = [10, 10, 10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const round1 = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (round1.resolved) throw new Error('expected unresolved step');
+    expect(round1.nextDecision.combatRounds).toHaveLength(1);
+
+    // Simulate a fight in flight from before ANSI-D shipped: the persisted state's
+    // pendingDecision JSON never had a `combatRounds` key at all (not merely `undefined`).
+    const { combatRounds: _legacyOmitted, ...legacyPendingDecision } = round1.state.pendingDecision;
+    const legacyState = { ...round1.state, pendingDecision: legacyPendingDecision };
+
+    const round2 = await machine.step(legacyState, 'Press the attack', testChar(), testItems);
+    expect(round2.resolved).toBe(false);
+    if (round2.resolved) throw new Error('expected unresolved step');
+
+    // Tolerant read: a missing list starts fresh from `[]`, never throws, and never carries
+    // phantom rounds forward from a key that was never there.
+    expect(round2.nextDecision.combatRounds).toHaveLength(1);
+    expect(round2.nextDecision.combatRounds?.[0].round).toBe(1);
   });
 });
 
@@ -937,14 +1042,15 @@ describe('PipelineActionStateMachine — decide-scene-narration: combat continue
 
     expect(step.nextDecision.narration).toBe('The goblin snarls, blood streaming from its arm.');
     // enemyHp 7/10=0.7 -> round(3.5)=4 filled pips (Bloodied band); player took no damage.
-    // CombatStatus is now an AnsiRenderer frame (B#5/B#6): enemy banded on its own line,
-    // player exact HP on a separate footer line.
-    expect(step.nextDecision.combatStatus).toContain('Goblin');
-    expect(step.nextDecision.combatStatus).toMatch(/▓▓▓▓░/);
-    expect(step.nextDecision.combatStatus).toContain('Bloodied');
-    expect(step.nextDecision.combatStatus).toContain('You');
-    expect(step.nextDecision.combatStatus).toContain('12/12'); // player untouched this round
-    expect(step.nextDecision.combatStatus).not.toMatch(/\d+\/10/); // no exact enemy HP leak
+    // ANSI-C: the engine emits structured CombatStatusData (banding maths only, no rendered
+    // ANSI); the presentation layer composes the AnsiRenderer frame from it.
+    const cs = step.nextDecision.combatStatus as CombatStatusData;
+    expect(cs.enemyName).toBe('Goblin');
+    expect(cs.pips).toEqual({ filled: 4, total: 5 }); // never exact enemy HP — banded only
+    expect(cs.woundWord).toBe('Bloodied');
+    expect(cs.playerHp).toBe(12); // player untouched this round
+    expect(cs.playerMaxHp).toBe(12);
+    expect(cs.playerHpDelta).toBe(0);
   });
 
   it('warns (telemetry only, no retry) when the continue options all share stat + dcModifier', async () => {
@@ -1436,14 +1542,14 @@ describe('PipelineActionStateMachine — decide-scene-narration: E2E acceptance 
 
       // Narration threads through.
       expect(step1.nextDecision.narration).toBe('The goblin snarls, teeth bared — it circles left, looking for an opening.');
-      // CombatStatus is now an AnsiRenderer frame (B#5/B#6): enemy banded condition on the
-      // header line, player on a separate footer line — never a crammed one-liner.
-      expect(step1.nextDecision.combatStatus).toMatch(/[▓░]{5}/);
-      expect(step1.nextDecision.combatStatus).toMatch(/Healthy|Bloodied|Battered|Critical/);
-      expect(step1.nextDecision.combatStatus).toContain('Goblin');
-      expect(step1.nextDecision.combatStatus).toContain('You');
-      // Never leaks exact enemy HP (10/10, 7/10, etc. of the actual maxHp) — banded only.
-      expect(step1.nextDecision.combatStatus).not.toMatch(/\d+\/10/);
+      // ANSI-C: combatStatus is structured CombatStatusData (banding maths only, never
+      // exact enemy HP) — the presentation layer composes the AnsiRenderer frame from it.
+      const cs1 = step1.nextDecision.combatStatus as CombatStatusData;
+      expect(cs1.pips.filled).toBeGreaterThanOrEqual(0);
+      expect(cs1.pips.total).toBe(5);
+      expect(cs1.woundWord).toMatch(/Healthy|Bloodied|Battered|Critical/);
+      expect(cs1.enemyName).toBe('Goblin');
+      expect(cs1.playerMaxHp).toBe(12);
       // ≥2 distinct backstop options; flee is a separate bail option (dcModifier: null).
       const realOptions1 = step1.nextDecision.options.filter(o => o.dcModifier !== null);
       expect(realOptions1.map(o => o.label)).toEqual(['Press the attack', 'Fight defensively']);
@@ -1459,11 +1565,11 @@ describe('PipelineActionStateMachine — decide-scene-narration: E2E acceptance 
       if (step2.resolved) throw new Error('expected unresolved round 2');
 
       expect(step2.nextDecision.narration).toBe('Your blade scrapes its tattered leather — it stumbles but rights itself, furious now.');
-      expect(step2.nextDecision.combatStatus).toMatch(/[▓░]{5}/);
-      expect(step2.nextDecision.combatStatus).toMatch(/Healthy|Bloodied|Battered|Critical/);
-      expect(step2.nextDecision.combatStatus).toContain('Goblin');
-      expect(step2.nextDecision.combatStatus).toContain('You');
-      expect(step2.nextDecision.combatStatus).not.toMatch(/\d+\/10/);
+      const cs2 = step2.nextDecision.combatStatus as CombatStatusData;
+      expect(cs2.pips.total).toBe(5);
+      expect(cs2.woundWord).toMatch(/Healthy|Bloodied|Battered|Critical/);
+      expect(cs2.enemyName).toBe('Goblin');
+      expect(cs2.playerMaxHp).toBe(12);
       const realOptions2 = step2.nextDecision.options.filter(o => o.dcModifier !== null);
       expect(realOptions2.map(o => o.label)).toEqual(['Press the attack', 'Fight defensively']);
       const backstop2 = realOptions2.filter(o => o.label !== 'Flee the fight');
@@ -1624,12 +1730,7 @@ describe('PipelineActionStateMachine — T2b combatFrame on terminal combat outc
   });
 });
 
-function stripSgr(s: string): string {
-  const esc = String.fromCharCode(27);
-  return s.replace(new RegExp(esc + '\\[[0-9;]*m', 'g'), '');
-}
-
-describe('PipelineActionStateMachine — T2b B#5/B#6 continue-screen clamping', () => {
+describe('PipelineActionStateMachine — T2b B#5/B#6 continue-screen clamping (ANSI-C: structured combatStatus)', () => {
   function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
     return {
       distilledType: 'combat',
@@ -1642,7 +1743,11 @@ describe('PipelineActionStateMachine — T2b B#5/B#6 continue-screen clamping', 
     };
   }
 
-  it('B#5: combatStatus contains header (enemy) and footer (player) with their own HP bars — no crammed one-liner', async () => {
+  // B#5's original "no crammed one-liner" render-layout guarantee (separate header/footer
+  // blocks) now lives in AnsiRenderer's own frame tests (tests/render/AnsiRenderer.test.ts)
+  // since the engine no longer renders a frame at all — it only emits the two combatants'
+  // data as distinct fields, which this test proves stay distinct through the engine.
+  it('B#5: combatStatus carries the enemy and player as separate structured fields, not a crammed shape', async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decideResultQueue = [
       combatEnemyDecideResult(),
@@ -1666,21 +1771,15 @@ describe('PipelineActionStateMachine — T2b B#5/B#6 continue-screen clamping', 
     expect(step.resolved).toBe(false);
     if (step.resolved) throw new Error('expected unresolved step');
 
-    const cs = step.nextDecision.combatStatus;
+    const cs = step.nextDecision.combatStatus as CombatStatusData;
     expect(cs).toBeDefined();
-    // Both combatants present with their own sections.
-    expect(cs).toContain('Goblin');
-    expect(cs).toContain('You');
-    // At least 3 border lines (top, divider, bottom) — header and footer each get their own block.
-    const borders = (cs!.match(/\+[=-]+\+/g) ?? []);
-    expect(borders.length).toBeGreaterThanOrEqual(2);
-    // The old crammed format would put both HP bars on a single line; verify that doesn't happen.
-    const lines = cs!.split('\n').filter(l => !l.startsWith('```'));
-    const hpBarsOnOneLine = lines.filter(l => (l.match(/HP/g) || []).length >= 2);
-    expect(hpBarsOnOneLine).toHaveLength(0);
+    expect(cs.enemyName).toBe('Goblin');
+    expect(cs.pips.total).toBe(5);
+    expect(typeof cs.playerHp).toBe('number');
+    expect(cs.playerMaxHp).toBe(12);
   });
 
-  it('B#6: displayed HP clamped to [0, max] — non-lethal heavy damage with floater present', async () => {
+  it('B#6: displayed player HP clamped to [0, max] — non-lethal heavy damage with delta present', async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decideResultQueue = [
       combatEnemyDecideResult({ baseDc: 10 }),
@@ -1705,18 +1804,15 @@ describe('PipelineActionStateMachine — T2b B#5/B#6 continue-screen clamping', 
     expect(step.resolved).toBe(false);
     if (step.resolved) throw new Error('expected unresolved step');
 
-    const cs = step.nextDecision.combatStatus;
+    const cs = step.nextDecision.combatStatus as CombatStatusData;
     expect(cs).toBeDefined();
-    // Displayed HP should be 3/8 (clamped to [0, max], not negative).
-    const mono = stripSgr(cs!);
-    expect(mono).toContain('3/8');
-    // Floater line shows the damage taken.
-    expect(mono).toContain('-5');
-    // No negative HP value displayed.
-    expect(mono).not.toMatch(/\u2212\d+\/8|-\d+\/8/);
+    // Displayed HP should be 3 (clamped to [0, max], not negative).
+    expect(cs.playerHp).toBe(3);
+    expect(cs.playerMaxHp).toBe(8);
+    expect(cs.playerHpDelta).toBe(-5);
   });
 
-  it('B#6: when playerHpDelta is 0, no floater line appears for the player', async () => {
+  it('B#6: when playerHpDelta is 0, the field is exactly 0 (no floater implied)', async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decideResultQueue = [
       combatEnemyDecideResult({ baseDc: 10 }),
@@ -1740,20 +1836,11 @@ describe('PipelineActionStateMachine — T2b B#5/B#6 continue-screen clamping', 
     expect(step.resolved).toBe(false);
     if (step.resolved) throw new Error('expected unresolved step');
 
-    const cs = step.nextDecision.combatStatus;
+    const cs = step.nextDecision.combatStatus as CombatStatusData;
     expect(cs).toBeDefined();
-    const mono = stripSgr(cs!);
     // Player HP 12/12 shows the player took no damage.
-    expect(mono).toContain('12/12');
-    // Count the number of floater lines (lines that start with a sign).
-    // After stripping SGR, floater lines look like: "|    ..." with no leading pipe on the sign itself.
-    // Actually, floater line renders as: "|  -5                    |"
-    // The player section should have NO floater line when playerHpDelta=0.
-    // We can check by counting non-border, non-HP, non-nameplate lines.
-    const lines = mono.split('\n').filter(l => !l.startsWith('```'));
-    // Borders: +---+, nameplates: |  Name..., HP lines: |  HP [...
-    // Floater lines: |  -5... or |  +4...
-    const floaterLines = lines.filter(l => /^\|\s{2}[+-]\d/.test(l));
-    expect(floaterLines).toHaveLength(0);
+    expect(cs.playerHp).toBe(12);
+    expect(cs.playerMaxHp).toBe(12);
+    expect(cs.playerHpDelta).toBe(0);
   });
 });

@@ -7,7 +7,52 @@ import { CharacterRepository } from '../../src/db/repositories/character.js';
 import { ItemRepository } from '../../src/db/repositories/item.js';
 import { ActionRepository } from '../../src/db/repositories/action.js';
 import { NpcRepository } from '../../src/db/repositories/npc.js';
+import type {
+  ClassifyHit,
+  PipelineDecideResult,
+  PipelineLlmGateway,
+  PipelineResolveMutateResult,
+  PipelineResolveNarrateResult,
+  PipelineStageResult,
+} from '../../src/llm/pipeline/types.js';
 // ── T6 concurrent step serialisation ──
+
+/** Minimal scriptable `PipelineLlmGateway` double for B#3's auto-resolve-start tests (mirrors
+ *  `pipeline-machine.test.ts`'s MockPipelineLlmGateway, trimmed to the 4 stages these tests
+ *  need). `decide()` returning `decision: []` is what routes `start()` into the same-call
+ *  resolve pipeline (the "auto-resolve" path under test), not a per-test heuristic hit —
+ *  `classify()` is scripted directly so the test doesn't depend on heuristicClassify's table. */
+class AutoResolveMockGateway implements PipelineLlmGateway {
+  constructor(private readonly resolveMutations: PipelineResolveMutateResult['mutations']) {}
+
+  async classify(): Promise<PipelineStageResult<ClassifyHit>> {
+    const result: ClassifyHit = {
+      kind: 'hit',
+      actionType: 'rest',
+      flags: { unsafe_location: false, needs_roll: false, target_present: false },
+    };
+    return { result, callId: 0 };
+  }
+
+  async decide(): Promise<PipelineStageResult<PipelineDecideResult>> {
+    const result: PipelineDecideResult = {
+      distilledType: 'rest',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      decision: [], // empty decision → start() auto-resolves inline (§2 v12 QA)
+    };
+    return { result, callId: 0 };
+  }
+
+  async resolveMutate(): Promise<PipelineStageResult<PipelineResolveMutateResult>> {
+    return { result: { mutations: this.resolveMutations }, callId: 0 };
+  }
+
+  async resolveNarrate(): Promise<PipelineStageResult<PipelineResolveNarrateResult>> {
+    return { result: { outcomeText: 'You rest for a while.' }, callId: 0 };
+  }
+}
 
 describe('WorldEngineImpl — pipeline path step() serialisation (T6)', () => {
   function makeMockFetch(hangOnThird: boolean) {
@@ -256,3 +301,86 @@ describe('WorldEngineImpl — classify-stage throw → divine intervention (F#21
 });
 
 
+describe('WorldEngineImpl — auto-resolve start-path rolls accounting (B#3)', () => {
+  function seedCharacter(charRepo: CharacterRepository, userRepo: UserRepository): number {
+    const user = userRepo.create('999999999');
+    return charRepo.create(user.id, {
+      name: 'Garrick',
+      class: 'Fighter',
+      upbringing: 'Village',
+      race: 'Human',
+      alignment: 'lawful good',
+      day_job: 'Guard',
+      stats: JSON.stringify({ physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }),
+      health: 10,
+      max_health: 10,
+      max_stamina: 10,
+      stamina: 10,
+      rolls_remaining: 3,
+      location: "The Warden's Oak",
+      wealth: 5,
+      last_action_state: null,
+    }).id;
+  }
+
+  it('nets drain + grant correctly when the auto-resolved outcome carries a modify_rolls_remaining grant', async () => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const characterId = seedCharacter(charRepo, userRepo);
+
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: '__divine__', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new AutoResolveMockGateway([{ type: 'modify_rolls_remaining', amount: 1 }]),
+      rollD20: () => 15,
+    });
+
+    const startResult = await engine.startAction(characterId, 'rest by the fire');
+
+    expect(startResult.outcome).toBeDefined();
+    // Pre-fix: applyResolution's baseCtx used the stale pre-drain count (3), so its own write
+    // landed 3+1=4 and clobbered the drain — this is the regression B#3 fixes.
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+    // Reported delta must match the true net (spent 1, granted 1 → 0), not a hard-coded -1.
+    expect(startResult.outcome!.rollsDelta).toBe(0);
+
+    closeDb();
+  });
+
+  it('companion: leaves the no-grant auto-resolve path unregressed (drain-only, delta -1)', async () => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const characterId = seedCharacter(charRepo, userRepo);
+
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: '__divine__', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new AutoResolveMockGateway([]),
+      rollD20: () => 15,
+    });
+
+    const startResult = await engine.startAction(characterId, 'rest by the fire');
+
+    expect(startResult.outcome).toBeDefined();
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(2);
+    expect(startResult.outcome!.rollsDelta).toBe(-1);
+
+    closeDb();
+  });
+});

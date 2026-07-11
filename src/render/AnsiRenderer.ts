@@ -13,8 +13,50 @@
 //
 // See docs/sparks/mvp+ansi-art.md §2-3 for the colour-role convention and
 // the frame/slot layout this module implements.
+//
+// The border ladder ([[visual-craft]]): chrome is a signal — border glyphs
+// escalate with intensity/rarity so a punishing round or a critical hit looks
+// different before a word is read. Three tiers: standard (single box-drawing),
+// heavy (double), crit (heavy sides + ornamental crest rim). All glyphs are
+// single-width (box-drawing), safe on desktop and mobile.
 
-export type Role = 'chrome' | 'threat' | 'life' | 'warmth' | 'player' | 'emphasis';
+import { PALETTES, type Palette, type Role } from './palette.js';
+
+// Re-exported so existing importers of `Role`/`PALETTES` from this module
+// don't need to churn — `src/render/palette.ts` is the module of record.
+export type { Role, Palette };
+export { PALETTES };
+
+// ─── Border-style ladder ────────────────────────────────────────────
+
+export interface BorderStyle {
+  top: [string, string, string];      // left corner, fill, right corner
+  mid: [string, string, string];       // divider
+  bottom: [string, string, string];
+  side: string;                        // vertical
+  /** Full-width crest line ABOVE the top border (crit only). */
+  crest?: (palette: Palette) => string;
+  /** Full-width crest line BELOW the bottom border (crit only). */
+  crestBottom?: (palette: Palette) => string;
+}
+
+/** Border intensity/rarity ladder — see [[visual-craft]]. */
+export const BORDERS: Record<string, BorderStyle> = {
+  standard: { top: ['┌','─','┐'], mid: ['├','─','┤'], bottom: ['└','─','┘'], side: '│' },
+  heavy:    { top: ['╔','═','╗'], mid: ['╠','═','╣'], bottom: ['╚','═','╝'], side: '║' },
+  crit: {
+    top: ['╔','═','╗'],
+    mid: ['╠','═','╣'],
+    bottom: ['╚','═','╝'],
+    side: '║',
+    crest: (p: Palette) => {
+      const fill = '═'.repeat(10);
+      const rim = `o${fill} ╡@╞ ${fill}o`;
+      return paint('chrome', rim, p).replace(/@/, paint('warmth', '@', p));
+    },
+    crestBottom: (p: Palette) => paint('chrome', `o${'═'.repeat(INTERIOR_WIDTH + 2)}o`, p),
+  },
+};
 
 export interface CombatantLine {
   name: string;
@@ -40,10 +82,11 @@ export interface FrameSpec {
   footer?: CombatantLine;   // typically the player (bottom nameplate + HP bar)
 }
 
-// Total frame width including the `|`...`|` borders (design doc §3).
-const FRAME_WIDTH = 30;
+// Total frame width including the `|`...`|` borders (design doc §3). Exported (ANSI-F) so the
+// OPENING-frame composer shares the exact same width invariant instead of a re-declared literal.
+export const FRAME_WIDTH = 30;
 // Content width between the two border chars.
-const INTERIOR_WIDTH = FRAME_WIDTH - 2;
+export const INTERIOR_WIDTH = FRAME_WIDTH - 2;
 // Message-box budget: 2 lines x 26 chars, with a 2-char left indent eating
 // into the 28-wide interior (design doc §3).
 const MESSAGE_TEXT_WIDTH = 26;
@@ -59,23 +102,25 @@ const LOW_HP_THRESHOLD = 0.4;
 const FILLED_GLYPH = '█';
 const EMPTY_GLYPH = '░';
 
-const SGR: Record<Role, number> = {
-  chrome: 30,
-  threat: 31,
-  life: 32,
-  warmth: 33,
-  player: 34,
-  emphasis: 37,
-};
+// Palette `chrome` values (borders/labels) sit at 37 (white), not the historical
+// 30 (black) — black is unreadable against Discord's dark code-block background,
+// confirmed live 2026-07-10. 37 is final: the ANSI-A probe (2026-07-11) proved
+// bright 90-97 render no colour at all in a Discord `ansi` block, so the
+// once-planned 90 "dim grey chrome" register does not exist. See src/render/palette.ts.
 
-/** Wrap text in a role's SGR code + reset. Skips empty text so blank
- *  segments don't spend chars on escape codes that colour nothing. */
-function paint(role: Role, text: string): string {
+/** Wrap text in a role's SGR code + reset, looked up from the active
+ *  palette. Skips empty text so blank segments don't spend chars on escape
+ *  codes that colour nothing. */
+function paint(role: Role, text: string, palette: Palette): string {
   if (text.length === 0) return '';
-  return `\x1b[${SGR[role]}m${text}\x1b[0m`;
+  return `\x1b[${palette.sgr[role]}m${text}\x1b[0m`;
 }
 
-interface Segment {
+// Exported (ANSI-F): the OPENING-frame family (`OpeningFrameRenderer.ts`) has no
+// nameplate/HP-bar concept, so it composes its own per-type lines directly from these
+// primitives rather than through `FrameSpec` (shaped for the combat card's header/sprite/footer
+// slots only).
+export interface Segment {
   text: string;
   role?: Role;
 }
@@ -112,16 +157,34 @@ function fitSegments(segments: Segment[], width: number): Segment[] {
   return result;
 }
 
-/** Render one interior-width line between chrome-coloured `|` borders. */
-function composeLine(segments: Segment[]): string {
+/** Render one interior-width line between chrome-coloured border glyphs.
+ *  Exported (ANSI-F) — other register composers build their own line shapes
+ *  on the same width-enforcement/truncation contract without duplicating it.
+ *  `sideGlyph` defaults to `│` (standard box-drawing); the border-style
+ *  ladder swaps it for `║` (heavy/crit). */
+export function composeLine(segments: Segment[], palette: Palette, sideGlyph = '│'): string {
   const fitted = fitSegments(segments, INTERIOR_WIDTH);
-  const body = fitted.map((s) => (s.role ? paint(s.role, s.text) : s.text)).join('');
-  return paint('chrome', '|') + body + paint('chrome', '|');
+  const body = fitted.map((s) => (s.role ? paint(s.role, s.text, palette) : s.text)).join('');
+  return paint('chrome', sideGlyph + body + sideGlyph, palette);
 }
 
-/** A full-width `+----...----+` border/divider row. */
-function borderLine(): string {
-  return paint('chrome', '+' + '-'.repeat(INTERIOR_WIDTH) + '+');
+/** A full-width top border row for the given style. Replaces the historical ASCII `borderLine`
+ *  — box-drawing `standard` is the new default for every frame. */
+export function borderTop(style: BorderStyle, palette: Palette): string {
+  const [L, fill, R] = style.top;
+  return paint('chrome', L + fill.repeat(INTERIOR_WIDTH) + R, palette);
+}
+
+/** Divider row (header-body split) for the given style. */
+export function borderMid(style: BorderStyle, palette: Palette): string {
+  const [L, fill, R] = style.mid;
+  return paint('chrome', L + fill.repeat(INTERIOR_WIDTH) + R, palette);
+}
+
+/** A full-width bottom border row for the given style. */
+export function borderBottom(style: BorderStyle, palette: Palette): string {
+  const [L, fill, R] = style.bottom;
+  return paint('chrome', L + fill.repeat(INTERIOR_WIDTH) + R, palette);
 }
 
 /**
@@ -246,8 +309,9 @@ function spriteSegments(line: string): Segment[] {
 // contain one.
 const BACKTICK_SUBSTITUTE = "ʼ";
 
-/** Strip any fence-breaking backticks out of one piece of caller text. */
-function escapeBackticks(text: string): string {
+/** Strip any fence-breaking backticks out of one piece of caller text. Exported (ANSI-F) so
+ *  other register composers sanitize free-text slot values the same way this module does. */
+export function escapeBackticks(text: string): string {
   return text.replace(/`/g, BACKTICK_SUBSTITUTE);
 }
 
@@ -272,13 +336,24 @@ function messageSegments(line: string): Segment[] {
 
 /**
  * Render a full fenced ```ansi block (opening fence, ESC-coloured body,
- * closing fence). Layout order: top border, header nameplate/HP/floater,
- * sprite lines, frame-level floater, footer nameplate/HP/floater, a
- * border (acts as the bottom border if there's no message, or a divider
- * before the message box if there is), message lines, closing border.
+ * closing fence). Layout order: optional crest, top border, header
+ * nameplate/HP/floater, sprite lines, frame-level floater, footer
+ * nameplate/HP/floater, a border (acts as the bottom border if there's
+ * no message, or a divider before the message box if there is), message
+ * lines, closing border, optional crest-bottom.
+ *
+ * `style` controls the border glyphs (standard/heavy/crit) — exported
+ * so every frame type can escalate its border register independently.
  */
-export function renderFrame(spec: FrameSpec): string {
-  const lines: string[] = [borderLine()];
+export function renderFrame(
+  spec: FrameSpec,
+  palette: Palette = PALETTES.house,
+  style: BorderStyle = BORDERS.standard,
+): string {
+  const lines: string[] = [];
+
+  if (style.crest) lines.push(style.crest(palette));
+  lines.push(borderTop(style, palette));
 
   // Sanitize every caller-supplied string up front so nothing composed
   // below can carry a fence-breaking backtick into the output.
@@ -289,36 +364,38 @@ export function renderFrame(spec: FrameSpec): string {
   const floater = spec.floater !== undefined ? escapeBackticks(spec.floater) : spec.floater;
 
   if (header) {
-    lines.push(composeLine(nameplateSegments(header, 'threat')));
-    lines.push(composeLine(hpLineSegments(header, 'threat')));
-    if (header.floater) lines.push(composeLine(floaterSegments(header.floater)));
+    lines.push(composeLine(nameplateSegments(header, 'threat'), palette, style.side));
+    lines.push(composeLine(hpLineSegments(header, 'threat'), palette, style.side));
+    if (header.floater) lines.push(composeLine(floaterSegments(header.floater), palette, style.side));
   }
 
   if (sprite) {
     for (const fragment of sprite) {
-      lines.push(composeLine(spriteSegments(fragment)));
+      lines.push(composeLine(spriteSegments(fragment), palette, style.side));
     }
   }
 
   if (floater) {
-    lines.push(composeLine(floaterSegments(floater)));
+    lines.push(composeLine(floaterSegments(floater), palette, style.side));
   }
 
   if (footer) {
-    lines.push(composeLine(nameplateSegments(footer, 'player')));
-    lines.push(composeLine(hpLineSegments(footer, 'player')));
-    if (footer.floater) lines.push(composeLine(floaterSegments(footer.floater)));
+    lines.push(composeLine(nameplateSegments(footer, 'player'), palette, style.side));
+    lines.push(composeLine(hpLineSegments(footer, 'player'), palette, style.side));
+    if (footer.floater) lines.push(composeLine(floaterSegments(footer.floater), palette, style.side));
   }
 
-  lines.push(borderLine());
+  lines.push(borderBottom(style, palette));
 
   if (message && message.length > 0) {
     const capped = message.slice(0, MESSAGE_MAX_LINES);
     for (const messageLine of capped) {
-      lines.push(composeLine(messageSegments(messageLine)));
+      lines.push(composeLine(messageSegments(messageLine), palette, style.side));
     }
-    lines.push(borderLine());
+    lines.push(borderBottom(style, palette));
   }
+
+  if (style.crestBottom) lines.push(style.crestBottom(palette));
 
   return '```ansi\n' + lines.join('\n') + '\n```';
 }

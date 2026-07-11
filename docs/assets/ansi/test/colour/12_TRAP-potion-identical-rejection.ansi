@@ -1,7 +1,7 @@
 [30m+----------------------------+[0m
-[30m|[0m[33m⚠ IDENTICAL SHAPES REJECTED [0m[30m|[0m
+[30m|[0m[33m! IDENTICAL SHAPES REJECTED [0m[30m|[0m
 [30m|[0mColour can't carry meaning. [30m|[0m
-[30m|[0mMobile strips colour (§1,§17[30m|[0m
+[30m|[0mMobile strips colour: #1 #17[30m|[0m
 [30m|[0m                            [30m|[0m
 [30m|[0mCorrect: distinct silhouette[30m|[0m
 [30m|[0m                            [30m|[0m
