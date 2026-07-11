@@ -753,12 +753,12 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     expect(result).not.toContain('🎲 18');
     expect(result).not.toContain('vs 12');
 
-    // Card contains the round's own maths (from the beat, not the flat outcome fields) — no "vs DC"
-    // text label (redesign: DC is boxed [DC N] on the focal line, not spelled out).
+    // Card contains the round's own maths (from the beat, not the flat outcome fields).
+    // Combat is contested: shows enemy's roll ("vs N +N = N"), not a solo [DC N] (B#20).
     expect(result).toContain('COMBAT RESOLVED');
     expect(result).toContain('16');
-    expect(result).toContain('[DC 15]');
-    expect(result).not.toContain('vs DC');
+    expect(result).toContain('vs 3 +2 = 5');
+    expect(result).not.toContain('[DC');
     expect(result).toContain('margin +5');
     expect(result).toContain('WIN');
   });
@@ -792,20 +792,21 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
       outcome: 'success',
       outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: beat({ round: 2, playerD20: 16, dc: 15, margin: 5 }),
+      combatBeat: beat({ round: 2, playerD20: 16, enemyD20: 8, enemyBonus: 4, margin: 5 }),
       combatRounds: [
-        beat({ round: 1, playerD20: 3, dc: 11, margin: -6 }),
-        beat({ round: 2, playerD20: 16, dc: 15, margin: 5 }),
+        beat({ round: 1, playerD20: 3, enemyD20: 5, enemyBonus: 1, margin: -6 }),
+        beat({ round: 2, playerD20: 16, enemyD20: 8, enemyBonus: 4, margin: 5 }),
       ],
     };
 
     const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
     const stripped = stripSgr(result);
 
-    expect(stripped).toContain('[DC 15]');
-    expect(stripped).not.toContain('vs DC');
+    // Round 2's data (the deciding blow) is what the terminal card shows.
+    expect(stripped).toContain('vs 8 +4 = 12');  // round 2's enemy dice
+    expect(stripped).not.toContain('[DC');
     expect(stripped).toContain('margin +5');
-    expect(stripped).not.toContain('[DC 11]');
+    expect(stripped).not.toContain('vs 5 +1 = 6');  // round 1's enemy dice should NOT show
   });
 
   it('falls back to outcome.combatBeat when combatRounds is absent (pre-ANSI-D shape)', () => {
@@ -817,19 +818,19 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
       outcome: 'success',
       outcomeText: 'You defeat the goblin.',
       mutations: [],
-      combatBeat: beat({ playerD20: 20, dc: 14, margin: 20 }),
+      combatBeat: beat({ playerD20: 20, enemyD20: 3, enemyBonus: 2, margin: 20 }),
     };
 
     const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
     const stripped = stripSgr(result);
 
     expect(stripped).toContain('20');
-    expect(stripped).toContain('[DC 14]');
-    expect(stripped).not.toContain('vs DC');
+    expect(stripped).toContain('vs 3 +2 = 5');
+    expect(stripped).not.toContain('[DC');
     expect(stripped).toContain('margin +20');
   });
 
-  it('marks a loss with the "x" marker and LOSS verdict, coloured threat', () => {
+  it('marks a loss with the "x" marker and LOSS verdict, coloured threat, band name shown not flavour', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 15,
@@ -838,8 +839,8 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
       outcome: 'failure',
       outcomeText: 'The wolf overwhelms you.',
       mutations: [],
-      combatBeat: beat({ playerD20: 3, playerBonus: 1, dc: 15, margin: -9 }),
-      combatRounds: [beat({ playerD20: 3, playerBonus: 1, dc: 15, margin: -9 })],
+      combatBeat: beat({ playerD20: 3, playerBonus: 1, enemyD20: 10, enemyBonus: 4, margin: -9, band: 'heavy' }),
+      combatRounds: [beat({ playerD20: 3, playerBonus: 1, enemyD20: 10, enemyBonus: 4, margin: -9, band: 'heavy' })],
     };
 
     const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
@@ -850,7 +851,7 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     expect(result).toContain('\x1b[31m'); // threat role applied to the marker+verdict segment
   });
 
-  it('takes the flavour line from the first line of outcomeText, truncated to 26 chars', () => {
+  it('shows the band name instead of outcomeText prose (F#22 — flavour never fits the terminal card line)', () => {
     const combatOutcome: ActionOutcome = {
       distilledType: 'combat',
       finalDc: 12,
@@ -864,12 +865,14 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     };
 
     const result = formatOutcome(combatOutcome, ctx(), renderCombatTerminalCard);
-    // Isolate the card (the fenced ```ansi block) from the full outcome text repeated
-    // verbatim later in the embed body — the card's flavour line is the one under test.
     const cardBlock = stripSgr(result).match(/```ansi\n([\s\S]*?)\n```/)?.[1] ?? '';
 
-    expect(cardBlock).toContain('The GLOOMFANG collapses');
-    expect(cardBlock).not.toContain('second paragraph');
+    // Band name replaces the old truncated-prose flavour line.
+    expect(cardBlock).toContain('CLEAN');
+    // Prose is never rendered inside the card.
+    expect(cardBlock).not.toContain('The GLOOMFANG');
+    // Prose still lives in the embed body outside the card.
+    expect(stripSgr(result)).toContain('The GLOOMFANG collapses');
   });
 
   it('result is under 2000 chars', () => {
@@ -931,8 +934,8 @@ describe('combat outcome rendering (ANSI-D — terminal data card)', () => {
     const stripped = stripSgr(result);
 
     expect(stripped).toContain('16');
-    expect(stripped).toContain('[DC 15]');
-    expect(stripped).not.toContain('vs DC');
+    expect(stripped).toContain('vs 3 +2 = 5');
+    expect(stripped).not.toContain('[DC');
     expect(stripped).toContain('margin +5');
     expect(stripped).toContain('WIN');
   });

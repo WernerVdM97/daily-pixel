@@ -530,12 +530,23 @@ export class PipelineActionStateMachine {
         // ANSI-D: carry the fight's accumulated round log forward off the PREVIOUS
         // pendingDecision (tolerant read — `?? []` covers both a fresh fight and any
         // in-flight state saved before this field existed).
+        // B#19: also set combatStatus so the player sees the enemy/player HP bars and
+        // the last round's damage — without this, the desperate-choice screen shows
+        // only "last stand or bail" with no combat context.
+        // The floor absorbs the lethal blow: the player survives at exactly 1 HP.
+        // Showing `char.health + roundResult.playerHpDelta` (which is ≤0) would display
+        // 0 HP — misleading when the floor guarantees survival. Pass HP=1, delta=0 so
+        // the status frame reflects the truth, not the would-be-lethal math.
+        const desperateStatus = composeCombatStatus(
+          cs.enemyName, newEnemyHp, cs.enemyMaxHp, 0, 1, char.maxHealth,
+        );
         const nextDecision: ActionDecision = {
           prompt: 'The blow would be lethal — you feel death\'s cold touch. Make your stand or flee before it\'s too late.',
           options: [
             { label: 'Bail bloodied', dcModifier: null },
             { label: 'Last stand', dcModifier: 0 },
           ],
+          combatStatus: desperateStatus,
           combatRounds: [...(state.pendingDecision.combatRounds ?? []), floorBeat],
         };
 

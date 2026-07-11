@@ -196,23 +196,27 @@ export interface CombatTerminalCard {
   playerD20: number;
   bonus: number;
   total: number;
-  dc: number;
+  enemyD20: number;
+  enemyBonus: number;
   marker: string;
   verdict: string;
   margin: number;
-  flavour: string;
+  band: string;
 }
 
 function buildTerminalLines(card: CombatTerminalCard): Segment[][] {
   const outcomeRole: Role = card.marker === '+' ? 'life' : 'threat';
+  const enemyTotal = card.enemyD20 + card.enemyBonus;
 
   return [
     [plain(`  ${card.label}`)],
     [plain(BLANK)],
-    // Focal line: left = d20 (gold), right = [DC N] (gold) — no "d20" label.
+    // Focal line: left = player d20 (gold), right = enemy's contestant roll (threat).
+    // Combat is a contested roll, not a DC pass/fail — showing the enemy's dice makes
+    // this visible rather than the misleading solo `[DC N]` (B#20).
     twoColumnLine(
       [plain('  '), coloured(String(card.playerD20), 'warmth')],
-      [coloured(`[DC ${card.dc}]`, 'warmth')],
+      [coloured(`vs ${card.enemyD20} ${signed(card.enemyBonus)} = ${enemyTotal}`, 'threat')],
     ),
     // Calc line: "{+/-bonus} = {total}" left, nothing right.
     twoColumnLine(
@@ -224,7 +228,9 @@ function buildTerminalLines(card: CombatTerminalCard): Segment[][] {
       [plain('  '), coloured(`${card.marker} ${card.verdict}`, outcomeRole)],
       [plain(`margin ${signed(card.margin)}`)],
     ),
-    [plain(`  ${card.flavour}`)],
+    // Band name — the mechanical truth of the final round, short enough for this line (F#22).
+    // Replaces the truncated-prose flavour which was never readable at 26 chars.
+    [coloured(`  ${card.band}`, bandColor(card.band))],
   ];
 }
 

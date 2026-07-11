@@ -997,6 +997,7 @@ export class WorldEngineImpl implements WorldEngine {
         firstDecision: internalState.pendingDecision,
         outcome: startResult.outcome,
         actionType: internalState.actionType,
+        combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
       };
     }
 
@@ -1020,6 +1021,7 @@ export class WorldEngineImpl implements WorldEngine {
       state: this.toPublicState(internalState),
       firstDecision,
       actionType: internalState.actionType,
+      combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
     };
   }
 

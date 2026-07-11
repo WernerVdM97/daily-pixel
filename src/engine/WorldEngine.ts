@@ -157,6 +157,10 @@ export interface ActionStartResult {
    *  persisted onto `ActionState` (unlike `kind`), since nothing downstream of the first
    *  decision needs it. */
   actionType: ClassifiedActionType;
+  /** ANSI-F: combat enemy name for the opening frame's enemy nameplate. Surfaced from the
+   *  pipeline's `combatEnemy` hint when the LLM signalled one. Undefined when not combat or
+   *  when the LLM didn't name a specific foe. */
+  combatEnemyName?: string;
 }
 
 export type ActionStepResult =

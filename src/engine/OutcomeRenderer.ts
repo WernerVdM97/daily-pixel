@@ -147,16 +147,22 @@ export interface CombatTerminalCard {
    *  "+"/"−" glyph the same way every other segment in the render layer does. */
   bonus: number;
   total: number;
-  dc: number;
+  /** Enemy's raw d20 this round — surfaced so the terminal card can show it as a contestant
+   *  roll instead of the misleading solo `[DC N]` (combat is contested, not a DC check). */
+  enemyD20: number;
+  /** Enemy's total ability bonus applied to `enemyD20` this round. */
+  enemyBonus: number;
   /** ASCII-only pass/fail glyph ("+"/"x") — never a ✓/✗ dingbat (ansi-frames skill §1: mobile
    *  fonts can't be trusted to carry them, and Discord's own emoji rendering would double-width
    *  the column). */
   marker: string;
   verdict: string;
   margin: number;
-  /** One line of LLM narration — free text, so the render layer must sanitize it (fence-breaking
-   *  backticks) same as every other caller-supplied string AnsiRenderer touches. */
-  flavour: string;
+  /** Combat band name (e.g. GLANCED, TRADE) — the mechanical truth of the final round, short
+   *  enough for a single line in the terminal card. Replaces the truncated-prose flavour line
+   *  (F#22: prose never fits there). */
+  band: string;
+
 }
 
 /**
@@ -180,19 +186,18 @@ function buildCombatTerminalCard(outcome: ActionOutcome, _ctx: OutcomeRenderCont
   const total = beat.playerD20 + beat.playerBonus;
   const success = outcome.outcome === 'success';
   const verdict = success ? 'WIN' : outcome.outcome === 'failure' ? 'LOSS' : outcome.outcome.toUpperCase();
-  // First line/sentence only — the card's flavour slot is a single line, not a wrap target.
-  const flavour = (outcome.outcomeText.split('\n')[0] ?? '').trim().slice(0, 26);
 
   return {
     label: 'COMBAT RESOLVED',
     playerD20: beat.playerD20,
     bonus: beat.playerBonus,
     total,
-    dc: beat.dc,
+    enemyD20: beat.enemyD20,
+    enemyBonus: beat.enemyBonus,
     marker: success ? '+' : 'x',
     verdict,
     margin: beat.margin,
-    flavour,
+    band: beat.band.toUpperCase(),
   };
 }
 

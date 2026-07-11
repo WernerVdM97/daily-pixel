@@ -326,7 +326,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character, result.actionType));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character, result.actionType, result.combatEnemyName));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -595,6 +595,9 @@ export function buildDecisionMessage(
    *  screen (`decisionIdx === 0`) — that's the sole "post-classify, pre-first-decision" moment
    *  the OPENING frame belongs to (classification framework §2c); CONTINUE beats never carry it. */
   actionType?: ClassifiedActionType,
+  /** ANSI-F: combat enemy name for the opening frame's enemy nameplate. Only passed on the first
+   *  decision of a combat action (surfaced from the pipeline's `combatEnemy` hint). */
+  combatEnemyName?: string,
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -717,14 +720,16 @@ export function buildDecisionMessage(
   // referenceable channel message). Leading embed in the SAME message is the sanctioned fallback
   // for that case — a deliberate deviation from the literal two-message convention, flagged for
   // lead review rather than expanding this task into an ephemeral->public flow redesign.
+  const openingFrameSlots: OpeningFrameSlots = {
+    pcName: char?.name,
+    pcHp: char?.health,
+    pcMaxHp: char?.maxHealth,
+    locationName: char?.location,
+  };
+  if (combatEnemyName) openingFrameSlots.enemyName = combatEnemyName;
   const openingFrameEmbed = actionType && decisionIdx === 0
     ? new EmbedBuilder()
-      .setDescription(renderOpeningFrame(actionType, {
-        pcName: char?.name,
-        pcHp: char?.health,
-        pcMaxHp: char?.maxHealth,
-        locationName: char?.location,
-      } satisfies OpeningFrameSlots))
+      .setDescription(renderOpeningFrame(actionType, openingFrameSlots))
       .setColor(0x2c2f33)
       .toJSON()
     : undefined;

@@ -12,11 +12,12 @@ function winCard(overrides: Partial<CombatTerminalCard> = {}): CombatTerminalCar
     playerD20: 16,
     bonus: 4,
     total: 20,
-    dc: 15,
+    enemyD20: 10,
+    enemyBonus: 5,
     marker: "+",
     verdict: "WIN",
     margin: 5,
-    flavour: "The GLOOMFANG collapses.",
+    band: "GLANCED",
     ...overrides,
   };
 }
@@ -41,16 +42,16 @@ describe("CombatCardRenderer", () => {
       }
     });
 
-    it("still fits exactly 30 wide with a long flavour line (truncated, not overflowed)", () => {
-      const rendered = renderCombatTerminalCard(winCard({ flavour: "X".repeat(60) }));
+    it("still fits exactly 30 wide with a long band name (truncated, not overflowed)", () => {
+      const rendered = renderCombatTerminalCard(winCard({ band: "X".repeat(60) }));
       const lines = rendered.split("\n").filter((l) => l !== "```ansi" && l !== "```");
       for (const line of lines) {
         expect(stripSgr(line).length).toBe(FRAME_WIDTH);
       }
     });
 
-    it("stays width-correct with double-digit dc/margin and a two-digit d20", () => {
-      const rendered = renderCombatTerminalCard(winCard({ playerD20: 11, bonus: -2, total: 9, dc: 18, margin: -3 }));
+    it("stays width-correct with double-digit enemyBonus/margin and a two-digit d20", () => {
+      const rendered = renderCombatTerminalCard(winCard({ playerD20: 11, bonus: -2, total: 9, enemyD20: 8, enemyBonus: 12, margin: -3 }));
       const lines = rendered.split("\n").filter((l) => l !== "```ansi" && l !== "```");
       for (const line of lines) {
         expect(stripSgr(line).length).toBe(FRAME_WIDTH);
@@ -83,18 +84,20 @@ describe("CombatCardRenderer", () => {
   });
 
   describe("content", () => {
-    it("shows the label, focal roll, calc, dc, marker/verdict, margin and flavour", () => {
+    it("shows the label, contested roll (player vs enemy), verdict, margin and band", () => {
       const rendered = renderCombatTerminalCard(winCard());
       const mono = stripSgr(rendered);
       expect(mono).toContain("COMBAT RESOLVED");
       expect(mono).toContain("16");
-      // Redesign: no "d20" label, DC boxed as [DC N] on focal line.
-      expect(mono).toContain("[DC 15]");
-      expect(mono).not.toContain("vs DC");
+      // Combat is a contested roll: show the enemy's dice, not a misleading solo [DC N].
+      expect(mono).toContain("vs 10 +5 = 15");
+      expect(mono).not.toContain("[DC");
       expect(mono).toContain("+4 = 20");
       expect(mono).toContain("+ WIN");
       expect(mono).toContain("margin +5");
-      expect(mono).toContain("The GLOOMFANG collapses.");
+      // Band name replaces the old truncated-prose flavour line (F#22).
+      expect(mono).toContain("GLANCED");
+      expect(mono).not.toContain("The GLOOMFANG collapses.");
     });
 
     it("signs a negative bonus and a negative margin correctly", () => {
@@ -149,8 +152,10 @@ describe("CombatCardRenderer", () => {
   });
 
   describe("code fence integrity against caller-supplied text", () => {
-    it("neutralizes a backtick in a caller-supplied flavour line so only the real fence markers survive", () => {
-      const rendered = renderCombatTerminalCard(winCard({ flavour: "```GLOOM@everyone" }));
+    it("neutralizes characters that would break the ansi fence (band line is engine-controlled, but still safe)", () => {
+      // flavour is no longer rendered (B#20/F#22), but `band` is — test that the rendered
+      // output has exactly 2 opening fence markers and 2 closing ones.
+      const rendered = renderCombatTerminalCard(winCard({ band: "GLANCED" }));
       const fenceMatches = rendered.match(/```/g) ?? [];
       expect(fenceMatches.length).toBe(2);
       const body = rendered.slice("```ansi\n".length, rendered.length - "\n```".length);
