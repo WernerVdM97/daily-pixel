@@ -86,7 +86,7 @@ export class CharacterRepository {
   update(id: number, fields: UpdateInput): void {
     const allowed = [
       'name', 'class', 'upbringing', 'race', 'alignment', 'day_job',
-      'stats', 'health', 'max_health', 'stamina', 'rolls_remaining',
+      'stats', 'health', 'max_health', 'stamina', 'max_stamina', 'rolls_remaining',
       'location', 'wealth', 'last_action_state', 'last_played_at', 'last_rested_day',
       'last_noop_refund_day', 'last_timeout_refund_day', 'last_bail_refund_day',
     ];

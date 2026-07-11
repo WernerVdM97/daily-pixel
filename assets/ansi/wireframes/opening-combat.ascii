@@ -1,0 +1,27 @@
+---
+tags: [opening, combat, wireframe]
+register: "COMBAT_FRAME (opener variant)"
+summary: "Encounter tableau: foe nameplate + full HP, foe sprite, player footer."
+slots: "header(enemy name/lv/HP), sprite(enemy), footer(player name/lv/HP)"
+colour: "name 31 threat; enemy HP 32 life; player 34; chrome 90"
+binding: "header+footer engine(scene edge); sprite hybrid(fragments enemy idle)"
+reply: "Encounter narration ('A wild GLOOMFANG lunges...') + option buttons."
+pairs_with: "opening-combat.slots.ascii (the slot template)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  GLOOMFANG           Lv 4  |
+|  HP [██████████████] 20/20 |
+|                            |
+|        /\        /\        |
+|       /  \______/  \       |
+|      |    o    o    |      |
+|      |      /\      |      |
+|       \    '--'    /       |
+|        '-.______.-'        |
+|                            |
+|   ,^.                      |
+|  ( _ )   WARDEN      Lv 3  |
+|  /|_|\   HP [██████] 30/30 |
+|  _/ \_                     |
++----------------------------+

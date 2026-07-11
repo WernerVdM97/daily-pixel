@@ -1,0 +1,20 @@
+---
+tags: [combat, terminal, wireframe, template]
+register: "DATA CARD (roll-card reference, mvp+ansi-art.md §12)"
+summary: "SLOT TEMPLATE: the generic grid. [data_slot] engine values only — no fragment/sprite slots in a data card."
+slots: "label, roll(raw d20), calc(bonus, total, dc), outcome(marker, verdict, margin), flavour(one line)"
+binding: "engine(CombatBeatLog — ANSI-D contract: playerD20, playerBonus, dc, margin, band) + engine(ActionOutcome.outcome for the verdict); flavour is LLM narration, truncated to the message-line budget"
+reply: "Deliberately does NOT repeat what the embed's stats footer already shows (health/stamina/wealth/rolls deltas) — those stay in buildOutcomeEmbed's `❤️ ⚡ 🎲 💰` line beneath. This card is ONLY the fight's final roll maths and verdict."
+pairs_with: "combat-terminal.ascii (the filled example)"
+note: "Canonical monochrome MOCK, not a live asset (ANSI-D 'mocks first' — the frame code lands after these mocks). Pure typographic five-beat data card — no enemy nameplate/HP bar, no sprite. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  [label]                   |
+|                            |
+|  [p_d20]               d20 |
+|  +[bonus] = [total]        |
+|  vs DC [dc]                |
+|  [marker] [verdict]        |
+|  margin [mgn]              |
+|  [flavour_line]            |
++----------------------------+

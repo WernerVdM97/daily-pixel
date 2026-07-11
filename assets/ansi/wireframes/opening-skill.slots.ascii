@@ -1,0 +1,19 @@
+---
+tags: [opening, skill, wireframe, template]
+register: "SCENE (focus placeholder)"
+summary: "SLOT TEMPLATE: the generic grid. [data_slot] engine values, [ fragment ]( dims/pose ) hybrid art slots."
+slots: "label, player sprite, task-rig placeholder"
+binding: "sprite pc_class(idle); rig placeholder until a skill-specific frag exists"
+reply: "What they attempt + the stat/DC framing and options."
+pairs_with: "opening-skill.ascii (the filled example)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  [label]                   |
+|                            |
+|        [ pc_small ]        |
+|       ( idle pose )        |
+|                            |
+|  [ task_rig placeholder ]  |
+|                            |
++----------------------------+

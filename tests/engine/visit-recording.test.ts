@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
-import { MockLlmGateway } from '../../src/llm/MockLlmGateway.js';
+import { MockPipelineGateway } from '../helpers/MockPipelineGateway.js';
 import { initDb, closeDb, getDb } from '../../src/db/connection.js';
 import { migrate, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { UserRepository } from '../../src/db/repositories/user.js';
@@ -12,24 +12,39 @@ import { CharacterLocationRepository } from '../../src/db/repositories/character
 
 describe('WorldEngineImpl — visit recording + location_name (§6)', () => {
   let engine: WorldEngineImpl;
-  let llm: MockLlmGateway;
+  let pipelineGateway: MockPipelineGateway;
   let charLoc: CharacterLocationRepository;
   let characterId: number;
+
+  function setTravelDecideEmpty(): void {
+    pipelineGateway.setDecideResponse(() => ({
+      result: { distilledType: 'travel', stat: 'physical', baseDc: 10, required: false, decision: [] },
+      callId: 0,
+    }));
+  }
+
+  function setResolveMutate(mutations: unknown[]): void {
+    pipelineGateway.setResolveMutateResponse(() => ({ result: { mutations }, callId: 0 }));
+  }
+
+  function setResolveNarrate(outcomeText: string): void {
+    pipelineGateway.setResolveNarrateResponse(() => ({ result: { outcomeText }, callId: 0 }));
+  }
 
   beforeEach(() => {
     initDb(':memory:');
     migrate(getDb());
     seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
-    llm = new MockLlmGateway();
+    pipelineGateway = new MockPipelineGateway();
     charLoc = new CharacterLocationRepository(getDb());
     engine = new WorldEngineImpl({
       db: getDb(),
-      llm,
       userRepo: new UserRepository(getDb()),
       charRepo: new CharacterRepository(getDb()),
       itemRepo: new ItemRepository(getDb()),
       actionRepo: new ActionRepository(getDb()),
       npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: pipelineGateway,
       rollD20: () => 15,
     });
     const char = engine.createCharacter('u1', {
@@ -51,12 +66,9 @@ describe('WorldEngineImpl — visit recording + location_name (§6)', () => {
   });
 
   it('records a visit to the destination on a resolved travel', async () => {
-    llm.setDecision({
-      distilledType: 'travel', stat: 'physical', baseDc: 10,
-      required: false, done: true, decision: [],
-      mutations: [{ type: 'set_location', name: 'The Forest Edge' }],
-      outcomeText: 'You reach the forest edge.',
-    });
+    setTravelDecideEmpty();
+    setResolveMutate([{ type: 'set_location', name: 'The Forest Edge' }]);
+    setResolveNarrate('You reach the forest edge.');
 
     await engine.startAction(characterId, 'head to the forest edge');
 
@@ -71,11 +83,9 @@ describe('WorldEngineImpl — visit recording + location_name (§6)', () => {
     const charRepo = new CharacterRepository(getDb());
     charRepo.update(characterId, { location: 'The East Road' });
 
-    llm.setDecision({
-      distilledType: 'travel', stat: 'physical', baseDc: 10, required: false, done: true, decision: [],
-      mutations: [{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }],
-      outcomeText: 'The road opens onto Eastvale.',
-    });
+    setTravelDecideEmpty();
+    setResolveMutate([{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }]);
+    setResolveNarrate('The road opens onto Eastvale.');
     await engine.startAction(characterId, 'follow the road east');
 
     const edges = new LocationEdgeRepository(getDb());
@@ -87,11 +97,7 @@ describe('WorldEngineImpl — visit recording + location_name (§6)', () => {
       name: 'Bryn', class: 'Hunter', upbringing: 'Outskirts', race: 'Human', alignment: 'Neutral', dayJob: 'Forager',
     });
     charRepo.update(u2.id, { location: 'The East Road' });
-    llm.setDecision({
-      distilledType: 'travel', stat: 'physical', baseDc: 10, required: false, done: true, decision: [],
-      mutations: [{ type: 'cross_frontier', direction: 'NE', name: 'Some Other Name' }],
-      outcomeText: 'You take the east road.',
-    });
+    setResolveMutate([{ type: 'cross_frontier', direction: 'NE', name: 'Some Other Name' }]);
     await engine.startAction(u2.id, 'follow the road east');
 
     // …and arrives at the shared Eastvale — NOT a duplicate.
@@ -102,11 +108,9 @@ describe('WorldEngineImpl — visit recording + location_name (§6)', () => {
   it('drops a cross_frontier with no exit in that direction (no mint, no move)', async () => {
     const { LocationRepository } = await import('../../src/db/repositories/location.js');
     // The Oak has no edge to the SE — nothing to cross there.
-    llm.setDecision({
-      distilledType: 'travel', stat: 'physical', baseDc: 10, required: false, done: true, decision: [],
-      mutations: [{ type: 'cross_frontier', direction: 'SE', name: 'Nowhere' }],
-      outcomeText: 'You wander off.',
-    });
+    setTravelDecideEmpty();
+    setResolveMutate([{ type: 'cross_frontier', direction: 'SE', name: 'Nowhere' }]);
+    setResolveNarrate('You wander off.');
     await engine.startAction(characterId, 'wander southeast');
 
     expect(new LocationRepository(getDb()).findByName('Nowhere')).toBeUndefined();
@@ -114,12 +118,9 @@ describe('WorldEngineImpl — visit recording + location_name (§6)', () => {
   });
 
   it('stamps actions.location_name with the ORIGIN, not the destination', async () => {
-    llm.setDecision({
-      distilledType: 'travel', stat: 'physical', baseDc: 10,
-      required: false, done: true, decision: [],
-      mutations: [{ type: 'set_location', name: 'The Forest Edge' }],
-      outcomeText: 'You set out from the Oak.',
-    });
+    setTravelDecideEmpty();
+    setResolveMutate([{ type: 'set_location', name: 'The Forest Edge' }]);
+    setResolveNarrate('You set out from the Oak.');
 
     await engine.startAction(characterId, 'head to the forest edge');
 

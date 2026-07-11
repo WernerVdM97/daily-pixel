@@ -66,7 +66,7 @@ Stage 5 T4 places the two critics (coherence over decide, faithfulness over reso
 
 The pipeline's typed divine-intervention fallback fixed the routing-field overload, but the player-facing behaviour is untouched: a system failure must not cost the player a roll, must refund, and must be clearly signalled as a system failure rather than an in-world outcome.
 
-- [ ] Spec + land the refund/signalling behaviour on the now-live pipeline fallback path.
+- [x] Spec + land the refund/signalling behaviour on the now-live pipeline fallback path. Shipped as [[poc-plus-stage-1-plan]] T0b (`4c51334`): roll refunded, no mutations, ⚠️ System presentation.
 
 ### 5 · Carried cleanups (small, post-flip)
 

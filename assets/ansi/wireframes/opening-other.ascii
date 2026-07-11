@@ -1,0 +1,21 @@
+---
+tags: [opening, other, wireframe]
+register: "SCENE (minimal placeholder)"
+summary: "Bare player char; the catch-all type has no bespoke scene yet."
+slots: "label('. . .'), player sprite"
+colour: "player 34; chrome 90"
+binding: "sprite pc_class(idle); everything else placeholder"
+reply: "Whatever the action was + options — the frame just says 'we heard you'."
+pairs_with: "opening-other.slots.ascii (the slot template)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  . . .                     |
+|                            |
+|            ,^.             |
+|           ( o )            |
+|           /|_|\            |
+|             |              |
+|           _/ \_            |
+|                            |
++----------------------------+

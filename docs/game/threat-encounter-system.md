@@ -293,7 +293,7 @@ private async runThreatGate(
   week: number,
   approach: RoutingFlags['approach'],
 ): Promise<ThreatEncounter | null> {
-  if (!this.resolver.isLocationSafe(location)) return null;  // safe → no gate
+  if (this.resolver.isLocationSafe(location)) return null;  // safe → no gate
   if (week < 1) return null;
 
   const mod = THREAT_CONFIG.approachModifier[approach];

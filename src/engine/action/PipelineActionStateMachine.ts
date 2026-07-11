@@ -17,6 +17,7 @@ import type {
   WorldMutation,
   CharacterData,
   ItemData,
+  CombatStatusData,
 } from '../WorldEngine.js';
 import { accumulateDc, abilityCheckBonus, resolveRoll, validateDcModifier } from './dc.js';
 import { MAX_DECISIONS_PER_ACTION } from '../../llm/prompt-builder.js';
@@ -27,6 +28,8 @@ import {
   resolveCombatRound,
   deriveEnemyMaxHp,
   ENEMY_BONUS_MAX,
+  ENEMY_HP_MIN,
+  ENEMY_HP_MAX,
   MAX_COMBAT_ROUNDS,
   type CombatBeatLog,
   type CombatRoundOutcome,
@@ -103,8 +106,8 @@ export type PipelineStepResult =
  *  `FallbackLlmGateway.ts`'s divine intervention message without importing it, since that
  *  module belongs to the legacy string-sentinel path this machine deliberately does not use. */
 const PIPELINE_DIVINE_MESSAGE =
-  "A flash of light. The Warden's hand on your shoulder. " +
-  'You wake beneath the Oak, your action lost to forces beyond mortal ken.';
+  '⚙️ The world stutters. Your action could not be processed and your action roll ' +
+  'has been refunded.';
 
 /** Stamina cost for bailing out of a real (consequential) decision. Same value as legacy's
  *  private `BAIL_STAMINA_COST` — duplicated locally since that constant isn't exported. */
@@ -369,12 +372,19 @@ export class PipelineActionStateMachine {
    * the subsequent last-stand beat can share a `round` value. This is intended: `round` is the
    * in-fight round LABEL, not a unique beat id — "rounds fought" is the beat COUNT
    * (`combatBeats.length` in `PipelineSimEngine`), not the max round label.
+   *
+   * `playerBonus`/`enemyBonus`/`dc` (ANSI-D) are threaded in by every caller rather than
+   * recomputed here — they're already local values at each call site (the same ones that fed
+   * `resolveCombatRound`), so re-deriving them a second time would risk the two copies drifting.
    */
   private buildCombatBeat(
     cs: CombatState,
     roundResult: CombatRoundOutcome,
     enemyHpAfter: number,
     ops: string[],
+    playerBonus: number,
+    enemyBonus: number,
+    dc: number,
     opts: { floorSave?: boolean; emptyDecisionFallback?: boolean } = {},
   ): CombatBeatLog {
     const materialMutationFired =
@@ -385,6 +395,12 @@ export class PipelineActionStateMachine {
       enemyHpBefore: cs.enemyHp,
       enemyHpAfter,
       playerHpDelta: roundResult.playerHpDelta,
+      playerD20: roundResult.playerD20,
+      playerBonus,
+      dc,
+      enemyD20: roundResult.enemyD20,
+      enemyBonus,
+      margin: roundResult.margin,
       materialMutationFired,
       ops,
       marker: 'combat_round',
@@ -438,7 +454,11 @@ export class PipelineActionStateMachine {
           anchor = { node: 'location', name: char.location };
         }
 
-        const enemyMaxHp = deriveEnemyMaxHp(state.lastDecideResult.baseDc);
+        // Enemy HP: prefer the LLM-authored maxHp when the NPC is a known entity;
+        // otherwise derive from baseDc (location-anchored minion path).
+        const enemyMaxHp = enemy.maxHp != null
+          ? Math.max(ENEMY_HP_MIN, Math.min(ENEMY_HP_MAX, enemy.maxHp))
+          : deriveEnemyMaxHp(state.lastDecideResult.baseDc);
         cs = {
           enemyName: enemy.name,
           enemyHp: enemyMaxHp,
@@ -485,6 +505,7 @@ export class PipelineActionStateMachine {
       return this.resolveCombat(
         cs, roundResult, playerHpDelta, 0, 'success',
         state, char, items, newDc, newDecisions, chosenOption,
+        playerBonus, enemyBonus, state.lastDecideResult.baseDc,
       );
     }
 
@@ -502,12 +523,37 @@ export class PipelineActionStateMachine {
         const saveRelation = combatSaveUpdate(currentDay);
         const combatEdge = combatRoundUpdate(cs, roundResult.enemyHpDelta, cs.round);
 
+        const floorMutations: WorldMutation[] = [
+          { type: 'modify_health' as const, amount: floorPlayerHpDelta },
+          { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
+          { ...saveRelation, type: 'set_relation' } as unknown as WorldMutation,
+        ];
+        const floorBeat = this.buildCombatBeat(
+          cs, roundResult, newEnemyHp, floorMutations.map(m => m.type),
+          playerBonus, enemyBonus, state.lastDecideResult.baseDc, { floorSave: true },
+        );
+
+        // ANSI-D: carry the fight's accumulated round log forward off the PREVIOUS
+        // pendingDecision (tolerant read — `?? []` covers both a fresh fight and any
+        // in-flight state saved before this field existed).
+        // B#19: also set combatStatus so the player sees the enemy/player HP bars and
+        // the last round's damage — without this, the desperate-choice screen shows
+        // only "last stand or bail" with no combat context.
+        // The floor absorbs the lethal blow: the player survives at exactly 1 HP.
+        // Showing `char.health + roundResult.playerHpDelta` (which is ≤0) would display
+        // 0 HP — misleading when the floor guarantees survival. Pass HP=1, delta=0 so
+        // the status frame reflects the truth, not the would-be-lethal math.
+        const desperateStatus = composeCombatStatus(
+          cs.enemyName, newEnemyHp, cs.enemyMaxHp, 0, 1, char.maxHealth,
+        );
         const nextDecision: ActionDecision = {
           prompt: 'The blow would be lethal — you feel death\'s cold touch. Make your stand or flee before it\'s too late.',
           options: [
             { label: 'Bail bloodied', dcModifier: null },
             { label: 'Last stand', dcModifier: 0 },
           ],
+          combatStatus: desperateStatus,
+          combatRounds: [...(state.pendingDecision.combatRounds ?? []), floorBeat],
         };
 
         const nextState: PipelineInternalActionState = {
@@ -519,25 +565,19 @@ export class PipelineActionStateMachine {
           combatAnchor: heldAnchor,
         };
 
-        const floorMutations: WorldMutation[] = [
-          { type: 'modify_health' as const, amount: floorPlayerHpDelta },
-          { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
-          { ...saveRelation, type: 'set_relation' } as unknown as WorldMutation,
-        ];
         return {
           resolved: false,
           state: nextState,
           nextDecision,
           mutations: floorMutations,
-          combatBeat: this.buildCombatBeat(
-            cs, roundResult, newEnemyHp, floorMutations.map(m => m.type), { floorSave: true },
-          ),
+          combatBeat: floorBeat,
         };
       } else {
         // ── Second lethal blow today → HP-zero, resolve failure ──
         return this.resolveCombat(
           cs, roundResult, playerHpDelta, newEnemyHp, 'failure',
           state, char, items, newDc, newDecisions, chosenOption,
+          playerBonus, enemyBonus, state.lastDecideResult.baseDc,
         );
       }
     }
@@ -550,6 +590,7 @@ export class PipelineActionStateMachine {
       return this.resolveCombat(
         cs, roundResult, playerHpDelta, newEnemyHp, capVerdict,
         state, char, items, newDc, newDecisions, chosenOption,
+        playerBonus, enemyBonus, state.lastDecideResult.baseDc,
       );
     }
 
@@ -655,9 +696,28 @@ export class PipelineActionStateMachine {
       ...nextDecision.options,
       { label: COMBAT_FLEE_LABEL, dcModifier: null },
     ];
-    // Engine-composed status line (decide-scene-narration spec): banded enemy condition (never
-    // exact enemy HP) plus the player's own exact HP movement.
-    nextDecision.combatStatus = composeCombatStatus(cs.enemyName, newEnemyHp, cs.enemyMaxHp, playerHpDelta);
+    // Engine-composed status frame (decide-scene-narration spec, B#5/B#6): banded enemy
+    // condition (never exact enemy HP) plus the player's own exact, clamped HP.
+    nextDecision.combatStatus = composeCombatStatus(
+      cs.enemyName, newEnemyHp, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
+    );
+
+    const continueMutations: WorldMutation[] = [
+      { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
+      ...(playerHpDelta < 0
+        ? [{ type: 'modify_health' as const, amount: playerHpDelta }]
+        : []),
+    ];
+    const continueBeat = this.buildCombatBeat(
+      cs, roundResult, newEnemyHp, continueMutations.map(m => m.type),
+      playerBonus, enemyBonus, state.lastDecideResult.baseDc,
+      emptyDecisionFallback ? { emptyDecisionFallback: true } : {},
+    );
+    // ANSI-D: carry the fight's accumulated round log forward off the PREVIOUS pendingDecision
+    // (tolerant read — `?? []` covers both a fresh fight and any in-flight state saved before
+    // this field existed).
+    nextDecision.combatRounds = [...(state.pendingDecision.combatRounds ?? []), continueBeat];
+
     const nextState: PipelineInternalActionState = {
       ...state,
       decisions: newDecisions,
@@ -671,21 +731,12 @@ export class PipelineActionStateMachine {
         : {}),
     };
 
-    const continueMutations: WorldMutation[] = [
-      { ...combatEdge, type: 'set_relation' } as unknown as WorldMutation,
-      ...(playerHpDelta < 0
-        ? [{ type: 'modify_health' as const, amount: playerHpDelta }]
-        : []),
-    ];
     return {
       resolved: false,
       state: nextState,
       nextDecision,
       mutations: continueMutations,
-      combatBeat: this.buildCombatBeat(
-        cs, roundResult, newEnemyHp, continueMutations.map(m => m.type),
-        emptyDecisionFallback ? { emptyDecisionFallback: true } : {},
-      ),
+      combatBeat: continueBeat,
     };
   }
 
@@ -706,11 +757,17 @@ export class PipelineActionStateMachine {
     newDc: number,
     newDecisions: ActionDecisionRecord[],
     chosenOption: ActionOption,
+    playerBonus: number,
+    enemyBonus: number,
+    dc: number,
   ): Promise<{ resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome }> {
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
 
     const d20Roll = roundResult.playerD20;
-    const rollBonus = abilityCheckBonus(char.stats, items, state.rollStat);
+    // playerBonus is the same abilityCheckBonus the caller already computed to feed
+    // resolveCombatRound — reused here (not re-derived) for both the outcome's rollBonus and
+    // the terminal combatBeat's playerBonus.
+    const rollBonus = playerBonus;
     const decisionForHandoff = state.lastDecideResult;
     const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
 
@@ -797,7 +854,14 @@ export class PipelineActionStateMachine {
       roundResult,
       Math.max(0, finalEnemyHp),
       mutations.map(m => m.type),
+      playerBonus,
+      enemyBonus,
+      dc,
     );
+    // ANSI-D: close out the fight's round log — prior rounds off the last pendingDecision
+    // (tolerant read) plus this terminal beat, surfaced on the outcome for the terminal
+    // presentation layer.
+    const combatRounds = [...(state.pendingDecision.combatRounds ?? []), combatBeat];
 
     const finalState: PipelineInternalActionState = {
       ...state,
@@ -823,6 +887,8 @@ export class PipelineActionStateMachine {
         llmCallIds: [...(state.llmCallIds ?? []), ...combatResolveCallIds, ...criticCallIds],
         hpZero: (playerHpDelta < 0 && (char.health + playerHpDelta) <= 0) || undefined,
         combatBeat,
+        combatFrame: { enemyName: cs.enemyName, enemyMaxHp: cs.enemyMaxHp, margin: roundResult.margin },
+        combatRounds,
       },
     };
   }
@@ -1171,32 +1237,43 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
   };
 }
 
-/** Enemy HP fraction -> a 5-pip bar + wound word (decide-scene-narration spec). Banded only —
- *  never the exact HP number — so hidden exact HP keeps tension while still reading as progress. */
-function enemyConditionBand(hpFraction: number): { pips: string; woundWord: string } {
+/** Enemy HP fraction -> a 5-pip fill count + wound word (decide-scene-narration spec). Banded
+ *  only — never the exact HP number — so hidden exact HP keeps tension while still reading as
+ *  progress. Returns the fill count (not glyphs); the presentation layer renders the pips. */
+function enemyConditionBand(hpFraction: number): { filled: number; woundWord: string } {
   const filled = Math.max(0, Math.min(5, Math.round(hpFraction * 5)));
-  const pips = '▓'.repeat(filled) + '░'.repeat(5 - filled);
   const woundWord =
     hpFraction >= 0.8 ? 'Healthy'
     : hpFraction >= 0.4 ? 'Bloodied'
     : hpFraction >= 0.15 ? 'Battered'
     : 'Critical';
-  return { pips, woundWord };
+  return { filled, woundWord };
 }
 
-/** Signed player HP movement, shown exactly — it's the player's own information (decision above),
- *  unlike the enemy's banded-only condition. */
-function formatPlayerHpDelta(delta: number): string {
-  if (delta > 0) return `+${delta} HP`;
-  if (delta < 0) return `−${Math.abs(delta)} HP`;
-  return '0 HP';
-}
-
-/** Engine-composed combat status line for a continue-screen: banded enemy condition plus exact
- *  player HP movement, e.g. "Wolf: ▓▓▓░░ Bloodied · You: −2 HP" (decide-scene-narration spec). */
-function composeCombatStatus(enemyName: string, enemyHp: number, enemyMaxHp: number, playerHpDelta: number): string {
-  const { pips, woundWord } = enemyConditionBand(enemyMaxHp > 0 ? enemyHp / enemyMaxHp : 0);
-  return `${enemyName}: ${pips} ${woundWord} · You: ${formatPlayerHpDelta(playerHpDelta)}`;
+/** Engine-composed combat-status DATA for a continue-screen (B#5/B#6, ANSI-C): the engine keeps
+ *  the banding maths only — enemy stays BANDED (never exact HP — hidden exact HP keeps tension);
+ *  the player is EXACT, it's their own information, clamped to >=0 so a lethal round never
+ *  displays negative HP mid-resolution (0/dead is resolved by the terminal outcome, not this
+ *  continue screen). Frame assembly (glyphs, AnsiRenderer) moves to the presentation layer
+ *  (`buildDecisionMessage`) so `src/render/` is never imported engine-side. */
+function composeCombatStatus(
+  enemyName: string,
+  enemyHp: number,
+  enemyMaxHp: number,
+  playerHpDelta: number,
+  playerHp: number,
+  playerMaxHp: number,
+): CombatStatusData {
+  const { filled, woundWord } = enemyConditionBand(enemyMaxHp > 0 ? enemyHp / enemyMaxHp : 0);
+  const displayedPlayerHp = Math.max(0, playerHp + playerHpDelta);
+  return {
+    enemyName,
+    woundWord,
+    pips: { filled, total: 5 },
+    playerHp: displayedPlayerHp,
+    playerMaxHp,
+    playerHpDelta,
+  };
 }
 
 function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen: string; dcModifier: number }[] {

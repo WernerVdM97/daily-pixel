@@ -108,7 +108,7 @@ describe('readCombatState / combatStateToSetRelation round-trip', () => {
   it('returns null for malformed props: enemyMaxHp above ENEMY_HP_MAX (read guard mirrors the write clamp)', () => {
     const edge = edgeFromAuthored({ type: 'pc', ref: '7' }, { type: 'location', ref: 'X' }, 'in_combat', {
       enemyName: 'x',
-      enemyHp: 50,
+      enemyHp: 60,
       enemyMaxHp: 100,
       round: 1,
     });

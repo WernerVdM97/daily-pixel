@@ -1,6 +1,6 @@
 // App version, read once from the repo-root VERSION file. Stored on each action
 // row (and logged at boot) so historic data can be sliced by the build that
-// produced it. Mirrors PROMPT_VERSION in llm/prompt-builder.ts.
+// produced it.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

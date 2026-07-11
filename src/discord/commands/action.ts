@@ -16,8 +16,9 @@ import {
   type ChatInputCommandInteraction,
   type MessageComponentInteraction,
 } from 'discord.js';
-import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData } from '../../engine/WorldEngine.js';
+import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
+import type { CombatBeatLog } from '../../engine/action/combat-dc.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../../engine/stat-format.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
@@ -25,6 +26,9 @@ import { getDayJobActions, type DayJobDef } from './hi.js';
 import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji, dayJobEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
+import { BORDERS, PALETTES, type BorderStyle } from '../../render/AnsiRenderer.js';
+import { renderOpeningFrame, type OpeningFrameSlots } from '../../render/OpeningFrameRenderer.js';
+import { renderCombatContinueCard, renderCombatTerminalCard, type ContinueCardInput, type CombatTerminalCard } from '../../render/CombatCardRenderer.js';
 
 // ── Custom IDs ──
 
@@ -37,6 +41,43 @@ export const CID_CUSTOM_INPUT = 'action:custom:input';
 
 function choiceCid(decisionIdx: number, optionIdx: number): string {
   return `${CID_PREFIX}${decisionIdx}:${optionIdx}`;
+}
+
+// ── /action hints ──
+
+export interface ActionHintContext {
+  rollsRemaining: number;
+  stamina: number;
+  maxStamina: number;
+  isSafe: boolean;
+}
+
+// "Running on fumes" at 25% of max stamina, floored at 2 so low-max characters
+// still get the warning at very low absolute stamina rather than never triggering.
+const LOW_STAMINA_RATIO = 0.25;
+const LOW_STAMINA_FLOOR = 2;
+
+/** Contextual hints for the bare `/action` day-job menu — shared by the slash
+ *  path (action.ts) and the `nav:action` button path (index.ts) so they can't drift. */
+export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }: ActionHintContext): string[] {
+  const hints: string[] = [];
+
+  if (rollsRemaining === 1) {
+    hints.push('🎲 Last action of the day — make it count.');
+  }
+
+  const lowStaminaThreshold = Math.max(LOW_STAMINA_FLOOR, Math.round(maxStamina * LOW_STAMINA_RATIO));
+  // stamina < maxStamina guards a character at full stamina (e.g. 1/1 or 2/2) from seeing
+  // the warning purely because their max is tiny — "fumes" implies having spent some.
+  if (stamina <= lowStaminaThreshold && stamina < maxStamina) {
+    hints.push(`😮‍💨 You're running on fumes (${stamina}/${maxStamina} stamina).`);
+  }
+
+  if (!isSafe) {
+    hints.push("⚠️ This place isn't safe — trouble may find you.");
+  }
+
+  return hints;
 }
 
 // Most recent pending decision per user, so button clicks can resolve the
@@ -158,9 +199,18 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       try {
         const dayNumber = Number(engine.getMeta('day_number') ?? '1');
         const jobActions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
+        const hints = buildActionHints({
+          rollsRemaining: character.rollsRemaining,
+          stamina: character.stamina,
+          maxStamina: character.maxStamina,
+          isSafe: engine.getLocation(character.location)?.isSafe ?? true,
+        });
+        const description = hints.length > 0
+          ? `Pick a task to start:\n\n${hints.join('\n')}`
+          : 'Pick a task to start:';
         const embed = new EmbedBuilder()
           .setTitle(`${dayJobEmoji(character.dayJob)} ${character.dayJob} — Daily Work`)
-          .setDescription('Pick a task to start:')
+          .setDescription(description)
           .setColor(0xdaa520);
 
         const row = new ActionRowBuilder<ButtonBuilder>();
@@ -215,6 +265,23 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
     try {
       const result = await engine.startAction(character.id, description);
 
+      // Divine intervention is a system fault, not a real action outcome — render the distinct
+      // grey ⚠️ System embed and stop, BEFORE the generic auto-finish branch below (which would
+      // otherwise repaint it as a normal ✅ DONE outcome and misreport the refunded roll).
+      if (result.outcome?.isDivineIntervention) {
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('⚠️ System')
+              .setDescription(result.outcome.outcomeText)
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+          components: [],
+        });
+        return 'action_divine';
+      }
+
       // Auto-finish: the LLM resolved the action outright (travel/rest) — render
       // the outcome directly, no buttons.
       if (result.outcome) {
@@ -258,23 +325,8 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         return 'action_autofinished';
       }
 
-      // done:true immediately (divine intervention) — show the prompt as a grey embed.
-      if (result.firstDecision.options.length === 0) {
-        await interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle('⚔️ Action')
-              .setDescription(withNarration(result.firstDecision.narration, result.firstDecision.prompt))
-              .setColor(0x95a5a6)
-              .toJSON(),
-          ],
-          components: [],
-        });
-        return 'action_divine';
-      }
-
       setPendingDecision(interaction.user.id, result.firstDecision);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character, result.actionType, result.combatEnemyName));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -428,12 +480,12 @@ function clip(text: string, max: number): string {
 
 /**
  * Qualitative difficulty arrow for a DC modifier — no raw numbers. Negative
- * lowered the DC (easier → green down), positive raised it (harder → red up),
- * zero shows nothing.
+ * lowered the DC (easier → down), positive raised it (harder → up), zero
+ * shows nothing.
  */
 function dcArrow(mod: number | null | undefined): string {
   if (mod == null || mod === 0) return '';
-  return mod < 0 ? '🟢⬇️' : '🔴⬆️';
+  return mod < 0 ? '⬇️' : '⬆️';
 }
 
 /** Stat emoji for an option's `stat`, degrading gracefully (no icon) when the
@@ -484,16 +536,68 @@ function buildStoryThread(
   return out.join('\n');
 }
 
+/** Border-escalation rules for the continue card ([[visual-craft]]):
+ *  - heavy if the last round's band was HEAVY or the player is bloodied (≤25%)
+ *  - standard otherwise */
+function chooseContinueBorder(status: CombatStatusData, lastRound?: CombatBeatLog): BorderStyle {
+  const playerFrac = status.playerMaxHp > 0 ? status.playerHp / status.playerMaxHp : 0;
+  if (lastRound?.band === 'heavy' || playerFrac <= 0.25) return BORDERS.heavy;
+  return BORDERS.standard;
+}
+
+/** Frame assembly for a combat continue-screen's status (ANSI-C, redesigned ANSI-D+):
+ *  delegates to `renderCombatContinueCard` from CombatCardRenderer, with the border
+ *  style chosen by escalation rules. */
+function renderCombatStatusFrame(status: CombatStatusData, lastRound?: CombatBeatLog): string {
+  const input: ContinueCardInput = {
+    enemyName: status.enemyName,
+    woundWord: status.woundWord,
+    pips: status.pips,
+    playerHp: status.playerHp,
+    playerMaxHp: status.playerMaxHp,
+    playerHpDelta: status.playerHpDelta,
+    lastRound: lastRound
+      ? { d20: lastRound.playerD20, bonus: lastRound.playerBonus, dc: lastRound.dc, margin: lastRound.margin, band: lastRound.band }
+      : undefined,
+  };
+  return renderCombatContinueCard(input, PALETTES.house, chooseContinueBorder(status, lastRound));
+}
+
+/** Tolerant read (ANSI-C): a pre-existing in-flight action's saved state still carries the old
+ *  engine-composed ANSI string in `combatStatus` — render either shape without throwing. A
+ *  legacy string never carries a round log either (it predates `combatRounds`), so `lastRound`
+ *  is simply ignored on that branch rather than threaded through. */
+function renderCombatStatus(combatStatus: CombatStatusData | string, lastRound?: CombatBeatLog): string {
+  return typeof combatStatus === 'string' ? combatStatus : renderCombatStatusFrame(combatStatus, lastRound);
+}
+
 export function buildDecisionMessage(
   decision: {
     prompt: string;
     narration?: string;
-    combatStatus?: string;
+    combatStatus?: CombatStatusData | string;
+    /** ANSI-D: this beat's round log (accumulated so far), so the continue frame can splice in
+     *  the last round's dice maths — see `renderCombatStatusFrame`'s `lastRound` param. */
+    combatRounds?: CombatBeatLog[];
     options: Array<{ label: string; dcModifier: number | null; stat?: string }>;
   },
   decisionIdx: number,
   state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; narration?: string }>; accumulatedDc?: number; kind?: ActionKind },
-  char?: { stats: { physical: number; wisdom: number; intelligence: number; charisma: number }; dayJob?: string },
+  char?: {
+    stats: { physical: number; wisdom: number; intelligence: number; charisma: number };
+    dayJob?: string;
+    name?: string;
+    health?: number;
+    maxHealth?: number;
+    location?: string;
+  },
+  /** ANSI-F: the type `classify` routed this action to. Only present on the very first decision
+   *  screen (`decisionIdx === 0`) — that's the sole "post-classify, pre-first-decision" moment
+   *  the OPENING frame belongs to (classification framework §2c); CONTINUE beats never carry it. */
+  actionType?: ClassifiedActionType,
+  /** ANSI-F: combat enemy name for the opening frame's enemy nameplate. Only passed on the first
+   *  decision of a combat action (surfaced from the pipeline's `combatEnemy` hint). */
+  combatEnemyName?: string,
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -517,7 +621,7 @@ export function buildDecisionMessage(
   // combatStatus is a plain (unquoted) status line between the two on combat
   // continue-screens. Absent on the first beat — just the quest line + CTA.
   if (decision.narration) blocks.push(quoteLines(decision.narration));
-  if (decision.combatStatus) blocks.push(decision.combatStatus);
+  if (decision.combatStatus) blocks.push(renderCombatStatus(decision.combatStatus, decision.combatRounds?.at(-1)));
   blocks.push(quoteLines(decision.prompt));
 
   // List real (non-bail) options in the body as A./B./C. so button captions can
@@ -568,7 +672,7 @@ export function buildDecisionMessage(
       const arrow = dcArrow(opt.dcModifier);
       const prefix = icon ? `${icon} ` : '';
       const suffix = arrow ? ` ${arrow}` : '';
-      optionLines.push(`**${letter}.** ${prefix}${opt.label}${suffix}${favoured ? ' 🟢' : ''}`);
+      optionLines.push(`**${letter}.** ${prefix}${opt.label}${suffix}`);
       buttons.push(
         new ButtonBuilder()
           .setCustomId(choiceCid(decisionIdx, origIdx))
@@ -591,7 +695,7 @@ export function buildDecisionMessage(
   if (truncated.length > MAX_EMBED_DESC) truncated = clip(truncated, MAX_EMBED_DESC);
 
   const footerText = favouredIdx >= 0
-    ? '🟢 a safer path catches your eye'
+    ? 'a safer path catches your eye'
     : (decisionIdx === 0 ? 'What do you do?' : `Decision ${decisionIdx + 1}`);
 
   const embed = new EmbedBuilder()
@@ -608,8 +712,30 @@ export function buildDecisionMessage(
     );
   }
 
+  // ANSI-F: the OPENING frame (art post) leads the message, the decision embed above IS the
+  // "reply" body (§2b) — narration, options, and the interactive buttons. The delivery convention
+  // calls for the frame as its OWN Discord message with the body as a genuine reply beneath it,
+  // but every /action call site defers/replies ephemeral, and an ephemeral interaction response
+  // cannot be the target of a separate message's reply (Discord never exposes it as a normal,
+  // referenceable channel message). Leading embed in the SAME message is the sanctioned fallback
+  // for that case — a deliberate deviation from the literal two-message convention, flagged for
+  // lead review rather than expanding this task into an ephemeral->public flow redesign.
+  const openingFrameSlots: OpeningFrameSlots = {
+    pcName: char?.name,
+    pcHp: char?.health,
+    pcMaxHp: char?.maxHealth,
+    locationName: char?.location,
+  };
+  if (combatEnemyName) openingFrameSlots.enemyName = combatEnemyName;
+  const openingFrameEmbed = actionType && decisionIdx === 0
+    ? new EmbedBuilder()
+      .setDescription(renderOpeningFrame(actionType, openingFrameSlots))
+      .setColor(0x2c2f33)
+      .toJSON()
+    : undefined;
+
   return {
-    embeds: [embed.toJSON()],
+    embeds: openingFrameEmbed ? [openingFrameEmbed, embed.toJSON()] : [embed.toJSON()],
     components: components.map(r => r.toJSON()),
   };
 }
@@ -635,6 +761,7 @@ export function buildOutcomeEmbed(
     health: character?.health ?? 10,
     maxHealth: character?.maxHealth ?? 10,
     wealth: character?.wealth ?? 0,
+    name: character?.name ?? 'You',
   };
 
   // Location header — emoji prefix from the geography seed, name from character.
@@ -649,7 +776,14 @@ export function buildOutcomeEmbed(
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
   const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
-  const outcomeBlock = formatOutcome(outcome, ctx);
+  // Terminal-card escalation ([[visual-craft]]): crit border for nat-20, heavy for nat-1.
+  const terminalRenderer = (card: CombatTerminalCard) => {
+    const style = card.playerD20 === 20 ? BORDERS.crit
+      : card.playerD20 === 1 ? BORDERS.heavy
+      : BORDERS.standard;
+    return renderCombatTerminalCard(card, PALETTES.house, style);
+  };
+  const outcomeBlock = formatOutcome(outcome, ctx, terminalRenderer);
   const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
   // Full gamebook recap: breadcrumb, destination scene, story thread, then the
@@ -662,7 +796,9 @@ export function buildOutcomeEmbed(
     const parts: string[] = [];
     if (locationLine) parts.push(locationLine);
     if (breadcrumb) parts.push(breadcrumb);
-    if (includeScene && sceneBlock) parts.push(sceneBlock);
+    // Combat outcomes show the AnsiRenderer combat frame (built into outcomeBlock) instead of
+    // the decorative scene art — showing both would be redundant and burn embed-length budget.
+    if (includeScene && sceneBlock && !outcome.combatBeat) parts.push(sceneBlock);
     if (!opts?.compact) {
       parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
     }

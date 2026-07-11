@@ -1,0 +1,19 @@
+---
+tags: [combat, continue, wireframe]
+register: "COMBAT_FRAME (continue variant, dice-line addition)"
+summary: "Between-decisions status: enemy nameplate + banded condition, player HP, and the round's dice maths."
+slots: "enemy(name), condition(pips+wound word), player(hp/max), round(player d20+bonus vs DC, margin, band)"
+colour: "enemy name 31 threat; condition pips 31 threat (banded, never exact HP); player name 34, HP fill 32 life / 31 threat below 40%; dice numbers 33 warmth; margin+band colour-coded by favourability (32 life good bands, 31 threat bad bands); chrome 90"
+binding: "engine(CombatBeatLog — ANSI-D contract adds playerD20, playerBonus, dc, margin, band) + engine(CombatStatusData — ANSI-C contract: enemyName, woundWord, pips, playerHp/Max/Delta)"
+reply: "Unlike the opening frame's two-message split, this card stays INLINE in the decision message above the prompt (matches today's combatStatus placement in buildDecisionMessage) — the dice line is new content within that existing slot, not a new message."
+pairs_with: "combat-continue.slots.ascii (the slot template)"
+note: "Canonical monochrome MOCK, not a live asset (ANSI-D 'mocks first' — the frame code lands after these mocks). Shown after EVERY combat round, between decisions, so it must stay compact. Adds the round's dice maths the T2 live check found missing: today's continue frame renders HP bands only, so rolls were only ever visible at the fight's end. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  GLOOMFANG                 |
+|  COND [▓▓▓░░]      BRUISED |
+|  YOU   HP [▓▓▓▓▓▓░░] 18/24 |
+|                            |
+|  d20 14 +3 vs DC 15        |
+|  margin +2         TRADE   |
++----------------------------+

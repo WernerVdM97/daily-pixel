@@ -62,7 +62,7 @@ export interface PipelineDecideResult {
   /** Signal for combat establishment: the enemy's identity and anchor kind, authored by
    *  DECIDE on the first combat beat (T3 decision 3). Absent or failing to resolve → defaults
    *  to a location-anchored minion named generically. */
-  combatEnemy?: { name: string; anchor: 'npc' | 'location' };
+  combatEnemy?: { name: string; anchor: 'npc' | 'location'; /** Enemy max HP, authored by DECIDE when the NPC is a known entity. Absent → derived from baseDc (`deriveEnemyMaxHp`). */ maxHp?: number };
   /** decide-scene-narration follow-up: scene-framing prose, authored on CONTINUE beats only
    *  (this amends the "DECIDE authors no prose" decision above — see the spec's Decisions
    *  section). Absent on NEW_ACTION and on empty-decision (resolve-now) results. Never a

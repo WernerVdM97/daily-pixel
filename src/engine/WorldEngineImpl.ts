@@ -7,7 +7,6 @@ const SPOKE_CAP = 5;
 
 import type Database from "better-sqlite3";
 import type { LlmGateway, CartographerGateway, CriticGateway } from "../llm/LlmGateway.js";
-import { CritiquedLlmGateway } from "../llm/CritiquedLlmGateway.js";
 import type { UserRepository } from "../db/repositories/user.js";
 import type {
   CharacterRepository,
@@ -22,17 +21,7 @@ import { RelationRepository } from "../db/repositories/relation.js";
 import { CharacterLocationRepository } from "../db/repositories/characterLocation.js";
 import { MetaRepository } from "../db/repositories/meta.js";
 import { LlmCallRepository } from "../db/repositories/llm-call.js";
-import {
-  FallbackLlmGateway,
-  DIVINE_INTERVENTION_TYPE,
-  DIVINE_MESSAGE,
-} from "../llm/FallbackLlmGateway.js";
-import { PROMPT_VERSION } from "../llm/prompt-builder.js";
 import { APP_VERSION } from "../version.js";
-import {
-  ActionStateMachine,
-  type InternalActionState,
-} from "./action/machine.js";
 import {
   PipelineActionStateMachine,
 } from "./action/PipelineActionStateMachine.js";
@@ -40,6 +29,7 @@ import type {
   PipelineInternalActionState,
 } from "./action/PipelineActionStateMachine.js";
 import { ProdPipelineLlmGateway, type ProdPipelineGatewayConfig } from "../llm/pipeline/ProdPipelineGateway.js";
+import type { PipelineLlmGateway } from "../llm/pipeline/types.js";
 import type { PipelineContextResolver } from "./action/pipeline-context.js";
 import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
@@ -169,6 +159,30 @@ function summariseMutation(m: WorldMutation): string {
   }
 }
 
+/** Player-facing "intel gathered" lines for the journal chronicle (F#6) — parses the same
+ *  `applied_mutations` JSON already sitting on the action row (no new tracking) and surfaces
+ *  only the two mutation kinds that read as intel: a location revealed, an NPC met. Other
+ *  mutation kinds (stat/item churn) aren't narratively "intel" so stay out of the journal. */
+function journalDiscoveries(appliedMutationsJson: string | null): string[] {
+  if (!appliedMutationsJson) return [];
+  let mutations: WorldMutation[];
+  try {
+    mutations = JSON.parse(appliedMutationsJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(mutations)) return [];
+
+  const facts: string[] = [];
+  for (const m of mutations) {
+    const name = typeof m?.name === "string" ? m.name.trim() : "";
+    if (!name) continue;
+    if (m.type === "reveal_location") facts.push(`🗺️ Discovered **${name}**`);
+    else if (m.type === "add_npc" || m.type === "spawn_npc") facts.push(`🤝 Met **${name}**`);
+  }
+  return facts;
+}
+
 /** Only the character fields that changed, as `before→after` pairs. */
 function stateDeltas(before: CharacterRow, after: AppliedStateView): string {
   const parts: string[] = [];
@@ -213,7 +227,7 @@ function logAppliedMutations(
 
 interface WorldEngineConfig {
   db: Database.Database;
-  llm: LlmGateway;
+  llm?: LlmGateway;
   userRepo: UserRepository;
   charRepo: CharacterRepository;
   itemRepo: ItemRepository;
@@ -226,11 +240,9 @@ interface WorldEngineConfig {
   /** Coherence critic (Thread 2, opt-in): decision beats critiqued via CritiquedLlmGateway,
    *  resolution beats via the machine hook. Absent = disabled. */
   critic?: CriticGateway;
-  /** T6 live cutover: if present, build PipelineActionStateMachine (v12 pipeline) instead of
-   *  the legacy ActionStateMachine. The sim's legacy path omits this and gets the v11 machine;
-   *  production passes it and gets v12. After the smoke run clears, T7 makes this
-   *  non-optional and deletes the legacy machine. */
+  /** v12 pipeline config. Not used when pipelineLlmGateway is present. */
   pipelineLlm?: ProdPipelineGatewayConfig;
+
   /** YAML asset data for stat computation. Injected so engine stays presentation-free. */
   classDefs?: ClassDef[];
   upbringingDefs?: ModifierDef[];
@@ -249,6 +261,10 @@ interface WorldEngineConfig {
       quantity?: number;
     }>;
   }>;
+  /** Pre-constructed pipeline gateway for tests/sim. When present, used directly
+   *  instead of constructing ProdPipelineLlmGateway from pipelineLlm config.
+   *  At least one of pipelineLlm or pipelineLlmGateway must be provided. */
+  pipelineLlmGateway?: PipelineLlmGateway;
 }
 
 export class WorldEngineImpl implements WorldEngine {
@@ -271,10 +287,8 @@ export class WorldEngineImpl implements WorldEngine {
   private charLocRepo: CharacterLocationRepository;
   private metaRepo: MetaRepository;
   private llmCallRepo: LlmCallRepository;
-  /** T6 live cutover: pipeline machine (v12) when pipelineLlm is present, legacy machine (v11)
-   *  otherwise. T7 collapses this to PipelineActionStateMachine only. */
-  private machine: PipelineActionStateMachine | ActionStateMachine;
-  private isPipeline: boolean;
+  /** Pipeline machine (v12). */
+  private machine: PipelineActionStateMachine;
   private cartographer?: CartographerGateway;
   private classDefs: ClassDef[];
   private upbringingDefs: ModifierDef[];
@@ -322,9 +336,6 @@ export class WorldEngineImpl implements WorldEngine {
     this.itemSets = config.itemSets ?? [];
     this.cartographer = config.cartographer;
 
-    // ── T6 live cutover: pipeline machine when pipelineLlm is present, legacy when absent ──
-    this.isPipeline = config.pipelineLlm !== undefined;
-
     const contextResolver: PipelineContextResolver = {
       getNearbyNpcs: (location: string) => this.nearbyNpcsAt(location),
       getNearbyPcs: (location: string, excludeCharId: number) => {
@@ -362,39 +373,14 @@ export class WorldEngineImpl implements WorldEngine {
       getCurrentDay: () => this.currentDayNumber(),
     };
 
-    if (this.isPipeline) {
-      // v12 pipeline path — ProdPipelineLlmGateway for DeepSeek-backed four-stage calls.
-      // Critic is injected as the optional 5th ctor param (T4 pass-through). No
-      // FallbackLlmGateway wrapping: resilience is structural in PipelineActionStateMachine
-      // (classify throw → typed divine intervention; decide/resolve throws propagate).
-      const pipelineGateway = new ProdPipelineLlmGateway(config.pipelineLlm!);
-      this.machine = new PipelineActionStateMachine(
-        pipelineGateway,
-        config.rollD20,
-        contextResolver,
-        this.geographyFinalize,
-        config.critic,
-      );
-    } else {
-      // v11 legacy path — unchanged from before the swap. The sim's legacy path
-      // (engine-factory.ts) omits pipelineLlm and arrives here. T7 deletes this branch.
-      const fallbackLlm = new FallbackLlmGateway(config.llm, {
-        onTier2Fallback: () => {
-          const current = this.metaRepo.get("llm_fallback_count");
-          const next = current ? String(Number(current) + 1) : "1";
-          this.metaRepo.set("llm_fallback_count", next);
-        },
-      });
-      const decisionLlm = config.critic
-        ? new CritiquedLlmGateway(fallbackLlm, config.critic)
-        : fallbackLlm;
-      this.machine = new ActionStateMachine(
-        decisionLlm,
-        config.rollD20,
-        contextResolver,
-        config.critic,
-      );
-    }
+    const pipelineGateway = config.pipelineLlmGateway ?? new ProdPipelineLlmGateway(config.pipelineLlm!);
+    this.machine = new PipelineActionStateMachine(
+      pipelineGateway,
+      config.rollD20,
+      contextResolver,
+      this.geographyFinalize,
+      config.critic,
+    );
   }
 
   /** Extracted out of `contextResolver.getNearbyNpcs` (Stage 5 Task 0) so the relation-persist
@@ -627,7 +613,7 @@ export class WorldEngineImpl implements WorldEngine {
       playerRolled: outcome.playerRolled,
       outcome: outcome.outcome,
       appVersion: APP_VERSION,
-      promptVersion: this.isPipeline ? 'v12' : PROMPT_VERSION,
+      promptVersion: 'v12',
       appliedMutations:
         outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
       narrative: (outcome.outcomeText ?? "").slice(0, 500) || null,
@@ -917,10 +903,7 @@ export class WorldEngineImpl implements WorldEngine {
       const char = this.rowToCharacterData(row);
       const items = this.getItems(characterId);
 
-      if (this.isPipeline) {
-        return await this.startActionPipeline(characterId, row, char, rawInput, items, opts);
-      }
-      return await this.startActionLegacy(characterId, row, char, rawInput, items, opts);
+      return await this.startActionPipeline(characterId, row, char, rawInput, items, opts);
     } finally {
       this.processingActions.delete(characterId);
     }
@@ -965,14 +948,26 @@ export class WorldEngineImpl implements WorldEngine {
     const internalState = startResult.state;
 
     // Pipeline divine intervention or auto-resolve (§2 v12 QA): both paths resolve outright
-    // inside start(). Drain the roll, apply the outcome, and return directly.
+    // inside start(). Drain the roll (unless divine intervention — refund it), apply the
+    // outcome, and return directly.
     if (startResult.resolved) {
+      let res: ReturnType<typeof this.applyResolution>;
       try {
         this.db.transaction(() => {
+          // F#21: divine intervention is a system fault, not a real action — don't drain the
+          // roll (same philosophy as the timeout refund in stepActionPipeline).
+          const rollsRemaining = startResult.outcome.isDivineIntervention
+            ? row.rolls_remaining
+            : Math.max(0, row.rolls_remaining - 1);
           this.charRepo.update(characterId, {
-            rolls_remaining: Math.max(0, row.rolls_remaining - 1),
+            rolls_remaining: rollsRemaining,
           });
-          this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
+          // B#3: mutate row in place so applyResolution's baseCtx — and its returned
+          // rollsMutationDelta — are computed off the drained value, not the stale pre-drain
+          // count. Otherwise a same-resolution modify_rolls_remaining grant clobbers the drain
+          // instead of stacking with it (mirrors the post-drain row the step path re-reads).
+          row.rolls_remaining = rollsRemaining;
+          res = this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
         })();
       } catch (err) {
         // The transaction rolled back — roll not drained, action row not inserted.
@@ -989,11 +984,20 @@ export class WorldEngineImpl implements WorldEngine {
         this.charRepo.update(characterId, { last_action_state: null });
         throw err;
       }
-      startResult.outcome.rollsDelta = -1;
+      // F#21: divine intervention refunds the roll (the DB count is deliberately left untouched
+      // above), so it must NOT report a −1 spend. Every other resolved path drained exactly one roll.
+      if (startResult.outcome.isDivineIntervention) {
+        startResult.outcome.rollsDelta = 0;
+        startResult.outcome.rollRefunded = true;
+      } else {
+        startResult.outcome.rollsDelta = -1 + res!.rollsMutationDelta;
+      }
       return {
         state: this.toPublicState(internalState),
         firstDecision: internalState.pendingDecision,
         outcome: startResult.outcome,
+        actionType: internalState.actionType,
+        combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
       };
     }
 
@@ -1016,120 +1020,12 @@ export class WorldEngineImpl implements WorldEngine {
     return {
       state: this.toPublicState(internalState),
       firstDecision,
+      actionType: internalState.actionType,
+      combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
     };
   }
 
-  /** Legacy (v11) startAction — unchanged from before the swap. */
-  private async startActionLegacy(
-    characterId: number,
-    row: CharacterRow,
-    char: CharacterData,
-    rawInput: string,
-    items: ItemData[],
-    opts: { kind?: ActionKind; wage?: number },
-  ): Promise<ActionStartResult> {
-    const machine = this.machine as ActionStateMachine;
-    const startResult = await machine.start(char, rawInput, items, opts.kind, opts.wage);
-    const internalState = startResult.state;
 
-    // Divine intervention during start: drain roll, persist state, return single Resolve option
-    if (internalState.distilledType === DIVINE_INTERVENTION_TYPE) {
-      // Drain roll (per spec: not refunded)
-      this.charRepo.update(characterId, {
-        rolls_remaining: Math.max(0, row.rolls_remaining - 1),
-      });
-
-      // Persist divine marker so stepAction can resolve it
-      this.charRepo.update(characterId, {
-        last_action_state: JSON.stringify(internalState),
-      });
-
-      const divineDecision = {
-        prompt: DIVINE_MESSAGE,
-        options: [{ label: "Resolve", dcModifier: 0 } as const],
-      };
-
-      return {
-        state: { rawInput, decisions: [], accumulatedDc: 10 },
-        firstDecision: divineDecision,
-      };
-    }
-
-    // Auto-finish: the LLM resolved the action outright (e.g. travel/rest).
-    // D1 roll economy — a roll is the price of a resolved action that CHANGES the
-    // world, never of merely starting one:
-    //   • world-changing or player rolled → charge.
-    //   • no-op (`done`, no change) → refund, but only the first no-op per char per
-    //     day; later no-ops that day still cost it.
-    // applyResolution may itself adjust rolls_remaining (e.g. +1 reward), so the
-    // charge/refund is a delta on top of the post-resolution value.
-    if (startResult.resolved) {
-      const today = this.currentDayNumber();
-      let provisionalLocations: string[] = [];
-      this.db.transaction(() => {
-        const res = this.applyResolution(
-          characterId,
-          row,
-          startResult.outcome,
-          rawInput,
-          internalState.decisions,
-        );
-        provisionalLocations = res.provisionalLocations;
-        // Link the persisted action row so the outcome's Feedback/Bug buttons can attribute to it.
-        startResult.outcome.actionId = res.actionId;
-
-        if (startResult.outcome.systemRefund) {
-          // Degenerate decision shape on the very first beat (roll not yet drained here): never
-          // charge and never consume the once-per-day no-op grace — the player got no real choice.
-          startResult.outcome.rollsDelta = 0;
-          startResult.outcome.rollRefunded = true;
-        } else {
-          const charged = startResult.outcome.playerRolled != null || res.worldChanged;
-          // Free no-op refund only if not already used today.
-          const noopAlreadyRefundedToday = row.last_noop_refund_day === today;
-          const debit = charged || noopAlreadyRefundedToday;
-
-          // Re-read: applyResolution may have written a mutation-driven roll change.
-          const afterRes = this.charRepo.findById(characterId)!;
-          const finalRolls = debit
-            ? Math.max(0, afterRes.rolls_remaining - 1)
-            : afterRes.rolls_remaining;
-          if (debit) {
-            this.charRepo.update(characterId, { rolls_remaining: finalRolls });
-          } else {
-            // Free no-op refund — stamp the day so it's once-per-day.
-            this.stampRefundDay(characterId, "last_noop_refund_day", today);
-          }
-          // Surface the real roll accounting so the footer reflects it instead of guessing:
-          // a no-op refund keeps the roll (delta 0, flagged); a charge spent one.
-          startResult.outcome.rollsDelta = finalRolls - row.rolls_remaining;
-          startResult.outcome.rollRefunded = !debit;
-        }
-      })();
-
-      // D3: enrich any just-created provisional locations off the critical path.
-      this.fireCartographer(provisionalLocations, startResult.outcome.outcomeText);
-
-      return {
-        state: this.toPublicState(internalState),
-        firstDecision: internalState.pendingDecision,
-        outcome: startResult.outcome,
-      };
-    }
-
-    // Normal path: drain a roll + persist state atomically
-    this.db.transaction(() => {
-      this.charRepo.update(characterId, {
-        rolls_remaining: Math.max(0, row.rolls_remaining - 1),
-      });
-      this.persistState(characterId, internalState);
-    })();
-
-    return {
-      state: this.toPublicState(internalState),
-      firstDecision: startResult.firstDecision,
-    };
-  }
 
   async stepAction(
     characterId: number,
@@ -1139,7 +1035,7 @@ export class WorldEngineImpl implements WorldEngine {
     if (!row) throw new Error("Character not found");
     if (!row.last_action_state) throw new Error("No action in progress");
 
-    const internalState = JSON.parse(row.last_action_state) as InternalActionState | PipelineInternalActionState;
+    const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
 
     // D2 30-min timeout: resolve stale state as an in-voice server-side timeout (refund
     // once/day) so the UI renders a grey card instead of a bare error.
@@ -1157,10 +1053,7 @@ export class WorldEngineImpl implements WorldEngine {
     const char = this.rowToCharacterData(row);
     const items = this.getItems(characterId);
 
-    if (this.isPipeline) {
-      return await this.stepActionPipeline(characterId, row, char, internalState as PipelineInternalActionState, choice, items);
-    }
-    return await this.stepActionLegacy(characterId, row, char, internalState as InternalActionState, choice, items);
+    return await this.stepActionPipeline(characterId, row, char, internalState, choice, items);
   }
 
   /** Pipeline (v12) stepAction — handles divine intervention, multi-beat persist, and
@@ -1330,95 +1223,7 @@ export class WorldEngineImpl implements WorldEngine {
     }
   }
 
-  /** Legacy (v11) stepAction — unchanged from before the swap. */
-  private async stepActionLegacy(
-    characterId: number,
-    row: CharacterRow,
-    char: CharacterData,
-    internalState: InternalActionState,
-    choice: string,
-    items: ItemData[],
-  ): Promise<ActionStepResult> {
-    // Legacy divine intervention from startAction — resolve directly, no LLM call
-    if (internalState.distilledType === DIVINE_INTERVENTION_TYPE) {
-      this.charRepo.update(characterId, { last_action_state: null });
 
-      return {
-        resolved: true,
-        state: this.toPublicState(internalState),
-        outcome: {
-          distilledType: DIVINE_INTERVENTION_TYPE,
-          finalDc: 10,
-          playerRolled: null,
-          outcome: "failure",
-          mutations: [],
-          outcomeText: DIVINE_MESSAGE,
-          // The roll was drained when the action started and isn't refunded — report it.
-          rollsDelta: -1,
-        },
-      };
-    }
-
-    const machine = this.machine as ActionStateMachine;
-    const result = await machine.step(internalState, choice, char, items);
-
-    if (result.resolved) {
-      // Divine intervention (S4 tier-2): clear state, skip the action row + mutations
-      if (result.outcome.distilledType === DIVINE_INTERVENTION_TYPE) {
-        this.charRepo.update(characterId, { last_action_state: null });
-        // The roll was drained when the action started and isn't refunded — report it.
-        result.outcome.rollsDelta = -1;
-        return {
-          resolved: true,
-          state: this.toPublicState(result.state),
-          outcome: result.outcome,
-        };
-      }
-
-      let provisionalLocations: string[] = [];
-      this.db.transaction(() => {
-        const res = this.applyResolution(
-          characterId,
-          row,
-          result.outcome,
-          result.state.rawInput,
-          result.state.decisions,
-        );
-        provisionalLocations = res.provisionalLocations;
-        const today = this.currentDayNumber();
-        const systemRefund = result.outcome.systemRefund === true;
-        const bailRefunded =
-          result.outcome.outcome === "bailed" && row.last_bail_refund_day !== today;
-        if (systemRefund || bailRefunded) {
-          this.refundRoll(characterId);
-          if (bailRefunded && !systemRefund) {
-            this.stampRefundDay(characterId, "last_bail_refund_day", today);
-          }
-          result.outcome.rollsDelta = res.rollsMutationDelta;
-          result.outcome.rollRefunded = true;
-        } else {
-          result.outcome.rollsDelta = -1 + res.rollsMutationDelta;
-        }
-        result.outcome.actionId = res.actionId;
-      })();
-
-      this.fireCartographer(provisionalLocations, result.outcome.outcomeText);
-
-      return {
-        resolved: true,
-        state: this.toPublicState(result.state),
-        outcome: result.outcome,
-      };
-    }
-
-    this.persistState(characterId, result.state);
-
-    return {
-      resolved: false,
-      state: this.toPublicState(result.state),
-      nextDecision: result.nextDecision,
-    };
-  }
 
   resumeAction(characterId: number): ActionResumeResult {
     const row = this.charRepo.findById(characterId);
@@ -1427,7 +1232,7 @@ export class WorldEngineImpl implements WorldEngine {
 
     const internalState = JSON.parse(
       row.last_action_state,
-    ) as InternalActionState | PipelineInternalActionState;
+    ) as PipelineInternalActionState;
 
     // D2 30-min timeout: resolve stale state (refund once/day, no mutations). Resume
     // can't return an outcome, so throw the player-facing message for the caller.
@@ -1436,9 +1241,7 @@ export class WorldEngineImpl implements WorldEngine {
       throw new Error(timeout.outcomeText);
     }
 
-    const { state, nextDecision } = this.isPipeline
-      ? (this.machine as PipelineActionStateMachine).resume(internalState as PipelineInternalActionState)
-      : (this.machine as ActionStateMachine).resume(internalState as InternalActionState);
+    const { state, nextDecision } = this.machine.resume(internalState);
 
     return {
       state: this.toPublicState(state),
@@ -1555,6 +1358,7 @@ export class WorldEngineImpl implements WorldEngine {
         locationEmoji: r.location_name
           ? this.locationRepo.findByName(r.location_name)?.emoji ?? "📍"
           : null,
+        discoveries: journalDiscoveries(r.applied_mutations),
       })),
     };
   }
@@ -2025,7 +1829,7 @@ export class WorldEngineImpl implements WorldEngine {
     };
   }
 
-  private persistState(characterId: number, state: InternalActionState | PipelineInternalActionState): void {
+  private persistState(characterId: number, state: PipelineInternalActionState): void {
     // Stamp lastActionAt on every persist as the basis for the 30-min timeout.
     state.lastActionAt = Date.now();
     const isResolved = 'pendingDecision' in state &&
@@ -2079,7 +1883,7 @@ export class WorldEngineImpl implements WorldEngine {
    * carry `lastActionAt`, `distilledType`, `accumulatedDc`, `rawInput`, and `decisions`.
    */
   private resolveStaleTimeout(
-    state: InternalActionState | PipelineInternalActionState,
+    state: PipelineInternalActionState,
     characterId: number,
   ): ActionOutcome | null {
     // Pre-S7 state (no lastActionAt) is treated as not stale.
@@ -2119,7 +1923,7 @@ export class WorldEngineImpl implements WorldEngine {
         playerRolled: null,
         outcome: "timed_out",
         appVersion: APP_VERSION,
-        promptVersion: this.isPipeline ? 'v12' : PROMPT_VERSION,
+        promptVersion: 'v12',
         narrative: message.slice(0, 500),
       });
       this.charRepo.update(characterId, { last_action_state: null });
@@ -2133,7 +1937,7 @@ export class WorldEngineImpl implements WorldEngine {
     return outcome;
   }
 
-  private toPublicState(internal: InternalActionState | PipelineInternalActionState): {
+  private toPublicState(internal: PipelineInternalActionState): {
     rawInput: string;
     decisions: ActionDecisionRecord[];
     accumulatedDc: number;

@@ -20,7 +20,7 @@ Git workflow, versioning, and the release procedure. The always-on guardrails (n
 1. **Never commit directly to `main`.** All changes land on `dev` first.
 2. **`dev` must keep the changelog up to date.** Every merge into `dev` should either add to `[Unreleased]` or, when cutting a release, promote it to a versioned section. (See the `changelog` skill for entry style.)
 3. **Hotfixes on `main` must be merged back into `dev`.** If `main` ever receives a direct hotfix (bypassing the normal flow), merge `main` back into `dev` immediately so `dev` doesn't diverge.
-4. **Versioning — POC beta stays on `0.2.x`.** For the whole POC beta, **bump the patch only** (`0.2.2 → 0.2.3 → 0.2.4 → …`). Do **not** bump the minor (`0.3.x`) or major — `0.3.0` is reserved for the end of POC beta. `VERSION` holds the bare number (no `v`); tags and release-notes filenames carry the `v` prefix (`v0.2.x`). `package.json`'s `"version"` field must be kept in sync with `VERSION` on every release.
+4. **Versioning — bump the patch only within the current POC line.** The POC beta ran `0.2.x`; `0.3.0` closed it (2026-07-07) and the POC+ round now bumps patches on `0.3.x` (`0.3.1 → 0.3.2 → …`). Do **not** bump the minor or major — the next minor flip is reserved for the end of POC+ (MVP). `VERSION` holds the bare number (no `v`); tags and release-notes filenames carry the `v` prefix (`v0.3.x`). `package.json`'s `"version"` field must be kept in sync with `VERSION` on every release.
 5. **Merge strategy:** `--no-ff` (no fast-forward) on all merges into `main` so the merge commits are explicit.
 
 ## Cutting a release

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildSystemPrompt } from '../../src/llm/prompt-builder.js';
 import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
 import { ACTION_CATEGORIES } from '../../src/llm/LlmGateway.js';
 import type { LlmContext, LlmDecision } from '../../src/llm/LlmGateway.js';
@@ -8,33 +7,7 @@ import { DeepCapturePolicy } from '../../src/llm/capture-policy.js';
 
 
 
-describe('PromptBuilder — system prompt', () => {
-  it('includes the game master role and JSON output instruction', () => {
-    const result = buildSystemPrompt();
 
-    expect(result).toContain('The Warden\'s Oak');
-    expect(result).toContain('valid JSON');
-    expect(result).toContain('game master');
-  });
-
-  it('includes the decision rules (distilled_type, stat, base_dc, required, dc_modifier)', () => {
-    const result = buildSystemPrompt();
-
-    expect(result).toContain('distilled_type');
-    expect(result).toContain('base_dc');
-    expect(result).toContain('required');
-    expect(result).toContain('dc_modifier');
-    expect(result).toContain('bail');
-  });
-
-  it('includes the response schema fields', () => {
-    const result = buildSystemPrompt();
-
-    expect(result).toContain('decision');
-    expect(result).toContain('mutations');
-    expect(result).toContain('outcome_text');
-  });
-});
 
 const minimalContext: LlmContext = {
   character: {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { makeSleepCommand } from "../../src/discord/commands/sleep.js";
+import { buildMorningAnnouncement } from "../../src/discord/announcements.js";
 
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 
@@ -119,13 +120,15 @@ describe("/sleep", () => {
       expect(result).toContain("Oak");
     });
 
-    it("includes scaling flavor for early days", async () => {
+    it("shares the morning builder with the live cron announcement — same day, same prose", async () => {
       const engine = new MockWorldEngine();
       engine.setTickResult({ dayNumber: 1, playersAffected: 1, npcMovements: [] });
       const handler = makeSleepCommand(engine);
       const result = await handler({ user: { id: ADMIN_ID } });
 
-      expect(result).toContain("fire crackles");
+      expect(result).toBe(
+        buildMorningAnnouncement({ day: 1, playersAffected: 1, npcMovementCount: 0 }),
+      );
     });
 
     it("includes player/NPC count when changes happened", async () => {
@@ -138,14 +141,15 @@ describe("/sleep", () => {
       expect(result).toContain("NPC(s) on the move");
     });
 
-    it("uses scaled flavor after day 3", async () => {
+    it("rotates flavour prose deterministically by day, not a fixed early/late split", async () => {
       const engine = new MockWorldEngine();
       engine.setTickResult({ dayNumber: 5, playersAffected: 1, npcMovements: [] });
       const handler = makeSleepCommand(engine);
       const result = await handler({ user: { id: ADMIN_ID } });
 
-      expect(result).toContain("smoke");
-      expect(result).toContain("hasn't spoken");
+      expect(result).toBe(
+        buildMorningAnnouncement({ day: 5, playersAffected: 1, npcMovementCount: 0 }),
+      );
     });
 
     it("omits count line when nothing changed", async () => {

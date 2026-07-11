@@ -1,0 +1,19 @@
+---
+tags: [opening, rest, wireframe, template]
+register: "REST_STOP (campfire opener)"
+summary: "SLOT TEMPLATE: the generic grid. [data_slot] engine values, [ fragment ]( dims/pose ) hybrid art slots."
+slots: "label, sleep glyphs, player sprite(rest pose), campfire fragment"
+binding: "campfire hybrid(fragments location); glyphs engine(state); sprite pc_class"
+reply: "The rest offer + recovery framing / confirm options."
+pairs_with: "opening-rest.ascii (the filled example)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  [label]                   |
+|                            |
+|  [sleep glyphs: z z Z]     |
+|                            |
+|  [pc_rest]    [ campfire ] |
+|  ( pose )     ( fragment ) |
+|  [======= ground =======]  |
++----------------------------+

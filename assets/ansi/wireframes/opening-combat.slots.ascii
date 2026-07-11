@@ -1,0 +1,22 @@
+---
+tags: [opening, combat, wireframe, template]
+register: "COMBAT_FRAME (opener variant)"
+summary: "SLOT TEMPLATE: the generic grid. [data_slot] engine values, [ fragment ]( dims/pose ) hybrid art slots."
+slots: "header(enemy name/lv/HP), sprite(enemy), footer(player name/lv/HP)"
+binding: "header+footer engine(scene edge); sprite hybrid(fragments enemy idle)"
+reply: "Encounter narration ('A wild GLOOMFANG lunges...') + option buttons."
+pairs_with: "opening-combat.ascii (the filled example)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+|  [enemy_name]    [Lv]      |
+|  HP [===bar===]  [hp/max]  |
+|                            |
+|       [ enemy_big ]        |
+|  ( sprite ~6 x 20, idle )  |
+|                            |
+|                            |
+|  [pc_small]                |
+|  ( ~4 x 8 )  [pc_name][Lv] |
+|              HP [bar][h/m] |
++----------------------------+

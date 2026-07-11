@@ -1,0 +1,24 @@
+---
+tags: [opening, social, wireframe]
+register: "DIALOGUE_MODAL (bust opener)"
+summary: "NPC bust behind a dash-dot rim + crest; SPEECH LIVES IN THE REPLY."
+slots: "rim+crest(chrome), npc bust(fragment)"
+colour: "rim 90 chrome; crest 33 warmth; bust 34 player-cool"
+binding: "bust hybrid(fragments npc_archetype speak); rim engine(static)"
+reply: "The NPC's actual line(s) + player response options — the frame is mute."
+pairs_with: "opening-social.slots.ascii (the slot template)"
+note: "Canonical monochrome MOCK, not a live asset. Opening frame shown after classify, before the first decision, as an art post; the message body (narration + options) is a REPLY beneath it. Colour applied by role at render — the body below stays monochrome, every line exactly 30 wide."
+---
++----------------------------+
+| .-.~.-.~< @ >~.-.~.-.~.-.  |
+|                            |
+|           ______           |
+|          /      \          |
+|         | o    o |         |
+|         |   <    |         |
+|          \  __  /          |
+|          |`----'|          |
+|         /|      |\         |
+|                            |
+| .-.~.-.~.-.~.-.~.-.~.-.~.  |
++----------------------------+

@@ -23,6 +23,7 @@ Task- and tool-specific conventions live as auto-discovered skills in [`.claude/
 | `prompt-versioning` | editing any LLM prompt under `assets/prompts/` (decision, critic, …) or a `*_VERSION` constant                                   |
 | `docs-authoring`    | creating/editing anything under `docs/`<br>(wraps [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md))                                |
 | `game-development`  | building game systems: orchestrator routing to `game-design`, `multiplayer`, `game-art-static`, `game-art-dynamic`, `game-audio` |
+| `ansi-frames`       | authoring ANSI/ASCII art frames for Discord (combat frames, event moments, splashes) from a prompt                               |
 
 ## Other Key files
 

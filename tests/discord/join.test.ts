@@ -1,9 +1,50 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { WizardSession } from "../../src/discord/WizardSession.js";
-import { makeJoinCommand, handleInteraction } from "../../src/discord/commands/join.js";
+import { makeJoinCommand, handleInteraction, type CharDefs } from "../../src/discord/commands/join.js";
 
 const CID_CONFIRM = "join:confirm";
+
+/** Minimal char-creation defs — enough entries to exercise formatting, bonuses, and a miss. */
+const FORMAT_DEFS: CharDefs = {
+  classes: [
+    { name: "Warrior", emoji: "🗡️", description: "A stalwart fighter.", modifiers: { physical: 3, wisdom: -1 } },
+    { name: "Mage", emoji: "🔮", description: "A student of the arcane." },
+  ],
+  backgrounds: [{ name: "Soldier", emoji: "🎖️", description: "Trained for war." }],
+  races: [{ name: "Human", emoji: "🧑", description: "Adaptable and driven." }],
+  alignments: [{ name: "Lawful Good", emoji: "😇", description: "Order and compassion." }],
+  dayJobs: [{ name: "Blacksmith", emoji: "🔨", description: "Forges steel." }],
+  itemSets: [{ name: "Soldier's Kit", description: "Standard gear.", for_classes: ["Warrior"] }],
+};
+
+/** A button interaction for a step choice, e.g. `join:choice:2:Warrior`. */
+function mockChoiceInteraction(userId: string, customId: string) {
+  return {
+    user: { id: userId },
+    customId,
+    isModalSubmit: () => false,
+    isButton: () => true,
+    deferUpdate: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue(undefined),
+    followUp: vi.fn().mockResolvedValue(undefined),
+    reply: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+/** A modal-submit interaction for the name step. */
+function mockNameModalInteraction(userId: string, name: string) {
+  return {
+    user: { id: userId },
+    customId: "join:name:modal",
+    isModalSubmit: () => true,
+    fields: { getTextInputValue: () => name },
+    deferUpdate: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue(undefined),
+    followUp: vi.fn().mockResolvedValue(undefined),
+    reply: vi.fn().mockResolvedValue(undefined),
+  };
+}
 
 /** A button interaction at the wizard's final confirm step. */
 function mockConfirmInteraction(userId: string) {
@@ -198,5 +239,66 @@ describe("/join confirm → handleInteraction", () => {
     ).resolves.toBeUndefined();
     // The character is still created despite the announcement failing.
     expect(engine.calls.createCharacter).toHaveLength(1);
+  });
+});
+
+// ═══ /join screen formatting (polish 0.3.1) ═══
+
+describe("/join screen formatting", () => {
+  let engine: MockWorldEngine;
+  let wizard: WizardSession;
+
+  beforeEach(() => {
+    engine = new MockWorldEngine();
+    engine.setCharacterExists(false);
+    wizard = new WizardSession();
+    makeJoinCommand(engine, wizard, FORMAT_DEFS); // sets the module-level defs read by the renderer
+  });
+
+  it("gives each option its own lines: label, then bonuses set off, then description", async () => {
+    wizard.start("fmt-user");
+    const nameIntr = mockNameModalInteraction("fmt-user", "Rowan");
+    await handleInteraction(nameIntr as never, engine, wizard);
+
+    const payload = nameIntr.editReply.mock.calls[0][0] as { embeds: Array<{ description: string }> };
+    const description = payload.embeds[0].description;
+
+    // Warrior carries bonuses — its own indented (blockquote) line, separate from the description.
+    expect(description).toContain("🗡️ **Warrior**\n> 💪+3 🧠-1\nA stalwart fighter.");
+    // Mage carries no bonuses — no blockquote line, straight to the description.
+    expect(description).toContain("🔮 **Mage**\nA student of the arcane.");
+    // Options are visually separated (blank line), not crowded onto one dashed line.
+    expect(description).toContain("A stalwart fighter.\n\n🔮 **Mage**");
+  });
+
+  it("shows the chosen option's own emoji next to its value in the ledger", async () => {
+    wizard.start("ledger-user");
+    wizard.setName("ledger-user", "Bram"); // → step 2
+
+    const chooseClass = mockChoiceInteraction("ledger-user", "join:choice:2:Warrior");
+    await handleInteraction(chooseClass as never, engine, wizard);
+
+    const payload = chooseClass.editReply.mock.calls[0][0] as { embeds: Array<{ description: string }> };
+    const description = payload.embeds[0].description;
+
+    // Warrior's own 🗡️ (not the fixed 🛡️ step icon) sits next to the chosen value.
+    expect(description).toContain("🛡️ ~~Class~~ → 🗡️ **Warrior**");
+  });
+
+  it("falls back to no emoji (never the literal 'undefined') when a chosen value has no matching def", async () => {
+    wizard.start("miss-user");
+    wizard.setName("miss-user", "Ghost");
+    // Bypass the button flow to persist a value FORMAT_DEFS.classes has no entry for —
+    // simulates a custom/renamed value the def lookup can't find.
+    wizard.choose("miss-user", 2, "class", "Rogue Scholar");
+
+    const chooseUpbringing = mockChoiceInteraction("miss-user", "join:choice:3:Soldier");
+    await handleInteraction(chooseUpbringing as never, engine, wizard);
+
+    const payload = chooseUpbringing.editReply.mock.calls[0][0] as { embeds: Array<{ description: string }> };
+    const description = payload.embeds[0].description;
+
+    expect(description).toContain("🛡️ ~~Class~~ → **Rogue Scholar**");
+    expect(description).not.toContain("undefined");
   });
 });

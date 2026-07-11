@@ -42,6 +42,21 @@ export interface StatBlock {
   charisma: number;
 }
 
+/** Structured combat-continue status (ANSI-C): the engine emits only the banding maths (never
+ *  exact enemy HP); the presentation layer composes the frame from this data. Screen-only —
+ *  never persisted onto `ActionDecisionRecord`. */
+export interface CombatStatusData {
+  enemyName: string;
+  woundWord: string;
+  pips: { filled: number; total: number };
+  /** DISPLAY value only — already has playerHpDelta applied and is clamped >= 0 so a lethal
+   *  round never displays negative HP mid-resolution. A future consumer must render this as-is
+   *  and must NOT add playerHpDelta again. */
+  playerHp: number;
+  playerMaxHp: number;
+  playerHpDelta: number;
+}
+
 export interface ActionDecision {
   prompt: string;
   options: ActionOption[];
@@ -49,9 +64,19 @@ export interface ActionDecision {
    *  CONTINUE only — absent on the first beat, so it stays lean. Threaded onto the record too
    *  (`ActionDecisionRecord.narration`) so the story-thread can render it per beat. */
   narration?: string;
-  /** Engine-composed status line for a combat continue-screen (banded enemy condition plus
-   *  exact player HP movement). Screen-only — never persisted onto the record. */
-  combatStatus?: string;
+  /** Engine-composed status for a combat continue-screen (banded enemy condition plus exact
+   *  player HP movement). Screen-only — never persisted onto the record. `string` is the legacy
+   *  in-flight shape (a pre-composed ANSI frame, persisted by the engine before ANSI-C) — an
+   *  action mid-flight across the deploy still carries it in its saved state JSON, so the
+   *  presentation layer's read must tolerate both shapes. */
+  combatStatus?: CombatStatusData | string;
+  /** Every `CombatBeatLog` fought so far this encounter, in order (ANSI-D). Lives beside
+   *  `combatStatus` on the seam per the same pattern (ANSI-C, commit 62cc332): this type is
+   *  `PipelineInternalActionState.pendingDecision`'s shape, and that field IS what's serialized
+   *  to the action's JSON state column each beat, so accumulating here is what makes the list
+   *  survive between decisions of a multi-round fight. Missing (not just empty) on any in-flight
+   *  fight saved before this field existed — read it as `?? []`, never assume presence. */
+  combatRounds?: CombatBeatLog[];
 }
 
 export interface ActionOption {
@@ -76,6 +101,15 @@ export interface ActionDecisionRecord {
 
 /** Drives the story-thread label ("Work:" vs "Quest:"). Defaults to 'quest' when unset. */
 export type ActionKind = 'work' | 'quest';
+
+/** The seven `classify`-routed action types (ANSI-F). Duplicated here rather than importing
+ *  `ActionCategory` from `llm/LlmGateway.ts` — this seam file takes no llm/ imports (same
+ *  reasoning as `ActionKind` above); the two are kept in lockstep by construction since both are
+ *  the closed enum the classifier itself owns. Exposed on `ActionStartResult` only (not
+ *  persisted `ActionState`) so presentation can pick the OPENING register (classification
+ *  framework §3.0) without engine internals (`PipelineInternalActionState.actionType`) leaking
+ *  into the public seam. */
+export type ClassifiedActionType = 'combat' | 'travel' | 'social' | 'skill' | 'search' | 'rest' | 'other';
 
 export interface ActionState {
   rawInput: string;
@@ -117,6 +151,16 @@ export interface ActionStartResult {
   /** Present on auto-finish (LLM resolved immediately): mutations already applied and
    *  action row written; caller renders the outcome instead of showing buttons. */
   outcome?: ActionOutcome;
+  /** The type `classify` routed this action to (ANSI-F) — pinned once at CLASSIFY, so it's
+   *  stable for the whole action even though it's only surfaced here, at start. Presentation
+   *  uses it to pick the OPENING frame register (classification framework §3.0); never
+   *  persisted onto `ActionState` (unlike `kind`), since nothing downstream of the first
+   *  decision needs it. */
+  actionType: ClassifiedActionType;
+  /** ANSI-F: combat enemy name for the opening frame's enemy nameplate. Surfaced from the
+   *  pipeline's `combatEnemy` hint when the LLM signalled one. Undefined when not combat or
+   *  when the LLM didn't name a specific foe. */
+  combatEnemyName?: string;
 }
 
 export type ActionStepResult =
@@ -170,6 +214,15 @@ export interface ActionOutcome {
    *  path (win / loss / cap-derive). Always undefined (absent) in legacy/v11 outcomes and on
    *  non-combat pipeline outcomes. */
   combatBeat?: CombatBeatLog;
+  /** Combat-frame display data for the terminal AnsiRenderer reveal — set only by the pipeline
+   *  combat spine's terminal path, alongside combatBeat. enemyMaxHp + margin aren't on the
+   *  telemetry CombatBeatLog; enemyName is nowhere else on the outcome. Absent on non-combat. */
+  combatFrame?: { enemyName: string; enemyMaxHp: number; margin: number };
+  /** Full per-fight round log (ANSI-D), terminal round inclusive — the same accumulation as
+   *  `ActionDecision.combatRounds`, surfaced here too so the terminal presentation layer reads
+   *  the whole fight off the outcome without reaching into engine state. Absent on non-combat
+   *  outcomes. */
+  combatRounds?: CombatBeatLog[];
 }
 
 export interface ActionResumeResult {
@@ -223,6 +276,10 @@ export interface JournalAction {
   /** Where the action happened (origin snapshot, §6) + its map glyph, for the chronicle. */
   location?: string | null;
   locationEmoji?: string | null;
+  /** Player-facing "intel gathered" facts derived from this action's applied mutations
+   *  (a location revealed, an NPC met) — read-only intel already sitting on the action
+   *  row, surfaced for the journal rather than tracked separately (F#6). */
+  discoveries?: string[];
 }
 
 /** A discovered node in a player's fog-of-war view of the shared graph (§5). */

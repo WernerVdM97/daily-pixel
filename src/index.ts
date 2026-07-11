@@ -98,6 +98,10 @@ import {
   buildLeaderboardAnnouncement,
   LEADERBOARD_MARKER,
 } from "./discord/afternoon.js";
+import {
+  buildMorningAnnouncement,
+  buildEveningAnnouncement,
+} from "./discord/announcements.js";
 import { pinMessage, pinReplacing, pinKeepingNewest } from "./discord/pin.js";
 import {
   broadcastOutcome,
@@ -127,6 +131,7 @@ import {
   setPendingDecision,
   buildDecisionMessage,
   buildOutcomeEmbed,
+  buildActionHints,
   consumeMenuMessage,
   stashMenuMessage,
   CID_DAYJOB,
@@ -483,25 +488,8 @@ async function runGoodnightAnnouncement(
 
   try {
     const soulsInUnsafe = engine.countSoulsInUnsafe();
-    const lines: string[] =
-      soulsInUnsafe > 0
-        ? [
-            "🌙 **Night falls over the Oak.**",
-            "",
-            "The fire burns low and the dark draws close. " +
-              `**${soulsInUnsafe}** soul(s) are still out beyond the safe paths — ` +
-              "the wilds are patient, and they are not kind.",
-            "",
-            "Will they make it back? Rest, those who can.",
-          ]
-        : [
-            "🌙 **Night falls over the Oak.**",
-            "",
-            "Every soul is home beneath the boughs tonight. The dark presses " +
-              "against the firelight, but the Oak stands watch.",
-            "",
-            "Rest. Dawn comes when the world wills it.",
-          ];
+    const day = Number(engine.getMeta("day_number") ?? "1");
+    const content = buildEveningAnnouncement({ day, soulsInUnsafe });
 
     const channel = await client.channels.fetch(channelId);
     if (channel?.isTextBased() && "send" in channel) {
@@ -519,7 +507,7 @@ async function runGoodnightAnnouncement(
             components: unknown[];
           }) => Promise<unknown>;
         }
-      ).send({ content: lines.join("\n"), components: [row] });
+      ).send({ content, components: [row] });
 
       engine.setMeta("last_goodnight_date", today);
       console.log(
@@ -621,33 +609,18 @@ async function runMorningAnnouncement(
       engine.getMeta("last_tick_npc_movement_count") ?? "0",
     );
 
-    const flavor =
-      Number(dayNumber) <= 3
-        ? "The warden watches the horizon. The fire crackles, steady and low."
-        : "The smoke on the eastern horizon has thickened. The warden hasn't spoken since yesterday.";
-
-    const lines: string[] = [
-      `🌅 **Day ${dayNumber} begins.**`,
-      "",
-      flavor,
-      "",
-      "The Oak awaits. `/hi` to begin.",
-    ];
-
-    if (playersAffected > 0 || npcMovementCount > 0) {
-      lines.push("");
-      lines.push(
-        `─ ${playersAffected} soul(s) stirred, ${npcMovementCount} NPC(s) on the move.`,
-      );
-    }
-
     // Saturday: fold an early heads-up of the day's wilderness threat into the dawn message, so the
     // warning lands at 05:30 — not only at the 12:00 reveal (which names + spawns the foe).
     const now = new Date();
-    if (now.getUTCDay() === 6) {
-      lines.push("");
-      lines.push(buildThreatHeadsUp(pickWeeklyThreat(now)));
-    }
+    const threatHeadsUp =
+      now.getUTCDay() === 6 ? buildThreatHeadsUp(pickWeeklyThreat(now)) : undefined;
+
+    const content = buildMorningAnnouncement({
+      day: Number(dayNumber),
+      playersAffected,
+      npcMovementCount,
+      threatHeadsUp,
+    });
 
     const channel = await client.channels.fetch(channelId);
     if (channel?.isTextBased() && "send" in channel) {
@@ -667,7 +640,7 @@ async function runMorningAnnouncement(
           }) => Promise<unknown>;
         }
       ).send({
-        content: lines.join("\n"),
+        content,
         components: [row],
       });
 
@@ -1254,18 +1227,14 @@ async function main() {
     npcRepo,
     ...(cartographer ? { cartographer } : {}),
     ...(criticEnabled && criticGateway ? { critic: criticGateway } : {}),
-    // T6 live cutover: pass pipelineLlm when DEEPSEEK_API_KEY is present → the
-    // constructor builds PipelineActionStateMachine (v12). Without the key, the
-    // legacy machine (v11) is built. The recorder catches per-stage llm_calls stamps.
-    ...(DEEPSEEK_API_KEY ? {
-      pipelineLlm: {
-        apiKey: DEEPSEEK_API_KEY,
-        ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
-        recorder: new LlmCallRepository(initDb()),
-        verbose: loggingEnv.verboseLlm,
-        capturePolicy,
-      },
-    } : {}),
+    // v12 pipeline config (required). Always provided — the legacy v11 machine is gone.
+    pipelineLlm: DEEPSEEK_API_KEY ? {
+      apiKey: DEEPSEEK_API_KEY,
+      ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
+      recorder: new LlmCallRepository(initDb()),
+      verbose: loggingEnv.verboseLlm,
+      capturePolicy,
+    } : { apiKey: 'no-key', model: 'fallback' },
     classDefs: assets.classes as ClassDef[],
     upbringingDefs: assets.backgrounds as ModifierDef[],
     raceDefs: assets.races as ModifierDef[],
@@ -1781,6 +1750,25 @@ ${headInfo}`);
           );
           return;
         }
+
+        // Thinking screen — matches the ⏳ envelope /action and the day-job button
+        // path already show, so the player isn't staring at a blank spinner during
+        // the LLM call that startAction below makes.
+        const clippedDescription =
+          description.length > 280
+            ? description.slice(0, 279).trimEnd() + "…"
+            : description;
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setDescription(
+                `**You:** ${clippedDescription}\n\n⏳ **Thinking…**\n_${randomIdleMessage()}_`,
+              )
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+        });
+
         const result = await engine.startAction(char.id, description);
         if (result.outcome) {
           // Re-read AFTER startAction so the embed + nav reflect the spent roll and
@@ -1836,14 +1824,16 @@ ${headInfo}`);
         } else {
           setPendingDecision(interaction.user.id, result.firstDecision);
           await interaction.editReply(
-            buildDecisionMessage(result.firstDecision, 0, result.state, char),
+            buildDecisionMessage(result.firstDecision, 0, result.state, char, result.actionType),
           );
         }
       } catch (err) {
         void notifyAdmin("Action (custom modal) failed", err);
         const msg = err instanceof Error ? err.message : String(err);
         await interaction
-          .editReply({ content: `❌ **Could not act.**\n${msg}` })
+          // Discord's edit-message endpoint leaves omitted fields untouched, so the
+          // thinking-page embed would otherwise persist alongside this error content.
+          .editReply({ content: `❌ **Could not act.**\n${msg}`, embeds: [] })
           .catch(() => {});
       }
       return;
@@ -2164,7 +2154,7 @@ _${idleMsg}_`)
           setPendingDecision(interaction.user.id, result.firstDecision);
           await interaction.webhook.editMessage(
             interaction.message.id,
-            buildDecisionMessage(result.firstDecision, 0, result.state, char),
+            buildDecisionMessage(result.firstDecision, 0, result.state, char, result.actionType),
           );
         }
       } catch (err) {
@@ -2293,9 +2283,19 @@ _${idleMsg}_`)
             characterId: char.id,
             dayNumber,
           });
+          const hints = buildActionHints({
+            rollsRemaining: char.rollsRemaining,
+            stamina: char.stamina,
+            maxStamina: char.maxStamina,
+            isSafe: engine.getLocation(char.location)?.isSafe ?? true,
+          });
+          const menuDescription =
+            hints.length > 0
+              ? `Pick a task to start:\n\n${hints.join("\n")}`
+              : "Pick a task to start:";
           const embed = new EmbedBuilder()
             .setTitle(`${dayJobEmoji(char.dayJob)} ${char.dayJob} — Daily Work`)
-            .setDescription("Pick a task to start:")
+            .setDescription(menuDescription)
             .setColor(0xdaa520);
 
           const row = new ActionRowBuilder<ButtonBuilder>();
@@ -2333,6 +2333,51 @@ _${idleMsg}_`)
         return;
       }
 
+      // /sleep (Rest) gets an immediate acknowledging beat before the result lands — mirrors
+      // the ⏳ day-job envelope (action.ts:2050-2062) so the click reads as having weight, even
+      // though restAtOak resolves synchronously with nothing to actually wait on.
+      if (navTarget === "sleep") {
+        try {
+          const msgFlags = interaction.message?.flags;
+          const mode = navResponseMode({
+            ephemeral: msgFlags?.has(MessageFlags.Ephemeral) ?? false,
+            componentsV2: msgFlags?.has(MessageFlags.IsComponentsV2) ?? false,
+          });
+          const loadingPayload = buildComponentPayload(
+            `🏕️ **Bedding down…**\n_${randomIdleMessage()}_`,
+            { ephemeral: true },
+          );
+          if (mode === "update") {
+            await interaction.update(loadingPayload);
+          } else {
+            await interaction.reply(loadingPayload);
+          }
+
+          const sleepHandler = registry.get("sleep");
+          const result = sleepHandler
+            ? await sleepHandler({ user: { id: interaction.user.id } } as never)
+            : "Something went wrong.";
+
+          // No nav bar on /sleep (global message) — matches the generic nav path below.
+          const payload = buildComponentPayload(result, { ephemeral: true });
+          await interaction.editReply(payload);
+        } catch (err) {
+          void notifyAdmin("Nav (sleep) failed", err);
+          // The loading beat is already showing — land an error over it so the
+          // player isn't stuck on "Bedding down…" forever (review of e426bc4).
+          try {
+            await interaction.editReply(
+              buildComponentPayload("Something went wrong. Try again in a moment.", {
+                ephemeral: true,
+              }),
+            );
+          } catch {
+            // reply itself failed (e.g. interaction expired) — admin is already notified.
+          }
+        }
+        return;
+      }
+
       const navHandler = registry.get(navTarget);
       if (!navHandler) return;
 
@@ -2342,9 +2387,9 @@ _${idleMsg}_`)
           user: { id: interaction.user.id },
         } as never);
 
-        // No nav bar on /action (own buttons) or /sleep (global message);
-        // otherwise exclude the current command's own button.
-        const noNav = navTarget === "action" || navTarget === "sleep";
+        // No nav bar on /action (own buttons); /sleep has its own early-return branch
+        // above and never reaches here. Otherwise exclude the current command's own button.
+        const noNav = navTarget === "action";
         const navButtons =
           noNav || !char ? undefined : getNavButtons(char, navTarget);
         const payload = buildComponentPayload(result, {

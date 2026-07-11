@@ -1,0 +1,22 @@
+[30m+----------------------------+[0m
+[30m|[0m[33m! IDENTICAL SHAPES REJECTED [0m[30m|[0m
+[30m|[0mColour can't carry meaning. [30m|[0m
+[30m|[0mMobile strips colour: #1 #17[30m|[0m
+[30m|[0m                            [30m|[0m
+[30m|[0mCorrect: distinct silhouette[30m|[0m
+[30m|[0m                            [30m|[0m
+[30m|[0m[32m___[0m        _[31m__ [0m             [30m|[0m
+[30m|[0m[32m(   )[0m      ([31m   ) [0m           [30m|[0m
+[30m|[0m[32m| ~ |[0m      |[31m▄:▄| [0m           [30m|[0m
+[30m|[0m[32m|   |[0m      |[31m   | [0m           [30m|[0m
+[30m|[0m[32m\_ / [0m      \[31m / \  [0m          [30m|[0m
+[30m|[0m[32m| |[0m       [31m/   \ [0m            [30m|[0m
+[30m|[0m[32m| |[0m       [31m\   / [0m            [30m|[0m
+[30m|[0m[32m\_/[0m        '[31m-' [0m             [30m|[0m
+[30m|[0m                            [30m|[0m
+[30m|[0m[32mheal[0m         [31mpoison[0m         [30m|[0m
+[30m|[0m[1;32m~[0m motif     [1;31m▄:▄[0m skull       [30m|[0m
+[30m|[0m                            [30m|[0m
+[30m|[0mShape + motif carry meaning.[30m|[0m
+[30m|[0mColour is redundant backup. [30m|[0m
+[30m+----------------------------+[0m

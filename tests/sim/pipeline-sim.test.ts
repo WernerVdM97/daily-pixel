@@ -89,30 +89,7 @@ describe('sim driver — pipeline machine via runScenario (real driver code path
     expect(result.turns[1].rollsRemaining).toBe(1);
   });
 
-  it('a legacy scenario with machine omitted is unaffected (defaults to legacy)', async () => {
-    const legacyLikeCharacter = BASE_CHARACTER;
-    const result = await runScenario({
-      name: 'legacy-default',
-      character: legacyLikeCharacter,
-      rollSource: { kind: 'fixed', value: 20 },
-      llm: {
-        kind: 'scripted',
-        script: () => ({
-          distilledType: 'rest',
-          stat: 'physical',
-          baseDc: 5,
-          required: false,
-          done: true,
-          decision: [],
-          outcomeText: 'You rest.',
-        }),
-      },
-      week: [[{ input: 'rest', choicePolicy: 'first-real' }]],
-      // machine intentionally omitted
-    });
 
-    expect(result.turns).toHaveLength(1);
-  });
 
   it('buildSimEngine(machine: "pipeline") returns a handle with no db/repos (nothing to spin up)', () => {
     const handle = buildSimEngine({ kind: 'fixed', value: 20 }, undefined, undefined, {
@@ -141,23 +118,7 @@ describe('sim driver — pipeline machine via runScenario (real driver code path
   });
 });
 
-describe('sim driver — runComparison', () => {
-  it('runs one scenario through both machines and returns both SimResults', async () => {
-    const { legacy, pipeline } = await runComparison(exampleComparisonScenario);
 
-    expect(legacy.scenario).toBe('goblin-skirmish');
-    expect(pipeline.scenario).toBe('goblin-skirmish');
-    expect(legacy.turns).toHaveLength(1);
-    expect(pipeline.turns).toHaveLength(1);
-
-    // Both machines were hand-scripted to express "the same" turn (Task 4 spec: not
-    // auto-derived from one another, but expected to agree on this simple case).
-    expect(legacy.turns[0].outcome).toBe('success');
-    expect(pipeline.turns[0].outcome).toBe('success');
-    expect(legacy.turns[0].wealth).toBe(5);
-    expect(pipeline.turns[0].wealth).toBe(5);
-  });
-});
 
 describe('sim — a scripted pipeline stage failure fails loudly', () => {
   it('propagates a scenario-author decide() bug uncaught, instead of silently producing wrong data', async () => {
@@ -952,6 +913,65 @@ describe('T3 iteration 2 — floor + loss ladder', () => {
     expect(lethalOutcome.outcome).toBe('failure');
     expect(lethalOutcome.hpZero).toBe(true);
   });
+
+  /**
+   * ANSI-D — floor-save then last-stand is a second, genuinely-fought round, not a re-render of
+   * the floor beat: `combatRounds` must carry both entries (the once-per-day survive beat, then
+   * the last-stand round), sharing `round: 1` by design ("round" is the label the floor snapshot
+   * was taken at, not a beat id) but otherwise distinct — different dice, and the continue
+   * frame's `combatRounds.at(-1)` must resolve to the last-stand beat, never the stale floor one.
+   */
+  it('floor-save then last stand accumulates two distinct combatRounds entries, both labelled round 1', async () => {
+    const handle = buildSimEngine({ kind: 'sequence', values: [1, 10, 20, 1] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: lowHpChar,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    await engine.startAction(1, 'fight the goblin');
+
+    // Round 1: player d20=1, enemy d20=10 → heavy, would-be-lethal at lowHpChar's 2 HP →
+    // floor-save fires (see 'first lethal blow triggers desperate-choice' above for the maths).
+    const desperate = await engine.stepAction(1, 'Press the attack');
+    expect(desperate.resolved).toBe(false);
+    const desperateDecision = (desperate as {
+      resolved: false;
+      nextDecision: { combatRounds?: { round: number; band: string; playerD20: number; enemyD20: number; floorSave?: boolean }[] };
+    }).nextDecision;
+    expect(desperateDecision.combatRounds).toHaveLength(1);
+    const floorBeat = desperateDecision.combatRounds![0];
+    expect(floorBeat.round).toBe(1);
+    expect(floorBeat.floorSave).toBe(true);
+
+    // Last stand, roll [20, 1]: player nat-20 forces a clean band regardless of margin (see
+    // 'last stand continues combat with player at 1 HP' above) — a normal fought round, appended
+    // as a second beat still labelled round 1.
+    const stand = await engine.stepAction(1, 'Last stand');
+    expect(stand.resolved).toBe(false);
+    const standDecision = (stand as {
+      resolved: false;
+      nextDecision: { combatRounds?: { round: number; band: string; playerD20: number; enemyD20: number; floorSave?: boolean }[] };
+    }).nextDecision;
+
+    expect(standDecision.combatRounds).toHaveLength(2);
+    const [entry0, entry1] = standDecision.combatRounds!;
+
+    // The floor beat is carried forward unchanged, not recomputed.
+    expect(entry0).toBe(floorBeat);
+    expect(entry0.round).toBe(1);
+    expect(entry1.round).toBe(1);
+
+    // Two separately-resolved rounds, not the same beat duplicated.
+    expect(entry1).not.toBe(entry0);
+    expect(entry1.playerD20).not.toBe(entry0.playerD20);
+    expect(entry1.enemyD20).not.toBe(entry0.enemyD20);
+    expect(entry1.band).not.toBe(entry0.band);
+    expect(entry1.floorSave).toBeUndefined();
+
+    // A continue/terminal frame's `combatRounds.at(-1)` shows the last-stand round's maths.
+    expect(standDecision.combatRounds!.at(-1)).toBe(entry1);
+  });
 });
 
 describe('T3 follow-up — voluntary mid-combat bail (flee at a cost)', () => {
@@ -1209,6 +1229,73 @@ describe('T5 — combat telemetry + metrics', () => {
     expect(engine.getCombatMetrics()).toEqual({ roundsFought: 2, floorSaves: 0, wins: 1, losses: 0 });
   });
 
+  /**
+   * ANSI-D — the accumulated per-fight round log. Reuses the same 2-round WIN scenario as the
+   * combatBeat test above (round 1 CONTINUE at enemyHp 12→4, round 2 WIN at 4→0) specifically
+   * because it's DB-backed (`PipelineSimEngine`'s real `RelationRepository`) — the raw machine's
+   * default no-op resolver can't round-trip `in_combat` between two separate `step()` calls, so a
+   * genuine multi-round accumulation can only be proven through this harness.
+   */
+  it('a multi-round fight accumulates one CombatBeatLog entry per round, maths matching each round', async () => {
+    const handle = buildSimEngine({ kind: 'sequence', values: [20, 1, 20, 1] }, undefined, undefined, {
+      machine: 'pipeline',
+      script: combatScript(),
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    await engine.startAction(1, 'fight the goblin');
+
+    // Round 1: player nat-20 (clean, amplified) vs enemy d20=1. BASE_CHARACTER physical=5, no
+    // items -> playerBonus=5; baseDc=12 -> enemyBonus=clamp(12-10,0,10)=2. margin=(20+5)-(1+2)=22.
+    const step1 = await engine.stepAction(1, 'Press the attack');
+    expect(step1.resolved).toBe(false);
+    const nextDecision = (step1 as { resolved: false; nextDecision: { combatRounds?: unknown[] } }).nextDecision;
+    expect(nextDecision.combatRounds).toHaveLength(1);
+    expect(nextDecision.combatRounds?.[0]).toEqual({
+      round: 1,
+      band: 'clean',
+      enemyHpBefore: 12,
+      enemyHpAfter: 4,
+      playerHpDelta: 0,
+      playerD20: 20,
+      playerBonus: 5,
+      dc: 12,
+      enemyD20: 1,
+      enemyBonus: 2,
+      margin: 22,
+      materialMutationFired: true,
+      ops: ['set_relation'],
+      marker: 'combat_round',
+    });
+
+    // Round 2: same roll pair -> another clean crit, enemy depleted -> WIN. The round-2 entry's
+    // own maths are identical to round 1's (same rolls/bonuses), but it's a DISTINCT beat
+    // (enemyHpBefore/After shift, and the terminal write clamps to 0) — nothing discarded, nothing
+    // recomputed for round 1's already-settled entry.
+    const step2 = await engine.stepAction(1, 'Press the attack');
+    expect(step2.resolved).toBe(true);
+    const outcome = (step2 as { resolved: true; outcome: { combatRounds?: unknown[] } }).outcome;
+    expect(outcome.combatRounds).toHaveLength(2);
+    expect(outcome.combatRounds?.[0]).toEqual(nextDecision.combatRounds?.[0]);
+    expect(outcome.combatRounds?.[1]).toEqual({
+      round: 2,
+      band: 'clean',
+      enemyHpBefore: 4,
+      enemyHpAfter: 0,
+      playerHpDelta: 0,
+      playerD20: 20,
+      playerBonus: 5,
+      dc: 12,
+      enemyD20: 1,
+      enemyBonus: 2,
+      margin: 22,
+      materialMutationFired: true,
+      ops: ['set_relation', 'modify_wealth'],
+      marker: 'combat_round',
+    });
+  });
+
   it('a win finalizes the in_combat edge at enemyHp 0 (defeated foe not resumed by the next fight)', async () => {
     // The terminal set_relation must land, or the edge lingers at the last CONTINUE round's HP and
     // a fresh fight would re-establish onto a still-"active" (enemyHp > 0) edge (plan decision 5).
@@ -1299,36 +1386,6 @@ describe('T5 — combat telemetry + metrics', () => {
     expect(summarize(result).combatMetrics).toEqual(result.combatMetrics);
   });
 
-  it('a legacy scenario carries no combatMetrics and renderTable output is unchanged', async () => {
-    const legacyScript: DecisionScript = () => ({
-      prompt: '',
-      distilledType: 'rest',
-      stat: 'physical',
-      baseDc: 0,
-      required: false,
-      done: true,
-      decision: [{ label: 'Rest', dcModifier: 0 }],
-      mutations: [],
-      outcomeText: 'You rest quietly.',
-    });
-
-    const result = await runScenario({
-      name: 'legacy-unaffected',
-      character: BASE_CHARACTER,
-      rollSource: { kind: 'fixed', value: 20 },
-      llm: { kind: 'scripted', script: legacyScript },
-      week: [[{ input: 'rest', choicePolicy: 'first-real' }]],
-    });
-
-    expect(result.combatMetrics).toBeUndefined();
-
-    const summary = summarize(result);
-    expect(summary.combatMetrics).toBeUndefined();
-    const table = renderTable(summary);
-    expect(table).not.toContain('Combat rounds');
-    expect(table).not.toContain('Floor-saves');
-    expect(table).not.toContain('Wins/Losses');
-  });
 });
 
 describe('T1b — full-chain pipeline coverage per ActionType', () => {
