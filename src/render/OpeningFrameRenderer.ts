@@ -63,6 +63,11 @@ export interface OpeningFrameSlots {
    *  player's first choice (`PipelineActionStateMachine.handleCombatStep`), so a real name/HP
    *  genuinely isn't knowable yet at this pre-decision moment. */
   enemyName?: string;
+  /** `combat` re-entry only (0.3.2 C4): a persisted `in_combat` edge from a prior bail means the
+   *  foe is already damaged. BANDED condition (wound word + pip fill) — never exact HP, mirroring
+   *  the continue card's `enemyConditionBand`/pip vocabulary. Undefined renders the placeholder
+   *  "unknown" bar + `?/?` exactly as before (fresh fight, non-combat, or no persisted match). */
+  enemyCondition?: { woundWord: string; filled: number; total: number };
 }
 
 // Matches the wireframes' own bar width (opening-combat.ascii) — the enemy bar is always the
@@ -152,6 +157,19 @@ function combatLines(slots: OpeningFrameSlots): Segment[][] {
   const enemyName = slots.enemyName ? clipName(slots.enemyName, 20) : 'Unknown foe';
   const enemyBar = hpBar(0, 0, ENEMY_BAR_WIDTH); // maxHp<=0 -> all-empty "unknown" bar (honest, not broken)
 
+  // Re-entry (0.3.2 C4): a persisted in_combat edge means the foe is already known-damaged —
+  // swap the placeholder "unknown" bar + `?/?` for the BANDED pip readout (mirrors
+  // CombatCardRenderer's continue-card idiom: coloured pip run, plain "] {woundWord}" suffix,
+  // no exact numbers). Absent `enemyCondition` renders exactly as before (fresh fight).
+  const condition = slots.enemyCondition;
+  const enemyHpLine: Segment[] = condition
+    ? [
+      plain('  HP ['),
+      coloured('▓'.repeat(condition.filled) + '░'.repeat(condition.total - condition.filled), 'threat'),
+      plain(`] ${condition.woundWord}`),
+    ]
+    : [plain('  HP ['), coloured(enemyBar, 'chrome'), plain('] ?/?')];
+
   const pcName = clipName(slots.pcName ?? 'Warden', 14);
   const hasPcHp = slots.pcHp !== undefined && slots.pcMaxHp !== undefined;
 
@@ -176,7 +194,7 @@ function combatLines(slots: OpeningFrameSlots): Segment[][] {
 
   return [
     [plain('  '), coloured(enemyName, 'threat')],
-    [plain('  HP ['), coloured(enemyBar, 'chrome'), plain('] ?/?')],
+    enemyHpLine,
     staticLine(BLANK),
     staticLine('        /\\        /\\        '),
     staticLine('       /  \\______/  \\       '),

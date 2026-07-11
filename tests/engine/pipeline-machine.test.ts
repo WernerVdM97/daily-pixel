@@ -6,6 +6,7 @@ import { createGeographyFinalize } from '../../src/engine/geography-finalize.js'
 import { runMigrations, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
 import { LocationEdgeRepository } from '../../src/db/repositories/locationEdge.js';
+import { RelationRepository } from '../../src/db/repositories/relation.js';
 import type { CharacterData, ItemData, WorldMutation, CombatStatusData } from '../../src/engine/WorldEngine.js';
 import type { MutationContext } from '../../src/engine/action/mutations.js';
 import type {
@@ -731,8 +732,9 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
     const llm = new MockPipelineLlmGateway();
     llm.decideResult = combatEnemyDecideResult();
 
-    // player d20=1 forces `heavy` regardless of margin (amplified playerHpDelta -3-2=-5); a
+    // player d20=1 forces `heavy` regardless of margin (amplified nominal playerHpDelta -3-2=-5); a
     // low-health character (3 HP) would-be-lethal on round 1, firing the once-per-day floor.
+    // The beat persists the ACTUAL applied delta (floored to 1 HP): 1 - 3 = -2, not the -5 nominal.
     const rolls = [1, 10];
     let i = 0;
     const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
@@ -750,7 +752,7 @@ describe('PipelineActionStateMachine — T5 combat telemetry beat shape', () => 
       band: 'heavy',
       enemyHpBefore: 10,
       enemyHpAfter: 9,
-      playerHpDelta: -5,
+      playerHpDelta: -2,
       playerD20: 1,
       playerBonus: 5,
       dc: 10,
@@ -1669,6 +1671,10 @@ describe('PipelineActionStateMachine — T2b combatFrame on terminal combat outc
     expect(step.outcome.combatFrame?.enemyName).toBe('Goblin');
     expect(step.outcome.combatFrame?.enemyMaxHp).toBe(deriveEnemyMaxHp(10));
     expect(typeof step.outcome.combatFrame?.margin).toBe('number');
+
+    // The genuine-death terminal beat clamps the lethal nominal delta (-5) to the player's
+    // actual HP (3) — the beat log can't record losing more HP than the player had.
+    expect(step.outcome.combatBeat?.playerHpDelta).toBe(-3);
   });
 
   it('a non-combat outcome has combatFrame undefined', async () => {
@@ -1842,5 +1848,261 @@ describe('PipelineActionStateMachine — T2b B#5/B#6 continue-screen clamping (A
     expect(cs.playerHp).toBe(12);
     expect(cs.playerMaxHp).toBe(12);
     expect(cs.playerHpDelta).toBe(0);
+  });
+});
+
+/**
+ * C3 (0.3.2 polish) — an npc-anchored fight should read its enemy's identity/HP off the real
+ * NPC, not a DC-derived guess: a known 24-HP stag must render as 24/24, not the ambient minion
+ * band. `nearbyNpcs` from the resolver now carries the NPC's own `health`; the seeding priority
+ * is real NPC health > LLM `maxHp` hint > `deriveEnemyMaxHp(baseDc)` (the ambient fallback, which
+ * must stay untouched for the location-anchored path).
+ */
+describe('PipelineActionStateMachine — C3: npc-anchored combat seeds real HP/name', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  function npcResolver(npcs: { id: number; name: string; description: string; health?: number | null }[]): PipelineContextResolver {
+    return {
+      getNearbyNpcs: () => npcs,
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+    };
+  }
+
+  function setRelationEdge(mutations: WorldMutation[] | undefined): { props: { enemyName: string; enemyHp: number; enemyMaxHp: number; round: number } } {
+    const edge = mutations?.find((m) => m.type === 'set_relation');
+    if (!edge) throw new Error('expected a set_relation mutation');
+    return edge as unknown as { props: { enemyName: string; enemyHp: number; enemyMaxHp: number; round: number } };
+  }
+
+  it('a known-NPC fight seeds enemyMaxHp/enemyName from the NPC\'s real health, not baseDc', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // baseDc=14 -> deriveEnemyMaxHp(14)=14, distinct from the stag's real health (24), so a
+    // pass proves the real value won and the DC-derived guess was never used.
+    llm.decideResult = combatEnemyDecideResult({
+      baseDc: 14,
+      combatEnemy: { name: 'Stag', anchor: 'npc' },
+    });
+    const resolver = npcResolver([{ id: 7, name: 'Stag', description: 'A wary stag.', health: 24 }]);
+
+    // player d20=10, enemy d20=10, enemyBonus=clamp(14-10,0,10)=4 -> margin=1 -> trade
+    // (enemyHpDelta -2, playerHpDelta -1 per the margin>0 tie-break) — a clean CONTINUE, no win.
+    const machine = new PipelineActionStateMachine(llm, () => 10, resolver);
+
+    const started = await machine.start(testChar(), 'attack the stag', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    const edge = setRelationEdge(step.mutations);
+    expect(edge.props.enemyMaxHp).toBe(24);
+    expect(edge.props.enemyHp).toBe(22);
+    expect(edge.props.enemyName).toBe('Stag');
+    expect(deriveEnemyMaxHp(14)).toBe(14); // sanity: the DC-derived guess this must NOT use
+  });
+
+  it('a location-anchored (ambient) fight still derives enemyMaxHp from baseDc — fallback untouched', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult({ baseDc: 10 }); // anchor: 'location' (default)
+
+    // player d20=10, enemy d20=10, enemyBonus=0 -> margin=5 -> glanced (enemyHpDelta -3).
+    const machine = new PipelineActionStateMachine(llm, () => 10);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    const edge = setRelationEdge(step.mutations);
+    expect(edge.props.enemyMaxHp).toBe(deriveEnemyMaxHp(10));
+    expect(edge.props.enemyName).toBe('Goblin');
+  });
+
+  it('the resolved NPC\'s real health outranks the LLM-authored maxHp hint', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult({
+      baseDc: 10,
+      combatEnemy: { name: 'Stag', anchor: 'npc', maxHp: 30 },
+    });
+    const resolver = npcResolver([{ id: 7, name: 'Stag', description: 'A wary stag.', health: 24 }]);
+    const machine = new PipelineActionStateMachine(llm, () => 10, resolver);
+
+    const started = await machine.start(testChar(), 'attack the stag', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    // Real health (24) wins over both the LLM's hint (30) and baseDc's derivation (10).
+    expect(setRelationEdge(step.mutations).props.enemyMaxHp).toBe(24);
+  });
+
+  it('a null NPC health falls through to the LLM maxHp hint', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult({
+      baseDc: 10,
+      combatEnemy: { name: 'Stag', anchor: 'npc', maxHp: 18 },
+    });
+    const resolver = npcResolver([{ id: 7, name: 'Stag', description: 'A wary stag.', health: null }]);
+    const machine = new PipelineActionStateMachine(llm, () => 10, resolver);
+
+    const started = await machine.start(testChar(), 'attack the stag', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(setRelationEdge(step.mutations).props.enemyMaxHp).toBe(18);
+  });
+
+  it('a null NPC health with no LLM hint falls through to deriveEnemyMaxHp(baseDc)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult({
+      baseDc: 12,
+      combatEnemy: { name: 'Stag', anchor: 'npc' },
+    });
+    const resolver = npcResolver([{ id: 7, name: 'Stag', description: 'A wary stag.', health: null }]);
+    const machine = new PipelineActionStateMachine(llm, () => 10, resolver);
+
+    const started = await machine.start(testChar(), 'attack the stag', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(setRelationEdge(step.mutations).props.enemyMaxHp).toBe(deriveEnemyMaxHp(12));
+  });
+
+  it('enemyMaxHp stays constant and enemyHp is non-increasing across rounds once the fight is persisted for real', async () => {
+    // A real (in-memory) RelationRepository, not a static stub — this is the only way to prove
+    // round 2's `readCombatState` reads back the SAME enemyMaxHp rather than re-seeding it off
+    // combatEnemy again (the raw machine's default no-op resolver can't round-trip `in_combat`
+    // between separate step() calls; see the ANSI-D describe block's header comment above).
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    const relationRepo = new RelationRepository(db);
+
+    const llm = new MockPipelineLlmGateway();
+    // Queue covers all three `decide()` calls: `start()`'s NEW_ACTION beat, then round 1 and
+    // round 2's CONTINUE beats.
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 10, combatEnemy: { name: 'Stag', anchor: 'npc' } }),
+      combatEnemyDecideResult({ baseDc: 10, combatEnemy: { name: 'Stag', anchor: 'npc' } }),
+      combatEnemyDecideResult({ baseDc: 10, combatEnemy: { name: 'Stag', anchor: 'npc' } }),
+    ];
+    const resolver: PipelineContextResolver = {
+      ...npcResolver([{ id: 7, name: 'Stag', description: 'A wary stag.', health: 30 }]),
+      getSceneRelations: (node) => relationRepo.forNode(node.type, node.ref),
+    };
+
+    // Both rounds: player d20=10, enemy d20=10 -> glanced (enemyHpDelta -3, playerHpDelta 0) —
+    // never a crit/floor/win, so the fight just continues twice off the NPC-seeded 30 HP.
+    const rolls = [10, 10, 10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++], resolver);
+    const char = testChar();
+
+    const started = await machine.start(char, 'attack the stag', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const round1 = await machine.step(started.state, 'Press the attack', char, testItems);
+    expect(round1.resolved).toBe(false);
+    if (round1.resolved) throw new Error('expected unresolved step');
+    const edge1 = setRelationEdge(round1.mutations);
+    expect(edge1.props.enemyMaxHp).toBe(30);
+    expect(edge1.props.enemyHp).toBe(27);
+
+    // Persist round 1's edge for real (mirrors `WorldEngineImpl.applyResolution` /
+    // `persistAuthoredRelations`) so round 2's `readCombatState` finds live state instead of
+    // re-seeding from `combatEnemy`. Hand-resolved key (`npc:7`) rather than going through
+    // `resolveAuthoredRelation` — the anchor's `name` is already the resolved npc id, not a
+    // display name, so re-resolving it against `nearbyNpcs` by name would fail (documented
+    // caveat in `combat-state.ts`'s `toAnchor`).
+    relationRepo.set({
+      fromType: 'pc', fromRef: String(char.id),
+      toType: 'npc', toRef: '7',
+      relType: 'in_combat',
+      props: edge1.props,
+    });
+
+    const round2 = await machine.step(round1.state, 'Press the attack', char, testItems);
+    expect(round2.resolved).toBe(false);
+    if (round2.resolved) throw new Error('expected unresolved step');
+    const edge2 = setRelationEdge(round2.mutations);
+
+    expect(edge2.props.enemyMaxHp).toBe(30); // constant — not re-derived, not grown
+    expect(edge2.props.enemyHp).toBeLessThanOrEqual(edge1.props.enemyHp); // monotonically non-increasing
+    expect(edge2.props.enemyName).toBe('Stag');
+
+    db.close();
+  });
+});
+
+describe('PipelineActionStateMachine — C6 combat empty-decision guard (0.3.2)', () => {
+  it('a combat action with an empty DECIDE decision[] yields an unresolved start whose first step() runs a contested round, never a one-shot auto-resolve', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // CLASSIFY hits combat, DECIDE returns empty decisions with a combatEnemy.
+    llm.classifyResult = { kind: 'hit', actionType: 'combat', flags: { unsafe_location: false, needs_roll: true, target_present: true } };
+    llm.decideResult = {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+    };
+
+    // Player nat-20 against a weak foe (baseDc=6 → enemyMaxHp=6, enemyBonus=0).
+    // Crit clean: amplified -8 kills in one round — the fight resolves on step(),
+    // proving handleCombatStep ran (its termination ladder fired) rather than the
+    // one-shot resolve() path.
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+
+    // Guard: start() must NOT auto-resolve. The synthesised first decision must have
+    // a real non-bail option.
+    expect(started.resolved).toBe(false);
+    if (started.resolved) throw new Error('expected unresolved start — guard did not fire');
+
+    const realOptions = started.firstDecision.options.filter(o => o.dcModifier !== null);
+    expect(realOptions.length).toBeGreaterThanOrEqual(1);
+    expect(realOptions[0].label).toBe('Press the attack');
+    expect(started.firstDecision.options.some(o => o.dcModifier === null)).toBe(true); // flee present
+
+    // step() must route through handleCombatStep, producing a combatBeat.
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(true); // round-1 kill resolves
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    // A combatBeat proves a contested roll ran inside handleCombatStep.
+    // On a resolved step, combatBeat lives on the outcome (same shape as terminal path).
+    expect(step.outcome.combatBeat).toBeDefined();
+    expect(step.outcome.combatBeat!.round).toBe(1);
+    expect(step.outcome.combatBeat!.band).toBe('clean');
+    expect(step.outcome.combatBeat!.marker).toBe('combat_round');
   });
 });

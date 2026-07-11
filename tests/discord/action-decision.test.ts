@@ -359,7 +359,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
   // ── ANSI-D: the continue frame's dice line (previously the frame showed HP bands only) ──
 
   function round(overrides: Partial<CombatBeatLog> = {}): CombatBeatLog {
-    return {
+    const beat = {
       round: 1,
       band: 'trade',
       enemyHpBefore: 10,
@@ -370,12 +370,16 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
       dc: 15,
       enemyD20: 10,
       enemyBonus: 2,
-      margin: 2,
       materialMutationFired: true,
       ops: ['modify_health'],
       marker: 'combat_round',
       ...overrides,
     };
+    // Derive margin from this beat's own dice rather than trusting a caller-supplied value —
+    // a hardcoded margin that contradicts the dice is the exact wiring-bug class 0.3.2 exists
+    // to catch, so the fixture must not be able to assert on a self-contradictory round.
+    const margin = (beat.playerD20 + beat.playerBonus) - (beat.enemyD20 + beat.enemyBonus);
+    return { ...beat, margin };
   }
 
   const combatStatus = {
@@ -387,7 +391,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     playerHpDelta: -2,
   };
 
-  it('shows the round dice line (floated calc + boxed DC + margin/band) when combatRounds carries a fought round', () => {
+  it('shows the round dice line (contested roll vs enemy total + margin/band) when combatRounds carries a fought round', () => {
     const msg = buildDecisionMessage({
       prompt: 'Combat — what do you do?',
       combatStatus,
@@ -396,13 +400,16 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
 
-    // Redesign: left-aligned calc "N +B = T", boxed DC "[DC D]" right.
-    // Strip SGR — ANSI codes split segments so 'hit +2 margin' isn't contiguous raw.
+    // POC+ 0.3.2 C1: the readout shows the contested roll (player vs enemy total),
+    // not a solo `[DC N]` threshold — mirrors the terminal card's vocabulary.
+    // Strip SGR — ANSI codes split segments so 'hit +5 margin' isn't contiguous raw.
     const mono = desc.replace(/\x1b\[[0-9;]*m/g, '');
-    expect(mono).toContain('14 +3 = 17');
-    expect(mono).toContain('[DC 15]');
-    expect(mono).toContain('hit +2 margin');
+    expect(mono).toContain('vs 10 +2 = 12');
+    expect(mono).toContain('+3 = 17');
+    // margin derived from the fixture's own dice: (14+3) - (10+2) = +5.
+    expect(mono).toContain('hit +5 margin');
     expect(mono).toContain('TRADE');
+    expect(mono).not.toContain('[DC');
   });
 
   it('reads the LAST round of combatRounds (a multi-round fight shows the most recent dice, not the first)', () => {
@@ -410,36 +417,40 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
       prompt: 'Combat — what do you do?',
       combatStatus,
       combatRounds: [
-        round({ round: 1, playerD20: 5, dc: 11, margin: -4, band: 'heavy' }),
-        round({ round: 2, playerD20: 19, playerBonus: 2, dc: 13, margin: 8, band: 'clean' }),
+        round({ round: 1, playerD20: 5, dc: 11, band: 'heavy' }),
+        round({ round: 2, playerD20: 19, playerBonus: 2, dc: 13, band: 'clean' }),
       ],
       options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
 
-    expect(desc).toContain('19 +2 = 21');
-    expect(desc).toContain('[DC 13]');
-    // Strip SGR for margin checks — colour codes split segments.
+    // Strip SGR for the checks below — colour codes split segments.
     const mono = desc.replace(/\x1b\[[0-9;]*m/g, '');
-    expect(mono).toContain('hit +8 margin');
+    expect(mono).toContain('vs 10 +2 = 12');
+    expect(mono).toContain('+2 = 21');
+    // margin derived from round 2's own dice: (19+2) - (10+2) = +9.
+    expect(mono).toContain('hit +9 margin');
     expect(mono).toContain('CLEAN');
-    expect(desc).not.toContain('[DC 11]');
+    // Round 1's playerD20 (5) must not appear as the focal digit — only the last round shows.
+    expect(mono).not.toMatch(/ {2}5\s/);
   });
 
   it('signs a negative bonus and a negative margin correctly', () => {
     const msg = buildDecisionMessage({
       prompt: 'Combat — what do you do?',
       combatStatus,
-      combatRounds: [round({ playerD20: 4, playerBonus: -1, dc: 15, margin: -12, band: 'heavy' })],
+      combatRounds: [round({ playerD20: 4, playerBonus: -1, dc: 15, band: 'heavy' })],
       options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
 
-    expect(desc).toContain('4 -1 = 3');
-    expect(desc).toContain('[DC 15]');
     const mono = desc.replace(/\x1b\[[0-9;]*m/g, '');
-    expect(mono).toContain('hit -12 margin');
+    expect(mono).toContain('vs 10 +2 = 12');
+    expect(mono).toContain('-1 = 3');
+    // margin derived from this round's own dice: (4-1) - (10+2) = -9.
+    expect(mono).toContain('hit -9 margin');
     expect(mono).toContain('HEAVY');
+    expect(mono).not.toContain('[DC');
   });
 
   it('shows no dice line when combatRounds is absent (first beat / pre-combat) — HP bands render exactly as before', () => {
@@ -478,6 +489,75 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     }, 0);
     const desc = (msg.embeds[0] as any).description as string;
     expect(desc).not.toMatch(/Wolf:|Bloodied|HP/);
+  });
+});
+
+// ── 0.3.2 C5: the last-stand / bail (desperate-choice) screen must show the same roll readout
+// as an ordinary continue screen, not just the two buttons. The engine's floor branch emits a
+// decision carrying combatStatus + combatRounds (a floorSave beat) plus the Bail bloodied / Last
+// stand options — see PipelineActionStateMachine's desperate-choice branch, whose exact beat shape
+// is pinned by `tests/engine/pipeline-machine.test.ts` ("the desperate-choice (floor) beat carries
+// floorSave: true"). This asserts that shape renders the readout, closing the "on decision 2 I only
+// see last stand or bail with no rolls" report. ──
+describe('buildDecisionMessage — last-stand / bail decision screen shows the roll readout (C5)', () => {
+  // Mirrors the engine's floor branch output: a floored player (survives at 1 HP, delta 0), the
+  // band-depleted enemy, the fought round, and the two forced options.
+  const floorBeat: CombatBeatLog = {
+    round: 1,
+    band: 'heavy',
+    enemyHpBefore: 10,
+    enemyHpAfter: 9,
+    playerHpDelta: -2,
+    playerD20: 1,
+    playerBonus: 5,
+    dc: 12,
+    enemyD20: 10,
+    enemyBonus: 2,
+    margin: (1 + 5) - (10 + 2),
+    materialMutationFired: true,
+    ops: ['modify_health', 'set_relation', 'set_relation'],
+    marker: 'combat_round',
+    floorSave: true,
+  };
+  const desperateDecision = {
+    prompt: "The blow would be lethal — you feel death's cold touch. Make your stand or flee before it's too late.",
+    combatStatus: {
+      enemyName: 'Shadow Stag',
+      woundWord: 'Critical',
+      pips: { filled: 5, total: 5 },
+      playerHp: 1,
+      playerMaxHp: 30,
+      playerHpDelta: 0,
+    },
+    combatRounds: [floorBeat],
+    options: [
+      { label: 'Bail bloodied', dcModifier: null },
+      { label: 'Last stand', dcModifier: 0 },
+    ],
+  };
+
+  it('renders the contested-roll readout and enemy condition alongside the Bail/Last-stand buttons', () => {
+    const msg = buildDecisionMessage(desperateDecision, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+    const mono = desc.replace(/\x1b\[[0-9;]*m/g, '');
+
+    // The same post-C1/C2 readout the ordinary continue screen shows: the contested roll (player
+    // vs the enemy's total), the signed margin, and the band word — never a solo [DC N].
+    expect(mono).toContain('vs 10 +2 = 12'); // enemy contested total
+    expect(mono).toContain('+5 = 6');        // player total (1 + 5)
+    expect(mono).toContain('hit -6 margin'); // margin (1+5) - (10+2) = -6
+    expect(mono).toContain('HEAVY');
+    expect(mono).not.toContain('[DC');
+    // Enemy condition still reads (banded, not exact numbers).
+    expect(mono).toContain('Shadow Stag');
+    expect(mono).toContain('Critical');
+
+    // The forced options still render — the readout is ADDED above them, not a swap. Both survive
+    // the standard convention: the real "Last stand" option is lettered (A) with its label in the
+    // body; the terminal "Bail bloodied" keeps a worded button. (Cosmetic styling of these buttons
+    // is a separate tracked item, TODO.md — out of C5's readout scope.)
+    expect(desc).toContain('**A.** Last stand');
+    expect(buttons(msg).map((b: any) => b.label)).toEqual(['Bail bloodied', 'A']);
   });
 });
 
@@ -545,5 +625,95 @@ describe('buildDecisionMessage — ANSI-F opening frame (art post + reply-body d
     expect(msg.embeds.length).toBe(2);
     const frameDesc = (msg.embeds[0] as any).description as string;
     expect(frameDesc).toContain('```ansi');
+  });
+});
+
+describe('buildOutcomeEmbed — combat frame on outcome (0.3.2 P2)', () => {
+  const combatBeat: CombatBeatLog = {
+    round: 2,
+    band: 'clean',
+    enemyHpBefore: 6,
+    enemyHpAfter: 0,
+    playerHpDelta: 0,
+    playerD20: 18,
+    playerBonus: 5,
+    dc: 10,
+    enemyD20: 7,
+    enemyBonus: 0,
+    margin: 16,
+    materialMutationFired: true,
+    ops: ['set_relation'],
+    marker: 'combat_round',
+  };
+
+  const combatOutcome: ActionOutcome = {
+    distilledType: 'skirmish',
+    finalDc: 10,
+    playerRolled: 18,
+    rollBonus: 5,
+    rollStat: 'physical',
+    outcome: 'success',
+    outcomeText: 'Your blade finds its mark — the creature crumples.',
+    mutations: [],
+    combatBeat,
+    combatFrame: { enemyName: 'Shadow Stag', enemyMaxHp: 24, margin: 16 },
+    combatRounds: [combatBeat],
+  };
+
+  const char = {
+    name: 'Aldric',
+    health: 12,
+    maxHealth: 12,
+    stamina: 10,
+    maxStamina: 10,
+    rollsRemaining: 1,
+    wealth: 5,
+  };
+
+  it('renders the combat opening frame on a combat outcome instead of the plain location scene', () => {
+    const embed = buildOutcomeEmbed(combatOutcome, char as any, null, {
+      rawInput: 'attack the stag',
+      decisions: [],
+    });
+    const desc = (embed as any).description as string;
+    // The combat opening frame renders within an ansi code block.
+    expect(desc).toContain('```ansi');
+    // The enemy nameplate appears in the combat frame.
+    expect(desc).toContain('Shadow Stag');
+    // The player nameplate also appears.
+    expect(desc).toContain('Aldric');
+    // The terminal card (with COMBAT RESOLVED and margin) is also present.
+    expect(desc).toContain('COMBAT RESOLVED');
+    expect(desc).toContain('margin +16');
+    // The location scene (from the 'scene' parameter) is NOT rendered.
+    // (We passed null for scene, so no location block could appear.)
+  });
+
+  it('shows the enemy at their final (depleted) HP-condition band, not full', () => {
+    const embed = buildOutcomeEmbed(combatOutcome, char as any, null, {
+      rawInput: 'attack the stag',
+      decisions: [],
+    });
+    const desc = (embed as any).description as string;
+    // The enemy's banded condition (wound word) from the last beat appears.
+    // enemyHpBefore=6, enemyHpAfter=0 → fraction 0 → 'Critical'.
+    expect(desc).toContain('Critical');
+  });
+
+  it('a non-combat outcome still shows the location scene as before', () => {
+    const nonCombatOutcome: ActionOutcome = {
+      distilledType: 'hunt',
+      finalDc: 14,
+      playerRolled: 16,
+      outcome: 'success',
+      outcomeText: 'The stag falls.',
+      mutations: [],
+    };
+    const embed = buildOutcomeEmbed(nonCombatOutcome, char as any, '🌲 Forest scene art', {
+      rawInput: 'hunt the stag',
+      decisions: [{ prompt: 'Hunt', chosen: 'Track it', dcModifier: -1, distilledType: 'hunt' }],
+    });
+    const desc = (embed as any).description as string;
+    expect(desc).toContain('Forest scene art');
   });
 });

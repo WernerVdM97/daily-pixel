@@ -162,6 +162,11 @@ export interface CombatTerminalCard {
    *  enough for a single line in the terminal card. Replaces the truncated-prose flavour line
    *  (F#22: prose never fits there). */
   band: string;
+  /** Signed player-HP delta the fight-ending round applied (POC+ 0.3.2 C2) — surfaced beside
+   *  the band word and the WON/LOST verdict so all three facts read as one coherent story. */
+  playerHpDelta: number;
+  /** Enemy-HP delta the fight-ending round applied — always <= 0. */
+  enemyHpDelta: number;
 
 }
 
@@ -185,7 +190,10 @@ function buildCombatTerminalCard(outcome: ActionOutcome, _ctx: OutcomeRenderCont
 
   const total = beat.playerD20 + beat.playerBonus;
   const success = outcome.outcome === 'success';
-  const verdict = success ? 'WIN' : outcome.outcome === 'failure' ? 'LOSS' : outcome.outcome.toUpperCase();
+  // Past tense (POC+ 0.3.2 C2): the fight is over on this card, so the verdict reads as a
+  // completed fact ("WON"/"LOST"), not a live in-round call — reserved for the fight-terminal
+  // beat only, distinct from the per-round band-led readout on the continue card.
+  const verdict = success ? 'WON' : outcome.outcome === 'failure' ? 'LOST' : outcome.outcome.toUpperCase();
 
   return {
     label: 'COMBAT RESOLVED',
@@ -198,6 +206,8 @@ function buildCombatTerminalCard(outcome: ActionOutcome, _ctx: OutcomeRenderCont
     verdict,
     margin: beat.margin,
     band: beat.band.toUpperCase(),
+    playerHpDelta: beat.playerHpDelta,
+    enemyHpDelta: beat.enemyHpAfter - beat.enemyHpBefore,
   };
 }
 

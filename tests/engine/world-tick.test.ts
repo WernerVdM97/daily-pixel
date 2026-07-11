@@ -668,6 +668,31 @@ describe('world tick', () => {
         const here = npcRepo.findByLocation('The Dark Pines');
         expect(here.some((n) => n.name === 'The Pale Stalker')).toBe(true);
       });
+
+      it('anchors a spawned threat to its announced location so it does not wander off on the tick (N1)', () => {
+        const { engine, npcRepo, locationRepo } = makeEngine();
+        // Two wilderness nodes so the wander has a real destination to drift to — otherwise the
+        // test would pass even un-anchored (nowhere to move).
+        locationRepo.create({ name: 'The Forest Edge', tags: 'forest,wilderness', isSafe: 0 });
+        locationRepo.create({ name: 'The Dark Pines', tags: 'forest,wilderness', isSafe: 0 });
+        engine.spawnNpc({ name: 'The Bramble Boar', class: 'Beast', location: 'The Forest Edge' });
+
+        // 10 admin ticks: an un-anchored 80%-per-tick mover would almost surely have drifted by now
+        // (P(stay 10×) = 0.2^10 ≈ 1e-7); the anchor keeps the threat on its announced spot.
+        for (let i = 0; i < 10; i++) engine.tick(true);
+
+        expect(npcRepo.findByLocation('The Forest Edge').map((n) => n.name)).toContain('The Bramble Boar');
+      });
+
+      it('is idempotent — re-announcing the same threat at the same spot adds no duplicate', () => {
+        const { engine, npcRepo, locationRepo } = makeEngine();
+        locationRepo.create({ name: 'The Forest Edge', tags: 'forest,wilderness', isSafe: 0 });
+        engine.spawnNpc({ name: 'The Bramble Boar', class: 'Beast', location: 'The Forest Edge' });
+        engine.spawnNpc({ name: 'The Bramble Boar', class: 'Beast', location: 'The Forest Edge' });
+
+        const boars = npcRepo.findByLocation('The Forest Edge').filter((n) => n.name === 'The Bramble Boar');
+        expect(boars).toHaveLength(1);
+      });
     });
   });
 

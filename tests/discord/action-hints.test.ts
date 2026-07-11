@@ -36,6 +36,30 @@ describe("buildActionHints", () => {
     expect(hints).toEqual([]);
   });
 
+  // N3: on Saturday the allowance is 4 (base 3 + bonus), so the genuine last roll is still
+  // reached at rollsRemaining === 1. The hint must NOT fire a roll early (at 2, with the bonus
+  // roll still in hand) and MUST fire on that true final roll — the hint keys off rolls left,
+  // which is allowance-agnostic, so no premature Saturday warning.
+  it("does not flag the last action a roll early on Saturday, with the bonus roll still in hand", () => {
+    const hints = buildActionHints({
+      rollsRemaining: 2, // 2 of Saturday's 4-roll allowance left — not the last action yet
+      stamina: 10,
+      maxStamina: 10,
+      isSafe: true,
+    });
+    expect(hints).toEqual([]);
+  });
+
+  it("flags the genuine last Saturday roll (one of the 4-roll allowance remaining)", () => {
+    const hints = buildActionHints({
+      rollsRemaining: 1,
+      stamina: 10,
+      maxStamina: 10,
+      isSafe: true,
+    });
+    expect(hints).toEqual(["🎲 Last action of the day — make it count."]);
+  });
+
   it("flags low stamina at the 25% threshold", () => {
     const hints = buildActionHints({
       rollsRemaining: 3,

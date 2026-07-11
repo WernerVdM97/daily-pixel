@@ -51,37 +51,49 @@ Start with
 ```
 daily-pixel/
 ├── src/
-│   ├── index.ts                    # Entry point — startup, Discord client, interaction router
+│   ├── index.ts                    # Entry point - startup, Discord client, interaction router
 │   ├── version.ts                  # APP_VERSION constant
+│   ├── config/
+│   │   └── env.ts                  # Central logging/debug env contract (shared by both gateways)
 │   ├── db/
 │   │   ├── schema.sql              # Tables + indexes + seed data
 │   │   ├── connection.ts           # SQLite init
 │   │   ├── migrate.ts              # Idempotent migrations
-│   │   ├── migrations/             # Dated migration files
-│   │   └── repositories/           # Row-level data access (action, character, item, location, NPC, …)
+│   │   ├── migrations/             # Dated migration files (+ index, types)
+│   │   └── repositories/           # Row-level data access (action, character, item, location, edge, NPC, relation, llm-call, meta, …)
 │   ├── engine/
-│   │   ├── WorldEngineImpl.ts      # Core engine — characters, tick, items, NPCs
+│   │   ├── WorldEngineImpl.ts      # Core engine - characters, tick, items, NPCs
 │   │   ├── WorldEngine.ts          # Public interfaces
+│   │   ├── MockWorldEngine.ts      # In-memory engine for tests
 │   │   ├── StatComputer.ts         # Stat derivation from class/upbringing/race
+│   │   ├── stat-format.ts          # Stat labels + emoji for rendered output
 │   │   ├── OutcomeRenderer.ts      # Action outcome formatting
+│   │   ├── authored-text.ts        # Neutralize LLM/player free text before persist + re-emit
+│   │   ├── ErrorMapper.ts          # Errors -> user-facing Discord messages
+│   │   ├── IdleMessageSelector.ts  # Atmospheric "waiting for LLM" lines
 │   │   ├── geography.ts            # Map graph traversal
 │   │   ├── geography-finalize.ts   # Travel mutation validation
 │   │   └── action/
 │   │       ├── machine.ts          # Legacy action state machine (v11)
-│   │       ├── PipelineActionStateMachine.ts  # v12 pipeline (classify → decide → resolve)
+│   │       ├── PipelineActionStateMachine.ts  # v12 pipeline (classify -> decide -> resolve)
 │   │       ├── dc.ts               # DC accumulation, roll bonus, resolution
+│   │       ├── combat-dc.ts        # Contested-roll -> severity-band math (combat)
+│   │       ├── combat-state.ts     # in_combat / combat_save scene-state model
 │   │       ├── mutations.ts        # Apply/validate LLM world mutations
+│   │       ├── relation-wiring.ts  # Authored relation endpoints -> id resolution
 │   │       ├── pipeline-context.ts # Per-call context for the v12 pipeline
 │   │       └── travel-gate.ts      # Travel coherence backstop
 │   ├── llm/
 │   │   ├── LlmGateway.ts           # Gateway interface & types
-│   │   ├── DeepseekLlmGateway.ts
+│   │   ├── DeepseekLlmGateway.ts   # v11 monolithic DeepSeek gateway
+│   │   ├── deepseek-transport.ts   # Shared raw HTTP mechanics for DeepSeek calls
 │   │   ├── FallbackLlmGateway.ts   # Retry chain + divine intervention mock
 │   │   ├── CritiquedLlmGateway.ts  # Coherence critic decorator
 │   │   ├── MockLlmGateway.ts
 │   │   ├── LlmCallRecorder.ts      # Audit logging interface
+│   │   ├── capture-policy.ts       # Deep-capture (raw prompt + thinking) gating
 │   │   ├── prompt-builder.ts       # System prompt + user message (v11, v12 set loader)
-│   │   └── pipeline/               # v12 pipeline: classifier, stamping, types
+│   │   └── pipeline/               # v12 pipeline: classifier, prod gateway, messages, parse, stamping, types
 │   ├── discord/
 │   │   ├── CommandRegistry.ts
 │   │   ├── WizardSession.ts        # Multi-step join wizard
@@ -89,14 +101,23 @@ daily-pixel/
 │   │   ├── images.ts               # Cached asset image loader
 │   │   ├── profanity.ts            # Configurable profanity filter
 │   │   ├── map-render.ts           # /map ASCII rendering
+│   │   ├── announcements.ts        # Twice-daily morning/evening posts
+│   │   ├── collapse.ts             # "A soul has bottomed out" world notices
 │   │   ├── pin.ts / release-notes.ts / weekly-recap.ts / afternoon.ts
 │   │   └── commands/               # One file per /command
-│   ├── sim/                        # Offline simulation harness (Thread B/C tuning)
+│   ├── render/
+│   │   ├── AnsiRenderer.ts         # Coloured ANSI frame rendering for Discord
+│   │   ├── CombatCardRenderer.ts   # Combat-card composers (continue / terminal)
+│   │   ├── OpeningFrameRenderer.ts # Per-action opening scene-setter frame
+│   │   └── palette.ts              # Colour roles -> Discord ANSI SGR mapping
+│   ├── sim/                        # Offline simulation harness (Thread B/C tuning) + scenarios
 │   ├── scenes/
 │   │   ├── SceneLoader.ts          # Loads ASCII art from assets/scenes/
-│   │   └── TagResolver.ts          # Location tags → scene name
+│   │   └── TagResolver.ts          # Location tags -> scene name
 │   ├── assets/
-│   │   └── yaml-loader.ts          # Fail-fast YAML config loading
+│   │   ├── yaml-loader.ts          # Fail-fast YAML config loading
+│   │   ├── ascii-loader.ts         # Fail-fast ASCII art loading
+│   │   └── asset-schemas.ts        # Runtime validators for shipped YAML assets
 │   └── util/
 │       └── colors.ts               # ANSI colour helpers
 ├── assets/

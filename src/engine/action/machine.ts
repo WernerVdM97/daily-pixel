@@ -5,7 +5,7 @@ import type { WorldMutation } from '../WorldEngine.js';
  * repositories while letting it populate the LLM context with live world state.
  */
 export interface WorldContextResolver {
-  getNearbyNpcs(location: string): Array<{ id: number; name: string; description: string }>;
+  getNearbyNpcs(location: string): Array<{ id: number; name: string; description: string; health?: number | null }>;
   getNearbyPcs(location: string, excludeCharId: number): Array<{ name: string; class: string }>;
   getRecentActions(characterId: number): Array<{ type: string; outcome: string; narrative?: string | null }>;
   /** All known location names — retained for the audit digest + stripped retry context. */

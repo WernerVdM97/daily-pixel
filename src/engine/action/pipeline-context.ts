@@ -92,7 +92,9 @@ export function buildPipelineContext(
       dayJob: char.dayJob,
     },
     location: { name: char.location, isSafe: resolver.isLocationSafe(char.location), region: localGeography.region },
-    nearbyNpcs: resolver.getNearbyNpcs(char.location),
+    // Project to the LLM-facing shape explicitly — `getNearbyNpcs` now also carries `health`
+    // (combat max-HP, C3), which the prompt never uses and must not leak into the context.
+    nearbyNpcs: resolver.getNearbyNpcs(char.location).map((n) => ({ id: n.id, name: n.name, description: n.description })),
     nearbyPcs: resolver.getNearbyPcs(char.location, char.id),
     recentActions: resolver.getRecentActions(char.id),
     knownLocations,

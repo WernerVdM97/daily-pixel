@@ -279,20 +279,24 @@ export function backfillLegacyWorld(db: Database.Database, seedNames: string[]):
 }
 
 function seedNpcs(db: Database.Database): void {
+  // `health` is the NPC's combat max-HP, seeded from character rather than the encounter
+  // DC (0.3.2 C3). Kept in sync with the backfill map in
+  // migrations/202607112100_npc_combat_health.ts, which populates DBs seeded before health
+  // existed. Values are within [ENEMY_HP_MIN, ENEMY_HP_MAX] = [6, 40].
   const npcs = [
-    { name: 'The Warden', class: 'Warden', race: null, description: 'A quiet figure wrapped in a travel-worn cloak, tending the fire beneath the Oak. Their face stays hidden in the shadow of a deep hood. They offer bowls of stew without being asked, and answer questions with a silence that somehow says more than words.', location: "The Warden's Oak" },
-    { name: 'Elder Bram', class: 'Herbalist', race: 'Human', description: 'A bent old man with earth under his nails and eyes that see too much. He tends a garden of plants most people can\'t name.', location: "The Warden's Oak" },
-    { name: 'Kara', class: 'Hunter', race: 'Human', description: 'Lean and watchful, with a bow that\'s seen more seasons than most rangers. She doesn\'t trust easy — but she respects skill.', location: "The Warden's Oak" },
-    { name: 'Marta', class: 'Blacksmith', race: 'Dwarf', description: 'Arms like tree roots and a face set in permanent disapproval. Her steel is the best east of Stonebridge and she knows it.', location: 'Town Square' },
-    { name: 'The Caravan Master', class: 'Merchant', race: 'Human', description: 'A woman with quick hands and quicker eyes. She\'s been trying to offload cargo all week — says she\'s "travelling light," but her hands shake when she says "east."', location: 'Town Square' },
-    { name: 'Brother Aldric', class: 'Acolyte', race: 'Human', description: 'Young, earnest, and fighting a crisis of faith. The candle in the shrine alcove won\'t go out — and he doesn\'t know if that\'s a blessing or a warning.', location: 'The Shrine of the First Flame' },
-    { name: 'Grey Wolf', class: 'Beast', race: null, description: 'A massive she-wolf, grey as storm-light, limping from a wound in her flank. Her eyes track you with an intelligence that feels wrong.', location: 'The Forest Edge' },
-    { name: 'Shadow Stag', class: 'Beast', race: null, description: 'A stag of impossible size, its antlers tangled with mist that doesn\'t burn off in sunlight. Hunters speak of it in whispers. No one has drawn a bow.', location: 'The Dark Pines' },
+    { name: 'The Warden', class: 'Warden', race: null, health: 30, description: 'A quiet figure wrapped in a travel-worn cloak, tending the fire beneath the Oak. Their face stays hidden in the shadow of a deep hood. They offer bowls of stew without being asked, and answer questions with a silence that somehow says more than words.', location: "The Warden's Oak" },
+    { name: 'Elder Bram', class: 'Herbalist', race: 'Human', health: 10, description: 'A bent old man with earth under his nails and eyes that see too much. He tends a garden of plants most people can\'t name.', location: "The Warden's Oak" },
+    { name: 'Kara', class: 'Hunter', race: 'Human', health: 16, description: 'Lean and watchful, with a bow that\'s seen more seasons than most rangers. She doesn\'t trust easy — but she respects skill.', location: "The Warden's Oak" },
+    { name: 'Marta', class: 'Blacksmith', race: 'Dwarf', health: 18, description: 'Arms like tree roots and a face set in permanent disapproval. Her steel is the best east of Stonebridge and she knows it.', location: 'Town Square' },
+    { name: 'The Caravan Master', class: 'Merchant', race: 'Human', health: 12, description: 'A woman with quick hands and quicker eyes. She\'s been trying to offload cargo all week — says she\'s "travelling light," but her hands shake when she says "east."', location: 'Town Square' },
+    { name: 'Brother Aldric', class: 'Acolyte', race: 'Human', health: 10, description: 'Young, earnest, and fighting a crisis of faith. The candle in the shrine alcove won\'t go out — and he doesn\'t know if that\'s a blessing or a warning.', location: 'The Shrine of the First Flame' },
+    { name: 'Grey Wolf', class: 'Beast', race: null, health: 16, description: 'A massive she-wolf, grey as storm-light, limping from a wound in her flank. Her eyes track you with an intelligence that feels wrong.', location: 'The Forest Edge' },
+    { name: 'Shadow Stag', class: 'Beast', race: null, health: 24, description: 'A stag of impossible size, its antlers tangled with mist that doesn\'t burn off in sunlight. Hunters speak of it in whispers. No one has drawn a bow.', location: 'The Dark Pines' },
   ];
 
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO npcs (name, class, race, description, location)
-    VALUES (@name, @class, @race, @description, @location)
+    INSERT OR IGNORE INTO npcs (name, class, race, health, description, location)
+    VALUES (@name, @class, @race, @health, @description, @location)
   `);
 
   const seed = db.transaction(() => {

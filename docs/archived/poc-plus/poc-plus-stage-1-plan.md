@@ -1,6 +1,7 @@
 ---
 title: "POC+ Stage 1 — v12 tail, welcome tag & combat maths reveal (build plan)"
-status: decided
+status: shipped
+superseded_by: "implemented in code"
 domain: engine
 phase: poc
 tags:
@@ -126,9 +127,9 @@ hpBar(hp: number, maxHp: number, width: number): string; // display clamped to [
 
 ## Stage exit
 
-- [x] All task acceptance boxes green; typecheck + suite green. _Except the operator live check (above) — pending human verification on Discord._
-- [ ] Releases cut and changelog current per merge. _Changelog updated; release cut needs merge to dev then a `0.3.x` bump per the releasing skill._
+- [x] All task acceptance boxes green; typecheck + suite green. _Live check ran 2026-07-10; the renderer debt it surfaced was paid down in the `0.3.1` polish release._
+- [x] Releases cut and changelog current per merge. _Stage-1 work shipped in `0.3.0`; the T2 renderer debt closed out in `0.3.1` (VERSION 0.3.1, tag `v0.3.1`, merged to dev)._
 - [x] Doc loop: this plan's boxes ticked; [[poc-plus-roadmap]]'s tracking list updated (stage 1 done); `TODO.md` rows struck; [[stage-5-live-cutover-plan]] archived; map of content updated.
-- [ ] Recommend `/clear`, then resume with:
+- [x] Recommend `/clear`, then resume with:
 
 > Resuming the POC+ arc — parent tracking doc [[poc-plus-roadmap]], active plan [[poc-plus-stage-1-plan]]. Branch `poc-plus/stage-1-t2`, last commit `94ecbee`, T2 just completed (live check pending); next is stage 2 (nat 1/20 global broadcast). Before building: reconcile the docs' claimed state against the repo (checkboxes vs `git log`, tests green) and fix any drift first.

@@ -19,6 +19,7 @@ import {
 import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../../engine/WorldEngine.js';
 import type { ActionStepResult } from '../../engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../engine/action/combat-dc.js';
+import { dangerTier } from '../../engine/action/combat-dc.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../../engine/stat-format.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
@@ -29,6 +30,7 @@ import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 import { BORDERS, PALETTES, type BorderStyle } from '../../render/AnsiRenderer.js';
 import { renderOpeningFrame, type OpeningFrameSlots } from '../../render/OpeningFrameRenderer.js';
 import { renderCombatContinueCard, renderCombatTerminalCard, type ContinueCardInput, type CombatTerminalCard } from '../../render/CombatCardRenderer.js';
+import { enemyConditionBand } from '../../engine/action/PipelineActionStateMachine.js';
 
 // ── Custom IDs ──
 
@@ -62,6 +64,9 @@ const LOW_STAMINA_FLOOR = 2;
 export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }: ActionHintContext): string[] {
   const hints: string[] = [];
 
+  // Keys off rolls *remaining*, not the day's allowance, so it fires on the genuine last roll
+  // whatever that allowance is: exactly one left is always the last action, whether the day
+  // grants 3 or Saturday's bonus 4 (N3 — no premature warning a roll early on Saturday).
   if (rollsRemaining === 1) {
     hints.push('🎲 Last action of the day — make it count.');
   }
@@ -326,7 +331,7 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
 
       setPendingDecision(interaction.user.id, result.firstDecision);
-      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character, result.actionType, result.combatEnemyName));
+      await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character, result.actionType, result.combatEnemyName, result.combatEnemyCondition));
       return 'action_started';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -557,8 +562,21 @@ function renderCombatStatusFrame(status: CombatStatusData, lastRound?: CombatBea
     playerMaxHp: status.playerMaxHp,
     playerHpDelta: status.playerHpDelta,
     lastRound: lastRound
-      ? { d20: lastRound.playerD20, bonus: lastRound.playerBonus, dc: lastRound.dc, margin: lastRound.margin, band: lastRound.band }
+      ? {
+          d20: lastRound.playerD20,
+          bonus: lastRound.playerBonus,
+          dc: lastRound.dc,
+          enemyD20: lastRound.enemyD20,
+          enemyBonus: lastRound.enemyBonus,
+          margin: lastRound.margin,
+          band: lastRound.band,
+          playerHpDelta: lastRound.playerHpDelta,
+          enemyHpDelta: lastRound.enemyHpAfter - lastRound.enemyHpBefore,
+        }
       : undefined,
+    // CombatStatusData carries no DC (only the round log does), so the tag simply doesn't
+    // show on the pre-first-round beat — fine, there's no encounter danger to report yet.
+    dangerTier: lastRound ? dangerTier(lastRound.dc) : undefined,
   };
   return renderCombatContinueCard(input, PALETTES.house, chooseContinueBorder(status, lastRound));
 }
@@ -598,6 +616,10 @@ export function buildDecisionMessage(
   /** ANSI-F: combat enemy name for the opening frame's enemy nameplate. Only passed on the first
    *  decision of a combat action (surfaced from the pipeline's `combatEnemy` hint). */
   combatEnemyName?: string,
+  /** ANSI-F re-entry (0.3.2 C4): the foe's BANDED condition (wound word + pip fill, never exact
+   *  HP) when a persisted `in_combat` edge from a prior bail against this same foe exists. Only
+   *  passed on the first decision of a combat action; undefined for a fresh fight. */
+  combatEnemyCondition?: { woundWord: string; filled: number; total: number },
 ): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -727,6 +749,7 @@ export function buildDecisionMessage(
     locationName: char?.location,
   };
   if (combatEnemyName) openingFrameSlots.enemyName = combatEnemyName;
+  if (combatEnemyCondition) openingFrameSlots.enemyCondition = combatEnemyCondition;
   const openingFrameEmbed = actionType && decisionIdx === 0
     ? new EmbedBuilder()
       .setDescription(renderOpeningFrame(actionType, openingFrameSlots))
@@ -776,6 +799,22 @@ export function buildOutcomeEmbed(
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
   const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
+  // 0.3.2 P2: combat outcomes show the combat opening frame (with enemy nameplate + HP bars)
+  // instead of the bare location scene — the terminal card already covers the dice reveal,
+  // so pairing it with the combat frame gives a coherent visual story: scene-to-dice.
+  let combatSceneBlock: string | null = null;
+  if (outcome.combatBeat && character) {
+    const lastBeat = outcome.combatRounds?.at(-1) ?? outcome.combatBeat;
+    const enemyFraction = lastBeat.enemyHpBefore > 0 ? lastBeat.enemyHpAfter / lastBeat.enemyHpBefore : 0;
+    const { filled, woundWord } = enemyConditionBand(enemyFraction);
+    combatSceneBlock = renderOpeningFrame('combat', {
+      pcName: character.name,
+      pcHp: character.health,
+      pcMaxHp: character.maxHealth,
+      enemyName: outcome.combatFrame?.enemyName,
+      enemyCondition: { filled, total: 5, woundWord },
+    });
+  }
   // Terminal-card escalation ([[visual-craft]]): crit border for nat-20, heavy for nat-1.
   const terminalRenderer = (card: CombatTerminalCard) => {
     const style = card.playerD20 === 20 ? BORDERS.crit
@@ -796,9 +835,16 @@ export function buildOutcomeEmbed(
     const parts: string[] = [];
     if (locationLine) parts.push(locationLine);
     if (breadcrumb) parts.push(breadcrumb);
-    // Combat outcomes show the AnsiRenderer combat frame (built into outcomeBlock) instead of
-    // the decorative scene art — showing both would be redundant and burn embed-length budget.
-    if (includeScene && sceneBlock && !outcome.combatBeat) parts.push(sceneBlock);
+    // Combat outcomes show the combat opening frame (enemy nameplate + HP bars) instead of
+    // the plain location scene — the terminal card already covers the dice reveal, so the
+    // combat frame provides visual context without duplicating information. (0.3.2 P2)
+    if (includeScene) {
+      if (outcome.combatBeat) {
+        if (combatSceneBlock) parts.push(combatSceneBlock);
+      } else if (sceneBlock) {
+        parts.push(sceneBlock);
+      }
+    }
     if (!opts?.compact) {
       parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
     }

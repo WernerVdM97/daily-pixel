@@ -189,6 +189,40 @@ export class PipelineActionStateMachine {
     // decision array, signalling this action needs no player branching. Jump straight to
     // the resolve pipeline instead of serving a bail-only screen.
     if (decideResult.decision.length === 0) {
+      // C6 guard: combat must never auto-resolve on an empty decision[] — it must run at
+      // least one contested round. Synthesise a first decision with a single required
+      // option so step() always routes to handleCombatStep. The mis-classification
+      // (combat read as skill/rest) is a classify-prompt-template concern → deferred to
+      // v13 via prompt-versioning ([[prompt-v13-roadmap]]).
+      if (actionType === 'combat') {
+        const allCallIds = [...gatewayCallIds, ...criticCallIds, ...validatorCallIds];
+        const combatFirstDecision: ActionDecision = {
+          prompt: `${capitalize(decideResult.distilledType)} — what do you do?`,
+          options: [
+            { label: 'Press the attack', dcModifier: 0, stat: decideResult.stat },
+            { label: COMBAT_FLEE_LABEL, dcModifier: null },
+          ],
+          ...(decideResult.narration ? { narration: decideResult.narration } : {}),
+        };
+        const combatState: PipelineInternalActionState = {
+          rawInput,
+          decisions: [],
+          accumulatedDc: decideResult.baseDc,
+          kind,
+          wage,
+          actionType,
+          flags,
+          pendingDecision: combatFirstDecision,
+          distilledType: decideResult.distilledType,
+          rollStat: decideResult.stat,
+          required: decideResult.required,
+          lastDecideResult: decideResult,
+          lastActionAt: Date.now(),
+          ...(allCallIds.length > 0 ? { llmCallIds: allCallIds } : {}),
+        };
+        return { resolved: false, state: combatState, firstDecision: combatFirstDecision };
+      }
+
       const syntheticOption: ActionOption = { label: rawInput, dcModifier: 0, stat: decideResult.stat };
       const allCallIds = [...gatewayCallIds, ...criticCallIds, ...validatorCallIds];
       const preState: PipelineInternalActionState = {
@@ -381,6 +415,7 @@ export class PipelineActionStateMachine {
     cs: CombatState,
     roundResult: CombatRoundOutcome,
     enemyHpAfter: number,
+    appliedPlayerHpDelta: number,
     ops: string[],
     playerBonus: number,
     enemyBonus: number,
@@ -394,7 +429,7 @@ export class PipelineActionStateMachine {
       band: roundResult.band,
       enemyHpBefore: cs.enemyHp,
       enemyHpAfter,
-      playerHpDelta: roundResult.playerHpDelta,
+      playerHpDelta: appliedPlayerHpDelta,
       playerD20: roundResult.playerD20,
       playerBonus,
       dc,
@@ -441,11 +476,13 @@ export class PipelineActionStateMachine {
       if (enemy) {
         // Resolve the anchor: npc -> try nearby lookup, default to location.
         let anchor: { node: 'npc' | 'location'; name: string };
+        let resolvedNpc: NearbyNpc | undefined;
         if (enemy.anchor === 'npc') {
           const nearbyNpcs = this.resolver.getNearbyNpcs(char.location) as NearbyNpc[];
           const resolved = resolveRelationEndpoint({ node: 'npc', name: enemy.name }, { id: char.id }, nearbyNpcs);
           if (resolved && resolved.type === 'npc') {
             anchor = { node: 'npc', name: resolved.ref };
+            resolvedNpc = nearbyNpcs.find((n) => String(n.id) === resolved.ref);
           } else {
             // NPC resolution failed — default to location-anchored minion (decision 4 fallback).
             anchor = { node: 'location', name: char.location };
@@ -454,13 +491,18 @@ export class PipelineActionStateMachine {
           anchor = { node: 'location', name: char.location };
         }
 
-        // Enemy HP: prefer the LLM-authored maxHp when the NPC is a known entity;
-        // otherwise derive from baseDc (location-anchored minion path).
-        const enemyMaxHp = enemy.maxHp != null
-          ? Math.max(ENEMY_HP_MIN, Math.min(ENEMY_HP_MAX, enemy.maxHp))
-          : deriveEnemyMaxHp(state.lastDecideResult.baseDc);
+        // Enemy max-HP priority: the resolved NPC's real health (so a known 24-HP stag reads as
+        // 24, not a DC-derived guess) > the LLM-authored maxHp hint > deriveEnemyMaxHp(baseDc) for
+        // the location-anchored/ambient minion path. A non-positive health isn't a valid combat
+        // max, so it falls through rather than seeding a dead-on-arrival foe.
+        const rawMaxHp = resolvedNpc?.health != null && resolvedNpc.health > 0
+          ? resolvedNpc.health
+          : enemy.maxHp != null
+            ? enemy.maxHp
+            : deriveEnemyMaxHp(state.lastDecideResult.baseDc);
+        const enemyMaxHp = Math.max(ENEMY_HP_MIN, Math.min(ENEMY_HP_MAX, rawMaxHp));
         cs = {
-          enemyName: enemy.name,
+          enemyName: resolvedNpc?.name ?? enemy.name,
           enemyHp: enemyMaxHp,
           enemyMaxHp,
           round: 1,
@@ -529,7 +571,7 @@ export class PipelineActionStateMachine {
           { ...saveRelation, type: 'set_relation' } as unknown as WorldMutation,
         ];
         const floorBeat = this.buildCombatBeat(
-          cs, roundResult, newEnemyHp, floorMutations.map(m => m.type),
+          cs, roundResult, newEnemyHp, floorPlayerHpDelta, floorMutations.map(m => m.type),
           playerBonus, enemyBonus, state.lastDecideResult.baseDc, { floorSave: true },
         );
 
@@ -709,7 +751,7 @@ export class PipelineActionStateMachine {
         : []),
     ];
     const continueBeat = this.buildCombatBeat(
-      cs, roundResult, newEnemyHp, continueMutations.map(m => m.type),
+      cs, roundResult, newEnemyHp, playerHpDelta, continueMutations.map(m => m.type),
       playerBonus, enemyBonus, state.lastDecideResult.baseDc,
       emptyDecisionFallback ? { emptyDecisionFallback: true } : {},
     );
@@ -849,10 +891,14 @@ export class PipelineActionStateMachine {
 
     // Terminal beat (T5): built here, after `mutations` is fully assembled (incl. the wage
     // append), so `ops` matches exactly what the outcome reports.
+    // Clamp to the actual applied change — a lethal nominal delta (e.g. -5 from 3 HP) can't
+    // drop the player below 0, so the beat log must record -3, not the raw band nominal.
+    const appliedPlayerHpDelta = Math.max(playerHpDelta, -char.health);
     const combatBeat = this.buildCombatBeat(
       cs,
       roundResult,
       Math.max(0, finalEnemyHp),
+      appliedPlayerHpDelta,
       mutations.map(m => m.type),
       playerBonus,
       enemyBonus,
@@ -1240,7 +1286,7 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
 /** Enemy HP fraction -> a 5-pip fill count + wound word (decide-scene-narration spec). Banded
  *  only — never the exact HP number — so hidden exact HP keeps tension while still reading as
  *  progress. Returns the fill count (not glyphs); the presentation layer renders the pips. */
-function enemyConditionBand(hpFraction: number): { filled: number; woundWord: string } {
+export function enemyConditionBand(hpFraction: number): { filled: number; woundWord: string } {
   const filled = Math.max(0, Math.min(5, Math.round(hpFraction * 5)));
   const woundWord =
     hpFraction >= 0.8 ? 'Healthy'
