@@ -45,14 +45,12 @@ Unexplored paths
   - same for the epemeral version of actions responses.
 - [ ] there should be a short version of rest this is usable once per day before or between actions. Drop blocker
 - [ ] footer emoji for location changes should show location emoji
-- [ ] render ansi as images? so mobile works?
 - [ ] travel prompt should inject the current location, edge, and final location state. and routes to get there.
-- [ ] migrate ascii to ansi in semantics, source files, and references
 - [ ] movement on low difficulty terrain can be deterministic for up to a total of 3 effort, 3 times 1 difficulty edges. Or a 1 and 2 difficulty edge. When traversing a 3 (or greater) difficulty edge in one action, the travel prompt has to trigger.
   - actions that involve movement but isn't it directly, like prompting to search the library from the wardens oak, should ensure that the travel beat is first evaluated (could auto travel, or demand travel as a seperate action).
 - [x] ~~morning and evening messages should have some custom prose or interesting message maybe even art.~~ → **Prose done** (`4570bf6`, 0.3.1 branch): rotating day-keyed flavour via shared builders. Art for announcements not attempted (no spec; would follow the ANSI register work).
 - [x] drop the location ascii art from action outcomes? or at least just for newly generated places (while the location tags lazy load and resolve to an actual image)? → **Combat half done** (POC+ stage 1 T2b): scene art suppressed for combat outcomes only; non-combat outcomes keep their art. Full removal tracked as a separate decision per the T2 scope fence.
-  - [ ] combat still isn't shown good. We need to list and display each dice role and outcome per decision.
+  - [x] ~~combat still isn't shown good. We need to list and display each dice role and outcome per decision.~~ → **Done** (0.3.1): per-round dice line (roll vs boxed DC + margin/band) on the combat continue card, plus the terminal data card.
 - [ ] dynamically request or load context. Instead of sending the LLM all possible context, give it an NCP-like interaction layer.
   - scripts or command that perform lookups from the world state that is provided to the decision and mutations DMAs
 - [ ] populate more locaiton edges in the seeds
@@ -64,50 +62,22 @@ Unexplored paths
   - also, 0 hp should do this but also roll the dice, mkaing a death save...
 - [ ] last stand buttons and captions need to look cooler. emojis and shit.
 
-### ANSI opening-frame follow-ups (2026-07-11, from ANSI-F review)
+### ANSI — outstanding work (consolidated 2026-07-11)
+
+> The `ANSI frame polish — T2 live-check follow-up` block (SGR/palette/glyph facts, renderer standardisation off black `chrome` + palette module, decouple render from engine, per-round combat maths visibility, the combat-frame redesign, and opening frames for all seven types + art-post/reply delivery) is **done — shipped in `0.3.1`**. Build plan archived → `docs/archived/poc-plus/poc-plus-0.3.1-polish-plan.md`; state cross-referenced in [[action-features-tracker]]. What remains:
+
+**Opening-frame runtime gaps** (from the ANSI-F review — the frame ships but misses these paths):
 
 - [ ] Opening frame on auto-resolved actions: travel/rest often resolve at start with no decision beat, so they show no opening frame today (3 auto-finish call sites + the public-broadcast embed question). Extend the frame to the outcome path.
 - [ ] Resume-mid-action shows no opening frame at decisionIdx 0 (`resumeAction` doesn't carry `actionType`); rare, degrades gracefully.
 - [ ] Combat opening frame renders "Unknown foe" pre-first-step; `PipelineDecideResult.combatEnemy` exists but isn't exposed publicly — enrich when worth it.
 
-### ANSI frame polish — T2 live-check follow-up (2026-07-10)
+**Art depth & migration** (deferred / mvp+):
 
-> **Now tasked in [[poc-plus-0.3.1-polish-plan]]** (with the 2026-07-08 prod bug batch and the small UX wins below) as the `0.3.1` polish release. This block is Part 1 of that plan; tick these rows as its tasks land.
-
-The T2 live check passed on content (colours good on desktop, monochrome clean on mobile) but surfaced styling and architecture debt. Standardise before stage 2 builds broadcast frames on the same renderer. Go in order: A settles the facts B–D depend on.
-
-**A — settle first**
-
-- [x] ~~Live-test bright SGR codes (90–97)~~ → **Settled 2026-07-11** (ANSI-A probes): 90-97 render no colour anywhere; the skill's chrome=90 lost and is corrected to 37 (final). Also settled: bg 40-47 desktop-only; box-drawing single-width on mobile.
-- [x] ~~Settle the [[mvp+ansi-art]] line 35 palette `[?]`~~ → **Solarized-ish confirmed** (same session); hex recorded in `src/render/palette.ts` + the spark doc.
-
-**B — renderer standardisation**
-
-- [x] ~~Fix `chrome` away from 30~~ → **Done** (`d98258d`, then `b1a5d28`): chrome at 37; entire renderer redesigned with box-drawing borders, border-style ladder, and palette-driven colours.
-- [x] ~~Extract the role→SGR map into a palette module~~ → **Done** (`d98258d`): `src/render/palette.ts`.
-- [x] ~~Prettier borders~~ → **Done** (`b1a5d28` combat-frame redesign): box-drawing standard/heavy/crit border ladder with crest-interrupt rim; supersedes the ASCII `+`/`-`/`|` defaults.
-- [~] Wireframe/mock library → **Continue + terminal done** (`d45b5ec` mocks, `b1a5d28` redesign); broadcast frame still deferred.
-
-**C — architecture**
-
-- [x] ~~Decouple render from engine~~ → **Done** (`62cc332`, 0.3.1 branch ANSI-C): engine emits `CombatStatusData`; the Discord layer composes the frame; legacy in-flight strings render via a tolerant read.
-- [x] ~~Rehome the `OutcomeRenderer` → `AnsiRenderer` dependency~~ → **Done** (`62cc332`): frame renderer injected by the caller; `src/render/` has no engine-side importer (grep-proven).
-
-**D — combat visibility**
-
-- [x] ~~Track every round~~ → **Done** (`79d48a3`): per-round maths on `CombatBeatLog`.
-- [x] ~~Show the round's maths between decisions~~ → **Done** (`d7a3cb5` then redesigned `b1a5d28`): floated readout with boxed DC; band-coloured margin + band word on the continue card.
-- [x] ~~De-noise the terminal frame~~ → **Done** (`d7a3cb5` redesign `b1a5d28`): pure data card, no HP bars; `d20` label dropped, DC boxed, ASCII `+`/`x` marker.
-
-**E — doc loop**
-
-- [/] Fold every settled decision back into the `ansi-frames` skill and [[mvp+ansi-art]]; tick the stage-1 plan's live-check box with the border defect logged. → **Settled facts recorded** (ANSI-A); border redesign supersedes the logged defect; live-check batched via `scripts/live-check-0.3.1.ts`.
-
-**F — opening frame + delivery (new surface, designed 2026-07-10; tasked at full scope in [[poc-plus-0.3.1-polish-plan]] ANSI-F)**
-
-- [ ] Implement the opening frame: after `classify` and before the first decision, render the per-type OPENING register (wireframes in `assets/ansi/wireframes/`; spec in [[ansi-art-classification-framework]] §2c/§3.0). Depends on B landing first (palette + readable chrome).
-- [ ] Implement the universal **art-post + reply-body** delivery ([[ansi-art-classification-framework]] §2b): the frame is its own message, the narration/options/speech a reply beneath it. Today the frame is inline in the decision embed (`buildDecisionMessage` `combatStatus`), so this is a two-message delivery change, not just a render path — relates to C (decouple render from engine).
-- [ ] Gated on fragment art: the opening frame's sprite/scene slots (enemy, NPC bust, campfire, PC poses) need the `fragments` catalogue ([[ansi-art-classification-framework]] §9), which is mvp+/deferred. Until it exists, `skill`/`other`/`travel` openers stay placeholder scenes (PC sprite only) per the wireframes.
+- [ ] Fragment catalogue (enemy sprites, NPC busts, campfire, PC poses) — gates real art in the opening/combat frames; until it lands, sprite/scene slots render as deliberate placeholder scenes. See [[ansi-art-classification-framework]] §9, [[mvp+ansi-art]]. This is now the single next bottleneck for POC+ art coverage.
+- [ ] migrate ascii to ansi in semantics, source files, and references — the 23 `assets/scenes/*.ascii` still coexist with the new `src/render/` ANSI system.
+- [ ] render ansi as images? so mobile works? (colour degrades to monochrome on mobile today.) Longer-term, MVP(+) below wants the ANSI engine rewritten into compiled pixel-art images.
+- [ ] Stage-2 BROADCAST_CARD frame — reuses the renderer; built when stage 2 (nat 1/20 broadcast) lands.
 
 ### action pipeline framework refactor closeout
 

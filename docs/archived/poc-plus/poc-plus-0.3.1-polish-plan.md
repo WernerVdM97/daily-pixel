@@ -1,6 +1,7 @@
 ---
 title: "POC+ 0.3.1 — combat-readability polish & hardening release (build plan)"
-status: decided
+status: shipped
+superseded_by: "implemented in code"
 domain: engine
 phase: poc
 tags:
@@ -255,11 +256,11 @@ Added 2026-07-11: what ANSI-B's border step grew into once the user saw a live-f
 
 Once the bundle is all user accpeted and the changelog is current:
 
-- [ ] Bump `VERSION` `0.3.0` → `0.3.1`; sync `package.json` `"version"`.
-- [ ] Promote `[Unreleased]` → `[0.3.1]` with today's date.
-- [ ] Add `assets/release-notes/v0.3.1.yml` (player-facing highlights: combat maths now clearer, the bug fixes, the UX wins; non-technical).
-- [ ] Tag `v0.3.1`, push the tag.
-- [ ] prompt user to cmplete the merge
+- [x] Bump `VERSION` `0.3.0` → `0.3.1`; sync `package.json` `"version"`.
+- [x] Promote `[Unreleased]` → `[0.3.1]` with today's date.
+- [x] Add `assets/release-notes/v0.3.1.yml` (player-facing highlights: combat maths now clearer, the bug fixes, the UX wins; non-technical).
+- [x] Tag `v0.3.1`, push the tag.
+- [x] prompt user to cmplete the merge — merged `poc-plus/0.3.1-polish` → dev (commit `4619608`).
 
 ## Scope fences
 
@@ -273,8 +274,8 @@ Once the bundle is all user accpeted and the changelog is current:
 
 ## Doc loop (stage exit)
 
-- [ ] All task acceptance boxes green; typecheck + suite green; live-check batch run.
-- [ ] `TODO.md`: the ANSI polish block, the B#1-B#4 rows, and the UX rows struck.
-- [ ] Settled ANSI facts folded into the `ansi-frames` skill and [[mvp+ansi-art]]; the stage-1 plan's T2 live-check box ticked with the border defect logged.
-- [ ] [[poc-plus-roadmap]] tracking updated (this polish release recorded before stage 2); map of content current.
-- [ ] Recommend `/clear`, then resume with the stage-2 one-liner.
+- [x] All task acceptance boxes green; typecheck + suite green; live-check batch run.
+- [x] `TODO.md`: the ANSI polish block, the B#1-B#4 rows, and the UX rows struck. _(reconciled 2026-07-11 doc-maintenance pass)_
+- [x] Settled ANSI facts folded into the `ansi-frames` skill and [[mvp+ansi-art]]; the stage-1 plan's T2 live-check box ticked with the border defect logged.
+- [x] [[poc-plus-roadmap]] tracking updated (this polish release recorded before stage 2); map of content current.
+- [x] Recommend `/clear`, then resume with the stage-2 one-liner.
