@@ -34,7 +34,7 @@ import type { PipelineLlmGateway } from "../llm/pipeline/types.js";
 import type { PipelineContextResolver } from "./action/pipeline-context.js";
 import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
-import { readCombatState } from "./action/combat-state.js";
+import { readCombatState, type CombatState } from "./action/combat-state.js";
 import type { NodeType } from "../db/repositories/relation.js";
 import type { SceneStateEdge } from "../llm/LlmGateway.js";
 import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
@@ -1045,37 +1045,41 @@ export class WorldEngineImpl implements WorldEngine {
     // At this point startResult is resolved: false (the divine-intervention branch returned
     // early), so firstDecision is guaranteed.
     const firstDecision = (startResult as Extract<typeof startResult, { resolved: false }>).firstDecision;
+    const remembered = this.readPersistedCombatFoe(characterId, internalState, row.location);
+    const llmName = internalState.lastDecideResult.combatEnemy?.name;
     return {
       state: this.toPublicState(internalState),
       firstDecision,
       actionType: internalState.actionType,
-      combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
-      combatEnemyCondition: this.readPersistedEnemyCondition(characterId, internalState),
+      combatEnemyName: llmName ?? remembered?.name,
+      combatEnemyCondition: remembered?.condition,
     };
   }
 
   /**
-   * ANSI-F re-entry (0.3.2 C4): a prior bail leaves the `in_combat` edge persisted
-   * (`PipelineActionStateMachine.ts` handleBail), so a re-engaging combat action can read the
-   * foe's damage back and surface a BANDED condition on the opening frame instead of the empty
-   * "unknown" placeholder. Only called from the non-resolved `startActionPipeline` return (no
-   * opening frame renders on the auto-resolve path, so it's never worth computing there).
+   * ANSI-F re-entry (0.3.2 C4, extended for the C4 follow-up): a prior bail leaves the
+   * `in_combat` edge persisted (`PipelineActionStateMachine.ts` handleBail), so a re-engaging
+   * combat action can read the foe's name and damage back and surface a BANDED condition on the
+   * opening frame instead of the empty "unknown" placeholder. Only called from the non-resolved
+   * `startActionPipeline` return (no opening frame renders on the auto-resolve path, so it's
+   * never worth computing there).
    *
    * Guarded so a stale/mismatched edge never leaks onto a fresh or different fight: the action
    * must be `combat`, a sane persisted `CombatState` must exist, the enemy must still be alive,
    * genuinely damaged (not full HP — a full-HP edge reads identically to a fresh fight, so
-   * banding it would show a "condition" that isn't actually new information), and its name must
-   * match the current foe case-insensitively (a differently-named leftover edge from a previous,
-   * unrelated encounter must not be attributed to this one).
+   * banding it would show a "condition" that isn't actually new information). The remembered foe
+   * is then trusted only when it's provably THIS fight: if the LLM named a foe, its name must
+   * match case-insensitively (a differently-named leftover edge from a previous, unrelated
+   * encounter must not be attributed to this one); if the LLM stayed silent (e.g. vague re-engage
+   * text like "resume fight"), the edge is the only source of the foe's identity, so fall back to
+   * an anchor check — the remembered foe must still be located HERE.
    */
-  private readPersistedEnemyCondition(
+  private readPersistedCombatFoe(
     characterId: number,
     internalState: PipelineInternalActionState,
-  ): { woundWord: string; filled: number; total: number } | undefined {
+    currentLocation: string,
+  ): { name: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
     if (internalState.actionType !== 'combat') return undefined;
-
-    const currentEnemyName = internalState.lastDecideResult.combatEnemy?.name;
-    if (!currentEnemyName) return undefined;
 
     // Mirrors `pipeline-context.ts`'s scene-relations projection (buildPipelineContext) —
     // the DB row shape back into the `SceneStateEdge` shape `readCombatState` expects.
@@ -1087,14 +1091,32 @@ export class WorldEngineImpl implements WorldEngine {
       props: JSON.parse(row.props) as Record<string, number | string | boolean>,
     }));
 
-    const combatState = readCombatState(edges);
-    if (!combatState) return undefined;
-    if (combatState.enemyHp <= 0 || combatState.enemyMaxHp <= 0) return undefined;
-    if (combatState.enemyHp >= combatState.enemyMaxHp) return undefined;
-    if (combatState.enemyName.toLowerCase() !== currentEnemyName.toLowerCase()) return undefined;
+    const cs = readCombatState(edges);
+    if (!cs) return undefined;
+    if (cs.enemyHp <= 0 || cs.enemyMaxHp <= 0) return undefined;   // dead foe: nothing to remember
+    if (cs.enemyHp >= cs.enemyMaxHp) return undefined;              // full HP reads identical to a fresh fight
 
-    const { filled, woundWord } = enemyConditionBand(combatState.enemyHp / combatState.enemyMaxHp);
-    return { woundWord, filled, total: 5 };
+    const llmName = internalState.lastDecideResult.combatEnemy?.name;
+    const matches = llmName
+      ? cs.enemyName.toLowerCase() === llmName.toLowerCase()
+      : this.combatAnchorIsHere(cs, currentLocation);
+    if (!matches) return undefined;
+
+    const { filled, woundWord } = enemyConditionBand(cs.enemyHp / cs.enemyMaxHp);
+    return { name: cs.enemyName, condition: { woundWord, filled, total: 5 } };
+  }
+
+  /** Is the remembered foe's anchor still at the player's current position? location anchor ->
+   *  name match; npc anchor -> the id-as-name (combat-state.ts caveat) is among the current
+   *  location's npcs. Only reached when the LLM stayed silent on the foe's name, so this is the
+   *  sole discriminator against a stale edge leaking onto an unrelated re-engage. */
+  private combatAnchorIsHere(cs: CombatState, currentLocation: string): boolean {
+    const anchor = cs.anchor;
+    if (anchor.node === 'location') return anchor.name === currentLocation;
+    if (anchor.node === 'npc') {
+      return this.npcRepo.findByLocation(currentLocation).some((n) => String(n.id) === anchor.name);
+    }
+    return false; // pc anchor is never a foe
   }
 
   async stepAction(

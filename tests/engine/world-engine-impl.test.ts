@@ -636,4 +636,59 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
 
     closeDb();
   });
+
+  // ── C4 follow-up: vague re-engage ("resume fight") gives the LLM no combatEnemy hint, so the
+  // persisted `in_combat` edge must carry BOTH the foe's name and its condition, not just the
+  // condition (readPersistedCombatFoe / combatAnchorIsHere).
+  it('surfaces the remembered foe\'s name and condition when the LLM gives no combatEnemy hint (the reported "Unknown foe" bug)', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    seedInCombatEdge(characterId, { enemyName: 'Goblin', enemyHp: 5, enemyMaxHp: 20, round: 2 });
+
+    // No combatEnemy passed to ScriptedGateway — mirrors the LLM staying silent on vague input.
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat'));
+    const startResult = await engine.startAction(characterId, 'resume fight');
+
+    // 5/20 = 0.25 → filled = round(0.25*5) = 1 (Math.round), woundWord: >=0.15 and <0.4 → 'Battered'.
+    expect(startResult.combatEnemyName).toBe('Goblin');
+    expect(startResult.combatEnemyCondition).toEqual({ woundWord: 'Battered', filled: 1, total: 5 });
+
+    closeDb();
+  });
+
+  it('does not leak a stale persisted foe from elsewhere when the LLM is silent and the anchor is a different location', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    // Anchored at 'Eastvale', not the character's current location ("The Warden's Oak") — the
+    // anchor-guarded fallback must refuse to attribute this edge to the current re-engage.
+    new RelationRepository(getDb()).set({
+      fromType: 'pc',
+      fromRef: String(characterId),
+      toType: 'location',
+      toRef: 'Eastvale',
+      relType: 'in_combat',
+      props: { enemyName: 'Goblin', enemyHp: 5, enemyMaxHp: 20, round: 2 },
+    });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat'));
+    const startResult = await engine.startAction(characterId, 'resume fight');
+
+    expect(startResult.combatEnemyName).toBeUndefined();
+    expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('still name-gates a differently-named remembered foe when the LLM does name one, surfacing the LLM name with no condition', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    seedInCombatEdge(characterId, { enemyName: 'Wolf', enemyHp: 5, enemyMaxHp: 20, round: 2 });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+    const startResult = await engine.startAction(characterId, 'attack the goblin');
+
+    // The LLM's own hint always wins the name — only the condition is gated on it matching the
+    // persisted edge, which it doesn't here (Wolf remembered, Goblin named).
+    expect(startResult.combatEnemyName).toBe('Goblin');
+    expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
 });
