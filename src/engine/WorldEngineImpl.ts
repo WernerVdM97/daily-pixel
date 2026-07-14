@@ -1073,6 +1073,10 @@ export class WorldEngineImpl implements WorldEngine {
    * encounter must not be attributed to this one); if the LLM stayed silent (e.g. vague re-engage
    * text like "resume fight"), the edge is the only source of the foe's identity, so fall back to
    * an anchor check — the remembered foe must still be located HERE.
+   *
+   * Caveat: the LLM-named branch gates on NAME ONLY, with no location/anchor check, so a
+   * coincidentally same-named foe anchored elsewhere would still match. The anchor check is the
+   * sole guard, and it applies only to the LLM-silent fallback.
    */
   private readPersistedCombatFoe(
     characterId: number,

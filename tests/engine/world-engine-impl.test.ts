@@ -691,4 +691,53 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
 
     closeDb();
   });
+
+  // ── npc-anchor coverage: `seedInCombatEdge` above only ever anchors at a `location`, so the
+  // `anchor.node === 'npc'` branch of `combatAnchorIsHere` (id-as-name lookup against
+  // `npcRepo.findByLocation`) has never actually run in this suite.
+  it('surfaces the remembered foe when the LLM is silent and the persisted edge is npc-anchored, not location-anchored', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const npc = new NpcRepository(getDb()).create({ name: 'Shadow Stag', location: "The Warden's Oak" });
+    new RelationRepository(getDb()).set({
+      fromType: 'pc',
+      fromRef: String(characterId),
+      toType: 'npc',
+      toRef: String(npc.id),
+      relType: 'in_combat',
+      props: { enemyName: 'Shadow Stag', enemyHp: 5, enemyMaxHp: 20, round: 2 },
+    });
+
+    // No combatEnemy passed to ScriptedGateway — the anchor check is the only route to the name.
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat'));
+    const startResult = await engine.startAction(characterId, 'resume fight');
+
+    // 5/20 = 0.25 → filled = round(0.25*5) = 1 (Math.round), woundWord: >=0.15 and <0.4 → 'Battered'.
+    expect(startResult.combatEnemyName).toBe('Shadow Stag');
+    expect(startResult.combatEnemyCondition).toEqual({ woundWord: 'Battered', filled: 1, total: 5 });
+
+    closeDb();
+  });
+
+  it('does not leak an npc-anchored foe when the LLM is silent and the anchored npc is not at the current location', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    // Npc lives in Eastvale, not "The Warden's Oak" — findByLocation() on the current location
+    // will never return this npc, so the anchor guard must refuse to attribute the edge.
+    const npc = new NpcRepository(getDb()).create({ name: 'Shadow Stag', location: 'Eastvale' });
+    new RelationRepository(getDb()).set({
+      fromType: 'pc',
+      fromRef: String(characterId),
+      toType: 'npc',
+      toRef: String(npc.id),
+      relType: 'in_combat',
+      props: { enemyName: 'Shadow Stag', enemyHp: 5, enemyMaxHp: 20, round: 2 },
+    });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat'));
+    const startResult = await engine.startAction(characterId, 'resume fight');
+
+    expect(startResult.combatEnemyName).toBeUndefined();
+    expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
 });
