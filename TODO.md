@@ -9,10 +9,16 @@
 - [ ] **C3 residual — LLM-authored/spawn_npc NPCs have NULL health** *(deferred 0.3.2)*: `seedNpcs` now writes `health` (migration `202607112100_npc_combat_health.ts`), but LLM-authored and `spawn_npc` NPCs still get NULL health. `deriveEnemyMaxHp(DC)` is the fallback. Giving `add_npc` a `health` field means the decision prompt needs a `health` vocab slot → v13 prompt-versioning.
 
 [ ] In-app: start a real combat against a named NPC (e.g. Shadow Stag). Verify the continue card shows the NPC's real name (C3).,
-[ ] In-app: bail out of a fight mid-way, then re-engage. The opening frame must show banded condition, not ?/? (C4).,
-  does not work. bail -> /action resume figth -> still Unknown foe ?/?
-  is combat state persisted correctly? no duplicated? see combat-system-v12.md
-  but now when I initiated combat, it showed the name..?
+[~] In-app: bail out of a fight mid-way, then re-engage. The opening frame must show banded condition, not ?/? (C4).,
+  ROOT CAUSE (fix/combat-reengage-foe, commit 3bd266d): bail resolves the action and clears
+  last_action_state, so "/action resume fight" is a FRESH start, not a resume. Its DECIDE step
+  names no foe on vague text, and the opener only sourced the name/condition from that hint. Fixed:
+  the opener now reads name+condition from the persisted in_combat edge (anchor-guarded). Re-verify
+  in-app. Persistence is NOT duplicated on same-location re-engage (set_relation upserts; the bailed
+  edge is read back and continued in place).
+  Two follow-ups left OUT of this fix (separate items below).
+- [ ] **C4 follow-up — abandoned (not bailed) mid-round combat shows no opening frame on resume**: a genuinely unfinished multi-round fight leaves last_action_state set; `/action` then hits the resume branch (`action.ts:162`), which calls `buildDecisionMessage` without `actionType`, so no opening frame renders at all (and `decisionIdx > 0` would gate it out anyway). Latent, not the reported symptom. Needs `resumeAction`/`ActionResumeResult` to carry actionType + remembered foe and the render gate to allow a combat opener on resume.
+- [ ] **C4 follow-up — in_combat edge duplication on anchor change**: `set_relation`'s UNIQUE key includes the anchor (`to_type,to_ref`), so a re-engage that resolves to a *different* anchor than the bailed edge creates a second `in_combat` edge; `readCombatState` then picks whichever the DB returns first. Harmless for same-anchor re-engage (the common path). Needs an edge-lifecycle sweep, not part of the C4 symptom fix.
 [y] In-app: fight to last-stand. The desperate-choice screen must show the contested-roll readout + banded condition (C5).,
 [y?] In-app: land the killing blow. The outcome must show the combat opening frame + terminal card (P2), not a bare location scene.,
 [y] In-app: verify the /action 'last action' hint fires only on the genuine last roll (Saturday = 4th, weekday = 3rd). (N3 verified by tests; sanity-check.),
