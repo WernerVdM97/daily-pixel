@@ -28,6 +28,8 @@
 
 ### TBD — POC polish (small UI wins, no spark warranted)
 
+- combat or social actions HAVE to mint NPC. no thing can be referenced without existing or spawning to persist?
+- remove critic from classify. conditionally. latency seems high. mine prod for investigation
 - many frame has two spaces for padding left. refactor to 1
 - map seems formatted weird:
 ```
