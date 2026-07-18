@@ -1518,9 +1518,19 @@ export class WorldEngineImpl implements WorldEngine {
     return geographyRouteBetween(this.edgeRepo, from, to);
   }
 
-  /** Public visit-recorder for non-engine movement paths (the daily-work commute). */
-  recordVisit(characterId: number, locationName: string): void {
-    this.charLocRepo.recordVisit(characterId, locationName);
+  /** The day-job commute rule. Previously a Discord-layer direct DB write (`src/index.ts`);
+   *  the rule lives here so every frontend (agent-player, future clients) gets it for free. */
+  commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null {
+    const row = this.charRepo.findById(characterId);
+    if (!row) return null;
+
+    const oakName = "The Warden's Oak";
+    if (row.location !== oakName || !workplace || workplace === row.location) return null;
+
+    const stamina = Math.max(0, row.stamina - 1);
+    this.charRepo.update(characterId, { stamina, location: workplace });
+    this.charLocRepo.recordVisit(characterId, workplace);
+    return { to: workplace, stamina };
   }
 
   // ── Feedback & bugs ──

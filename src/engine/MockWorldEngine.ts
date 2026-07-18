@@ -44,6 +44,7 @@ export class MockWorldEngine implements WorldEngine {
   private _leaderboards: Leaderboards = { wealth: [], might: [] };
   private _weeklyActions: WeeklyActionSummary[] = [];
   private _meta: Map<string, string> = new Map();
+  private _commuteResult: { to: string; stamina: number } | null = null;
 
   // ── Call tracking ──
 
@@ -68,7 +69,7 @@ export class MockWorldEngine implements WorldEngine {
     spawnNpc: { name: string; location: string }[];
     getLeaderboards: number[];
     getMeta: string[];
-    recordVisit: { characterId: number; locationName: string }[];
+    commuteToWorkplace: { characterId: number; workplace: string | null }[];
   } = {
     createCharacter: [],
     getCharacter: [],
@@ -90,7 +91,7 @@ export class MockWorldEngine implements WorldEngine {
     spawnNpc: [],
     getLeaderboards: [],
     getMeta: [],
-    recordVisit: [],
+    commuteToWorkplace: [],
   };
 
   // ── Setters for canned responses ──
@@ -137,6 +138,10 @@ export class MockWorldEngine implements WorldEngine {
   }
   setSoulsInUnsafe(count: number): void {
     this._soulsInUnsafe = count;
+  }
+
+  setCommuteResult(result: { to: string; stamina: number } | null): void {
+    this._commuteResult = result;
   }
 
   setTickResult(result: TickResult): void {
@@ -295,8 +300,9 @@ export class MockWorldEngine implements WorldEngine {
     return this._route ?? null;
   }
 
-  recordVisit(characterId: number, locationName: string): void {
-    this.calls.recordVisit.push({ characterId, locationName });
+  commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null {
+    this.calls.commuteToWorkplace.push({ characterId, workplace });
+    return this._commuteResult;
   }
 
   submitFeedback(characterId: number, text: string, actionId?: number): void {

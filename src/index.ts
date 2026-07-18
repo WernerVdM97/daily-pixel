@@ -2055,37 +2055,28 @@ _${idleMsg}_`)
           components: [],
         });
 
-        // ── Commute from the Oak to the workplace ──
-        if (char.location === "The Warden's Oak") {
-          if (workplace && workplace !== char.location) {
-            charRepo.update(char.id, {
-              stamina: Math.max(0, char.stamina - 1),
-              location: workplace,
-            });
-            // Fog-of-war: the commute is a non-engine movement path, so record the
-            // visit here. The workplace is a seeded home-cluster node already wired,
-            // so no edge is minted — just discovery/recency.
-            engine.recordVisit(char.id, workplace);
-            // Update the local char copy for the outcome renderer.
-            char.stamina = Math.max(0, char.stamina - 1);
-            char.location = workplace;
+        const commute = engine.commuteToWorkplace(char.id, workplace);
+        if (commute) {
+          // Update the local char copy for the outcome renderer — the pre-startAction
+          // snapshot also feeds announceCollapse's before-baseline.
+          char.stamina = commute.stamina;
+          char.location = commute.to;
 
-            // Merge the commute INTO the loading page (don't replace it): the LLM call
-            // below takes seconds, so keep the "thinking" indicator visible — the bot
-            // hasn't stalled, work is being generated.
-            await interaction.editReply({
-              embeds: [
-                new EmbedBuilder()
-                  .setTitle("🚶 Daily Commute")
-                  .setDescription(
-                    `**You head to the ${workplace}.**  \n⚡ -1 stamina\n\n⏳ **Setting to work…**\n_${idleMsg}_`,
-                  )
-                  .setColor(0x95a5a6)
-                  .toJSON(),
-              ],
-              components: [],
-            });
-          }
+          // Merge the commute INTO the loading page (don't replace it): the LLM call
+          // below takes seconds, so keep the "thinking" indicator visible — the bot
+          // hasn't stalled, work is being generated.
+          await interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("🚶 Daily Commute")
+                .setDescription(
+                  `**You head to the ${commute.to}.**  \n⚡ -1 stamina\n\n⏳ **Setting to work…**\n_${idleMsg}_`,
+                )
+                .setColor(0x95a5a6)
+                .toJSON(),
+            ],
+            components: [],
+          });
         }
 
         // Lead the prompt with the task label so the LLM always gets the concrete, payable
