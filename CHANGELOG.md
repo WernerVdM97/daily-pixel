@@ -12,6 +12,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Private outcome embed now matches the public one** — the ephemeral action-outcome reply previously used a `compact: true` variant that hid the story thread (a deliberate `0.3.1` design choice that proved too sparse). Both the private reply and the public thread copy now share the same full embed, so the player sees the complete gamebook trail in both places.
 - **HP numbers and right-aligned columns on combat cards no longer run flush against the right border** *(0.3.2 P1 follow-up)* — the continue card's right-aligned columns (enemy contested roll, band word, HP deltas) and the opening frame's PC HP suffix were computed to fill exactly to the interior edge, leaving no gap before the border glyph. Both now leave one space, matching the player HP bar that already had it.
 
+### Internal
+
+- **Day-job commute rule moved into the engine** *(JSON-seam M0)* — `WorldEngine.commuteToWorkplace` now owns "at the Oak → move to workplace, −1 stamina"; the Discord handler only renders the result, deleting the UI layer's sole direct DB write. The engine's single-purpose `recordVisit` seam method is absorbed and removed (commit `98a4de1`).
+
 ## [0.3.2] - 2026-07-11
 
 ### Changed

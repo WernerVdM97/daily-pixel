@@ -161,7 +161,7 @@ Why now, not later:
 
 Milestones, not tasks — the implementing lead breaks each into its own build plan. Order is binding: M0 → M1 → M2 → M3 → M4 (M2 may start alongside M1; nothing extraction-shaped lands before M1 is green).
 
-[ ] **M0 — Commute rule into the engine.** The engine's work-action path owns "at the Oak → move to workplace, −1 stamina"; the handler only renders the outcome. Deletes the sole direct `charRepo.update` in the Discord layer (`src/index.ts`, the commute block). Covered by engine tests; `sim/` exercises it for free.
+[x] **M0 — Commute rule into the engine.** _(done 2026-07-18, commit `98a4de1` — plan + execution state in [[json-seam-build-plans]])_ The engine's work-action path owns "at the Oak → move to workplace, −1 stamina"; the handler only renders the outcome. Deletes the sole direct `charRepo.update` in the Discord layer (`src/index.ts`, the commute block). Covered by engine tests; `sim/` exercises it for free.
 [ ] **M1 — Behavioural oracle.** Characterisation baseline of each screen through the live handlers, diffable after every extraction step. Hard prerequisite for M3.
 [ ] **M2 — Semantic view-state DTO + shared renderers.** Define the view-state and the view-state→medium step; port `buildDecisionMessage` / `buildOutcomeEmbed` behind it so Discord output is unchanged.
 [ ] **M3 — Controller extraction, screen-by-screen.** A transport-neutral session controller absorbs the `index.ts` dispatcher branches and the command-file flow (`action`, `sleep`, `hi`); the engine absorbs option-resolution (decision 1); the `pendingDecisions` map dies; the oracle stays green after each screen.

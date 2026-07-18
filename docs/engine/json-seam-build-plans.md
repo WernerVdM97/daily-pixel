@@ -23,13 +23,13 @@ Design calls (lead, within the parent doc's decision 4):
 
 Tasks:
 
-[ ] Engine: add `commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null` to `WorldEngine` + `WorldEngineImpl` (row via `charRepo.findById`; condition `location === "The Warden's Oak" && workplace && workplace !== location`; `Math.max(0, stamina − 1)`; one `charRepo.update`; `charLocRepo.recordVisit`; null when no commute applies).
-[ ] Engine: remove the now-callerless `recordVisit` from `WorldEngine` + `WorldEngineImpl`.
-[ ] Discord: replace the commute block in `src/index.ts` with the engine call; patch the local `char` snapshot from the result (preserves the `announceCollapse` before-baseline); keep the transient embed text byte-identical.
-[ ] Tests: new `tests/engine/commute.test.ts` mirroring `visit-recording.test.ts` setup — happy path (move + stamina −1 + visit recorded + persisted), stamina-0 floor, not-at-Oak no-op, null workplace no-op, workplace-equals-location no-op.
-[ ] Lead closeout: verify, commit, review loop, changelog entry, tick M0 in the parent doc.
+[x] Engine: add `commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null` to `WorldEngine` + `WorldEngineImpl` (row via `charRepo.findById`; condition `location === "The Warden's Oak" && workplace && workplace !== location`; `Math.max(0, stamina − 1)`; one `charRepo.update`; `charLocRepo.recordVisit`; null when no commute applies).
+[x] Engine: remove the now-callerless `recordVisit` from `WorldEngine` + `WorldEngineImpl` (also re-stubbed in `MockWorldEngine`, a necessary follow-on).
+[x] Discord: replace the commute block in `src/index.ts` with the engine call; patch the local `char` snapshot from the result (preserves the `announceCollapse` before-baseline); keep the transient embed text byte-identical.
+[x] Tests: new `tests/engine/commute.test.ts` mirroring `visit-recording.test.ts` setup — happy path (move + stamina −1 + visit recorded + persisted), stamina-0 floor, not-at-Oak no-op, null workplace no-op, workplace-equals-location no-op.
+[x] Lead closeout: verify, commit, review loop, changelog entry, tick M0 in the parent doc.
 
-Execution state: _not started._
+Execution state: _done 2026-07-18._ Build commit `98a4de1` (typecheck clean; 78 files / 1462 tests green, +5 over baseline). Adversarial review found no code defects; two informational notes recorded: the engine re-reads the row at call time (fresher than the old handler snapshot under any future concurrency — deliberate), and the handler-level e2e gap is M1's job, not M0's.
 
 ## M1 — Behavioural oracle
 
