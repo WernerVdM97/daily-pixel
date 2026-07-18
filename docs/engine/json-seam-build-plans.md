@@ -33,7 +33,16 @@ Execution state: _done 2026-07-18._ Build commit `98a4de1` (typecheck clean; 78 
 
 ## M1 — Behavioural oracle
 
-[<] Plan written when M0 closes.
+[<] Plan to be written next (groundwork below is done; one design point to settle first).
+
+Groundwork (surveyed 2026-07-18, post-M0 — save the re-exploration):
+
+[I] The dispatcher is a single closure `dispatchInteraction` inside `main()` (`src/index.ts:1466`), registered at `client.on(Events.InteractionCreate, …)` (`:2421`) behind the `_interactionInFlight` guard (`:362`, key via `interactionGuardKey` `:364`). It is not exported, and `src/index.ts` self-executes on import (DB open `:1136`, YAML assets `:1139`, LLM gateway/env `:1170+`, `client.login` `:2439`), so no test can import it today.
+[I] Branch inventory: one slash-command arm (`:1469`; 13 registered commands `:1269-1331`; character-gate reroute `:1518`; hard-coded ephemeral list `:1544`; sleep feedback-row append `:1560`) plus 14 customId branches (`:1623-2193`), of which `nav:` holds 3 sub-branches (`nav:action` `:2204` re-implements the /action menu, `nav:sleep` `:2330`, generic nav `:2383`) — 17 leaf behaviours total. The heaviest and least-tested is the `action:dayjob:` work flow (`:2000-2165`).
+[I] Reachable from tests today (pattern in `tests/discord/`): exported command factories (`makeXCommand` + `MockWorldEngine` + hand-rolled fake interactions with `vi.fn()` spies — see `nav-action.test.ts:17`, `join.test.ts:22`), the exported `handleJoinInteraction`, and the pure builders. Locked inside the closure and unreachable: the whole `nav:` bar, the `action:dayjob:` work flow, the `action:custom:modal` chain, the four feedback/bug button→modal chains, the slash-arm assembly (gate/ephemeral/payload), the in-flight guard and error funnel, and the customId cascade order itself.
+[I] Module-level flow state the oracle must reset between transcripts: `pendingDecisions` + `_menuMessages` + `_sceneLookup` (`src/discord/commands/action.ts:90-107`), `_userInFlight` (`join.ts:63`), wizard `sessions` (`WizardSession.ts:36`), `_interactionInFlight` (`index.ts:362`).
+[I] No snapshot testing exists anywhere in `tests/` (no `toMatchSnapshot`, no `__snapshots__`) — the golden-transcript harness is greenfield; vitest snapshots are available.
+[!] Design point the lead must settle when writing the M1 plan: golden transcripts through the live handlers (decision 4's lean) require making the closure drivable, i.e. a minimal mechanical hoist of `dispatchInteraction` out of `main()` into an exported, dependency-injected function (engine, registry, joinWizards, dayJobs, getCurrentScene, …) with zero behaviour change — scaffolding for M1, not the M3 extraction. The alternative (drive only the exported factories) needs no hoist but misses the six locked areas above, including the heaviest branch. Whichever is chosen, the oracle must pin the closure's cascade order (e.g. `action:dayjob:` matching before the broader `action:`), which nothing tests today.
 
 ## M2 — Semantic view-state DTO + shared renderers
 
