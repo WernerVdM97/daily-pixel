@@ -1,4 +1,6 @@
 
+Parent spec docs/engine/layer-boundaries-and-json-seam.md; stage plan docs/engine/json-seam-build-plans.md (M3 section). Branch feat/m3-controller-extraction, last commits 1432d59 (M3.1) + b83f5e8 (doc). M3.0 + M3.1 done — SessionController stands, feedback/bug routed through it. Next is M3.2: absorb handleActionChoice (src/discord/commands/action.ts) into the controller; engine absorbs option-resolution into lastActionState.pendingDecision (parent decision 1); delete the pendingDecisions map + getChoiceLabel + setPendingDecision. Reuses M2 Decision/OutcomeViewState. Reconcile first: M3 checkboxes vs git log, typecheck + npm test green (81/1512, zero snapshot churn) before building. Oracle (tests/discord/dispatch-oracle.test.ts) + M2 snapshots gate every slice. Use orchestrated-delegation; never commit to main/dev.
+
 # TODO
 
 ## scratchpad (humans start here)
