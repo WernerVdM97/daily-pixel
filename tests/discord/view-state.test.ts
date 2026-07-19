@@ -1,20 +1,23 @@
 import { describe, it, expect } from 'vitest';
+import { ButtonStyle } from 'discord.js';
 import {
   buildDecisionView,
   buildOutcomeView,
-  buildDecisionMessage,
-  buildOutcomeEmbed,
 } from '../../src/discord/commands/action.js';
 import { decisionViewToDiscord, outcomeViewToDiscord } from '../../src/discord/viewToDiscord.js';
 import { distilledActionEmoji } from '../../src/engine/OutcomeRenderer.js';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../src/engine/action/combat-dc.js';
+import type { DecisionViewState, OutcomeViewState } from '../../src/view/viewState.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ── M2.2 — pins the view-state seam independently of the Discord snapshots:
-// buildXView must return the expected semantic shape, and the medium step must
-// reproduce buildXMessage's output exactly (round-trip) on the same inputs. ──
+// buildXView must return the expected semantic shape (first half), and the medium step
+// (decisionViewToDiscord/outcomeViewToDiscord) is pinned directly on hand-built DTOs
+// (second half) — not via a round-trip through buildXView, since buildXMessage/buildXEmbed
+// are now themselves defined as viewToDiscord(buildXView(...)) and a round-trip would just
+// run the same call graph twice. ──
 
 describe('buildDecisionView — semantic shape', () => {
   // Mirrors action-decision.test.ts's passive-insight fixture: easy path DC 10, hard
@@ -144,86 +147,125 @@ describe('buildOutcomeView — semantic shape', () => {
   });
 });
 
-// ── Round-trip: the medium step reproduces buildXMessage's exact output on the
-// same inputs — this is the byte-identical gate the DTO seam must not drift. ──
+// ── Medium step, pinned directly: hand-built DTOs exercise decisionViewToDiscord/
+// outcomeViewToDiscord in isolation from the view-builders and the Discord snapshots. ──
 
-describe('decisionViewToDiscord(buildDecisionView(x)) round-trips buildDecisionMessage(x)', () => {
-  it('matches for a decision with options, a favoured hint, and story-thread history', () => {
-    const decision = {
-      prompt: 'A fork in the road.',
-      options: [
-        { label: 'Easy path', dcModifier: -2 },
-        { label: 'Hard path', dcModifier: 4 },
-        { label: 'Step back', dcModifier: null },
-      ],
-    };
-    const state = {
-      rawInput: 'go east',
-      decisions: [{ prompt: 'Hunt', chosen: 'Track it', dcModifier: -1, narration: 'The stag freezes.' }],
-      accumulatedDc: 12,
-    };
-    const char = {
-      stats: { physical: 0, wisdom: 2, intelligence: 0, charisma: 0 },
-      name: 'Aldric', health: 24, maxHealth: 30, location: 'Oakhollow',
-    };
+describe('decisionViewToDiscord — medium step', () => {
+  const baseView: DecisionViewState = {
+    screen: 'decision',
+    title: { emoji: '🤔', text: 'Decision' },
+    colorIntent: 'decision',
+    storyThread: { full: 'FULL-THREAD', collapsed: 'COLL-THREAD' },
+    narration: 'The wind shifts.',
+    prompt: '> A fork in the road.',
+    optionLines: ['**A.** Easy path ⬇️', '**B.** Hard path ⬆️'],
+    buttons: [
+      { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: true },
+      { kind: 'choice', letter: 'B', customId: 'action:choice:0:1', favoured: false },
+      { kind: 'bail', label: 'Step back', customId: 'action:bail' },
+    ],
+    footer: 'a safer path catches your eye',
+    openingFrame: undefined,
+  };
 
-    const viaView = decisionViewToDiscord(buildDecisionView(decision, 1, state, char, 'travel'));
-    const direct = buildDecisionMessage(decision, 1, state, char, 'travel');
-    expect(viaView).toEqual(direct);
+  it('assembles the embed and buttons from the view fields', () => {
+    const result = decisionViewToDiscord(baseView);
+
+    expect(result.embeds.length).toBe(1);
+    expect(result.embeds[0].title).toBe('🤔 Decision');
+    expect(result.embeds[0].color).toBe(0xdaa520);
+    expect(result.embeds[0].footer?.text).toBe(baseView.footer);
+
+    const expectedDescription = [baseView.storyThread!.full, baseView.narration, baseView.prompt].join('\n\n')
+      + '\n\n' + baseView.optionLines.join('\n');
+    expect(result.embeds[0].description).toBe(expectedDescription);
+
+    const buttons = result.components[0].components as any[];
+    expect(buttons[0]).toMatchObject({ custom_id: 'action:choice:0:0', label: 'A', style: ButtonStyle.Success });
+    expect(buttons[1]).toMatchObject({ custom_id: 'action:choice:0:1', label: 'B', style: ButtonStyle.Secondary });
+    expect(buttons[2]).toMatchObject({ custom_id: 'action:bail', label: 'Step back', style: ButtonStyle.Danger });
   });
 
-  it('matches for the bare no-frame, no-state case', () => {
-    const decision = { prompt: 'Scout — what do you do?', options: [{ label: 'Track the wolf quietly', dcModifier: -2 }] };
-    expect(decisionViewToDiscord(buildDecisionView(decision, 0))).toEqual(buildDecisionMessage(decision, 0));
+  it('degrades the description: full → collapsed → hard clip, as the joined length exceeds the embed cap', () => {
+    const longFull = 'x'.repeat(5000);
+    const collapseView: DecisionViewState = {
+      ...baseView,
+      narration: undefined,
+      storyThread: { full: longFull, collapsed: 'COLLAPSED' },
+    };
+    const collapsed = decisionViewToDiscord(collapseView);
+    expect(collapsed.embeds[0].description).toMatch(/^COLLAPSED/);
+
+    const stillTooLong = 'y'.repeat(4090);
+    const clipView: DecisionViewState = {
+      ...baseView,
+      narration: undefined,
+      storyThread: { full: longFull, collapsed: stillTooLong },
+    };
+    const clipped = decisionViewToDiscord(clipView);
+    expect(clipped.embeds[0].description!.length).toBeLessThanOrEqual(4096);
+    expect(clipped.embeds[0].description!.endsWith('…')).toBe(true);
+  });
+
+  it('prepends an opening-frame embed when the view carries one', () => {
+    const withFrame: DecisionViewState = { ...baseView, openingFrame: '```ansi\nFRAME\n```' };
+    const result = decisionViewToDiscord(withFrame);
+
+    expect(result.embeds.length).toBe(2);
+    expect(result.embeds[0].description).toContain('FRAME');
+    expect(result.embeds[0].color).toBe(0x2c2f33);
+    expect(result.embeds[1].title).toBe('🤔 Decision');
   });
 });
 
-describe('outcomeViewToDiscord(buildOutcomeView(x)) round-trips buildOutcomeEmbed(x)', () => {
-  const state = {
-    rawInput: 'hunt the stag',
-    decisions: [{ prompt: 'Hunt — what do you do?', chosen: 'Track it', dcModifier: -1, distilledType: 'hunt' }],
+describe('outcomeViewToDiscord — medium step', () => {
+  const baseView: OutcomeViewState = {
+    screen: 'outcome',
+    title: { emoji: distilledActionEmoji('hunt'), text: 'Hunt' },
+    colorIntent: 'success',
+    locationLine: '📍 Oakhollow',
+    breadcrumb: '🧵 Hunt → Track it',
+    sceneBlock: '```\n🌲 Forest scene art\n```',
+    isCombat: false,
+    storyThread: { full: 'FULL-THREAD', collapsed: 'COLL-THREAD' },
+    outcomeBlock: 'The stag falls.',
   };
 
-  it('matches for a non-combat outcome', () => {
-    const outcome: ActionOutcome = {
-      distilledType: 'hunt', finalDc: 14, playerRolled: 16, outcome: 'success',
-      outcomeText: 'The stag falls.', mutations: [],
-    };
-    const char = { name: 'Aldric', health: 12, maxHealth: 12, stamina: 10, maxStamina: 10, rollsRemaining: 1, wealth: 5 } as any;
+  it('assembles title, colour, and description in assemble(false, true) order', () => {
+    const result = outcomeViewToDiscord(baseView);
 
-    const viaView = outcomeViewToDiscord(buildOutcomeView(outcome, char, '🌲 Forest scene art', state));
-    const direct = buildOutcomeEmbed(outcome, char, '🌲 Forest scene art', state);
-    expect(viaView).toEqual(direct);
+    expect(result.title).toBe(`${distilledActionEmoji('hunt')} Hunt`);
+    expect(result.color).toBe(0x2ecc71);
+    expect(result.description).toBe(
+      [baseView.locationLine, baseView.breadcrumb, baseView.sceneBlock, baseView.storyThread!.full, baseView.outcomeBlock].join('\n\n'),
+    );
   });
 
-  it('matches for a combat outcome', () => {
-    const combatBeat: CombatBeatLog = {
-      round: 2, band: 'clean', enemyHpBefore: 6, enemyHpAfter: 0, playerHpDelta: 0,
-      playerD20: 18, playerBonus: 5, dc: 10, enemyD20: 7, enemyBonus: 0, margin: 16,
-      materialMutationFired: true, ops: ['set_relation'], marker: 'combat_round',
-    };
-    const combatOutcome: ActionOutcome = {
-      distilledType: 'skirmish', finalDc: 10, playerRolled: 18, rollBonus: 5, rollStat: 'physical',
-      outcome: 'success', outcomeText: 'Your blade finds its mark — the creature crumples.',
-      mutations: [], combatBeat, combatFrame: { enemyName: 'Shadow Stag', enemyMaxHp: 24, margin: 16 },
-      combatRounds: [combatBeat],
-    };
-    const char = { name: 'Aldric', health: 12, maxHealth: 12, stamina: 10, maxStamina: 10, rollsRemaining: 1, wealth: 5 } as any;
-
-    const viaView = outcomeViewToDiscord(buildOutcomeView(combatOutcome, char, null, state));
-    const direct = buildOutcomeEmbed(combatOutcome, char, null, state);
-    expect(viaView).toEqual(direct);
+  it('maps colorIntent to the outcome hex, including the unknown-intent fallback', () => {
+    expect(outcomeViewToDiscord({ ...baseView, colorIntent: 'failure' }).color).toBe(0xe74c3c);
+    expect(outcomeViewToDiscord({ ...baseView, colorIntent: 'default' }).color).toBe(0x3498db);
   });
 
-  it('matches with opts.compact set (storyThread suppressed)', () => {
-    const outcome: ActionOutcome = {
-      distilledType: 'hunt', finalDc: 14, playerRolled: 16, outcome: 'success',
-      outcomeText: 'The stag falls.', mutations: [],
+  it('shows the combat scene block instead of the plain scene block when isCombat is true', () => {
+    const combatView: OutcomeViewState = {
+      ...baseView,
+      isCombat: true,
+      combatSceneBlock: '```ansi\nCOMBAT FRAME\n```',
     };
-    const char = { name: 'Aldric', health: 12, maxHealth: 12, stamina: 10, maxStamina: 10, rollsRemaining: 1, wealth: 5 } as any;
+    const result = outcomeViewToDiscord(combatView);
 
-    const viaView = outcomeViewToDiscord(buildOutcomeView(outcome, char, null, state, { compact: true }));
-    const direct = buildOutcomeEmbed(outcome, char, null, state, { compact: true });
-    expect(viaView).toEqual(direct);
+    expect(result.description).toContain('COMBAT FRAME');
+    expect(result.description).not.toContain('🌲 Forest scene art');
+  });
+
+  it('degrades to the collapsed story thread when the full thread exceeds the embed cap', () => {
+    const longView: OutcomeViewState = {
+      ...baseView,
+      storyThread: { full: 'x'.repeat(5000), collapsed: 'COLLAPSED-MARKER' },
+    };
+    const result = outcomeViewToDiscord(longView);
+
+    expect(result.description).toContain('COLLAPSED-MARKER');
+    expect(result.description).not.toContain('x'.repeat(5000));
   });
 });
