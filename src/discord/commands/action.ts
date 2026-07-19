@@ -18,12 +18,12 @@ import {
 import type { WorldEngine, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../../engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../engine/action/combat-dc.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
-import { getDayJobActions, type DayJobDef } from './hi.js';
 import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji, dayJobEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 import { decisionViewToDiscord, outcomeViewToDiscord } from '../viewToDiscord.js';
 import { buildDecisionView, buildOutcomeView } from '../../view/actionViewState.js';
+import { getDayJobActions, buildActionHints, CID_DAYJOB, CID_DAYJOB_CUSTOM, type DayJobDef } from '../../controller/dayJob.js';
 
 // Builders relocated to view/actionViewState.ts (M3.2b); re-exported here since
 // action-decision/view-state tests import them from this module's path.
@@ -31,50 +31,8 @@ export { buildDecisionView, buildOutcomeView };
 
 // ── Custom IDs ──
 
-export const CID_DAYJOB = 'action:dayjob:';
-export const CID_DAYJOB_CUSTOM = 'action:dayjob:custom';
 export const CID_CUSTOM_MODAL = 'action:custom:modal';
 export const CID_CUSTOM_INPUT = 'action:custom:input';
-
-// ── /action hints ──
-
-export interface ActionHintContext {
-  rollsRemaining: number;
-  stamina: number;
-  maxStamina: number;
-  isSafe: boolean;
-}
-
-// "Running on fumes" at 25% of max stamina, floored at 2 so low-max characters
-// still get the warning at very low absolute stamina rather than never triggering.
-const LOW_STAMINA_RATIO = 0.25;
-const LOW_STAMINA_FLOOR = 2;
-
-/** Contextual hints for the bare `/action` day-job menu — shared by the slash
- *  path (action.ts) and the `nav:action` button path (index.ts) so they can't drift. */
-export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }: ActionHintContext): string[] {
-  const hints: string[] = [];
-
-  // Keys off rolls *remaining*, not the day's allowance, so it fires on the genuine last roll
-  // whatever that allowance is: exactly one left is always the last action, whether the day
-  // grants 3 or Saturday's bonus 4 (N3 — no premature warning a roll early on Saturday).
-  if (rollsRemaining === 1) {
-    hints.push('🎲 Last action of the day — make it count.');
-  }
-
-  const lowStaminaThreshold = Math.max(LOW_STAMINA_FLOOR, Math.round(maxStamina * LOW_STAMINA_RATIO));
-  // stamina < maxStamina guards a character at full stamina (e.g. 1/1 or 2/2) from seeing
-  // the warning purely because their max is tiny — "fumes" implies having spent some.
-  if (stamina <= lowStaminaThreshold && stamina < maxStamina) {
-    hints.push(`😮‍💨 You're running on fumes (${stamina}/${maxStamina} stamina).`);
-  }
-
-  if (!isSafe) {
-    hints.push("⚠️ This place isn't safe — trouble may find you.");
-  }
-
-  return hints;
-}
 
 // Day-job menu ephemeral messages, keyed by userId, so the custom modal submit
 // can delete them via webhook.

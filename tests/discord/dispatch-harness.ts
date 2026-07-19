@@ -8,7 +8,7 @@ import { WizardSession } from "../../src/discord/WizardSession.js";
 import { CommandRegistry, type CommandHandler } from "../../src/discord/CommandRegistry.js";
 import { loadYamlFile } from "../../src/assets/yaml-loader.js";
 import type { DispatchDeps } from "../../src/discord/dispatchInteraction.js";
-import type { DayJobDef } from "../../src/discord/commands/hi.js";
+import type { DayJobDef } from "../../src/controller/dayJob.js";
 import type { CharDefs } from "../../src/discord/commands/join.js";
 
 import { makeHelpCommand } from "../../src/discord/commands/help.js";

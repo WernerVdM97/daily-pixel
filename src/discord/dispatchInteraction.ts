@@ -44,18 +44,18 @@ import { CID_BAIL, parseActionCid } from "../view/actionViewState.js";
 import {
   buildDecisionMessage,
   buildOutcomeEmbed,
-  buildActionHints,
   consumeMenuMessage,
   stashMenuMessage,
-  CID_DAYJOB,
-  CID_DAYJOB_CUSTOM,
 } from "./commands/action.js";
 import { checkProfanity } from "./profanity.js";
 import {
   getDayJobActions,
   getWorkplaceLocation,
+  buildActionHints,
+  CID_DAYJOB,
+  CID_DAYJOB_CUSTOM,
   type DayJobDef,
-} from "./commands/hi.js";
+} from "../controller/dayJob.js";
 import {
   broadcastOutcome,
   META_RECAP_THREAD_ID,

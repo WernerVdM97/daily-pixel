@@ -78,10 +78,8 @@ import { makeMapCommand } from "./discord/commands/map.js";
 import { makeFeedbackCommand } from "./discord/commands/feedback.js";
 import { makeBugCommand } from "./discord/commands/bug.js";
 import { makeSleepCommand } from "./discord/commands/sleep.js";
-import {
-  makeHiCommand,
-  type DayJobDef,
-} from "./discord/commands/hi.js";
+import { makeHiCommand } from "./discord/commands/hi.js";
+import { type DayJobDef } from "./controller/dayJob.js";
 import { registerEmoji } from "./discord/format.js";
 import { setCollapseBroadcaster } from "./discord/collapse.js";
 import {
