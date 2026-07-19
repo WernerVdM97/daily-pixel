@@ -31,6 +31,8 @@ import { BORDERS, PALETTES, type BorderStyle } from '../../render/AnsiRenderer.j
 import { renderOpeningFrame, type OpeningFrameSlots } from '../../render/OpeningFrameRenderer.js';
 import { renderCombatContinueCard, renderCombatTerminalCard, type ContinueCardInput, type CombatTerminalCard } from '../../render/CombatCardRenderer.js';
 import { enemyConditionBand } from '../../engine/action/PipelineActionStateMachine.js';
+import type { DecisionViewState, OutcomeViewState, ViewColorIntent } from '../../view/viewState.js';
+import { decisionViewToDiscord, outcomeViewToDiscord } from '../viewToDiscord.js';
 
 // ── Custom IDs ──
 
@@ -463,8 +465,9 @@ async function applyActionResult(
  *  insight flags it — keeps the green hint a rare, earned tell. */
 const INSIGHT_MARGIN = 2;
 
-/** Discord caps an embed description at 4096 chars. */
-const MAX_EMBED_DESC = 4096;
+/** Discord caps an embed description at 4096 chars. Exported: the medium step
+ *  (`viewToDiscord.ts`) owns the embed-length degradation ladder and needs this cap. */
+export const MAX_EMBED_DESC = 4096;
 
 /** Quote every line of `text` as a Discord blockquote (blank lines keep the bar). */
 function quoteLines(text: string): string {
@@ -474,8 +477,9 @@ function quoteLines(text: string): string {
     .join('\n');
 }
 
-/** Clip to `max` chars with a trailing ellipsis. */
-function clip(text: string, max: number): string {
+/** Clip to `max` chars with a trailing ellipsis. Exported: the medium step
+ *  (`viewToDiscord.ts`) owns the embed-length degradation ladder and needs this helper. */
+export function clip(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)).trimEnd() + '…';
 }
 
@@ -585,7 +589,10 @@ function renderCombatStatus(combatStatus: CombatStatusData | string, lastRound?:
   return typeof combatStatus === 'string' ? combatStatus : renderCombatStatusFrame(combatStatus, lastRound);
 }
 
-export function buildDecisionMessage(
+/** Assemble the decision screen's semantic view-state (JSON-seam M2). Same parameter list as
+ *  `buildDecisionMessage`; the medium step (`decisionViewToDiscord`) owns the block join, the
+ *  embed-length degradation ladder, and all `discord.js` construction. */
+export function buildDecisionView(
   decision: {
     prompt: string;
     narration?: string;
@@ -616,10 +623,7 @@ export function buildDecisionMessage(
    *  HP) when a persisted `in_combat` edge from a prior bail against this same foe exists. Only
    *  passed on the first decision of a combat action; undefined for a fresh fight. */
   combatEnemyCondition?: { woundWord: string; filled: number; total: number },
-): {
-  embeds: ReturnType<EmbedBuilder['toJSON']>[];
-  components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
-} {
+): DecisionViewState {
   // Raw DCs stay hidden while deciding. Instead, passive insight (10 + WIS,
   // D&D-style) occasionally lets a perceptive character spot the single safest
   // route — earned (see INSIGHT_MARGIN), not a constant readout.
@@ -631,16 +635,22 @@ export function buildDecisionMessage(
   // below are the only unquoted, actionable text — mirrors the outcome recap so
   // the whole /action flow reads as one continuous gamebook page. ──
   const workEmoji = char?.dayJob ? dayJobEmoji(char.dayJob) : '🛠️';
-  const blocks: string[] = [];
-  if (state) {
-    blocks.push(buildStoryThread(state.rawInput, state.decisions, false, state.kind, workEmoji));
-  }
+  // Both story-thread variants are pre-rendered here so the medium step can re-run the exact
+  // same degrade decision (full → collapsed) against pre-rendered strings, byte-identically.
+  const storyThread = state
+    ? {
+      full: buildStoryThread(state.rawInput, state.decisions, false, state.kind, workEmoji),
+      collapsed: buildStoryThread(state.rawInput, state.decisions, true, state.kind, workEmoji),
+    }
+    : undefined;
   // Narration (the consequence of the last choice) sits quoted above the CTA;
   // combatStatus is a plain (unquoted) status line between the two on combat
   // continue-screens. Absent on the first beat — just the quest line + CTA.
-  if (decision.narration) blocks.push(quoteLines(decision.narration));
-  if (decision.combatStatus) blocks.push(renderCombatStatus(decision.combatStatus, decision.combatRounds?.at(-1)));
-  blocks.push(quoteLines(decision.prompt));
+  const narration = decision.narration ? quoteLines(decision.narration) : undefined;
+  const combatStatus = decision.combatStatus
+    ? renderCombatStatus(decision.combatStatus, decision.combatRounds?.at(-1))
+    : undefined;
+  const prompt = quoteLines(decision.prompt);
 
   // List real (non-bail) options in the body as A./B./C. so button captions can
   // be just the letter — nothing truncates on mobile. No options → Continue fallback.
@@ -667,7 +677,7 @@ export function buildDecisionMessage(
 
   const LETTERS = ['A', 'B', 'C', 'D', 'E'];
   const optionLines: string[] = [];
-  const buttons: ButtonBuilder[] = [];
+  const buttons: DecisionViewState['buttons'] = [];
   let letterIdx = 0;
 
   // customId carries each option's original index — handleActionChoice looks the
@@ -675,12 +685,7 @@ export function buildDecisionMessage(
   options.forEach((opt, origIdx) => {
     if (opt.dcModifier === null) {
       // Terminal (bail) — keeps a worded button, not lettered in the body.
-      buttons.push(
-        new ButtonBuilder()
-          .setCustomId(CID_BAIL)
-          .setLabel(shortLabel(opt.label, 80))
-          .setStyle(ButtonStyle.Danger),
-      );
+      buttons.push({ kind: 'bail', label: shortLabel(opt.label, 80), customId: CID_BAIL });
     } else {
       const letter = LETTERS[letterIdx++] ?? String(origIdx + 1);
       const favoured = origIdx === favouredIdx;
@@ -691,44 +696,13 @@ export function buildDecisionMessage(
       const prefix = icon ? `${icon} ` : '';
       const suffix = arrow ? ` ${arrow}` : '';
       optionLines.push(`**${letter}.** ${prefix}${opt.label}${suffix}`);
-      buttons.push(
-        new ButtonBuilder()
-          .setCustomId(choiceCid(decisionIdx, origIdx))
-          .setLabel(letter)
-          // Passive insight tints the one route it senses is clearly safest.
-          .setStyle(favoured ? ButtonStyle.Success : ButtonStyle.Secondary),
-      );
+      buttons.push({ kind: 'choice', letter, customId: choiceCid(decisionIdx, origIdx), favoured });
     }
   });
 
-  // Fit the embed cap, degrading gracefully: full gamebook → collapse history to
-  // a breadcrumb → hard clip. Buttons live in `components` (always present), so a
-  // hard clip of the option text never disables the choices.
-  const optionsTail = optionLines.length > 0 ? `\n\n${optionLines.join('\n')}` : '';
-  let truncated = blocks.join('\n\n') + optionsTail;
-  if (truncated.length > MAX_EMBED_DESC && state) {
-    truncated = [buildStoryThread(state.rawInput, state.decisions, true, state.kind, workEmoji), quoteLines(decision.prompt)]
-      .join('\n\n') + optionsTail;
-  }
-  if (truncated.length > MAX_EMBED_DESC) truncated = clip(truncated, MAX_EMBED_DESC);
-
-  const footerText = favouredIdx >= 0
+  const footer = favouredIdx >= 0
     ? 'a safer path catches your eye'
     : (decisionIdx === 0 ? 'What do you do?' : `Decision ${decisionIdx + 1}`);
-
-  const embed = new EmbedBuilder()
-    .setTitle('🤔 Decision')
-    .setDescription(truncated)
-    .setColor(0xdaa520)
-    .setFooter({ text: footerText });
-
-  // Buttons — max 5 per row.
-  const components: ActionRowBuilder<ButtonBuilder>[] = [];
-  for (let i = 0; i < buttons.length; i += 5) {
-    components.push(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(i, i + 5)),
-    );
-  }
 
   // ANSI-F: the OPENING frame (art post) leads the message, the decision embed above IS the
   // "reply" body (§2b) — narration, options, and the interactive buttons. The delivery convention
@@ -746,33 +720,70 @@ export function buildDecisionMessage(
   };
   if (combatEnemyName) openingFrameSlots.enemyName = combatEnemyName;
   if (combatEnemyCondition) openingFrameSlots.enemyCondition = combatEnemyCondition;
-  const openingFrameEmbed = actionType && decisionIdx === 0
-    ? new EmbedBuilder()
-      .setDescription(renderOpeningFrame(actionType, openingFrameSlots))
-      .setColor(0x2c2f33)
-      .toJSON()
+  const openingFrame = actionType && decisionIdx === 0
+    ? renderOpeningFrame(actionType, openingFrameSlots)
     : undefined;
 
   return {
-    embeds: openingFrameEmbed ? [openingFrameEmbed, embed.toJSON()] : [embed.toJSON()],
-    components: components.map(r => r.toJSON()),
+    screen: 'decision',
+    title: { emoji: '🤔', text: 'Decision' },
+    colorIntent: 'decision',
+    storyThread,
+    narration,
+    combatStatus,
+    prompt,
+    optionLines,
+    buttons,
+    footer,
+    openingFrame,
   };
+}
+
+export function buildDecisionMessage(
+  decision: {
+    prompt: string;
+    narration?: string;
+    combatStatus?: CombatStatusData | string;
+    combatRounds?: CombatBeatLog[];
+    options: Array<{ label: string; dcModifier: number | null; stat?: string }>;
+  },
+  decisionIdx: number,
+  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; narration?: string }>; accumulatedDc?: number; kind?: ActionKind },
+  char?: {
+    stats: { physical: number; wisdom: number; intelligence: number; charisma: number };
+    dayJob?: string;
+    name?: string;
+    health?: number;
+    maxHealth?: number;
+    location?: string;
+  },
+  actionType?: ClassifiedActionType,
+  combatEnemyName?: string,
+  combatEnemyCondition?: { woundWord: string; filled: number; total: number },
+): {
+  embeds: ReturnType<EmbedBuilder['toJSON']>[];
+  components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
+} {
+  return decisionViewToDiscord(
+    buildDecisionView(decision, decisionIdx, state, char, actionType, combatEnemyName, combatEnemyCondition),
+  );
 }
 
 function shortLabel(label: string, maxLen: number): string {
   return label.length > maxLen ? label.slice(0, maxLen - 1) + '…' : label;
 }
 
-/** Build the outcome embed (trail + formatted outcome). Shared by the button
- *  resolution and start-time auto-finish paths. */
-export function buildOutcomeEmbed(
+/** Assemble the outcome screen's semantic view-state (JSON-seam M2). Same parameter list as
+ *  `buildOutcomeEmbed`; the medium step (`outcomeViewToDiscord`) owns the assemble/degrade
+ *  ladder and all `discord.js` construction. */
+export function buildOutcomeView(
   outcome: ActionOutcome,
   character: CharacterData | null | undefined,
   scene: string | null | undefined,
   state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string; narration?: string }>; kind?: ActionKind },
   opts?: { compact?: boolean },
   engine?: WorldEngine,
-): ReturnType<EmbedBuilder['toJSON']> {
+): OutcomeViewState {
   const ctx: OutcomeRenderContext = {
     stamina: character?.stamina ?? 10,
     maxStamina: character?.maxStamina ?? 10,
@@ -786,7 +797,7 @@ export function buildOutcomeEmbed(
   // Location header — emoji prefix from the geography seed, name from character.
   const locName = character?.location;
   const locEmoji = locName ? (engine?.getLocation(locName)?.emoji ?? '📍') : null;
-  const locationLine = locName ? `${locEmoji} ${locName}` : null;
+  const locationLine = locName ? `${locEmoji} ${locName}` : undefined;
 
   // Breadcrumb of the distilled actions the player moved through, e.g. 🔍 → 🗣️ → ⚔️.
   const types = state.decisions.length > 0
@@ -794,11 +805,11 @@ export function buildOutcomeEmbed(
     : [outcome.distilledType];
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
-  const sceneBlock = scene ? '```\n' + scene + '\n```' : '';
+  const sceneBlock = scene ? '```\n' + scene + '\n```' : undefined;
   // 0.3.2 P2: combat outcomes show the combat opening frame (with enemy nameplate + HP bars)
   // instead of the bare location scene — the terminal card already covers the dice reveal,
   // so pairing it with the combat frame gives a coherent visual story: scene-to-dice.
-  let combatSceneBlock: string | null = null;
+  let combatSceneBlock: string | undefined;
   if (outcome.combatBeat && character) {
     const lastBeat = outcome.combatRounds?.at(-1) ?? outcome.combatBeat;
     const enemyFraction = lastBeat.enemyHpBefore > 0 ? lastBeat.enemyHpAfter / lastBeat.enemyHpBefore : 0;
@@ -821,46 +832,47 @@ export function buildOutcomeEmbed(
   const outcomeBlock = formatOutcome(outcome, ctx, terminalRenderer);
   const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
-  // Full gamebook recap: breadcrumb, destination scene, story thread, then the
-  // resolution as focal unquoted text. Compact mode (private reply) skips the
-  // story thread — the player just saw it in the decision embed, so repeating
-  // it here is the double-showing the player flagged (F#19c). Degrade to fit
-  // the embed cap: full → collapse history → drop the decorative scene → hard
-  // clip.
-  const assemble = (collapseHistory: boolean, includeScene: boolean): string => {
-    const parts: string[] = [];
-    if (locationLine) parts.push(locationLine);
-    if (breadcrumb) parts.push(breadcrumb);
-    // Combat outcomes show the combat opening frame (enemy nameplate + HP bars) instead of
-    // the plain location scene — the terminal card already covers the dice reveal, so the
-    // combat frame provides visual context without duplicating information. (0.3.2 P2)
-    if (includeScene) {
-      if (outcome.combatBeat) {
-        if (combatSceneBlock) parts.push(combatSceneBlock);
-      } else if (sceneBlock) {
-        parts.push(sceneBlock);
-      }
+  // Both story-thread variants are pre-rendered here (compact mode carries neither — the
+  // player just saw the thread in the decision embed, so repeating it here is the
+  // double-showing the player flagged, F#19c) so the medium step can re-run the exact same
+  // degrade ladder (full → collapsed → drop scene → hard clip) against pre-rendered strings.
+  const storyThread = !opts?.compact
+    ? {
+      full: buildStoryThread(state.rawInput, state.decisions, false, state.kind, workEmoji),
+      collapsed: buildStoryThread(state.rawInput, state.decisions, true, state.kind, workEmoji),
     }
-    if (!opts?.compact) {
-      parts.push(buildStoryThread(state.rawInput, state.decisions, collapseHistory, state.kind, workEmoji));
-    }
-    parts.push(outcomeBlock);
-    return parts.join('\n\n');
+    : undefined;
+
+  return {
+    screen: 'outcome',
+    title: { emoji: distilledActionEmoji(outcome.distilledType), text: capitalize(outcome.distilledType) },
+    colorIntent: outcomeColorIntent(outcome.outcome),
+    locationLine,
+    breadcrumb,
+    sceneBlock,
+    combatSceneBlock,
+    isCombat: !!outcome.combatBeat,
+    storyThread,
+    outcomeBlock,
   };
-
-  let description = assemble(false, true);
-  if (description.length > MAX_EMBED_DESC) description = assemble(true, true);
-  if (description.length > MAX_EMBED_DESC) description = assemble(true, false);
-  if (description.length > MAX_EMBED_DESC) description = clip(description, MAX_EMBED_DESC);
-
-  return new EmbedBuilder()
-    .setTitle(`${distilledActionEmoji(outcome.distilledType)} ${capitalize(outcome.distilledType)}`)
-    .setDescription(description)
-    .setColor(outcomeColor(outcome.outcome))
-    .toJSON();
 }
 
-function outcomeColor(outcome: string): number {
+/** Build the outcome embed (trail + formatted outcome). Shared by the button
+ *  resolution and start-time auto-finish paths. */
+export function buildOutcomeEmbed(
+  outcome: ActionOutcome,
+  character: CharacterData | null | undefined,
+  scene: string | null | undefined,
+  state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string; narration?: string }>; kind?: ActionKind },
+  opts?: { compact?: boolean },
+  engine?: WorldEngine,
+): ReturnType<EmbedBuilder['toJSON']> {
+  return outcomeViewToDiscord(buildOutcomeView(outcome, character, scene, state, opts, engine));
+}
+
+/** Exported: `viewToDiscord.ts`'s colour-intent→hex mapping delegates to this exact switch
+ *  for every intent except 'decision' (which has no `outcome` counterpart). */
+export function outcomeColor(outcome: string): number {
   switch (outcome) {
     case 'success': return 0x2ecc71; // green
     case 'failure': return 0xe74c3c; // red
@@ -869,6 +881,22 @@ function outcomeColor(outcome: string): number {
     case 'done': return 0x95a5a6;    // grey — neutral finish (travel/rest resolved)
     case 'timed_out': return 0x95a5a6;
     default: return 0x3498db;
+  }
+}
+
+/** Maps an outcome string to its semantic colour intent — identity for the known outcome
+ *  values (mirroring `outcomeColor`'s case labels), 'default' for anything else. */
+function outcomeColorIntent(outcome: string): ViewColorIntent {
+  switch (outcome) {
+    case 'success':
+    case 'failure':
+    case 'skipped':
+    case 'bailed':
+    case 'done':
+    case 'timed_out':
+      return outcome;
+    default:
+      return 'default';
   }
 }
 
