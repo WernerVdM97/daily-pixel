@@ -76,7 +76,40 @@ Execution state: _done 2026-07-19._ M1.1 hoist `b9b4c4a` (DI surface = the 10 ex
 
 ## M2 — Semantic view-state DTO + shared renderers
 
-[<] Plan written when M1 is green (may start alongside M1 per the parent doc).
+Goal: introduce the semantic view-state DTO (parent doc decision 2) and the view-state→medium step, then port `buildDecisionMessage` / `buildOutcomeEmbed` (both in `src/discord/commands/action.ts`) behind them so Discord output is **byte-identical**. This is a pure internal refactor: the two public builders keep their exact signatures and output; no call site changes. The M1 oracle (`tests/discord/dispatch-oracle.test.ts`), `tests/discord/action-decision.test.ts` and `tests/discord/action-divine.test.ts` are the byte-identical gate — all must stay green with zero snapshot churn.
+
+Design calls (lead, within decision 2):
+
+[I] The seam splits each builder in two. `buildXView(...)` assembles a **semantic** `ViewState` DTO — named text/ANSI content blocks (all produced by the existing neutral string helpers) plus option semantics, footer, title and a colour *intent* — importing nothing from `discord.js`. `XViewToDiscord(view)` is the **medium step**: it owns block joining, the embed-length degradation ladder, and all `EmbedBuilder` / `ButtonBuilder` / `ActionRowBuilder` construction. The public builder becomes `XViewToDiscord(buildXView(...))`.
+
+[I] The embed 4096-char degradation ladder is a *medium* concern (a Discord embed cap; a web adapter would not have it), so it lives in the medium step. To keep it byte-identical the DTO carries BOTH the full and the collapsed story-thread variant (each is just `buildStoryThread(..., collapse, ...)` with a fixed boolean), so the medium step re-runs the exact same `assemble`/degrade decisions on pre-rendered strings.
+
+[I] Colour is carried as a semantic `ViewColorIntent` union; the medium step maps intent→hex, reproducing `outcomeColor()` and the decision constant `0xdaa520` exactly. The opening-frame embed's fixed `0x2c2f33` stays internal to the medium step (it is medium chrome, never a semantic choice).
+
+[I] File layout. DTO types → new `src/view/viewState.ts` (a module that imports NOTHING from `discord.js` — that non-import is the structural guarantee the DTO is transport-neutral). Medium step → new `src/discord/viewToDiscord.ts` (owns the `discord.js` weld; produces embed/component JSON, not strings, so it belongs in the adapter layer, not the pure `src/render/*`). The text helpers (`quoteLines`, `clip`, `dcArrow`, `statEmoji`, `buildStoryThread`, `renderCombatStatusFrame`, `MAX_EMBED_DESC`, `INSIGHT_MARGIN`) stay in `action.ts` and are imported/used as-is; relocation is M3's remit (mirrors M0/M1 "definitions not relocated").
+
+DTO shape (final — the executor implements exactly this):
+
+[I] `DecisionViewState` = `{ screen: 'decision'; title: { emoji; text }; colorIntent: 'decision'; storyThread?: { full: string; collapsed: string }; narration?: string; combatStatus?: string; prompt: string; optionLines: string[]; buttons: Array<{ kind: 'choice'; letter: string; customId: string; favoured: boolean } | { kind: 'bail'; label: string; customId: string }>; footer: string; openingFrame?: string }`. `narration`/`combatStatus`/`prompt`/`storyThread.*`/`optionLines`/`openingFrame` are the already-rendered strings the current code produces (quoted narration/prompt, ANSI frames, `**A.** …` option lines); `buttons` mirror the current `ButtonBuilder` set 1:1 (bail carries `shortLabel(opt.label, 80)`; choice carries just the letter).
+
+[I] `OutcomeViewState` = `{ screen: 'outcome'; title: { emoji; text }; colorIntent: ViewColorIntent; locationLine?: string; breadcrumb?: string; sceneBlock?: string; combatSceneBlock?: string; isCombat: boolean; storyThread?: { full: string; collapsed: string }; outcomeBlock: string }`. `storyThread` is absent when `opts.compact` (the current `!compact` guard); `isCombat` = `!!outcome.combatBeat` (selects `combatSceneBlock` over `sceneBlock` when including the scene). The medium step's `assemble(collapseHistory, includeScene)` reproduces the current part order exactly: `locationLine`, `breadcrumb`, scene (combat vs plain per `isCombat`+`includeScene`), story-thread (unless compact), `outcomeBlock`.
+
+[I] `ViewColorIntent` = `'decision' | 'success' | 'failure' | 'skipped' | 'bailed' | 'done' | 'timed_out' | 'default'`. `buildOutcomeView` maps `outcome.outcome` to the intent; the medium step maps intent→hex per the current `outcomeColor` switch.
+
+Tasks:
+
+M2.1 — DTO + medium step + port (own commit):
+[ ] Create `src/view/viewState.ts`: export `DecisionViewState`, `OutcomeViewState`, `ViewState` (union), `ViewColorIntent`, and the button-item union type. No runtime code, no `discord.js` import.
+[ ] Create `src/discord/viewToDiscord.ts`: export `decisionViewToDiscord(view: DecisionViewState): { embeds; components }` and `outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBuilder['toJSON']>`. Move the join + degradation ladder + `EmbedBuilder`/`ButtonBuilder`/`ActionRowBuilder`/5-per-row chunking + colour-intent→hex mapping here, verbatim in behaviour.
+[ ] In `action.ts`: add `buildDecisionView(...)` and `buildOutcomeView(...)` (same parameter lists as the current builders) returning the DTOs; re-express `buildDecisionMessage` as `decisionViewToDiscord(buildDecisionView(...))` and `buildOutcomeEmbed` as `outcomeViewToDiscord(buildOutcomeView(...))`. Export `buildDecisionView`/`buildOutcomeView`. Keep every helper in place.
+[ ] Verify: `npm run typecheck` clean; `npm test` green at 79 files / 1489 tests with ZERO snapshot churn (`git diff --stat` shows no change under `tests/discord/__snapshots__/`). If any snapshot changes, the port drifted — fix the port, never re-bless the snapshot.
+
+M2.2 — DTO-level test (own commit, or fold into M2.1 at lead's call):
+[ ] Add `tests/discord/view-state.test.ts` asserting `buildDecisionView`/`buildOutcomeView` return the expected semantic shape for a representative decision (with options + favoured hint) and outcome (combat + non-combat), and that a round-trip `XViewToDiscord(buildXView(...))` equals the direct `buildXMessage(...)` on the same inputs. This pins the seam independently of the Discord snapshots.
+
+Scope fence: no behaviour/branch changes; no caller changes in `dispatchInteraction.ts` or `action.ts` button handlers; do not relocate helper definitions; no engine changes; no `src/render/*` changes; M3 controller shaping is out of bounds. The DTO is a presentation view-state (screen/prompt/options/art/footer), NOT an engine or protocol type.
+
+Execution state: _in progress._
 
 ## M3 — Controller extraction, screen-by-screen
 
