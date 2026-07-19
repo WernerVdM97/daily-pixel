@@ -8,8 +8,8 @@
  * `buildOutcomeEmbed` bodies this was ported from.
  */
 
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
-import type { DecisionViewState, OutcomeViewState, ViewColorIntent } from '../view/viewState.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
+import type { DecisionViewState, NoticeViewState, OutcomeViewState, ViewColorIntent } from '../view/viewState.js';
 import { clip, MAX_EMBED_DESC, outcomeColor } from '../render/embedText.js';
 
 /** Opening-frame chrome — medium chrome, never a semantic choice (M2 design call), so it stays
@@ -120,4 +120,12 @@ export function outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBu
     .setDescription(description)
     .setColor(colorIntentToHex(view.colorIntent))
     .toJSON();
+}
+
+/** Maps a notice view to the exact `interaction.reply(...)` payload shape the four
+ *  feedback/bug modal-submit leaves used inline before M3.1. */
+export function noticeViewToDiscord(view: NoticeViewState): { content: string; flags?: MessageFlags.Ephemeral } {
+  return view.ephemeral
+    ? { content: view.text, flags: MessageFlags.Ephemeral }
+    : { content: view.text };
 }

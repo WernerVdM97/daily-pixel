@@ -119,6 +119,7 @@ import {
   makeActionCommand,
 } from "./discord/commands/action.js";
 import { dispatchInteraction, type DispatchDeps } from "./discord/dispatchInteraction.js";
+import { SessionController } from "./controller/SessionController.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
@@ -1467,12 +1468,14 @@ ${headInfo}`);
   // Handle all interactions — dispatch is hoisted to ./discord/dispatchInteraction.ts
   // (M1.1); wire the main()-scope bindings + the self-executing index.ts module
   // state the closure used to capture into `deps`.
+  const controller = new SessionController(engine);
   const dispatchDeps: DispatchDeps = {
     engine,
     registry,
     getCurrentScene,
     dayJobs,
     joinWizards,
+    controller,
     notifyAdmin,
     safeErrorReply,
     VERBOSE,

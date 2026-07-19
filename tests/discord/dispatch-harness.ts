@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
+import { SessionController } from "../../src/controller/SessionController.js";
 import { WizardSession } from "../../src/discord/WizardSession.js";
 import { CommandRegistry, type CommandHandler } from "../../src/discord/CommandRegistry.js";
 import { loadYamlFile } from "../../src/assets/yaml-loader.js";
@@ -185,6 +186,7 @@ export function makeHarness(): Harness {
     getCurrentScene,
     dayJobs: DAY_JOBS,
     joinWizards,
+    controller: new SessionController(engine),
     notifyAdmin,
     safeErrorReply,
     VERBOSE: false,

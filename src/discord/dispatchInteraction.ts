@@ -23,6 +23,8 @@ import type { Interaction, RepliableInteraction } from "discord.js";
 import type { WorldEngine } from "../engine/WorldEngine.js";
 import type { CommandRegistry } from "./CommandRegistry.js";
 import type { WizardSession } from "./WizardSession.js";
+import type { SessionController } from "../controller/SessionController.js";
+import { noticeViewToDiscord } from "./viewToDiscord.js";
 import { c } from "../util/colors.js";
 import { randomIdleMessage } from "../engine/IdleMessageSelector.js";
 import {
@@ -71,6 +73,7 @@ export interface DispatchDeps {
   getCurrentScene: (discordUserId: string) => string;
   dayJobs: DayJobDef[];
   joinWizards: WizardSession;
+  controller: SessionController;
   notifyAdmin: (label: string, err: unknown) => Promise<void>;
   safeErrorReply: (
     interaction: RepliableInteraction,
@@ -91,6 +94,7 @@ export async function dispatchInteraction(
     getCurrentScene,
     dayJobs,
     joinWizards,
+    controller,
     notifyAdmin,
     safeErrorReply,
     VERBOSE,
@@ -476,16 +480,9 @@ export async function dispatchInteraction(
   if (customId && customId === "sleep:feedback:modal") {
     if (!interaction.isModalSubmit()) return;
     const text = interaction.fields.getTextInputValue("sleep:feedback:input");
-    await interaction.reply({
-      content: "🙏 Thanks. The warden listens.",
-      flags: MessageFlags.Ephemeral,
-    });
-
+    await interaction.reply(noticeViewToDiscord(controller.feedbackConfirmation("sleep")));
     try {
-      const char = engine.getCharacter(interaction.user.id);
-      if (char) {
-        engine.submitFeedback(char.id, text);
-      }
+      controller.recordFeedback("sleep", interaction.user.id, text);
     } catch (err) {
       void notifyAdmin("Sleep feedback submission failed", err);
     }
@@ -516,16 +513,9 @@ export async function dispatchInteraction(
   if (customId && customId === "release:feedback:modal") {
     if (!interaction.isModalSubmit()) return;
     const text = interaction.fields.getTextInputValue("release:feedback:input");
-    await interaction.reply({
-      content: "🙏 Noted. The warden carries your words forward.",
-      flags: MessageFlags.Ephemeral,
-    });
-
+    await interaction.reply(noticeViewToDiscord(controller.feedbackConfirmation("release")));
     try {
-      const char = engine.getCharacter(interaction.user.id);
-      if (char) {
-        engine.submitFeedback(char.id, text);
-      }
+      controller.recordFeedback("release", interaction.user.id, text);
     } catch (err) {
       void notifyAdmin("Release feedback submission failed", err);
     }
@@ -559,13 +549,9 @@ export async function dispatchInteraction(
       "outcome:feedback:input",
     );
     const actionId = parseOutcomeActionId(customId);
-    await interaction.reply({
-      content: "🙏 Thanks. The warden listens.",
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.reply(noticeViewToDiscord(controller.feedbackConfirmation("outcome-feedback")));
     try {
-      const char = engine.getCharacter(interaction.user.id);
-      if (char) engine.submitFeedback(char.id, text, actionId);
+      controller.recordFeedback("outcome-feedback", interaction.user.id, text, actionId);
     } catch (err) {
       void notifyAdmin("Outcome feedback failed", err);
     }
@@ -596,13 +582,9 @@ export async function dispatchInteraction(
   if (customId && interaction.isModalSubmit() && (customId === "outcome:bug:modal" || customId.startsWith("outcome:bug:modal:"))) {
     const text = interaction.fields.getTextInputValue("outcome:bug:input");
     const actionId = parseOutcomeActionId(customId);
-    await interaction.reply({
-      content: "🐛 Bug noted. The warden will investigate.",
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.reply(noticeViewToDiscord(controller.feedbackConfirmation("outcome-bug")));
     try {
-      const char = engine.getCharacter(interaction.user.id);
-      if (char) engine.submitBug(char.id, text, actionId);
+      controller.recordFeedback("outcome-bug", interaction.user.id, text, actionId);
     } catch (err) {
       void notifyAdmin("Outcome bug report failed", err);
     }

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { ButtonStyle } from 'discord.js';
+import { ButtonStyle, MessageFlags } from 'discord.js';
 import {
   buildDecisionView,
   buildOutcomeView,
 } from '../../src/discord/commands/action.js';
-import { decisionViewToDiscord, outcomeViewToDiscord } from '../../src/discord/viewToDiscord.js';
+import { decisionViewToDiscord, noticeViewToDiscord, outcomeViewToDiscord } from '../../src/discord/viewToDiscord.js';
 import { distilledActionEmoji } from '../../src/engine/OutcomeRenderer.js';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../src/engine/action/combat-dc.js';
@@ -267,5 +267,23 @@ describe('outcomeViewToDiscord — medium step', () => {
 
     expect(result.description).toContain('COLLAPSED-MARKER');
     expect(result.description).not.toContain('x'.repeat(5000));
+  });
+});
+
+// ── M3.1 — pins noticeViewToDiscord's reply-payload shape: ephemeral carries the
+// Discord flag, non-ephemeral omits it entirely (matching the pre-M3.1 inline replies). ──
+
+describe('noticeViewToDiscord — medium step', () => {
+  it('adds the ephemeral flag when ephemeral is true', () => {
+    expect(noticeViewToDiscord({ screen: 'notice', text: 'x', ephemeral: true })).toEqual({
+      content: 'x',
+      flags: MessageFlags.Ephemeral,
+    });
+  });
+
+  it('omits flags entirely when ephemeral is false', () => {
+    expect(noticeViewToDiscord({ screen: 'notice', text: 'x', ephemeral: false })).toEqual({
+      content: 'x',
+    });
   });
 });

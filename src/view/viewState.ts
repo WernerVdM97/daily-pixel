@@ -54,4 +54,12 @@ export interface OutcomeViewState {
   outcomeBlock: string;
 }
 
-export type ViewState = DecisionViewState | OutcomeViewState;
+/** A plain confirmation/notice screen — no embed, just content. The medium step maps it to a
+ *  Discord reply payload; an agent adapter reads `text` directly. */
+export interface NoticeViewState {
+  screen: 'notice';
+  text: string;
+  ephemeral: boolean;
+}
+
+export type ViewState = DecisionViewState | OutcomeViewState | NoticeViewState;
