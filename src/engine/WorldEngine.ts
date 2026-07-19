@@ -87,6 +87,10 @@ export interface ActionOption {
   stat?: string;
 }
 
+/** Selects which pending-decision option a player clicked, for `resolvePendingChoice`
+ *  (M3.2 DC-A) — 'option' picks by button index, 'bail' asks for the bail option's label. */
+export type PendingChoiceSelector = { kind: 'option'; index: number } | { kind: 'bail' };
+
 export interface ActionDecisionRecord {
   prompt: string;
   options: ActionOption[];
@@ -426,6 +430,12 @@ export interface WorldEngine {
    *  visit is recorded (fog-of-war). Returns the applied move, or null when no
    *  commute applies (not at the Oak, no/unknown workplace, or already there). */
   commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null;
+
+  /** Resolves a clicked decision button to its option label, replicating the deleted
+   *  Discord `pendingDecisions` map (M3.2 DC-A) so `stepAction` stays label-based. Reads
+   *  `last_action_state.pendingDecision.options` fresh off the row rather than trusting
+   *  client-held state — same "engine re-reads" spirit as `commuteToWorkplace` (M0). */
+  resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null;
 
   // Feedback & bugs — actionId links the report to the action whose outcome the button was
   // on (undefined for the /feedback, /bug slash commands and the nightly/release prompts).

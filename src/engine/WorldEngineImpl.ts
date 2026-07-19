@@ -67,6 +67,8 @@ import type {
   StatBlock,
   Leaderboards,
   WeeklyActionSummary,
+  PendingChoiceSelector,
+  ActionOption,
 } from "./WorldEngine.js";
 import { sanitizeAuthored } from "./authored-text.js";
 
@@ -1531,6 +1533,27 @@ export class WorldEngineImpl implements WorldEngine {
     this.charRepo.update(characterId, { stamina, location: workplace });
     this.charLocRepo.recordVisit(characterId, workplace);
     return { to: workplace, stamina };
+  }
+
+  resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null {
+    const row = this.charRepo.findById(characterId);
+    if (!row || !row.last_action_state) {
+      return selector.kind === 'bail' ? 'Bail' : null;
+    }
+
+    // Same normalise-then-resolve shape as the deleted Discord `setPendingDecision` +
+    // `getChoiceLabel`/bail-find pair (M3.2 DC-A) — an empty option list stands in for
+    // a bare Continue button, so both selectors resolve against it identically.
+    const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
+    const rawOptions = internalState.pendingDecision?.options ?? [];
+    const options: ActionOption[] = rawOptions.length > 0
+      ? rawOptions
+      : [{ label: 'Continue', dcModifier: 0 }];
+
+    if (selector.kind === 'bail') {
+      return options.find((o) => o.dcModifier === null)?.label ?? 'Bail';
+    }
+    return options[selector.index]?.label ?? null;
   }
 
   // ── Feedback & bugs ──
