@@ -9,7 +9,7 @@
  * that later slices extend as the seam grows.
  */
 
-import type { WorldEngine, CharacterData, PendingChoiceSelector } from '../engine/WorldEngine.js';
+import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResult } from '../engine/WorldEngine.js';
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
 import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
@@ -54,16 +54,25 @@ export type DayJobStart =
   | { kind: 'unsafe'; location: string }
   | { kind: 'ok'; workplace: string | null; workPrompt: string; wage: number };
 
-/** Outcome of `runWork` — mirrors the pre-M3.4 handler's post-commute `startAction` +
- *  outcome-render logic exactly (same re-read-after-start, compact/full outcome fan-out,
- *  no `classEmoji` on the public content line — unlike `action:choice`). Carries no `error`
- *  arm: like `stepChoice`, errors propagate so the adapter's single outer try/catch covers
- *  start + paint + broadcast + announceCollapse, exactly like the pre-M3.4 handler's one
- *  outer try. */
-export type DayJobRunResult =
+/** Outcome of `startAction`'s post-start render fan-out (`renderStartResult`) — shared by
+ *  `runWork` (M3.4) and `runCustomAction` (M3.5) since both start-then-render an action
+ *  identically (same re-read-after-start, compact/full outcome fan-out, no `classEmoji` on
+ *  the public content line — unlike `action:choice`). Carries no `error` arm: errors
+ *  propagate so the adapter's single outer try/catch covers start + paint + broadcast +
+ *  announceCollapse, exactly like the pre-M3.4/pre-M3.5 handlers' one outer try. */
+export type StartRenderResult =
   | { kind: 'outcome'; viewPrivate: OutcomeViewState; viewPublic: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; char: CharacterData; prevChar: CharacterData }
   | { kind: 'empty-action'; prompt: string }
   | { kind: 'decision'; view: DecisionViewState };
+
+/** Outcome of `beginCustomAction` — mirrors the pre-M3.5 `action:custom:modal` submit leaf's
+ *  guard order exactly (char guard -> resume-in-progress -> start). No stale-empty-options
+ *  guard and no try around `resumeAction` (unlike `openActionMenu`) — a resume throw here
+ *  propagates to the adapter's outer try, matching the leaf. */
+export type BeginCustomActionResult =
+  | { kind: 'no-character' }
+  | { kind: 'resume'; view: DecisionViewState }
+  | { kind: 'start' };
 
 export class SessionController {
   constructor(
@@ -190,7 +199,7 @@ export class SessionController {
    *  NOT catch: `startAction`/view-build errors propagate so the adapter's single outer try
    *  can cover start + paint + broadcast + announceCollapse, exactly like the pre-M3.4
    *  handler's one outer try/catch. */
-  async runWork(userId: string, workPrompt: string, wage: number): Promise<DayJobRunResult> {
+  async runWork(userId: string, workPrompt: string, wage: number): Promise<StartRenderResult> {
     const prevChar = this.engine.getCharacter(userId);
     if (!prevChar) throw new Error(`runWork: no character for ${userId}`);
 
@@ -198,11 +207,42 @@ export class SessionController {
     // the RESOLVED outcome (after the failure-strip) so it shows in the footer (💰) when
     // work finishes, not before. base_income is the separate nightly-tick wage.
     const result = await this.engine.startAction(prevChar.id, workPrompt, { kind: 'work', wage });
+    return this.renderStartResult(userId, prevChar, result);
+  }
 
+  /** `beginCustomAction`'s char/resume guard (DC-M2) — mirrors the pre-M3.5
+   *  `action:custom:modal` submit leaf's guard order exactly. No try around `resumeAction`
+   *  (unlike `openActionMenu`'s stale-embed handling): a resume throw propagates to the
+   *  adapter's outer try, matching the leaf. */
+  beginCustomAction(userId: string): BeginCustomActionResult {
+    const char = this.engine.getCharacter(userId);
+    if (!char) return { kind: 'no-character' };
+    if (char.lastActionState !== null) {
+      const r = this.engine.resumeAction(char.id);
+      return { kind: 'resume', view: buildDecisionView(r.nextDecision, r.state.decisions.length, r.state, char) };
+    }
+    return { kind: 'start' };
+  }
+
+  /** Starts the free-text custom action and delegates to the shared fan-out (DC-M2/DC-M3) —
+   *  no `opts` (default quest kind, no wage), unlike `runWork`. Does NOT catch: errors
+   *  propagate so the adapter's single outer try covers start + paint + broadcast +
+   *  announceCollapse, exactly like the pre-M3.5 handler's one outer try/catch. */
+  async runCustomAction(userId: string, description: string): Promise<StartRenderResult> {
+    const prevChar = this.engine.getCharacter(userId);
+    if (!prevChar) throw new Error(`runCustomAction: no character for ${userId}`);
+    const result = await this.engine.startAction(prevChar.id, description);
+    return this.renderStartResult(userId, prevChar, result);
+  }
+
+  /** Shared start-then-render fan-out (DC-M3), lifted byte-for-byte from the pre-M3.5
+   *  `runWork` body — `runWork` and `runCustomAction` both call `startAction` then hand the
+   *  result here. `getCurrentScene` is called ONCE per outcome (reused for both the compact
+   *  private view and the full public view), matching the original single call site. */
+  private renderStartResult(userId: string, prevChar: CharacterData, result: ActionStartResult): StartRenderResult {
     if (result.outcome) {
       // Re-read AFTER startAction so the embed + nav reflect the spent roll and mutations —
-      // `prevChar` is the pre-action (post-commute) snapshot, the before-baseline for
-      // announceCollapse.
+      // `prevChar` is the pre-action snapshot, the before-baseline for announceCollapse.
       const char = this.engine.getCharacter(userId) ?? prevChar;
       const scene = this.getCurrentScene(userId);
       return {

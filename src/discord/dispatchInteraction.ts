@@ -39,8 +39,6 @@ import { BANNER_IMAGE, imageFiles } from "./images.js";
 import { handleInteraction as handleJoinInteraction } from "./commands/join.js";
 import { CID_BAIL, parseActionCid } from "../view/actionViewState.js";
 import {
-  buildDecisionMessage,
-  buildOutcomeEmbed,
   consumeMenuMessage,
   stashMenuMessage,
 } from "./commands/action.js";
@@ -81,7 +79,6 @@ export async function dispatchInteraction(
   const {
     engine,
     registry,
-    getCurrentScene,
     joinWizards,
     controller,
     notifyAdmin,
@@ -335,30 +332,21 @@ export async function dispatchInteraction(
     }
 
     try {
-      const char = engine.getCharacter(interaction.user.id);
-      if (!char) {
+      const begin = controller.beginCustomAction(interaction.user.id);
+      if (begin.kind === "no-character") {
         await interaction.editReply({
           content: "You don't have a character. Type `/join` first.",
         });
         return;
       }
-      if (char.lastActionState !== null) {
-        const resumeResult = engine.resumeAction(char.id);
-        const decisionIdx = resumeResult.state.decisions.length;
-        await interaction.editReply(
-          buildDecisionMessage(
-            resumeResult.nextDecision,
-            decisionIdx,
-            resumeResult.state,
-            char,
-          ),
-        );
+      if (begin.kind === "resume") {
+        await interaction.editReply(decisionViewToDiscord(begin.view));
         return;
       }
 
       // Thinking screen — matches the ⏳ envelope /action and the day-job button
       // path already show, so the player isn't staring at a blank spinner during
-      // the LLM call that startAction below makes.
+      // the LLM call that runCustomAction below makes.
       const clippedDescription =
         description.length > 280
           ? description.slice(0, 279).trimEnd() + "…"
@@ -374,37 +362,17 @@ export async function dispatchInteraction(
         ],
       });
 
-      const result = await engine.startAction(char.id, description);
-      if (result.outcome) {
-        // Re-read AFTER startAction so the embed + nav reflect the spent roll and
-        // mutations — `char` above is the pre-action snapshot.
-        const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
-        // Compact for private reply, full for public thread copy (F#19c).
-        const privateEmbed = buildOutcomeEmbed(
-          result.outcome,
-          resolvedChar,
-          getCurrentScene(interaction.user.id),
-          result.state,
-          { compact: true },
-          engine,
-        );
-        const publicEmbed = buildOutcomeEmbed(
-          result.outcome,
-          resolvedChar,
-          getCurrentScene(interaction.user.id),
-          result.state,
-          undefined,
-          engine,
-        );
-        const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
+      const run = await controller.runCustomAction(interaction.user.id, description);
+      if (run.kind === "outcome") {
+        const priv = outcomeViewToDiscord(run.viewPrivate);
         await interaction.editReply({
-          embeds: [privateEmbed],
-          components: [...getNavButtons(resolvedChar), ...serviceButtons],
+          embeds: [priv],
+          components: [...getNavButtons(run.char), ...getOutcomeServiceButtons(run.actionId)],
         });
         const payload = {
-          content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
-          embeds: [publicEmbed],
-          components: getPublicOutcomeButtons(result.outcome.actionId),
+          content: `**${run.characterName}** <@${interaction.user.id}> — ${run.distilledType}`,
+          embeds: [outcomeViewToDiscord(run.viewPublic)],
+          components: getPublicOutcomeButtons(run.actionId),
           allowedMentions: { users: [] },
         };
         await broadcastOutcome({
@@ -414,22 +382,20 @@ export async function dispatchInteraction(
           fallback: () => interaction.followUp(payload),
           subscribeUserIds: [interaction.user.id],
         });
-        await announceCollapse(resolvedChar.name, char, resolvedChar);
-      } else if (result.firstDecision.options.length === 0) {
+        await announceCollapse(run.char.name, run.prevChar, run.char);
+      } else if (run.kind === "empty-action") {
         await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("⚔️ Action")
-              .setDescription(result.firstDecision.prompt)
+              .setDescription(run.prompt)
               .setColor(0x95a5a6)
               .toJSON(),
           ],
           components: [],
         });
       } else {
-        await interaction.editReply(
-          buildDecisionMessage(result.firstDecision, 0, result.state, char, result.actionType),
-        );
+        await interaction.editReply(decisionViewToDiscord(run.view));
       }
     } catch (err) {
       void notifyAdmin("Action (custom modal) failed", err);
