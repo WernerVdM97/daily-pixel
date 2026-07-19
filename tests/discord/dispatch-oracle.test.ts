@@ -8,8 +8,33 @@ vi.mock("../../src/engine/IdleMessageSelector.js", () => ({
   randomIdleMessage: () => "The warden tends the fire.",
 }));
 
+// ── Determinism: neutralise the public broadcast + collapse notice ──
+// The resolved/outcome render path fires broadcastOutcome (a Discord round-trip to the
+// recap thread) and announceCollapse. Replace both with deterministic no-op spies so the
+// golden snapshots capture only the PRIVATE outcome render (the M3-extraction target) and
+// never depend on a Discord round-trip. Real siblings (META_RECAP_THREAD_ID, collapseNotice,
+// …) are preserved via importActual. The decision-path transcripts never reach either
+// function, so their existing snapshots are unaffected.
+const { broadcastOutcomeSpy, announceCollapseSpy } = vi.hoisted(() => ({
+  broadcastOutcomeSpy: vi.fn(async () => {}),
+  announceCollapseSpy: vi.fn(async () => {}),
+}));
+vi.mock("../../src/discord/weekly-recap.js", async (importActual) => ({
+  ...(await importActual<typeof import("../../src/discord/weekly-recap.js")>()),
+  broadcastOutcome: broadcastOutcomeSpy,
+}));
+vi.mock("../../src/discord/collapse.js", async (importActual) => ({
+  ...(await importActual<typeof import("../../src/discord/collapse.js")>()),
+  announceCollapse: announceCollapseSpy,
+}));
+
 import { dispatchInteraction } from "../../src/discord/dispatchInteraction.js";
 import { setPendingDecision } from "../../src/discord/commands/action.js";
+import type {
+  ActionOutcome,
+  ActionStartResult,
+  ActionStepResult,
+} from "../../src/engine/WorldEngine.js";
 import {
   makeHarness,
   oracleChar,
@@ -64,6 +89,82 @@ const NEXT_DECISION_STEP = {
     ],
   },
 };
+
+/**
+ * A fully-resolved outcome. Every field is FIXED/literal so the outcome embed snapshots
+ * deterministically; shape matches `ActionOutcome` (src/engine/WorldEngine.ts) as consumed by
+ * buildOutcomeEmbed / formatOutcome (src/engine/OutcomeRenderer.ts). Mutations stay off the
+ * vitals-to-0 path so no collapse notice fires.
+ */
+const RESOLVED_OUTCOME: ActionOutcome = {
+  distilledType: "scout",
+  finalDc: 11,
+  playerRolled: 14,
+  outcome: "success",
+  rollBonus: 3,
+  rollStat: "physical",
+  mutations: [
+    { type: "modify_stamina", amount: -1 },
+    { type: "add_item", emoji: "🗺️", name: "Ridge Map" },
+  ],
+  outcomeText: "You crest the ridge and chart the valley below.",
+  actionId: 77,
+};
+
+/** A resolved `ActionStartResult` (LLM auto-finished at start): `outcome` populated, so the
+ *  dispatcher's `if (result.outcome)` branch renders the outcome embed. `firstDecision` is the
+ *  auto-finish placeholder — never read once `outcome` is present. */
+const RESOLVED_START_RESULT: ActionStartResult = {
+  state: { rawInput: "scout the northern ridge", decisions: [], accumulatedDc: 11, kind: "quest" },
+  firstDecision: { prompt: "", options: [] },
+  outcome: RESOLVED_OUTCOME,
+  actionType: "search",
+};
+
+/** As above but for the day-job work flow: `kind: 'work'` + a fixed `wage`. */
+const RESOLVED_WORK_RESULT: ActionStartResult = {
+  state: { rawInput: "Keep the gate — Walk the rounds", decisions: [], accumulatedDc: 11, kind: "work", wage: 5 },
+  firstDecision: { prompt: "", options: [] },
+  outcome: RESOLVED_OUTCOME,
+  actionType: "other",
+};
+
+/** A resolved `ActionStepResult` (`resolved: true` + `outcome`) → applyActionResult's outcome branch. */
+const RESOLVED_STEP_RESULT: ActionStepResult = {
+  resolved: true,
+  state: {
+    rawInput: "Walk the rounds",
+    decisions: [
+      {
+        prompt: "The gate creaks. What do you do?",
+        options: [],
+        chosen: "Advance carefully",
+        dcModifier: 0,
+        distilledType: "scout",
+      },
+    ],
+    accumulatedDc: 11,
+  },
+  outcome: RESOLVED_OUTCOME,
+};
+
+/** True when any ack carried the outcome service buttons (`outcome:feedback`/`outcome:bug`),
+ *  the tell that the resolved/outcome path rendered rather than a decision prompt. */
+function hasOutcomeButtons(acks: Recorded[]): boolean {
+  return acks.some((a) => {
+    const comps = (a.arg as { components?: unknown } | null)?.components;
+    if (!Array.isArray(comps)) return false;
+    return comps.some(
+      (row: unknown) =>
+        Array.isArray((row as { components?: unknown }).components) &&
+        (row as { components: unknown[] }).components.some(
+          (b) =>
+            typeof (b as { custom_id?: unknown }).custom_id === "string" &&
+            ((b as { custom_id: string }).custom_id).startsWith("outcome:"),
+        ),
+    );
+  });
+}
 
 function nonEmpty(acks: Recorded[]): void {
   expect(acks.length).toBeGreaterThan(0);
@@ -354,6 +455,76 @@ describe("dispatch oracle — customId branches", () => {
     // Choice path signature: stepAction (not startAction), deferUpdate ack.
     expect(h.engine.calls.stepAction[0].choice).toBe("Advance carefully");
     expect(h.engine.calls.startAction.length).toBe(0);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Resolved / outcome render path — the `if (result.outcome)` / `if (result.resolved)`
+// region (M3-extraction target): outcome embed + service buttons, broadcast + collapse.
+// Only these three transcripts reach it; the decision-path transcripts above stop short.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("dispatch oracle — resolved / outcome render path", () => {
+  it("action:custom:modal → auto-finishes straight to an outcome render", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar({ lastActionState: null }));
+    h.engine.setStartActionResult(RESOLVED_START_RESULT as never);
+    broadcastOutcomeSpy.mockClear();
+    announceCollapseSpy.mockClear();
+    const { intr, _acks } = modalInteraction(
+      "cid-custom-outcome",
+      "action:custom:modal",
+      "scout the northern ridge",
+    );
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    // Outcome path proof: the service buttons rendered (not a decision prompt).
+    expect(hasOutcomeButtons(_acks)).toBe(true);
+    // Broadcast + collapse were routed through the neutralised collaborators — no round-trip.
+    expect(broadcastOutcomeSpy).toHaveBeenCalledTimes(1);
+    expect(announceCollapseSpy).toHaveBeenCalledTimes(1);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("action:dayjob:<n> → the work flow resolves straight to an outcome render", async () => {
+    const h = makeHarness();
+    h.engine.setMeta("day_number", "1");
+    h.engine.setCharacter(oracleChar({ location: "The Warden's Oak" }));
+    h.engine.setCommuteResult({ to: "Town Square", stamina: 9 });
+    h.engine.setStartActionResult(RESOLVED_WORK_RESULT as never);
+    broadcastOutcomeSpy.mockClear();
+    announceCollapseSpy.mockClear();
+    const { intr, _acks } = buttonInteraction("cid-dayjob-outcome", "action:dayjob:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    expect(h.engine.calls.startAction[0].opts).toMatchObject({ kind: "work" });
+    // The day-job path renders its final outcome via webhook.editMessage.
+    expect(_acks.some((a) => a.method === "webhook.editMessage")).toBe(true);
+    expect(hasOutcomeButtons(_acks)).toBe(true);
+    expect(broadcastOutcomeSpy).toHaveBeenCalledTimes(1);
+    expect(announceCollapseSpy).toHaveBeenCalledTimes(1);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("action:<choice> → a step that resolves renders the outcome", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    h.engine.setStepActionResult(RESOLVED_STEP_RESULT as never);
+    // Seed a pending decision so the click resolves option 0's label.
+    setPendingDecision("cid-choice-outcome", DECISION_RESULT.firstDecision as never);
+    broadcastOutcomeSpy.mockClear();
+    announceCollapseSpy.mockClear();
+    const { intr, _acks } = buttonInteraction("cid-choice-outcome", "action:choice:0:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    expect(h.engine.calls.stepAction[0].choice).toBe("Advance carefully");
+    expect(hasOutcomeButtons(_acks)).toBe(true);
+    expect(broadcastOutcomeSpy).toHaveBeenCalledTimes(1);
+    expect(announceCollapseSpy).toHaveBeenCalledTimes(1);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });

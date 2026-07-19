@@ -733,6 +733,344 @@ _The warden tends the fire._",
 ]
 `;
 
+exports[`dispatch oracle — resolved / outcome render path > action:<choice> → a step that resolves renders the outcome 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** Advance carefully
+
+⏳ **Thinking…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "outcome:feedback:77",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "outcome:bug:77",
+              "emoji": {
+                "name": "🐛",
+              },
+              "label": "Bug Report",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 3066993,
+          "description": "📍 The Warden's Oak
+
+🧭
+
+\`\`\`
+A quiet clearing under the oak.
+\`\`\`
+
+> 🧭 **Quest:** Walk the rounds
+
+↪ **Advance carefully**
+
+💪 🎲 14 + 3 = **17**  vs  11  →  ✅ **SUCCESS**
+
+You crest the ridge and chart the valley below.
+
++ 🗺️ Ridge Map
+\`⚡ 10/10 (-1)  ┃  🎲 3 (-1)\`",
+          "title": "🧭 Scout",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — resolved / outcome render path > action:custom:modal → auto-finishes straight to an outcome render 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** scout the northern ridge
+
+⏳ **Thinking…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "outcome:feedback:77",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "outcome:bug:77",
+              "emoji": {
+                "name": "🐛",
+              },
+              "label": "Bug Report",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 3066993,
+          "description": "📍 The Warden's Oak
+
+🧭
+
+\`\`\`
+A quiet clearing under the oak.
+\`\`\`
+
+💪 🎲 14 + 3 = **17**  vs  11  →  ✅ **SUCCESS**
+
+You crest the ridge and chart the valley below.
+
++ 🗺️ Ridge Map
+\`⚡ 10/10 (-1)  ┃  🎲 3 (-1)\`",
+          "title": "🧭 Scout",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — resolved / outcome render path > action:dayjob:<n> → the work flow resolves straight to an outcome render 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You head to the Town Square.**  
+⚡ -1 stamina
+
+⏳ **Setting to work…**
+_The warden tends the fire._",
+          "title": "🚶 Daily Commute",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "outcome:feedback:77",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "outcome:bug:77",
+              "emoji": {
+                "name": "🐛",
+              },
+              "label": "Bug Report",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 3066993,
+          "description": "📍 Town Square
+
+🧭
+
+\`\`\`
+A quiet clearing under the oak.
+\`\`\`
+
+💪 🎲 14 + 3 = **17**  vs  11  →  ✅ **SUCCESS**
+
+You crest the ridge and chart the valley below.
+
++ 🗺️ Ridge Map
+\`⚡ 9/10 (-1)  ┃  🎲 3 (-1)\`",
+          "title": "🧭 Scout",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
 exports[`dispatch oracle — slash arm > /sleep (non-admin goodnight) appends a Feedback button below the nav bar 1`] = `
 [
   {

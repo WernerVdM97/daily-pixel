@@ -79,7 +79,15 @@ export function oracleChar(overrides?: Record<string, unknown>) {
   } as never);
 }
 
-// ── Registry — a byte-for-byte replica of main()'s registry.register(...) block ──
+// ── Registry — mirrors main()'s registry.register(...) wiring, with two deliberate
+// test stubs where no transcript drives the real collaborator:
+//   • the `look` scene-renderer (~below) is stubbed (`() => ({ sceneName, ascii })`)
+//     rather than resolving real tags→scene, because `/look` is driven by no transcript.
+//   • `getCurrentScene` (passed into the action command) is a FIXED realistic scene
+//     string (see makeHarness) rather than main()'s live tag→scene resolution — the
+//     only path that reaches it is the outcome render, and a stable value is all the
+//     golden transcripts need there.
+// Everything else registers exactly as main() does.
 
 const asHandler = (fn: unknown): CommandHandler => fn as CommandHandler;
 
@@ -163,7 +171,10 @@ export interface Harness {
 export function makeHarness(): Harness {
   const engine = new MockWorldEngine();
   const joinWizards = new WizardSession();
-  const getCurrentScene = (): string => "";
+  // Fixed, non-empty scene: the outcome render (the only path that reads this) now
+  // reaches it, so it must be a stable realistic value rather than "" for the golden
+  // snapshots to be honest and deterministic.
+  const getCurrentScene = (): string => "A quiet clearing under the oak.";
   const registry = buildRegistry(engine, joinWizards, getCurrentScene);
   const notifyAdmin = vi.fn(async () => {});
   const safeErrorReply = vi.fn(async () => {});
