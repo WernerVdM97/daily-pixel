@@ -1,0 +1,988 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`dispatch oracle — customId branches > action:<choice> → handleActionChoice steps the action machine 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** Advance carefully
+
+⏳ **Thinking…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:0:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:bail",
+              "emoji": undefined,
+              "label": "Fall back",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🧭 **Quest:** Advance carefully
+
+> A shadow shifts ahead. Press on?
+
+**A.** Push forward ⬆️",
+          "footer": {
+            "icon_url": undefined,
+            "text": "What do you do?",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > action:custom:modal → thinking screen then a decision 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** scout the northern ridge
+
+⏳ **Thinking…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:0:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:choice:0:1",
+              "emoji": undefined,
+              "label": "B",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🛡️ **Work:** Walk the rounds
+
+> The gate creaks. What do you do?
+
+**A.** 💪 Advance carefully
+**B.** Charge ahead ⬆️",
+          "footer": {
+            "icon_url": undefined,
+            "text": "What do you do?",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > action:dayjob:<n> → the day-job work flow (commute + work decision) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You head to the Town Square.**  
+⚡ -1 stamina
+
+⏳ **Setting to work…**
+_The warden tends the fire._",
+          "title": "🚶 Daily Commute",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:0:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:choice:0:1",
+              "emoji": undefined,
+              "label": "B",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🛡️ **Work:** Walk the rounds
+
+> The gate creaks. What do you do?
+
+**A.** 💪 Advance carefully
+**B.** Charge ahead ⬆️",
+          "footer": {
+            "icon_url": undefined,
+            "text": "What do you do?",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > action:dayjob:custom → opens the custom-action modal 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:custom:input",
+              "label": "What do you want to do?",
+              "max_length": 300,
+              "placeholder": "e.g. scout the northern ridge",
+              "required": true,
+              "style": 1,
+              "type": 4,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "custom_id": "action:custom:modal",
+      "title": "Custom Action",
+    },
+    "method": "showModal",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > join: routes to the wizard (name step renders the class picker) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:2:Warrior",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "⚔️",
+              },
+              "label": "Warrior",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:2:Ranger",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🏹",
+              },
+              "label": "Ranger",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:2:Wizard",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔮",
+              },
+              "label": "Wizard",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:2:Bard",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎵",
+              },
+              "label": "Bard",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:2:Priest",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "✝️",
+              },
+              "label": "Priest",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ **Class** ◀
+🌱 Upbringing
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Class**__
+⚔️ **Warrior**
+> 💪+3 🧠-1
+Blade and shield. Front line. The first in and the last out.
+
+🏹 **Ranger**
+> 💪+1 🧠+2 💬-1
+Bow and beast. The wilds are home. You read tracks like others read letters.
+
+🔮 **Wizard**
+> 💪-2 📖+3
+Arcane and ancient. The old words still work — if you dare speak them.
+
+🎵 **Bard**
+> 💪-1 📖+1 💬+2
+Song and story. A well-told tale opens more doors than any key.
+
+✝️ **Priest**
+> 🧠+2 💬+1
+Faith and flame. The old gods are quiet — but not gone.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 2 of 7 — Class",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > outcome:bug:<id> → opens the bug-report modal carrying the action id 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "outcome:bug:input",
+              "label": "Describe the bug",
+              "placeholder": "What went wrong?",
+              "required": true,
+              "style": 2,
+              "type": 4,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "custom_id": "outcome:bug:modal:42",
+      "title": "Report a Bug",
+    },
+    "method": "showModal",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > outcome:bug:modal:<id> → bug noted reply + submitBug(actionId) 1`] = `
+[
+  {
+    "arg": {
+      "content": "🐛 Bug noted. The warden will investigate.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > outcome:feedback:<id> → opens the feedback modal carrying the action id 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "outcome:feedback:input",
+              "label": "Your thoughts for the warden",
+              "placeholder": "What did you enjoy? What could be better?",
+              "required": true,
+              "style": 2,
+              "type": 4,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "custom_id": "outcome:feedback:modal:42",
+      "title": "Share Feedback",
+    },
+    "method": "showModal",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > outcome:feedback:modal:<id> → thanks reply + submitFeedback(actionId) 1`] = `
+[
+  {
+    "arg": {
+      "content": "🙏 Thanks. The warden listens.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > release:feedback → opens the request/feedback modal 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "release:feedback:input",
+              "label": "What would you like to see, or tell us?",
+              "placeholder": "A feature you'd love, or what you think of the latest update…",
+              "required": true,
+              "style": 2,
+              "type": 4,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "custom_id": "release:feedback:modal",
+      "title": "Request / Feedback",
+    },
+    "method": "showModal",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > release:feedback:modal → thanks reply + submitFeedback 1`] = `
+[
+  {
+    "arg": {
+      "content": "🙏 Noted. The warden carries your words forward.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > sleep:feedback → opens the feedback modal 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "sleep:feedback:input",
+              "label": "Your thoughts for the warden",
+              "placeholder": "What did you enjoy? What could be better?",
+              "required": true,
+              "style": 2,
+              "type": 4,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "custom_id": "sleep:feedback:modal",
+      "title": "Share Feedback",
+    },
+    "method": "showModal",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > sleep:feedback:modal → thanks reply + submitFeedback 1`] = `
+[
+  {
+    "arg": {
+      "content": "🙏 Thanks. The warden listens.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — nav: sub-branches > nav:<generic> (nav:hi) → renders the target screen with a nav bar 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "📍 🛡️ **The Warden's Oak** — Use \`look\` for the full scene.
+
+⚔️  **Aldric** — Warrior",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "❤️ 10/10  ┃  ⚡ 10/10  ┃  🎲 3  ┃  💰 5",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "🛡️ **Town Guard — Town Square — Daily Work**
+
+  🎯 **Drill with the watch** — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.
+  🔧 **Inspect the lockup** — You check the cells. One door's hinge has been worked loose — from the inside.
+  📋 **Stand the gate** — You hold the gate, marking who comes and goes. A few faces you don't know, and one you wish you didn't.
+
+📦 Press the **Action** button or type \`action <what you do>\` to start.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:look",
+              "emoji": {
+                "name": "👁️",
+              },
+              "label": "Look",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:map",
+              "emoji": {
+                "name": "🗺️",
+              },
+              "label": "Map",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — nav: sub-branches > nav:action → shows the day-job menu and stashes it 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:dayjob:0",
+              "emoji": undefined,
+              "label": "Drill with the watch",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:dayjob:1",
+              "emoji": undefined,
+              "label": "Inspect the lockup",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:dayjob:2",
+              "emoji": undefined,
+              "label": "Stand the gate",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:dayjob:custom",
+              "emoji": undefined,
+              "label": "Custom…",
+              "style": 1,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "Pick a task to start:",
+          "title": "🛡️ Town Guard — Daily Work",
+        },
+      ],
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+  {
+    "arg": null,
+    "method": "fetchReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — nav: sub-branches > nav:sleep → a loading beat then the sleep result 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "🏕️ **Bedding down…**
+_The warden tends the fire._",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "🏕️ **The Warden's Oak**",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "The Oak's familiar boughs cradle you once more.",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "The day turns when the world wills it — not when you do.
+
+*The ember glows. The Oak stands watch. Rest, for now.*",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — slash arm > /sleep (non-admin goodnight) appends a Feedback button below the nav bar 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "🏕️ **The Warden's Oak**",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "The Oak's familiar boughs cradle you once more.",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "The day turns when the world wills it — not when you do.
+
+*The ember glows. The Oak stands watch. Rest, for now.*",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "sleep:feedback",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — slash arm > /stats renders the stats view with a nav bar and stamps last-played 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "⚔️  **Aldric** — Warrior",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "**Upbringing:** Village  |  **Race:** Human
+**Alignment:** lawful good
+**Day Job:** Town Guard
+
+**Stats:**
+  💪 PHY  +3
+  🧠 WIS  -1
+  📖 INT  +0
+  💬 CHA  +0
+
+**Health:** 10/10  |  **Stamina:** 10/10
+**Location:** The Warden's Oak
+**Wealth:** 5 copper  |  **Rolls:** 3",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:look",
+              "emoji": {
+                "name": "👁️",
+              },
+              "label": "Look",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:backpack",
+              "emoji": {
+                "name": "🎒",
+              },
+              "label": "Backpack",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:map",
+              "emoji": {
+                "name": "🗺️",
+              },
+              "label": "Map",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — slash arm > gated /stats with no character reroutes to the join wizard 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:name",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📝",
+              },
+              "label": "Enter Name",
+              "style": 1,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 **Name** ◀
+🛡️ Class
+🌱 Upbringing
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Name**__
+What shall the songs call you?",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 1 of 7 — 2-30 characters, no @ or #",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — slash arm > unknown command → ephemeral 'Unknown command' 1`] = `
+[
+  {
+    "arg": {
+      "content": "Unknown command \`/frobnicate\`. Try \`/help\`.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
