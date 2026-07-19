@@ -465,22 +465,12 @@ async function applyActionResult(
  *  insight flags it — keeps the green hint a rare, earned tell. */
 const INSIGHT_MARGIN = 2;
 
-/** Discord caps an embed description at 4096 chars. Exported: the medium step
- *  (`viewToDiscord.ts`) owns the embed-length degradation ladder and needs this cap. */
-export const MAX_EMBED_DESC = 4096;
-
 /** Quote every line of `text` as a Discord blockquote (blank lines keep the bar). */
 function quoteLines(text: string): string {
   return text
     .split('\n')
     .map(line => (line.length > 0 ? `> ${line}` : '>'))
     .join('\n');
-}
-
-/** Clip to `max` chars with a trailing ellipsis. Exported: the medium step
- *  (`viewToDiscord.ts`) owns the embed-length degradation ladder and needs this helper. */
-export function clip(text: string, max: number): string {
-  return text.length <= max ? text : text.slice(0, Math.max(0, max - 1)).trimEnd() + '…';
 }
 
 /**
@@ -868,20 +858,6 @@ export function buildOutcomeEmbed(
   engine?: WorldEngine,
 ): ReturnType<EmbedBuilder['toJSON']> {
   return outcomeViewToDiscord(buildOutcomeView(outcome, character, scene, state, opts, engine));
-}
-
-/** Exported: `viewToDiscord.ts`'s colour-intent→hex mapping delegates to this exact switch
- *  for every intent except 'decision' (which has no `outcome` counterpart). */
-export function outcomeColor(outcome: string): number {
-  switch (outcome) {
-    case 'success': return 0x2ecc71; // green
-    case 'failure': return 0xe74c3c; // red
-    case 'skipped': return 0xf39c12; // amber
-    case 'bailed': return 0xf39c12;  // amber — neutral retreat, not a failure
-    case 'done': return 0x95a5a6;    // grey — neutral finish (travel/rest resolved)
-    case 'timed_out': return 0x95a5a6;
-    default: return 0x3498db;
-  }
 }
 
 /** Maps an outcome string to its semantic colour intent — identity for the known outcome

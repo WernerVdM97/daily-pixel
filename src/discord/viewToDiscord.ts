@@ -10,7 +10,7 @@
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import type { DecisionViewState, OutcomeViewState, ViewColorIntent } from '../view/viewState.js';
-import { clip, MAX_EMBED_DESC, outcomeColor } from './commands/action.js';
+import { clip, MAX_EMBED_DESC, outcomeColor } from '../render/embedText.js';
 
 /** Opening-frame chrome — medium chrome, never a semantic choice (M2 design call), so it stays
  *  internal to this step rather than living in `ViewColorIntent`. */
