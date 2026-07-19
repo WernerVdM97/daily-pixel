@@ -10,8 +10,9 @@
  */
 
 import type { WorldEngine, CharacterData, PendingChoiceSelector } from '../engine/WorldEngine.js';
-import type { NoticeViewState, DecisionViewState, OutcomeViewState } from '../view/viewState.js';
+import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
+import { composeActionMenu, type DayJobDef } from './dayJob.js';
 
 export type FeedbackSurface = 'sleep' | 'release' | 'outcome-feedback' | 'outcome-bug';
 
@@ -32,10 +33,23 @@ export type StepChoiceResult =
   | { kind: 'decision'; view: DecisionViewState }
   | { kind: 'outcome'; view: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; characterClass?: string | null; char: CharacterData | null; prevChar: CharacterData };
 
+/** Outcome of `openActionMenu` — mirrors the pre-M3.3b `nav:action` leaf's branch order
+ *  exactly (char guard -> rolls guard -> resume-in-progress -> fresh menu). The "⏳ Stale
+ *  Action" embed stays an inline adapter embed (M3.3 design call DC-I) — `resume-stale`
+ *  carries the raw prompt/narration so the adapter can paint it, not a view-state. */
+export type ActionMenuResult =
+  | { kind: 'no-character' }
+  | { kind: 'no-rolls' }
+  | { kind: 'resume-stale'; prompt: string; narration?: string }
+  | { kind: 'resume-decision'; view: DecisionViewState }
+  | { kind: 'resume-error'; message: string }
+  | { kind: 'menu'; view: MenuViewState };
+
 export class SessionController {
   constructor(
     private readonly engine: WorldEngine,
     private readonly getCurrentScene: (userId: string) => string,
+    private readonly dayJobs: DayJobDef[],
   ) {}
 
   /** The `getCharacter` guard alone (M3.2c) — the pre-M3.2 handler ran this BEFORE
@@ -78,6 +92,37 @@ export class SessionController {
     const char = this.engine.getCharacter(userId);
     const view = buildDecisionView(result.nextDecision, result.state.decisions.length, result.state, char ?? undefined);
     return { kind: 'decision', view };
+  }
+
+  /** Reproduces the pre-M3.3b `nav:action` leaf's guard/resume/menu order exactly (DC-I) —
+   *  char guard -> rolls guard -> resume-in-progress (stale/decision/error) -> fresh menu.
+   *  Shared by the slash `/action` no-description path too via `composeActionMenu`. */
+  openActionMenu(userId: string): ActionMenuResult {
+    const character = this.engine.getCharacter(userId);
+    if (!character) return { kind: 'no-character' };
+
+    if (character.rollsRemaining <= 0 && !character.lastActionState) {
+      return { kind: 'no-rolls' };
+    }
+
+    if (character.lastActionState) {
+      try {
+        const resumeResult = this.engine.resumeAction(character.id);
+        if (resumeResult.nextDecision.options.length === 0) {
+          return {
+            kind: 'resume-stale',
+            prompt: resumeResult.nextDecision.prompt || 'Could not recover.',
+            narration: resumeResult.nextDecision.narration,
+          };
+        }
+        const view = buildDecisionView(resumeResult.nextDecision, resumeResult.state.decisions.length, resumeResult.state, character);
+        return { kind: 'resume-decision', view };
+      } catch (err) {
+        return { kind: 'resume-error', message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
+    return { kind: 'menu', view: composeActionMenu(this.engine, this.dayJobs, character) };
   }
 
   /** The confirmation copy for a feedback/bug submission — a pure function of the surface, so it

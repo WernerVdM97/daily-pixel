@@ -1466,7 +1466,7 @@ ${headInfo}`);
   // Handle all interactions — dispatch is hoisted to ./discord/dispatchInteraction.ts
   // (M1.1); wire the main()-scope bindings + the self-executing index.ts module
   // state the closure used to capture into `deps`.
-  const controller = new SessionController(engine, getCurrentScene);
+  const controller = new SessionController(engine, getCurrentScene, dayJobs);
   const dispatchDeps: DispatchDeps = {
     engine,
     registry,

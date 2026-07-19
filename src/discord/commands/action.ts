@@ -10,7 +10,6 @@
 import {
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle,
   EmbedBuilder,
   MessageFlags,
   type ChatInputCommandInteraction,
@@ -21,9 +20,9 @@ import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji, dayJobEmoji } from '../format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
-import { decisionViewToDiscord, outcomeViewToDiscord } from '../viewToDiscord.js';
+import { decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord } from '../viewToDiscord.js';
 import { buildDecisionView, buildOutcomeView } from '../../view/actionViewState.js';
-import { getDayJobActions, buildActionHints, CID_DAYJOB, CID_DAYJOB_CUSTOM, type DayJobDef } from '../../controller/dayJob.js';
+import { composeActionMenu, type DayJobDef } from '../../controller/dayJob.js';
 
 // Builders relocated to view/actionViewState.ts (M3.2b); re-exported here since
 // action-decision/view-state tests import them from this module's path.
@@ -116,41 +115,10 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       }
 
       try {
-        const dayNumber = Number(engine.getMeta('day_number') ?? '1');
-        const jobActions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
-        const hints = buildActionHints({
-          rollsRemaining: character.rollsRemaining,
-          stamina: character.stamina,
-          maxStamina: character.maxStamina,
-          isSafe: engine.getLocation(character.location)?.isSafe ?? true,
-        });
-        const description = hints.length > 0
-          ? `Pick a task to start:\n\n${hints.join('\n')}`
-          : 'Pick a task to start:';
-        const embed = new EmbedBuilder()
-          .setTitle(`${dayJobEmoji(character.dayJob)} ${character.dayJob} — Daily Work`)
-          .setDescription(description)
-          .setColor(0xdaa520);
-
-        const row = new ActionRowBuilder<ButtonBuilder>();
-        for (let i = 0; i < jobActions.length; i++) {
-          row.addComponents(
-            new ButtonBuilder()
-              .setCustomId(CID_DAYJOB + i)
-              .setLabel(jobActions[i].label)
-              .setStyle(ButtonStyle.Secondary),
-          );
-        }
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId(CID_DAYJOB_CUSTOM)
-            .setLabel('Custom…')
-            .setStyle(ButtonStyle.Primary),
-        );
-
+        const m = menuViewToDiscord(composeActionMenu(engine, dayJobs, character));
         await interaction.reply({
-          embeds: [embed.toJSON()],
-          components: [row.toJSON()],
+          embeds: m.embeds,
+          components: m.components,
           flags: MessageFlags.Ephemeral,
         });
         const menuMsg = await interaction.fetchReply();

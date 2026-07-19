@@ -1,3 +1,7 @@
+import type { WorldEngine, CharacterData } from '../engine/WorldEngine.js';
+import type { MenuViewState } from '../view/viewState.js';
+import { dayJobEmoji } from '../discord/format.js';
+
 // ── Day job types (day-jobs.yml shape) ──
 
 export interface DayJobDef {
@@ -183,3 +187,31 @@ export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }
 
 export const CID_DAYJOB = 'action:dayjob:';
 export const CID_DAYJOB_CUSTOM = 'action:dayjob:custom';
+
+// ── Menu composition (DC-H) ──
+
+/** The single day-job menu build — both the `nav:action` leaf and the slash `/action`
+ *  no-description path render this through `menuViewToDiscord`, so they can't drift. */
+export function composeActionMenu(engine: WorldEngine, dayJobs: DayJobDef[], character: CharacterData): MenuViewState {
+  const dayNumber = Number(engine.getMeta('day_number') ?? '1');
+  const jobActions = getDayJobActions(character.dayJob, dayJobs, { characterId: character.id, dayNumber });
+  const hints = buildActionHints({
+    rollsRemaining: character.rollsRemaining,
+    stamina: character.stamina,
+    maxStamina: character.maxStamina,
+    isSafe: engine.getLocation(character.location)?.isSafe ?? true,
+  });
+  const description = hints.length > 0
+    ? `Pick a task to start:\n\n${hints.join('\n')}`
+    : 'Pick a task to start:';
+
+  return {
+    screen: 'menu',
+    title: { emoji: dayJobEmoji(character.dayJob), text: `${character.dayJob} — Daily Work` },
+    description,
+    buttons: [
+      ...jobActions.map((action, i) => ({ label: action.label, customId: CID_DAYJOB + i, style: 'secondary' as const })),
+      { label: 'Custom…', customId: CID_DAYJOB_CUSTOM, style: 'primary' as const },
+    ],
+  };
+}

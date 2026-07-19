@@ -15,8 +15,6 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ButtonBuilder,
-  ButtonStyle,
 } from "discord.js";
 import type { Interaction, RepliableInteraction } from "discord.js";
 
@@ -24,7 +22,7 @@ import type { WorldEngine, PendingChoiceSelector } from "../engine/WorldEngine.j
 import type { CommandRegistry } from "./CommandRegistry.js";
 import type { WizardSession } from "./WizardSession.js";
 import type { SessionController } from "../controller/SessionController.js";
-import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord } from "./viewToDiscord.js";
+import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord } from "./viewToDiscord.js";
 import { c } from "../util/colors.js";
 import { randomIdleMessage } from "../engine/IdleMessageSelector.js";
 import {
@@ -34,7 +32,6 @@ import {
   getPublicOutcomeButtons,
   navResponseMode,
   parseOutcomeActionId,
-  dayJobEmoji,
   classEmoji,
 } from "./format.js";
 import { announceCollapse } from "./collapse.js";
@@ -51,9 +48,6 @@ import { checkProfanity } from "./profanity.js";
 import {
   getDayJobActions,
   getWorkplaceLocation,
-  buildActionHints,
-  CID_DAYJOB,
-  CID_DAYJOB_CUSTOM,
   type DayJobDef,
 } from "../controller/dayJob.js";
 import {
@@ -886,117 +880,72 @@ _${idleMsg}_`)
     // handler expects a ChatInputCommandInteraction with options.
     if (navTarget === "action") {
       try {
-        const char = engine.getCharacter(interaction.user.id);
-        if (!char) {
-          await interaction.reply({
-            content:
-              "You don't have a character yet. Type `/join` to create one.",
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-        if (char.rollsRemaining <= 0 && !char.lastActionState) {
-          await interaction.reply({
-            content:
-              "🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.",
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-
-        // Resume mid-action via a NEW ephemeral message — the old one used
-        // Components V2 flags, so editing it can't use embeds.
-        if (char.lastActionState) {
-          try {
-            const resumeResult = engine.resumeAction(char.id);
-            if (resumeResult.nextDecision.options.length === 0) {
-              await interaction.reply({
-                embeds: [
-                  new EmbedBuilder()
-                    .setTitle("⏳ Stale Action")
-                    .setDescription(
-                      resumeResult.nextDecision.prompt ||
-                        "Could not recover.",
-                    )
-                    .setColor(0x95a5a6)
-                    .toJSON(),
-                ],
-                components: [],
-                flags: MessageFlags.Ephemeral,
-              });
-            } else {
-              const decisionMsg = buildDecisionMessage(
-                resumeResult.nextDecision,
-                resumeResult.state.decisions.length,
-                resumeResult.state,
-                char,
-              );
-              await interaction.reply({
-                embeds: decisionMsg.embeds,
-                components: decisionMsg.components,
-                flags: MessageFlags.Ephemeral,
-              });
-            }
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
+        const result = controller.openActionMenu(interaction.user.id);
+        switch (result.kind) {
+          case "no-character":
             await interaction.reply({
-              content: `❌ **Could not resume.**\n${msg}`,
+              content:
+                "You don't have a character yet. Type `/join` to create one.",
               flags: MessageFlags.Ephemeral,
             });
+            break;
+          case "no-rolls":
+            await interaction.reply({
+              content:
+                "🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.",
+              flags: MessageFlags.Ephemeral,
+            });
+            break;
+          case "resume-stale":
+            // The nav:action stale embed does NOT prepend narration — description is
+            // just the prompt, unlike the slash /action stale embed (withNarration).
+            await interaction.reply({
+              embeds: [
+                new EmbedBuilder()
+                  .setTitle("⏳ Stale Action")
+                  .setDescription(result.prompt)
+                  .setColor(0x95a5a6)
+                  .toJSON(),
+              ],
+              components: [],
+              flags: MessageFlags.Ephemeral,
+            });
+            break;
+          case "resume-decision": {
+            const m = decisionViewToDiscord(result.view);
+            await interaction.reply({
+              embeds: m.embeds,
+              components: m.components,
+              flags: MessageFlags.Ephemeral,
+            });
+            break;
           }
-          return;
+          case "resume-error":
+            await interaction.reply({
+              content: `❌ **Could not resume.**\n${result.message}`,
+              flags: MessageFlags.Ephemeral,
+            });
+            break;
+          case "menu": {
+            // New ephemeral message — the old menu used Components V2 flags, so
+            // editing it can't use embeds.
+            const m = menuViewToDiscord(result.view);
+            await interaction.reply({
+              embeds: m.embeds,
+              components: m.components,
+              flags: MessageFlags.Ephemeral,
+            });
+            // Stash this menu so the Custom… handler can delete it (as in the /action
+            // slash path); otherwise the stale menu hangs on screen.
+            const menuMsg = await interaction.fetchReply();
+            stashMenuMessage(interaction.user.id, {
+              applicationId: interaction.applicationId,
+              token: interaction.token,
+              messageId: menuMsg.id,
+            });
+            break;
+          }
         }
-
-        // Show day-job menu — new ephemeral message (same V2-flags reason).
-        const dayNumber = Number(engine.getMeta("day_number") ?? "1");
-        const jobActions = getDayJobActions(char.dayJob, dayJobs, {
-          characterId: char.id,
-          dayNumber,
-        });
-        const hints = buildActionHints({
-          rollsRemaining: char.rollsRemaining,
-          stamina: char.stamina,
-          maxStamina: char.maxStamina,
-          isSafe: engine.getLocation(char.location)?.isSafe ?? true,
-        });
-        const menuDescription =
-          hints.length > 0
-            ? `Pick a task to start:\n\n${hints.join("\n")}`
-            : "Pick a task to start:";
-        const embed = new EmbedBuilder()
-          .setTitle(`${dayJobEmoji(char.dayJob)} ${char.dayJob} — Daily Work`)
-          .setDescription(menuDescription)
-          .setColor(0xdaa520);
-
-        const row = new ActionRowBuilder<ButtonBuilder>();
-        for (let i = 0; i < jobActions.length; i++) {
-          row.addComponents(
-            new ButtonBuilder()
-              .setCustomId(CID_DAYJOB + i)
-              .setLabel(jobActions[i].label)
-              .setStyle(ButtonStyle.Secondary),
-          );
-        }
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId(CID_DAYJOB_CUSTOM)
-            .setLabel("Custom…")
-            .setStyle(ButtonStyle.Primary),
-        );
-
-        await interaction.reply({
-          embeds: [embed.toJSON()],
-          components: [row.toJSON()],
-          flags: MessageFlags.Ephemeral,
-        });
-        // Stash this menu so the Custom… handler can delete it (as in the /action
-        // slash path); otherwise the stale menu hangs on screen.
-        const menuMsg = await interaction.fetchReply();
-        stashMenuMessage(interaction.user.id, {
-          applicationId: interaction.applicationId,
-          token: interaction.token,
-          messageId: menuMsg.id,
-        });
       } catch (err) {
         void notifyAdmin("Nav (action) failed", err);
       }

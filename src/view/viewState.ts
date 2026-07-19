@@ -62,4 +62,14 @@ export interface NoticeViewState {
   ephemeral: boolean;
 }
 
-export type ViewState = DecisionViewState | OutcomeViewState | NoticeViewState;
+/** The day-job action menu — one embed + one button row. The medium step maps `style`
+ *  intent to `ButtonStyle` ('secondary' | 'primary' only — this screen has no bail/favoured
+ *  concept, unlike `DecisionButtonItem`). */
+export interface MenuViewState {
+  screen: 'menu';
+  title: { emoji: string; text: string };
+  description: string;
+  buttons: Array<{ label: string; customId: string; style: 'secondary' | 'primary' }>;
+}
+
+export type ViewState = DecisionViewState | OutcomeViewState | NoticeViewState | MenuViewState;

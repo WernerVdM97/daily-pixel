@@ -9,7 +9,7 @@
  */
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
-import type { DecisionViewState, NoticeViewState, OutcomeViewState, ViewColorIntent } from '../view/viewState.js';
+import type { DecisionViewState, MenuViewState, NoticeViewState, OutcomeViewState, ViewColorIntent } from '../view/viewState.js';
 import { clip, MAX_EMBED_DESC, outcomeColor } from '../render/embedText.js';
 
 /** Opening-frame chrome — medium chrome, never a semantic choice (M2 design call), so it stays
@@ -120,6 +120,28 @@ export function outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBu
     .setDescription(description)
     .setColor(colorIntentToHex(view.colorIntent))
     .toJSON();
+}
+
+/** Maps the day-job menu to the exact embed+button-row JSON both the `nav:action` leaf and
+ *  the slash `/action` no-description path built inline before M3.3b. */
+export function menuViewToDiscord(view: MenuViewState): {
+  embeds: ReturnType<EmbedBuilder['toJSON']>[];
+  components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
+} {
+  const embed = new EmbedBuilder()
+    .setTitle(`${view.title.emoji} ${view.title.text}`)
+    .setDescription(view.description)
+    .setColor(0xdaa520)
+    .toJSON();
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    ...view.buttons.map(b => new ButtonBuilder()
+      .setCustomId(b.customId)
+      .setLabel(b.label)
+      .setStyle(b.style === 'primary' ? ButtonStyle.Primary : ButtonStyle.Secondary)),
+  );
+
+  return { embeds: [embed], components: [row.toJSON()] };
 }
 
 /** Maps a notice view to the exact `interaction.reply(...)` payload shape the four

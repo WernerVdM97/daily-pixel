@@ -186,7 +186,7 @@ export function makeHarness(): Harness {
     getCurrentScene,
     dayJobs: DAY_JOBS,
     joinWizards,
-    controller: new SessionController(engine, getCurrentScene),
+    controller: new SessionController(engine, getCurrentScene, DAY_JOBS),
     notifyAdmin,
     safeErrorReply,
     VERBOSE: false,
