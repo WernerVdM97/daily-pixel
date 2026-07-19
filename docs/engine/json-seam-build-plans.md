@@ -99,21 +99,23 @@ DTO shape (final — the executor implements exactly this):
 Tasks:
 
 M2.1 — DTO + medium step + port (own commit):
-[ ] Create `src/view/viewState.ts`: export `DecisionViewState`, `OutcomeViewState`, `ViewState` (union), `ViewColorIntent`, and the button-item union type. No runtime code, no `discord.js` import.
-[ ] Create `src/discord/viewToDiscord.ts`: export `decisionViewToDiscord(view: DecisionViewState): { embeds; components }` and `outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBuilder['toJSON']>`. Move the join + degradation ladder + `EmbedBuilder`/`ButtonBuilder`/`ActionRowBuilder`/5-per-row chunking + colour-intent→hex mapping here, verbatim in behaviour.
-[ ] In `action.ts`: add `buildDecisionView(...)` and `buildOutcomeView(...)` (same parameter lists as the current builders) returning the DTOs; re-express `buildDecisionMessage` as `decisionViewToDiscord(buildDecisionView(...))` and `buildOutcomeEmbed` as `outcomeViewToDiscord(buildOutcomeView(...))`. Export `buildDecisionView`/`buildOutcomeView`. Keep every helper in place.
-[ ] Verify: `npm run typecheck` clean; `npm test` green at 79 files / 1489 tests with ZERO snapshot churn (`git diff --stat` shows no change under `tests/discord/__snapshots__/`). If any snapshot changes, the port drifted — fix the port, never re-bless the snapshot.
+[x] Create `src/view/viewState.ts`: export `DecisionViewState`, `OutcomeViewState`, `ViewState` (union), `ViewColorIntent`, and the button-item union type. No runtime code, no `discord.js` import.
+[x] Create `src/discord/viewToDiscord.ts`: export `decisionViewToDiscord(view: DecisionViewState): { embeds; components }` and `outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBuilder['toJSON']>`. Move the join + degradation ladder + `EmbedBuilder`/`ButtonBuilder`/`ActionRowBuilder`/5-per-row chunking + colour-intent→hex mapping here, verbatim in behaviour.
+[x] In `action.ts`: add `buildDecisionView(...)` and `buildOutcomeView(...)` (same parameter lists as the current builders) returning the DTOs; re-express `buildDecisionMessage` as `decisionViewToDiscord(buildDecisionView(...))` and `buildOutcomeEmbed` as `outcomeViewToDiscord(buildOutcomeView(...))`. Export `buildDecisionView`/`buildOutcomeView`. Keep every helper in place.
+[x] Verify: `npm run typecheck` clean; `npm test` green at 79 files / 1489 tests with ZERO snapshot churn (`git diff --stat` shows no change under `tests/discord/__snapshots__/`). If any snapshot changes, the port drifted — fix the port, never re-bless the snapshot.
 
 M2.2 — DTO-level test (own commit, or fold into M2.1 at lead's call):
-[ ] Add `tests/discord/view-state.test.ts` asserting `buildDecisionView`/`buildOutcomeView` return the expected semantic shape for a representative decision (with options + favoured hint) and outcome (combat + non-combat), and that a round-trip `XViewToDiscord(buildXView(...))` equals the direct `buildXMessage(...)` on the same inputs. This pins the seam independently of the Discord snapshots.
+[x] Add `tests/discord/view-state.test.ts` asserting `buildDecisionView`/`buildOutcomeView` return the expected semantic shape for a representative decision (with options + favoured hint) and outcome (combat + non-combat), plus direct medium-step tests exercising `decisionViewToDiscord`/`outcomeViewToDiscord` on hand-built DTOs (embed/button assembly, the degradation ladder, colour-intent mapping incl. the default fallback). This pins the seam independently of the Discord snapshots.
 
 Scope fence: no behaviour/branch changes; no caller changes in `dispatchInteraction.ts` or `action.ts` button handlers; do not relocate helper definitions; no engine changes; no `src/render/*` changes; M3 controller shaping is out of bounds. The DTO is a presentation view-state (screen/prompt/options/art/footer), NOT an engine or protocol type.
 
-Execution state: _in progress._
+Execution state: _done 2026-07-19._ Build `2275a42` (DTO + medium step + port; typecheck clean, 80 files / 1500 tests green, +11 over the M1 baseline, ZERO snapshot churn — Discord output byte-identical, confirmed by the untouched M1 oracle + action snapshots). Review fix `a04ede2` (the M2.2 round-trip assertions were tautological — `buildXMessage` *is* `viewToDiscord(buildXView(...))` — so replaced with direct hand-built-DTO medium-step tests that pin the join, the degradation ladder, and the colour mapping independently; 1502 tests green). Adversarial review found no byte-drift across a line-by-line diff of both builder pairs and an exhaustive colour-mapping check. Deferred to M3 (informational, non-blocking): `viewToDiscord.ts` ↔ `action.ts` is a two-file import cycle (the medium step pulls `clip`/`MAX_EMBED_DESC`/`outcomeColor` back from `action.ts`) — safe today (all refs are in function bodies; no init-order hazard) and sanctioned by the "helpers stay in `action.ts`" design call; M3 relocates those helpers to a neutral util and the cycle dissolves.
 
 ## M3 — Controller extraction, screen-by-screen
 
 [<] Plan written when M1 is green. First sizing task: inventory the `index.ts` dispatcher branches into pure-Discord vs game-flow buckets.
+
+Carried follow-up from M2 (fold into M3's plan): relocate `clip`, `MAX_EMBED_DESC`, and `outcomeColor` out of `src/discord/commands/action.ts` into a neutral render/util module so `src/discord/viewToDiscord.ts` no longer imports back from a command file — dissolves the M2-era `viewToDiscord` ↔ `action` import cycle. Safe to defer (function-body refs only), but it is the natural cleanup once M3 is moving definitions anyway.
 
 ## M4 — Agent-player adapter
 
