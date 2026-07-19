@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Internal
 
 - **Day-job commute rule moved into the engine** *(JSON-seam M0)* — `WorldEngine.commuteToWorkplace` now owns "at the Oak → move to workplace, −1 stamina"; the Discord handler only renders the result, deleting the UI layer's sole direct DB write. The engine's single-purpose `recordVisit` seam method is absorbed and removed (commit `98a4de1`).
+- **Dispatcher made testable + a behavioural oracle** *(JSON-seam M1)* — the ~930-line `dispatchInteraction` closure was hoisted verbatim out of `main()` into an injectable `src/discord/dispatchInteraction.ts` (deps passed via `DispatchDeps`; the in-flight guard/error funnel stays at the registration site), with zero behaviour change. A golden-transcript oracle (`tests/discord/dispatch-oracle.test.ts`) now characterises all 17 dispatcher leaves plus the resolved/outcome render path and pins the customId cascade order, as the diff-against baseline for the coming controller extraction (commits `b9b4c4a`, `2a3a069`, `0bd0401`).
 
 ## [0.3.2] - 2026-07-11
 

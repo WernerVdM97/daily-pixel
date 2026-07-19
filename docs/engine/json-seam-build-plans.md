@@ -58,20 +58,21 @@ Design calls flowing from the survey:
 Tasks:
 
 M1.1 — Hoist (own commit, mechanical refactor):
-[ ] Create `src/discord/dispatchInteraction.ts` exporting `async function dispatchInteraction(interaction: Interaction, deps: DispatchDeps): Promise<void>` and the `DispatchDeps` interface; move the closure body from `src/index.ts:1487-2417` verbatim, destructuring `deps` into same-named locals at the top.
-[ ] In `src/index.ts` `main()`, import and call it; the `client.on` guard/funnel wrapper (`:2419-2437`) stays, now wrapping `dispatchInteraction(interaction, deps)`, with `deps` wired from the existing main()-scope bindings.
-[ ] Verify: `npm run typecheck` clean; `npm test` green at 78 files / 1462 tests (no delta — pure move, zero behaviour change).
+[x] Create `src/discord/dispatchInteraction.ts` exporting `async function dispatchInteraction(interaction: Interaction, deps: DispatchDeps): Promise<void>` and the `DispatchDeps` interface; move the closure body from `src/index.ts:1487-2417` verbatim, destructuring `deps` into same-named locals at the top.
+[x] In `src/index.ts` `main()`, import and call it; the `client.on` guard/funnel wrapper (`:2419-2437`) stays, now wrapping `dispatchInteraction(interaction, deps)`, with `deps` wired from the existing main()-scope bindings.
+[x] Verify: `npm run typecheck` clean; `npm test` green at 78 files / 1462 tests (no delta — pure move, zero behaviour change).
 
 M1.2 — Oracle (own commit, tests):
-[ ] Golden-transcript harness under `tests/discord/` mirroring the existing fake-interaction pattern (`MockWorldEngine` + fresh `WizardSession` + `vi.fn()` spy interactions; assert on `spy.mock.calls[n][0]` embeds/components/modal shape), using vitest `toMatchSnapshot`.
-[ ] Cover all 17 leaf behaviours: the slash arm (gate/reroute/nav-buttons), the 14 customId branches, and the 3 `nav:` sub-branches — including the heaviest, the `action:dayjob:` work flow.
-[ ] Pin cascade ORDER via the specific-before-broad cases: `action:dayjob:custom` before `action:dayjob:`, `action:custom:modal` before `action:`, and `action:dayjob:` before `action:`.
-[ ] Unique userId per transcript; neutralise the nondeterminism sources above; snapshots committed.
-[ ] Verify: `npm test` green with the new suite; every transcript produces stable, meaningful output (not empty spies).
+[x] Golden-transcript harness under `tests/discord/` mirroring the existing fake-interaction pattern (`MockWorldEngine` + fresh `WizardSession` + `vi.fn()` spy interactions; assert on `spy.mock.calls[n][0]` embeds/components/modal shape), using vitest `toMatchSnapshot`.
+[x] Cover all 17 leaf behaviours: the slash arm (gate/reroute/nav-buttons), the 14 customId branches, and the 3 `nav:` sub-branches — including the heaviest, the `action:dayjob:` work flow.
+[x] Pin cascade ORDER via the specific-before-broad cases: `action:dayjob:custom` before `action:dayjob:`, `action:custom:modal` before `action:`, and `action:dayjob:` before `action:`.
+[x] Unique userId per transcript; neutralise the nondeterminism sources above; snapshots committed.
+[x] Verify: `npm test` green with the new suite; every transcript produces stable, meaningful output (not empty spies).
+[x] Review fix: characterise the resolved/outcome render path (was uncovered — every transcript stopped at a decision) for the three action leaves; `broadcastOutcome`/`announceCollapse` neutralised via asserted spies; `getCurrentScene` given a fixed realistic scene.
 
 Scope fence (both tasks): no branch logic changes; no definition relocation; do not touch `action.ts` / `join.ts` / `WizardSession.ts` internals (import them as-is); no engine changes; M2/M3 shaping is out of bounds.
 
-Execution state: _in progress — plan written 2026-07-18; design point settled (minimal DI hoist)._
+Execution state: _done 2026-07-19._ M1.1 hoist `b9b4c4a` (DI surface = the 10 expected `DispatchDeps` fields; body verbatim, reviewer-confirmed 0-diff over 929 lines). M1.2 oracle `2a3a069` + review fix `0bd0401` (all 17 leaves + the resolved/outcome sub-path; cascade order pinned with branch-fired assertions). Final: typecheck clean, 79 files / 1489 tests green (+27 over the M0 baseline). Known deliberate property (accepted review finding, not a defect): the day-job snapshots bake in real `assets/char-creation/day-jobs.yml` content via the seeded sampler — a future YAML edit will (correctly) churn those snapshots; keep the driven day-job indices within Town Guard's real action pool.
 
 ## M2 — Semantic view-state DTO + shared renderers
 
