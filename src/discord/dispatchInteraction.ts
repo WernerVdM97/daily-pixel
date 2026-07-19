@@ -20,11 +20,11 @@ import {
 } from "discord.js";
 import type { Interaction, RepliableInteraction } from "discord.js";
 
-import type { WorldEngine } from "../engine/WorldEngine.js";
+import type { WorldEngine, PendingChoiceSelector } from "../engine/WorldEngine.js";
 import type { CommandRegistry } from "./CommandRegistry.js";
 import type { WizardSession } from "./WizardSession.js";
 import type { SessionController } from "../controller/SessionController.js";
-import { noticeViewToDiscord } from "./viewToDiscord.js";
+import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord } from "./viewToDiscord.js";
 import { c } from "../util/colors.js";
 import { randomIdleMessage } from "../engine/IdleMessageSelector.js";
 import {
@@ -35,13 +35,13 @@ import {
   navResponseMode,
   parseOutcomeActionId,
   dayJobEmoji,
+  classEmoji,
 } from "./format.js";
 import { announceCollapse } from "./collapse.js";
 import { BANNER_IMAGE, imageFiles } from "./images.js";
 import { handleInteraction as handleJoinInteraction } from "./commands/join.js";
+import { CID_BAIL, parseActionCid } from "../view/actionViewState.js";
 import {
-  handleActionChoice,
-  setPendingDecision,
   buildDecisionMessage,
   buildOutcomeEmbed,
   buildActionHints,
@@ -355,7 +355,6 @@ export async function dispatchInteraction(
       }
       if (char.lastActionState !== null) {
         const resumeResult = engine.resumeAction(char.id);
-        setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
         await interaction.editReply(
           buildDecisionMessage(
@@ -439,7 +438,6 @@ export async function dispatchInteraction(
           components: [],
         });
       } else {
-        setPendingDecision(interaction.user.id, result.firstDecision);
         await interaction.editReply(
           buildDecisionMessage(result.firstDecision, 0, result.state, char, result.actionType),
         );
@@ -737,7 +735,6 @@ _${idleMsg}_`)
           components: [],
         });
       } else {
-        setPendingDecision(interaction.user.id, result.firstDecision);
         await interaction.webhook.editMessage(
           interaction.message.id,
           buildDecisionMessage(result.firstDecision, 0, result.state, char, result.actionType),
@@ -767,8 +764,99 @@ _${idleMsg}_`)
         ),
       );
     try {
-      await handleActionChoice(interaction, engine);
-      if (VERBOSE) console.log(c.grey("[verbose] action: done"));
+      // Old ordering (pre-M3.2 `handleActionChoice`): getCharacter guard (reply, no
+      // defer) → deferUpdate UNCONDITIONALLY → THEN parse the customId. A malformed
+      // `action:`-prefixed id still gets acked even though it resolves to nothing.
+      const begin = controller.beginChoice(interaction.user.id);
+
+      if (begin.kind === "no-character") {
+        await interaction.reply({
+          content: "You don't have a character. Type `/join` first.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.deferUpdate();
+
+      let selector: PendingChoiceSelector;
+      if (customId === CID_BAIL) {
+        selector = { kind: "bail" };
+      } else {
+        const parsed = parseActionCid(customId);
+        if (!parsed) return;
+        selector = { kind: "option", index: parsed.optionIdx };
+      }
+
+      const label = controller.resolveChoice(begin.character, selector);
+
+      if (!label) {
+        await interaction.webhook.editMessage(interaction.message.id, {
+          content: "❌ Your action session expired. Try `/action` again.",
+          components: [],
+          embeds: [],
+        });
+        return;
+      }
+
+      // Blank the buttons; echo the choice with a "Thinking…" line below.
+      await interaction.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setDescription(`**You:** ${label}\n\n⏳ **Thinking…**\n_${randomIdleMessage()}_`)
+            .setColor(0x95a5a6)
+            .toJSON(),
+        ],
+        components: [],
+      });
+
+      try {
+        const step = await controller.stepChoice(interaction.user.id, label, begin.character);
+
+        if (step.kind === "decision") {
+          await interaction.webhook.editMessage(interaction.message.id, decisionViewToDiscord(step.view));
+          if (VERBOSE) console.log(c.grey("[verbose] action: done"));
+          return;
+        }
+
+        // Resolved — reproduce the pre-M3.2 outcome-render branch verbatim.
+        const embed = outcomeViewToDiscord(step.view);
+        const serviceButtons = getOutcomeServiceButtons(step.actionId);
+        await interaction.webhook.editMessage(interaction.message.id, {
+          embeds: [embed],
+          components: step.char ? [...getNavButtons(step.char), ...serviceButtons] : serviceButtons,
+        });
+
+        const payload = {
+          content: `${classEmoji(step.characterClass)} **${step.characterName}** <@${interaction.user.id}> — ${step.distilledType}`,
+          embeds: [embed],
+          components: getPublicOutcomeButtons(step.actionId),
+          allowedMentions: { users: [] },
+        };
+        await broadcastOutcome({
+          client: interaction.client,
+          threadId: engine.getMeta(META_RECAP_THREAD_ID),
+          payload,
+          fallback: () => interaction.followUp(payload),
+          subscribeUserIds: [interaction.user.id],
+        });
+        // Faithful old fallback chain (`character?.name ?? prevChar?.name ?? "A soul"`) —
+        // `step.characterName` is pre-defaulted to 'Unknown', which would hide it.
+        await announceCollapse(step.char?.name ?? step.prevChar?.name ?? "A soul", step.prevChar, step.char);
+        if (VERBOSE) console.log(c.grey("[verbose] action: done"));
+      } catch (err) {
+        console.error("[action] stepAction error:", err);
+        await interaction.webhook.editMessage(interaction.message.id, {
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("⚔️ Action Failed")
+              .setDescription(`❌ ${(err as Error).message}\n\nTry \`/action\` again.`)
+              .setColor(0xe74c3c)
+              .toJSON(),
+          ],
+          components: [],
+        });
+      }
     } catch (err) {
       void notifyAdmin("Action choice failed", err);
       if ("reply" in interaction) {
@@ -837,10 +925,6 @@ _${idleMsg}_`)
                 flags: MessageFlags.Ephemeral,
               });
             } else {
-              setPendingDecision(
-                interaction.user.id,
-                resumeResult.nextDecision,
-              );
               const decisionMsg = buildDecisionMessage(
                 resumeResult.nextDecision,
                 resumeResult.state.decisions.length,

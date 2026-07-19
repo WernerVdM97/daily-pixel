@@ -243,8 +243,8 @@ export function buildDecisionView(
   const buttons: DecisionViewState['buttons'] = [];
   let letterIdx = 0;
 
-  // customId carries each option's original index — handleActionChoice looks the
-  // label up by index against the stored pending decision.
+  // customId carries each option's original index — the controller's `beginChoice`
+  // resolves the label back from that index via `engine.resolvePendingChoice`.
   options.forEach((opt, origIdx) => {
     if (opt.dcModifier === null) {
       // Terminal (bail) — keeps a worded button, not lettered in the body.

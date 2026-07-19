@@ -14,10 +14,8 @@ import {
   EmbedBuilder,
   MessageFlags,
   type ChatInputCommandInteraction,
-  type MessageComponentInteraction,
 } from 'discord.js';
-import type { WorldEngine, ActionDecision, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../../engine/WorldEngine.js';
-import type { ActionStepResult } from '../../engine/WorldEngine.js';
+import type { WorldEngine, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../../engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../engine/action/combat-dc.js';
 import { randomIdleMessage } from '../../engine/IdleMessageSelector.js';
 import { getDayJobActions, type DayJobDef } from './hi.js';
@@ -25,7 +23,7 @@ import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, class
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 import { decisionViewToDiscord, outcomeViewToDiscord } from '../viewToDiscord.js';
-import { buildDecisionView, buildOutcomeView, CID_BAIL, parseActionCid } from '../../view/actionViewState.js';
+import { buildDecisionView, buildOutcomeView } from '../../view/actionViewState.js';
 
 // Builders relocated to view/actionViewState.ts (M3.2b); re-exported here since
 // action-decision/view-state tests import them from this module's path.
@@ -78,10 +76,6 @@ export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }
   return hints;
 }
 
-// Most recent pending decision per user, so button clicks can resolve the
-// option label from its index.
-const pendingDecisions = new Map<string, ActionDecision>();
-
 // Day-job menu ephemeral messages, keyed by userId, so the custom modal submit
 // can delete them via webhook.
 const _menuMessages = new Map<string, { applicationId: string; token: string; messageId: string }>();
@@ -96,28 +90,9 @@ export function consumeMenuMessage(userId: string): { applicationId: string; tok
   return entry;
 }
 
-// Scene lookup — set by makeActionCommand, used by button handlers.
-let _sceneLookup: ((userId: string) => string) | null = null;
-
-export function setPendingDecision(userId: string, decision: ActionDecision): void {
-  // No options → store a Continue fallback so this matches buildDecisionMessage's render.
-  const options = decision.options.length > 0
-    ? decision.options
-    : [{ label: 'Continue', dcModifier: 0 }];
-  pendingDecisions.set(userId, { ...decision, options });
-}
-
-export function getChoiceLabel(userId: string, optionIdx: number): string | null {
-  const decision = pendingDecisions.get(userId);
-  if (!decision) return null;
-  const opt = decision.options[optionIdx];
-  return opt?.label ?? null;
-}
-
 // ── Factory ──
 
 export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId: string) => string, dayJobs: DayJobDef[]) {
-  _sceneLookup = getCurrentScene;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
     const description = interaction.options.getString('description');
 
@@ -162,7 +137,6 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
           return 'action_resume_empty';
         }
 
-        setPendingDecision(interaction.user.id, resumeResult.nextDecision);
         const decisionIdx = resumeResult.state.decisions.length;
         await interaction.editReply(buildDecisionMessage(resumeResult.nextDecision, decisionIdx, resumeResult.state, character));
         return 'action_resumed';
@@ -310,7 +284,6 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
         return 'action_autofinished';
       }
 
-      setPendingDecision(interaction.user.id, result.firstDecision);
       await interaction.editReply(buildDecisionMessage(result.firstDecision, 0, result.state, character, result.actionType, result.combatEnemyName, result.combatEnemyCondition));
       return 'action_started';
     } catch (err) {
@@ -321,122 +294,6 @@ export function makeActionCommand(engine: WorldEngine, getCurrentScene: (userId:
       return 'action_error';
     }
   };
-}
-
-// ── Handle button clicks ──
-
-export async function handleActionChoice(
-  i: MessageComponentInteraction,
-  engine: WorldEngine,
-): Promise<void> {
-  const character = engine.getCharacter(i.user.id);
-  if (!character) {
-    await i.reply({
-      content: "You don't have a character. Type `/join` first.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-  const charId = character.id;
-
-  // Defer (stepAction calls the LLM, >3s), then resolve the picked option first
-  // so the loading screen can echo the choice rather than a bare "Thinking…".
-  await i.deferUpdate();
-
-  let label: string | null;
-  if (i.customId === CID_BAIL) {
-    // Bail label comes from the pending decision's bail option.
-    const decision = pendingDecisions.get(i.user.id);
-    label = decision?.options.find(o => o.dcModifier === null)?.label ?? 'Bail';
-  } else {
-    const parsed = parseActionCid(i.customId);
-    if (!parsed) return;
-    label = getChoiceLabel(i.user.id, parsed.optionIdx);
-  }
-
-  if (!label) {
-    await i.webhook.editMessage(i.message.id, {
-      content: '❌ Your action session expired. Try `/action` again.',
-      components: [],
-      embeds: [],
-    });
-    return;
-  }
-
-  // Blank the buttons; echo the choice with a "Thinking…" line below.
-  await i.editReply({
-    embeds: [
-      new EmbedBuilder()
-        .setDescription(`**You:** ${label}\n\n⏳ **Thinking…**\n_${randomIdleMessage()}_`)
-        .setColor(0x95a5a6)
-        .toJSON(),
-    ],
-    components: [],
-  });
-
-  try {
-    const result = await engine.stepAction(charId, label);
-    await applyActionResult(i, result, engine, character);
-  } catch (err) {
-    console.error('[action] stepAction error:', err);
-    await i.webhook.editMessage(i.message.id, {
-      embeds: [
-        new EmbedBuilder()
-          .setTitle('⚔️ Action Failed')
-          .setDescription(`❌ ${(err as Error).message}\n\nTry \`/action\` again.`)
-          .setColor(0xe74c3c)
-          .toJSON(),
-      ],
-      components: [],
-    });
-  }
-}
-
-async function applyActionResult(
-  i: MessageComponentInteraction,
-  result: ActionStepResult,
-  engine: WorldEngine,
-  prevChar?: CharacterData | null,
-): Promise<void> {
-  if (result.resolved) {
-    const character = engine.getCharacter(i.user.id);
-    const outcome = result.outcome;
-
-    // Destination scene shown when the character moved.
-    const scene = _sceneLookup?.(i.user.id);
-    // Same embed for both private and public — the player sees the full outcome.
-    const embed = buildOutcomeEmbed(outcome, character, scene, result.state, undefined, engine);
-
-    const serviceButtons = getOutcomeServiceButtons(outcome.actionId);
-    await i.webhook.editMessage(i.message.id, {
-      embeds: [embed],
-      components: character
-        ? [...getNavButtons(character), ...serviceButtons]
-        : serviceButtons,
-    });
-
-    // Public copy carries a "Hi" re-entry button alongside the feedback/bug-report buttons.
-    const charName = character?.name ?? 'Unknown';
-    const payload = {
-      content: `${classEmoji(character?.class)} **${charName}** <@${i.user.id}> — ${outcome.distilledType}`,
-      embeds: [embed],
-      components: getPublicOutcomeButtons(outcome.actionId),
-      allowedMentions: { users: [] },
-    };
-    await broadcastOutcome({
-      client: i.client,
-      threadId: engine.getMeta(META_RECAP_THREAD_ID),
-      payload,
-      fallback: () => i.followUp(payload),
-      subscribeUserIds: [i.user.id],
-    });
-    await announceCollapse(character?.name ?? prevChar?.name ?? 'A soul', prevChar, character);
-  } else {
-    setPendingDecision(i.user.id, result.nextDecision);
-    const decisionIdx = result.state.decisions.length;
-    const character = engine.getCharacter(i.user.id);
-    await i.webhook.editMessage(i.message.id, buildDecisionMessage(result.nextDecision, decisionIdx, result.state, character ?? undefined));
-  }
 }
 
 // ── Helpers ──

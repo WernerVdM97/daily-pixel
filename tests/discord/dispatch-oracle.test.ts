@@ -29,7 +29,6 @@ vi.mock("../../src/discord/collapse.js", async (importActual) => ({
 }));
 
 import { dispatchInteraction } from "../../src/discord/dispatchInteraction.js";
-import { setPendingDecision } from "../../src/discord/commands/action.js";
 import type {
   ActionOutcome,
   ActionStartResult,
@@ -446,8 +445,8 @@ describe("dispatch oracle — customId branches", () => {
     const h = makeHarness();
     h.engine.setCharacter(oracleChar());
     h.engine.setStepActionResult(NEXT_DECISION_STEP as never);
-    // Seed a pending decision so the click resolves option 0's label.
-    setPendingDecision("cid-action-choice", DECISION_RESULT.firstDecision as never);
+    // Seed the engine's pending-decision options so the click resolves option 0's label.
+    h.engine.setPendingChoiceOptions(DECISION_RESULT.firstDecision.options as never);
     const { intr, _acks } = buttonInteraction("cid-action-choice", "action:choice:0:0");
     await dispatchInteraction(intr as never, h.deps);
 
@@ -456,6 +455,23 @@ describe("dispatch oracle — customId branches", () => {
     expect(h.engine.calls.stepAction[0].choice).toBe("Advance carefully");
     expect(h.engine.calls.startAction.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // Regression (M3.2c FIX 2): the old `handleActionChoice` deferred UNCONDITIONALLY,
+  // right after the getCharacter guard, THEN parsed the customId — a malformed
+  // `action:`-prefixed id still got acked even though it resolves to nothing. An
+  // extraction cut that builds the selector (parse included) before deferring would
+  // leave a malformed id with no ack at all — Discord then shows "interaction failed".
+  it("action: with a malformed customId (parseActionCid → null) still acks via deferUpdate", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    const { intr, _acks } = buttonInteraction("cid-action-malformed", "action:choice");
+    await expect(dispatchInteraction(intr as never, h.deps)).resolves.not.toThrow();
+
+    expect(_acks.some((a) => a.method === "deferUpdate")).toBe(true);
+    // Nothing to resolve past the malformed id — no step, no outer-funnel reply.
+    expect(h.engine.calls.stepAction.length).toBe(0);
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
   });
 });
 
@@ -513,8 +529,8 @@ describe("dispatch oracle — resolved / outcome render path", () => {
     const h = makeHarness();
     h.engine.setCharacter(oracleChar());
     h.engine.setStepActionResult(RESOLVED_STEP_RESULT as never);
-    // Seed a pending decision so the click resolves option 0's label.
-    setPendingDecision("cid-choice-outcome", DECISION_RESULT.firstDecision as never);
+    // Seed the engine's pending-decision options so the click resolves option 0's label.
+    h.engine.setPendingChoiceOptions(DECISION_RESULT.firstDecision.options as never);
     broadcastOutcomeSpy.mockClear();
     announceCollapseSpy.mockClear();
     const { intr, _acks } = buttonInteraction("cid-choice-outcome", "action:choice:0:0");
@@ -526,6 +542,38 @@ describe("dispatch oracle — resolved / outcome render path", () => {
     expect(broadcastOutcomeSpy).toHaveBeenCalledTimes(1);
     expect(announceCollapseSpy).toHaveBeenCalledTimes(1);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // Regression (M3.2c FIX 1): the old `handleActionChoice` had ONE inner try wrapping
+  // stepAction AND applyActionResult (paint + broadcastOutcome + announceCollapse) — a
+  // throw anywhere in there repainted "⚔️ Action Failed" rather than escaping to the
+  // outer funnel (notifyAdmin + generic reply). An extraction cut that moved
+  // broadcast/announceCollapse outside that inner boundary would let this kind of
+  // throw escape to the wrong catch.
+  it("action:<choice> resolved → broadcastOutcome throwing repaints Action Failed, not the outer funnel", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    h.engine.setStepActionResult(RESOLVED_STEP_RESULT as never);
+    h.engine.setPendingChoiceOptions(DECISION_RESULT.firstDecision.options as never);
+    broadcastOutcomeSpy.mockClear();
+    announceCollapseSpy.mockClear();
+    broadcastOutcomeSpy.mockRejectedValueOnce(new Error("boom"));
+    const { intr, _acks } = buttonInteraction("cid-choice-broadcast-throws", "action:choice:0:0");
+    await dispatchInteraction(intr as never, h.deps);
+    // The one-shot rejection is consumed by the single call this leaf makes — no
+    // restoration needed for later tests' default (resolving) behaviour.
+
+    const failedEdit = _acks.find(
+      (a) =>
+        a.method === "webhook.editMessage" &&
+        (a.arg as { embeds?: Array<{ title?: string }> } | undefined)?.embeds?.[0]?.title ===
+          "⚔️ Action Failed",
+    );
+    expect(failedEdit).toBeTruthy();
+    // The OUTER funnel (notifyAdmin + generic ephemeral reply) must NOT have fired —
+    // the inner catch handled it.
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(_acks.some((a) => a.method === "reply")).toBe(false);
   });
 });
 

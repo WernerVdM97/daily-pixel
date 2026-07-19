@@ -1,7 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import { buildDecisionMessage, buildOutcomeEmbed, setPendingDecision, getChoiceLabel } from '../../src/discord/commands/action.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { buildDecisionMessage, buildOutcomeEmbed } from '../../src/discord/commands/action.js';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../src/engine/action/combat-dc.js';
+import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
+import { MockPipelineGateway } from '../helpers/MockPipelineGateway.js';
+import { initDb, closeDb, getDb } from '../../src/db/connection.js';
+import { migrate, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
+import { UserRepository } from '../../src/db/repositories/user.js';
+import { CharacterRepository } from '../../src/db/repositories/character.js';
+import { ItemRepository } from '../../src/db/repositories/item.js';
+import { ActionRepository } from '../../src/db/repositories/action.js';
+import { NpcRepository } from '../../src/db/repositories/npc.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function buttons(msg: ReturnType<typeof buildDecisionMessage>): any[] {
@@ -577,13 +586,67 @@ describe('buildDecisionMessage — option stat emoji degrades gracefully on a mi
 });
 
 describe('Option decorations are render-only — the raw label persists as `chosen`', () => {
-  it('getChoiceLabel returns the undecorated label, with no stat emoji or dcArrow', () => {
-    setPendingDecision('narration-test-user', {
-      prompt: 'x',
-      narration: 'Something happens.',
-      options: [{ label: 'Shoulder-charge the brute', dcModifier: 2, stat: 'physical' }],
+  // Pins the real seam: the stat emoji + dcArrow shown on a decision's rendered option
+  // LINE (see actionViewState.ts's `optionLines` build) are cosmetic to that line only.
+  // The engine indexes and resolves `opt.label` itself — via `resolvePendingChoice` — which
+  // must stay undecorated, since that's what a bail/option click echoes back as `chosen`
+  // (M3.2 DC-A/C). A same-object mutation check (the old version of this test) can't fail
+  // even if decoration DID leak into the persisted label, because nothing here mutates the
+  // input option — it only proves buildDecisionMessage doesn't write back to its input, not
+  // that resolution stays undecorated. Wiring a real WorldEngineImpl end to end closes that
+  // gap: it renders the decorated line AND resolves the same seeded option through the real
+  // `resolvePendingChoice` path (mirrors tests/engine/resolve-pending-choice.test.ts's setup).
+  let engine: WorldEngineImpl;
+  let charRepo: CharacterRepository;
+  let characterId: number;
+
+  beforeEach(() => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    charRepo = new CharacterRepository(getDb());
+    engine = new WorldEngineImpl({
+      db: getDb(),
+      userRepo: new UserRepository(getDb()),
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new MockPipelineGateway(),
+      rollD20: () => 15,
     });
-    expect(getChoiceLabel('narration-test-user', 0)).toBe('Shoulder-charge the brute');
+    const char = engine.createCharacter('u1', {
+      name: 'Kael', class: 'Hunter', upbringing: 'Outskirts',
+      race: 'Human', alignment: 'Neutral', dayJob: 'Forager',
+    });
+    characterId = char.id;
+  });
+
+  afterEach(() => closeDb());
+
+  it('renders a decorated option line but resolves the raw, undecorated label', () => {
+    const options = [{ label: 'Shoulder-charge the brute', dcModifier: 2, stat: 'physical' }];
+    charRepo.update(characterId, {
+      last_action_state: JSON.stringify({ pendingDecision: { prompt: 'A brute blocks the path.', options } }),
+    });
+
+    // dcModifier: 2 (nonzero) + stat: 'physical' → the rendered line gains both the stat
+    // emoji prefix and the dcArrow suffix.
+    const msg = buildDecisionMessage(
+      { prompt: 'A brute blocks the path.', options },
+      0,
+      { rawInput: 'fight the brute', decisions: [], accumulatedDc: 8 },
+      { stats: { physical: 10, wisdom: 10, intelligence: 10, charisma: 10 } },
+    );
+    const desc = (msg.embeds[0] as any).description as string;
+    expect(desc).toContain('💪'); // physical stat emoji prefix
+    expect(desc).toContain('⬆️'); // dcArrow suffix (positive dcModifier)
+    expect(desc).toContain('**A.** 💪 Shoulder-charge the brute ⬆️');
+
+    // The label the engine actually indexes/resolves — via the real resolvePendingChoice,
+    // against the same seeded options — must be the raw label, with no decoration.
+    const resolved = engine.resolvePendingChoice(characterId, { kind: 'option', index: 0 });
+    expect(resolved).toBe('Shoulder-charge the brute');
   });
 });
 
