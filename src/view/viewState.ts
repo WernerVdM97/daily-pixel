@@ -72,4 +72,21 @@ export interface MenuViewState {
   buttons: Array<{ label: string; customId: string; style: 'secondary' | 'primary' }>;
 }
 
-export type ViewState = DecisionViewState | OutcomeViewState | NoticeViewState | MenuViewState;
+/** A transient "please wait" screen — one plain grey embed, no buttons. Used between staged
+ *  controller steps (e.g. the day-job work flow's "Starting…" beat) where the caller has
+ *  already deferred/replied and just needs to paint an interstitial while a later step runs. */
+export interface LoadingViewState {
+  screen: 'loading';
+  body: string;
+}
+
+/** The day-job work flow's transient commute beat — folds the "you moved" beat INTO the
+ *  loading indicator (idle message carried over) so the multi-second LLM call underneath
+ *  still reads as "in progress", not stalled. */
+export interface CommuteViewState {
+  screen: 'commute';
+  destination: string;
+  idle: string;
+}
+
+export type ViewState = DecisionViewState | OutcomeViewState | NoticeViewState | MenuViewState | LoadingViewState | CommuteViewState;

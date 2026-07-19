@@ -313,6 +313,12 @@ export class MockWorldEngine implements WorldEngine {
 
   commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null {
     this.calls.commuteToWorkplace.push({ characterId, workplace });
+    // Mirror WorldEngineImpl's persist-then-reread semantics (M3.4): the real engine writes
+    // the commute onto the character row, so a later `getCharacter` re-read reflects it —
+    // callers no longer patch a locally-held snapshot themselves.
+    if (this._commuteResult && this._character) {
+      this._character = { ...this._character, stamina: this._commuteResult.stamina, location: this._commuteResult.to };
+    }
     return this._commuteResult;
   }
 

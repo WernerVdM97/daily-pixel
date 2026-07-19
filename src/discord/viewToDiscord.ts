@@ -9,7 +9,7 @@
  */
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
-import type { DecisionViewState, MenuViewState, NoticeViewState, OutcomeViewState, ViewColorIntent } from '../view/viewState.js';
+import type { CommuteViewState, DecisionViewState, LoadingViewState, MenuViewState, NoticeViewState, OutcomeViewState, ViewColorIntent } from '../view/viewState.js';
 import { clip, MAX_EMBED_DESC, outcomeColor } from '../render/embedText.js';
 
 /** Opening-frame chrome — medium chrome, never a semantic choice (M2 design call), so it stays
@@ -150,4 +150,37 @@ export function noticeViewToDiscord(view: NoticeViewState): { content: string; f
   return view.ephemeral
     ? { content: view.text, flags: MessageFlags.Ephemeral }
     : { content: view.text };
+}
+
+/** Maps a loading view to the plain grey "please wait" embed the day-job work flow's
+ *  "Starting…" beat used inline before M3.4. */
+export function loadingViewToDiscord(view: LoadingViewState): {
+  embeds: ReturnType<EmbedBuilder['toJSON']>[];
+  components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
+} {
+  return {
+    embeds: [new EmbedBuilder().setDescription(view.body).setColor(0x95a5a6).toJSON()],
+    components: [],
+  };
+}
+
+/** Maps the day-job work flow's transient commute beat to the exact "🚶 Daily Commute" embed
+ *  used inline before M3.4 — note the two trailing spaces after the first sentence (a
+ *  deliberate Discord hard-line-break, not a typo). */
+export function commuteViewToDiscord(view: CommuteViewState): {
+  embeds: ReturnType<EmbedBuilder['toJSON']>[];
+  components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
+} {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('🚶 Daily Commute')
+        .setDescription(
+          `**You head to the ${view.destination}.**  \n⚡ -1 stamina\n\n⏳ **Setting to work…**\n_${view.idle}_`,
+        )
+        .setColor(0x95a5a6)
+        .toJSON(),
+    ],
+    components: [],
+  };
 }

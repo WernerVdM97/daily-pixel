@@ -12,7 +12,7 @@
 import type { WorldEngine, CharacterData, PendingChoiceSelector } from '../engine/WorldEngine.js';
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
-import { composeActionMenu, type DayJobDef } from './dayJob.js';
+import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
 
 export type FeedbackSurface = 'sleep' | 'release' | 'outcome-feedback' | 'outcome-bug';
 
@@ -44,6 +44,26 @@ export type ActionMenuResult =
   | { kind: 'resume-decision'; view: DecisionViewState }
   | { kind: 'resume-error'; message: string }
   | { kind: 'menu'; view: MenuViewState };
+
+/** Outcome of `beginDayJob` — mirrors the pre-M3.4 `action:dayjob:<n>` button handler's
+ *  guard order exactly (char guard -> `updateLastPlayed` -> invalid-job -> unsafe-ground ->
+ *  ok). `unsafe` carries the raw `location` so the adapter can render the inline warning. */
+export type DayJobStart =
+  | { kind: 'no-character' }
+  | { kind: 'invalid-job' }
+  | { kind: 'unsafe'; location: string }
+  | { kind: 'ok'; workplace: string | null; workPrompt: string; wage: number };
+
+/** Outcome of `runWork` — mirrors the pre-M3.4 handler's post-commute `startAction` +
+ *  outcome-render logic exactly (same re-read-after-start, compact/full outcome fan-out,
+ *  no `classEmoji` on the public content line — unlike `action:choice`). Carries no `error`
+ *  arm: like `stepChoice`, errors propagate so the adapter's single outer try/catch covers
+ *  start + paint + broadcast + announceCollapse, exactly like the pre-M3.4 handler's one
+ *  outer try. */
+export type DayJobRunResult =
+  | { kind: 'outcome'; viewPrivate: OutcomeViewState; viewPublic: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; char: CharacterData; prevChar: CharacterData }
+  | { kind: 'empty-action'; prompt: string }
+  | { kind: 'decision'; view: DecisionViewState };
 
 export class SessionController {
   constructor(
@@ -123,6 +143,84 @@ export class SessionController {
     }
 
     return { kind: 'menu', view: composeActionMenu(this.engine, this.dayJobs, character) };
+  }
+
+  /** Reproduces the pre-M3.4 `action:dayjob:<n>` button handler's guard order exactly
+   *  (DC-K): char guard -> `updateLastPlayed` stamp -> resolve the clicked job action ->
+   *  invalid-job -> resolve the workplace -> unsafe-ground guard (workplace itself is
+   *  always exempt) -> ok, carrying everything `commuteForWork`/`runWork` need next. */
+  beginDayJob(userId: string, idx: number): DayJobStart {
+    const char = this.engine.getCharacter(userId);
+    if (!char) return { kind: 'no-character' };
+
+    this.engine.updateLastPlayed(char.id); // M2: stamp on day-job clicks
+
+    const dayNumber = Number(this.engine.getMeta('day_number') ?? '1');
+    const jobActions = getDayJobActions(char.dayJob, this.dayJobs, { characterId: char.id, dayNumber });
+    const jobAction = jobActions[idx];
+    if (!jobAction?.hook) return { kind: 'invalid-job' };
+
+    // Block daily work from unsafe ground (unknown/procedural locations count as unsafe,
+    // mirroring the unsafe-soul count). Freeform `/action` is unaffected. Exception: your
+    // job's own workplace is unsafe-exempt.
+    const workplace = getWorkplaceLocation(char.dayJob, this.dayJobs, { characterId: char.id, dayNumber });
+    const atWorkplace = workplace !== null && char.location === workplace;
+    const here = this.engine.getLocation(char.location);
+    if (!here?.isSafe && !atWorkplace) return { kind: 'unsafe', location: char.location };
+
+    // Lead the prompt with the task label so the LLM always gets the concrete, payable
+    // task ("Walk the rounds") up front, with the hook as flavour — the hook alone reads
+    // as atmosphere and can bury what the player is actually doing.
+    return { kind: 'ok', workplace, workPrompt: `${jobAction.label} — ${jobAction.hook}`, wage: jobAction.income ?? 0 };
+  }
+
+  /** Thin pass-through to `engine.commuteToWorkplace` (DC-K) — the engine persists the
+   *  stamina/location mutation and returns the destination, so a re-read after this call
+   *  already reflects the commute (no local char patching needed on this side). */
+  commuteForWork(userId: string, workplace: string | null): { kind: 'commuted'; destination: string } | { kind: 'none' } {
+    const char = this.engine.getCharacter(userId);
+    if (!char) return { kind: 'none' };
+    const commute = this.engine.commuteToWorkplace(char.id, workplace);
+    return commute ? { kind: 'commuted', destination: commute.to } : { kind: 'none' };
+  }
+
+  /** Steps the action machine with the day-job's assembled work prompt (DC-K) — mirrors the
+   *  pre-M3.4 handler's `startAction` + apply-result logic exactly (same re-read-after-start,
+   *  same compact-private/full-public outcome fan-out, same NOT-compact decision view). Does
+   *  NOT catch: `startAction`/view-build errors propagate so the adapter's single outer try
+   *  can cover start + paint + broadcast + announceCollapse, exactly like the pre-M3.4
+   *  handler's one outer try/catch. */
+  async runWork(userId: string, workPrompt: string, wage: number): Promise<DayJobRunResult> {
+    const prevChar = this.engine.getCharacter(userId);
+    if (!prevChar) throw new Error(`runWork: no character for ${userId}`);
+
+    // Per-action `income` (day-jobs.yml) rides the action as a guaranteed wage: paid into
+    // the RESOLVED outcome (after the failure-strip) so it shows in the footer (💰) when
+    // work finishes, not before. base_income is the separate nightly-tick wage.
+    const result = await this.engine.startAction(prevChar.id, workPrompt, { kind: 'work', wage });
+
+    if (result.outcome) {
+      // Re-read AFTER startAction so the embed + nav reflect the spent roll and mutations —
+      // `prevChar` is the pre-action (post-commute) snapshot, the before-baseline for
+      // announceCollapse.
+      const char = this.engine.getCharacter(userId) ?? prevChar;
+      const scene = this.getCurrentScene(userId);
+      return {
+        kind: 'outcome',
+        // Compact for private reply, full for public thread copy (F#19c).
+        viewPrivate: buildOutcomeView(result.outcome, char, scene, result.state, { compact: true }, this.engine),
+        viewPublic: buildOutcomeView(result.outcome, char, scene, result.state, undefined, this.engine),
+        distilledType: result.outcome.distilledType,
+        actionId: result.outcome.actionId,
+        characterName: char.name,
+        char,
+        prevChar,
+      };
+    }
+    if (result.firstDecision.options.length === 0) {
+      return { kind: 'empty-action', prompt: result.firstDecision.prompt };
+    }
+    return { kind: 'decision', view: buildDecisionView(result.firstDecision, 0, result.state, prevChar, result.actionType) };
   }
 
   /** The confirmation copy for a feedback/bug submission — a pure function of the surface, so it

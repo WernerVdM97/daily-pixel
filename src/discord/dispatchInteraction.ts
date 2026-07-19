@@ -22,7 +22,7 @@ import type { WorldEngine, PendingChoiceSelector } from "../engine/WorldEngine.j
 import type { CommandRegistry } from "./CommandRegistry.js";
 import type { WizardSession } from "./WizardSession.js";
 import type { SessionController } from "../controller/SessionController.js";
-import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord } from "./viewToDiscord.js";
+import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord, loadingViewToDiscord, commuteViewToDiscord } from "./viewToDiscord.js";
 import { c } from "../util/colors.js";
 import { randomIdleMessage } from "../engine/IdleMessageSelector.js";
 import {
@@ -45,11 +45,7 @@ import {
   stashMenuMessage,
 } from "./commands/action.js";
 import { checkProfanity } from "./profanity.js";
-import {
-  getDayJobActions,
-  getWorkplaceLocation,
-  type DayJobDef,
-} from "../controller/dayJob.js";
+import type { DayJobDef } from "../controller/dayJob.js";
 import {
   broadcastOutcome,
   META_RECAP_THREAD_ID,
@@ -86,7 +82,6 @@ export async function dispatchInteraction(
     engine,
     registry,
     getCurrentScene,
-    dayJobs,
     joinWizards,
     controller,
     notifyAdmin,
@@ -586,127 +581,60 @@ export async function dispatchInteraction(
   // ── Day-job quick action buttons ──
   if (customId && customId.startsWith("action:dayjob:")) {
     if (!interaction.isButton()) return;
-    const idx = parseInt(customId.slice("action:dayjob:".length), 10);
     try {
-      const char = engine.getCharacter(interaction.user.id);
-      if (!char) {
+      const idx = parseInt(customId.slice("action:dayjob:".length), 10);
+      const begin = controller.beginDayJob(interaction.user.id, idx);
+      if (begin.kind === "no-character") {
         await interaction.reply({
           content: "You don't have a character. Type `/join` first.",
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
-      engine.updateLastPlayed(char.id); // M2: stamp on day-job clicks
-      const dayNumber = Number(engine.getMeta("day_number") ?? "1");
-      const jobActions = getDayJobActions(char.dayJob, dayJobs, {
-        characterId: char.id,
-        dayNumber,
-      });
-      const jobAction = jobActions[idx];
-      const hook = jobAction?.hook;
-      const wage = jobAction?.income ?? 0;
-      if (!hook) {
+      if (begin.kind === "invalid-job") {
         await interaction.reply({
           content: "Invalid job action.",
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
-      // Block daily work from unsafe ground (unknown/procedural locations count as
-      // unsafe, mirroring the unsafe-soul count). Freeform `/action` is unaffected.
-      // Exception: your job is unsafe
-      const workplace = getWorkplaceLocation(char.dayJob, dayJobs, {
-        characterId: char.id,
-        dayNumber,
-      });
-      const atWorkplace = workplace !== null && char.location === workplace;
-      const here = engine.getLocation(char.location);
-      if (!here?.isSafe && !atWorkplace) {
+      if (begin.kind === "unsafe") {
         await interaction.reply({
-          content: `⚠️ **It's no place for honest work here.**\nThe ${char.location} is too dangerous — make for safer ground before you set to your trade.`,
+          content: `⚠️ **It's no place for honest work here.**\nThe ${begin.location} is too dangerous — make for safer ground before you set to your trade.`,
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
+
       // Defer + blank buttons to show loading.
-      const idleMsg = randomIdleMessage();
+      const idle = randomIdleMessage();
       await interaction.deferUpdate();
-      await interaction.editReply({
-        embeds: [
-          new EmbedBuilder()
-            .setDescription(`⏳ **Starting…**
-_${idleMsg}_`)
-            .setColor(0x95a5a6)
-            .toJSON(),
-        ],
-        components: [],
-      });
+      await interaction.editReply(
+        loadingViewToDiscord({ screen: "loading", body: `⏳ **Starting…**\n_${idle}_` }),
+      );
 
-      const commute = engine.commuteToWorkplace(char.id, workplace);
-      if (commute) {
-        // Update the local char copy for the outcome renderer — the pre-startAction
-        // snapshot also feeds announceCollapse's before-baseline.
-        char.stamina = commute.stamina;
-        char.location = commute.to;
-
+      const commute = controller.commuteForWork(interaction.user.id, begin.workplace);
+      if (commute.kind === "commuted") {
         // Merge the commute INTO the loading page (don't replace it): the LLM call
         // below takes seconds, so keep the "thinking" indicator visible — the bot
         // hasn't stalled, work is being generated.
-        await interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("🚶 Daily Commute")
-              .setDescription(
-                `**You head to the ${commute.to}.**  \n⚡ -1 stamina\n\n⏳ **Setting to work…**\n_${idleMsg}_`,
-              )
-              .setColor(0x95a5a6)
-              .toJSON(),
-          ],
-          components: [],
-        });
+        await interaction.editReply(
+          commuteViewToDiscord({ screen: "commute", destination: commute.destination, idle }),
+        );
       }
 
-      // Lead the prompt with the task label so the LLM always gets the concrete, payable
-      // task ("Walk the rounds") up front, with the hook as flavour — the hook alone reads
-      // as atmosphere and can bury what the player is actually doing.
-      const workPrompt = `${jobAction.label} — ${hook}`;
+      const run = await controller.runWork(interaction.user.id, begin.workPrompt, begin.wage);
 
-      // Per-action `income` (day-jobs.yml) rides the action as a guaranteed wage: paid
-      // into the RESOLVED outcome (after the failure-strip) so it shows in the footer (💰)
-      // when work finishes, not before. base_income is the separate nightly-tick wage.
-      const result = await engine.startAction(char.id, workPrompt, { kind: "work", wage });
-
-      if (result.outcome) {
-        // Re-read AFTER startAction so the embed + nav reflect the spent roll and
-        // mutations — `char` above is the pre-action snapshot (only patched locally
-        // for the commute stamina cost).
-        const resolvedChar = engine.getCharacter(interaction.user.id) ?? char;
-        // Compact for private reply, full for public thread copy (F#19c).
-        const privateEmbed = buildOutcomeEmbed(
-          result.outcome,
-          resolvedChar,
-          getCurrentScene(interaction.user.id),
-          result.state,
-          { compact: true },
-          engine,
-        );
-        const publicEmbed = buildOutcomeEmbed(
-          result.outcome,
-          resolvedChar,
-          getCurrentScene(interaction.user.id),
-          result.state,
-          undefined,
-          engine,
-        );
-        const serviceButtons = getOutcomeServiceButtons(result.outcome.actionId);
+      if (run.kind === "outcome") {
+        const priv = outcomeViewToDiscord(run.viewPrivate);
         await interaction.webhook.editMessage(interaction.message.id, {
-          embeds: [privateEmbed],
-          components: [...getNavButtons(resolvedChar), ...serviceButtons],
+          embeds: [priv],
+          components: [...getNavButtons(run.char), ...getOutcomeServiceButtons(run.actionId)],
         });
         const payload = {
-          content: `**${resolvedChar.name}** <@${interaction.user.id}> — ${result.outcome.distilledType}`,
-          embeds: [publicEmbed],
-          components: getPublicOutcomeButtons(result.outcome.actionId),
+          content: `**${run.characterName}** <@${interaction.user.id}> — ${run.distilledType}`,
+          embeds: [outcomeViewToDiscord(run.viewPublic)],
+          components: getPublicOutcomeButtons(run.actionId),
           allowedMentions: { users: [] },
         };
         await broadcastOutcome({
@@ -716,23 +644,20 @@ _${idleMsg}_`)
           fallback: () => interaction.followUp(payload),
           subscribeUserIds: [interaction.user.id],
         });
-        await announceCollapse(resolvedChar.name, char, resolvedChar);
-      } else if (result.firstDecision.options.length === 0) {
+        await announceCollapse(run.char.name, run.prevChar, run.char);
+      } else if (run.kind === "empty-action") {
         await interaction.webhook.editMessage(interaction.message.id, {
           embeds: [
             new EmbedBuilder()
               .setTitle("⚔️ Action")
-              .setDescription(result.firstDecision.prompt)
+              .setDescription(run.prompt)
               .setColor(0x95a5a6)
               .toJSON(),
           ],
           components: [],
         });
       } else {
-        await interaction.webhook.editMessage(
-          interaction.message.id,
-          buildDecisionMessage(result.firstDecision, 0, result.state, char, result.actionType),
-        );
+        await interaction.webhook.editMessage(interaction.message.id, decisionViewToDiscord(run.view));
       }
     } catch (err) {
       void notifyAdmin("Action (day-job) failed", err);
