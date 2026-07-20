@@ -206,7 +206,41 @@ Scope fence (M3.2): do not port `nav:action`, `action:dayjob:`, or `action:custo
 
 ## M4 — Agent-player adapter
 
-[<] Plan written when M3 lands.
+Goal: an in-process, Discord-free "agent-player" — a peer adapter over the M3 seam — that stands up a real `WorldEngine` + `SessionController` and plays the game with a real LLM brain, all features on. It is the "whole game, shorter horizon" harness (decision 6): distinct from `sim/` (engine-level, LLM-cut, months-of-data) — the agent-player enters at the controller with the real LLM for **bug-hunting/QA and playtest feedback**. Both are M4 deliverables (scoping call below).
+
+### Scoping calls (lead + user, 2026-07-20)
+
+[I] **Goal = QA + feedback (both).** The harness must (a) surface crashes/dead-ends/broken flows as a failure log + repro transcript (QA), and (b) produce qualitative playtest feedback (pacing, clarity, fun) as a report. Sliced so QA lands before feedback (a run that can't complete has nothing to critique).
+[I] **Seam = direct controller calls (decision 3, in-process).** The agent calls `SessionController`'s existing typed methods in-process — the M3 methods **are** the seam today. No formal JSON event-router, and the Discord adapter is **not** rebuilt onto a shared protocol (that stays a later, optional bolt-on; the gap table's "protocol seam" is deferred, not dropped). The just-cleaned dispatcher is not re-touched.
+[I] **Brain = real LLM from the first playing slice.** The agent's move-picker is a real DeepSeek call (this repo's LLM is DeepSeek via `callDeepseek`, not Anthropic). Tests + CI use a deterministic scripted stub (no network); the real gateway is the default only on an explicit harness run (needs `DEEPSEEK_API_KEY`). Mirrors the existing `ProdPipelineLlmGateway` (real) / `PipelineScriptedGateway` (stub) split exactly.
+
+### Recon findings (2026-07-20) — the construction recipe
+
+[I] **Engine = prod-faithful `WorldEngineImpl`, not `PipelineSimEngine` (DA-1).** "All features on" needs the day/tick economy (roll refill, day-job income, stamina/health regen) — `PipelineSimEngine` deliberately never ticks, so it can't play across days. So the harness builds a `WorldEngineImpl` the way `sim/engine-factory.ts:110-135` does but with the pieces sim omits: `initDb(':memory:')` + `migrate` (seeds `SEEDED_LOCATIONS`/`SEEDED_EDGES`), the five repos, **real** assets via `loadCharCreationAssets()` + `buildDayJobIncomeMap()` (`index.ts:172-189`) so `createCharacter` derives real stats, and a **real** `ProdPipelineLlmGateway({ apiKey, model })` as `pipelineLlmGateway`. Nightly advance via `advanceDays(engine, 1)` (`sim/time.ts`).
+[I] **The brain is net-new but every block exists (DA-2).** No "LLM picks a move from a rendered screen" helper exists — `decide`/`classify` *author* menus, they don't *consume* them. Build it by mirroring the pipeline-gateway pattern: reuse `callDeepseek` (`src/llm/deepseek-transport.ts:44`) verbatim (audit-in-`finally`, throw-loud, JSON-mode), a versioned prompt under `assets/prompts/agent-player/` + an `AGENT_PLAYER_VERSION` constant (per the `prompt-versioning` skill), and a scripted stub modelled on `PipelineScriptedGateway`.
+[I] **No text renderer exists, but none is missing (DA-3).** Every `ViewState` field is already a `string`; `viewToDiscord` just joins them. A pure `viewToText(view): string` peer (agent medium step) is a mechanical join — realises decision 2 ("agent sees close to what a Discord player sees") without touching the ANSI `render/*` frames (already baked into the view's string fields).
+[I] **Three bookends are Discord-only (DA-4).** The mid-day action loop is fully controller-reachable, but **character creation** (`join` wizard), **rest + nightly tick** (`engine.restAtOak`/`engine.tick(true)`), and **`/hi`** have no controller seam and no `ViewState`. The agent calls the **engine directly** for these bookends (matching what `sim/` does); the interesting per-action loop goes through the controller. Extending the controller to own the bookends is explicitly **out of M4 scope** (would re-open the M3 surface) — revisit only if a later frontend needs it.
+
+### Settled design calls
+
+[I] **Home = `src/agent/` (DA-5).** A new top-level adapter dir, peer to `src/discord/` and `src/sim/` — never imported by either. An `npm run agent:play` script is the entry point; the real-LLM run is opt-in (manual), never wired into `npm test`.
+[I] **`AgentMove` shape (DA-6).** The brain returns a discriminated union feeding the controller/engine directly: `{ kind: 'menu-pick'; index }` (a day-job menu button) | `{ kind: 'custom'; text }` (free-text action) | `{ kind: 'choice'; index }` / `{ kind: 'bail' }` (a decision button → a `PendingChoiceSelector`) | `{ kind: 'sleep' }` (end the day). The harness maps each to the right controller/engine call; illegal moves for the current screen are re-prompted or logged as a QA finding.
+
+### Slice sequence
+
+Order is binding. M4.0–M4.1 are pure/unit (no network, no engine wiring); M4.2 first stands the harness up; QA (M4.4) precedes feedback (M4.5).
+
+[ ] **M4.0 — Agent text view (`viewToText`).** A pure `src/view/viewToText.ts` mapping every `ViewState` variant to an agent-readable string (peer to `viewToDiscord`, imports no `discord.js`), plus `legalMoves(view): AgentMove[]`-shaped enumeration of the actionable buttons on a Decision/Menu view. Unit-tested against hand-built DTOs (join order + move extraction); no engine, no LLM.
+[ ] **M4.1 — `AgentPlayerGateway` seam.** Define the `AgentPlayerGateway` interface (`chooseMove(input): Promise<AgentMove>`) + `AgentMove` (DA-6) + input shape (rendered screen text + legal moves + brief character state) in `src/agent/`; implement `ProdAgentPlayerGateway` (reuses `callDeepseek`, versioned `agent-player/agent-v1.md` + `AGENT_PLAYER_VERSION`, records an `llm_calls` row) and `ScriptedAgentPlayerGateway` (deterministic, move-list driven). Unit-test the stub + the real impl's response parse against a canned JSON body (injected `fetch`). No harness run yet.
+[ ] **M4.2 — Harness bring-up + single action end-to-end.** `src/agent/harness.ts`: build the Discord-free `WorldEngineImpl` (DA-1), a `SessionController`, seed a character (engine-direct, DA-4); drive ONE action through the controller with the brain — `openActionMenu` → `viewToText` → `chooseMove` → `beginDayJob`/`commuteForWork`/`runWork` or `beginCustomAction`/`runCustomAction` → the decision loop (`beginChoice`/`resolveChoice`/`stepChoice`) until outcome — emitting a structured transcript. Proves the seam (the proof-of-seam value, folded in). Test with the scripted brain + a scripted pipeline gateway (fully deterministic).
+[ ] **M4.3 — Full-day + multi-day loop.** Loop actions until `rollsRemaining` hits 0, then the `sleep` move → `engine.restAtOak`/tick (DA-4) → `advanceDays` → next day; run N days. Handle resume-in-progress + `no-rolls`/`unsafe`/`invalid-job` guards as loop control.
+[ ] **M4.4 — QA capture (goal a).** Wrap every controller/engine call so exceptions, dead-ends (empty-action, resume-error), illegal-move loops, and cheap invariant checks (negative HP/stamina/wealth, rolls underflow) become structured findings in the transcript + a run summary; a run that throws still writes a repro up to the failure point.
+[ ] **M4.5 — Feedback pass (goal b).** After a completed run, a critic pass (LLM) reads the transcript and emits qualitative playtest feedback (pacing/clarity/fun/difficulty) as a report; reuse the critic-gateway pattern if it fits, else a second agent-player prompt family.
+[ ] **M4.6 — Closeout.** Verify `src/agent/` is imported by neither `discord/` nor `sim/`; `npm test` green with stubs (no network in CI); a real-LLM smoke run documented; `CHANGELOG.md` `[Unreleased]` entry; tick M4 in the parent doc.
+
+Scope fence (whole milestone): no changes to `src/discord/` beyond nothing (the adapter is untouched); no new controller methods for the bookends (DA-4); no formal JSON protocol/event-router (scoping call 2); `sim/` unchanged; the real LLM never runs in `npm test`. Engine/controller changes only if a genuine seam gap blocks a slice — flag it as a decision, don't smear flow back into the harness.
+
+Execution state: _in progress._ Branch `feat/m4-agent-player` off `dev` (`bd8db8b`). Plan written 2026-07-20; slice checklists beyond M4.0 land per-slice.
 
 ---
 
