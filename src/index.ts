@@ -1466,7 +1466,7 @@ ${headInfo}`);
   // Handle all interactions — dispatch is hoisted to ./discord/dispatchInteraction.ts
   // (M1.1); wire the main()-scope bindings + the self-executing index.ts module
   // state the closure used to capture into `deps`.
-  const controller = new SessionController(engine, getCurrentScene, dayJobs);
+  const controller = new SessionController(engine, getCurrentScene, dayJobs, CHARACTER_GATED_COMMANDS);
   const dispatchDeps: DispatchDeps = {
     engine,
     registry,
@@ -1478,7 +1478,6 @@ ${headInfo}`);
     safeErrorReply,
     VERBOSE,
     ADMIN_USER_ID,
-    CHARACTER_GATED_COMMANDS,
   };
 
   // Single entry point for every interaction — the in-flight guard lives here so

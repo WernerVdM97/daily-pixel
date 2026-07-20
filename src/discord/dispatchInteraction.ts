@@ -52,7 +52,7 @@ import {
 /**
  * Everything `dispatchInteraction` used to reach into `main()`'s closure scope for,
  * plus the self-executing `index.ts` module-level bindings it referenced
- * (`notifyAdmin`/`safeErrorReply`/`VERBOSE`/`ADMIN_USER_ID`/`CHARACTER_GATED_COMMANDS`).
+ * (`notifyAdmin`/`safeErrorReply`/`VERBOSE`/`ADMIN_USER_ID`).
  * `index.ts` stays the owner of every one of these — this module only holds references.
  */
 export interface DispatchDeps {
@@ -69,7 +69,6 @@ export interface DispatchDeps {
   ) => Promise<void>;
   VERBOSE: boolean;
   ADMIN_USER_ID: string;
-  CHARACTER_GATED_COMMANDS: Set<string>;
 }
 
 export async function dispatchInteraction(
@@ -85,7 +84,6 @@ export async function dispatchInteraction(
     safeErrorReply,
     VERBOSE,
     ADMIN_USER_ID,
-    CHARACTER_GATED_COMMANDS,
   } = deps;
 
   // ── Slash commands ──
@@ -117,10 +115,7 @@ export async function dispatchInteraction(
     // instead of dead-ending on a "type /join" string. The join handler owns its own
     // defer/editReply flow, so the early-return below (replied/deferred) takes over from here.
     let activeHandler = handler;
-    if (
-      CHARACTER_GATED_COMMANDS.has(commandName) &&
-      !engine.characterExists(interaction.user.id)
-    ) {
+    if (controller.needsCharacterGate(interaction.user.id, commandName)) {
       const joinHandler = registry.get("join");
       if (joinHandler) activeHandler = joinHandler;
     }
@@ -131,10 +126,7 @@ export async function dispatchInteraction(
       if (interaction.replied || interaction.deferred) return;
 
       // Stamp last interaction time (not join — no char yet).
-      if (commandName !== "join") {
-        const char = engine.getCharacter(interaction.user.id);
-        if (char) engine.updateLastPlayed(char.id);
-      }
+      if (commandName !== "join") controller.stampLastPlayed(interaction.user.id);
 
       const ephemeralCommands = [
         "stats",
@@ -764,8 +756,7 @@ export async function dispatchInteraction(
     const navTarget = customId.slice(4); // 'hi', 'look', etc.
 
     // M2: stamp on nav clicks (before any handler logic).
-    const clickerChar = engine.getCharacter(interaction.user.id);
-    if (clickerChar) engine.updateLastPlayed(clickerChar.id);
+    controller.stampLastPlayed(interaction.user.id);
 
     // /action shows the day-job menu — can't route through the registry, whose
     // handler expects a ChatInputCommandInteraction with options.

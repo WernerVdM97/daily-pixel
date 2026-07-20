@@ -79,7 +79,24 @@ export class SessionController {
     private readonly engine: WorldEngine,
     private readonly getCurrentScene: (userId: string) => string,
     private readonly dayJobs: DayJobDef[],
+    private readonly characterGatedCommands: ReadonlySet<string> = new Set(),
   ) {}
+
+  /** Reroute-to-join gate for a slash command (M3.6 DC-O) — true when the command needs a
+   *  character the user lacks. Membership is checked first so `characterExists` only runs for
+   *  gated commands, preserving the pre-M3.6 adapter short-circuit. The adapter owns the
+   *  registry swap to the join handler; the controller owns only this decision. */
+  needsCharacterGate(userId: string, commandName: string): boolean {
+    return this.characterGatedCommands.has(commandName) && !this.engine.characterExists(userId);
+  }
+
+  /** Stamp last-interaction time (M3.6 DC-N) — the `getCharacter` + `updateLastPlayed` pattern
+   *  the pre-M3.6 slash-arm and nav-click leaves both ran inline. No character → no-op.
+   *  (`beginDayJob` keeps its own inline stamp: it already holds the char from its guard.) */
+  stampLastPlayed(userId: string): void {
+    const char = this.engine.getCharacter(userId);
+    if (char) this.engine.updateLastPlayed(char.id);
+  }
 
   /** The `getCharacter` guard alone (M3.2c) — the pre-M3.2 handler ran this BEFORE
    *  `deferUpdate`, and only this; the customId parse and choice resolution both
