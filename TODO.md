@@ -17,6 +17,16 @@ DISCIPLINE (every slice): home = src/agent/ (peer to discord/ and sim/, imported
 
 ## scratchpad (humans start here)
 
+### M4 agent-player live smoke-run findings (2026-07-21)
+
+Three live DeepSeek smoke runs (1d, 1d, 2d) all completed clean (exit 0, 0 formal findings, coherent gameplay, critic reports). Multi-day path confirmed (day advances, rolls refill, overnight regen + income, rest-to-Oak). These observations are NOT harness bugs (all self-recovered, no state corruption) — logged for maintainer/backlog:
+
+- [ ] **[engine/content] `search`-category grants wealth, tripping category-telemetry** — `[category-telemetry] unexpected mutation "modify_wealth" on category "search" — flagged for tuning` fired on search-category actions in two independent runs. Either the category→mutation allow-list is stale or search outcomes shouldn't grant wealth. Check the config behind that telemetry line.
+- [ ] **[content/balance] wealth rose on every outcome, including failures** — one run granted wealth on 3/4 actions that were failures (confront/train/search failure branches). Possibly intended consolation, possibly a failure-outcome-table tuning bug. Confirm against the intended outcome tables.
+- [ ] **[engine/prompt] LLM authored an out-of-graph `scene_location`** — twice in one run the model named a location outside the geography graph ("The Vale", then "Town Square · The Vale") with no relocate mutation; the travel-gate + graph validator correctly no-op'd both (no player-visible corruption). The `place · region` format matches the display convention (`src/discord/map-render.ts:117`, `src/llm/prompt-builder.ts:243`) — the model is likely echoing a compound display string back into the raw `scene_location` field. Sanity-check whether the prompt/context renders location as `place · region` somewhere the model could mistake it for the field value.
+- [ ] **[UX] bail-refund grace has no in-game signal** — the once-per-day free step-back (`last_bail_refund_day`, `src/engine/WorldEngineImpl.ts`) reads as inconsistent to a player (first bail refunds a roll, second same-day doesn't) with nothing explaining it; a small UI note ("first step-back today is free") would remove the ambiguity the critic flagged. Not a bug.
+- [ ] **[M4 enhancement] promote engine anomaly logs to transcript findings** — engine-emitted anomaly recoveries (`category-telemetry`, `travel-gate` injections/drops) print to stderr but the agent-player harness doesn't capture them as `finding`s, so they're invisible in the run scoreboard. Surfacing anomalies as findings is the harness's whole job; a future QA-capture slice could hook these engine emissions into transcript warnings. (The `play.ts` stdout-contamination defect the same runs caught is already FIXED — transcript now writes to a file, `AGENT_OUT`.)
+
 ### 0.3.2 residuals → v13 (prompt-versioning + [[prompt-v13-roadmap]])
 
 - [ ] **C6 symptom-A — mis-classification accuracy** *(deferred 0.3.2)*: actions the player intends as combat are sometimes classified as `skill`/`rest`, routing to the wrong spine. The auto-resolve guard (C6) prevents a combat-classified action from resolving without a fight, but the upstream classify decision is a prompt-template concern → route via `prompt-versioning` skill, [[prompt-v13-roadmap]].

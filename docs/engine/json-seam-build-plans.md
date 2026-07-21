@@ -245,11 +245,11 @@ Order is binding. M4.0–M4.1 are pure/unit (no network, no engine wiring); M4.2
 The agent-player's real-LLM path is opt-in and never runs in CI. To smoke it end-to-end against live DeepSeek:
 
 ```
-DEEPSEEK_API_KEY=<key> npm run agent:play           # 1 day (default)
-DEEPSEEK_API_KEY=<key> AGENT_DAYS=2 npm run agent:play > run.json   # 2 days, transcript captured
+DEEPSEEK_API_KEY=<key> npm run agent:play                          # 1 day (default)
+DEEPSEEK_API_KEY=<key> AGENT_DAYS=2 AGENT_OUT=run.json npm run agent:play   # 2 days, transcript → run.json
 ```
 
-Optional env: `DEEPSEEK_MODEL` (override the model), `AGENT_DAYS` (positive integer, default 1). It seeds a fixed Warrior/Town-Guard character, plays N days with a real DeepSeek brain over a prod-faithful `:memory:` engine (all features on), then runs the playtest critic over the completed transcript. **stdout** = the transcript as JSON (redirect it — `> run.json` — for a clean repro); **stderr** = the day summaries, the run scoreboard, and the critic's report. Expect it to cost real tokens (every brain move + pipeline stage + the critique is a DeepSeek call, all recorded to the in-memory `llm_calls` table). A run that throws still prints the transcript-so-far (goal a). Keep `AGENT_DAYS` small — the critic feeds the whole transcript to one call, so a long multi-day run can approach the context window.
+Optional env: `DEEPSEEK_MODEL` (override the model), `AGENT_DAYS` (positive integer, default 1), `AGENT_OUT` (transcript file path; default a timestamped file under the OS temp dir). It seeds a fixed Warrior/Town-Guard character, plays N days with a real DeepSeek brain over a prod-faithful `:memory:` engine (all features on), then runs the playtest critic over the completed transcript. The **transcript** (the repro) is written to the `AGENT_OUT` file as clean JSON — NOT stdout, because the engine, the verbose gateways, npm, and migrations all log to stdout during a run, so a redirect would co-mingle noise into the JSON (a defect the first smoke runs caught). **stderr** carries the transcript path, the day summaries, the run scoreboard, and the critic's report. Expect it to cost real tokens (every brain move + pipeline stage + the critique is a DeepSeek call, all recorded to the in-memory `llm_calls` table). A run that throws still writes the transcript-so-far (goal a). Keep `AGENT_DAYS` small — the critic feeds the whole transcript to one call, so a long multi-day run can approach the context window.
 
 Scope fence (whole milestone): no changes to `src/discord/` beyond nothing (the adapter is untouched); no new controller methods for the bookends (DA-4); no formal JSON protocol/event-router (scoping call 2); `sim/` unchanged; the real LLM never runs in `npm test`. Engine/controller changes only if a genuine seam gap blocks a slice — flag it as a decision, don't smear flow back into the harness.
 
