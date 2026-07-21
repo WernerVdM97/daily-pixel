@@ -9,7 +9,9 @@
  * interesting mid-day action loop — menu → work/custom → decision beats → outcome — goes entirely
  * through the controller, which is the seam this harness exists to exercise.
  *
- * M4.2 drives ONE action end-to-end. M4.3 wraps `playOneAction` in a full-day/multi-day loop.
+ * M4.2 drove ONE action end-to-end. M4.3 wraps `playOneAction` in a full-day/multi-day loop:
+ * `playDay` runs actions until the day ends (slept / out of rolls / stalled), then `playDays`
+ * bookends each day with the engine-direct rest+nightly-tick (DA-4) and moves to the next.
  */
 
 import type { WorldEngine, CharacterData, CharCreateData, PendingChoiceSelector } from '../engine/WorldEngine.js';
@@ -27,6 +29,16 @@ import { SessionController as SessionControllerImpl } from '../controller/Sessio
  *  run from hanging on a pathological non-terminating machine. */
 const MAX_BEATS = 10;
 
+/** A day ends after this many CONSECUTIVE non-outcome actions (dead-end/illegal/abandoned) — a
+ *  brain looping on a screen it can't get past. Reset by any completed action, so a productive day
+ *  never trips it. Below the roll allowance would be too eager; a handful of stumbles is normal. */
+const STUCK_LIMIT = 5;
+
+/** Absolute cap on actions attempted in one day — a backstop against a brain that keeps producing
+ *  outcomes without ever depleting rolls or choosing sleep (would otherwise spin to the roll refill
+ *  boundary and beyond). Far above a real day (3 rolls), so only a machine anomaly hits it. */
+const MAX_ACTIONS_PER_DAY = 50;
+
 /** The disposition of a single `playOneAction` — loop control for M4.3 and a QA signal. `slept`
  *  and `no-rolls` end the day; `dead-end`/`illegal-move` are non-fatal (the action attempt failed
  *  but the day can continue); `outcome` is a completed action. */
@@ -38,6 +50,17 @@ export type PlayResult =
   | { kind: 'no-rolls' }
   | { kind: 'no-character' }
   | { kind: 'illegal-move'; move: AgentMove };
+
+/** The disposition of a single game day — the QA/loop signal `playDays` reads. `slept`/`no-rolls`
+ *  are clean day ends; `stalled` means the brain got stuck (STUCK_LIMIT or the action cap, both
+ *  logged as findings); `no-character` is fatal (the character vanished — `playDays` stops). */
+export interface DaySummary {
+  /** The game day this summary covers (`day_number` at the start of the day). */
+  dayNumber: number;
+  /** Completed actions this day (outcome dispositions). */
+  outcomes: number;
+  ended: 'slept' | 'no-rolls' | 'stalled' | 'no-character';
+}
 
 export class AgentHarness {
   readonly transcript = new Transcript();
@@ -79,6 +102,77 @@ export class AgentHarness {
       case 'menu':
         return this.playMenu(menu.view);
     }
+  }
+
+  /** Play one game day: drive actions until the day ends. A completed action loops back to the
+   *  menu; `slept`/`no-rolls` end the day cleanly; a fatal `no-character` stops immediately;
+   *  everything else (dead-end/illegal/abandoned) is a non-fatal stumble — a run of STUCK_LIMIT
+   *  consecutive stumbles (or the action cap) ends the day as `stalled` with a logged finding. */
+  async playDay(): Promise<DaySummary> {
+    const dayNumber = this.currentDay();
+    let outcomes = 0;
+    let stumbles = 0;
+    for (let action = 0; action < MAX_ACTIONS_PER_DAY; action++) {
+      const result = await this.playOneAction();
+      switch (result.kind) {
+        case 'outcome':
+          outcomes++;
+          stumbles = 0;
+          break;
+        case 'slept':
+          return { dayNumber, outcomes, ended: 'slept' };
+        case 'no-rolls':
+          return { dayNumber, outcomes, ended: 'no-rolls' };
+        case 'no-character':
+          return { dayNumber, outcomes, ended: 'no-character' };
+        default:
+          // dead-end / illegal-move / decision-abandoned — the attempt failed but the day can
+          // continue. Bail once the brain is clearly stuck so a QA run can't spin on one screen.
+          if (++stumbles >= STUCK_LIMIT) {
+            this.transcript.finding(
+              'warning',
+              `day ${dayNumber} stalled: ${stumbles} consecutive non-outcome actions`,
+            );
+            return { dayNumber, outcomes, ended: 'stalled' };
+          }
+      }
+    }
+    this.transcript.finding('warning', `day ${dayNumber} hit the ${MAX_ACTIONS_PER_DAY}-action cap`);
+    return { dayNumber, outcomes, ended: 'stalled' };
+  }
+
+  /** Play up to `days` game days, bookending each with the engine-direct rest+nightly-tick (DA-4).
+   *  The run stops early on `no-character` (fatal — nothing left to play) OR `stalled` (the brain
+   *  wedged): a stalled day leaves whatever pending action wedged it untouched, and the nightly
+   *  auto-expiry gates on real wall-clock so it never fires across a harness run's millisecond
+   *  "days" — pressing on would just replay the identical frozen state every remaining day (burning
+   *  a real LLM run with no progress and no fresh signal). Stopping keeps the stall a single, clear
+   *  finding. Returns one summary per day actually played, in order. */
+  async playDays(days: number): Promise<DaySummary[]> {
+    const summaries: DaySummary[] = [];
+    for (let day = 0; day < days; day++) {
+      const summary = await this.playDay();
+      summaries.push(summary);
+      if (summary.ended === 'no-character' || summary.ended === 'stalled') break;
+      this.endDay();
+    }
+    return summaries;
+  }
+
+  /** DA-4 end-of-day bookend, engine-direct (no controller seam): rest the character back at the
+   *  Oak, then run the nightly tick (advances `day_number`, refills rolls, regen, day-job income).
+   *  `tick(true)` = admin, bypassing the wall-clock cron-idempotency guard so the day always
+   *  advances. Records the new day boundary on the transcript. */
+  private endDay(): void {
+    this.engine.restAtOak(this.userId);
+    const tick = this.engine.tick(true);
+    this.transcript.day(tick.dayNumber, 'nightly tick — rested at the Oak, world advanced');
+  }
+
+  /** Current game day (`day_number` meta, default 1) — read straight off the engine, the same
+   *  source `tick` advances. */
+  private currentDay(): number {
+    return Number(this.engine.getMeta('day_number') ?? '1');
   }
 
   private async playMenu(view: MenuViewState): Promise<PlayResult> {

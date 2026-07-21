@@ -169,3 +169,75 @@ describe('AgentHarness — one action end-to-end', () => {
     expect(harness.transcript.events).toHaveLength(1); // just the menu turn
   });
 });
+
+// ── M4.3 — full-day + multi-day loop. `playDay` runs actions until the day ends; `playDays`
+// bookends each day with the engine-direct rest+nightly-tick (DA-4) and advances. Still fully
+// deterministic (scripted brain + scripted pipeline + fixed d20, no network). ──
+describe('AgentHarness — full-day + multi-day loop', () => {
+  // One goblin action = 3 brain calls (menu pick + two decision beats to the outcome). The starting
+  // roll allowance is 3, so three actions deplete the day; the fourth menu open returns no-rolls.
+  const goblinAction: AgentMove[] = [
+    { kind: 'custom', text: 'attack the goblin' },
+    { kind: 'choice', index: 0 },
+    { kind: 'choice', index: 0 },
+  ];
+
+  it('plays down to no-rolls without asking the brain past the last roll', async () => {
+    const { harness, brain, agentEngine } = buildHarness([...goblinAction, ...goblinAction, ...goblinAction]);
+    harness.seedCharacter(SEED);
+
+    const summary = await harness.playDay();
+
+    expect(summary).toEqual({ dayNumber: 1, outcomes: 3, ended: 'no-rolls' });
+    // Three actions × three calls — the fourth (no-rolls) menu short-circuits before the brain,
+    // so the script is consumed exactly, not over-run.
+    expect(brain.calls).toHaveLength(9);
+    expect(agentEngine.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(0);
+  });
+
+  it('runs multiple days, advancing the day and refilling rolls each night', async () => {
+    // Day 1: one goblin action (spends a roll), then sleep. Day 2: sleep straight away. The night
+    // between them must rest the guard back at the Oak, advance the day, and refill the spent roll.
+    const { harness, agentEngine } = buildHarness([...goblinAction, { kind: 'sleep' }, { kind: 'sleep' }]);
+    const seeded = harness.seedCharacter(SEED);
+
+    const summaries = await harness.playDays(2);
+
+    expect(summaries).toEqual([
+      { dayNumber: 1, outcomes: 1, ended: 'slept' },
+      { dayNumber: 2, outcomes: 0, ended: 'slept' },
+    ]);
+
+    const after = agentEngine.engine.getCharacter(USER_ID)!;
+    // Day 1 spent a roll (3→2); the nightly tick refilled it — proof the DA-4 bookend ran. Assert
+    // `>=` not `===` the seeded allowance: tick's roll grant carries a +1 Saturday-UTC bonus off the
+    // real clock (not injectable here), so a hard `=== 3` would flake ~1/7 of the time. `>= 3` still
+    // fails if no refill happened (rolls would sit at the depleted 2).
+    expect(after.rollsRemaining).toBeGreaterThanOrEqual(seeded.rollsRemaining);
+    // Two nights ticked past day 1, so the world sits on day 3, and the guard is back at the Oak.
+    expect(Number(agentEngine.engine.getMeta('day_number'))).toBe(3);
+    expect(after.location).toBe("The Warden's Oak");
+
+    // Each night left a day-boundary marker on the transcript (two ticks → two boundaries).
+    const boundaries = harness.transcript.events.filter((e) => e.type === 'day');
+    expect(boundaries.map((b) => b.type === 'day' && b.dayNumber)).toEqual([2, 3]);
+  });
+
+  it('stops the multi-day run when a day stalls instead of replaying the wedge', async () => {
+    // A `choice` move is illegal on the MENU screen, so every action stumbles without resolving.
+    // Five consecutive stumbles stall the day; a stalled day must END the run — pressing on would
+    // just replay the same frozen state each remaining day (Finding 1). Script six illegals: only
+    // five are consumed (day 1 stalls at the fifth), proving day 2 never runs.
+    const illegal: AgentMove = { kind: 'choice', index: 0 };
+    const { harness, brain, agentEngine } = buildHarness([illegal, illegal, illegal, illegal, illegal, illegal]);
+    harness.seedCharacter(SEED);
+
+    const summaries = await harness.playDays(3);
+
+    expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'stalled' }]);
+    expect(brain.calls).toHaveLength(5); // exactly STUCK_LIMIT — the sixth move is never asked for
+    // No night ticked (the run stopped before `endDay`), so the world is still on day 1.
+    expect(Number(agentEngine.engine.getMeta('day_number'))).toBe(1);
+    expect(harness.transcript.events.some((e) => e.type === 'day')).toBe(false);
+  });
+});
