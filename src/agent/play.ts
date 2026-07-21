@@ -57,14 +57,25 @@ async function main(): Promise<void> {
   const char = harness.seedCharacter(SEED);
   console.error(`Seeded ${char.name} (${char.class}) — playing ${days} day(s)…\n`);
 
-  const summaries = await harness.playDays(days);
-
-  // Transcript to stdout (pipe/redirect it); the human-readable summary to stderr so a `> run.json`
-  // capture stays clean JSON.
-  console.log(JSON.stringify(harness.transcript.events, null, 2));
-  console.error('\n── day summaries ──');
-  for (const s of summaries) {
-    console.error(`  day ${s.dayNumber}: ${s.outcomes} outcome(s), ended ${s.ended}`);
+  // The transcript is the repro (goal a): dump it in `finally` so a run that throws before finishing
+  // still writes what it saw up to the failure, not just an opaque stack.
+  let summaries: Awaited<ReturnType<typeof harness.playDays>> = [];
+  try {
+    summaries = await harness.playDays(days);
+  } finally {
+    // Transcript to stdout (pipe/redirect it); the human-readable summary to stderr so a `> run.json`
+    // capture stays clean JSON.
+    console.log(JSON.stringify(harness.transcript.events, null, 2));
+    console.error('\n── day summaries ──');
+    for (const s of summaries) {
+      console.error(`  day ${s.dayNumber}: ${s.outcomes} outcome(s), ended ${s.ended}`);
+    }
+    const run = harness.transcript.summary();
+    console.error(
+      `\n── run summary ──\n  ${run.turns} turns, ${run.outcomes} outcomes, ${run.deadEnds} dead-ends, ` +
+        `${run.commutes} commutes, ${run.dayBoundaries} nights\n  findings: ${run.findings.error} error(s), ` +
+        `${run.findings.warning} warning(s)`,
+    );
   }
 }
 

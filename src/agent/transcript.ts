@@ -24,10 +24,33 @@ export interface TurnEvent {
 export interface OutcomeEvent { type: 'outcome'; text: string }
 export interface DeadEndEvent { type: 'dead-end'; reason: string; detail?: string }
 export interface DayBoundaryEvent { type: 'day'; dayNumber: number; note: string }
-/** A QA finding (M4.4 fills these in; defined here so the shape is stable). */
+/** The day-job work flow's transient commute beat (the "you moved to work" screen) — an
+ *  informational beat the acting player sees between picking the job and its outcome. */
+export interface CommuteEvent { type: 'commute'; destination: string; text: string }
+/** A QA finding (M4.4). `error` = an invariant breach or an uncaught exception; `warning` = a
+ *  soft anomaly (a stall, an illegal move, a capped loop) that didn't corrupt state. */
 export interface FindingEvent { type: 'finding'; severity: 'error' | 'warning'; summary: string; detail?: string }
 
-export type TranscriptEvent = TurnEvent | OutcomeEvent | DeadEndEvent | DayBoundaryEvent | FindingEvent;
+export type TranscriptEvent =
+  | TurnEvent
+  | OutcomeEvent
+  | DeadEndEvent
+  | DayBoundaryEvent
+  | CommuteEvent
+  | FindingEvent;
+
+/** A run-level roll-up over the transcript — the QA scoreboard `play.ts` prints and M4.5's critic
+ *  reads first for orientation. Pure derived data (recomputed from `events`), never a second source
+ *  of truth. */
+export interface TranscriptSummary {
+  turns: number;
+  outcomes: number;
+  deadEnds: number;
+  commutes: number;
+  /** Day boundaries crossed (nightly ticks) — one fewer than days touched. */
+  dayBoundaries: number;
+  findings: { error: number; warning: number };
+}
 
 /** A minimal append-only sink. A class (not a bare array) so later slices can add derived
  *  summaries (finding counts, day tallies) without changing every call site. */
@@ -50,7 +73,34 @@ export class Transcript {
     this.events.push({ type: 'day', dayNumber, note });
   }
 
+  commute(destination: string, text: string): void {
+    this.events.push({ type: 'commute', destination, text });
+  }
+
   finding(severity: 'error' | 'warning', summary: string, detail?: string): void {
     this.events.push({ type: 'finding', severity, summary, ...(detail ? { detail } : {}) });
+  }
+
+  /** Roll up the log into a QA scoreboard. Derived on demand — no cached counters to drift. */
+  summary(): TranscriptSummary {
+    const s: TranscriptSummary = {
+      turns: 0,
+      outcomes: 0,
+      deadEnds: 0,
+      commutes: 0,
+      dayBoundaries: 0,
+      findings: { error: 0, warning: 0 },
+    };
+    for (const e of this.events) {
+      switch (e.type) {
+        case 'turn': s.turns++; break;
+        case 'outcome': s.outcomes++; break;
+        case 'dead-end': s.deadEnds++; break;
+        case 'commute': s.commutes++; break;
+        case 'day': s.dayBoundaries++; break;
+        case 'finding': s.findings[e.severity]++; break;
+      }
+    }
+    return s;
   }
 }

@@ -12,6 +12,13 @@
  * M4.2 drove ONE action end-to-end. M4.3 wraps `playOneAction` in a full-day/multi-day loop:
  * `playDay` runs actions until the day ends (slept / out of rolls / stalled), then `playDays`
  * bookends each day with the engine-direct rest+nightly-tick (DA-4) and moves to the next.
+ *
+ * M4.4 turns it into a QA instrument (goal a): every seam call runs through `seam()`, which leaves
+ * a breadcrumb so an uncaught exception becomes a structured `error` finding + a `crashed`
+ * disposition that ends the run gracefully — the transcript up to the throw IS the repro. Cheap
+ * invariant checks after each outcome and each nightly tick catch corrupt state (negative HP /
+ * stamina / wealth, roll underflow) the engine let through. `Transcript.summary()` rolls the log
+ * into a run scoreboard.
  */
 
 import type { WorldEngine, CharacterData, CharCreateData, PendingChoiceSelector } from '../engine/WorldEngine.js';
@@ -39,9 +46,23 @@ const STUCK_LIMIT = 5;
  *  boundary and beyond). Far above a real day (3 rolls), so only a machine anomaly hits it. */
 const MAX_ACTIONS_PER_DAY = 50;
 
+/** A deterministic idle line for the harness's commute beat. The Discord flow injects a random
+ *  "still thinking" flavour message here (it masks the multi-second LLM call as in-progress); the
+ *  QA transcript wants no randomness, and the beat's information — the destination — rides its own
+ *  field, so an empty idle keeps the render deterministic without losing anything. */
+const COMMUTE_IDLE = '';
+
+/** Render an unknown thrown value for a finding detail — the stack when we have one (it localises
+ *  the failing call better than the bare message), else a best-effort string. */
+function formatError(e: unknown): string {
+  if (e instanceof Error) return e.stack ?? `${e.name}: ${e.message}`;
+  return String(e);
+}
+
 /** The disposition of a single `playOneAction` — loop control for M4.3 and a QA signal. `slept`
  *  and `no-rolls` end the day; `dead-end`/`illegal-move` are non-fatal (the action attempt failed
- *  but the day can continue); `outcome` is a completed action. */
+ *  but the day can continue); `outcome` is a completed action; `crashed` is an uncaught exception
+ *  captured as a finding (M4.4) — fatal to the run, but the transcript survives as a repro. */
 export type PlayResult =
   | { kind: 'outcome' }
   | { kind: 'decision-abandoned' }
@@ -49,7 +70,8 @@ export type PlayResult =
   | { kind: 'slept' }
   | { kind: 'no-rolls' }
   | { kind: 'no-character' }
-  | { kind: 'illegal-move'; move: AgentMove };
+  | { kind: 'illegal-move'; move: AgentMove }
+  | { kind: 'crashed'; phase: string; error: string };
 
 /** The disposition of a single game day — the QA/loop signal `playDays` reads. `slept`/`no-rolls`
  *  are clean day ends; `stalled` means the brain got stuck (STUCK_LIMIT or the action cap, both
@@ -59,11 +81,17 @@ export interface DaySummary {
   dayNumber: number;
   /** Completed actions this day (outcome dispositions). */
   outcomes: number;
-  ended: 'slept' | 'no-rolls' | 'stalled' | 'no-character';
+  ended: 'slept' | 'no-rolls' | 'stalled' | 'no-character' | 'crashed';
 }
 
 export class AgentHarness {
   readonly transcript = new Transcript();
+
+  /** Breadcrumb: the most recent seam call entered, so an uncaught throw can name where it died.
+   *  Updated by `seam()` before each controller/engine call — a throw in the pure code between two
+   *  seam calls (a `viewToText` render, a transcript push) would attribute to the prior seam, but
+   *  those paths are exhaustive string joins over already-typed fields and don't throw in practice. */
+  private phase = 'idle';
 
   constructor(
     private readonly engine: WorldEngine,
@@ -78,13 +106,31 @@ export class AgentHarness {
     return this.engine.createCharacter(this.userId, data);
   }
 
-  /** Drive one action from the action menu to a terminal disposition. Opens the menu, lets the
-   *  brain pick, runs the day-job/custom flow, then loops the decision beats to an outcome. */
+  /** Run one seam call, leaving a breadcrumb first so `playOneAction`'s catch can name the failing
+   *  call if the engine/controller/brain throws (M4.4). Pure pass-through otherwise. */
+  private async seam<T>(phase: string, fn: () => T | Promise<T>): Promise<T> {
+    this.phase = phase;
+    return await fn();
+  }
+
+  /** Drive one action from the action menu to a terminal disposition. Every seam call runs through
+   *  `seam()`; an uncaught exception from any of them is captured here as an `error` finding + a
+   *  `crashed` disposition (M4.4) — the run ends but the transcript survives as a repro, rather
+   *  than an unhandled rejection tearing the process down mid-run. */
   async playOneAction(): Promise<PlayResult> {
+    try {
+      return await this.runAction();
+    } catch (e) {
+      this.transcript.finding('error', `uncaught exception during ${this.phase}`, formatError(e));
+      return { kind: 'crashed', phase: this.phase, error: formatError(e) };
+    }
+  }
+
+  private async runAction(): Promise<PlayResult> {
     // The Discord `nav:action` click stamps last-played before opening the menu (M3.6 DC-N); mirror
     // it so a multi-day agent run doesn't accrue a stale last_played_at and trip the absence nudge.
-    this.controller.stampLastPlayed(this.userId);
-    const menu = this.controller.openActionMenu(this.userId);
+    await this.seam('stampLastPlayed', () => this.controller.stampLastPlayed(this.userId));
+    const menu = await this.seam('openActionMenu', () => this.controller.openActionMenu(this.userId));
     switch (menu.kind) {
       case 'no-character':
         this.transcript.deadEnd('no-character');
@@ -118,6 +164,7 @@ export class AgentHarness {
         case 'outcome':
           outcomes++;
           stumbles = 0;
+          this.checkInvariants(`day ${dayNumber} action outcome`);
           break;
         case 'slept':
           return { dayNumber, outcomes, ended: 'slept' };
@@ -125,6 +172,10 @@ export class AgentHarness {
           return { dayNumber, outcomes, ended: 'no-rolls' };
         case 'no-character':
           return { dayNumber, outcomes, ended: 'no-character' };
+        case 'crashed':
+          // The exception is already logged as an error finding; end the run — a crashed seam
+          // means the same call would keep throwing, so pressing on burns actions for no signal.
+          return { dayNumber, outcomes, ended: 'crashed' };
         default:
           // dead-end / illegal-move / decision-abandoned — the attempt failed but the day can
           // continue. Bail once the brain is clearly stuck so a QA run can't spin on one screen.
@@ -153,20 +204,74 @@ export class AgentHarness {
     for (let day = 0; day < days; day++) {
       const summary = await this.playDay();
       summaries.push(summary);
-      if (summary.ended === 'no-character' || summary.ended === 'stalled') break;
-      this.endDay();
+      // Stop on any non-clean day end: fatal (no-character), wedged (stalled — see above), or
+      // crashed (an exception that would keep recurring). Only slept/no-rolls roll into the night.
+      if (summary.ended !== 'slept' && summary.ended !== 'no-rolls') break;
+      // A throwing nightly tick is itself a captured finding (endDay returns false) — stop rather
+      // than march into a day whose world never advanced.
+      if (!this.endDay()) break;
     }
     return summaries;
   }
 
-  /** DA-4 end-of-day bookend, engine-direct (no controller seam): rest the character back at the
-   *  Oak, then run the nightly tick (advances `day_number`, refills rolls, regen, day-job income).
-   *  `tick(true)` = admin, bypassing the wall-clock cron-idempotency guard so the day always
-   *  advances. Records the new day boundary on the transcript. */
-  private endDay(): void {
-    this.engine.restAtOak(this.userId);
-    const tick = this.engine.tick(true);
-    this.transcript.day(tick.dayNumber, 'nightly tick — rested at the Oak, world advanced');
+  /** DA-4 end-of-day bookend, engine-direct (no controller seam). The rolls-gate is faithful to
+   *  real play (M4.4 decision): a player can only `/sleep`-rest once their rolls are spent, so
+   *  `restAtOak` runs ONLY when `rollsRemaining === 0` — with rolls left the real player would just
+   *  idle where they are, not be teleported home. The nightly tick runs regardless (the cron
+   *  advances the world for everyone), so an idler still takes its unsafe-ground stamina drain.
+   *  `rollsRemaining` MUST be read before the tick (which refills it). This does NOT reproduce the
+   *  `/sleep` command's unsafe-rest -1 HP penalty (that lives in the Discord command, not
+   *  `restAtOak`) — noted for M4.5. `tick(true)` = admin, bypassing the wall-clock cron-idempotency
+   *  guard so the day always advances. Returns false if a bookend call throws (captured as a
+   *  finding naming the step) so the caller stops rather than advancing into a day that never
+   *  ticked. */
+  private endDay(): boolean {
+    let step = 'nightly rest (read character)';
+    try {
+      const before = this.engine.getCharacter(this.userId);
+      const rested = before?.rollsRemaining === 0;
+      if (rested) {
+        step = 'nightly rest (restAtOak)';
+        this.engine.restAtOak(this.userId);
+      }
+      step = 'nightly tick';
+      const tick = this.engine.tick(true);
+      this.transcript.day(
+        tick.dayNumber,
+        rested ? 'nightly tick — rested at the Oak, world advanced' : 'nightly tick — idled with rolls unspent, world advanced',
+      );
+      this.checkInvariants('nightly tick');
+      return true;
+    } catch (e) {
+      this.transcript.finding('error', `uncaught exception during ${step}`, formatError(e));
+      return false;
+    }
+  }
+
+  /** Cheap post-hoc invariant sweep (M4.4). The engine clamps most state, but a bad mutation or a
+   *  roll double-spend could slip a value out of band — so after each outcome and each tick, assert
+   *  the character's core numbers are sane and log any breach as an `error` finding. Read-only and
+   *  non-fatal: a breach is a QA signal to surface, not a reason to abort (the run keeps hunting).
+   *  Self-guarding — called from `playDay` OUTSIDE `playOneAction`'s catch, so a throwing
+   *  `getCharacter` here must become a finding, never an escaped exception that kills the run
+   *  without a repro (goal a). */
+  private checkInvariants(phase: string): void {
+    let char: CharacterData | null;
+    try {
+      char = this.engine.getCharacter(this.userId);
+    } catch (e) {
+      this.transcript.finding('error', `invariant check could not read the character after ${phase}`, formatError(e));
+      return;
+    }
+    if (!char) return;
+    const breaches: string[] = [];
+    if (char.health < 0) breaches.push(`health ${char.health} < 0`);
+    if (char.health > char.maxHealth) breaches.push(`health ${char.health} > max ${char.maxHealth}`);
+    if (char.stamina < 0) breaches.push(`stamina ${char.stamina} < 0`);
+    if (char.stamina > char.maxStamina) breaches.push(`stamina ${char.stamina} > max ${char.maxStamina}`);
+    if (char.wealth < 0) breaches.push(`wealth ${char.wealth} < 0`);
+    if (char.rollsRemaining < 0) breaches.push(`rollsRemaining ${char.rollsRemaining} < 0`);
+    for (const b of breaches) this.transcript.finding('error', `invariant breach after ${phase}: ${b}`);
   }
 
   /** Current game day (`day_number` meta, default 1) — read straight off the engine, the same
@@ -197,7 +302,7 @@ export class AgentHarness {
   }
 
   private async doDayJob(idx: number): Promise<PlayResult> {
-    const begin = this.controller.beginDayJob(this.userId, idx);
+    const begin = await this.seam('beginDayJob', () => this.controller.beginDayJob(this.userId, idx));
     switch (begin.kind) {
       case 'no-character':
         this.transcript.deadEnd('no-character');
@@ -209,21 +314,29 @@ export class AgentHarness {
         this.transcript.deadEnd('unsafe-ground', begin.location);
         return { kind: 'dead-end', reason: 'unsafe' };
       case 'ok': {
-        this.controller.commuteForWork(this.userId, begin.workplace);
-        const result = await this.controller.runWork(this.userId, begin.workPrompt, begin.wage);
+        const commute = await this.seam('commuteForWork', () => this.controller.commuteForWork(this.userId, begin.workplace));
+        // The commute is a real beat the acting player sees before the work outcome (the "you
+        // moved to work" screen); record it so the transcript reads the way play did (M4.2 review).
+        if (commute.kind === 'commuted') {
+          this.transcript.commute(
+            commute.destination,
+            viewToText({ screen: 'commute', destination: commute.destination, idle: COMMUTE_IDLE }),
+          );
+        }
+        const result = await this.seam('runWork', () => this.controller.runWork(this.userId, begin.workPrompt, begin.wage));
         return this.handleStartResult(result);
       }
     }
   }
 
   private async doCustom(text: string): Promise<PlayResult> {
-    const begin = this.controller.beginCustomAction(this.userId);
+    const begin = await this.seam('beginCustomAction', () => this.controller.beginCustomAction(this.userId));
     if (begin.kind === 'no-character') {
       this.transcript.deadEnd('no-character');
       return { kind: 'no-character' };
     }
     if (begin.kind === 'resume') return this.runDecisionLoop(begin.view);
-    const result = await this.controller.runCustomAction(this.userId, text);
+    const result = await this.seam('runCustomAction', () => this.controller.runCustomAction(this.userId, text));
     return this.handleStartResult(result);
   }
 
@@ -257,17 +370,17 @@ export class AgentHarness {
       const selector: PendingChoiceSelector =
         move.kind === 'bail' ? { kind: 'bail' } : { kind: 'option', index: (move as { index: number }).index };
 
-      const begin = this.controller.beginChoice(this.userId);
+      const begin = await this.seam('beginChoice', () => this.controller.beginChoice(this.userId));
       if (begin.kind === 'no-character') {
         this.transcript.deadEnd('no-character');
         return { kind: 'no-character' };
       }
-      const label = this.controller.resolveChoice(begin.character, selector);
+      const label = await this.seam('resolveChoice', () => this.controller.resolveChoice(begin.character, selector));
       if (label === null) {
         this.transcript.deadEnd('session-expired');
         return { kind: 'decision-abandoned' };
       }
-      const step = await this.controller.stepChoice(this.userId, label, begin.character);
+      const step = await this.seam('stepChoice', () => this.controller.stepChoice(this.userId, label, begin.character));
       if (step.kind === 'outcome') {
         this.transcript.outcome(viewToText(step.view));
         return { kind: 'outcome' };
@@ -285,10 +398,12 @@ export class AgentHarness {
     view: MenuViewState | DecisionViewState,
     moves: LegalMove[],
   ): Promise<AgentMove> {
-    const char = this.engine.getCharacter(this.userId);
+    const char = await this.seam('getCharacter', () => this.engine.getCharacter(this.userId));
     if (!char) throw new Error(`AgentHarness.ask: no character for ${this.userId} mid-turn`);
     const text = viewToText(view);
-    const move = await this.brain.chooseMove({ screenText: text, moves, character: agentCharView(char) });
+    const move = await this.seam('brain.chooseMove', () =>
+      this.brain.chooseMove({ screenText: text, moves, character: agentCharView(char) }),
+    );
     this.transcript.turn(screen, text, moves, move);
     return move;
   }
