@@ -14,6 +14,7 @@
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
+import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
 import { LlmCallRepository } from '../db/repositories/llm-call.js';
 import type { CharCreateData } from '../engine/WorldEngine.js';
 
@@ -76,6 +77,33 @@ async function main(): Promise<void> {
         `${run.commutes} commutes, ${run.dayBoundaries} nights\n  findings: ${run.findings.error} error(s), ` +
         `${run.findings.warning} warning(s)`,
     );
+  }
+
+  // M4.5 feedback pass (goal b): a critic reads the completed transcript and writes a qualitative
+  // playtest report. Only reached when the run itself didn't throw (the try above rethrows past
+  // here) — a completed run, crashes-captured-as-findings included, is what the critic reviews.
+  try {
+    const critic = new ProdPlaytestCriticGateway({
+      apiKey,
+      ...(model ? { model } : {}),
+      recorder: new LlmCallRepository(agentEngine.db),
+      verbose: true,
+    });
+    const report = await critic.critique({
+      events: harness.transcript.events,
+      summary: harness.transcript.summary(),
+    });
+    console.error(
+      '\n── playtest critique ──' +
+        `\n  pacing:     ${report.pacing}` +
+        `\n  clarity:    ${report.clarity}` +
+        `\n  fun:        ${report.fun}` +
+        `\n  difficulty: ${report.difficulty}` +
+        `\n  summary:    ${report.summary}`,
+    );
+  } catch (err) {
+    // A critic failure must not bury the run output already printed above — report it and move on.
+    console.error('\n── playtest critique failed ──\n ', err instanceof Error ? err.message : String(err));
   }
 }
 
