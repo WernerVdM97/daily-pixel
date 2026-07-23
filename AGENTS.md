@@ -4,7 +4,7 @@ This repo is the source code for **The Warden's Oak** — an async, turn-based, 
 
 These hold on every change, regardless of which skill is active:
 
-- **Never commit directly to `main`** (and never push or checkout `main`/`master`/`dev`). All work lands on `dev` first.
+- **Never commit directly to `main`** (and never push or checkout `main`/`master`/`dev`). All work lands on `dev` first. *(Emergency hotfixes may land on `main` directly — if so, merge `main` back into `dev` immediately; see the `releasing` skill, Rule 3.)*
 - **Keep the changelog current.** Every merge into `dev` adds to `[Unreleased]` (or promotes it on a release).
 - **No manual line wrapping in docs prose** — one paragraph = one line; let the editor soft-wrap.
 

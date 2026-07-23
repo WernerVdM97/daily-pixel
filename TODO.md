@@ -28,6 +28,7 @@ Full-period prod snapshot (`warden-20260723-201953`, 07-07 → 07-23, day 17, `0
 - [ ] **NPC mint-on-first-sight** — `add_npc` fired twice all period; NPCs narrated but not persisted (F#1). Re-surfaces the 2026-07-08 "mint on first sight" item, now with the telemetry to prioritise it.
 - [ ] **Critic cost A/B** — `critic-v1` = 35% of LLM calls, 15% of tokens, unseen by players. Run conditionally / drop from classify + measure. This is the "remove critic from classify conditionally, latency high, mine prod" TBD item, now quantified.
 - [ ] **Combat terminal polish** — "critical" not "dead" on a win + no fatal-blow prompt (F#11); combat frame shows "Minion" not the known foe / Shadow Stag (B#15). Post-`0.3.2` residue.
+- [ ] **Private embed parity on auto-resolve paths** — the day-job work and nav-button custom-action replies still render the compact private outcome embed (no story thread), while the public copy is full. `SessionController.renderStartResult` (`src/controller/SessionController.ts:268`) builds `viewPrivate` with `{ compact: true }`; drop it so all four action paths match (the button-step and slash `/action <desc>` paths already send the full embed). The F#19c "player already saw the thread" rationale doesn't hold for an auto-resolve, where no decision embed was shown first. Reconcile the `[Unreleased]` "both share the same full embed" claim at the same time.
 
 **Stage 2 re-scope + later stages**
 
