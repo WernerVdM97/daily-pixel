@@ -17,6 +17,23 @@ DISCIPLINE (every slice): home = src/agent/ (peer to discord/ and sim/, imported
 
 ## scratchpad (humans start here)
 
+### POC+ re-sequencing — prod-data review (2026-07-23)
+
+Full-period prod snapshot (`warden-20260723-201953`, 07-07 → 07-23, day 17, `0.3.0`–`0.3.2`; 98 actions / 796 LLM calls / 4 chars / 1 external tester) drove a re-order of the remaining POC+ arc, recorded in [[poc-plus-roadmap]] (§ Re-sequencing). No controlled invite — the rest of POC+ playtesting is agent-driven; human testing is scheduled later. **Release A lands before any more shared-world code.**
+
+**Release A — worth-returning-to (polish / coherence / cost)**
+
+- [ ] **Stakes / difficulty pass** — 83% success, no `final_dc` > 17, 11 failures in 98 actions. Meaningful cost + higher DCs on ambitious actions; no lethality (death track stays deferred). Overlaps the MVP "make wealth (and stamina, health) spendable/meaningful" item below.
+- [ ] **Inspiration dial** — `modify_rolls_remaining:+1` on 29% of actions inflates cadence to ~4.8/active-day (F#4 "fun but too broken"). Dial frequency or surface as a named reward. Related to the WAD bonus-rolls item below and F#12 (work shouldn't offer inspiration).
+- [ ] **NPC mint-on-first-sight** — `add_npc` fired twice all period; NPCs narrated but not persisted (F#1). Re-surfaces the 2026-07-08 "mint on first sight" item, now with the telemetry to prioritise it.
+- [ ] **Critic cost A/B** — `critic-v1` = 35% of LLM calls, 15% of tokens, unseen by players. Run conditionally / drop from classify + measure. This is the "remove critic from classify conditionally, latency high, mine prod" TBD item, now quantified.
+- [ ] **Combat terminal polish** — "critical" not "dead" on a win + no fatal-blow prompt (F#11); combat frame shows "Minion" not the known foe / Shadow Stag (B#15). Post-`0.3.2` residue.
+
+**Stage 2 re-scope + later stages**
+
+- [ ] **Stage 2 solo-first** — nat 20 grants extra loot/rolls (F#9), nat 1 a story beat; public broadcast is the bonus layer. Lands at N=1.
+- [ ] **Stages 3–4 (buffs, shared boss)** — build + agent-QA only for now; extend the agent-player harness to co-located multi-agent runs; fun-payoff deferred to later user testing.
+
 ### M4 agent-player live smoke-run findings (2026-07-21)
 
 Three live DeepSeek smoke runs (1d, 1d, 2d) all completed clean (exit 0, 0 formal findings, coherent gameplay, critic reports). Multi-day path confirmed (day advances, rolls refill, overnight regen + income, rest-to-Oak). These observations are NOT harness bugs (all self-recovered, no state corruption) — logged for maintainer/backlog:

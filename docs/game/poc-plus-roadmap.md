@@ -43,9 +43,38 @@ Tracking:
 - [x] **Stage 1** — v12 tail + welcome tag + combat maths reveal ([[poc-plus-stage-1-plan]]) _Done 2026-07-09; branch `poc-plus/stage-1-t2`, commit `94ecbee`. T2 live check ran 2026-07-10: passed on content (colour on desktop, clean monochrome on mobile) but surfaced renderer styling/architecture debt, spun into the `0.3.1` polish release below. Build plan archived → `archived/poc-plus/`._
 - [x] **`0.3.1` polish & hardening** — interstitial release before stage 2 ([[poc-plus-0.3.1-polish-plan]]) _Done 2026-07-11; released (VERSION 0.3.1, tag `v0.3.1`, merged `poc-plus/0.3.1-polish` → dev). Not an arc stage; finished the combat-readability arc by paying down the T2 live-check debt (the `ANSI frame polish` block: renderer standardised, combat-frame redesign, opening frames for all seven types), plus the 2026-07-08 prod bug batch (B#1-B#4) and small UX wins. Build plan archived → `archived/poc-plus/`._
 - [x] **`0.3.2` combat-correctness & prod bugs** — second interstitial release before stage 2 ([[poc-plus-0.3.2-polish-plan]]) _Shipped 2026-07-11; released (VERSION 0.3.2, tag `v0.3.2`, squash-merged `poc-plus/0.3.2-polish` → `dev`). All 14 deliverables (C1–C6, P1–P2, N1–N5) landed; 1451 tests green. Two residuals deferred to v13 (LLM-authored NPC health, classify accuracy). Live-check batch ran post-release. Build plan archived → `archived/poc-plus/`._
-- [ ] **Stage 2** — nat 1/20 global broadcast (plan authored by the lead at stage start; opens the release after `0.3.2`)
-- [ ] **Stage 3** — cross-player buffs (plan authored by the lead at stage start)
-- [ ] **Stage 4** — Saturday shared-boss hunt (plan authored by the lead at stage start)
+- [ ] **Release A — worth-returning-to** (polish / coherence / cost) — inserted 2026-07-23; precedes all remaining shared-world stages (see the re-sequencing amendment below)
+- [ ] **Stage 2 (re-scoped solo-first)** — nat 1/20 as a solo crit reward, public broadcast as the bonus layer (plan authored by the lead at stage start)
+- [ ] **Stage 3** — cross-player buffs (build + agent-QA; fun-payoff parked to later user testing)
+- [ ] **Stage 4** — Saturday shared-boss hunt (build + agent-QA; fun-payoff parked to later user testing)
+
+## Re-sequencing — prod-data review (2026-07-23)
+
+_This section governs the order of the remaining work; the per-item specs below stay as the build reference. Added after a read-only review of the full POC+ period; supersedes the flat Stage 2 → 5 order above._
+
+A read-only snapshot of the whole POC+ period (`warden-20260723-201953`; 07-07 → 07-23, game day 17, builds `0.3.0`–`0.3.2`: 98 actions, 796 LLM calls, 4 characters, 1 external tester) validated the arc's foundation and forced one change to its ordering. Reproduce the numbers with the `db-backups/` tooling against that snapshot; the deep-dive was presented as an artifact.
+
+**Held up — keep and do not regress.** Auto-resolve is eliminated (`done` = 0/98, was 28% of turns on `v0.2.3`, the loudest old complaint); mean LLM latency is down ~45% to 7.0s; transport is near-perfect (795/796 parsed, 0 fallbacks). The v12 combat spine is the most-engaged content, and freeform expressiveness (50 distinct action types across 98 actions at 99.9% parse) is the game's genuine draw.
+
+**Why the order changed.** The flat Stage 2 → 5 order assumed an audience the data does not show: the live Oak peaked at 2–3 concurrent players and every feedback/bug row came from a single tester. Cross-player buffs and the shared boss cannot be _fun_-validated at that size. We are not opening the doors yet — the rest of POC+ playtesting runs through the agent-player harness ([[layer-boundaries-and-json-seam]] M4), and a human user-testing round is scheduled later. So the remaining stages are re-ordered to front-load the fundamentals that make the game worth returning to solo, and the two genuinely-multiplayer stages are built-and-QA'd by agents with their fun-payoff explicitly deferred.
+
+### Release A — worth-returning-to (polish / coherence / cost)
+
+The fun fundamentals the telemetry exposed, landed before any more shared-world code. Tasked in `TODO.md`.
+
+- [ ] **Stakes.** 83% success, no `final_dc` above 17, 11 fair failures in 98 actions — nothing is ever really at risk. Add meaningful cost and higher DCs on ambitious actions; no lethality (the death track stays POC-deferred per [[the-poc]]). Folds into the MVP "make stamina/wealth/HP spendable/meaningful" item.
+- [ ] **Inspiration dial.** `modify_rolls_remaining:+1` fires on 29% of actions, inflating cadence to ~4.8 turns per active day and reading as "fun but perhaps too broken" (F#4). Dial the frequency or surface it as a named reward so it reads as a gift, not a leak.
+- [ ] **NPC mint-on-first-sight.** `add_npc` fired twice in the whole period; the world narrates people it never persists (the vanishing-caravan incoherence, F#1) — the oldest open complaint and the highest-value coherence fix.
+- [ ] **Critic cost A/B.** The `critic-v1` pass is 35% of all LLM calls and 15% of tokens for a QA step players never see; run it conditionally (or drop it from classify) and measure. Also trims the reasoning tail behind the few remaining timeouts.
+- [ ] **Combat terminal polish.** The enemy reads "critical" not "dead" on a win, with no fatal-blow prompt (F#11); the combat frame names a generic "Minion" instead of the known foe (B#15). Small, high-delight, post-`0.3.2` residue.
+
+### Release B — Stage 2, re-scoped solo-first
+
+The nat 1/20 work leads with the _solo reward_ — a natural 20 grants extra loot or rolls (answers F#9), a natural 1 gets a story beat — and the public broadcast becomes the bonus layer that switches on once there is an audience. It lands at N=1, keeps arc momentum, and still builds the broadcast plumbing Stages 3–4 reuse. Frame authorship stays deterministic as already settled below.
+
+### Stages 3–4 — build + agent-QA, fun-payoff deferred
+
+Cross-player buffs and the Saturday shared boss are still built in the settled order below, but validated against the agent-player harness (extend it to co-located multi-agent runs first) rather than live players. Agent QA proves they _work_ (buffs land, boss HP persists across turns and days); whether they _feel_ shared stays unproven until the later human user-testing round — do not close the acceptance checks below on agent QA alone.
 
 ## Shared enabler — a small `AnsiRenderer`
 
