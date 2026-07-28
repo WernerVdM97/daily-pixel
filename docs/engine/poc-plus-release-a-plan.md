@@ -220,7 +220,7 @@ Versions are unpinned per the roadmap; Release A takes the next `0.3.x` (expecte
 _The lead updates this section per task with commit hashes, review outcomes, and the owner locks, mirroring the 0.3.2 plan's running handover._
 
 - **Branch:** `poc-plus/release-a`, cut off `dev` at `b32642a` on 2026-07-28. *(Reconciliation note: a stale local `feature/release-a` pointer existed at `62bd4b3`, 62 commits behind `dev` with zero unique commits — a pre-M0 branch, not resumable work. Nothing was lost; the branch was cut fresh off `dev`.)*
-- **Baseline (verified 2026-07-28):** `npm run typecheck` clean, `npm test` green at **86 files / 1576 tests**. Matches the M4 handover baseline.
+- **Baseline (verified 2026-07-28):** `npm run typecheck` clean, `npm test` green. The branch-cut baseline was **86 files / 1576 tests** (matching the M4 handover); RA-6 and RA-4 added tests, so the **current** reconciled baseline is **88 files / 1611 tests**. Later tasks verify against 88/1611, not the cut figure.
 - **Owner locks:** SL-1 = **Option A** (carry the prompt-set bump), SL-2 = no lethality (pre-settled), SL-3 = measure-before-gate (default returns to the owner *with* the A/B numbers), SL-4 = **named foes only**, SL-5 = the sixth row is **RA-6**.
 - **Admitted bundle:** RA-1, RA-2, RA-3 (both halves), RA-4, RA-5, RA-6.
 
@@ -286,6 +286,97 @@ Two more, on RA-5a's condition band:
 
 That single failed-resolution branch (`PipelineActionStateMachine.ts:487-489`, currently silently dropping to the location anchor) is the whole of RA-3's bounded half.
 
+### SL-6 (owner, settled 2026-07-28) — the fatal-blow beat offers mercy
+
+The plan's original RA-5 text specced the fatal-blow beat as a straight mirror of the desperate-choice interstitial. The lead pushed back: the desperate choice earns its click because it is a real decision under stakes, whereas a win has no decision left in it, so mirroring it literally would add a mandatory no-content round-trip to every won fight in a game where interactions are the scarce resource. **The owner settled it as a real choice rather than either a render-only beat or a forced click: the interstitial offers a lethal and a non-lethal option, the non-lethal one leaving the foe alive at 1 HP, and the render beat follows in both branches.**
+
+This makes the interstitial the one place in combat where the player's intent (not the dice) decides an outcome, and it is what turns RA-3 from a parallel task into the same feature: a foe you let live is precisely the foe the world should persist.
+
+### RA-5 / RA-3 execution spec (2026-07-28, lead)
+
+Written from two exhaustive read-only scouting passes over the combat-establish, resolve, render and NPC-write seams. **Line numbers in the older § Code seam paragraphs above have drifted by roughly five lines and are no longer reliable — prefer the symbol names used here.** Three tasks, three atomic commits, in this order. Verification baseline for all three: `npm run typecheck` clean and `npm test` green at **88 files / 1611 tests** plus whatever each task adds.
+
+#### Corrections this spec makes to the task text above
+
+- **RA-3's specced seam cannot work.** An `add_npc` mutation emitted from the combat-establish path is *silently discarded*: `WorldEngineImpl.stepActionPipeline`'s non-terminal branch (the `resolved: false` arm, approx. `:1241-1281`) feeds `applyMutations` and then consumes only `currentHealth`/`stamina`/`maxStamina`/`relationsToSet`/`relationsToUpdate`. `applied.npcsToAdd` is computed and thrown away, and no `actions` row exists on a non-terminal beat, so there is no `createdByActionId` to pass. Only the terminal route reaches `applyResolution`, which does process `npcsToAdd` (approx. `:645-667`). **The mint therefore moves from establish time to resolve time.**
+- **Minting at establish would persist foes that die.** Keyed off resolve instead, the mint condition collapses to one honest test — *the foe came out of the fight alive* — which is exactly what SL-6's mercy option creates. This is a coherence correction, not scope growth.
+- **`add_npc` silently drops `health`.** The validator (`mutations.ts:359-365`) checks only a non-empty `name`; the applier (`:485-494`) copies exactly `name`, `class`, `description`, `race`, `homeLocation`. `npcRepo.create` *does* accept `health`, so the gap is purely in the mutation vocabulary. RA-3 bounded must therefore **not** mint via an `add_npc` mutation — it needs a channel that can carry health.
+- **A minted NPC needs a non-empty `description` or it does not exist for gameplay purposes.** `WorldEngineImpl.nearbyNpcsAt` filters on `.filter((n) => n.description)`, so a null-description NPC never appears in `getNearbyNpcs`, never becomes an `[N#]` prompt handle, and can never be re-resolved as an `anchor: 'npc'` foe — i.e. the mint would silently fail to achieve its entire purpose.
+- **`combatEnemy.maxHp` stays dead for now.** Confirmed unreachable (the prod parser copies only `{ name, anchor }` and no prompt asks for it). Per the owner, wiring it belongs with the prompt-set bump that is already adding a health vocab slot; RA-5 only corrects the misleading three-rung comment at the max-HP ladder and points at that work.
+
+#### Task 1 — RA-5a: condition band, denominator, empty name, ladder comment
+
+Four independent fixes, no new state, no render-layer surgery. Scope fence: **do not** touch the win branch, `resolveCombat`, the terminal card renderer, or any NPC code.
+
+1. **Terminal condition tier.** `enemyConditionBand` (`PipelineActionStateMachine.ts`, approx. `:1320`) floors at `'Critical'`, so a foe at fraction 0 reads "Critical" beside an empty pip bar. Add a `hpFraction <= 0` tier returning the wound word `'Slain'` with `filled: 0`. Harmless at the other two call sites (`composeCombatStatus` and `WorldEngineImpl.readPersistedCombatFoe`) because a live fight cannot legitimately hold fraction 0 — a fight ends the moment enemy HP reaches 0.
+2. **The win frame bands against the wrong denominator.** `actionViewState.ts:348` computes `lastBeat.enemyHpAfter / lastBeat.enemyHpBefore`, but `enemyHpBefore` is the enemy's HP at the *start of that round*, not its max. A 20-max-HP foe worn to 10 who takes 2 more in a final round bands as `8/10 = 0.8 → 'Healthy'` when it is at 40% and should read `'Bloodied'`. Divide by `outcome.combatFrame.enemyMaxHp` instead — already carried on the outcome and already read two lines below for `enemyName` — falling back to the current behaviour only if `enemyMaxHp` is absent or non-positive. Both other call sites already divide by `enemyMaxHp`, which makes this site the lone outlier.
+3. **`combatEnemy.name` accepts an empty string.** `ProdPipelineGateway.ts:175-181` requires only `typeof rawEnemy.name === 'string'`, while `sceneLocation` five lines above requires `.trim() !== ''`. A payload of `{ name: "", anchor: "location" }` therefore establishes a fight with an empty `enemyName`, which does **not** fall back to `'Minion'` (that fallback fires only when `combatEnemy` is absent entirely), producing a blank nameplate. Add the same emptiness guard the sibling field has, so an empty name drops the whole `combatEnemy` hint and the intended `'Minion'` fallback takes over.
+4. **Correct the max-HP ladder comment.** The comment at the `rawMaxHp` ladder describes three rungs ("resolved NPC's real health > LLM-authored `maxHp` hint > `deriveEnemyMaxHp(baseDc)`") but the middle rung is unreachable in production. State that it has two live rungs, name why, and point at the prompt-set bump. Leave the code path itself alone.
+
+**Acceptance:** a fixture drives a won fight and asserts the outcome frame reads `Slain`, never `Critical`; a fixture asserts a worn-down foe finishing a round above its round-opening fraction still bands against `enemyMaxHp`; a gateway parse test asserts `{ name: "", anchor: "location" }` yields no `combatEnemy` and the establish path then produces `'Minion'`.
+
+#### Task 2 — RA-5c: the fatal-blow interstitial (SL-6)
+
+Insert an interstitial beat at the WIN branch of `handleCombatStep` (`if (newEnemyHp <= 0)`, currently a direct short-circuit to `resolveCombat`). The player is shown the broken foe and chooses to finish it or spare it; the next step resolves the fight either way.
+
+**Structural model:** the desperate-choice beat in the same method. **Five traps that make a literal copy wrong:**
+
+- **The resume must not re-roll.** `desperateChoice` is pure bookkeeping — it is read at exactly one site, only to clear itself, and control flow afterwards is byte-identical to a fresh round, including two unconditional `this.rollD20()` calls. The fatal-blow resume must instead short-circuit to `resolveCombat` with the round result already computed before the interstitial. This is not a style preference: `combatWinScenario` supplies exactly `[20,1,20,1]` and the machine win fixtures exactly `[20,1]`, and `makeRollD20`'s `'sequence'` source *throws* on exhaustion (NaN arithmetic in the machine tests). Carry what `resolveCombat` needs across the beat on `PipelineInternalActionState` — no existing field can hold a `CombatRoundOutcome`, so add one rather than reconstructing it from the last `CombatBeatLog`.
+- **Neither option may use `dcModifier: null`.** `step()` tests for a null `dcModifier` and treats it as a bail *before* reaching the combat gate, which would return `outcome: 'bailed'`, charge stamina, emit no combat mutations and leave the `in_combat` edge live. Both options take `dcModifier: 0`, exactly as the desperate choice's `Last stand` does.
+- **The interstitial carries no `combatBeat` and does not append to `combatRounds`.** `resolveCombat` already appends its terminal beat to the accumulated log, so an extra entry here would break the "a first-round-kill fight has exactly one entry in `combatRounds`" test, and a `combatBeat` on the non-terminal arm would increment the sim's `roundsFought` and break `combatWinScenario`'s expected `2`. Give the interstitial `combatStatus` for context — as the desperate choice does — and nothing else. The terminal beat remains the single render beat, satisfying "the render beat follows in both branches".
+- **Emit no LLM call.** The desperate-choice branch calls neither `llm.decide()` nor anything else; mirror that. A decide call here would consume the mock gateway's queue and cost a live call for a screen with hand-authored options.
+- **The beat is free, and must stay free.** A `resolved: false` return consumes no roll (one roll is drained per action at start, never per beat) and no stamina. Do not add any cost.
+
+**The two branches.** Both resolve with verdict `'success'` — the player won the fight in both cases; only the foe's fate differs.
+
+| Option | `finalEnemyHp` passed to `resolveCombat` | Terminal band | Foe afterwards |
+| --- | --- | --- | --- |
+| finish it (lethal, listed **first**) | `0` | `'Slain'` | dead; no world-state removal (fenced, see below) |
+| spare it (non-lethal) | `1` | a wounded tier, never `'Slain'` | alive at 1 HP, remembered |
+
+**Invariant for the spare branch, stated as the contract:** after a spared win, re-engaging the same foe must begin a fresh, winnable fight against a foe at 1 HP. Concretely the persisted `in_combat` edge must read `enemyHp: 1` **and `round: 1`**. Note that `resolveCombat` currently hardcodes `finalRound = cs.round + 1`, so a foe spared in round 4 would otherwise leave an edge at round 5 and trip the `MAX_COMBAT_ROUNDS` cap-derive immediately on re-engage. The executor picks the mechanism; the invariant is what the tests pin.
+
+**Ordering note:** the lethal option is listed first because `combatWinScenario` uses `choicePolicy: 'first-real'`, which auto-selects the first non-bail option — so the existing win scenario keeps testing the kill path unchanged.
+
+**Render.** Vary the terminal card's `label`, currently the hardcoded `'COMBAT RESOLVED'`, to distinguish the two endings (e.g. `'FOE SLAIN'` / `'FOE SPARED'`). This is the only free-text slot on the card and it is width-clipped to roughly 26 characters, so keep the strings short. **Do not add a card line:** the renderer's line count is pinned by an "exactly 7 content lines" test and several 28/30-character width invariants, and `CombatTerminalCard` is declared twice by design (`OutcomeRenderer.ts` and `CombatCardRenderer.ts`) so any field change must land in both. Changing `label` breaks one assertion in `tests/discord/view-state.test.ts` that expects `'COMBAT RESOLVED'` — update it, do not work around it.
+
+**Scope fence.** No lethality to the player (SL-2 — this beat never harms the player). No Stage-2 broadcast plumbing. **No `remove_npc` on a kill:** killing a *resolved* NPC must not delete its row, because the same path could delete a seeded resident. The kill stays narrative for now; logged as a follow-up below. No changes to loot, wealth, rolls or any reward — sparing and finishing yield the same mechanical outcome, and any divergence there is RA-1's lane.
+
+**Acceptance:**
+
+- [ ] A won fight returns `resolved: false` with a two-option decision, both options non-null `dcModifier`, no `combatBeat`, and `combatRounds` unchanged from the pre-beat log.
+- [ ] The interstitial makes no LLM call and consumes no roll or stamina.
+- [ ] Choosing the lethal option resolves `'success'` with the foe at 0 HP and the outcome frame reading `'Slain'`.
+- [ ] Choosing mercy resolves `'success'` with the persisted edge at `enemyHp: 1`, `round: 1`, and a terminal band that is not `'Slain'`; a test drives spare → re-engage and asserts a fresh round-1 fight against a 1-HP foe.
+- [ ] The resume re-rolls nothing: the existing exactly-sized roll fixtures still pass unmodified.
+- [ ] `combatWinScenario` still reports `roundsFought: 2`, and the first-round-kill test still sees exactly one `combatRounds` entry.
+
+#### Task 3 — RA-3 bounded: mint the foe the world named but never had
+
+**Target branch, unchanged from SL-4:** `anchor: 'npc'` where `resolveRelationEndpoint` returned `null` — the model named a specific NPC the DB does not have (the F#1 vanishing-caravan case). A resolved NPC needs no mint; `anchor: 'location'` foes stay ephemeral even though the model still supplies a name for them, because gating on name-presence would make "a wolf" a permanent resident. There is no mint-on-narration path anywhere in the repo today (confirmed by exhaustive grep); NPC rows are created at exactly three sites — `seedNpcs`, the `npcsToAdd` loop, and `spawnNpc`.
+
+**Two changes, given the corrections above:**
+
+1. **Remember the intent through the fight.** On resolution failure the establish path falls back to a location anchor and loses the fact that the foe was *meant* to be a named NPC (both the failure case and the genuinely-ambient case end up with `anchor: { node: 'location', … }`). `cs.enemyName` does already hold the intended name. Carry a marker on `PipelineInternalActionState` — alongside `combatAnchor`, which is held across rounds for the same reason — recording that this fight's foe is an unresolved npc-anchored one and its intended name.
+2. **Mint at resolve, only if the foe survives.** In `resolveCombat`, when that marker is present and the fight leaves the foe with HP above 0, create the NPC. **Not via an `add_npc` mutation** — that channel drops `health` (see corrections). Use the repo seam that `applyResolution` already owns, so the write lands inside the existing transaction and after the `actions` row exists, giving a real `createdByActionId`. Required field set, from the scouting: `name` (the intended name), a **non-empty `description`** (mandatory or the NPC is invisible to `getNearbyNpcs` and the mint is pointless), `health` (the foe's surviving HP, clamped into `[ENEMY_HP_MIN, ENEMY_HP_MAX]` — note `ENEMY_HP_MAX` is also the `in_combat` prop ceiling, so an out-of-range health would make the edge unreadable), `location` and `homeLocation` both set to the fight's location (an NPC with no home wanders on the nightly tick), and `createdByActionId`.
+
+**Why survival is the condition.** Minting a foe the player just killed is incoherent, and it is what an establish-time mint would have done. Keyed off resolve, one test covers it: the foe walked away. With SL-6 in place the mercy branch is the main producer of survivors; loss and cap-derive resolutions also qualify. A *voluntary bail* does not mint, because it never reaches `resolveCombat` — acceptable, since the C4 remembered-foe edge already covers re-engagement there.
+
+**Known limitation, accepted.** The marker lives on per-action state, so a fight resumed in a *later* action (bail, then re-engage) re-enters through the persisted edge without running establish, and no mint fires. The foe is still remembered via the edge, so nothing regresses; persisting the marker on the edge would need the `in_combat` prop validator widened and is out of bounded scope.
+
+**Ordering caveat.** In `applyResolution`, `persistAuthoredRelations` runs *before* the NPC rows are created and resolves npc endpoints against a snapshot that cannot contain a just-minted NPC. This is fine here precisely because the establish path already downgraded the anchor to `location`: the edge is location-anchored and persists normally, and the minted NPC becomes resolvable on the *next* encounter. **Do not** try to re-point the edge at the new NPC.
+
+**Prompt-versioning?** No. The bounded half is engine-only. The `add_npc` `health` vocab slot remains the full half's job, batched with the prompt-set bump.
+
+**Acceptance:**
+
+- [ ] A combat against an `anchor: 'npc'` foe that fails resolution and then survives leaves exactly one persisted NPC with that name, a non-empty description, and health equal to its surviving HP; a test drives establish → spare → `findByLocation`.
+- [ ] The same fight ending in a kill mints nothing.
+- [ ] An `anchor: 'location'` foe mints nothing even when the hint carries a name; a resolved-NPC fight mints nothing (no duplicate row).
+- [ ] The minted NPC is visible to `getNearbyNpcs` and resolves as `anchor: 'npc'` on a second encounter; a test drives two consecutive fights and asserts the second one seeds HP from the persisted row.
+- [ ] Re-engaging a spared, minted foe creates no duplicate row.
+
 ### Follow-up logged (not in Release A scope)
 
+- **Killing a resolved NPC does not remove it from the world.** SL-6's lethal option resolves the fight as a kill, but no `remove_npc` fires, so a slain named NPC still stands at its location afterwards — the same F#1 incoherence from the other direction. Deliberately fenced out of RA-5 because the naive fix (remove the row on a kill) could delete a seeded resident such as The Warden, and a safe version needs a rule about which NPCs are killable. Needs an owner call, probably alongside the death-track work that stays POC-deferred.
 - **The `compact` option has no production caller.** `opts.compact` is still plumbed through `buildOutcomeView` (`actionViewState.ts:317,372`), `OutcomeViewState.storyThread` (`viewState.ts:52`) and the legacy `commands/action.ts:271` signature, with a direct unit test at `tests/discord/view-state.test.ts:107`. Post-RA-6 nothing passes it. Either delete the option and its test, or keep it as a deliberate capability — an owner call, deliberately excluded from RA-6 to keep that commit atomic.
