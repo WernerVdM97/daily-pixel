@@ -1194,7 +1194,11 @@ describe('T5 — combat telemetry + metrics', () => {
     const step1 = await engine.stepAction(1, 'Press the attack');
     expect(step1.resolved).toBe(false);
 
-    const step2 = await engine.stepAction(1, 'Press the attack');
+    // Round 2 depletes the enemy -> SL-6's fatal-blow interstitial, not a terminal outcome yet.
+    const interstitial = await engine.stepAction(1, 'Press the attack');
+    expect(interstitial.resolved).toBe(false);
+
+    const step2 = await engine.stepAction(1, 'Finish it');
     expect(step2.resolved).toBe(true);
     const outcome = (step2 as {
       resolved: true;
@@ -1269,11 +1273,13 @@ describe('T5 — combat telemetry + metrics', () => {
       marker: 'combat_round',
     });
 
-    // Round 2: same roll pair -> another clean crit, enemy depleted -> WIN. The round-2 entry's
-    // own maths are identical to round 1's (same rolls/bonuses), but it's a DISTINCT beat
-    // (enemyHpBefore/After shift, and the terminal write clamps to 0) — nothing discarded, nothing
-    // recomputed for round 1's already-settled entry.
-    const step2 = await engine.stepAction(1, 'Press the attack');
+    // Round 2: same roll pair -> another clean crit, enemy depleted -> the fatal-blow
+    // interstitial (SL-6), not an immediate terminal outcome. It contributes no beat of its
+    // own; 'Finish it' resumes straight to resolveCombat on the already-computed round result.
+    const interstitial = await engine.stepAction(1, 'Press the attack');
+    expect(interstitial.resolved).toBe(false);
+
+    const step2 = await engine.stepAction(1, 'Finish it');
     expect(step2.resolved).toBe(true);
     const outcome = (step2 as { resolved: true; outcome: { combatRounds?: unknown[] } }).outcome;
     expect(outcome.combatRounds).toHaveLength(2);
@@ -1293,6 +1299,7 @@ describe('T5 — combat telemetry + metrics', () => {
       materialMutationFired: true,
       ops: ['set_relation', 'modify_wealth'],
       marker: 'combat_round',
+      fatalBlow: 'finish',
     });
   });
 
@@ -1324,7 +1331,9 @@ describe('T5 — combat telemetry + metrics', () => {
 
     await engine.startAction(1, 'fight the goblin');
     await engine.stepAction(1, 'Press the attack'); // round 1 → CONTINUE (edge at enemyHp 4)
-    const win = await engine.stepAction(1, 'Press the attack'); // round 2 → WIN
+    const interstitial = await engine.stepAction(1, 'Press the attack'); // round 2 → WIN → fatal-blow interstitial (SL-6)
+    expect(interstitial.resolved).toBe(false);
+    const win = await engine.stepAction(1, 'Finish it'); // no decide call — resumes straight to resolveCombat
     expect(win.resolved).toBe(true);
 
     // A fresh follow-up action reads the persisted edge back through relationRepo.forNode, proving
@@ -1336,6 +1345,77 @@ describe('T5 — combat telemetry + metrics', () => {
     ) as Record<string, unknown> | undefined;
     expect(persistedEdge).toBeDefined();
     expect((persistedEdge!.props as Record<string, unknown>).enemyHp).toBe(0);
+  });
+
+  it('sparing a fatal blow persists the foe at enemyHp 1, round 1 (SL-6 spare invariant) — re-engaging fights a fresh round-1 fight against the 1-HP survivor', async () => {
+    const sceneStateByDecideCall: (unknown[] | undefined)[] = [];
+    const script: PipelineScript = {
+      decide: (input, callNo) => {
+        sceneStateByDecideCall[callNo] = input.context.sceneState;
+        return {
+          distilledType: 'combat',
+          stat: 'physical',
+          baseDc: 12,
+          required: true,
+          decision: [{ label: 'Press the attack', dcModifier: 0 }],
+          ...(callNo === 0 ? { combatEnemy: { name: 'Goblin', anchor: 'location' as const } } : {}),
+        };
+      },
+      resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 1 }] }),
+      resolveNarrate: () => ({ outcomeText: 'The goblin falls, but you stay your hand.' }),
+    };
+    // Same 2-round WIN roll pair as the kill scenario above, plus one more pair for the
+    // re-engage's own first round (any band kills a 1-HP foe outright, so its values don't matter).
+    const handle = buildSimEngine({ kind: 'sequence', values: [20, 1, 20, 1, 10, 5] }, undefined, undefined, {
+      machine: 'pipeline',
+      script,
+      seed: BASE_CHARACTER,
+    });
+    const engine = handle.engine as PipelineSimEngine;
+
+    await engine.startAction(1, 'fight the goblin');
+    await engine.stepAction(1, 'Press the attack'); // round 1 → CONTINUE (edge at enemyHp 4)
+    const interstitial = await engine.stepAction(1, 'Press the attack'); // round 2 → WIN → fatal-blow interstitial
+    expect(interstitial.resolved).toBe(false);
+
+    const spared = await engine.stepAction(1, 'Show mercy');
+    expect(spared.resolved).toBe(true);
+    const sparedOutcome = (spared as {
+      resolved: true;
+      outcome: { combatBeat?: { enemyHpAfter: number; fatalBlow?: string } };
+    }).outcome;
+    expect(sparedOutcome.combatBeat?.enemyHpAfter).toBe(1);
+    expect(sparedOutcome.combatBeat?.fatalBlow).toBe('spare');
+
+    // The invariant, stated as the contract: the persisted edge must read enemyHp 1 AND round 1
+    // — not `cs.round + 1` (which would be 3, since the fatal blow landed in round 2). A fresh
+    // follow-up action's own decide-context read-back proves the terminal write reached the DB
+    // (mirrors the "win finalizes the in_combat edge" test's idiom above).
+    await engine.startAction(1, 'fight the goblin again');
+    const readBack = sceneStateByDecideCall[2] as unknown[];
+    const persistedEdge = readBack?.find(
+      (e) => (e as Record<string, unknown>).relType === 'in_combat',
+    ) as Record<string, unknown> | undefined;
+    expect(persistedEdge).toBeDefined();
+    expect((persistedEdge!.props as Record<string, unknown>).enemyHp).toBe(1);
+    expect((persistedEdge!.props as Record<string, unknown>).round).toBe(1);
+
+    // Re-engage drive: the fight actually continues from that state — the edge already exists
+    // at enemyHp>0, so `handleCombatStep`'s establish check does NOT re-derive from `combatEnemy`
+    // (which this callNo omits) — it just picks up the persisted round-1/1-HP state directly
+    // (C4 remembered-foe behaviour). A 1-HP foe never survives a single round, so this immediately
+    // reaches another fatal-blow interstitial — 'Finish it' surfaces the round's own maths, which
+    // must read round 1 / enemyHpBefore 1 (not round 3 / some already-negative HP).
+    const reengageInterstitial = await engine.stepAction(1, 'Press the attack');
+    expect(reengageInterstitial.resolved).toBe(false);
+    const reengageStep = await engine.stepAction(1, 'Finish it');
+    expect(reengageStep.resolved).toBe(true);
+    const reengageOutcome = (reengageStep as {
+      resolved: true;
+      outcome: { combatBeat?: { round: number; enemyHpBefore: number } };
+    }).outcome;
+    expect(reengageOutcome.combatBeat?.round).toBe(1);
+    expect(reengageOutcome.combatBeat?.enemyHpBefore).toBe(1);
   });
 
   it('a voluntary bail carries no terminal combatBeat, but its earlier fought round still counts', async () => {

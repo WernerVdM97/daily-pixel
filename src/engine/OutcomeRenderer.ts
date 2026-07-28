@@ -195,8 +195,16 @@ function buildCombatTerminalCard(outcome: ActionOutcome, _ctx: OutcomeRenderCont
   // beat only, distinct from the per-round band-led readout on the continue card.
   const verdict = success ? 'WON' : outcome.outcome === 'failure' ? 'LOST' : outcome.outcome.toUpperCase();
 
+  // SL-6: the fatal-blow interstitial's terminal beat carries `fatalBlow` so the two
+  // identical-verdict endings (both `outcome === 'success'`) read differently — a plain
+  // win/loss/cap-derive beat never sets it, so those keep the generic label unchanged.
+  const label =
+    beat.fatalBlow === 'finish' ? 'FOE SLAIN'
+    : beat.fatalBlow === 'spare' ? 'FOE SPARED'
+    : 'COMBAT RESOLVED';
+
   return {
-    label: 'COMBAT RESOLVED',
+    label,
     playerD20: beat.playerD20,
     bonus: beat.playerBonus,
     total,

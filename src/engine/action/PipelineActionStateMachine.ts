@@ -77,6 +77,19 @@ export interface PipelineInternalActionState extends ActionState {
    *  The next step() clears it before falling through to normal combat flow — only
    *  `last stand` reaches handleCombatStep; `bail bloodied` is caught by step()'s bail check. */
   desperateChoice?: boolean;
+  /** Set when a fatal-blow beat is pending (SL-6: finish/spare the broken foe). Carries the
+   *  already-computed round result so the resume short-circuits straight to `resolveCombat`
+   *  instead of re-entering the roll/establish logic above it — replaying that logic would
+   *  re-roll `this.rollD20()` twice and exhaust the exactly-sized roll fixtures the win
+   *  scenarios rely on (see the RA-5c spec's trap #1). Undefined once resolved either way. */
+  fatalBlow?: {
+    cs: CombatState;
+    roundResult: CombatRoundOutcome;
+    playerHpDelta: number;
+    playerBonus: number;
+    enemyBonus: number;
+    dc: number;
+  };
   /** Epoch ms last persisted. Used by the 30-min timeout hook. */
   lastActionAt: number;
   /** All llm_calls ids in this action. Task 5 built the per-stage stamp/callKind derivation
@@ -118,6 +131,13 @@ const BAIL_STAMINA_COST = 1;
  *  `options.find(o => o.label === choice)` lookup always resolves to the guaranteed-null bail,
  *  never a wayward LLM-authored option sharing the same label. */
 const COMBAT_FLEE_LABEL = 'Flee the fight';
+
+/** SL-6 fatal-blow interstitial option labels. Order matters: `combatWinScenario` uses
+ *  `choicePolicy: 'first-real'`, which auto-picks the first non-bail option, so the lethal
+ *  option must be listed first for the existing win scenario to keep exercising the kill path
+ *  unchanged. */
+const FATAL_BLOW_FINISH_LABEL = 'Finish it';
+const FATAL_BLOW_SPARE_LABEL = 'Show mercy';
 
 export class PipelineActionStateMachine {
   constructor(
@@ -425,7 +445,7 @@ export class PipelineActionStateMachine {
     playerBonus: number,
     enemyBonus: number,
     dc: number,
-    opts: { floorSave?: boolean; emptyDecisionFallback?: boolean } = {},
+    opts: { floorSave?: boolean; emptyDecisionFallback?: boolean; fatalBlow?: 'finish' | 'spare' } = {},
   ): CombatBeatLog {
     const materialMutationFired =
       roundResult.enemyHpDelta !== 0 || roundResult.playerHpDelta !== 0 || ops.some(o => o !== 'set_relation');
@@ -446,6 +466,7 @@ export class PipelineActionStateMachine {
       marker: 'combat_round',
       ...(opts.floorSave ? { floorSave: true } : {}),
       ...(opts.emptyDecisionFallback ? { emptyDecisionFallback: true } : {}),
+      ...(opts.fatalBlow ? { fatalBlow: opts.fatalBlow } : {}),
     };
   }
 
@@ -471,6 +492,24 @@ export class PipelineActionStateMachine {
     // check and never reaches here.
     if (state.desperateChoice) {
       state = { ...state, desperateChoice: undefined };
+    }
+
+    // ── Fatal-blow resume (SL-6) ──
+    // The player has chosen finish/spare on a beat that fought no round of its own — resolve
+    // straight through on the round result computed BEFORE the interstitial. Must come before
+    // any establish/roll logic below: re-entering that logic would roll again and desync from
+    // the exactly-sized roll fixtures (`combatWinScenario` et al.) that assume one roll pair per
+    // fought round.
+    if (state.fatalBlow) {
+      const saved = state.fatalBlow;
+      const lethal = chosenOption.label === FATAL_BLOW_FINISH_LABEL;
+      const resumedState: PipelineInternalActionState = { ...state, fatalBlow: undefined };
+      return this.resolveCombat(
+        saved.cs, saved.roundResult, saved.playerHpDelta, lethal ? 0 : 1, 'success',
+        resumedState, char, items, newDc, newDecisions, chosenOption,
+        saved.playerBonus, saved.enemyBonus, saved.dc,
+        lethal ? 'finish' : 'spare',
+      );
     }
 
     // ── Establish or read combat state ──
@@ -551,13 +590,44 @@ export class PipelineActionStateMachine {
     const hpZeroReached = playerHpDelta < 0 && (char.health + playerHpDelta) <= 0;
 
     // ── Termination ladder ──
-    // 1. WIN: enemy HP depleted
+    // 1. WIN: enemy HP depleted — SL-6 offers a fatal-blow interstitial (finish/spare) rather
+    // than resolving straight through. No LLM call, no extra roll, no mutation: this round's
+    // result is already fully computed above and carried on `fatalBlow` for the resume (which
+    // short-circuits straight to `resolveCombat`, see the block near the top of this method).
+    // No `combatBeat` here and `combatRounds` is passed through unchanged — an extra entry would
+    // break the "exactly one combatRounds entry" invariant on a first-round kill, and a
+    // `combatBeat` on this non-terminal arm would inflate the sim's `roundsFought` count.
     if (newEnemyHp <= 0) {
-      return this.resolveCombat(
-        cs, roundResult, playerHpDelta, 0, 'success',
-        state, char, items, newDc, newDecisions, chosenOption,
-        playerBonus, enemyBonus, state.lastDecideResult.baseDc,
+      // Display-only nominal HP: the foe is genuinely still alive at this instant — the player
+      // hasn't chosen finish/spare yet — so banding on the real `newEnemyHp` (0) would read
+      // 'Slain' beside the very prompt asking whether to kill it, pre-empting the choice. `1`
+      // bands as a last-gasp survivor ('Critical', or 'Battered' at the ENEMY_HP_MIN end)
+      // instead. Does not touch `newEnemyHp`, `state.fatalBlow`, or what `resolveCombat` receives.
+      const fatalStatus = composeCombatStatus(
+        cs.enemyName, 1, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
       );
+      const nextDecision: ActionDecision = {
+        prompt: `${cs.enemyName} is broken and cannot rise. Finish it, or let it live?`,
+        options: [
+          { label: FATAL_BLOW_FINISH_LABEL, dcModifier: 0 },
+          { label: FATAL_BLOW_SPARE_LABEL, dcModifier: 0 },
+        ],
+        combatStatus: fatalStatus,
+        combatRounds: state.pendingDecision.combatRounds ?? [],
+      };
+      const nextState: PipelineInternalActionState = {
+        ...state,
+        decisions: newDecisions,
+        accumulatedDc: newDc,
+        pendingDecision: nextDecision,
+        combatAnchor: heldAnchor,
+        fatalBlow: { cs, roundResult, playerHpDelta, playerBonus, enemyBonus, dc: state.lastDecideResult.baseDc },
+      };
+      return {
+        resolved: false,
+        state: nextState,
+        nextDecision,
+      };
     }
 
     // 2. hpZero → floor + save ladder (iteration 2: survive-at-1 once per day).
@@ -811,6 +881,12 @@ export class PipelineActionStateMachine {
     playerBonus: number,
     enemyBonus: number,
     dc: number,
+    // SL-6: set only by the fatal-blow resume. `'finish'` leaves the round to advance normally
+    // (a dead foe's edge is re-established from scratch next encounter regardless of its round
+    // label); `'spare'` forces the persisted edge back to round 1 — otherwise a foe spared in
+    // round N would leave the edge at round N+1 and immediately trip the MAX_COMBAT_ROUNDS
+    // cap-derive on re-engage, which fails the "fresh, winnable fight" invariant.
+    fatalBlowMarker?: 'finish' | 'spare',
   ): Promise<{ resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome }> {
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
 
@@ -842,7 +918,7 @@ export class PipelineActionStateMachine {
     );
 
     // Inject engine-authored combat mutations: the final combat edge + player HP delta.
-    const finalRound = cs.round + 1;
+    const finalRound = fatalBlowMarker === 'spare' ? 1 : cs.round + 1;
     // Use the state-held anchor (decision 4) — for npc fights, cs.anchor carries the
     // id-as-name that would fail re-resolution; the held anchor is the originally authored one.
     const finalCsAnchor = state.combatAnchor ?? (cs.anchor as { node: 'npc' | 'location'; name: string });
@@ -912,6 +988,7 @@ export class PipelineActionStateMachine {
       playerBonus,
       enemyBonus,
       dc,
+      fatalBlowMarker ? { fatalBlow: fatalBlowMarker } : {},
     );
     // ANSI-D: close out the fight's round log — prior rounds off the last pendingDecision
     // (tolerant read) plus this terminal beat, surfaced on the outcome for the terminal
@@ -1322,9 +1399,20 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
  *  only — never the exact HP number — so hidden exact HP keeps tension while still reading as
  *  progress. Returns the fill count (not glyphs); the presentation layer renders the pips. */
 export function enemyConditionBand(hpFraction: number): { filled: number; woundWord: string } {
-  const filled = Math.max(0, Math.min(5, Math.round(hpFraction * 5)));
+  // Total over its domain (RA-5c review nit, folded in here since this task adds a new caller):
+  // `NaN <= 0` is `false`, so an unguarded NaN would fall through every tier to 'Critical' and
+  // return `filled: NaN` — a broken pip bar. No live path feeds NaN today (`readCombatState`
+  // rejects non-finite HP at source), but the function is exported, so guard it anyway.
+  // Non-finite input means "unknown", not "dead" — defaulting unknown to a false 'Slain' claim
+  // is the wrong direction, so only the broken `filled: NaN` is fixed here; the pre-guard
+  // wound word ('Critical') is preserved. A genuinely negative fraction is over-kill, not
+  // unknown, and still reads 'Slain' below.
+  const filled = Number.isFinite(hpFraction)
+    ? Math.max(0, Math.min(5, Math.round(hpFraction * 5)))
+    : 0;
   const woundWord =
-    hpFraction <= 0 ? 'Slain'
+    !Number.isFinite(hpFraction) ? 'Critical'
+    : hpFraction <= 0 ? 'Slain'
     : hpFraction >= 0.8 ? 'Healthy'
     : hpFraction >= 0.4 ? 'Bloodied'
     : hpFraction >= 0.15 ? 'Battered'

@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **A won fight now ends on a choice: finish the foe, or show mercy** *(RA-5c / SL-6)* — depleting an enemy's HP used to jump silently to the outcome card, so the killing blow never landed as a beat (F#11). The win now pauses on one interstitial screen showing the broken foe, offering **Finish it** or **Show mercy**; the fight resolves as a win either way. Sparing leaves the foe alive at 1 HP and remembered, so re-engaging it later starts a fresh fight against a wounded survivor rather than a fresh one at full health — which is also what makes a narrated foe worth persisting at all. The terminal card names which ending you chose. The beat costs nothing: no extra roll, no stamina, no LLM call, and abandoning it refunds the roll exactly as any other unfinished action does.
+
 ### Fixed
 
 - **A slain foe now reads "Slain", and a worn-down foe no longer reads "Healthy"** *(RA-5a)* — two separate bugs on the same outcome frame. The enemy condition band had no terminal tier, so a foe at 0 HP bottomed out at "Critical" beside an empty pip bar (F#11): killing something never said so. Separately, the outcome frame banded the foe against its HP at the *start of the final round* rather than its maximum, so a 20-HP foe worn down to 10 that took 2 more damage read as `8/10` → "Healthy" when it was actually at 40% → "Bloodied". The frame now bands against the foe's real maximum, which the other two condition-band call sites already did.

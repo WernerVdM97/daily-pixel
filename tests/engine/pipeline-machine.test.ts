@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { deriveEnemyMaxHp } from '../../src/engine/action/combat-dc.js';
 import Database from 'better-sqlite3';
-import { PipelineActionStateMachine } from '../../src/engine/action/PipelineActionStateMachine.js';
+import { PipelineActionStateMachine, enemyConditionBand } from '../../src/engine/action/PipelineActionStateMachine.js';
 import { createGeographyFinalize } from '../../src/engine/geography-finalize.js';
 import { runMigrations, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
@@ -826,9 +826,22 @@ describe('PipelineActionStateMachine — ANSI-D combatRounds', () => {
     const started = await machine.start(testChar(), 'attack the goblin', testItems);
     if (started.resolved) throw new Error('expected unresolved start');
 
-    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    // SL-6: the WIN round now surfaces the fatal-blow interstitial instead of resolving
+    // straight through — an extra step() is needed to actually terminate the fight, and it
+    // must consume no further roll (rolls has only 2 entries, both already spent above).
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(interstitial.resolved).toBe(false);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+    expect(interstitial.nextDecision.options).toEqual([
+      { label: 'Finish it', dcModifier: 0 },
+      { label: 'Show mercy', dcModifier: 0 },
+    ]);
+    expect(interstitial.combatBeat).toBeUndefined();
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
     expect(step.resolved).toBe(true);
     if (!step.resolved) throw new Error('expected resolved step');
+    expect(i).toBe(2); // the resume consumed no additional roll
 
     expect(step.outcome.combatRounds).toHaveLength(1);
     expect(step.outcome.combatRounds?.[0]).toEqual({
@@ -846,6 +859,7 @@ describe('PipelineActionStateMachine — ANSI-D combatRounds', () => {
       materialMutationFired: true,
       ops: ['set_relation'],
       marker: 'combat_round',
+      fatalBlow: 'finish',
     });
     // Nothing derived twice: the sole round-log entry IS the terminal combatBeat, not a
     // second computation of the same round's maths.
@@ -1775,7 +1789,12 @@ describe('PipelineActionStateMachine — T2b combatFrame on terminal combat outc
     expect(started.resolved).toBe(false);
     if (started.resolved) throw new Error('expected unresolved start');
 
-    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    // SL-6: WIN now surfaces the fatal-blow interstitial first; resolve via 'Finish it'.
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(interstitial.resolved).toBe(false);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
     expect(step.resolved).toBe(true);
     if (!step.resolved) throw new Error('expected resolved step');
 
@@ -2268,9 +2287,16 @@ describe('PipelineActionStateMachine — C6 combat empty-decision guard (0.3.2)'
     expect(realOptions[0].label).toBe('Press the attack');
     expect(started.firstDecision.options.some(o => o.dcModifier === null)).toBe(true); // flee present
 
-    // step() must route through handleCombatStep, producing a combatBeat.
-    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
-    expect(step.resolved).toBe(true); // round-1 kill resolves
+    // step() must route through handleCombatStep, running the contested round. SL-6 now
+    // surfaces the fatal-blow interstitial on a WIN rather than resolving straight through —
+    // still proof the termination ladder fired (a one-shot resolve() would never reach it).
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(interstitial.resolved).toBe(false); // round-1 kill → fatal-blow interstitial, not a terminal outcome
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+    expect(interstitial.nextDecision.options.map(o => o.label)).toEqual(['Finish it', 'Show mercy']);
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    expect(step.resolved).toBe(true);
     if (!step.resolved) throw new Error('expected resolved step');
 
     // A combatBeat proves a contested roll ran inside handleCombatStep.
@@ -2279,5 +2305,180 @@ describe('PipelineActionStateMachine — C6 combat empty-decision guard (0.3.2)'
     expect(step.outcome.combatBeat!.round).toBe(1);
     expect(step.outcome.combatBeat!.band).toBe('clean');
     expect(step.outcome.combatBeat!.marker).toBe('combat_round');
+  });
+});
+
+describe('enemyConditionBand — pure banding function (direct unit coverage)', () => {
+  it('bands the five tiers by hpFraction', () => {
+    expect(enemyConditionBand(0)).toEqual({ filled: 0, woundWord: 'Slain' });
+    expect(enemyConditionBand(0.1)).toEqual({ filled: 1, woundWord: 'Critical' });
+    expect(enemyConditionBand(0.15)).toEqual({ filled: 1, woundWord: 'Battered' });
+    expect(enemyConditionBand(0.4)).toEqual({ filled: 2, woundWord: 'Bloodied' });
+    expect(enemyConditionBand(0.8)).toEqual({ filled: 4, woundWord: 'Healthy' });
+    expect(enemyConditionBand(1)).toEqual({ filled: 5, woundWord: 'Healthy' });
+  });
+
+  it('clamps a negative fraction to the Slain floor, never a negative pip count', () => {
+    // Genuinely negative is over-kill, not unknown — it still reads 'Slain', unlike non-finite
+    // input below.
+    expect(enemyConditionBand(-1)).toEqual({ filled: 0, woundWord: 'Slain' });
+  });
+
+  // RA-5a review nit, folded into RA-5c since this task adds a new caller (the fatal-blow
+  // interstitial's combatStatus): `NaN <= 0` is `false`, so an unguarded NaN falls through
+  // every tier to 'Critical' and returns `filled: NaN` — a broken pip bar. No live path feeds
+  // NaN today, but the function is exported, so this pins the guard directly rather than
+  // relying on indirect coverage.
+  //
+  // Fix (RA-5c review): non-finite input means *unknown*, not *dead* — defaulting it to 'Slain'
+  // is a false claim in the wrong direction, and a regression from the pre-guard behaviour
+  // (which read 'Critical' for NaN, just with a broken `filled: NaN`). Only the pip count is
+  // fixed here; the wound word for non-finite input stays 'Critical'. `Infinity` is likewise
+  // non-finite, so it takes the same 'Critical' path — pinned deliberately, not left to fall
+  // out of the `>= 0.8` tier.
+  it('is total: NaN/Infinity read Critical with a real (non-NaN) pip count, never a false Slain claim', () => {
+    expect(enemyConditionBand(NaN)).toEqual({ filled: 0, woundWord: 'Critical' });
+    expect(enemyConditionBand(Infinity)).toEqual({ filled: 0, woundWord: 'Critical' });
+    expect(enemyConditionBand(-Infinity)).toEqual({ filled: 0, woundWord: 'Critical' });
+  });
+});
+
+describe('PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('a won round returns an unresolved two-option decision — no LLM call, no roll, no mutation, combatRounds unchanged', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    // baseDc=6 -> enemyMaxHp=6; nat-20 crit (amplified -8) kills outright in round 1.
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const decideCallsBeforeStep = llm.decideCalls.length;
+
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(interstitial.resolved).toBe(false);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    expect(interstitial.nextDecision.options).toEqual([
+      { label: 'Finish it', dcModifier: 0 },
+      { label: 'Show mercy', dcModifier: 0 },
+    ]);
+    // No beat fought at the interstitial itself — the log carries forward unchanged (empty here,
+    // a first-round kill), and there is no `combatBeat`/`mutations` on this non-terminal arm.
+    expect(interstitial.nextDecision.combatRounds).toEqual([]);
+    expect(interstitial.combatBeat).toBeUndefined();
+    expect(interstitial.mutations).toBeUndefined();
+    expect(llm.decideCalls.length).toBe(decideCallsBeforeStep); // no decide() call for the interstitial
+    expect(i).toBe(2); // only the round's own contested roll consumed, nothing extra
+  });
+
+  // Fix (RA-5c review): the interstitial's own combatStatus must not band the foe 'Slain' — the
+  // player hasn't chosen finish/spare yet, so a 'Slain' readout beside "Finish it, or let it
+  // live?" would contradict the very choice on offer. baseDc=6 -> enemyMaxHp=6 (ENEMY_HP_MIN),
+  // so the nominal display HP of 1 gives fraction 1/6 ≈ 0.167 -> 'Battered', not 'Critical'.
+  it("the interstitial's own combatStatus bands the foe as a last-gasp survivor, never Slain, for a kill from full HP", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    expect(interstitial.nextDecision.combatStatus?.woundWord).not.toBe('Slain');
+    expect(interstitial.nextDecision.combatStatus?.woundWord).toBe('Battered');
+  });
+
+  it("'Finish it' resolves success with the foe at 0 HP, banding Slain, and consumes no extra roll", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    expect(i).toBe(2); // the resume rolled nothing further
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcome).toBe('success');
+    expect(step.outcome.combatBeat?.enemyHpAfter).toBe(0);
+    expect(step.outcome.combatBeat?.fatalBlow).toBe('finish');
+    const enemyMaxHp = step.outcome.combatFrame!.enemyMaxHp;
+    expect(enemyConditionBand(step.outcome.combatBeat!.enemyHpAfter / enemyMaxHp).woundWord).toBe('Slain');
+
+    const edgeMutation = step.outcome.mutations.find(
+      (m) => m.type === 'set_relation' && (m as unknown as { relType: string }).relType === 'in_combat',
+    ) as { props: { enemyHp: number; round: number } } | undefined;
+    expect(edgeMutation?.props.enemyHp).toBe(0);
+  });
+
+  it("'Show mercy' resolves success with the foe surviving at 1 HP, a non-Slain band, and the persisted edge reset to round 1", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Show mercy', testChar(), testItems);
+    expect(i).toBe(2); // no extra roll on the resume
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcome).toBe('success');
+    expect(step.outcome.combatBeat?.enemyHpAfter).toBe(1);
+    expect(step.outcome.combatBeat?.fatalBlow).toBe('spare');
+    const enemyMaxHp = step.outcome.combatFrame!.enemyMaxHp;
+    expect(enemyConditionBand(1 / enemyMaxHp).woundWord).not.toBe('Slain');
+
+    // SL-6's spare invariant: the persisted edge must read enemyHp 1 AND round 1 — not
+    // `cs.round + 1` (which would be 2 here), or re-engaging the spared foe would carry over a
+    // round number that could trip the MAX_COMBAT_ROUNDS cap-derive immediately.
+    const edgeMutation = step.outcome.mutations.find(
+      (m) => m.type === 'set_relation' && (m as unknown as { relType: string }).relType === 'in_combat',
+    ) as { props: { enemyHp: number; round: number } } | undefined;
+    expect(edgeMutation?.props.enemyHp).toBe(1);
+    expect(edgeMutation?.props.round).toBe(1);
+  });
+
+  it('the lethal option is listed first, matching combatWinScenario\'s first-real choice policy', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const real = interstitial.nextDecision.options.filter(o => o.dcModifier !== null);
+    expect(real[0].label).toBe('Finish it');
+    expect(interstitial.nextDecision.options.every(o => o.dcModifier !== null)).toBe(true);
   });
 });

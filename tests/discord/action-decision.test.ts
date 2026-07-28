@@ -570,6 +570,44 @@ describe('buildDecisionMessage — last-stand / bail decision screen shows the r
   });
 });
 
+// ── SL-6: the fatal-blow interstitial on a WIN offers finish/spare instead of a silent
+// short-circuit to the outcome — see PipelineActionStateMachine's fatal-blow branch, whose exact
+// beat shape is pinned by `tests/engine/pipeline-machine.test.ts`
+// ("PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)"). Cloned from the
+// last-stand/bail idiom above: both options here are real (non-bail — `dcModifier: 0`), so
+// there is no worded terminal button, just two lettered choices. ──
+describe('buildDecisionMessage — fatal-blow (finish/spare) decision screen (SL-6)', () => {
+  const fatalBlowDecision = {
+    prompt: 'Shadow Stag is broken and cannot rise. Finish it, or let it live?',
+    combatStatus: {
+      enemyName: 'Shadow Stag',
+      woundWord: 'Slain',
+      pips: { filled: 0, total: 5 },
+      playerHp: 24,
+      playerMaxHp: 30,
+      playerHpDelta: 0,
+    },
+    combatRounds: [],
+    options: [
+      { label: 'Finish it', dcModifier: 0 },
+      { label: 'Show mercy', dcModifier: 0 },
+    ],
+  };
+
+  it('renders both options as lettered A/B body lines with no worded bail button', () => {
+    const msg = buildDecisionMessage(fatalBlowDecision, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+
+    expect(desc).toContain('**A.** Finish it');
+    expect(desc).toContain('**B.** Show mercy');
+    expect(desc).toContain('Shadow Stag');
+
+    // Neither option is a bail (`dcModifier: 0` on both, per the RA-5c trap: a null dcModifier
+    // would route through step()'s bail path instead, charging stamina and leaving the fight live).
+    expect(buttons(msg).map((b: any) => b.label)).toEqual(['A', 'B']);
+  });
+});
+
 describe('buildDecisionMessage — option stat emoji degrades gracefully on a missing/unknown stat', () => {
   it('renders no icon (and does not crash) when stat is absent or unrecognised', () => {
     const msg = buildDecisionMessage({
