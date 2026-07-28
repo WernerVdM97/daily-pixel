@@ -32,7 +32,7 @@ import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
 import { LlmCallRepository } from '../db/repositories/llm-call.js';
 import type { CharCreateData } from '../engine/WorldEngine.js';
-import type { CriticGateMode } from '../engine/action/critic-gate.js';
+import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
 
 const SEED: CharCreateData = {
@@ -65,11 +65,10 @@ async function main(): Promise<void> {
   // — default on, the literal string "false" opts out) — without this, a live run always pays
   // critic cost with no way to disable it, which defeats the "critic off" arm of the A/B.
   const criticEnabled = process.env.ENABLE_COHERENCE_CRITIC !== 'false';
-  // RA-4c A/B: same switch and default as prod (`index.ts`'s CRITIC_GATE_MODE wiring, gated by the
-  // criticEnabled switch above) — "always" fires the critic on every decide/narrate beat (this
-  // harness's prior behaviour once RA-4 wires a live critic in), "anomaly" gates it. Pick the arm
-  // per run, no code edit needed.
-  const criticGateMode: CriticGateMode = process.env.CRITIC_GATE_MODE === 'anomaly' ? 'anomaly' : 'always';
+  // RA-4c A/B: shares prod's parser so an arm selected here matches what prod would do with the
+  // same env. Default 'narrate-gated' (SL-3); 'always' is the pre-RA-4 baseline arm, 'anomaly'
+  // gates both beats. Pick the arm per run, no code edit needed.
+  const criticGateMode: CriticGateMode = parseCriticGateMode(process.env.CRITIC_GATE_MODE);
 
   // Real pipeline gateway (built from apiKey inside buildAgentEngine) + real brain, both DeepSeek.
   // recordLlmCalls persists every pipeline stage; the brain records its own picks into the same DB.

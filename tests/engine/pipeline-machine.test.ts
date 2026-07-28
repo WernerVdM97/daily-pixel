@@ -1218,11 +1218,14 @@ describe('PipelineActionStateMachine — T4 critic', () => {
     const baselineStep = await baselineMachine.step(baselineStarted.state, 'Strike hard', testChar(), testItems);
     if (!baselineStep.resolved) throw new Error('expected resolved step');
 
-    // Critic run: a minor prose defect patches outcomeText only.
+    // Critic run: a minor prose defect patches outcomeText only. Pinned to 'always' because this
+    // test owns the prose critic's PATCHING contract, not the gating policy — the SL-3 default
+    // ('narrate-gated') deliberately skips the narrate critic on a clean beat like this one, so
+    // leaving the mode implicit would test the gate instead of the patch.
     const llm = buildLlm();
     const critic = new MockCriticGateway();
     critic.verdict = { ok: false, severity: 'minor', issues: ['prose drifted from the final mutations'], patch: { outcomeText: 'patched' } };
-    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'always');
     const started = await machine.start(testChar(), 'attack the goblin', testItems);
     if (started.resolved) throw new Error('expected unresolved start');
     forceResolve(llm);
@@ -1372,6 +1375,47 @@ describe('PipelineActionStateMachine — RA-4c anomaly gate', () => {
       ...overrides,
     };
   }
+
+  // SL-3's shipped default, settled on the RA-4 A/B: the decide critic earned real catches so it
+  // keeps firing unconditionally, while the narrate critic is near-inert by construction (a narrate
+  // `major` is discarded outright, so only a patched `minor` can act) and is gated. These two cases
+  // pin the asymmetry — the whole point of the default is that the two beats behave DIFFERENTLY, so
+  // a regression collapsing them back into one policy has to fail here.
+  it('narrate-gated (the default): a clean DECIDE beat still critiques', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    const critic = new MockCriticGateway();
+    // Mode left implicit — this asserts the SHIPPED default, not an opt-in arm.
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+
+    expect(critic.calls).toHaveLength(1);
+    expect(critic.calls[0].beat).toBe('decision');
+    if (started.resolved) throw new Error('expected unresolved start');
+  });
+
+  it('narrate-gated (the default): a clean NARRATE beat is skipped, so only the decide beat is paid for', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You strike a fair deal.' };
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step1 = await machine.step(started.state, 'Offer a fair price', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step 1');
+    const step2 = await machine.step(step1.state, 'Offer a fair price', testChar(), testItems);
+    if (!step2.resolved) throw new Error('expected resolved step 2');
+
+    // Every critic call was a decide beat; the narrate beat never spent one.
+    expect(critic.calls.length).toBeGreaterThan(0);
+    expect(critic.calls.every((c) => c.beat === 'decision')).toBe(true);
+    // The unpatched narration proves the narrate critic genuinely never ran.
+    expect(step2.outcome.outcomeText).toBe('You strike a fair deal.');
+  });
 
   it('anomaly mode: a clean decide beat skips the critic entirely (no call at all)', async () => {
     const llm = new MockPipelineLlmGateway();

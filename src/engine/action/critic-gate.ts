@@ -7,13 +7,56 @@
 
 import type { ActionType } from '../../llm/pipeline/types.js';
 
-/** Selects WHEN the coherence critic fires. 'always' (the default) is today's behaviour —
- *  unconditional, on every decide and every narrate beat. 'anomaly' gates it to beats
- *  `isAnomalousDecide` below flags as risky. Kept as an explicit union rather than a boolean so a
- *  later third arm (e.g. a sampled/percentage gate) has somewhere to land without another
- *  signature break. Defaulted to 'always' deliberately: SL-3 is measure-first, so the owner sets
- *  the real default only after seeing the A/B call/token numbers this gate exists to produce. */
-export type CriticGateMode = 'always' | 'anomaly';
+/**
+ * Selects WHICH beats the anomaly gate applies to.
+ *
+ * - `'always'` — gate nothing; the critic fires on every decide and every narrate beat. This was
+ *   the behaviour before RA-4 and is retained as the A/B baseline arm.
+ * - `'narrate-gated'` — **the default, per decision SL-3.** The decide critic fires
+ *   unconditionally; only narrate beats are gated.
+ * - `'anomaly'` — gate both beats.
+ *
+ * WHY `'narrate-gated'` is the default, from the RA-4 A/B (recorded in the Release A plan): the
+ * decide critic earned 6 actionable catches across ~22 beats (~27%), so gating it measurably loses
+ * real corrections — the anomaly triggers proved precise but insensitive, firing on 2 of ~22 beats
+ * while the ungated arm found 6 catches, i.e. they do not predict what the critic objects to. The
+ * narrate critic, by contrast, is near-inert *by construction*: `critiqueNarration` discards a
+ * `major` verdict outright (dice and mutations are already finalized), so only a `minor` carrying a
+ * `patch.outcomeText` can ever change anything — and the A/B saw zero `minor` verdicts across the
+ * whole run, every narrate call paid for and inert. So this default keeps the half that works and
+ * gates the half that structurally cannot.
+ */
+export type CriticGateMode = 'always' | 'narrate-gated' | 'anomaly';
+
+/** Which authored beat is being critiqued — mirrors `CriticInput.beat`. */
+export type CriticBeat = 'decision' | 'resolution';
+
+/** Parses `CRITIC_GATE_MODE`. Shared by both entry points (`src/index.ts` and `src/agent/play.ts`)
+ *  rather than duplicated: they must agree on the default, or an A/B arm selected for the harness
+ *  would not match what prod would do with the same env. Anything unrecognised falls back to the
+ *  SL-3 default rather than throwing — a typo'd env var must not take the bot down at boot. */
+export function parseCriticGateMode(raw: string | undefined): CriticGateMode {
+  return raw === 'always' || raw === 'anomaly' || raw === 'narrate-gated' ? raw : 'narrate-gated';
+}
+
+/**
+ * Single decision point for "does the critic fire on this beat?", so the two call sites in
+ * `PipelineActionStateMachine` can't drift apart on the mode semantics (they did not share a helper
+ * in the first RA-4 cut, and the narrate site silently reused the decide predicate). Returns true
+ * to spend an LLM critic call.
+ *
+ * Note the asymmetry is in the MODE, not the predicate: when a beat is gated at all, both beats use
+ * `isAnomalousDecide` against the decide result — a narrate beat's coherence risk traces back to
+ * how risky its authoring decide beat looked, which is the only anomaly signal available there.
+ */
+export function criticShouldFire(
+  mode: CriticGateMode,
+  beat: CriticBeat,
+  input: AnomalyCheckInput,
+): boolean {
+  const gated = mode === 'anomaly' || (mode === 'narrate-gated' && beat === 'resolution');
+  return gated ? isAnomalousDecide(input) : true;
+}
 
 /**
  * `baseDc` anomaly band. WHY these numbers: `accumulateDc` clamps the post-modifier DC to
