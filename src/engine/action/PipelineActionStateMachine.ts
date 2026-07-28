@@ -42,6 +42,7 @@ import {
   type CombatState,
 } from './combat-state.js';
 import { resolveRelationEndpoint, type NearbyNpc } from './relation-wiring.js';
+import { isAnomalousDecide, type CriticGateMode } from './critic-gate.js';
 
 /** ActionState plus the pipeline's internal fields, stored in the JSON column (mirrors
  *  `InternalActionState` in machine.ts, but with `actionType`/`flags` pinned at classify
@@ -142,6 +143,10 @@ export class PipelineActionStateMachine {
     // injects one) takes the no-critic path through `critiqueDecide`/`critiqueNarration` below —
     // both are unconditional no-ops without a critic, keeping this the zero-risk default.
     private critic?: CriticGateway,
+    // RA-4c (SL-3 measure-first): defaults to 'always', today's unconditional-fire behaviour, so
+    // every existing caller that doesn't pass this 7th arg is byte-identical to pre-RA-4 — the
+    // owner opts a run into 'anomaly' only once the A/B numbers are in.
+    private criticGateMode: CriticGateMode = 'always',
   ) {}
 
   async start(
@@ -881,7 +886,7 @@ export class PipelineActionStateMachine {
     // Faithfulness prose critic (D7): may only patch outcomeText. `finalMutations` is already
     // finalized above and never handed back for modification — see critiqueNarration's contract.
     const { outcomeText, criticCallIds } = await this.critiqueNarration(
-      rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context,
+      rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context, state.actionType,
     );
 
     const mutations = [...finalMutations];
@@ -1027,7 +1032,7 @@ export class PipelineActionStateMachine {
     // Faithfulness prose critic (D7): may only patch outcomeText. `finalMutations` is already
     // finalized above and never handed back for modification — see critiqueNarration's contract.
     const { outcomeText, criticCallIds } = await this.critiqueNarration(
-      rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context,
+      rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context, state.actionType,
     );
 
     const mutations = [...finalMutations];
@@ -1091,9 +1096,16 @@ export class PipelineActionStateMachine {
     // §3 v12 QA: removed the `required` gate — the decision critic now fires on
     // every decide beat, catching single-option and other LLM quality issues that
     // would otherwise pass through unchecked (e.g. add_item on a travel action).
-    // TODO: re-evaluate after more testing data — anomaly-based gating
-    // (e.g. decision.length < 2 or baseDc out of range) may be a lighter
-    // alternative once we have enough critic verdicts to compare.
+    // RA-4c: the anomaly-based gating this TODO asked for now exists (`critic-gate.ts`), opt-in
+    // via `criticGateMode`. A clean beat under 'anomaly' skips the critic call entirely — no
+    // verdict, no criticCallIds, byte-identical to the beat never having a critic at all.
+    if (
+      this.criticGateMode === 'anomaly' &&
+      !isAnomalousDecide({ baseDc: decideResult.baseDc, decisionLength: decideResult.decision.length, actionType })
+    ) {
+      return { result: decideResult, criticCallIds: [] };
+    }
+
     const input: CriticInput = {
       beat: 'decision',
       decision: adaptDecideToLlmDecision(decideResult),
@@ -1178,8 +1190,19 @@ export class PipelineActionStateMachine {
     decideResult: PipelineDecideResult,
     finalMutations: unknown[],
     context: LlmContext,
+    actionType: ActionType,
   ): Promise<{ outcomeText: string; criticCallIds: number[] }> {
     if (!this.critic) return { outcomeText, criticCallIds: [] };
+
+    // RA-4c: gated the same way as `critiqueDecide`, keyed off the decide result this narration
+    // resolves against — a narrate beat's coherence risk traces back to how risky its authoring
+    // decide beat looked, and that's the only anomaly signal available at this beat.
+    if (
+      this.criticGateMode === 'anomaly' &&
+      !isAnomalousDecide({ baseDc: decideResult.baseDc, decisionLength: decideResult.decision.length, actionType })
+    ) {
+      return { outcomeText, criticCallIds: [] };
+    }
 
     const input: CriticInput = {
       beat: 'resolution',

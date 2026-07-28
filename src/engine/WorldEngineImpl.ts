@@ -33,6 +33,7 @@ import { ProdPipelineLlmGateway, type ProdPipelineGatewayConfig } from "../llm/p
 import type { PipelineLlmGateway } from "../llm/pipeline/types.js";
 import type { PipelineContextResolver } from "./action/pipeline-context.js";
 import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
+import type { CriticGateMode } from "./action/critic-gate.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
 import { readCombatState, type CombatState } from "./action/combat-state.js";
 import type { NodeType } from "../db/repositories/relation.js";
@@ -246,6 +247,8 @@ interface WorldEngineConfig {
   /** Coherence critic (Thread 2, opt-in): decision beats critiqued via CritiquedLlmGateway,
    *  resolution beats via the machine hook. Absent = disabled. */
   critic?: CriticGateway;
+  /** RA-4c: WHEN the critic above fires. Absent → machine default ('always', today's behaviour). */
+  criticGateMode?: CriticGateMode;
   /** v12 pipeline config. Not used when pipelineLlmGateway is present. */
   pipelineLlm?: ProdPipelineGatewayConfig;
 
@@ -386,6 +389,7 @@ export class WorldEngineImpl implements WorldEngine {
       contextResolver,
       this.geographyFinalize,
       config.critic,
+      config.criticGateMode,
     );
   }
 

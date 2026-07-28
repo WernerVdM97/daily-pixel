@@ -19,6 +19,10 @@ export interface LlmCallRecord {
   /** Critic verdict for a critic call: 'ok' | 'minor' | 'major'. NULL/absent on decision calls
    *  and on critic calls that failed before producing a verdict. */
   criticSeverity?: string | null;
+  /** Which beat a critic call reviewed: 'decision' | 'resolution' (`CriticInput.beat`). NULL/absent
+   *  on non-critic calls. Lets `llmCostSummary.ts` compute the EXACT actionable-critic count
+   *  (beat×severity), not an upper bound — see that file. */
+  beat?: string | null;
   model: string;
   temperature: number;
   /** 0 = primary call, 1 = stripped-context retry (FallbackLlmGateway tier 1). */

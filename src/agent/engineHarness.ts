@@ -37,6 +37,9 @@ import { TagResolver } from '../scenes/TagResolver.js';
 import type { DayJobDef } from '../controller/dayJob.js';
 import type { PipelineLlmGateway } from '../llm/pipeline/types.js';
 import type { ClassDef, ModifierDef } from '../engine/StatComputer.js';
+import type { CriticGateway } from '../llm/LlmGateway.js';
+import { DeepseekLlmGateway } from '../llm/DeepseekLlmGateway.js';
+import type { CriticGateMode } from '../engine/action/critic-gate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', '..', 'assets');
@@ -54,6 +57,20 @@ export interface AgentEngineConfig {
   /** If true, records an `llm_calls` row per pipeline stage on the real path (into the same
    *  in-memory DB). Off by default — the harness DB is ephemeral. */
   recordLlmCalls?: boolean;
+  /** RA-4: pre-built coherence-critic gateway for deterministic tests — bypasses the real
+   *  DeepSeek transport, mirroring the `pipelineLlmGateway` split above. Omit on a live
+   *  (apiKey) run to get the real `DeepseekLlmGateway` critic wired below; omit everywhere
+   *  else (as every existing caller does) to run with no critic at all, exactly as before RA-4. */
+  criticGateway?: CriticGateway;
+  /** RA-4c: WHEN the critic (if any) fires. Absent → machine default ('always'). */
+  criticGateMode?: CriticGateMode;
+  /** RA-4 Finding 1: mirrors prod's `ENABLE_COHERENCE_CRITIC` opt-out (index.ts) — the caller
+   *  resolves the env var and passes the resulting boolean in; this function never reads
+   *  `process.env` itself (it's a library used by tests, which must stay environment-independent).
+   *  Default (absent) is `true`, matching prod's default-on. `false` wires NO critic at all, even
+   *  if `criticGateway`/`apiKey` would otherwise supply one — the run then takes the machine's
+   *  no-critic path, giving the A/B its third ("critic off") arm. */
+  criticEnabled?: boolean;
 }
 
 export interface AgentEngine {
@@ -96,6 +113,24 @@ export function buildAgentEngine(config: AgentEngineConfig): AgentEngine {
   const dayJobIncome: Record<string, number> = {};
   for (const job of dayJobs) dayJobIncome[job.name] = job.base_income;
 
+  // RA-4: the coherence critic was never wired into this harness before — every agent-player run
+  // took the machine's no-critic path regardless of prod's ENABLE_COHERENCE_CRITIC. A test injects
+  // `criticGateway` (a scripted double, no network); a live (apiKey) run with none injected gets
+  // the real `DeepseekLlmGateway`, same transport `pipelineLlm` uses below, so the A/B this harness
+  // exists to run actually has a critic to gate.
+  // RA-4 Finding 1: `criticEnabled: false` (the caller's resolved ENABLE_COHERENCE_CRITIC opt-out)
+  // short-circuits to no critic at all, even over an injected `criticGateway` — otherwise a test
+  // double would defeat the opt-out it exists to prove.
+  const critic = config.criticEnabled === false
+    ? undefined
+    : (config.criticGateway ?? (config.apiKey
+        ? new DeepseekLlmGateway({
+            apiKey: config.apiKey,
+            ...(config.model ? { model: config.model } : {}),
+            ...(config.recordLlmCalls ? { recorder: new LlmCallRepository(db) } : {}),
+          })
+        : undefined));
+
   const engine = new WorldEngineImpl({
     db,
     userRepo: new UserRepository(db),
@@ -113,6 +148,8 @@ export function buildAgentEngine(config: AgentEngineConfig): AgentEngine {
           },
         }),
     ...(config.rollD20 ? { rollD20: config.rollD20 } : {}),
+    ...(critic ? { critic } : {}),
+    ...(config.criticGateMode ? { criticGateMode: config.criticGateMode } : {}),
     classDefs: assets.classes as ClassDef[],
     upbringingDefs: assets.backgrounds as ModifierDef[],
     raceDefs: assets.races as ModifierDef[],

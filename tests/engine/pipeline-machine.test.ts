@@ -1349,6 +1349,121 @@ describe('PipelineActionStateMachine — T4 critic', () => {
   });
 });
 
+/**
+ * RA-4c — the anomaly gate (SL-3 measure-first). `criticGateMode` is an OPTIONAL 7th constructor
+ * param defaulted to 'always', so every describe block above (which never passes it) stays on
+ * today's unconditional-fire path — these tests are additive, not a regression risk to those.
+ * "barter with the merchant" is a deliberate non-combat, heuristic-hit rawInput (classifier.ts's
+ * social table) so `actionType` is never 'combat' here — the combat exemption is covered by its
+ * own case in `tests/engine/critic-gate.test.ts` (the pure predicate) rather than re-derived via
+ * a full combat establish flow here.
+ */
+describe('PipelineActionStateMachine — RA-4c anomaly gate', () => {
+  function cleanDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'haggle',
+      stat: 'charisma',
+      baseDc: 12, // inside the anomaly band — see critic-gate.ts's BASE_DC_ANOMALY_MIN/MAX
+      required: false,
+      decision: [
+        { label: 'Offer a fair price', dcModifier: 0 },
+        { label: 'Lowball them', dcModifier: 2 },
+      ],
+      ...overrides,
+    };
+  }
+
+  it('anomaly mode: a clean decide beat skips the critic entirely (no call at all)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'anomaly');
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+
+    expect(critic.calls).toHaveLength(0);
+    if (started.resolved) throw new Error('expected unresolved start');
+    // Pass-through proves the gate skip didn't also skip returning the original result.
+    expect(started.state.lastDecideResult).toEqual(cleanDecideResult());
+  });
+
+  it('anomaly mode: a clean narrate beat skips the critic entirely', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You strike a fair deal.' };
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'anomaly');
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    // Step 1: still under the beat cap, so this calls decide() again — same clean shape.
+    const step1 = await machine.step(started.state, 'Offer a fair price', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step 1');
+    // Step 2: beat cap reached (MAX_DECISIONS_PER_ACTION=2) — resolves WITHOUT another decide()
+    // call, narrating against the same clean `lastDecideResult` carried from step 1.
+    const step2 = await machine.step(step1.state, 'Offer a fair price', testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+
+    expect(critic.calls).toHaveLength(0);
+    if (step2.resolved) expect(step2.outcome.outcomeText).toBe('You strike a fair deal.');
+  });
+
+  it('anomaly mode: a baseDc outside the authored band invokes the critic', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult({ baseDc: 30 }); // above BASE_DC_ANOMALY_MAX
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'anomaly');
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+
+    expect(critic.calls).toHaveLength(1);
+    expect(critic.calls[0].beat).toBe('decision');
+    // Fails-open shape (MockCriticGateway's default verdict, `ok: true`) still passes the
+    // decide result through unchanged — the gate firing doesn't disturb that contract.
+    if (started.resolved) throw new Error('expected unresolved start');
+    expect(started.state.lastDecideResult).toEqual(cleanDecideResult({ baseDc: 30 }));
+  });
+
+  it('anomaly mode: an empty decision[] on a non-combat beat invokes the critic', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult({ decision: [] });
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You strike a fair deal.' };
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'anomaly');
+
+    // §2 v12 QA auto-resolve: an empty decision[] on beat 1 jumps straight to resolve within
+    // start() — so this ONE call exercises both gate sites: critiqueDecide (the empty decide
+    // result itself) AND critiqueNarration (resolving against that same anomalous decide result).
+    await machine.start(testChar(), 'barter with the merchant', testItems);
+
+    expect(critic.calls).toHaveLength(2);
+    expect(critic.calls[0].beat).toBe('decision');
+    expect(critic.calls[1].beat).toBe('resolution');
+  });
+
+  it("'always' mode (the default) invokes the critic on every beat, exactly as today", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You strike a fair deal.' };
+    const critic = new MockCriticGateway();
+    // Explicit 'always' here; the default-omitted case is already covered by every T4 test above.
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'always');
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step1 = await machine.step(started.state, 'Offer a fair price', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step 1');
+    const step2 = await machine.step(step1.state, 'Offer a fair price', testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+
+    // start()'s decide + step1's decide + step2's narrate = 3 critic calls, none skipped.
+    expect(critic.calls).toHaveLength(3);
+  });
+});
+
 describe('PipelineActionStateMachine — §2 v12 QA: auto-resolve + single-option validator', () => {
   it('auto-resolve: start() returns resolved:true when LLM returns decision:[] on beat 1', async () => {
     const llm = new MockPipelineLlmGateway();

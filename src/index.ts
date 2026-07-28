@@ -45,6 +45,7 @@ import { WorldEngineImpl } from "./engine/WorldEngineImpl.js";
 import type { WorldEngine } from "./engine/WorldEngine.js";
 import type { ClassDef, ModifierDef } from "./engine/StatComputer.js";
 import type { LlmDecision, LlmContext, RecapGateway, CriticGateway } from "./llm/LlmGateway.js";
+import type { CriticGateMode } from "./engine/action/critic-gate.js";
 import { DeepseekLlmGateway } from "./llm/DeepseekLlmGateway.js";
 import { DeepCapturePolicy } from "./llm/capture-policy.js";
 import { readLoggingEnv, staleLoggingEnv } from "./config/env.js";
@@ -1145,6 +1146,10 @@ async function main() {
   let recapGateway: RecapGateway | undefined;
   // Coherence critic (Thread 2). On by default; ENABLE_COHERENCE_CRITIC=false opts out.
   const criticEnabled = process.env.ENABLE_COHERENCE_CRITIC !== "false";
+  // RA-4c (SL-3 measure-first): defaults to "always" (today's unconditional-fire behaviour) —
+  // set CRITIC_GATE_MODE=anomaly to gate the critic to anomaly-flagged beats only. The owner
+  // picks the real default after the A/B numbers are in; no code edit needed to switch arms.
+  const criticGateMode: CriticGateMode = process.env.CRITIC_GATE_MODE === "anomaly" ? "anomaly" : "always";
   let criticGateway: CriticGateway | undefined;
   if (DEEPSEEK_API_KEY) {
     const deepseek = new DeepseekLlmGateway({
@@ -1206,7 +1211,7 @@ async function main() {
     actionRepo,
     npcRepo,
     ...(cartographer ? { cartographer } : {}),
-    ...(criticEnabled && criticGateway ? { critic: criticGateway } : {}),
+    ...(criticEnabled && criticGateway ? { critic: criticGateway, criticGateMode } : {}),
     // v12 pipeline config (required). Always provided — the legacy v11 machine is gone.
     pipelineLlm: DEEPSEEK_API_KEY ? {
       apiKey: DEEPSEEK_API_KEY,
@@ -1233,7 +1238,11 @@ async function main() {
   });
   console.log(c.green("[engine] WorldEngine initialized"));
   if (criticEnabled && criticGateway) {
-    console.log(c.cyan("[llm] coherence critic ENABLED (decision + resolution beats; logged as call_kind=critic)"));
+    console.log(
+      c.cyan(
+        `[llm] coherence critic ENABLED, gate=${criticGateMode} (decision + resolution beats; logged as call_kind=critic)`,
+      ),
+    );
   } else if (!criticEnabled) {
     console.log(c.grey("[llm] coherence critic disabled (ENABLE_COHERENCE_CRITIC=false)"));
   }

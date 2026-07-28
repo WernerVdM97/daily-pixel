@@ -488,6 +488,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
             promptVersion: `critic-${CRITIC_VERSION}`,
             callKind: 'critic',
             criticSeverity: parseOk ? (verdict.ok ? 'ok' : verdict.severity) : null,
+            beat: input.beat,
             model: this.model,
             temperature: this.temperature,
             tier: 0,

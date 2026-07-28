@@ -12,6 +12,7 @@ import type { CharCreateData, CharacterData, WorldEngine } from '../../src/engin
 import type { ActionMenuResult, DayJobStart, StartRenderResult } from '../../src/controller/SessionController.js';
 import type { MenuViewState, OutcomeViewState } from '../../src/view/viewState.js';
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
+import type { CriticGateway, CriticInput, CriticVerdict } from '../../src/llm/LlmGateway.js';
 
 // ── M4.2 — harness bring-up + one action end-to-end. Proves the seam (parent decision 3): the
 // agent enters at the SAME SessionController methods the Discord adapter calls, driving menu →
@@ -46,7 +47,8 @@ const pipelineScript: PipelineScript = {
 // A non-combat action whose DECIDE returns zero options auto-resolves inside `startAction`
 // (PipelineActionStateMachine: empty decision on a non-combat action resolves in start()), so
 // `runCustomAction` returns `StartRenderResult.kind === 'outcome'` directly — the immediate-outcome
-// path that has a compact-private / full-public split (and the path Finding 1 was hiding in).
+// path that fans out to a private and a public view (identical since RA-6; it was a compact/full
+// split before), and the path Finding 1 was hiding in.
 const immediateScript: PipelineScript = {
   classify: () => ({
     kind: 'hit',
@@ -174,6 +176,60 @@ describe('AgentHarness — one action end-to-end', () => {
     const result = await harness.playOneAction();
     expect(result).toEqual({ kind: 'slept' });
     expect(harness.transcript.events).toHaveLength(1); // just the menu turn
+  });
+});
+
+/** Scriptable critic double (mirrors `tests/engine/pipeline-machine.test.ts`'s MockCriticGateway) —
+ *  a bare call-recorder is enough here since these tests assert WIRING (was `critique` ever
+ *  invoked), not verdict handling. */
+class MockCriticGateway implements CriticGateway {
+  calls: CriticInput[] = [];
+
+  async critique(input: CriticInput): Promise<CriticVerdict> {
+    this.calls.push(input);
+    return { ok: true, severity: 'minor', issues: [] };
+  }
+}
+
+// ── RA-4 Finding 1 — `criticEnabled` opt-out. `criticGateMode` defaults to 'always' (unset here),
+// so the goblin script's decide+narrate beats fire the critic on every call when one is wired —
+// proving "wired" or "not wired" only needs to count `critic.calls`, not gate on anomaly shape. ──
+describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
+  const goblinMoves: AgentMove[] = [
+    { kind: 'custom', text: 'attack the goblin' },
+    { kind: 'choice', index: 0 },
+    { kind: 'choice', index: 0 },
+  ];
+
+  it('wires the injected criticGateway by default (criticEnabled omitted, matching prod default-on)', async () => {
+    const critic = new MockCriticGateway();
+    const agentEngine = buildAgentEngine({
+      pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
+      rollD20: () => 20,
+      criticGateway: critic,
+    });
+    const harness = createAgentHarness(agentEngine, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
+    harness.seedCharacter(SEED);
+
+    await harness.playOneAction();
+
+    expect(critic.calls.length).toBeGreaterThan(0);
+  });
+
+  it('wires NO critic at all when criticEnabled is false, even over an injected criticGateway', async () => {
+    const critic = new MockCriticGateway();
+    const agentEngine = buildAgentEngine({
+      pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
+      rollD20: () => 20,
+      criticGateway: critic,
+      criticEnabled: false,
+    });
+    const harness = createAgentHarness(agentEngine, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
+    harness.seedCharacter(SEED);
+
+    await harness.playOneAction();
+
+    expect(critic.calls).toHaveLength(0);
   });
 });
 

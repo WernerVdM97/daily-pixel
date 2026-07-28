@@ -16,7 +16,10 @@
  * leaves the repro up to the failure point.
  *
  * Env: DEEPSEEK_API_KEY (required), DEEPSEEK_MODEL (optional override), AGENT_DAYS (default 1),
- * AGENT_OUT (transcript path; default a timestamped file under the OS temp dir).
+ * AGENT_OUT (transcript path; default a timestamped file under the OS temp dir),
+ * ENABLE_COHERENCE_CRITIC (RA-4 Finding 1, default on — "false" opts out, same as index.ts),
+ * CRITIC_GATE_MODE (RA-4c, "always" default | "anomaly" — see src/engine/action/critic-gate.ts,
+ * only relevant while the critic above is enabled).
  */
 
 import { writeFileSync } from 'node:fs';
@@ -29,6 +32,8 @@ import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
 import { LlmCallRepository } from '../db/repositories/llm-call.js';
 import type { CharCreateData } from '../engine/WorldEngine.js';
+import type { CriticGateMode } from '../engine/action/critic-gate.js';
+import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
 
 const SEED: CharCreateData = {
   name: 'Ashwin',
@@ -56,10 +61,29 @@ async function main(): Promise<void> {
     return;
   }
   const outPath = process.env.AGENT_OUT ?? path.join(os.tmpdir(), `agent-run-${Date.now()}.json`);
+  // RA-4 Finding 1: honour the SAME switch and default as prod (`index.ts`'s ENABLE_COHERENCE_CRITIC
+  // — default on, the literal string "false" opts out) — without this, a live run always pays
+  // critic cost with no way to disable it, which defeats the "critic off" arm of the A/B.
+  const criticEnabled = process.env.ENABLE_COHERENCE_CRITIC !== 'false';
+  // RA-4c A/B: same switch and default as prod (`index.ts`'s CRITIC_GATE_MODE wiring, gated by the
+  // criticEnabled switch above) — "always" fires the critic on every decide/narrate beat (this
+  // harness's prior behaviour once RA-4 wires a live critic in), "anomaly" gates it. Pick the arm
+  // per run, no code edit needed.
+  const criticGateMode: CriticGateMode = process.env.CRITIC_GATE_MODE === 'anomaly' ? 'anomaly' : 'always';
 
   // Real pipeline gateway (built from apiKey inside buildAgentEngine) + real brain, both DeepSeek.
   // recordLlmCalls persists every pipeline stage; the brain records its own picks into the same DB.
-  const agentEngine = buildAgentEngine({ apiKey, ...(model ? { model } : {}), recordLlmCalls: true });
+  // RA-4: buildAgentEngine now also wires a real coherence-critic gateway from this apiKey (it never
+  // did before), so a live run actually has a critic to gate — see engineHarness.ts. criticEnabled
+  // gates that wiring off entirely (RA-4 Finding 1), giving the A/B its three measurable arms: off,
+  // always, anomaly-gated.
+  const agentEngine = buildAgentEngine({
+    apiKey,
+    ...(model ? { model } : {}),
+    recordLlmCalls: true,
+    criticGateMode,
+    criticEnabled,
+  });
   const brain = new ProdAgentPlayerGateway({
     apiKey,
     ...(model ? { model } : {}),
@@ -91,6 +115,9 @@ async function main(): Promise<void> {
         `${run.commutes} commutes, ${run.dayBoundaries} nights\n  findings: ${run.findings.error} error(s), ` +
         `${run.findings.warning} warning(s)`,
     );
+    // RA-4a: queried from the SAME `:memory:` db `recordLlmCalls` wrote into — must run here,
+    // before the process exits and that db (and its llm_calls rows) is gone for good.
+    console.error(`\n${formatLlmCostSummary(summarizeLlmCosts(agentEngine.db))}`);
   }
 
   // M4.5 feedback pass (goal b): a critic reads the completed transcript and writes a qualitative
