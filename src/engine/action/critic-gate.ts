@@ -73,6 +73,13 @@ export interface AnomalyCheckInput {
  */
 export function isAnomalousDecide(input: AnomalyCheckInput): boolean {
   const { baseDc, decisionLength, actionType } = input;
+  // MUST come before the band comparison. `baseDc` is `Number(raw.baseDc ?? raw.base_dc ?? 10)`
+  // (`ProdPipelineGateway.ts:148`) with no validation, so a DECIDE beat that authored a
+  // non-numeric value ("hard", "14-16", an object) yields NaN rather than a number. NaN fails
+  // BOTH `< MIN` and `> MAX`, so without this guard the predicate would return false and the
+  // gate would skip the critic on the single most malformed beat it could ever see — an
+  // anomalous beat slipping through the anomaly gate, inverting the whole point.
+  if (!Number.isFinite(baseDc)) return true;
   if (baseDc < BASE_DC_ANOMALY_MIN || baseDc > BASE_DC_ANOMALY_MAX) return true;
   if (decisionLength === 0 && actionType !== 'combat') return true;
   return false;
