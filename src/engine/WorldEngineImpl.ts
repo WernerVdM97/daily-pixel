@@ -646,6 +646,15 @@ export class WorldEngineImpl implements WorldEngine {
     // name at the same location is almost certainly an LLM accident; flag it and still create,
     // so the auditable world-state change is recorded even when we know it's a dup.
     for (const npc of applied.npcsToAdd) {
+      // `applied.location` is the POST-mutation location, not necessarily where this action's
+      // narration/mint happened — reachable in principle for RA-3's combat mint, since the D6
+      // travel-coherence gate can inject a relocate mutation into the same resolution if DECIDE's
+      // `sceneLocation` ever drifts from the actual location mid-fight. Not guarded here: the
+      // minted NPC's `homeLocation` (set by the caller to the fight's PRE-mutation location) is
+      // independent of this `location` write, so on a mismatch the nightly wander-skip
+      // (`home_location === location`) never fires and the foe drifts on the random 80% wander
+      // until it happens to land on its home location and freeze. Mis-placed and mobile, then —
+      // not a lost mint, but not self-correcting in any directed sense either.
       const atLocation = applied.location;
       const collision = this.npcRepo.findByLocation(atLocation)
         .find(existing => existing.name.trim().toLowerCase() === npc.name.trim().toLowerCase());
@@ -660,6 +669,7 @@ export class WorldEngineImpl implements WorldEngine {
         class: npc.class,
         race: npc.race,
         description: npc.description,
+        health: npc.health,
         location: atLocation,
         homeLocation: npc.homeLocation,
         createdByActionId: actionRow.id,

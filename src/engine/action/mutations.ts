@@ -76,8 +76,9 @@ export interface ValidationResult {
 export interface AppliedState extends MutationContext {
   itemsToAdd: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity: number }>;
   itemsToRemove: Array<{ name: string; quantity: number }>;
-  /** v11: add_npc (create-only). Legacy spawn_npc maps here. */
-  npcsToAdd: Array<{ name: string; class?: string; description?: string; race?: string; homeLocation?: string }>;
+  /** v11: add_npc (create-only). Legacy spawn_npc maps here. `health` added by RA-3 bounded —
+   *  `npcRepo.create` always accepted it, the gap was only ever in this applier. */
+  npcsToAdd: Array<{ name: string; class?: string; description?: string; race?: string; homeLocation?: string; health?: number }>;
   /** v11: update_npc — handle already resolved to npcId by the gateway. */
   npcsToUpdate: Array<{ npcId: number; description?: string; location?: string; class?: string; race?: string }>;
   /** v11: remove_npc — handle already resolved to npcId by the gateway. */
@@ -490,6 +491,9 @@ export function applyMutations(
           ...(m.description !== undefined ? { description: String(m.description) } : {}),
           ...(m.race !== undefined ? { race: String(m.race) } : {}),
           ...(m.homeLocation !== undefined ? { homeLocation: String(m.homeLocation) } : {}),
+          // RA-3 bounded: carries the surviving foe's HP for the engine-authored mint.
+          // `npcRepo.create` already accepted `health`; only this copy was missing.
+          ...(m.health !== undefined ? { health: Number(m.health) } : {}),
         });
         break;
       case 'update_npc':

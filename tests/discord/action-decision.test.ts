@@ -579,10 +579,14 @@ describe('buildDecisionMessage — last-stand / bail decision screen shows the r
 describe('buildDecisionMessage — fatal-blow (finish/spare) decision screen (SL-6)', () => {
   const fatalBlowDecision = {
     prompt: 'Shadow Stag is broken and cannot rise. Finish it, or let it live?',
+    // RA-3 correction: the real path can no longer produce `woundWord: 'Slain'` / `filled: 0`
+    // here — the player hasn't chosen finish/spare yet, so `handleCombatStep`'s fatal-blow
+    // branch deliberately bands a nominal 1 HP (never the real 0), reading a last-gasp
+    // survivor. 1/5 -> 'Battered', filled 1 (see `enemyConditionBand`'s own unit coverage).
     combatStatus: {
       enemyName: 'Shadow Stag',
-      woundWord: 'Slain',
-      pips: { filled: 0, total: 5 },
+      woundWord: 'Battered',
+      pips: { filled: 1, total: 5 },
       playerHp: 24,
       playerMaxHp: 30,
       playerHpDelta: 0,

@@ -70,6 +70,13 @@ export interface PipelineInternalActionState extends ActionState {
    *  so the npc-name→id resolution gap doesn't force re-resolution every beat (T3 decision 4).
    *  Undefined when no combat is in progress. */
   combatAnchor?: { node: 'npc' | 'location'; name: string };
+  /** RA-3 bounded: set at establish when `combatEnemy.anchor === 'npc'` but
+   *  `resolveRelationEndpoint` failed to match a nearby NPC — the model named a specific foe
+   *  the DB doesn't have (the F#1 vanishing-caravan case). Held across rounds for the same
+   *  reason as `combatAnchor` (the fallback only runs once, at establish); undefined for a
+   *  resolved NPC, a genuinely ambient `anchor: 'location'` foe, or no `combatEnemy` signal at
+   *  all. Consumed by `resolveCombat` to mint the foe as a real NPC if it survives. */
+  unresolvedNpcMint?: { name: string };
   /** Set when a would-be-lethal blow lands after the once-per-day survive-at-1 floor
    *  has already been spent — the hp_zero trace marker on the resolved outcome. */
   hpZero?: boolean;
@@ -515,7 +522,13 @@ export class PipelineActionStateMachine {
     // ── Establish or read combat state ──
     let cs = readCombatState(context.sceneState ?? []);
 
+    // RA-3 bounded: reset on every fresh establish (a stale marker from the PREVIOUS fight in
+    // this same action, e.g. a bailed-then-re-engaged encounter, must not leak into this one) and
+    // held unchanged across rounds otherwise — set below only in the npc-resolution-failed branch.
+    let unresolvedNpcMint: { name: string } | undefined = state.unresolvedNpcMint;
+
     if (!cs || cs.enemyHp <= 0) {
+      unresolvedNpcMint = undefined;
       const enemy = state.lastDecideResult.combatEnemy;
       if (enemy) {
         // Resolve the anchor: npc -> try nearby lookup, default to location.
@@ -529,9 +542,15 @@ export class PipelineActionStateMachine {
             resolvedNpc = nearbyNpcs.find((n) => String(n.id) === resolved.ref);
           } else {
             // NPC resolution failed — default to location-anchored minion (decision 4 fallback).
+            // SL-4 refinement: this is the ONE case RA-3 bounded mints — the model named a
+            // specific NPC the DB doesn't have, not a genuinely ambient encounter — so remember
+            // the intended name for resolveCombat to mint if the foe survives.
             anchor = { node: 'location', name: char.location };
+            unresolvedNpcMint = { name: enemy.name };
           }
         } else {
+          // Ambient/wildlife foe (anchor: 'location') — may still carry a name (e.g. "a wolf"),
+          // but SL-4 gates the mint on the anchor signal, not name-presence, so this never mints.
           anchor = { node: 'location', name: char.location };
         }
 
@@ -621,6 +640,7 @@ export class PipelineActionStateMachine {
         accumulatedDc: newDc,
         pendingDecision: nextDecision,
         combatAnchor: heldAnchor,
+        unresolvedNpcMint,
         fatalBlow: { cs, roundResult, playerHpDelta, playerBonus, enemyBonus, dc: state.lastDecideResult.baseDc },
       };
       return {
@@ -684,6 +704,7 @@ export class PipelineActionStateMachine {
           desperateChoice: true,
           pendingDecision: nextDecision,
           combatAnchor: heldAnchor,
+          unresolvedNpcMint,
         };
 
         return {
@@ -695,9 +716,12 @@ export class PipelineActionStateMachine {
         };
       } else {
         // ── Second lethal blow today → HP-zero, resolve failure ──
+        // `unresolvedNpcMint`/`heldAnchor` may have just been computed THIS call (a fresh
+        // establish that immediately hits the same-day floor) — `state` alone can be stale, so
+        // merge them in rather than relying on `state`'s own (possibly pre-establish) fields.
         return this.resolveCombat(
           cs, roundResult, playerHpDelta, newEnemyHp, 'failure',
-          state, char, items, newDc, newDecisions, chosenOption,
+          { ...state, combatAnchor: heldAnchor, unresolvedNpcMint }, char, items, newDc, newDecisions, chosenOption,
           playerBonus, enemyBonus, state.lastDecideResult.baseDc,
         );
       }
@@ -710,7 +734,7 @@ export class PipelineActionStateMachine {
       const capVerdict = playerFraction >= enemyFraction ? 'success' : 'failure';
       return this.resolveCombat(
         cs, roundResult, playerHpDelta, newEnemyHp, capVerdict,
-        state, char, items, newDc, newDecisions, chosenOption,
+        { ...state, combatAnchor: heldAnchor, unresolvedNpcMint }, char, items, newDc, newDecisions, chosenOption,
         playerBonus, enemyBonus, state.lastDecideResult.baseDc,
       );
     }
@@ -847,6 +871,7 @@ export class PipelineActionStateMachine {
       distilledType: decideResult.distilledType || state.distilledType,
       lastDecideResult: decideResult,
       combatAnchor: heldAnchor,
+      unresolvedNpcMint,
       ...(combatDecideCallId !== 0
         ? { llmCallIds: [...(state.llmCallIds ?? []), combatDecideCallId] }
         : {}),
@@ -918,23 +943,76 @@ export class PipelineActionStateMachine {
     );
 
     // Inject engine-authored combat mutations: the final combat edge + player HP delta.
-    const finalRound = fatalBlowMarker === 'spare' ? 1 : cs.round + 1;
+    // SL-7: the round always advances normally now — RA-5c's `fatalBlowMarker === 'spare' ? 1 :`
+    // override is gone. It existed only to keep a spared foe's edge at round 1; now sparing
+    // CLOSES the edge instead (below), so the round label on a closed edge is moot — the next
+    // establish rebuilds `CombatState` from scratch regardless of what round it last held.
+    const finalRound = cs.round + 1;
     // Use the state-held anchor (decision 4) — for npc fights, cs.anchor carries the
     // id-as-name that would fail re-resolution; the held anchor is the originally authored one.
     const finalCsAnchor = state.combatAnchor ?? (cs.anchor as { node: 'npc' | 'location'; name: string });
     const finalEdge = combatRoundUpdate({ ...cs, enemyHp: cs.enemyHp, anchor: finalCsAnchor }, 0, finalRound);
-    // Overwrite enemyHp to the computed final value (clamped at 0 for win). `type: 'set_relation'`
-    // is required — combatRoundUpdate returns a bare AuthoredRelation (no op `type`), so without it
-    // validateMutations drops the edge as an unknown type and the terminal in_combat write is lost
-    // (a defeated enemy's edge would linger at positive HP → the next fight resumes the dead foe).
-    // The CONTINUE/floor paths add it the same way.
-    const clampedFinalEdge = { ...finalEdge, type: 'set_relation', props: { ...finalEdge.props, enemyHp: Math.max(0, finalEnemyHp) } };
+    const survivingHp = Math.max(0, finalEnemyHp);
+    // SL-7: sparing must CLOSE the edge (enemyHp: 0), not persist the survivor at 1 HP — every
+    // band in COMBAT_BAND_TABLE deals strictly negative enemy HP, so a re-engaged 1-HP edge was a
+    // guaranteed-win farm (`handleCombatStep`'s `!cs || cs.enemyHp <= 0` check re-establishes a
+    // fresh fight the instant the edge reads 0, the same signal a genuine kill already relies on).
+    // The terminal beat below still reports the foe at `survivingHp` (1 for a spare) so the
+    // outcome frame bands a wounded tier and never 'Slain' — the beat is the narrative record of
+    // the round, the edge is combat bookkeeping, and after a spare those two deliberately diverge.
+    const edgeEnemyHp = fatalBlowMarker === 'spare' ? 0 : survivingHp;
+    // `type: 'set_relation'` is required — combatRoundUpdate returns a bare AuthoredRelation (no
+    // op `type`), so without it validateMutations drops the edge as an unknown type and the
+    // terminal in_combat write is lost (a defeated enemy's edge would linger at positive HP → the
+    // next fight resumes the dead foe). The CONTINUE/floor paths add it the same way.
+    const clampedFinalEdge = { ...finalEdge, type: 'set_relation', props: { ...finalEdge.props, enemyHp: edgeEnemyHp } };
     const engineMutations: WorldMutation[] = [
       clampedFinalEdge as unknown as WorldMutation,
       ...(playerHpDelta !== 0
         ? [{ type: 'modify_health' as const, amount: playerHpDelta }]
         : []),
     ];
+
+    // RA-3 bounded (SL-4 refinement + SL-7): the model named a specific NPC the DB didn't have
+    // (`state.unresolvedNpcMint`, set at establish when `anchor: 'npc'` resolution failed), and
+    // the foe walked away from the fight — mint it as a real NPC so the world stops narrating
+    // someone it never persists (F#1). Keyed off NOTIONAL survival, not `edgeEnemyHp` — change 0
+    // above just closed the spare edge, so the edge can no longer answer "did the foe survive?".
+    // `fatalBlowMarker === 'finish'` is the only dead outcome; `'spare'` always survives; the two
+    // non-fatal-blow callers (hpZero's second-lethal-blow failure, and cap-derive) only ever
+    // reach `resolveCombat` with `finalEnemyHp > 0` — the `newEnemyHp <= 0` win branch in
+    // `handleCombatStep` always routes through the fatal-blow interstitial instead, never here
+    // directly — but the `> 0` check is kept explicit rather than assumed, since a mint on a kill
+    // would be the exact incoherence (minting a foe the player just killed) RA-3 exists to avoid.
+    // A resolved NPC's spare (no `unresolvedNpcMint`) or a genuinely ambient `anchor: 'location'`
+    // foe (also no marker, even though DECIDE still supplies a name for wildlife per SL-4) mint
+    // nothing here — the marker is the only gate.
+    const foeSurvived = fatalBlowMarker === 'spare'
+      || (fatalBlowMarker === undefined && finalEnemyHp > 0);
+    if (state.unresolvedNpcMint && foeSurvived) {
+      engineMutations.push({
+        type: 'add_npc',
+        name: state.unresolvedNpcMint.name,
+        // Non-empty `description` is mandatory, not cosmetic: `WorldEngineImpl.nearbyNpcsAt`
+        // filters out any NPC whose description is falsy, so a null one would make the mint
+        // invisible to `getNearbyNpcs` and unable to ever be re-resolved as `anchor: 'npc'` on a
+        // later encounter — the mint would silently fail to achieve its whole purpose. This prose
+        // is an engine-authored placeholder; the full mint-on-narration half (prompt-set bump)
+        // is what lets the LLM author a real one.
+        description: 'A foe from a recent fight, left alive and wounded.',
+        health: survivingHp,
+        // `char.location` is the fight's location, captured BEFORE this resolution's own
+        // mutations run (the applier below forces the minted NPC's `location` to the
+        // POST-mutation `applied.location`, which can differ from here if this same resolution
+        // also relocated the player — see the comment there). Without a `homeLocation` the
+        // nightly tick's wander-skip (`home_location === location`) never triggers and the foe
+        // wanders off overnight, so this is set regardless of that edge case. Note the skip only
+        // freezes an NPC already standing on its home — there is no homing behaviour, so on a
+        // mismatch the foe drifts randomly until it happens to land there.
+        homeLocation: char.location,
+      } as WorldMutation);
+    }
+
     const mutationsWithCombat = [...gatedMutations, ...engineMutations];
 
     // Finalize (geography → collapse → validate).
@@ -982,7 +1060,7 @@ export class PipelineActionStateMachine {
     const combatBeat = this.buildCombatBeat(
       cs,
       roundResult,
-      Math.max(0, finalEnemyHp),
+      survivingHp,
       appliedPlayerHpDelta,
       mutations.map(m => m.type),
       playerBonus,

@@ -18,6 +18,7 @@ import type {
   PipelineResolveNarrateResult,
   PipelineStageResult,
 } from '../../src/llm/pipeline/types.js';
+import { ENEMY_HP_MIN } from '../../src/engine/action/combat-dc.js';
 // ── T6 concurrent step serialisation ──
 
 /** Minimal scriptable `PipelineLlmGateway` double for B#3's auto-resolve-start tests (mirrors
@@ -737,6 +738,248 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
 
     expect(startResult.combatEnemyName).toBeUndefined();
     expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+});
+
+describe('WorldEngineImpl — RA-3 bounded: mint the foe the world named but never had (SL-4/SL-7)', () => {
+  /** A decide()-only queue gateway — `classify()` is never expected to fire (every rawInput
+   *  below hits `heuristicClassify`'s own keyword table), and `resolveMutate`/`resolveNarrate`
+   *  are fixed (RA-3 bounded is engine-authored `add_npc`, not LLM-authored, so nothing here
+   *  needs to script loot/prose). Each `decide()` call consumes the next queued result, holding
+   *  on the last entry once exhausted (continue rounds after the scripted ones reuse it). */
+  class QueueGateway implements PipelineLlmGateway {
+    private i = 0;
+    constructor(private readonly decideQueue: PipelineDecideResult[]) {}
+
+    async classify(): Promise<PipelineStageResult<ClassifyHit>> {
+      throw new Error("unexpected classify() call — this test's rawInput should heuristic-hit");
+    }
+
+    async decide(): Promise<PipelineStageResult<PipelineDecideResult>> {
+      const result = this.decideQueue[Math.min(this.i, this.decideQueue.length - 1)];
+      this.i++;
+      return { result, callId: 0 };
+    }
+
+    async resolveMutate(): Promise<PipelineStageResult<PipelineResolveMutateResult>> {
+      return { result: { mutations: [] }, callId: 0 };
+    }
+
+    async resolveNarrate(): Promise<PipelineStageResult<PipelineResolveNarrateResult>> {
+      return { result: { outcomeText: 'The fight ends.' }, callId: 0 };
+    }
+  }
+
+  const LOCATION = "The Warden's Oak";
+
+  function seedCharacter(): { userRepo: UserRepository; charRepo: CharacterRepository; characterId: number } {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const user = userRepo.create('999999999');
+    const characterId = charRepo.create(user.id, {
+      name: 'Garrick',
+      class: 'Fighter',
+      upbringing: 'Village',
+      race: 'Human',
+      alignment: 'lawful good',
+      day_job: 'Guard',
+      stats: JSON.stringify({ physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }),
+      health: 10,
+      max_health: 10,
+      max_stamina: 10,
+      stamina: 10,
+      rolls_remaining: 3,
+      location: LOCATION,
+      wealth: 5,
+      last_action_state: null,
+    }).id;
+    return { userRepo, charRepo, characterId };
+  }
+
+  function makeEngine(
+    userRepo: UserRepository,
+    charRepo: CharacterRepository,
+    gateway: PipelineLlmGateway,
+    rolls: number[],
+  ): WorldEngineImpl {
+    let i = 0;
+    return new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: '__divine__', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: gateway,
+      rollD20: () => rolls[i++],
+    });
+  }
+
+  // baseDc=6 -> deriveEnemyMaxHp(6)=ENEMY_HP_MIN=6 for the unresolved/ambient establish paths
+  // below; rolls [20, 1] force a player nat-20 (clean, amplified enemyHpDelta -8), which kills a
+  // 6-HP foe outright in round 1 regardless of stats/items (resolveCombatRound's crit branch is
+  // dice-only) — so every scenario reaches the fatal-blow interstitial after exactly one step().
+  function unresolvedNpcDecide(name: string): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name, anchor: 'npc' },
+    };
+  }
+
+  it('an anchor: npc foe whose name fails to resolve, then spared, mints exactly one NPC row with that name, a non-empty description, and health equal to its surviving HP', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(
+      userRepo, charRepo,
+      new QueueGateway([unresolvedNpcDecide('Raider')]),
+      [20, 1],
+    );
+
+    await engine.startAction(characterId, 'attack the raider');
+    const interstitial = await engine.stepAction(characterId, 'Press the attack');
+    expect(interstitial.resolved).toBe(false);
+
+    const spared = await engine.stepAction(characterId, 'Show mercy');
+    expect(spared.resolved).toBe(true);
+
+    const npcRepo = new NpcRepository(getDb());
+    const minted = npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Raider');
+    expect(minted).toHaveLength(1);
+    expect(minted[0].description).toBeTruthy();
+    expect(minted[0].health).toBe(1); // the spare's nominal surviving HP (SL-7)
+
+    closeDb();
+  });
+
+  it('the same fight ending in a kill mints nothing', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(
+      userRepo, charRepo,
+      new QueueGateway([unresolvedNpcDecide('Raider')]),
+      [20, 1],
+    );
+
+    await engine.startAction(characterId, 'attack the raider');
+    const interstitial = await engine.stepAction(characterId, 'Press the attack');
+    expect(interstitial.resolved).toBe(false);
+
+    const killed = await engine.stepAction(characterId, 'Finish it');
+    expect(killed.resolved).toBe(true);
+
+    const npcRepo = new NpcRepository(getDb());
+    expect(npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Raider')).toHaveLength(0);
+
+    closeDb();
+  });
+
+  it('an anchor: location (ambient) foe mints nothing even when spared and even though DECIDE still supplies a name', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const ambientDecide: PipelineDecideResult = {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'a wolf', anchor: 'location' },
+    };
+    const engine = makeEngine(userRepo, charRepo, new QueueGateway([ambientDecide]), [20, 1]);
+
+    await engine.startAction(characterId, 'attack the wolf');
+    const interstitial = await engine.stepAction(characterId, 'Press the attack');
+    expect(interstitial.resolved).toBe(false);
+
+    const spared = await engine.stepAction(characterId, 'Show mercy');
+    expect(spared.resolved).toBe(true);
+
+    const npcRepo = new NpcRepository(getDb());
+    expect(npcRepo.findByLocation(LOCATION).filter((n) => n.name.toLowerCase() === 'a wolf')).toHaveLength(0);
+
+    closeDb();
+  });
+
+  it('a resolved NPC fight, spared, mints no duplicate row and writes no health to the existing row', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const npcRepo = new NpcRepository(getDb());
+    // health: 8 (not Kara's usual 16) so the same nat-20-vs-1 crit that one-shots the other
+    // scenarios also one-shots her here (8-8=0) — keeping this fight a single WIN round, since a
+    // CONTINUE round against a RESOLVED npc anchor would exercise a separate, pre-existing gap in
+    // `persistAuthoredRelations` (it re-resolves the anchor's id-as-name against nearbyNpcs by
+    // NAME, which a numeric id never matches — documented in `combat-state.ts`'s `toAnchor` and
+    // worked around everywhere else by hand-writing the edge; out of RA-3 bounded's scope). This
+    // test only cares about the NPC ROW, not the edge, so it sidesteps that gap entirely.
+    const kara = npcRepo.create({ name: 'Kara', description: 'A lean, watchful hunter.', health: 8, location: LOCATION });
+
+    const engine = makeEngine(userRepo, charRepo, new QueueGateway([unresolvedNpcDecide('Kara')]), [20, 1]);
+
+    await engine.startAction(characterId, 'attack kara');
+    const interstitial = await engine.stepAction(characterId, 'Press the attack');
+    expect(interstitial.resolved).toBe(false);
+
+    const spared = await engine.stepAction(characterId, 'Show mercy');
+    expect(spared.resolved).toBe(true);
+
+    // No duplicate row — the name resolved against Kara's own (pre-existing) row, so
+    // `unresolvedNpcMint` was never set and nothing was minted.
+    expect(npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Kara')).toHaveLength(1);
+    // No health write either — SL-7 is explicit that a spared RESOLVED npc's row is untouched
+    // (nothing in the nightly tick heals NPCs, so writing 1 here would permanently cripple her).
+    expect(npcRepo.findById(kara.id)?.health).toBe(8);
+
+    closeDb();
+  });
+
+  it('the minted NPC is visible to getNearbyNpcs and resolves as anchor: npc on a second encounter, seeding enemyMaxHp from the persisted row (clamped to ENEMY_HP_MIN) — and re-engaging creates no duplicate row', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    // Fight 1: establish (unresolved) -> spare -> mint 'Raider' at health 1. Fight 2's own
+    // NEW_ACTION decide call (queue index 1) also names 'Raider' — this time nearbyNpcsAt CAN
+    // see it (non-empty description), so resolution succeeds and the establish path reads its
+    // real (1 HP) health off the row (clamped to ENEMY_HP_MIN) rather than re-deriving from
+    // baseDc. Both fights are kept to a single WIN round (rolls [20,1] each) — a CONTINUE round
+    // against this now-RESOLVED npc anchor would hit a separate, pre-existing gap in
+    // `persistAuthoredRelations` (documented on the other test above), so this reads the seeded
+    // HP off the terminal outcome's `combatFrame` instead of the mid-fight edge.
+    const engine = makeEngine(
+      userRepo, charRepo,
+      new QueueGateway([unresolvedNpcDecide('Raider'), unresolvedNpcDecide('Raider')]),
+      [20, 1, 20, 1],
+    );
+
+    await engine.startAction(characterId, 'attack the raider');
+    const interstitial = await engine.stepAction(characterId, 'Press the attack');
+    expect(interstitial.resolved).toBe(false);
+    const spared = await engine.stepAction(characterId, 'Show mercy');
+    expect(spared.resolved).toBe(true);
+
+    const npcRepo = new NpcRepository(getDb());
+    const minted = npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Raider');
+    expect(minted).toHaveLength(1);
+    expect(minted[0].health).toBe(1);
+
+    // Re-engage: a second fight against the same name. The edge closed on the spare (SL-7), so
+    // this establishes fresh rather than continuing — and this time resolution succeeds against
+    // the minted row instead of falling back to an unresolved/ambient foe.
+    await engine.startAction(characterId, 'attack the raider again');
+    const reengageInterstitial = await engine.stepAction(characterId, 'Press the attack');
+    expect(reengageInterstitial.resolved).toBe(false);
+    const reengageSpared = await engine.stepAction(characterId, 'Show mercy');
+    expect(reengageSpared.resolved).toBe(true);
+    if (!reengageSpared.resolved) throw new Error('expected resolved step');
+
+    expect(reengageSpared.outcome.combatFrame?.enemyName).toBe('Raider');
+    // The row's health (1) clamped up to ENEMY_HP_MIN — weakened, not a 1-HP punchbag (SL-7).
+    expect(reengageSpared.outcome.combatFrame?.enemyMaxHp).toBe(ENEMY_HP_MIN);
+
+    // No duplicate row from the second encounter, resolved and spared again.
+    expect(npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Raider')).toHaveLength(1);
 
     closeDb();
   });

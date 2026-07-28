@@ -2433,7 +2433,7 @@ describe('PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)', 
     expect(edgeMutation?.props.enemyHp).toBe(0);
   });
 
-  it("'Show mercy' resolves success with the foe surviving at 1 HP, a non-Slain band, and the persisted edge reset to round 1", async () => {
+  it("'Show mercy' resolves success with the terminal BEAT reporting the foe alive at 1 HP and a non-Slain band, while the persisted EDGE closes (SL-7)", async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decideResultQueue = [combatEnemyDecideResult()];
     const rolls = [20, 1];
@@ -2450,19 +2450,22 @@ describe('PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)', 
     if (!step.resolved) throw new Error('expected resolved step');
 
     expect(step.outcome.outcome).toBe('success');
+    // The BEAT is the narrative record of the round: still 1 HP, still a wounded (non-Slain)
+    // band — the outcome frame must read a survivor, not a kill.
     expect(step.outcome.combatBeat?.enemyHpAfter).toBe(1);
     expect(step.outcome.combatBeat?.fatalBlow).toBe('spare');
     const enemyMaxHp = step.outcome.combatFrame!.enemyMaxHp;
     expect(enemyConditionBand(1 / enemyMaxHp).woundWord).not.toBe('Slain');
 
-    // SL-6's spare invariant: the persisted edge must read enemyHp 1 AND round 1 — not
-    // `cs.round + 1` (which would be 2 here), or re-engaging the spared foe would carry over a
-    // round number that could trip the MAX_COMBAT_ROUNDS cap-derive immediately.
+    // SL-7 supersedes RA-5c's `enemyHp: 1, round: 1` edge invariant: sparing was found to be a
+    // guaranteed-win farm (every band deals net-negative enemy HP, so a re-engaged 1-HP edge
+    // dies for free). The EDGE is combat bookkeeping and must instead read CLOSED (enemyHp: 0)
+    // so the next combat action re-establishes a fresh fight rather than continuing this one —
+    // deliberately diverging from the beat's 1 HP above.
     const edgeMutation = step.outcome.mutations.find(
       (m) => m.type === 'set_relation' && (m as unknown as { relType: string }).relType === 'in_combat',
     ) as { props: { enemyHp: number; round: number } } | undefined;
-    expect(edgeMutation?.props.enemyHp).toBe(1);
-    expect(edgeMutation?.props.round).toBe(1);
+    expect(edgeMutation?.props.enemyHp).toBe(0);
   });
 
   it('the lethal option is listed first, matching combatWinScenario\'s first-real choice policy', async () => {
