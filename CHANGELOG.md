@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **Re-engaging a bailed fight with vague text no longer shows "Unknown foe ?/?"** *(0.3.2 C4 follow-up)*. When DECIDE names no foe, the combat opener now reads the foe's name and banded condition from the persisted `in_combat` edge, guarded by an anchor check so a stale edge can't leak onto an unrelated fight (commit `3bd266d`).
-- **Private outcome embed now matches the public one** — the ephemeral action-outcome reply previously used a `compact: true` variant that hid the story thread (a deliberate `0.3.1` design choice that proved too sparse). Both the private reply and the public thread copy now share the same full embed, so the player sees the complete gamebook trail in both places.
+- **Private outcome embed now matches the public one on every action path** *(RA-6)* — day-job work and the nav-button custom action resolve straight to an outcome with no decision embed first, so the compact private reply (F#19c, "the player just saw the thread") left those two paths missing the gamebook trail the public copy carried. All four action paths now share the same full embed.
 - **HP numbers and right-aligned columns on combat cards no longer run flush against the right border** *(0.3.2 P1 follow-up)* — the continue card's right-aligned columns (enemy contested roll, band word, HP deltas) and the opening frame's PC HP suffix were computed to fill exactly to the interior edge, leaving no gap before the border glyph. Both now leave one space, matching the player HP bar that already had it.
 
 ### Internal

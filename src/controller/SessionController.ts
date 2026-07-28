@@ -56,7 +56,7 @@ export type DayJobStart =
 
 /** Outcome of `startAction`'s post-start render fan-out (`renderStartResult`) — shared by
  *  `runWork` (M3.4) and `runCustomAction` (M3.5) since both start-then-render an action
- *  identically (same re-read-after-start, compact/full outcome fan-out, no `classEmoji` on
+ *  identically (same re-read-after-start, same outcome view for both arms since RA-6, no `classEmoji` on
  *  the public content line — unlike `action:choice`). Carries no `error` arm: errors
  *  propagate so the adapter's single outer try/catch covers start + paint + broadcast +
  *  announceCollapse, exactly like the pre-M3.4/pre-M3.5 handlers' one outer try. */
@@ -212,7 +212,7 @@ export class SessionController {
 
   /** Steps the action machine with the day-job's assembled work prompt (DC-K) — mirrors the
    *  pre-M3.4 handler's `startAction` + apply-result logic exactly (same re-read-after-start,
-   *  same compact-private/full-public outcome fan-out, same NOT-compact decision view). Does
+   *  same outcome fan-out — full embed on both arms since RA-6 — same decision view). Does
    *  NOT catch: `startAction`/view-build errors propagate so the adapter's single outer try
    *  can cover start + paint + broadcast + announceCollapse, exactly like the pre-M3.4
    *  handler's one outer try/catch. */
@@ -254,19 +254,25 @@ export class SessionController {
 
   /** Shared start-then-render fan-out (DC-M3), lifted byte-for-byte from the pre-M3.5
    *  `runWork` body — `runWork` and `runCustomAction` both call `startAction` then hand the
-   *  result here. `getCurrentScene` is called ONCE per outcome (reused for both the compact
-   *  private view and the full public view), matching the original single call site. */
+   *  result here. `getCurrentScene` is called ONCE per outcome, matching the original single
+   *  call site. */
   private renderStartResult(userId: string, prevChar: CharacterData, result: ActionStartResult): StartRenderResult {
     if (result.outcome) {
       // Re-read AFTER startAction so the embed + nav reflect the spent roll and mutations —
       // `prevChar` is the pre-action snapshot, the before-baseline for announceCollapse.
       const char = this.engine.getCharacter(userId) ?? prevChar;
       const scene = this.getCurrentScene(userId);
+      // RA-6: both replies now carry the SAME full embed. The old F#19c compact-private variant
+      // hid the story thread because "the player just saw it in the decision embed" — but these
+      // are the auto-resolve paths, where no decision embed was ever shown, so the private reply
+      // was strictly missing the gamebook trail. One build shared by both arms: the view is a
+      // plain DTO and `outcomeViewToDiscord` only reads it, so aliasing is safe and avoids
+      // rendering the identical frames twice.
+      const view = buildOutcomeView(result.outcome, char, scene, result.state, undefined, this.engine);
       return {
         kind: 'outcome',
-        // Compact for private reply, full for public thread copy (F#19c).
-        viewPrivate: buildOutcomeView(result.outcome, char, scene, result.state, { compact: true }, this.engine),
-        viewPublic: buildOutcomeView(result.outcome, char, scene, result.state, undefined, this.engine),
+        viewPrivate: view,
+        viewPublic: view,
         distilledType: result.outcome.distilledType,
         actionId: result.outcome.actionId,
         characterName: char.name,

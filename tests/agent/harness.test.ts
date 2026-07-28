@@ -148,8 +148,11 @@ describe('AgentHarness — one action end-to-end', () => {
     expect(outcomeEvent?.type).toBe('outcome');
 
     // run 2: reproduce the controller result deterministically (fresh engine, same script + fixed
-    // roll) to get both views, and confirm the transcript carries the PRIVATE compact view — not the
-    // public broadcast copy meant for observers (Finding 1 / decision 2).
+    // roll) to get both views, and confirm the transcript carries the acting player's own view
+    // (Finding 1 / decision 2). RA-6 made the two arms byte-identical on this auto-resolve path,
+    // so the old `viewPrivate !== viewPublic` discriminator is gone; what is asserted instead is
+    // the property RA-6 bought — the private arm carries the full gamebook trail, not the compact
+    // variant that dropped the story thread on a path where no decision embed preceded it.
     const ae2 = buildAgentEngine({
       pipelineLlmGateway: new PipelineScriptedGateway(immediateScript),
       rollD20: () => 20,
@@ -160,7 +163,8 @@ describe('AgentHarness — one action end-to-end', () => {
     expect(r2.kind).toBe('outcome');
     if (r2.kind === 'outcome' && outcomeEvent?.type === 'outcome') {
       expect(outcomeEvent.text).toBe(viewToText(r2.viewPrivate));
-      expect(outcomeEvent.text).not.toBe(viewToText(r2.viewPublic));
+      expect(r2.viewPrivate.storyThread).toBeDefined();
+      expect(viewToText(r2.viewPrivate)).toBe(viewToText(r2.viewPublic));
     }
   });
 

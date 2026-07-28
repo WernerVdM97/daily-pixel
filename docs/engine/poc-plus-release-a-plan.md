@@ -76,13 +76,15 @@ Release cut is last, gated on whichever items SL-1 admits.
 
 _To be locked with the release owner before any executor is spawned. These bind the tasks; where a task's prose differs, this section wins. Defaults are the lead's recommendation; the owner confirms or overrides._
 
-- **SL-1 — does Release A carry a v13-aligned prompt-set bump?** *(OPEN — owner decides)*
+- **SL-1 — does Release A carry a v13-aligned prompt-set bump?** *(LOCKED 2026-07-28: **Option A** — Release A carries the bump. RA-1, RA-2 and RA-3's full mint vocab are all in scope, batched as one resolve/decide prompt-set bump after the engine lane. Must not race an independent v13 set bump.)*
   - **Option A (recommended): Release A carries the bump.** Stakes and inspiration are the highest-player-value items the telemetry exposed; deferring them to v13 hollows out the release's stated purpose ("worth returning to"). Release A then bundles the resolve-prompt retune (RA-1, RA-2) with the engine-bounded lane, routed through `prompt-versioning`, and RA-3's full mint-vocab rides it too. Cost: Release A becomes a prompt-set release, so it must not race an independent v13 set bump - coordinate with [[prompt-v13-roadmap]].
   - **Option B: Release A is engine-only.** Ship RA-4, RA-5, and RA-3's bounded half now as a fast coherence/cost release; fold RA-1, RA-2, and RA-3's vocab into the next v13 prompt-set bump. Cost: the two biggest fun items slip to v13's cadence.
   - Everything below assumes Option A unless the owner picks B, in which case RA-1/RA-2 and RA-3's full half drop out of this plan and into [[prompt-v13-roadmap]].
 - **SL-2 — no lethality.** The death track stays POC-deferred per [[the-poc]]. RA-1 raises DCs and adds meaningful cost (stamina/wealth/HP spend), never death. HP reaching 0 keeps its current non-lethal handling; RA-1 does not touch the combat floor.
 - **SL-3 — RA-4 measure-before-gate.** The critic A/B is investigate-and-measure first. The lead runs the agent-player harness with the critic on vs gated, records the call/token delta and any coherence regression in this plan, and brings the keep/gate/drop recommendation to the owner before the gate lands as default-on-or-off. The critic fails open today (`DeepseekLlmGateway.ts:409-480`), so a gate cannot break a run, only change cost.
-- **SL-4 — RA-3 mint scope.** Default: ship the bounded engine half (persist a resolved/narrated combat foe under its real name, kill the `'Minion'` fallback) unconditionally in the engine-bounded lane; ship the full mint-on-narration vocab (`add_npc` gains `health`) only if SL-1 = Option A.
+- **SL-4 — RA-3 mint scope.** *(LOCKED 2026-07-28: **named foes only**.)* The bounded engine half persists a combat foe only when it has a resolved name (from the `combatEnemy` hint or a known NPC); a genuinely ambient/unnamed encounter stays ephemeral and keeps its fallback, so the NPC table grows only with foes the world actually named — no auto-naming of random scuffles, and no unbounded growth of the per-location handle list the decide prompt must enumerate. The full mint-on-narration vocab (`add_npc` gains `health`) is admitted, since SL-1 = Option A.
+
+- **SL-5 — the sixth TODO row is RA-6, not part of RA-5.** *(LOCKED 2026-07-28.)* "Private embed parity on auto-resolve paths" gets its own number and landed first: it touches the auto-resolve reply fan-out, not combat rendering, so folding it into RA-5 would have broken the atomic-commit-per-task rule for no gain.
 
 ---
 
@@ -213,8 +215,13 @@ Versions are unpinned per the roadmap; Release A takes the next `0.3.x` (expecte
 
 ## Execution state
 
-_Empty at authoring (2026-07-23). The lead updates this section per task with commit hashes, review outcomes, and the SL-1/SL-3/SL-4 owner locks, mirroring the 0.3.2 plan's running handover._
+_The lead updates this section per task with commit hashes, review outcomes, and the owner locks, mirroring the 0.3.2 plan's running handover._
 
-- Branch: `poc-plus/release-a` (to be cut off `dev`).
-- Baseline: reconcile `npm run typecheck` + `npm test` on branch before the first task.
-- Open owner locks before executor spawn: **SL-1** (v13 bump scope), **SL-3** (critic default after A/B), **SL-4** (RA-3 mint scope).
+- **Branch:** `poc-plus/release-a`, cut off `dev` at `b32642a` on 2026-07-28. *(Reconciliation note: a stale local `feature/release-a` pointer existed at `62bd4b3`, 62 commits behind `dev` with zero unique commits — a pre-M0 branch, not resumable work. Nothing was lost; the branch was cut fresh off `dev`.)*
+- **Baseline (verified 2026-07-28):** `npm run typecheck` clean, `npm test` green at **86 files / 1576 tests**. Matches the M4 handover baseline.
+- **Owner locks:** SL-1 = **Option A** (carry the prompt-set bump), SL-2 = no lethality (pre-settled), SL-3 = measure-before-gate (default returns to the owner *with* the A/B numbers), SL-4 = **named foes only**, SL-5 = the sixth row is **RA-6**.
+- **Admitted bundle:** RA-1, RA-2, RA-3 (both halves), RA-4, RA-5, RA-6.
+
+### Task log
+
+- **RA-6 — private embed parity on auto-resolve paths.** Dropped `{ compact: true }` from the `renderStartResult` fan-out (`SessionController.ts`), so the day-job-work and nav-button custom-action private replies carry the full gamebook trail like the public copy. The two calls became identical, so the view is now built once and shared by both arms (safe: `OutcomeViewState` is a plain DTO and `outcomeViewToDiscord` only reads it). The `compact` option itself remains plumbed through `buildOutcomeView`/`actionViewState.ts` but now has **no production caller** — flagged as a follow-up cleanup decision, deliberately not done here to keep the commit atomic. Blast radius confirmed by the M1 dispatch oracle: exactly two golden snapshots moved, each a single added story-thread line on the two auto-resolve leaves (`action:dayjob:<n>`, `action:custom:modal`), nothing removed. Stale compact-era parity comments reconciled in `SessionController.ts` and `agent/harness.ts`; the agent-harness test's `viewPrivate !== viewPublic` discriminator (impossible post-change) was replaced with the property RA-6 actually buys — the private arm carries a `storyThread`. Typecheck clean, 86/1576 green.

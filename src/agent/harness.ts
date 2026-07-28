@@ -343,8 +343,9 @@ export class AgentHarness {
   private async handleStartResult(result: StartRenderResult): Promise<PlayResult> {
     switch (result.kind) {
       case 'outcome':
-        // The acting player's OWN screen is the compact private view (viewPublic is the recap-thread
-        // broadcast copy for observers). Decision 2: the agent sees what the acting player sees.
+        // Decision 2: the agent sees what the ACTING player sees, so read the private arm even
+        // though RA-6 made it identical to the recap-thread broadcast copy — the distinction is
+        // the contract, not the current byte-equality, and a future divergence must follow it.
         this.transcript.outcome(viewToText(result.viewPrivate));
         return { kind: 'outcome' };
       case 'empty-action':
