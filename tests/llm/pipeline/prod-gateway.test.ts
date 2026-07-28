@@ -223,6 +223,28 @@ describe('ProdPipelineLlmGateway — decide', () => {
     expect(bare.combatEnemy).toBeUndefined();
   });
 
+  it('drops combatEnemy entirely when name is empty/whitespace (RA-5a)', async () => {
+    const withEmptyName = { ...decideResponse, combatEnemy: { name: '', anchor: 'location' } };
+    const fetchFn = mockFetch(apiResponse(withEmptyName));
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
+    const { result } = await gw.decide({
+      actionType: 'combat',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+      context: minimalContext,
+    });
+    expect(result.combatEnemy).toBeUndefined();
+
+    const withWhitespaceName = { ...decideResponse, combatEnemy: { name: '   ', anchor: 'npc' } };
+    const fetchFnWs = mockFetch(apiResponse(withWhitespaceName));
+    const gwWs = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFnWs, promptSet: fixturePromptSet() });
+    const { result: wsResult } = await gwWs.decide({
+      actionType: 'combat',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+      context: minimalContext,
+    });
+    expect(wsResult.combatEnemy).toBeUndefined();
+  });
+
   it('parses narration when present, and omits it when absent (decide-scene-narration T2 spec §1)', async () => {
     const withNarration = { ...decideResponse, narration: 'The wolf circles, hackles raised.' };
     const fetchFn = mockFetch(apiResponse(withNarration));

@@ -2075,6 +2075,22 @@ describe('PipelineActionStateMachine — C3: npc-anchored combat seeds real HP/n
     expect(deriveEnemyMaxHp(14)).toBe(14); // sanity: the DC-derived guess this must NOT use
   });
 
+  it('no combatEnemy signal (the post-gateway-fix state for an empty LLM name) establishes \'Minion\'', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult({ baseDc: 10, combatEnemy: undefined });
+
+    const machine = new PipelineActionStateMachine(llm, () => 10);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(setRelationEdge(step.mutations).props.enemyName).toBe('Minion');
+  });
+
   it('a location-anchored (ambient) fight still derives enemyMaxHp from baseDc — fallback untouched', async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decideResult = combatEnemyDecideResult({ baseDc: 10 }); // anchor: 'location' (default)

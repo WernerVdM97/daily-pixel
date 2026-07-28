@@ -345,7 +345,14 @@ export function buildOutcomeView(
   let combatSceneBlock: string | undefined;
   if (outcome.combatBeat && character) {
     const lastBeat = outcome.combatRounds?.at(-1) ?? outcome.combatBeat;
-    const enemyFraction = lastBeat.enemyHpBefore > 0 ? lastBeat.enemyHpAfter / lastBeat.enemyHpBefore : 0;
+    // Band against the foe's max HP, not the round-opening HP (`enemyHpBefore`) — the latter
+    // makes a worn-down foe read healthier than it is on the final round (e.g. 8/10 'Healthy'
+    // for a 20-max-HP foe actually at 40%, 'Bloodied'). Only fall back to the round-opening
+    // fraction if the outcome carries no usable max (absent or non-positive).
+    const enemyMaxHp = outcome.combatFrame?.enemyMaxHp;
+    const enemyFraction = enemyMaxHp != null && enemyMaxHp > 0
+      ? lastBeat.enemyHpAfter / enemyMaxHp
+      : lastBeat.enemyHpBefore > 0 ? lastBeat.enemyHpAfter / lastBeat.enemyHpBefore : 0;
     const { filled, woundWord } = enemyConditionBand(enemyFraction);
     combatSceneBlock = renderOpeningFrame('combat', {
       pcName: character.name,

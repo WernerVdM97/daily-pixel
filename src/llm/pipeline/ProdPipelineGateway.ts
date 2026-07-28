@@ -174,7 +174,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
         const rawEnemy = raw.combatEnemy as Record<string, unknown> | undefined;
         if (
           rawEnemy && typeof rawEnemy === 'object' &&
-          typeof rawEnemy.name === 'string' &&
+          typeof rawEnemy.name === 'string' && rawEnemy.name.trim() !== '' &&
           (rawEnemy.anchor === 'npc' || rawEnemy.anchor === 'location')
         ) {
           result.combatEnemy = { name: rawEnemy.name, anchor: rawEnemy.anchor };

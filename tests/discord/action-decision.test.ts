@@ -759,8 +759,8 @@ describe('buildOutcomeEmbed — combat frame on outcome (0.3.2 P2)', () => {
     });
     const desc = (embed as any).description as string;
     // The enemy's banded condition (wound word) from the last beat appears.
-    // enemyHpBefore=6, enemyHpAfter=0 → fraction 0 → 'Critical'.
-    expect(desc).toContain('Critical');
+    // enemyHpAfter=0 (banded against enemyMaxHp=24) → fraction 0 → 'Slain' (RA-5a).
+    expect(desc).toContain('Slain');
   });
 
   it('a non-combat outcome still shows the location scene as before', () => {

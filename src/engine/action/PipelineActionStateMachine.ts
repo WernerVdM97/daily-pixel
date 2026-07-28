@@ -496,10 +496,14 @@ export class PipelineActionStateMachine {
           anchor = { node: 'location', name: char.location };
         }
 
-        // Enemy max-HP priority: the resolved NPC's real health (so a known 24-HP stag reads as
-        // 24, not a DC-derived guess) > the LLM-authored maxHp hint > deriveEnemyMaxHp(baseDc) for
-        // the location-anchored/ambient minion path. A non-positive health isn't a valid combat
-        // max, so it falls through rather than seeding a dead-on-arrival foe.
+        // Enemy max-HP priority — only two rungs are live in production: the resolved NPC's real
+        // health (so a known 24-HP stag reads as 24, not a DC-derived guess), else
+        // deriveEnemyMaxHp(baseDc) for the location-anchored/ambient minion path. The middle
+        // rung, `enemy.maxHp`, is dead in production — ProdPipelineGateway never parses a maxHp
+        // hint off the decide payload, so it stays wired here (and exercised directly by tests
+        // that hand-build a PipelineDecideResult) for the pending prompt-set bump that adds a
+        // health vocab slot. A non-positive health isn't a valid combat max, so it falls through
+        // rather than seeding a dead-on-arrival foe.
         const rawMaxHp = resolvedNpc?.health != null && resolvedNpc.health > 0
           ? resolvedNpc.health
           : enemy.maxHp != null
@@ -1320,7 +1324,8 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
 export function enemyConditionBand(hpFraction: number): { filled: number; woundWord: string } {
   const filled = Math.max(0, Math.min(5, Math.round(hpFraction * 5)));
   const woundWord =
-    hpFraction >= 0.8 ? 'Healthy'
+    hpFraction <= 0 ? 'Slain'
+    : hpFraction >= 0.8 ? 'Healthy'
     : hpFraction >= 0.4 ? 'Bloodied'
     : hpFraction >= 0.15 ? 'Battered'
     : 'Critical';

@@ -144,6 +144,34 @@ describe('buildOutcomeView — semantic shape', () => {
       expect(view.outcomeBlock).toContain('COMBAT RESOLVED');
       expect(view.outcomeBlock).toContain('margin +16');
     });
+
+    it('bands a foe finishing at 0 HP as Slain, never Critical (RA-5a)', () => {
+      const view = buildOutcomeView(combatOutcome, char, null, state);
+
+      expect(view.combatSceneBlock).toContain('Slain');
+      expect(view.combatSceneBlock).not.toContain('Critical');
+    });
+
+    it('bands the terminal frame against enemyMaxHp, not the round-opening enemyHpBefore (RA-5a)', () => {
+      // A 20-max-HP foe worn to 10 (round-opening) that takes 2 more damage in the final round:
+      // enemyHpAfter/enemyHpBefore = 8/10 = 0.8 -> 'Healthy' (the old, wrong denominator);
+      // enemyHpAfter/enemyMaxHp = 8/20 = 0.4 -> 'Bloodied' (correct — the foe is worn down).
+      const wornDownBeat: CombatBeatLog = {
+        round: 4, band: 'clean', enemyHpBefore: 10, enemyHpAfter: 8, playerHpDelta: 0,
+        playerD20: 18, playerBonus: 5, dc: 10, enemyD20: 7, enemyBonus: 0, margin: 8,
+        materialMutationFired: true, ops: ['set_relation'], marker: 'combat_round',
+      };
+      const wornDownOutcome: ActionOutcome = {
+        ...combatOutcome,
+        combatBeat: wornDownBeat,
+        combatFrame: { enemyName: 'Shadow Stag', enemyMaxHp: 20, margin: 8 },
+        combatRounds: [wornDownBeat],
+      };
+
+      const view = buildOutcomeView(wornDownOutcome, char, null, state);
+      expect(view.combatSceneBlock).toContain('Bloodied');
+      expect(view.combatSceneBlock).not.toContain('Healthy');
+    });
   });
 });
 
