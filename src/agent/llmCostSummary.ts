@@ -30,10 +30,11 @@ export interface LlmCostSummary {
   totalTokens: number;
   byCallKind: CallKindBreakdown[];
   criticVerdicts: CriticVerdictCount[];
-  /** EXACT count of critic calls that could have changed something: (beat='decision' AND
-   *  severity='major') OR (beat='resolution' AND severity='minor') — see `ACTIONABLE_CRITIC_NOTE`
-   *  for the 2-of-6 rationale. Rows with no recorded beat are NOT folded in here — see
-   *  `actionableCriticLegacyCount`. */
+  /** Critic calls that could have changed something: (beat='decision' AND severity='major') OR
+   *  (beat='resolution' AND severity='minor') — see `ACTIONABLE_CRITIC_NOTE` for the 2-of-6
+   *  rationale. Exact on the decide arm; a TIGHT UPPER BOUND on the narrate arm, which
+   *  additionally requires the verdict to carry a `patch.outcomeText` that `llm_calls` does not
+   *  record. Rows with no recorded beat are NOT folded in — see `actionableCriticLegacyCount`. */
   actionableCritic: number;
   /** Critic rows with `beat IS NULL` — pre-migration (202607281200_llm_call_beat) rows that
    *  predate the `beat` column, or any future critic call that somehow skips stamping it. Kept
@@ -51,10 +52,14 @@ const ACTIONABLE_CRITIC_NOTE =
   'verdict can only change something on (decide beat, major) or (narrate beat, minor with ' +
   'patch.outcomeText) — the other 4 beat×severity combinations are pure spend (decide+minor and ' +
   'narrate+major are explicit pass-through no-ops; ok is never actionable by definition). ' +
-  '`actionableCritic` counts exactly those two combinations via the `beat` column ' +
-  '(202607281200_llm_call_beat). `actionableCriticLegacyCount` is critic rows with no `beat` ' +
-  'recorded (pre-migration) — excluded from the exact count rather than guessed at, so an old DB ' +
-  'degrades honestly instead of silently under-counting.';
+  '`actionableCritic` counts those two combinations via the `beat` column ' +
+  '(202607281200_llm_call_beat). Caveat: that is exact for the decide arm, but a tight upper ' +
+  'bound for the narrate arm — critiqueNarration only applies a minor verdict when it carries a ' +
+  'patch.outcomeText, and patch presence is not recorded on the row, so a minor narrate verdict ' +
+  'with no patch is counted here despite being inert. Treat the figure as "verdicts that reached ' +
+  'an acting branch", not "verdicts that demonstrably changed output". ' +
+  '`actionableCriticLegacyCount` is critic rows with no `beat` recorded (pre-migration) — ' +
+  'excluded rather than guessed at, so an old DB degrades honestly instead of under-counting.';
 
 /** Queries `llm_calls` for the RA-4a summary. Pure read — no writes, no formatting (that's
  *  `formatLlmCostSummary` below), so a caller that only wants the numbers (e.g. a future
