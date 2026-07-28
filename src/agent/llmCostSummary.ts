@@ -25,11 +25,25 @@ export interface CriticVerdictCount {
   count: number;
 }
 
+/** Critic spend split by which beat it reviewed — the decide half and the narrate half have very
+ *  different value, since a `major` verdict fires a bounded re-decide on a decide beat but is
+ *  logged and discarded on a narrate one. */
+export interface CriticBeatBreakdown {
+  /** `'decision'` | `'resolution'`, or null for rows predating the `beat` column. */
+  beat: string | null;
+  calls: number;
+  tokens: number;
+  /** Verdicts that were not `ok` — the ones that even reached a branch that might act. */
+  nonOkVerdicts: number;
+}
+
 export interface LlmCostSummary {
   totalCalls: number;
   totalTokens: number;
   byCallKind: CallKindBreakdown[];
   criticVerdicts: CriticVerdictCount[];
+  /** Critic calls/tokens split by reviewed beat — see `CriticBeatBreakdown`. */
+  criticByBeat: CriticBeatBreakdown[];
   /** Critic calls that could have changed something: (beat='decision' AND severity='major') OR
    *  (beat='resolution' AND severity='minor') — see `ACTIONABLE_CRITIC_NOTE` for the 2-of-6
    *  rationale. Exact on the decide arm; a TIGHT UPPER BOUND on the narrate arm, which
@@ -114,11 +128,34 @@ export function summarizeLlmCosts(db: Database.Database): LlmCostSummary {
     )
     .get() as { actionableCriticLegacyCount: number };
 
+  // Per-beat spend split. The first RA-4 A/B could only infer this: it saw 6 major + 0 minor and
+  // an actionable count of 6, which forces all 6 onto decide beats and proves every narrate critic
+  // call that run was inert — but it could not say how many narrate calls were paid for. Reporting
+  // the split directly makes the decide-vs-narrate value gap legible in one read, which is the
+  // comparison that actually decides whether either half of the critic earns its keep.
+  const beatRows = db
+    .prepare(
+      `SELECT beat, COUNT(*) AS calls, COALESCE(SUM(total_tokens), 0) AS tokens,
+              SUM(CASE WHEN critic_severity NOT IN ('ok') THEN 1 ELSE 0 END) AS nonOkVerdicts
+       FROM llm_calls
+       WHERE call_kind = 'critic'
+       GROUP BY beat`,
+    )
+    .all() as Array<{ beat: string | null; calls: number; tokens: number; nonOkVerdicts: number | null }>;
+
+  const criticByBeat: CriticBeatBreakdown[] = beatRows.map((row) => ({
+    beat: row.beat,
+    calls: row.calls,
+    tokens: row.tokens,
+    nonOkVerdicts: row.nonOkVerdicts ?? 0,
+  }));
+
   return {
     totalCalls: totals.calls,
     totalTokens: totals.tokens,
     byCallKind,
     criticVerdicts: verdictRows,
+    criticByBeat,
     actionableCritic,
     actionableCriticLegacyCount,
     actionableCriticNote: ACTIONABLE_CRITIC_NOTE,
@@ -145,6 +182,12 @@ export function formatLlmCostSummary(summary: LlmCostSummary): string {
       .map((v) => `${v.severity ?? 'null'}=${v.count}`)
       .join(', ');
     lines.push(`  critic verdicts: ${verdictText}`);
+    for (const row of summary.criticByBeat) {
+      lines.push(
+        `  critic ${row.beat ?? 'no-beat-recorded'}: ${row.calls} call(s), ${row.tokens} token(s), ` +
+          `${row.nonOkVerdicts} non-ok verdict(s)`,
+      );
+    }
     lines.push(`  actionable critic: ${summary.actionableCritic}`);
     if (summary.actionableCriticLegacyCount > 0) {
       lines.push(`  actionable critic (legacy, no beat recorded): ${summary.actionableCriticLegacyCount}`);

@@ -131,6 +131,27 @@ describe('summarizeLlmCosts', () => {
     expect(summary.actionableCriticLegacyCount).toBe(2);
   });
 
+  // The first RA-4 A/B had to INFER that every narrate critic call was inert (6 major + 0 minor
+  // with an actionable count of 6 forces all 6 onto decide beats). This split reports the decide
+  // vs narrate spend directly, so the value gap between the critic's two halves is legible without
+  // that inference — it is the comparison the keep/gate/drop call rests on.
+  it('criticByBeat splits critic spend and non-ok verdicts by reviewed beat', () => {
+    repo.record(baseRecord({ callKind: 'critic', criticSeverity: 'major', beat: 'decision', totalTokens: 100 }));
+    repo.record(baseRecord({ callKind: 'critic', criticSeverity: 'ok', beat: 'decision', totalTokens: 100 }));
+    // Two narrate calls paid for, both inert — the shape the A/B actually observed.
+    repo.record(baseRecord({ callKind: 'critic', criticSeverity: 'ok', beat: 'resolution', totalTokens: 50 }));
+    repo.record(baseRecord({ callKind: 'critic', criticSeverity: 'ok', beat: 'resolution', totalTokens: 50 }));
+    // A non-critic row must not leak into the split.
+    repo.record(baseRecord({ callKind: 'pipeline-decide', criticSeverity: null, totalTokens: 999 }));
+
+    const summary = summarizeLlmCosts(db);
+    const decide = summary.criticByBeat.find((r) => r.beat === 'decision');
+    const narrate = summary.criticByBeat.find((r) => r.beat === 'resolution');
+
+    expect(decide).toEqual({ beat: 'decision', calls: 2, tokens: 200, nonOkVerdicts: 1 });
+    expect(narrate).toEqual({ beat: 'resolution', calls: 2, tokens: 100, nonOkVerdicts: 0 });
+  });
+
   it('a non-critic call_kind never pollutes the critic-verdict distribution', () => {
     repo.record(baseRecord({ callKind: 'pipeline-decide', criticSeverity: null }));
     repo.record(baseRecord({ callKind: 'critic', criticSeverity: 'major' }));
