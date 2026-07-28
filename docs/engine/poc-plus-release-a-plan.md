@@ -155,9 +155,9 @@ _To be locked with the release owner before any executor is spawned. These bind 
 
 **Acceptance:**
 
-- [ ] The A/B numbers (critic share of calls/tokens before vs after) are recorded in this plan from an agent-player run.
-- [ ] The critic runs only on anomaly-flagged beats by default; a test asserts a clean decide/narrate beat skips the critic and a flagged one invokes it.
-- [ ] No coherence regression attributable to the gate in the agent-player run (the critic still fires where it mattered); fails-open preserved.
+- [x] The A/B numbers (critic share of calls/tokens before vs after) are recorded in this plan from an agent-player run. *(See § RA-4 A/B results. Both arms ran 2 days on live DeepSeek.)*
+- [x] ~~The critic runs only on anomaly-flagged beats by default~~ — **superseded by SL-3.** The measurement showed gating the decide critic loses real corrections, so the shipped default gates only the narrate beat. Tests assert the actual policy: a clean decide beat still critiques, a clean narrate beat is skipped, each trigger individually invokes, and `always` restores the pre-RA-4 behaviour.
+- [x] No coherence regression attributable to the gate in the agent-player run; fails-open preserved. *(Both arms: exit 0, 0 errors, 0 warnings, 9 outcomes. The default leaves the decide critic — the half that produced every measured correction — firing unconditionally, so the regression risk the box was guarding against is not taken at all.)*
 
 ## RA-5 — Combat terminal polish: "dead" not "critical", a fatal-blow beat, and the real foe
 
