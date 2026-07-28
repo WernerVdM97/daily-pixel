@@ -1,5 +1,25 @@
 # TODO
 
+## ⏭️ RESUME HERE — POC+ Release A (last touched 2026-07-28)
+
+**Read first:** [`docs/engine/poc-plus-release-a-plan.md`](./docs/engine/poc-plus-release-a-plan.md) — the executor-grade build plan. Its § Execution state carries the running handover (branch, baseline, per-task log, owner locks); its § RA-4 A/B results and § Scouting corrections carry findings that supersede parts of the original task specs. Parent tracking is [[poc-plus-roadmap]] § Re-sequencing.
+
+**Reconcile first, every resume:** branch is `poc-plus/release-a` (cut off `dev` at `b32642a`). Confirm `npm run typecheck` clean and `npm test` green — **baseline is now 88 files / 1611 tests**, not the 86/1576 the M4 handover quoted. Check the plan's § Execution state against `git log` before trusting either.
+
+**All owner locks are settled — nothing is blocked on the owner.** SL-1 = Option A (Release A carries the v13-aligned prompt-set bump, so RA-1, RA-2 and RA-3's full half are all in scope). SL-2 = no lethality (pre-settled). SL-3 = `narrate-gated` (decided on the measured A/B). SL-4 = named foes only, keyed off the `anchor` signal **not** name-presence. SL-5 = the sixth row is its own RA-6.
+
+**Done and committed on the branch:** RA-6 (`8c2bdde`, reviewed clean) and RA-4 (`1ae558f` … `0fb3d16`, including three defect fixes and the live A/B).
+
+**Next, in this order:**
+
+1. **RA-5 (combat terminal polish) + RA-3 bounded (persist the narrated foe)** — do these adjacently, they share the combat-establish seam in `PipelineActionStateMachine.ts`. Both are fully scouted and **both are different from what the plan's original prose says** — read § Scouting corrections before writing any spec. In short: RA-5b is largely already fixed by 0.3.2 C3 (the `'Minion'` fallback is correctly scoped to ambient foes already, so residual B#15 is DECIDE omitting `combatEnemy`, a v13 prompt concern); RA-5 instead picks up two *newly found* bugs — the win frame bands enemy condition against the round's opening HP rather than `enemyMaxHp` (a worn-down foe can read "Healthy"), and `combatEnemy.name` accepts an empty string where its sibling `sceneLocation` does not. RA-3 bounded narrows to exactly one branch: `anchor: 'npc'` where NPC resolution failed.
+2. **RA-1 + RA-2 batched** — one resolve/decide prompt-set bump via the `prompt-versioning` skill. Note the tension the RA-4 playtest critic surfaced: it already finds failure costs harsh ("losing gold on a failed tail") and the bail mechanic unrewarding, so RA-1 should raise DCs and make cost *legible* rather than simply heavier. The same run averaged 4.5 outcomes/day against RA-2's ~4.8 target, so the harness reproduces the cadence problem it needs to measure.
+3. **Release cut 0.3.3** then the doc loop — per the plan's § Release cut and § Doc loop. The lead never merges `dev` → `main`; prompt the user.
+
+**Discipline (unchanged):** one orchestrated-delegation loop per task — lead scouts and finalises the handoff, executor builds, lead verifies (typecheck + suite + the task's acceptance boxes), commit, fresh-context reviewer critiques, lead triages, fixer lands accepted findings, verify, commit. Atomic commit per task; changelog current per task. Balance tasks get an agent-player before/after run (`npm run agent:play`; there is no `dotenv`, so `set -a; . ./.env; set +a` first). Prod host `192.168.0.242` was unreachable from the last session, so re-pulling the snapshot may not be possible — the agent-player harness is the working signal. Scope fences hold: no lethality, no shared-world plumbing, no classify-accuracy work, no item-economy depth.
+
+**One follow-up decision left open:** `opts.compact` is still plumbed through `buildOutcomeView`/`viewState.ts`/`commands/action.ts` with a unit test, but has had no production caller since RA-6 — delete it or keep it deliberately.
+
 ## scratchpad (humans start here)
 
 ### POC+ re-sequencing — prod-data review (2026-07-23)
@@ -10,9 +30,9 @@ Full-period prod snapshot (`warden-20260723-201953`, 07-07 → 07-23, day 17, `0
 
 - [ ] **Stakes / difficulty pass** — 83% success, no `final_dc` > 17, 11 failures in 98 actions. Meaningful cost + higher DCs on ambitious actions; no lethality (death track stays deferred). Overlaps the MVP "make wealth (and stamina, health) spendable/meaningful" item below.
 - [ ] **Inspiration dial** — `modify_rolls_remaining:+1` on 29% of actions inflates cadence to ~4.8/active-day (F#4 "fun but too broken"). Dial frequency or surface as a named reward. Related to the WAD bonus-rolls item below and F#12 (work shouldn't offer inspiration).
-- [ ] **NPC mint-on-first-sight** — `add_npc` fired twice all period; NPCs narrated but not persisted (F#1). Re-surfaces the 2026-07-08 "mint on first sight" item, now with the telemetry to prioritise it.
-- [ ] **Critic cost A/B** — `critic-v1` = 35% of LLM calls, 15% of tokens, unseen by players. Run conditionally / drop from classify + measure. This is the "remove critic from classify conditionally, latency high, mine prod" TBD item, now quantified.
-- [ ] **Combat terminal polish** — "critical" not "dead" on a win + no fatal-blow prompt (F#11); combat frame shows "Minion" not the known foe / Shadow Stag (B#15). Post-`0.3.2` residue.
+- [ ] **NPC mint-on-first-sight** *(RA-3, next — see the plan's § Scouting corrections before speccing)* — `add_npc` fired twice all period; NPCs narrated but not persisted (F#1). Bounded half narrows to a single branch: `anchor: 'npc'` where NPC resolution failed. Gate on the `anchor` signal, **not** on name-presence — DECIDE authors a name string for wildlife too, so "has a name" would persist "a wolf" as a permanent resident.
+- [x] **Critic cost A/B** *(RA-4, done)* — measured live: critic = 26% of calls / 14.7% of tokens (corroborating the prod ~15%), 74% of verdicts `ok`, and the narrate half provably inert (it cannot act on a `major` at all, and the run produced zero `minor`s). Default is now `narrate-gated` per SL-3: decide critic unconditional, narrate critic gated. Framing correction: the critic was never in classify, and it was never the cost centre either — `pipeline-decide` is ~44% of tokens. An agent-player run now prints an LLM-cost summary.
+- [ ] **Combat terminal polish** *(RA-5, next — see the plan's § Scouting corrections before speccing)* — "critical" not "dead" on a win + no fatal-blow prompt (F#11). B#15's `'Minion'` half is largely already fixed by 0.3.2 C3 (the fallback only fires for a genuinely un-named foe, as designed), so the residual belongs to the decide prompt (v13). Two bugs found while scouting land here instead: the win frame bands enemy condition against the round's opening HP rather than `enemyMaxHp`, and `combatEnemy.name` accepts an empty string.
 - [x] **Private embed parity on auto-resolve paths** *(RA-6, done)* — dropped `{ compact: true }` from `SessionController.renderStartResult`, so all four action paths share the full embed; the `[Unreleased]` claim is now true. Numbered RA-6 rather than folded into RA-5 (different seam: auto-resolve reply paths, not combat rendering).
 
 **Stage 2 re-scope + later stages**
