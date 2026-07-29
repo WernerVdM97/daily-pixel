@@ -120,6 +120,15 @@ export const RELOCATE_MUTATION_TYPES = new Set<string>(['set_location', 'move_to
 const STAMINA_DELTA_CAP = -5;
 const HEALTH_DELTA_CAP = -4;
 
+/** RA-1 Stage 1 — ceiling on the generic LLM-authored `add_item` channel. Base stats are set once
+ *  at character creation and never change (no `modify_stat` mutation exists anywhere), so items
+ *  are the only growth channel for `abilityCheckBonus` (`dc.ts`); item count is uncapped and the
+ *  sum is monotonic, so an unbounded per-item modifier would decay RA-1's DC retune within a week
+ *  of play. This is a TIER ceiling, not a design limit: a future named/legendary item tier is
+ *  expected to exceed it through its own channel, and must not be read as a permanent cap on item
+ *  power. See `clampAuthoredItemModifiers` below for where it's enforced. */
+export const LLM_ITEM_MODIFIER_MAX = 2;
+
 /**
  * Collapse same-axis scalar deltas into a single mutation (§5a stacked-delta guard).
  * Multiple modify_stamina mutations in one resolution are summed and capped so a bad
@@ -152,6 +161,30 @@ export function collapseStackedDeltas(mutations: WorldMutation[]): WorldMutation
   }
 
   return pass;
+}
+
+/**
+ * RA-1 Stage 1 — bounds `add_item.modifier` at `LLM_ITEM_MODIFIER_MAX`, upper-bound only. Clamps
+ * rather than rejects: `finalizeMutations` (`geography-finalize.ts`) drops every mutation the
+ * validator reports, so rejecting an over-limit `add_item` would delete the reward outright and
+ * leave a SUCCESS carrying only a stamina cost — `resolve/BASE.md` names that in bold as "a
+ * failure reward - never do this". A negative modifier passes through untouched: no prompt
+ * mentions one today, but a cursed or burdensome item is a legitimate future authoring, and
+ * flooring it at 0 would silently strip a deliberate drawback. Non-numeric/absent `modifier` also
+ * passes through untouched — that shape is the validator's job (`validateOne`'s `add_item` case),
+ * not this normaliser's.
+ *
+ * Call this from `finalizeMutations`, immediately before `collapseStackedDeltas` — the seam where
+ * every `add_item` arrives via resolve → finalize (see `applyMutations`'s `add_item` case for why
+ * this is the single home of the ceiling, not a second clamp there).
+ */
+export function clampAuthoredItemModifiers(mutations: WorldMutation[]): WorldMutation[] {
+  return mutations.map((m) => {
+    if (m.type !== 'add_item' || typeof m.modifier !== 'number' || m.modifier <= LLM_ITEM_MODIFIER_MAX) {
+      return m;
+    }
+    return { ...m, modifier: LLM_ITEM_MODIFIER_MAX };
+  });
 }
 
 /** Shape-only check for a `RelationEndpoint` — no DB lookup, no name resolution (T2 scope fence;
@@ -481,6 +514,9 @@ export function applyMutations(
         state.rollsRemaining = Math.max(0, state.rollsRemaining + Number(m.amount ?? 0));
         break;
       case 'add_item':
+        // RA-1 Stage 1: `modifier` arrives here already clamped by `clampAuthoredItemModifiers`
+        // (called from `finalizeMutations`, ahead of this applier) — that is the single home of
+        // the ceiling. Do not add a second clamp here.
         state.itemsToAdd.push({
           name: String(m.name ?? ''),
           emoji: String(m.emoji ?? ''),

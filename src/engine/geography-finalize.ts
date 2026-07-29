@@ -11,6 +11,7 @@
 import type { LocationRepository } from "../db/repositories/location.js";
 import type { LocationEdgeRepository } from "../db/repositories/locationEdge.js";
 import {
+  clampAuthoredItemModifiers,
   collapseStackedDeltas,
   validateMutations,
   type MutationContext,
@@ -233,9 +234,17 @@ function finalizeMutations(
     knownLocations: [...(ctx.knownLocations ?? []), ...geo.minted],
   };
 
+  // RA-1 Stage 1: clamp any over-limit LLM-authored `add_item.modifier` here, ahead of collapse
+  // and validation. This is the seam because finalize's output is what feeds RESOLVE-NARRATE's
+  // `### Final mutations`, the `actions.applied_mutations` audit column and the persisted item
+  // row alike, so all three agree on the number that landed. Clamping in `applyMutations` instead
+  // would leave the narration describing a +5 blade that persisted as +2 — the exact D5b
+  // incoherence this pipeline exists to remove.
+  const itemClamped = clampAuthoredItemModifiers(geo.mutations);
+
   // §5a stacked-delta clamp: collapse same-axis scalar deltas before validation so
   // the validator sees the already-summed (and capped) set, not individual −1/−2 pairs.
-  const collapsed = collapseStackedDeltas(geo.mutations);
+  const collapsed = collapseStackedDeltas(itemClamped);
 
   // §5 category deviation telemetry: log when a mutation falls outside its category's
   // expected set. Flag-only — never dropped (emergent scenes are legitimate). Must run on the

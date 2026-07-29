@@ -3,6 +3,8 @@ import {
   validateMutations,
   applyMutations,
   collapseStackedDeltas,
+  clampAuthoredItemModifiers,
+  LLM_ITEM_MODIFIER_MAX,
   type MutationContext,
 } from '../../src/engine/action/mutations.js';
 import { WORLD_MUTATION_TYPES, type WorldMutation } from '../../src/engine/WorldEngine.js';
@@ -663,6 +665,51 @@ describe('collapseStackedDeltas (§5a guard)', () => {
     const stamina = result.filter(m => m.type === 'modify_stamina');
     // Net is -4, which is above the -5 cap, so -4 passes through
     expect(stamina[0].amount).toBe(-4);
+  });
+});
+
+describe('clampAuthoredItemModifiers (RA-1 Stage 1 — LLM item bonus ceiling)', () => {
+  it('passes an at-limit add_item through unchanged', () => {
+    const muts: WorldMutation[] = [
+      { type: 'add_item', name: 'Iron Sword', emoji: '⚔️', stat: 'physical', modifier: LLM_ITEM_MODIFIER_MAX },
+    ];
+    const result = clampAuthoredItemModifiers(muts);
+    expect(result).toEqual(muts);
+  });
+
+  it('clamps an over-limit add_item to the ceiling, and keeps it present rather than dropping it', () => {
+    const muts: WorldMutation[] = [
+      { type: 'add_item', name: 'Warlord\'s Blade', emoji: '⚔️', stat: 'physical', modifier: 5 },
+    ];
+    const result = clampAuthoredItemModifiers(muts);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ type: 'add_item', name: 'Warlord\'s Blade', emoji: '⚔️', stat: 'physical', modifier: LLM_ITEM_MODIFIER_MAX });
+  });
+
+  it('leaves a negative add_item modifier untouched — the clamp is upper-bound only', () => {
+    const muts: WorldMutation[] = [
+      { type: 'add_item', name: 'Cursed Ring', emoji: '💍', stat: 'wisdom', modifier: -1 },
+    ];
+    const result = clampAuthoredItemModifiers(muts);
+    expect(result).toEqual(muts);
+  });
+
+  it('leaves an add_item with a non-numeric modifier untouched — shape rejection is validateOne\'s job', () => {
+    const muts: WorldMutation[] = [
+      { type: 'add_item', name: 'Mystery Box', emoji: '📦', stat: 'physical', modifier: 'a lot' },
+    ];
+    const result = clampAuthoredItemModifiers(muts);
+    expect(result).toEqual(muts);
+  });
+
+  it('leaves a non-add_item mutation in the same array untouched', () => {
+    const muts: WorldMutation[] = [
+      { type: 'modify_stamina', amount: -1 },
+      { type: 'add_item', name: 'Warlord\'s Blade', emoji: '⚔️', stat: 'physical', modifier: 9 },
+    ];
+    const result = clampAuthoredItemModifiers(muts);
+    expect(result[0]).toEqual({ type: 'modify_stamina', amount: -1 });
+    expect(result[1].modifier).toBe(LLM_ITEM_MODIFIER_MAX);
   });
 });
 

@@ -54,6 +54,7 @@ Three live DeepSeek smoke runs (1d, 1d, 2d) all completed clean (exit 0, 0 forma
 
 - [ ] **C6 symptom-A — mis-classification accuracy** *(deferred 0.3.2)*: actions the player intends as combat are sometimes classified as `skill`/`rest`, routing to the wrong spine. The auto-resolve guard (C6) prevents a combat-classified action from resolving without a fight, but the upstream classify decision is a prompt-template concern → route via `prompt-versioning` skill, [[prompt-v13-roadmap]].
 - [ ] **C3 residual — LLM-authored/spawn_npc NPCs have NULL health** *(deferred 0.3.2)*: `seedNpcs` now writes `health` (migration `202607112100_npc_combat_health.ts`), but LLM-authored and `spawn_npc` NPCs still get NULL health. `deriveEnemyMaxHp(DC)` is the fallback. Giving `add_npc` a `health` field means the decision prompt needs a `health` vocab slot → v13 prompt-versioning.
+- [ ] **`ItemData` has no `kind`/`slot`/`consumable` column** *(RA-1 Stage 1 follow-up)*: the engine can't distinguish a consumable from a weapon and can't hold consumables to +1, so the v13 "consumable reads +1" guidance is prompt-only and unenforced until such a column exists.
 
 [ ] In-app: start a real combat against a named NPC (e.g. Shadow Stag). Verify the continue card shows the NPC's real name (C3).,
 [~] In-app: bail out of a fight mid-way, then re-engage. The opening frame must show banded condition, not ?/? (C4).,
