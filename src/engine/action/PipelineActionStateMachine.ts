@@ -942,6 +942,14 @@ export class PipelineActionStateMachine {
     const decisionForHandoff = state.lastDecideResult;
     const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
 
+    // Stage 2: only the fatal-blow resume can supply either field — `state.pendingDecision` is
+    // the SL-6 interstitial at that point, so its `prompt` is the real "Finish it, or let it
+    // live?" text. On an ordinary beat the generic reconstruction and `pendingDecision.prompt`
+    // already agree, so threading it there would be churn with a drift risk and no gain.
+    const fatalBlowHandoff = fatalBlowMarker
+      ? { fatalBlow: fatalBlowMarker, decisionPrompt: state.pendingDecision.prompt }
+      : {};
+
     // RESOLVE-MUTATE for ancillary loot only (the LLM never authors enemyHp/core damage).
     const { result: combatMutate, callId: combatMutateCallId } = await this.llm.resolveMutate({
       actionType: state.actionType,
@@ -950,6 +958,7 @@ export class PipelineActionStateMachine {
       verdict,
       d20Roll,
       context,
+      ...fatalBlowHandoff,
     });
     const proposedMutations = combatMutate.mutations;
     const combatResolveCallIds: number[] = combatMutateCallId !== 0 ? [combatMutateCallId] : [];
@@ -1055,6 +1064,7 @@ export class PipelineActionStateMachine {
       d20Roll,
       finalMutations: finalMutations as unknown[],
       context,
+      ...fatalBlowHandoff,
     });
     const rawOutcomeText = combatNarrate.outcomeText;
     if (combatNarrateCallId !== 0) combatResolveCallIds.push(combatNarrateCallId);

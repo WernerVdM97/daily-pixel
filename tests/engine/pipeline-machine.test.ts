@@ -2485,3 +2485,145 @@ describe('PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)', 
     expect(interstitial.nextDecision.options.every(o => o.dcModifier !== null)).toBe(true);
   });
 });
+
+describe('PipelineActionStateMachine — Stage 2: fatalBlow/decisionPrompt resolve handoff (RA-1/RA-2, Release gate)', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it("'Show mercy' hands both resolveMutate and resolveNarrate fatalBlow: 'spare' and the interstitial's real decisionPrompt", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Show mercy', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
+    const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
+    expect(mutateCall.fatalBlow).toBe('spare');
+    expect(narrateCall.fatalBlow).toBe('spare');
+    // Pinning "contains" rather than the whole string: a later wording tweak to the interstitial
+    // prompt shouldn't spuriously break this test.
+    expect(mutateCall.decisionPrompt).toContain('Finish it, or let it live?');
+    expect(narrateCall.decisionPrompt).toContain('Finish it, or let it live?');
+  });
+
+  it("'Finish it' hands both resolveMutate and resolveNarrate fatalBlow: 'finish' and the same decisionPrompt", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
+    const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
+    expect(mutateCall.fatalBlow).toBe('finish');
+    expect(narrateCall.fatalBlow).toBe('finish');
+    expect(mutateCall.decisionPrompt).toContain('Finish it, or let it live?');
+    expect(narrateCall.decisionPrompt).toContain('Finish it, or let it live?');
+  });
+
+  it('a combat LOSS (second lethal blow today, no fatal-blow interstitial) carries neither fatalBlow nor decisionPrompt in either handoff', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 10 }),
+    ];
+    // Seed a combat_save edge so the save-day check fails through (second-lethal-blow today) —
+    // the same reachable LOSS path as the T2b combatFrame suite, not a fabricated state.
+    const resolver: PipelineContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+      getCurrentDay: () => 1,
+      getSceneRelations: () => [{
+        id: 0,
+        from_type: 'pc',
+        from_ref: '1',
+        to_type: 'pc',
+        to_ref: '1',
+        rel_type: 'combat_save',
+        props: JSON.stringify({ savedDay: 1 }),
+        created_by_action_id: null,
+        updated_day: null,
+      }] as RelationRow[],
+    };
+    const rolls = [1, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++], resolver);
+    const lowChar = testChar({ health: 3 });
+
+    const started = await machine.start(lowChar, 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step = await machine.step(started.state, 'Press the attack', lowChar, testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+    expect(step.outcome.outcome).toBe('failure');
+
+    const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
+    const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
+    expect(mutateCall.fatalBlow).toBeUndefined();
+    expect(narrateCall.fatalBlow).toBeUndefined();
+    expect(mutateCall.decisionPrompt).toBeUndefined();
+    expect(narrateCall.decisionPrompt).toBeUndefined();
+  });
+
+  it('a non-combat resolution carries neither fatalBlow nor decisionPrompt in either handoff', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.classifyResult = {
+      kind: 'hit',
+      actionType: 'search',
+      flags: { needs_roll: true, unsafe_location: false, target_present: false },
+    };
+    llm.decideResult = {
+      distilledType: 'search',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      decision: [{ label: 'Strike hard', dcModifier: 0 }],
+    };
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You find nothing of interest.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 10);
+
+    const started = await machine.start(testChar(), 'search the area', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step1 = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step');
+    const step2 = await machine.step(step1.state, 'Strike hard', testChar(), testItems);
+    if (!step2.resolved) throw new Error('expected resolved step');
+
+    const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
+    const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
+    expect(mutateCall.fatalBlow).toBeUndefined();
+    expect(narrateCall.fatalBlow).toBeUndefined();
+    expect(mutateCall.decisionPrompt).toBeUndefined();
+    expect(narrateCall.decisionPrompt).toBeUndefined();
+  });
+});

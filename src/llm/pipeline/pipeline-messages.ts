@@ -37,7 +37,11 @@ export function buildClassifyUserMessage(rawInput: string, context: LlmContext):
  *  decide-scene-narration amendment: the framing line's wording changed from the old
  *  "choose your approach:" to the CTA "what do you do?" (it now sits under DECIDE's own
  *  `narration` on CONTINUE beats — see `PipelineDecideResult.narration`), so this reconstruction
- *  is kept in lockstep with `toActionDecision`'s CTA wording. */
+ *  is kept in lockstep with `toActionDecision`'s CTA wording.
+ *
+ *  Stage 2 override: a hand-authored interstitial (e.g. SL-6's fatal-blow prompt) has real prose
+ *  this generic reconstruction can't produce, so `buildResolveUserMessage` prefers
+ *  `input.decisionPrompt` over calling this function whenever it's supplied. */
 function reconstructDecisionPrompt(distilledType: string): string {
   const capitalized = distilledType ? distilledType.charAt(0).toUpperCase() + distilledType.slice(1) : distilledType;
   return `${capitalized} — what do you do?`;
@@ -54,7 +58,7 @@ export function buildResolveUserMessage(
   input: PipelineResolveMutateInput | PipelineResolveNarrateInput,
   task: 'RESOLVE-MUTATE' | 'RESOLVE-NARRATE',
 ): string {
-  const { actionType, decision, chosenOption, verdict, d20Roll, context } = input;
+  const { actionType, decision, chosenOption, verdict, d20Roll, context, fatalBlow, decisionPrompt } = input;
 
   const out: string[] = [];
   out.push(`TASK: ${task}`);
@@ -67,9 +71,14 @@ export function buildResolveUserMessage(
 
   out.push('');
   out.push('### What was decided');
-  out.push(`- prompt: ${reconstructDecisionPrompt(decision.distilledType)}`);
+  out.push(`- prompt: ${decisionPrompt ?? reconstructDecisionPrompt(decision.distilledType)}`);
   out.push(`- chosen: ${chosenOption.label}`);
   out.push(`- stat: ${chosenOption.stat ?? decision.stat}`);
+  // Bare structured token: the v13 recipe (stage 4), not this code, is where "what a spare
+  // means" gets explained in prose.
+  if (fatalBlow) {
+    out.push(`- fatal blow: ${fatalBlow}`);
+  }
 
   out.push(...buildSceneBody(context));
 

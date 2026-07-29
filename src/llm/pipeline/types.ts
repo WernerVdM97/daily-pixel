@@ -82,6 +82,16 @@ export interface PipelineResolveMutateInput {
   /** The raw d20 roll (1-20), or 0 for auto-resolve (no-roll types like rest/travel). */
   d20Roll: number;
   context: LlmContext;
+  /** SL-6's fatal-blow ending, when this resolution is one — `loadPromptSet` only selects on
+   *  category plus verdict (`prompt-builder.ts`), so both endings land on the same `success`
+   *  template and this is the prompt layer's only way to tell a kill from a spare. Absent on
+   *  every non-fatal-blow resolution. */
+  fatalBlow?: 'finish' | 'spare';
+  /** The interstitial's real prompt text, when the generic reconstruction
+   *  (`reconstructDecisionPrompt`) can't produce it — `PipelineDecideResult` deliberately carries
+   *  no `prompt` field, so a hand-authored beat like the fatal-blow interstitial has no other way
+   *  to reach the model. */
+  decisionPrompt?: string;
 }
 
 /** RESOLVE-MUTATE's output: PROPOSED mutations only — pre-finalize. The engine's pure
@@ -102,6 +112,16 @@ export interface PipelineResolveNarrateInput {
   d20Roll: number;
   finalMutations: unknown[];
   context: LlmContext;
+  /** SL-6's fatal-blow ending, when this resolution is one — `loadPromptSet` only selects on
+   *  category plus verdict (`prompt-builder.ts`), so both endings land on the same `success`
+   *  template and this is the prompt layer's only way to tell a kill from a spare. Absent on
+   *  every non-fatal-blow resolution. */
+  fatalBlow?: 'finish' | 'spare';
+  /** The interstitial's real prompt text, when the generic reconstruction
+   *  (`reconstructDecisionPrompt`) can't produce it — `PipelineDecideResult` deliberately carries
+   *  no `prompt` field, so a hand-authored beat like the fatal-blow interstitial has no other way
+   *  to reach the model. */
+  decisionPrompt?: string;
 }
 
 export interface PipelineResolveNarrateResult {
