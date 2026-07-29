@@ -2587,10 +2587,14 @@ describe('PipelineActionStateMachine — Stage 2: fatalBlow/decisionPrompt resol
 
     const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
     const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
-    expect(mutateCall.fatalBlow).toBeUndefined();
-    expect(narrateCall.fatalBlow).toBeUndefined();
-    expect(mutateCall.decisionPrompt).toBeUndefined();
-    expect(narrateCall.decisionPrompt).toBeUndefined();
+    // Key ABSENCE, not a falsy value: `toBeUndefined()` alone passes for a key that is present
+    // and set to `undefined`, so it would not catch the conditional spread being replaced by an
+    // unconditional one. Nothing downstream reads the difference today, but "absent on every
+    // non-fatal-blow resolution" is the contract the field's doc comment states.
+    expect('fatalBlow' in mutateCall).toBe(false);
+    expect('fatalBlow' in narrateCall).toBe(false);
+    expect('decisionPrompt' in mutateCall).toBe(false);
+    expect('decisionPrompt' in narrateCall).toBe(false);
   });
 
   it('a non-combat resolution carries neither fatalBlow nor decisionPrompt in either handoff', async () => {
@@ -2621,9 +2625,9 @@ describe('PipelineActionStateMachine — Stage 2: fatalBlow/decisionPrompt resol
 
     const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
     const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
-    expect(mutateCall.fatalBlow).toBeUndefined();
-    expect(narrateCall.fatalBlow).toBeUndefined();
-    expect(mutateCall.decisionPrompt).toBeUndefined();
-    expect(narrateCall.decisionPrompt).toBeUndefined();
+    expect('fatalBlow' in mutateCall).toBe(false);
+    expect('fatalBlow' in narrateCall).toBe(false);
+    expect('decisionPrompt' in mutateCall).toBe(false);
+    expect('decisionPrompt' in narrateCall).toBe(false);
   });
 });
