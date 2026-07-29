@@ -522,9 +522,12 @@ export class PipelineActionStateMachine {
     // ── Establish or read combat state ──
     let cs = readCombatState(context.sceneState ?? []);
 
-    // RA-3 bounded: reset on every fresh establish (a stale marker from the PREVIOUS fight in
-    // this same action, e.g. a bailed-then-re-engaged encounter, must not leak into this one) and
-    // held unchanged across rounds otherwise — set below only in the npc-resolution-failed branch.
+    // RA-3 bounded: reset on every fresh establish, since the new fight's foe is not the old
+    // one's. Reachable within a SINGLE action — a fight that ends (kill, cap-derive, hpZero
+    // failure) can be followed by a fresh establish later in the same action. A bail can't reach
+    // it, being terminal for the whole action; the edge-prop fallback below covers that
+    // cross-action case instead. Held unchanged across rounds otherwise — set below only in the
+    // npc-resolution-failed branch.
     let unresolvedNpcMint: { name: string } | undefined = state.unresolvedNpcMint;
 
     if (!cs || cs.enemyHp <= 0) {
@@ -574,6 +577,10 @@ export class PipelineActionStateMachine {
           enemyMaxHp,
           round: 1,
           anchor,
+          // Persist the mint intent on the edge, not only on the per-action marker above, so it
+          // survives a bail — `combatRoundUpdate`'s spread then carries it through every
+          // subsequent round write for this fight, in this action or a later one.
+          ...(unresolvedNpcMint ? { mintName: unresolvedNpcMint.name } : {}),
         };
       } else {
         // No combatEnemy signal — default to a location-anchored minion (always establishes).
@@ -586,6 +593,16 @@ export class PipelineActionStateMachine {
           anchor: { node: 'location', name: char.location },
         };
       }
+    }
+
+    // Cross-action fallback for the mint intent. `PipelineInternalActionState` (and its marker)
+    // is discarded whenever an action resolves, bails included, so a bailed-then-re-engaged
+    // unresolved-npc fight starts its next action with no marker — yet the `in_combat` edge is
+    // still at positive HP, so the establish branch above never re-runs and never re-sets it.
+    // The edge prop is the only place that intent survives. Ordering matters: the per-action
+    // marker wins when set (the common single-action case), so this is strictly a fallback.
+    if (unresolvedNpcMint === undefined && cs.mintName) {
+      unresolvedNpcMint = { name: cs.mintName };
     }
 
     // Resolve the anchor to use for edge writes: prefer the state-held anchor (across rounds),
@@ -906,11 +923,13 @@ export class PipelineActionStateMachine {
     playerBonus: number,
     enemyBonus: number,
     dc: number,
-    // SL-6: set only by the fatal-blow resume. `'finish'` leaves the round to advance normally
-    // (a dead foe's edge is re-established from scratch next encounter regardless of its round
-    // label); `'spare'` forces the persisted edge back to round 1 — otherwise a foe spared in
-    // round N would leave the edge at round N+1 and immediately trip the MAX_COMBAT_ROUNDS
-    // cap-derive on re-engage, which fails the "fresh, winnable fight" invariant.
+    // SL-6/SL-7: set only by the fatal-blow resume. Selects which of the two divergent
+    // terminal-write paths below fires: `'finish'` takes the normal surviving-HP edge write (a
+    // dead foe's edge is re-established from scratch on the next encounter regardless of what it
+    // holds); `'spare'` selects the CLOSED-edge write (`edgeEnemyHp` forced to 0, SL-7) instead of
+    // persisting a 1-HP survivor, and is also the signal `resolveCombat`'s mint check reads as
+    // "the foe survived" — a resolved-NPC spare closes the fight with no health write, while an
+    // unresolved-npc spare (`state.unresolvedNpcMint` set) mints the foe (RA-3 bounded).
     fatalBlowMarker?: 'finish' | 'spare',
   ): Promise<{ resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome }> {
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
@@ -976,8 +995,8 @@ export class PipelineActionStateMachine {
     // RA-3 bounded (SL-4 refinement + SL-7): the model named a specific NPC the DB didn't have
     // (`state.unresolvedNpcMint`, set at establish when `anchor: 'npc'` resolution failed), and
     // the foe walked away from the fight — mint it as a real NPC so the world stops narrating
-    // someone it never persists (F#1). Keyed off NOTIONAL survival, not `edgeEnemyHp` — change 0
-    // above just closed the spare edge, so the edge can no longer answer "did the foe survive?".
+    // someone it never persists (F#1). Keyed off NOTIONAL survival, not `edgeEnemyHp` — SL-7
+    // closes the edge on a spare, so the edge can no longer answer "did the foe survive?".
     // `fatalBlowMarker === 'finish'` is the only dead outcome; `'spare'` always survives; the two
     // non-fatal-blow callers (hpZero's second-lethal-blow failure, and cap-derive) only ever
     // reach `resolveCombat` with `finalEnemyHp > 0` — the `newEnemyHp <= 0` win branch in
@@ -1002,13 +1021,12 @@ export class PipelineActionStateMachine {
         description: 'A foe from a recent fight, left alive and wounded.',
         health: survivingHp,
         // `char.location` is the fight's location, captured BEFORE this resolution's own
-        // mutations run (the applier below forces the minted NPC's `location` to the
-        // POST-mutation `applied.location`, which can differ from here if this same resolution
-        // also relocated the player — see the comment there). Without a `homeLocation` the
-        // nightly tick's wander-skip (`home_location === location`) never triggers and the foe
-        // wanders off overnight, so this is set regardless of that edge case. Note the skip only
-        // freezes an NPC already standing on its home — there is no homing behaviour, so on a
-        // mismatch the foe drifts randomly until it happens to land there.
+        // mutations run. Both are set from it so they agree: the applier honours an explicit
+        // `location` ahead of its POST-mutation `applied.location` fallback precisely so this
+        // mint can't drift from its own `homeLocation` when the same resolution also relocates
+        // the player. They must match or the nightly wander-skip (`home_location === location`)
+        // never fires and the foe wanders off before the next encounter here can resolve it.
+        location: char.location,
         homeLocation: char.location,
       } as WorldMutation);
     }

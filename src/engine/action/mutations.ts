@@ -77,8 +77,13 @@ export interface AppliedState extends MutationContext {
   itemsToAdd: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity: number }>;
   itemsToRemove: Array<{ name: string; quantity: number }>;
   /** v11: add_npc (create-only). Legacy spawn_npc maps here. `health` added by RA-3 bounded —
-   *  `npcRepo.create` always accepted it, the gap was only ever in this applier. */
-  npcsToAdd: Array<{ name: string; class?: string; description?: string; race?: string; homeLocation?: string; health?: number }>;
+   *  `npcRepo.create` always accepted it, the gap was only ever in this applier. An explicit
+   *  `location` lets a caller (the combat mint) pin the row to the FIGHT's location instead of
+   *  the applier's `applied.location` fallback, which is POST-mutation and can diverge from it
+   *  when the same resolution also relocates the player — see the create-loop comment in
+   *  `WorldEngineImpl.ts`. Omitting it keeps the pre-existing behaviour every LLM-authored
+   *  `add_npc` relies on. */
+  npcsToAdd: Array<{ name: string; class?: string; description?: string; race?: string; homeLocation?: string; health?: number; location?: string }>;
   /** v11: update_npc — handle already resolved to npcId by the gateway. */
   npcsToUpdate: Array<{ npcId: number; description?: string; location?: string; class?: string; race?: string }>;
   /** v11: remove_npc — handle already resolved to npcId by the gateway. */
@@ -199,11 +204,12 @@ function validateTypedRelationProps(
     // in_combat delta (round would double-sum through updateProps, see combatRoundUpdate),
     // and the LLM never authors in_combat ops (engine-owned, decision 3). A future partial
     // in_combat delta writer would need to relax this by opType.
-    const { enemyName, enemyHp, enemyMaxHp, round } = props as {
+    const { enemyName, enemyHp, enemyMaxHp, round, mintName } = props as {
       enemyName?: unknown;
       enemyHp?: unknown;
       enemyMaxHp?: unknown;
       round?: unknown;
+      mintName?: unknown;
     };
     if (typeof enemyName !== 'string' || enemyName.trim() === '') {
       return `${opType} "in_combat" requires a non-empty "enemyName" string`;
@@ -225,6 +231,12 @@ function validateTypedRelationProps(
     }
     if (round < 1) {
       return `${opType} "in_combat" prop "round" (${round}) must be >= 1`;
+    }
+    // `mintName` (RA-3 bounded, see `CombatState.mintName`) is the one optional prop here:
+    // absent is legal, so edges already persisted in a live DB keep validating. When present it
+    // must be a non-empty string, same shape as `enemyName`.
+    if (mintName !== undefined && (typeof mintName !== 'string' || mintName.trim() === '')) {
+      return `${opType} "in_combat" prop "mintName" must be a non-empty string when present`;
     }
     return null;
   }
@@ -494,6 +506,9 @@ export function applyMutations(
           // RA-3 bounded: carries the surviving foe's HP for the engine-authored mint.
           // `npcRepo.create` already accepted `health`; only this copy was missing.
           ...(m.health !== undefined ? { health: Number(m.health) } : {}),
+          // Honoured by the applier ahead of its `applied.location` fallback — see the
+          // `npcsToAdd` shape comment above.
+          ...(m.location !== undefined ? { location: String(m.location) } : {}),
         });
         break;
       case 'update_npc':

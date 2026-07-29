@@ -646,16 +646,15 @@ export class WorldEngineImpl implements WorldEngine {
     // name at the same location is almost certainly an LLM accident; flag it and still create,
     // so the auditable world-state change is recorded even when we know it's a dup.
     for (const npc of applied.npcsToAdd) {
-      // `applied.location` is the POST-mutation location, not necessarily where this action's
-      // narration/mint happened — reachable in principle for RA-3's combat mint, since the D6
-      // travel-coherence gate can inject a relocate mutation into the same resolution if DECIDE's
-      // `sceneLocation` ever drifts from the actual location mid-fight. Not guarded here: the
-      // minted NPC's `homeLocation` (set by the caller to the fight's PRE-mutation location) is
-      // independent of this `location` write, so on a mismatch the nightly wander-skip
-      // (`home_location === location`) never fires and the foe drifts on the random 80% wander
-      // until it happens to land on its home location and freeze. Mis-placed and mobile, then —
-      // not a lost mint, but not self-correcting in any directed sense either.
-      const atLocation = applied.location;
+      // An explicit `npc.location` wins over `applied.location`, which is the POST-mutation
+      // location and so is wrong for RA-3's combat mint whenever the same resolution also
+      // relocates the player (the D6 travel-coherence gate injecting a `set_location`). On that
+      // mismatch the minted row's `location` and its `homeLocation` (pinned to the fight's
+      // pre-mutation location) disagree, which defeats the nightly wander-skip
+      // (`home_location === location`) and lets the foe drift off on the 80% wander — after
+      // which the next encounter at the fight's location can't resolve it and mints a duplicate,
+      // since the collision check below only looks within one location.
+      const atLocation = npc.location ?? applied.location;
       const collision = this.npcRepo.findByLocation(atLocation)
         .find(existing => existing.name.trim().toLowerCase() === npc.name.trim().toLowerCase());
       if (collision) {
@@ -1093,6 +1092,11 @@ export class WorldEngineImpl implements WorldEngine {
    * Caveat: the LLM-named branch gates on NAME ONLY, with no location/anchor check, so a
    * coincidentally same-named foe anchored elsewhere would still match. The anchor check is the
    * sole guard, and it applies only to the LLM-silent fallback.
+   *
+   * Under SL-7 a spare closes the `in_combat` edge, so this returns `undefined` after one — by
+   * design, not a regression: the fight is genuinely over, and a spared foe's wound now surfaces
+   * on the next establish via its minted NPC row (RA-3 bounded) rather than through this
+   * re-entry path. Don't re-open the edge to bring the banner back.
    */
   private readPersistedCombatFoe(
     characterId: number,

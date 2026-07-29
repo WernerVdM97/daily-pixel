@@ -16,6 +16,14 @@ export interface CombatState {
   enemyMaxHp: number;
   round: number;
   anchor: RelationEndpoint;
+  /** RA-3 bounded: the intended name of an `anchor: 'npc'` foe whose resolution failed at
+   *  establish, held on the edge rather than only on
+   *  `PipelineInternalActionState.unresolvedNpcMint`. The per-action marker dies with the action
+   *  (bails included), so without this the mint intent is lost the moment a bailed fight is
+   *  re-engaged in a later action — the edge still reads positive HP, so the re-engage continues
+   *  rather than re-running establish. Optional so edges persisted before this prop existed
+   *  still read cleanly. */
+  mintName?: string;
 }
 
 /**
@@ -41,7 +49,9 @@ function toAnchor(node: SceneStateEdge['to']): RelationEndpoint {
 
 /** Basic numeric/shape sanity beyond typeof — mirrors the write-time clamps (`mutations.ts`)
  *  closely enough to reject obviously-corrupt persisted props, without re-importing the
- *  validator (this module stays pure/dependency-free of `mutations.ts`'s runtime code). */
+ *  validator (this module stays pure/dependency-free of `mutations.ts`'s runtime code).
+ *  `mintName` is deliberately absent: unlike every field checked here, a bad value drops the
+ *  prop rather than invalidating the whole read — see `readCombatState`. */
 function isSaneCombatProps(enemyHp: number, enemyMaxHp: number, round: number): boolean {
   // Must mirror validateTypedRelationProps' clamps exactly (incl. the enemyMaxHp
   // upper bound) so the read guard never accepts a bag the write path rejects.
@@ -67,7 +77,12 @@ export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
   if (typeof round !== 'number' || !Number.isFinite(round)) return null;
   if (!isSaneCombatProps(enemyHp, enemyMaxHp, round)) return null;
 
-  return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to) };
+  // Read tolerantly: an edge predating this prop (or a malformed value) yields `undefined`
+  // rather than invalidating the whole read, unlike the required fields above.
+  const rawMintName = (edge.props as Record<string, unknown>).mintName;
+  const mintName = typeof rawMintName === 'string' && rawMintName.trim() !== '' ? rawMintName : undefined;
+
+  return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName };
 }
 
 /** The initial (or any full-state) `set_relation` for the `in_combat` edge — `set` upserts by
@@ -82,6 +97,10 @@ export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
       enemyHp: state.enemyHp,
       enemyMaxHp: state.enemyMaxHp,
       round: state.round,
+      // Written only when set: `props` is a flat scalar record that admits no `undefined`
+      // members, and omitting the key leaves a non-mint fight's edge exactly as it was before
+      // this prop existed.
+      ...(state.mintName ? { mintName: state.mintName } : {}),
     },
   };
 }
@@ -102,6 +121,9 @@ export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
  * anchor, is threaded through as input rather than the anchor-only shape the plan sketched).
  * `enemyHpDelta` is applied and clamped to `[0, state.enemyMaxHp]` here so the emitted op is
  * always a valid absolute value; `nextRound` is written as-is (callers pass `round + 1`).
+ * The same full-state spread is what carries `mintName` through unchanged from the caller's
+ * `cs`, so once set at establish it survives every subsequent round write without any caller
+ * having to thread it through explicitly.
  */
 export function combatRoundUpdate(
   state: CombatState,

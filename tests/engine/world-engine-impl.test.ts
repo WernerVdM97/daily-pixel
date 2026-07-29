@@ -983,4 +983,128 @@ describe('WorldEngineImpl — RA-3 bounded: mint the foe the world named but nev
 
     closeDb();
   });
+
+  it('carries the mint intent across an action boundary: a bailed-then-re-engaged unresolved-npc fight still mints exactly once when the foe is finally spared', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(
+      userRepo, charRepo,
+      new QueueGateway([unresolvedNpcDecide('Raider')]),
+      // Round 1 (action 1): playerD20=8, enemyD20=8 -> margin (8+3)-(8+0)=3 -> 'glanced'
+      // (enemyHpDelta -3, playerHpDelta 0) — a non-lethal CONTINUE, 6 HP foe down to 3, no
+      // player damage (never risks the hpZero floor). Round 2 (action 2, after the bail):
+      // playerD20=20 forces a player-crit clean kill (enemyHpDelta -8), taking the 3-HP
+      // survivor straight to the fatal-blow interstitial in a single round.
+      [8, 8, 20, 5],
+    );
+
+    await engine.startAction(characterId, 'attack the raider');
+    const round1 = await engine.stepAction(characterId, 'Press the attack');
+    expect(round1.resolved).toBe(false); // CONTINUE, not yet the fatal-blow interstitial
+
+    const bailed = await engine.stepAction(characterId, 'Flee the fight');
+    expect(bailed.resolved).toBe(true);
+    if (!bailed.resolved) throw new Error('expected resolved step');
+    expect(bailed.outcome.outcome).toBe('bailed');
+
+    // Re-engage in a BRAND-NEW action. `PipelineInternalActionState` — and its per-action
+    // `unresolvedNpcMint` marker — was discarded the instant the bail above resolved; the
+    // `in_combat` edge (still at 3/6 HP) is the only place the mint intent can still live.
+    await engine.startAction(characterId, 'attack the raider again');
+    const round2 = await engine.stepAction(characterId, 'Press the attack');
+    expect(round2.resolved).toBe(false); // the fatal-blow interstitial
+
+    const spared = await engine.stepAction(characterId, 'Show mercy');
+    expect(spared.resolved).toBe(true);
+
+    const npcRepo = new NpcRepository(getDb());
+    const minted = npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Raider');
+    expect(minted).toHaveLength(1);
+    expect(minted[0].description).toBeTruthy();
+
+    closeDb();
+  });
+
+  it('mints nothing for an anchor: location (ambient) foe put through the same bail-then-re-engage sequence — the edge prop is not a name-presence gate (SL-4)', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const ambientDecide: PipelineDecideResult = {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'a wolf', anchor: 'location' },
+    };
+    const engine = makeEngine(userRepo, charRepo, new QueueGateway([ambientDecide]), [8, 8, 20, 5]);
+
+    await engine.startAction(characterId, 'attack the wolf');
+    const round1 = await engine.stepAction(characterId, 'Press the attack');
+    expect(round1.resolved).toBe(false);
+
+    const bailed = await engine.stepAction(characterId, 'Flee the fight');
+    expect(bailed.resolved).toBe(true);
+
+    await engine.startAction(characterId, 'attack the wolf again');
+    const round2 = await engine.stepAction(characterId, 'Press the attack');
+    expect(round2.resolved).toBe(false);
+
+    const spared = await engine.stepAction(characterId, 'Show mercy');
+    expect(spared.resolved).toBe(true);
+
+    const npcRepo = new NpcRepository(getDb());
+    expect(npcRepo.findByLocation(LOCATION).filter((n) => n.name.toLowerCase() === 'a wolf')).toHaveLength(0);
+
+    closeDb();
+  });
+
+  it('mints the foe at the FIGHT location, not the post-travel-gate destination, when the travel gate relocates the player mid-resolution — so a second encounter there resolves it instead of minting a duplicate', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const decideWithSceneMove: PipelineDecideResult = {
+      ...unresolvedNpcDecide('Raider'),
+      // Diverges from char.location ("The Warden's Oak") with no relocate mutation authored —
+      // applyTravelCoherenceGate injects a set_location into this same resolution, so the
+      // applier's `applied.location` fallback (post-mutation) would place the mint in Town
+      // Square while `homeLocation` (pre-mutation) stays at the fight's location.
+      sceneLocation: 'Town Square',
+    };
+    // Second fight's decide carries no sceneLocation, so it doesn't re-trigger the gate —
+    // this test isolates the mint-location bug to the first encounter only.
+    const engine = makeEngine(
+      userRepo, charRepo,
+      new QueueGateway([decideWithSceneMove, unresolvedNpcDecide('Raider')]),
+      [20, 5, 20, 5], // both fights one-shot-kill via a player nat-20 (see unresolvedNpcDecide's doc comment)
+    );
+
+    await engine.startAction(characterId, 'attack the raider');
+    const interstitial = await engine.stepAction(characterId, 'Press the attack');
+    expect(interstitial.resolved).toBe(false);
+
+    const spared = await engine.stepAction(characterId, 'Show mercy');
+    expect(spared.resolved).toBe(true);
+
+    // The travel gate relocated the player mid-resolution — confirms the bug's precondition.
+    const charRow = charRepo.findById(characterId);
+    expect(charRow?.location).toBe('Town Square');
+
+    const npcRepo = new NpcRepository(getDb());
+    const minted = npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Raider');
+    expect(minted).toHaveLength(1);
+    expect(minted[0].location).toBe(LOCATION);
+    expect(minted[0].home_location).toBe(LOCATION);
+
+    // Return to the fight's location for a second encounter — it must resolve the minted row
+    // (nearbyNpcsAt(LOCATION) now sees it) rather than falling back to unresolved-npc again and
+    // minting a duplicate.
+    charRepo.update(characterId, { location: LOCATION });
+    await engine.startAction(characterId, 'attack the raider again');
+    const reengage = await engine.stepAction(characterId, 'Press the attack');
+    expect(reengage.resolved).toBe(false);
+    const reengageSpared = await engine.stepAction(characterId, 'Show mercy');
+    expect(reengageSpared.resolved).toBe(true);
+    if (!reengageSpared.resolved) throw new Error('expected resolved step');
+
+    expect(reengageSpared.outcome.combatFrame?.enemyName).toBe('Raider');
+    expect(npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Raider')).toHaveLength(1);
+
+    closeDb();
+  });
 });
