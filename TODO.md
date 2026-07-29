@@ -4,13 +4,11 @@
 
 **Read first:** [`docs/engine/poc-plus-release-a-plan.md`](./docs/engine/poc-plus-release-a-plan.md) — the executor-grade build plan. Its § Execution state carries the running handover (branch, baseline, per-task log, owner locks); its § RA-4 A/B results and § Scouting corrections carry findings that supersede parts of the original task specs. Parent tracking is [[poc-plus-roadmap]] § Re-sequencing.
 
-**Reconcile first, every resume:** branch is `poc-plus/release-a` (cut off `dev` at `b32642a`). Confirm `npm run typecheck` clean and `npm test` green: **baseline is now 89 files / 1657 tests**, not the 88/1611 this line quoted before stages 1-3, nor the 86/1576 the M4 handover quoted. Check the plan's § Execution state against `git log` before trusting either. **The work lives in a separate worktree at `/Users/werner/termic/tasks/daily-pixel/release-a`; the primary checkout `~/projects/daily-pixel` is on `dev` at `b32642a` and contains none of these commits.** Verifying in the wrong worktree reads as "the work was never done", so check `git rev-parse --abbrev-ref HEAD` first.
+**Reconcile first, every resume:** all of Release A's engine work is **merged and pushed** — `dev` and `origin/dev` are both at `baa7cdf`. Stage 4 continues on `poc-plus/release-a` (worktree `/Users/werner/termic/tasks/daily-pixel/release-a`). Baseline is **89 files / 1657 tests**, typecheck clean. Check the plan's § Execution state against `git log` before trusting it: the task log there stops at RA-3 (`29b8754`) and still quotes an 88/1611 baseline, so it is stale for stages 1-3.
 
 **All owner locks are settled — nothing is blocked on the owner.** SL-1 = Option A (Release A carries the v13-aligned prompt-set bump, so RA-1, RA-2 and RA-3's full half are all in scope). SL-2 = no lethality (pre-settled). SL-3 = `narrate-gated` (decided on the measured A/B). SL-4 = named foes only, keyed off the `anchor` signal **not** name-presence. SL-5 = the sixth row is its own RA-6.
 
-**Done and committed on the branch:** RA-6 (`8c2bdde`, reviewed clean), RA-4 (`1ae558f` … `0fb3d16`, including three defect fixes and the live A/B), RA-5 + RA-3 bounded (`a4b719b` … `b55228b`, including SL-6's fatal-blow interstitial and SL-7), and **stages 1-3 of the RA-1/RA-2/v13 sequence** (`ef50a90` the execution spec; `03b200c` + `69f0418` stage 1's item-bonus ceiling; `e0f81de` + `66143bc` stage 2's `fatalBlow`/`decisionPrompt` handoff; `689daf4` + `9a25005` stage 3's engine F#12 strip and the named-reward line).
-
-**On `9a25005`, because the fix is subtle and the position is load-bearing:** stage 3 first stripped the positive `modify_rolls_remaining` *before* `this.finalize`, which reopened F#12 on the very path it claimed to close. `collapseStackedDeltas` sums via `Number(m.amount ?? 0)` and re-emits a fresh object, and the validator's typeof/NaN guards run *after* collapse, so a model-authored quoted `"1"` slipped past the strip's `typeof` guard and was coerced back into a real grant inside that same finalize. Stripping per-mutation also lost a `+2` while keeping a paired `-1`, so work could *charge* a roll. The strip now runs on the finalize output, still before the RESOLVE-NARRATE handoff (which is all the coherence requirement ever needed), where the axis is one netted, type-coerced entry and both defects are structurally impossible. Both regression tests wire the **real** `createGeographyFinalize`: against the machine's identity default they pass vacuously.
+**Landed:** RA-6, RA-4, RA-5, RA-3 bounded (+SL-6, SL-7), and stages 1-3 of the RA-1/RA-2/v13 sequence (item-bonus ceiling, the `fatalBlow`/`decisionPrompt` handoff, the engine F#12 strip and the named-reward line). Per-task detail is in the plan's § Task log and `CHANGELOG.md` `[Unreleased]`.
 
 **Next, in this order:**
 
@@ -19,7 +17,7 @@
 
 **Overshoot risk to watch when stage 6 measures, flagged before stage 4 was written:** RA-1 and RA-2 push the same direction at once and compound multiplicatively rather than additively. RA-1 raises DCs so more attempts fail, and RA-2 cuts the grant rate so there are fewer attempts per day: fewer turns, each likelier to cost than to pay. The RA-4 playtest critic already reported failure costs as harsh ("losing gold on a failed tail") and the bail mechanic as unrewarding, and that was on the *pre-change* tuning. If stage 6 lands at the bottom of the acceptance band, the honest reading is "stingy", not "tense". If one dial has to be relaxed, relax **RA-2's frequency dial rather than RA-1's ladder**: stakes are the release's stated purpose, cadence is a comfort setting. Note also that RA-1's anti-crush mechanism is a *rule* (every option set keeps one option in the routine band), not a softer ladder, so if playtests still read as crushing, check whether the model is honouring that rule before touching the numbers.
 
-**A decomposition worth reusing for stage 4:** delegate by **file ownership, not by step**. `resolve/BASE.md` is touched by steps 2, 3, 4 and 5, so parallel executors split by step would collide on it. The fences that work are E1 = `decide/BASE.md`, E2 = `resolve/BASE.md` (sole owner, all four steps' portions), E3 = the `resolve/*/{success,failure}.md` recipes, then E4 = steps 6-7 (`src/` constants, `current_source/` resync, tests) which must run last because the content-assertion tests depend on E2 and E3 landing. A written handoff carrying these fences was drafted at `scratchpad/stage4-handoff.md` in the session temp dir; it is ephemeral, so re-derive it from the plan doc rather than expecting it to survive.
+**A decomposition worth reusing for stage 4:** delegate by **file ownership, not by step**. `resolve/BASE.md` is touched by steps 2, 3, 4 and 5, so parallel executors split by step would collide on it. The fences that work are E1 = `decide/BASE.md`, E2 = `resolve/BASE.md` (sole owner, all four steps' portions), E3 = the `resolve/*/{success,failure}.md` recipes, then E4 = steps 6-7 (`src/` constants, `current_source/` resync, tests) which must run last because the content-assertion tests depend on E2 and E3 landing. Re-derive the executor handoff from the plan doc's § Stage 4.
 
 **Blocker hit on 2026-07-29:** every `delegate-executor` spawn failed with `API Error: 529 Overloaded`, on three concurrent attempts and again on retry. No partial edits landed (`diff -r v12 v13` stayed empty), so stage 4 is cleanly at post-step-0. Retry the delegation when capacity returns, or build steps 1-7 in-lead if it persists.
 
@@ -35,12 +33,9 @@ Full-period prod snapshot (`warden-20260723-201953`, 07-07 → 07-23, day 17, `0
 
 **Release A — worth-returning-to (polish / coherence / cost)**
 
-- [ ] **Stakes / difficulty pass** — 83% success, no `final_dc` > 17, 11 failures in 98 actions. Meaningful cost + higher DCs on ambitious actions; no lethality (death track stays deferred). Overlaps the MVP "make wealth (and stamina, health) spendable/meaningful" item below.
-- [ ] **Inspiration dial** — `modify_rolls_remaining:+1` on 29% of actions inflates cadence to ~4.8/active-day (F#4 "fun but too broken"). Dial frequency or surface as a named reward. Related to the WAD bonus-rolls item below and F#12 (work shouldn't offer inspiration).
-- [ ] **NPC mint-on-first-sight** *(RA-3, next — see the plan's § Scouting corrections before speccing)* — `add_npc` fired twice all period; NPCs narrated but not persisted (F#1). Bounded half narrows to a single branch: `anchor: 'npc'` where NPC resolution failed. Gate on the `anchor` signal, **not** on name-presence — DECIDE authors a name string for wildlife too, so "has a name" would persist "a wolf" as a permanent resident.
-- [x] **Critic cost A/B** *(RA-4, done)* — measured live: critic = 26% of calls / 14.7% of tokens (corroborating the prod ~15%), 74% of verdicts `ok`, and the narrate half provably inert (it cannot act on a `major` at all, and the run produced zero `minor`s). Default is now `narrate-gated` per SL-3: decide critic unconditional, narrate critic gated. Framing correction: the critic was never in classify, and it was never the cost centre either — `pipeline-decide` is ~44% of tokens. An agent-player run now prints an LLM-cost summary.
-- [ ] **Combat terminal polish** *(RA-5, next — see the plan's § Scouting corrections before speccing)* — "critical" not "dead" on a win + no fatal-blow prompt (F#11). B#15's `'Minion'` half is largely already fixed by 0.3.2 C3 (the fallback only fires for a genuinely un-named foe, as designed), so the residual belongs to the decide prompt (v13). Two bugs found while scouting land here instead: the win frame bands enemy condition against the round's opening HP rather than `enemyMaxHp`, and `combatEnemy.name` accepts an empty string.
-- [x] **Private embed parity on auto-resolve paths** *(RA-6, done)* — dropped `{ compact: true }` from `SessionController.renderStartResult`, so all four action paths share the full embed; the `[Unreleased]` claim is now true. Numbered RA-6 rather than folded into RA-5 (different seam: auto-resolve reply paths, not combat rendering).
+- [ ] **Stakes / difficulty pass** *(RA-1)* — 83% success, no `final_dc` > 17, 11 failures in 98 actions. Item-bonus ceiling landed; the DC ladder and the reward/failure menus are stage 4 steps 1-2. No lethality (death track stays deferred). Overlaps the MVP "make wealth (and stamina, health) spendable/meaningful" item below.
+- [ ] **Inspiration dial** *(RA-2)* — `modify_rolls_remaining:+1` on 29% of actions inflates cadence to ~4.8/active-day (F#4 "fun but too broken"). F#12 (work no longer offers inspiration) and the named-reward line landed; the frequency dial itself is stage 4 step 3, targeting ~10%.
+- [ ] **NPC mint-on-first-sight** — bounded half **landed** (RA-3: `anchor: 'npc'` where resolution failed, minted on a surviving foe). Residual is the non-combat half, now stage 4 step 4's `add_npc` `health` vocab.
 
 **Stage 2 re-scope + later stages**
 
@@ -63,23 +58,16 @@ Three live DeepSeek smoke runs (1d, 1d, 2d) all completed clean (exit 0, 0 forma
 - [ ] **C3 residual — LLM-authored/spawn_npc NPCs have NULL health** *(deferred 0.3.2)*: `seedNpcs` now writes `health` (migration `202607112100_npc_combat_health.ts`), but LLM-authored and `spawn_npc` NPCs still get NULL health. `deriveEnemyMaxHp(DC)` is the fallback. Giving `add_npc` a `health` field means the decision prompt needs a `health` vocab slot → v13 prompt-versioning. **Now scoped as stage 4 step 4 of the Release A plan (vocab only, since the engine already accepts and stores `health`); not yet landed, so this stays open.**
 - [ ] **`ItemData` has no `kind`/`slot`/`consumable` column** *(RA-1 Stage 1 follow-up)*: the engine can't distinguish a consumable from a weapon and can't hold consumables to +1, so the v13 "consumable reads +1" guidance is prompt-only and unenforced until such a column exists.
 
-[ ] In-app: start a real combat against a named NPC (e.g. Shadow Stag). Verify the continue card shows the NPC's real name (C3).,
-[~] In-app: bail out of a fight mid-way, then re-engage. The opening frame must show banded condition, not ?/? (C4).,
-  ROOT CAUSE (fix/combat-reengage-foe, commit 3bd266d): bail resolves the action and clears
-  last_action_state, so "/action resume fight" is a FRESH start, not a resume. Its DECIDE step
-  names no foe on vague text, and the opener only sourced the name/condition from that hint. Fixed:
-  the opener now reads name+condition from the persisted in_combat edge (anchor-guarded). Re-verify
-  in-app. Persistence is NOT duplicated on same-location re-engage (set_relation upserts; the bailed
-  edge is read back and continued in place).
-  Two follow-ups left OUT of this fix (separate items below).
+**In-app checks still outstanding:**
+
+- [ ] Start a real combat against a named NPC (e.g. Shadow Stag); the continue card must show the NPC's real name (C3).
+- [ ] Bail out of a fight mid-way, then re-engage; the opening frame must show banded condition, not `?/?` (C4). Fix shipped in `3bd266d` (the opener now reads name + condition off the persisted `in_combat` edge, anchor-guarded); this is the in-app re-verification.
+- [ ] On a Saturday, verify the threat NPC is at its announced location on `/look` and stays there, rather than wandering off (N1).
+
+**C4 follow-ups left out of that fix:**
+
 - [ ] **C4 follow-up — abandoned (not bailed) mid-round combat shows no opening frame on resume**: a genuinely unfinished multi-round fight leaves last_action_state set; `/action` then hits the resume branch (`action.ts:162`), which calls `buildDecisionMessage` without `actionType`, so no opening frame renders at all (and `decisionIdx > 0` would gate it out anyway). Latent, not the reported symptom. Needs `resumeAction`/`ActionResumeResult` to carry actionType + remembered foe and the render gate to allow a combat opener on resume.
 - [ ] **C4 follow-up — in_combat edge duplication on anchor change**: `set_relation`'s UNIQUE key includes the anchor (`to_type,to_ref`), so a re-engage that resolves to a *different* anchor than the bailed edge creates a second `in_combat` edge; `readCombatState` then picks whichever the DB returns first. Harmless for same-anchor re-engage (the common path). Needs an edge-lifecycle sweep, not part of the C4 symptom fix.
-[y] In-app: fight to last-stand. The desperate-choice screen must show the contested-roll readout + banded condition (C5).,
-[y?] In-app: land the killing blow. The outcome must show the combat opening frame + terminal card (P2), not a bare location scene.,
-[y] In-app: verify the /action 'last action' hint fires only on the genuine last roll (Saturday = 4th, weekday = 3rd). (N3 verified by tests; sanity-check.),
-[y] In-app: cross a frontier to a new location. Verify the description resolves (not perpetual placeholder) within ~15s. (N2),
-[ ] In-app: on a Saturday, verify the threat NPC is at its announced location on /look and stays there (doesn't wander off). (N1),
-[y] In-app: on the unfinished-action screen (/hi), verify the free-text 'or type action <what you do>' line is gone. (N5)
 
 ### TBD — POC polish (small UI wins, no spark warranted)
 
@@ -140,8 +128,6 @@ one would look at the "you are here" first , then aroud you, and having the fore
 
 ### ANSI — outstanding work (consolidated 2026-07-11)
 
-> The `ANSI frame polish — T2 live-check follow-up` block (SGR/palette/glyph facts, renderer standardisation off black `chrome` + palette module, decouple render from engine, per-round combat maths visibility, the combat-frame redesign, and opening frames for all seven types + art-post/reply delivery) is **done — shipped in `0.3.1`**. Build plan archived → `docs/archived/poc-plus/poc-plus-0.3.1-polish-plan.md`; state cross-referenced in [[action-features-tracker]]. What remains:
-
 **Opening-frame runtime gaps** (from the ANSI-F review — the frame ships but misses these paths):
 
 - [ ] Opening frame on auto-resolved actions: travel/rest often resolve at start with no decision beat, so they show no opening frame today (3 auto-finish call sites + the public-broadcast embed question). Extend the frame to the outcome path.
@@ -158,12 +144,11 @@ one would look at the "you are here" first , then aroud you, and having the fore
 
 ### action pipeline framework refactor closeout
 
-1. ~~Finish Stage 5~~ **Done** (`72fb32d`, POC+ stage 1 T0a) — the T7 dead-code sweep landed: legacy machine, PROMPT_VERSION + stamp sites, critic dual-injection, and the current_source.md test are gone; the 2026-07-08 prod QA session stood in as the smoke gate.
-2. Then the v13 roadmap (docs/engine/prompt-v13-roadmap.md), which gives an explicit suggested order:
-    1. ~~F#21 — divine intervention rework~~ **Done** (`4c51334`, POC+ stage 1 T0b) — the fallback refunds the roll, authors no mutations, and reads as ⚠️ System.
-    2. D3/D4 — conversation & puzzle shapes + the free-text security stack: the biggest unspecced chunk; can be specced immediately since the relationship edges are already live. Needs a stage-N-style build plan before implementation.
-    3. (after a few live weeks of telemetry) Prose-critic trigger decision from the CombatBeatLog data, recorded as a decisions/ doc.
-    4. Stage 4 — Thread B world scaling: also wants live curves before tuning; the scale seam sits at 1.
+Remaining from the v13 roadmap (`docs/engine/prompt-v13-roadmap.md`), in its suggested order:
+
+1. D3/D4 — conversation & puzzle shapes + the free-text security stack: the biggest unspecced chunk; can be specced immediately since the relationship edges are already live. Needs a stage-N-style build plan before implementation.
+2. (after a few live weeks of telemetry) Prose-critic trigger decision from the CombatBeatLog data, recorded as a decisions/ doc.
+3. Roadmap stage 4 — Thread B world scaling: also wants live curves before tuning; the scale seam sits at 1.
 
 ### Player requests — prod data review (2026-07-08)
 
@@ -171,7 +156,7 @@ Fresh reports from a single QA session (snapshot `warden-20260708-201456`, chara
 
 **Feedback / feature asks**
 
-- [ ] **NPC coherency — mint on first sight** — narrative said the player sees a caravan, then said they don't; the NPC wasn't persisted to state on first mention (F#1). Mint NPCs immediately so they persist. See [[mvp+npc-economy]], [[mvp-data-model]] (world-state tracking).
+- [ ] **NPC coherency — mint on first sight** — narrative said the player sees a caravan, then said they don't; the NPC wasn't persisted to state on first mention (F#1). Mint NPCs immediately so they persist. Combat half landed (RA-3); the non-combat half is stage 4 step 4. See [[mvp+npc-economy]], [[mvp-data-model]] (world-state tracking).
 - [ ] **Richer `/hi` opening prose** — pressing Hi should generate a prose opener that scales with time since last interaction (referencing days or a few actions) and reminds the player of their work, quests, and loose ends (F#2). Extends the existing "morning/evening custom prose" and "add /hi to the new-hero message" TBD items.
 - [ ] **Buttons going missing is annoying — do the menu rework soon** (F#5). Fresh datapoint bumping the "menu framework coupled to views" MVP item / [[discord-interaction-layer]].
 
@@ -202,13 +187,11 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
   - track or show quests or hints?
   - add clue system? also grants +1 roll
 - [>] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty. → now designed in [[per-player-map-exploration]] (engine-owned routing + `stamina = Σ edge difficulty`; `distance` reserved for the time mechanic).
-- [x] ~~**`CharacterRepository.update` allow-list omits `max_stamina`**~~ → **Fixed** (`7513181`, 0.3.1 branch, B#2): added to the allow-list, schema audit found no other gap, the `src/sim/driver.ts` raw-SQL workaround dropped.
 - [ ] **schema: normalise location references to FK ids** — locations are keyed by `name` (TEXT) everywhere (`player_characters.location`, `npcs.location`, `location_edges`, `actions.location_name`). `actions.location_name` is a deliberate point-in-time *snapshot* (keep it), but a future polish pass should decide whether the live-reference tables move to `location_id` FKs consistently — a holistic refactor, not a lone divergence. See [[per-player-map-exploration]] §6.
 - [ ] use reactions as a way of buffering input before a button is pressed (expend items or use certain abilities to amplify actions, also works for trades)
   `this is cool!!!`
   (but does it work with ephemeral..?)
 - [ ] stealth or following mechanics?
-- [ ] mechanic — bonus rolls: an LLM `modify_rolls_remaining: +N` reward is a deliberate mechanic, not a bug (the "extra throw" report traces to this; no deterministic double-decrement exists — a roll is spent exactly once per action in startAction). Design it properly: when/why the world grants an extra roll, and surface it to the player so it reads as a reward. Belongs to the roll-economy work in [[mvp-llm-prompt-architecture]]. **Re-verified for 0.3.2 (N4):** the "why am I getting inspiration multiple times a day?" report against 0.3.1 (after the B#3 clobber fix) is the same working-as-designed mechanic — each `modify_rolls_remaining: +N` grant nets against exactly one drain per action (`startActionPipeline` drains once at `WorldEngineImpl.ts:961/1012`; the grant applies to the drained row so it stacks, never clobbers). Proven by `tests/engine/world-engine-impl.test.ts:326` (grant path nets to delta 0, rolls unchanged) and `:358` (no-grant path drains exactly −1). Closes as WAD; the open UX work above (surface the grant as a named reward) remains the only follow-up. No code change.
 - [>] `[[mvp-llm-prompt-architecture]]` — prompt refactor:
   - optimise prompt to llm as markdown (more friendly) not json. Response can remain json
   - options should still be produced by the llm, but there should be some rolls before to influence it
@@ -229,14 +212,6 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
   - related to world state tracking too: finishing your day in an unsafe location should have conesquences
     (you dont sleep well or you get put in jail and must escape)
 - [>] `[[mvp-ascii-render-pipeline]]` — scrape prettier ascii art or images for converting with ascii image converter
-
----
-
-## Triaged out of TBD (for provenance — 2026-06-26)
-
-- **Done / shipped (struck):** preset work labelled `Work:` not `🧭 Quest:` and commute `−1 stamina` shown on the thinking page; the no-op refund scope question (stamina-/roll-only "shrug" is again a refundable no-op — D1 follow-up). All in `[Unreleased]`.
-- **Working as designed (struck):** post-`/join` welcome shows no "Hi" button because that screen *is* the Hi screen (`getNavButtons` filters the current command — `format.ts:137`).
-- **Routed to sparks:** Warden NPC duplicates (hooded figure vs The Warden) → [[mutation-vocabulary-refinement]] §2 (NPC name-resolution); world evolves with time / rising DC / new threats → [[prompt-separation-of-concerns]] Thread B (World Tier); global rumours pulling players toward dangerous unexplored locations → [[prompt-separation-of-concerns]] Thread B + [[per-player-map-exploration]] (`reveal_location` leaf); end-to-end flow tests with mocked LLM + scripted button presses → [[mvp-llm-prompt-architecture]].
 
 # MVP(+)?
 
