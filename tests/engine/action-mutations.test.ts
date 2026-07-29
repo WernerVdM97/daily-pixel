@@ -711,6 +711,31 @@ describe('clampAuthoredItemModifiers (RA-1 Stage 1 — LLM item bonus ceiling)',
     expect(result[0]).toEqual({ type: 'modify_stamina', amount: -1 });
     expect(result[1].modifier).toBe(LLM_ITEM_MODIFIER_MAX);
   });
+
+  it('coerces a NaN add_item modifier to 0, keeping the mutation present', () => {
+    const muts: WorldMutation[] = [
+      { type: 'add_item', name: 'Garbled Charm', emoji: '🔮', stat: 'physical', modifier: NaN },
+    ];
+    const result = clampAuthoredItemModifiers(muts);
+    expect(result).toHaveLength(1);
+    expect(result[0].modifier).toBe(0);
+  });
+
+  it('coerces an Infinity add_item modifier to 0', () => {
+    const muts: WorldMutation[] = [
+      { type: 'add_item', name: 'Overflow Charm', emoji: '🔮', stat: 'physical', modifier: Infinity },
+    ];
+    const result = clampAuthoredItemModifiers(muts);
+    expect(result[0].modifier).toBe(0);
+  });
+
+  it('coerces a -Infinity add_item modifier to 0', () => {
+    const muts: WorldMutation[] = [
+      { type: 'add_item', name: 'Underflow Charm', emoji: '🔮', stat: 'physical', modifier: -Infinity },
+    ];
+    const result = clampAuthoredItemModifiers(muts);
+    expect(result[0].modifier).toBe(0);
+  });
 });
 
 describe('Mutation-type drift guard (mirrors ActionCategory pattern, commit 62b102b)', () => {

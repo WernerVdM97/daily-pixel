@@ -170,7 +170,16 @@ export function collapseStackedDeltas(mutations: WorldMutation[]): WorldMutation
  * leave a SUCCESS carrying only a stamina cost — `resolve/BASE.md` names that in bold as "a
  * failure reward - never do this". A negative modifier passes through untouched: no prompt
  * mentions one today, but a cursed or burdensome item is a legitimate future authoring, and
- * flooring it at 0 would silently strip a deliberate drawback. Non-numeric/absent `modifier` also
+ * flooring it at 0 would silently strip a deliberate drawback. Tests with `Number.isFinite`
+ * rather than a bare `<=` comparison so a non-finite `modifier` is handled by decision, not by
+ * accident of comparison semantics: `NaN <= LLM_ITEM_MODIFIER_MAX` is false (a bare comparison
+ * would clamp `NaN` to the ceiling — the maximum bonus for garbage input), and
+ * `-Infinity <= LLM_ITEM_MODIFIER_MAX` is true (it would reach the `items.modifier` SQLite column
+ * untouched). A non-finite numeric `modifier` (`NaN`, `Infinity`, `-Infinity`) coerces to `0`
+ * instead: still a sanctioned value ("Can be 0 for purely narrative items" in the prompt
+ * contract), so the item is still granted and the SUCCESS still carries a reward, but no bonus is
+ * invented from a malformed number — and dropping the mutation instead would hit the same
+ * "SUCCESS with only a stamina cost" problem noted above. Non-numeric/absent `modifier` also
  * passes through untouched — that shape is the validator's job (`validateOne`'s `add_item` case),
  * not this normaliser's.
  *
@@ -180,7 +189,13 @@ export function collapseStackedDeltas(mutations: WorldMutation[]): WorldMutation
  */
 export function clampAuthoredItemModifiers(mutations: WorldMutation[]): WorldMutation[] {
   return mutations.map((m) => {
-    if (m.type !== 'add_item' || typeof m.modifier !== 'number' || m.modifier <= LLM_ITEM_MODIFIER_MAX) {
+    if (m.type !== 'add_item' || typeof m.modifier !== 'number') {
+      return m;
+    }
+    if (!Number.isFinite(m.modifier)) {
+      return { ...m, modifier: 0 };
+    }
+    if (m.modifier <= LLM_ITEM_MODIFIER_MAX) {
       return m;
     }
     return { ...m, modifier: LLM_ITEM_MODIFIER_MAX };
@@ -514,9 +529,11 @@ export function applyMutations(
         state.rollsRemaining = Math.max(0, state.rollsRemaining + Number(m.amount ?? 0));
         break;
       case 'add_item':
-        // RA-1 Stage 1: `modifier` arrives here already clamped by `clampAuthoredItemModifiers`
-        // (called from `finalizeMutations`, ahead of this applier) — that is the single home of
-        // the ceiling. Do not add a second clamp here.
+        // RA-1 Stage 1: the ceiling is enforced in `finalizeMutations` (`clampAuthoredItemModifiers`),
+        // not here. The terminal resolve path is the only route that currently produces `add_item`,
+        // and it does go through finalize; the non-terminal beat branch calls this applier directly,
+        // with no finalize in between. Anything that adds `add_item` to a non-terminal beat must
+        // route it through the clamp first. Do not add a second clamp here.
         state.itemsToAdd.push({
           name: String(m.name ?? ''),
           emoji: String(m.emoji ?? ''),
