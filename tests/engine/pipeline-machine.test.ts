@@ -603,6 +603,83 @@ describe('PipelineActionStateMachine — F#12: day-job work strips positive insp
   });
 });
 
+describe('PipelineActionStateMachine — F#12 against the REAL finalize (collapse coerces and nets)', () => {
+  let db: Database.Database;
+  afterEach(() => db?.close());
+
+  /** Both cases below need the genuine `collapseStackedDeltas` + `validateMutations` pipeline, so
+   *  they wire the real geography finalize rather than the machine's identity-pass-through default:
+   *  the two defects they pin exist only because collapse rewrites amounts, and an identity finalize
+   *  would make either test pass vacuously. */
+  function realFinalize() {
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    seedWorld(db, SEEDED_LOCATIONS, SEEDED_EDGES);
+    return createGeographyFinalize({
+      locationRepo: new LocationRepository(db),
+      edgeRepo: new LocationEdgeRepository(db),
+    });
+  }
+
+  function workMachine(llm: MockPipelineLlmGateway) {
+    return new PipelineActionStateMachine(llm, () => 15, undefined, realFinalize());
+  }
+
+  function rollsMutations(muts: unknown[]): unknown[] {
+    return muts.filter(m => (m as WorldMutation).type === 'modify_rolls_remaining');
+  }
+
+  it('strips a QUOTED positive amount, which collapse would otherwise coerce back into a real grant', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    // `ProdPipelineGateway.resolveMutate` applies no coercion or schema to `amount`, so a model
+    // emitting a quoted number reaches the machine as a string. A `typeof` guard would let it past
+    // the strip, and `collapseStackedDeltas` (inside finalize) then sums it via `Number(...)` and
+    // re-emits a genuine `{ amount: 1 }` that validates and lands — the F#12 leak, restored.
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_rolls_remaining', amount: '1' }] };
+    llm.resolveNarrateResult = { outcomeText: 'A day well worked.' };
+
+    const result = await workMachine(llm).start(testChar(), 'work the forge', testItems, 'work', 5);
+    if (!result.resolved) throw new Error('expected resolved start');
+
+    expect(rollsMutations(llm.resolveNarrateCalls[0].finalMutations)).toEqual([]);
+    expect(rollsMutations(result.outcome.mutations)).toEqual([]);
+  });
+
+  it('nets a competing +2/-1 pair to nothing rather than leaving behind a roll cost the model never intended', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    // Stripping per-mutation ahead of collapse would remove the +2 and keep the -1, turning "no
+    // gain" into a loss. Post-collapse the axis is one net +1 entry, so it goes entirely.
+    llm.resolveMutateResult = {
+      mutations: [
+        { type: 'modify_rolls_remaining', amount: 2 },
+        { type: 'modify_rolls_remaining', amount: -1 },
+      ],
+    };
+    llm.resolveNarrateResult = { outcomeText: 'A day well worked.' };
+
+    const result = await workMachine(llm).start(testChar(), 'work the forge', testItems, 'work', 5);
+    if (!result.resolved) throw new Error('expected resolved start');
+
+    expect(rollsMutations(result.outcome.mutations)).toEqual([]);
+    expect(rollsMutations(llm.resolveNarrateCalls[0].finalMutations)).toEqual([]);
+  });
+});
+
 describe('PipelineActionStateMachine — D6 travel-coherence gate (Task 4)', () => {
   it('injects the missing set_location on the forge->forest teleport (no set_location authored)', async () => {
     const llm = new MockPipelineLlmGateway();

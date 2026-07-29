@@ -1040,10 +1040,7 @@ export class PipelineActionStateMachine {
       } as WorldMutation);
     }
 
-    // F#12: strip before finalize, not after — RESOLVE-NARRATE below is handed `finalMutations`,
-    // so stripping post-finalize would let the narration describe an inspiration the player
-    // never received (see `stripWorkInspiration`).
-    const strippedMutations = stripWorkInspiration([...gatedMutations, ...engineMutations], state.kind);
+    const mutationsWithCombat = [...gatedMutations, ...engineMutations];
 
     // Finalize (geography → collapse → validate).
     const mutationCtx: MutationContext = {
@@ -1056,7 +1053,15 @@ export class PipelineActionStateMachine {
       location: char.location,
       knownLocations: this.resolver.getKnownLocations(),
     };
-    const { mutations: finalMutations } = this.finalize(strippedMutations, mutationCtx);
+    const { mutations: finalisedMutations } = this.finalize(mutationsWithCombat, mutationCtx);
+    // F#12: strip after finalize but BEFORE the RESOLVE-NARRATE handoff below, which is what the
+    // coherence requirement actually needs — the narration must never describe an inspiration the
+    // player did not receive. Post-collapse specifically: `collapseStackedDeltas` has already
+    // coerced the amount to a real number (so a quoted `"1"` cannot slip past a `typeof` guard and
+    // then be coerced back inside finalize) and has netted same-axis deltas into one entry (so a
+    // competing `+2`/`-1` pair is removed as a single net grant instead of leaving behind a roll
+    // cost the model never intended as one).
+    const finalMutations = stripWorkInspiration(finalisedMutations, state.kind);
 
     // RESOLVE-NARRATE.
     const { result: combatNarrate, callId: combatNarrateCallId } = await this.llm.resolveNarrate({
@@ -1190,11 +1195,6 @@ export class PipelineActionStateMachine {
       char.location,
     );
 
-    // F#12: strip before finalize, not after — RESOLVE-NARRATE below is handed `finalMutations`,
-    // so stripping post-finalize would let the narration describe an inspiration the player
-    // never received (see `stripWorkInspiration`).
-    const strippedMutations = stripWorkInspiration(gatedMutations, state.kind);
-
     // The D5b inversion point: engine finalize (geography → collapse → validate) runs here,
     // between mutation-authoring and text-authoring, so RESOLVE-NARRATE below sees what
     // actually landed rather than what RESOLVE-MUTATE proposed. `this.finalize` defaults to an
@@ -1210,7 +1210,10 @@ export class PipelineActionStateMachine {
       location: char.location,
       knownLocations: this.resolver.getKnownLocations(),
     };
-    const { mutations: finalMutations } = this.finalize(strippedMutations, mutationCtx);
+    const { mutations: finalisedMutations } = this.finalize(gatedMutations, mutationCtx);
+    // F#12: see the matching comment in `resolveCombat` — stripped after finalize but before the
+    // RESOLVE-NARRATE handoff, so the strip reads one net, type-coerced amount per axis.
+    const finalMutations = stripWorkInspiration(finalisedMutations, state.kind);
 
     const { result: narrateResult, callId: resolveNarrateCallId } = await this.llm.resolveNarrate({
       actionType: state.actionType,
@@ -1478,10 +1481,15 @@ export class PipelineActionStateMachine {
  *  pure free-text classification — see the plan's F#12 correction), so RESOLVE-MUTATE's prose
  *  has no seam to gate this on and the strip must happen here, deterministically, keyed on the
  *  persisted `state.kind` rather than `state.wage` (a zero-income job action is still work).
- *  Only the positive direction is stripped — a cost (negative or zero amount) is untouched. */
+ *  Only the positive direction is stripped — a cost (negative or zero amount) is untouched.
+ *
+ *  Expects the POST-collapse set (both callers strip the finalize output, not its input): a
+ *  pre-collapse set can carry a quoted amount and several competing entries for the same axis,
+ *  which is why the position matters. `Number(...)` rather than a `typeof` guard regardless, since
+ *  this is module-level and a future caller should not have to know collapse ran first. */
 function stripWorkInspiration(mutations: WorldMutation[], kind: ActionKind | undefined): WorldMutation[] {
   if (kind !== 'work') return mutations;
-  return mutations.filter(m => !(m.type === 'modify_rolls_remaining' && typeof m.amount === 'number' && m.amount > 0));
+  return mutations.filter(m => !(m.type === 'modify_rolls_remaining' && Number(m.amount ?? 0) > 0));
 }
 
 /** Small local reimplementation of legacy's private `ensureBail` — generic shape logic, not
