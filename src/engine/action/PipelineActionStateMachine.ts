@@ -1040,7 +1040,10 @@ export class PipelineActionStateMachine {
       } as WorldMutation);
     }
 
-    const mutationsWithCombat = [...gatedMutations, ...engineMutations];
+    // F#12: strip before finalize, not after — RESOLVE-NARRATE below is handed `finalMutations`,
+    // so stripping post-finalize would let the narration describe an inspiration the player
+    // never received (see `stripWorkInspiration`).
+    const strippedMutations = stripWorkInspiration([...gatedMutations, ...engineMutations], state.kind);
 
     // Finalize (geography → collapse → validate).
     const mutationCtx: MutationContext = {
@@ -1053,7 +1056,7 @@ export class PipelineActionStateMachine {
       location: char.location,
       knownLocations: this.resolver.getKnownLocations(),
     };
-    const { mutations: finalMutations } = this.finalize(mutationsWithCombat, mutationCtx);
+    const { mutations: finalMutations } = this.finalize(strippedMutations, mutationCtx);
 
     // RESOLVE-NARRATE.
     const { result: combatNarrate, callId: combatNarrateCallId } = await this.llm.resolveNarrate({
@@ -1187,6 +1190,11 @@ export class PipelineActionStateMachine {
       char.location,
     );
 
+    // F#12: strip before finalize, not after — RESOLVE-NARRATE below is handed `finalMutations`,
+    // so stripping post-finalize would let the narration describe an inspiration the player
+    // never received (see `stripWorkInspiration`).
+    const strippedMutations = stripWorkInspiration(gatedMutations, state.kind);
+
     // The D5b inversion point: engine finalize (geography → collapse → validate) runs here,
     // between mutation-authoring and text-authoring, so RESOLVE-NARRATE below sees what
     // actually landed rather than what RESOLVE-MUTATE proposed. `this.finalize` defaults to an
@@ -1202,7 +1210,7 @@ export class PipelineActionStateMachine {
       location: char.location,
       knownLocations: this.resolver.getKnownLocations(),
     };
-    const { mutations: finalMutations } = this.finalize(gatedMutations, mutationCtx);
+    const { mutations: finalMutations } = this.finalize(strippedMutations, mutationCtx);
 
     const { result: narrateResult, callId: resolveNarrateCallId } = await this.llm.resolveNarrate({
       actionType: state.actionType,
@@ -1463,6 +1471,18 @@ export class PipelineActionStateMachine {
 }
 
 // ── Module-level helpers ──
+
+/** F#12: the day job pays coin, not cadence. Work is the reliable floor of the daily loop;
+ *  `modify_rolls_remaining` is meant to be the exceptional reward for an ambitious attempt, so
+ *  granting it on guaranteed-income work is a leak, not a bonus. Routing can't see `kind` (it's
+ *  pure free-text classification — see the plan's F#12 correction), so RESOLVE-MUTATE's prose
+ *  has no seam to gate this on and the strip must happen here, deterministically, keyed on the
+ *  persisted `state.kind` rather than `state.wage` (a zero-income job action is still work).
+ *  Only the positive direction is stripped — a cost (negative or zero amount) is untouched. */
+function stripWorkInspiration(mutations: WorldMutation[], kind: ActionKind | undefined): WorldMutation[] {
+  if (kind !== 'work') return mutations;
+  return mutations.filter(m => !(m.type === 'modify_rolls_remaining' && typeof m.amount === 'number' && m.amount > 0));
+}
 
 /** Small local reimplementation of legacy's private `ensureBail` — generic shape logic, not
  *  legacy-machine-owned, so duplicating it here (rather than importing the private helper)

@@ -464,6 +464,145 @@ describe('PipelineActionStateMachine — D5b mutation-finalization inversion (Ta
   });
 });
 
+describe('PipelineActionStateMachine — F#12: day-job work strips positive inspiration', () => {
+  it('strips a positive modify_rolls_remaining from a kind:"work" action before it reaches RESOLVE-NARRATE or the outcome (non-combat resolve)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // decision:[] auto-resolves through resolve() directly (§2 v12 QA path).
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = {
+      mutations: [
+        { type: 'modify_rolls_remaining', amount: 1 },
+        { type: 'modify_wealth', amount: 2 },
+      ],
+    };
+    llm.resolveNarrateResult = { outcomeText: 'A day well worked.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 15);
+    const result = await machine.start(testChar(), 'work the forge', testItems, 'work', 5);
+
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) throw new Error('expected resolved start');
+
+    // The narrate handoff is the half that matters for coherence: the model must never be
+    // handed an inspiration the player never received.
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    expect(llm.resolveNarrateCalls[0].finalMutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+    expect(result.outcome.mutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+    // The rest of the proposed mutation set is untouched — only the positive roll grant is gated.
+    expect(result.outcome.mutations).toContainEqual({ type: 'modify_wealth', amount: 2 });
+  });
+
+  it('a kind:"quest" action keeps a positive modify_rolls_remaining (F#12 gates on kind, not on the presence of a wage)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Explicit classify hit — the heuristic path is not the point of this test, and a miss with
+    // no scripted fallback would resolve as divine intervention instead of reaching resolve().
+    llm.classifyResult = {
+      kind: 'hit',
+      actionType: 'search',
+      flags: { unsafe_location: false, needs_roll: true, target_present: false },
+    };
+    llm.decideResult = {
+      distilledType: 'exploration',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_rolls_remaining', amount: 1 }] };
+    llm.resolveNarrateResult = { outcomeText: 'Fortune favours you.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 15);
+    const result = await machine.start(testChar(), 'explore the ruins', testItems, 'quest');
+
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) throw new Error('expected resolved start');
+    expect(llm.resolveNarrateCalls[0].finalMutations).toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+    expect(result.outcome.mutations).toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+  });
+
+  it('a negative modify_rolls_remaining on a kind:"work" action is not stripped — only the positive direction is gated', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    // A zero-income job action is still work — wage omitted here deliberately (keyed on `kind`).
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_rolls_remaining', amount: -1 }] };
+    llm.resolveNarrateResult = { outcomeText: 'A gruelling shift.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 15);
+    const result = await machine.start(testChar(), 'work the forge', testItems, 'work');
+
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) throw new Error('expected resolved start');
+    expect(result.outcome.mutations).toContainEqual({ type: 'modify_rolls_remaining', amount: -1 });
+  });
+
+  it('strips a positive modify_rolls_remaining from a kind:"work" combat resolution before RESOLVE-NARRATE or the outcome (resolveCombat)', async () => {
+    // Reuses the T2b "terminal combat LOSS" fixture shape (below) — cheapest reachable route
+    // into resolveCombat() without an extra fatal-blow interstitial round-trip.
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [{
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+    }];
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_rolls_remaining', amount: 1 }] };
+    llm.resolveNarrateResult = { outcomeText: 'The goblin overwhelms you.' };
+
+    // Seed a combat_save edge so the save-day check passes (second-lethal-blow today).
+    const resolver: PipelineContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+      getCurrentDay: () => 1,
+      getSceneRelations: () => [{
+        id: 0,
+        from_type: 'pc',
+        from_ref: '1',
+        to_type: 'pc',
+        to_ref: '1',
+        rel_type: 'combat_save',
+        props: JSON.stringify({ savedDay: 1 }),
+        created_by_action_id: null,
+        updated_day: null,
+      }] as RelationRow[],
+    };
+    // player nat-1 -> heavy amplified damage; health=3 -> hpZero; savedDay=1 === currentDay=1 -> LOSS.
+    const rolls = [1, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++], resolver);
+    const lowChar = testChar({ health: 3 });
+
+    const started = await machine.start(lowChar, 'attack the goblin', testItems, 'work');
+    expect(started.resolved).toBe(false);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', lowChar, testItems);
+    expect(step.resolved).toBe(true);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    expect(llm.resolveNarrateCalls[0].finalMutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+    expect(step.outcome.mutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+  });
+});
+
 describe('PipelineActionStateMachine — D6 travel-coherence gate (Task 4)', () => {
   it('injects the missing set_location on the forge->forest teleport (no set_location authored)', async () => {
     const llm = new MockPipelineLlmGateway();
