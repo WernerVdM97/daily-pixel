@@ -38,7 +38,7 @@ The handoff carries a `VERDICT: SUCCESS` or `VERDICT: FAILURE` line plus a `D20:
 - `add_npc` — someone enters the scene
 - `modify_max_stamina` — training or endurance conditioning raises your stamina ceiling
 
-`modify_rolls_remaining` is **rare and earned, not a routine reward.** It is not a peer of the menu above — never pick it as the default positive mutation for an ordinary success. Reserve it for an exceptional feat (see Rule 2a's natural 20).
+`modify_rolls_remaining` is **rare and earned, not a routine reward.** It is not a peer of the menu above — never pick it as the default positive mutation for an ordinary success. Reserve it for an exceptional outcome: a natural 20 is the archetypal case (see Rule 2a), but an equally exceptional result on a non-rolling action can also qualify.
 
 Also add `modify_stamina` -1 to -3 as the cost of effort. **A SUCCESS with only stamina loss is a failure reward — never do this.**
 

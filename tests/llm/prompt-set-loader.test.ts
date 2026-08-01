@@ -320,7 +320,7 @@ describe(`Carry-forward checklist (v8–v11 rules that must survive into ${PROMP
 // load-bearing prose rather than the BASE-prefixed assembly (whose shared menu would make the
 // non-stamina-cost assertion pass vacuously) so a future prose edit that drops the rule fails loud.
 describe(`${PROMPT_SET_VERSION} content assertions — stage 4 acceptance`, () => {
-  it('every resolve/*/failure.md names a non-stamina cost (remove_item / modify_wealth / modify_health)', () => {
+  it('every resolve/*/failure.md mandates a non-stamina cost (an "Always:" line naming remove_item / modify_wealth / modify_health)', () => {
     for (const category of ACTION_CATEGORIES) {
       const tpl = readFileSync(
         path.join(
@@ -337,7 +337,15 @@ describe(`${PROMPT_SET_VERSION} content assertions — stage 4 acceptance`, () =
         ),
         'utf-8',
       );
-      expect(tpl).toMatch(/remove_item|modify_wealth|modify_health/);
+      // Anchor on an "Always:" line that itself names a non-stamina op — a bare op name
+      // anywhere in the file (e.g. inside an engine-owned-mutation prohibition sentence,
+      // as in combat/failure.md) would match vacuously without guarding the mandatory rule.
+      // travel/failure.md has two "Always:" lines, one stamina-only, so check all of them.
+      const alwaysLines = tpl.split('\n').filter((line) => line.includes('Always:'));
+      const mandatesNonStaminaCost = alwaysLines.some((line) =>
+        /remove_item|modify_wealth|modify_health/.test(line),
+      );
+      expect(mandatesNonStaminaCost).toBe(true);
     }
   });
 
