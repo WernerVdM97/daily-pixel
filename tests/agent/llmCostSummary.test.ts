@@ -13,7 +13,7 @@ let repo: LlmCallRepository;
 function baseRecord(overrides?: Partial<LlmCallRecord>): LlmCallRecord {
   return {
     appVersion: '0.3.3-test',
-    promptVersion: 'v12/skill',
+    promptVersion: 'v13/skill',
     callKind: 'pipeline-decide',
     criticSeverity: null,
     beat: null,

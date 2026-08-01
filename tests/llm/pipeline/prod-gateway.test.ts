@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ProdPipelineLlmGateway } from '../../../src/llm/pipeline/ProdPipelineGateway.js';
 import { callDeepseek } from '../../../src/llm/deepseek-transport.js';
-import { buildUserMessage } from '../../../src/llm/prompt-builder.js';
+import { buildUserMessage, PROMPT_SET_VERSION } from '../../../src/llm/prompt-builder.js';
 import type { PromptSet } from '../../../src/llm/prompt-builder.js';
 import { ACTION_CATEGORIES } from '../../../src/llm/LlmGateway.js';
 import type { LlmContext } from '../../../src/llm/LlmGateway.js';
@@ -9,8 +9,9 @@ import type { LlmCallRecord } from '../../../src/llm/LlmCallRecorder.js';
 import type { PipelineDecideResult } from '../../../src/llm/pipeline/types.js';
 import { DeepCapturePolicy } from '../../../src/llm/capture-policy.js';
 
-// A stable, minimal prompt set — real assembled v12 templates are content-tested elsewhere
-// (prompt-set-loader.test.ts); here only stage-routing (which system prompt got sent) matters.
+// A stable, minimal prompt set — real assembled templates for the active set are content-tested
+// elsewhere (prompt-set-loader.test.ts); here only stage-routing (which system prompt got sent)
+// matters.
 function fixturePromptSet(): PromptSet {
   const decide = {} as PromptSet['decide'];
   const resolve = {} as PromptSet['resolve'];
@@ -18,7 +19,7 @@ function fixturePromptSet(): PromptSet {
     decide[cat] = { newAction: `${cat.toUpperCase()} NEW_ACTION SYSTEM`, continue: `${cat.toUpperCase()} CONTINUE SYSTEM` };
     resolve[cat] = { success: `${cat.toUpperCase()} SUCCESS SYSTEM`, failure: `${cat.toUpperCase()} FAILURE SYSTEM` };
   }
-  return { version: 'v12', classify: 'CLASSIFY SYSTEM', decide, resolve };
+  return { version: PROMPT_SET_VERSION, classify: 'CLASSIFY SYSTEM', decide, resolve };
 }
 
 const minimalContext: LlmContext = {
@@ -87,7 +88,7 @@ describe('ProdPipelineLlmGateway — classify', () => {
       actionType: 'combat',
       flags: { unsafe_location: true, needs_roll: true, target_present: true },
     });
-    expect(records[0].promptVersion).toBe('v12/classify');
+    expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/classify`);
     expect(records[0].callKind).toBe('pipeline-classify');
   });
 
@@ -161,7 +162,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT NEW_ACTION SYSTEM');
     expect(body.thinking).toEqual({ type: 'enabled' });
-    expect(records[0].promptVersion).toBe('v12/decide/combat');
+    expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/decide/combat`);
     expect(records[0].callKind).toBe('pipeline-decide');
 
     expect(result.distilledType).toBe('hunt');
@@ -358,7 +359,7 @@ describe('ProdPipelineLlmGateway — resolveMutate', () => {
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT SUCCESS SYSTEM');
     expect(body.thinking).toBeUndefined();
-    expect(records[0].promptVersion).toBe('v12/resolve/combat/success');
+    expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/resolve/combat/success`);
     expect(records[0].callKind).toBe('pipeline-resolve-mutate');
     expect(result.mutations).toEqual([{ type: 'modify_stamina', amount: -2 }]);
   });
@@ -480,7 +481,7 @@ describe('ProdPipelineLlmGateway — resolveNarrate', () => {
     expect(userMessage).toContain('### Final mutations');
     expect(userMessage).toContain(JSON.stringify(finalMutations, null, 2));
 
-    expect(records[0].promptVersion).toBe('v12/resolve/combat/success');
+    expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/resolve/combat/success`);
     expect(records[0].callKind).toBe('pipeline-resolve-narrate');
     expect(result.outcomeText).toBe('You bring down the wolf.');
   });

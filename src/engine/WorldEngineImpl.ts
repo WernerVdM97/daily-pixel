@@ -22,6 +22,7 @@ import { CharacterLocationRepository } from "../db/repositories/characterLocatio
 import { MetaRepository } from "../db/repositories/meta.js";
 import { LlmCallRepository } from "../db/repositories/llm-call.js";
 import { APP_VERSION } from "../version.js";
+import { PROMPT_SET_VERSION } from "../llm/prompt-builder.js";
 import {
   PipelineActionStateMachine,
   enemyConditionBand,
@@ -623,7 +624,7 @@ export class WorldEngineImpl implements WorldEngine {
       playerRolled: outcome.playerRolled,
       outcome: outcome.outcome,
       appVersion: APP_VERSION,
-      promptVersion: 'v12',
+      promptVersion: PROMPT_SET_VERSION,
       appliedMutations:
         outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
       narrative: (outcome.outcomeText ?? "").slice(0, 500) || null,
@@ -2087,7 +2088,7 @@ export class WorldEngineImpl implements WorldEngine {
         playerRolled: null,
         outcome: "timed_out",
         appVersion: APP_VERSION,
-        promptVersion: 'v12',
+        promptVersion: PROMPT_SET_VERSION,
         narrative: message.slice(0, 500),
       });
       this.charRepo.update(characterId, { last_action_state: null });

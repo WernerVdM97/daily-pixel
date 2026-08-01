@@ -51,7 +51,7 @@ export interface ProdPipelineGatewayConfig {
   fetch?: typeof fetch;
   /** Optional audit sink — records every call attempt. */
   recorder?: LlmCallRecorder;
-  /** Injectable prompt set for tests. Defaults to `loadPromptSet('v12')`. */
+  /** Injectable prompt set for tests. Defaults to the active `PROMPT_SET_VERSION` set. */
   promptSet?: PromptSet;
   /** If true, console-log a one-line summary per stage (stage label, model, latency, token
    *  usage, response snippet) — mirrors DeepseekLlmGateway's verbose logging. */
@@ -93,7 +93,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
-    this.promptSet = config.promptSet ?? loadPromptSet('v12');
+    this.promptSet = config.promptSet ?? loadPromptSet();
     this.verbose = config.verbose ?? false;
     this.capturePolicy = config.capturePolicy ?? new DeepCapturePolicy();
   }

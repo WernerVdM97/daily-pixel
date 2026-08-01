@@ -9,32 +9,32 @@ import { ACTION_CATEGORIES } from '../../src/llm/LlmGateway.js';
 // BASE-resolve.md, whose shared MUTATION TYPES menu legitimately mentions `modify_health` as an
 // example for other action types. The engine-owned-number guard must check the combat recipe
 // files themselves, not the BASE-prefixed assembly.
-const V12_COMBAT_RESOLVE_DIR = path.join(
+const COMBAT_RESOLVE_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
   'assets',
   'prompts',
   'decision-prompts',
-  'v12',
+  PROMPT_SET_VERSION,
   'resolve',
   'combat',
 );
 
-const V12_DECIDE_COMBAT_FILE = path.join(
+const DECIDE_COMBAT_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
   'assets',
   'prompts',
   'decision-prompts',
-  'v12',
+  PROMPT_SET_VERSION,
   'decide',
   'combat.md',
 );
 
-describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versioning.md)', () => {
-  it('loads all templates from the default (v12) set', () => {
+describe(`loadPromptSet — ${PROMPT_SET_VERSION} scaffolding (docs/decisions/v12-prompt-set-versioning.md)`, () => {
+  it(`loads all templates from the default (${PROMPT_SET_VERSION}) set`, () => {
     const set = loadPromptSet();
     expect(set.version).toBe(PROMPT_SET_VERSION);
     expect(set.classify.length).toBeGreaterThan(0);
@@ -46,7 +46,7 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
   });
 
   it('the resolve map is total with success/failure per ActionCategory', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     for (const category of ACTION_CATEGORIES) {
       expect(set.resolve[category].success).toBeTruthy();
       expect(set.resolve[category].failure).toBeTruthy();
@@ -54,7 +54,7 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
   });
 
   it('the decide map is total over every ActionCategory with both phase variants', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     expect(Object.keys(set.decide).sort()).toEqual([...ACTION_CATEGORIES].sort());
     for (const category of ACTION_CATEGORIES) {
       expect(set.decide[category]).toHaveProperty('newAction');
@@ -68,13 +68,13 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
   });
 
   it('classify is NOT prepended with BASE.md or BASE-resolve.md', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     expect(set.classify).not.toContain('# BASE — shared rules');
     expect(set.classify).not.toContain('# BASE-RESOLVE — shared rules');
   });
 
   it('classify is a real routing prompt (not the Stage-1 stub): names all seven ActionTypes, the flags, and carries the SECURITY RULE', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     // Not the stub — the stub is a 3-line placeholder with no routing contract.
     expect(set.classify).not.toContain('(STUB)');
     // Names every routable ActionType so the model can pick exactly one (T3 acceptance).
@@ -92,17 +92,17 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
   });
 
   it('resolve templates are prepended with BASE-resolve.md, not BASE.md', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     for (const category of ACTION_CATEGORIES) {
       for (const ver of ['success', 'failure'] as const) {
-        expect(set.resolve[category][ver]).toContain('# BASE-RESOLVE — shared rules for all v12 resolve templates');
-        expect(set.resolve[category][ver]).not.toContain('# BASE — shared rules for all v12 decide templates');
+        expect(set.resolve[category][ver]).toContain(`# BASE-RESOLVE — shared rules for all ${PROMPT_SET_VERSION} resolve templates`);
+        expect(set.resolve[category][ver]).not.toContain(`# BASE — shared rules for all ${PROMPT_SET_VERSION} decide templates`);
       }
     }
   });
 
   it('per-type resolve recipes appear after BASE-resolve.md', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     const resolveMarkers: Record<string, { success: string; failure: string }> = {
       combat: { success: 'COMBAT SUCCESS', failure: 'COMBAT FAILURE' },
       travel: { success: 'TRAVEL SUCCESS', failure: 'TRAVEL FAILURE' },
@@ -122,11 +122,11 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
   });
 
   it('decide templates are prepended with BASE.md and the correct phase', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     for (const category of ACTION_CATEGORIES) {
       // Both variants start with BASE
-      expect(set.decide[category].newAction).toContain('# BASE — shared rules for all v12 decide templates');
-      expect(set.decide[category].continue).toContain('# BASE — shared rules for all v12 decide templates');
+      expect(set.decide[category].newAction).toContain(`# BASE — shared rules for all ${PROMPT_SET_VERSION} decide templates`);
+      expect(set.decide[category].continue).toContain(`# BASE — shared rules for all ${PROMPT_SET_VERSION} decide templates`);
       // NEW_ACTION variant contains the phase header
       expect(set.decide[category].newAction).toContain('## PHASE — NEW_ACTION');
       // CONTINUE variant contains its phase header
@@ -138,7 +138,7 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
   });
 
   it('decide templates are assembled in order: BASE → phase → type-specific', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     const typeMarkers: Record<string, string> = {
       combat: 'COMBAT-SPECIFIC RULES',
       travel: 'TRAVEL-SPECIFIC RULES',
@@ -166,19 +166,28 @@ describe('loadPromptSet — v12 scaffolding (docs/decisions/v12-prompt-set-versi
     // iteration order (combat→…→rest→other) and throws there.
     expect(() => loadPromptSet('__test-partial__')).toThrow(/missing template 'decide\/rest\.md'/);
   });
+
+  // Deliberate: historical `actions`/`llm_calls` rows stamped `v12/...` must stay attributable
+  // to the prompt that produced them, so the v12 directory is never allowed to rot even after
+  // the active set moves on — this pins that it keeps loading correctly.
+  it("loadPromptSet('v12') still loads and reports version 'v12', even though it is no longer the active set", () => {
+    const set = loadPromptSet('v12');
+    expect(set.version).toBe('v12');
+    expect(set.classify.length).toBeGreaterThan(0);
+  });
 });
 
-describe('v12 combat template content — T4 C-a rules', () => {
+describe(`${PROMPT_SET_VERSION} combat template content — T4 C-a rules`, () => {
   it('decide/combat.md keys danger to location safety and drops the old cadence rule', () => {
     // Reads the raw file, not the assembled prompt set — BASE.md is generic enough that
     // /location/i or /safe/i would pass even without combat.md's own danger rule present.
-    const tpl = readFileSync(V12_DECIDE_COMBAT_FILE, 'utf-8');
+    const tpl = readFileSync(DECIDE_COMBAT_FILE, 'utf-8');
     expect(tpl).toMatch(/danger follows location/i);
     expect(tpl).not.toMatch(/every 3rd or 4th/i);
   });
 
   it('decide/combat.md documents the combatEnemy field with both anchor values', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     const decide = set.decide.combat.newAction;
     expect(decide).toContain('combatEnemy');
     expect(decide).toContain('"npc"');
@@ -187,7 +196,7 @@ describe('v12 combat template content — T4 C-a rules', () => {
 
   it('resolve combat recipe files name the engine-owned ops without authoring a health mutation', () => {
     for (const ver of ['success', 'failure'] as const) {
-      const tpl = readFileSync(path.join(V12_COMBAT_RESOLVE_DIR, `${ver}.md`), 'utf-8');
+      const tpl = readFileSync(path.join(COMBAT_RESOLVE_DIR, `${ver}.md`), 'utf-8');
       // Guard exists: the prohibition names the engine-owned ops literally (Fix 2), so a
       // plain `not.toContain('modify_health')` would now be a false failure — assert presence
       // of the guard instead.
@@ -202,26 +211,28 @@ describe('v12 combat template content — T4 C-a rules', () => {
   });
 
   it('success recipe scales reward with difficulty; failure recipe costs are non-health', () => {
-    const success = readFileSync(path.join(V12_COMBAT_RESOLVE_DIR, 'success.md'), 'utf-8');
-    const failure = readFileSync(path.join(V12_COMBAT_RESOLVE_DIR, 'failure.md'), 'utf-8');
+    const success = readFileSync(path.join(COMBAT_RESOLVE_DIR, 'success.md'), 'utf-8');
+    const failure = readFileSync(path.join(COMBAT_RESOLVE_DIR, 'failure.md'), 'utf-8');
     expect(success).toMatch(/difficulty/i);
     expect(failure).toMatch(/remove_item|modify_wealth/);
   });
 });
 
 describe('stampFor — derived per-stage telemetry stamp', () => {
-  it('derives v12/classify, v12/combat, v12/resolve-combat', () => {
-    expect(stampFor('classify')).toBe('v12/classify');
-    expect(stampFor('combat')).toBe('v12/combat');
-    expect(stampFor('resolve-combat')).toBe('v12/resolve-combat');
+  it(`derives ${PROMPT_SET_VERSION}/classify, ${PROMPT_SET_VERSION}/combat, ${PROMPT_SET_VERSION}/resolve-combat`, () => {
+    expect(stampFor('classify')).toBe(`${PROMPT_SET_VERSION}/classify`);
+    expect(stampFor('combat')).toBe(`${PROMPT_SET_VERSION}/combat`);
+    expect(stampFor('resolve-combat')).toBe(`${PROMPT_SET_VERSION}/resolve-combat`);
   });
 
   it('accepts an explicit version override', () => {
-    expect(stampFor('travel', 'v13')).toBe('v13/travel');
+    // 'v12' rather than the (now bumped) PROMPT_SET_VERSION, so this genuinely proves the
+    // override differs from the default — using the active version here would be a no-op check.
+    expect(stampFor('travel', 'v12')).toBe('v12/travel');
   });
 });
 
-describe('Carry-forward checklist (v8–v11 rules that must survive the v12 rewrite)', () => {
+describe(`Carry-forward checklist (v8–v11 rules that must survive into ${PROMPT_SET_VERSION})`, () => {
   it('rule 1 — refunds (no-op/timeout free roll, once per day) are ENGINE-owned, not a prompt rule (T6 must preserve the refund calls on the pipeline path)', () => {
     const typesFile = readFileSync(
       path.join(
@@ -242,7 +253,7 @@ describe('Carry-forward checklist (v8–v11 rules that must survive the v12 rewr
   });
 
   it('rule 2 — KNOWN LOCATIONS reuse/lazy-create (move_to vs cross_frontier) is owned by resolve/BASE.md and reaches every category', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     for (const category of ACTION_CATEGORIES) {
       for (const ver of ['success', 'failure'] as const) {
         const tpl = set.resolve[category][ver];
@@ -254,7 +265,7 @@ describe('Carry-forward checklist (v8–v11 rules that must survive the v12 rewr
   });
 
   it('rule 3 — no dead turns is owned by decide/BASE.md and reaches every category in both phases', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     for (const category of ACTION_CATEGORIES) {
       for (const phase of ['newAction', 'continue'] as const) {
         const tpl = set.decide[category][phase];
@@ -265,7 +276,7 @@ describe('Carry-forward checklist (v8–v11 rules that must survive the v12 rewr
   });
 
   it('rule 4 — SECURITY RULE carries into every assembled decide string, every assembled resolve string, and classify', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     expect(set.classify).toContain('SECURITY RULE');
     for (const category of ACTION_CATEGORIES) {
       for (const phase of ['newAction', 'continue'] as const) {
@@ -278,7 +289,7 @@ describe('Carry-forward checklist (v8–v11 rules that must survive the v12 rewr
   });
 
   it('rule 5 — markdown framing survives: "markdown briefing" in every decide/resolve string, "No markdown fences" in classify', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     expect(set.classify).toContain('No markdown fences');
     for (const category of ACTION_CATEGORIES) {
       for (const phase of ['newAction', 'continue'] as const) {
@@ -291,7 +302,7 @@ describe('Carry-forward checklist (v8–v11 rules that must survive the v12 rewr
   });
 
   it('rule 6 — per-option stat & ability check is owned by decide/BASE.md and reaches every category in both phases', () => {
-    const set = loadPromptSet('v12');
+    const set = loadPromptSet();
     for (const category of ACTION_CATEGORIES) {
       for (const phase of ['newAction', 'continue'] as const) {
         const tpl = set.decide[category][phase];
@@ -302,5 +313,78 @@ describe('Carry-forward checklist (v8–v11 rules that must survive the v12 rewr
         expect(tpl).toContain('Each option SHOULD declare its own');
       }
     }
+  });
+});
+
+// Stage 4 steps 1-5's prose landed with no test coverage — these anchor the content on stable,
+// load-bearing prose rather than the BASE-prefixed assembly (whose shared menu would make the
+// non-stamina-cost assertion pass vacuously) so a future prose edit that drops the rule fails loud.
+describe(`${PROMPT_SET_VERSION} content assertions — stage 4 acceptance`, () => {
+  it('every resolve/*/failure.md names a non-stamina cost (remove_item / modify_wealth / modify_health)', () => {
+    for (const category of ACTION_CATEGORIES) {
+      const tpl = readFileSync(
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          '..',
+          '..',
+          'assets',
+          'prompts',
+          'decision-prompts',
+          PROMPT_SET_VERSION,
+          'resolve',
+          category,
+          'failure.md',
+        ),
+        'utf-8',
+      );
+      expect(tpl).toMatch(/remove_item|modify_wealth|modify_health/);
+    }
+  });
+
+  it('resolve/combat/success.md carries the spare branch and forbids a corpse/loot narration on it', () => {
+    const tpl = readFileSync(path.join(COMBAT_RESOLVE_DIR, 'success.md'), 'utf-8');
+    expect(tpl).toContain('fatal blow: spare');
+    expect(tpl).toMatch(/never narrate a kill, a corpse, or a death/i);
+  });
+
+  it('resolve/BASE.md documents the fatal blow token under its "### What was decided" INPUT CONTEXT bullet, naming both spare and finish', () => {
+    const tpl = readFileSync(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'assets',
+        'prompts',
+        'decision-prompts',
+        PROMPT_SET_VERSION,
+        'resolve',
+        'BASE.md',
+      ),
+      'utf-8',
+    );
+    const bulletLine = tpl.split('\n').find((line) => line.includes('### What was decided'));
+    expect(bulletLine).toBeTruthy();
+    expect(bulletLine).toContain('fatal blow: spare');
+    expect(bulletLine).toContain('fatal blow: finish');
+  });
+
+  it("resolve/BASE.md documents add_npc's optional health field", () => {
+    const tpl = readFileSync(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'assets',
+        'prompts',
+        'decision-prompts',
+        PROMPT_SET_VERSION,
+        'resolve',
+        'BASE.md',
+      ),
+      'utf-8',
+    );
+    const addNpcLine = tpl.split('\n').find((line) => line.includes('`add_npc` — introduce a new NPC'));
+    expect(addNpcLine).toBeTruthy();
+    expect(addNpcLine).toContain('`health` (optional');
   });
 });

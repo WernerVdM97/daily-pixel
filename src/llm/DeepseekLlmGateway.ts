@@ -25,6 +25,7 @@ import {
   buildCriticSystemPrompt,
   buildCriticUserMessage,
   CRITIC_VERSION,
+  PROMPT_SET_VERSION,
 } from './prompt-builder.js';
 import { callDeepseek } from './deepseek-transport.js';
 import { APP_VERSION } from '../version.js';
@@ -148,7 +149,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
           const captureDeep = this.capturePolicy.shouldCapture({ diagnostic: isDiagnostic, reasoningChars });
           const callId = this.recorder.record({
             appVersion: APP_VERSION,
-            promptVersion: 'v12',
+            promptVersion: PROMPT_SET_VERSION,
             callKind: 'decision',
             model: this.model,
             temperature: this.temperature,

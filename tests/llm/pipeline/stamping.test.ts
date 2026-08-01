@@ -9,18 +9,18 @@ import { stampForPipelineStage, callKindForPipelineStage } from '../../../src/ll
 import { PROMPT_SET_VERSION, stampFor } from '../../../src/llm/prompt-builder.js';
 
 describe('stampForPipelineStage', () => {
-  it("stamps classify as 'v12/classify'", () => {
-    expect(stampForPipelineStage('classify')).toBe('v12/classify');
+  it(`stamps classify as '${PROMPT_SET_VERSION}/classify'`, () => {
+    expect(stampForPipelineStage('classify')).toBe(`${PROMPT_SET_VERSION}/classify`);
     expect(stampForPipelineStage('classify')).toBe(stampFor('classify'));
   });
 
-  it("stamps decide per ActionType, e.g. 'v12/decide/combat'", () => {
-    expect(stampForPipelineStage('decide', 'combat')).toBe('v12/decide/combat');
+  it(`stamps decide per ActionType, e.g. '${PROMPT_SET_VERSION}/decide/combat'`, () => {
+    expect(stampForPipelineStage('decide', 'combat')).toBe(`${PROMPT_SET_VERSION}/decide/combat`);
     expect(stampForPipelineStage('decide', 'combat')).toBe(stampFor('decide/combat'));
   });
 
-  it("stamps decide for a second ActionType too, e.g. 'v12/decide/rest' — proving it's per-category, not hardcoded", () => {
-    expect(stampForPipelineStage('decide', 'rest')).toBe('v12/decide/rest');
+  it(`stamps decide for a second ActionType too, e.g. '${PROMPT_SET_VERSION}/decide/rest' — proving it's per-category, not hardcoded`, () => {
+    expect(stampForPipelineStage('decide', 'rest')).toBe(`${PROMPT_SET_VERSION}/decide/rest`);
     expect(stampForPipelineStage('decide', 'rest')).toBe(stampFor('decide/rest'));
   });
 
@@ -28,13 +28,13 @@ describe('stampForPipelineStage', () => {
     expect(() => stampForPipelineStage('decide')).toThrow(/actionType is required/);
   });
 
-  it('stamps resolve-mutate per ActionType and verdict, e.g. v12/resolve/combat/success', () => {
-    expect(stampForPipelineStage('resolve-mutate', { actionType: 'combat', verdict: 'success' })).toBe('v12/resolve/combat/success');
-    expect(stampForPipelineStage('resolve-mutate', { actionType: 'combat', verdict: 'failure' })).toBe('v12/resolve/combat/failure');
+  it(`stamps resolve-mutate per ActionType and verdict, e.g. ${PROMPT_SET_VERSION}/resolve/combat/success`, () => {
+    expect(stampForPipelineStage('resolve-mutate', { actionType: 'combat', verdict: 'success' })).toBe(`${PROMPT_SET_VERSION}/resolve/combat/success`);
+    expect(stampForPipelineStage('resolve-mutate', { actionType: 'combat', verdict: 'failure' })).toBe(`${PROMPT_SET_VERSION}/resolve/combat/failure`);
   });
 
-  it('stamps resolve-narrate per ActionType and verdict, e.g. v12/resolve/combat/success', () => {
-    expect(stampForPipelineStage('resolve-narrate', { actionType: 'combat', verdict: 'success' })).toBe('v12/resolve/combat/success');
+  it(`stamps resolve-narrate per ActionType and verdict, e.g. ${PROMPT_SET_VERSION}/resolve/combat/success`, () => {
+    expect(stampForPipelineStage('resolve-narrate', { actionType: 'combat', verdict: 'success' })).toBe(`${PROMPT_SET_VERSION}/resolve/combat/success`);
   });
 
   it('resolve-mutate and resolve-narrate share the same per-type-per-verdict resolve template', () => {
@@ -64,13 +64,13 @@ describe('callKindForPipelineStage', () => {
   });
 });
 
-// Task 5's "actions.prompt_version carries the set (v12)" acceptance bullet is narrowed here:
-// no pipeline turn ever writes a real `actions` DB row in Stage 1 (no live wiring exists to
-// hang persistence off of — PipelineSimEngine is in-memory only, see its file header). What CAN
-// be proven at this stage is that PROMPT_SET_VERSION is the single, correct source of truth a
-// future real wiring would stamp `actions.prompt_version` with, and that it's 'v12' as settled.
+// Task 5's "actions.prompt_version carries the set" acceptance bullet is narrowed here: no
+// pipeline turn ever writes a real `actions` DB row in Stage 1 (no live wiring exists to hang
+// persistence off of — PipelineSimEngine is in-memory only, see its file header). What CAN be
+// proven at this stage is that PROMPT_SET_VERSION is the single, correct source of truth a
+// future real wiring would stamp `actions.prompt_version` with — currently the active set.
 describe("PROMPT_SET_VERSION (narrowed 'actions.prompt_version carries the set' acceptance)", () => {
-  it("is 'v12'", () => {
-    expect(PROMPT_SET_VERSION).toBe('v12');
+  it("is 'v13'", () => {
+    expect(PROMPT_SET_VERSION).toBe('v13');
   });
 });
