@@ -31,6 +31,7 @@ import type {
   PipelineInternalActionState,
 } from "./action/PipelineActionStateMachine.js";
 import { ProdPipelineLlmGateway, type ProdPipelineGatewayConfig } from "../llm/pipeline/ProdPipelineGateway.js";
+import { isLlmStageFailure } from "../llm/pipeline/PipelineStageError.js";
 import type { PipelineLlmGateway } from "../llm/pipeline/types.js";
 import type { PipelineContextResolver } from "./action/pipeline-context.js";
 import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
@@ -971,13 +972,13 @@ export class WorldEngineImpl implements WorldEngine {
     items: ItemData[],
     opts: { kind?: ActionKind; wage?: number },
   ): Promise<ActionStartResult> {
-    // No AbortError catch here — all 6 observed decide timeouts in the v12 QA session
-    // were beat-2 CONTINUE calls (stepActionPipeline path). A beat-1 decide timeout is
-    // theoretically possible but unobserved; catching it would require restructuring the
-    // roll-drain transaction (the roll hasn't been drained yet pre-start()) and plumbing a
-    // timed-out ActionOutcome through ActionStartResult, which is designed for
-    // divine-intervention outcomes only. If beat-1 timeouts become common, add a catch
-    // mirroring stepActionPipeline with a no-drain refund (roll was never spent).
+    // No LLM catch here, by design: `PipelineActionStateMachine.start` owns beat-1 resilience
+    // and converts any stage failure (timeout, transport, unparseable response) into a divine
+    // intervention, which arrives below as an ordinary `startResult.resolved` with
+    // `isDivineIntervention: true` — already the no-drain refund path. That keeps the
+    // roll-drain transaction and `ActionStartResult`'s outcome slot untouched, which is what
+    // made a catch at this level awkward when the beat-1 timeout was still hypothetical. The
+    // 0.3.3 smoke run made it real: a first-turn decide abort crashed the whole day.
     const machine = this.machine as PipelineActionStateMachine;
     // Snapshot before the machine finalizes: a frontier crossed inside start() mints its
     // provisional row here, so the diff after resolution is what it minted (N2).
@@ -1303,10 +1304,16 @@ export class WorldEngineImpl implements WorldEngine {
       };
     } catch (_err) {
       const err = _err as Error & { name?: string };
-      if (err.name === 'AbortError' || (err.message ?? '').toLowerCase().includes('abort')) {
-        // DeepSeek decide timeout — resolve as timed_out instead of re-throwing so the
-        // player isn't re-served the same stuck decision (v12 QA §1: each timed-out
-        // CONTINUE beat re-presented the identical decision screen).
+      if (isLlmStageFailure(err)) {
+        // Any DeepSeek stage failure on a beat past the first — resolve as timed_out instead of
+        // re-throwing so the player isn't re-served the same stuck decision (v12 QA §1: each
+        // timed-out CONTINUE beat re-presented the identical decision screen).
+        //
+        // Widened from abort-only in 0.3.4: the 0.3.3 smoke run lost a day to a RESOLVE-NARRATE
+        // parse failure, which is the same fault from the player's side (the Warden didn't
+        // answer) but used to propagate and crash the session. Deliberately still narrow — the
+        // predicate matches only faults raised at the LLM boundary, so an engine bug behind it
+        // keeps throwing loudly rather than being dressed up as a timeout card.
         const timeoutState: PipelineInternalActionState = {
           ...internalState,
           lastActionAt: Date.now(),

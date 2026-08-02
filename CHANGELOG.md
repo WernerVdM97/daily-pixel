@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A DeepSeek stumble no longer ends your day** — two of three live agent-player runs on 0.3.3 died mid-day to an uncaught LLM fault: a first-turn `decide` that timed out, and a `RESOLVE-NARRATE` that came back unparseable. Both propagated past the engine and killed the whole interaction. Any stage failure now fails open at the beat that owns the roll: on the first beat it resolves as the existing divine intervention with the roll never spent, and on later beats as a timeout with the roll refunded, matching what a `decide` timeout already did. Deliberately narrow — only faults raised at the LLM boundary are caught (`PipelineStageError`), so an engine bug behind one still throws loudly instead of being dressed up as a refund card.
+- **An empty DeepSeek response now says so** — a 200 carrying `content: ""` fell through to the JSON parser and surfaced as `failed to parse DeepSeek response:` with nothing after the colon, which is the shape the live crash above took and the one shape the message could not describe. Empty and whitespace-only content are now reported as an empty response, with the completion's `finishReason` attached so a truncated answer is distinguishable from a genuinely blank one.
+
 ## [0.3.3] - 2026-08-02
 
 ### Added

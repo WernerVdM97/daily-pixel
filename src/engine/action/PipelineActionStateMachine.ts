@@ -7,6 +7,7 @@ import type {
   PipelineLlmGateway,
 } from '../../llm/pipeline/types.js';
 import { heuristicClassify } from '../../llm/pipeline/classifier.js';
+import { isLlmStageFailure } from '../../llm/pipeline/PipelineStageError.js';
 import type {
   ActionState,
   ActionDecision,
@@ -213,10 +214,29 @@ export class PipelineActionStateMachine {
       }
     }
 
-    const { result: rawDecideResult, callId: decideCallId } = await this.llm.decide({ actionType, flags, context });
-    if (decideCallId !== 0) gatewayCallIds.push(decideCallId);
-    const { result: afterCritic, criticCallIds } = await this.critiqueDecide(rawDecideResult, actionType, flags, context);
-    const { result: decideResult, validatorCallIds } = await this.validateSingleOption(afterCritic, actionType, flags, context);
+    // Every LLM call on beat 1 fails open the same way classify does (0.3.4). Before this, only
+    // classify was covered: a decide that timed out or came back unparseable threw straight out
+    // of `startAction` and killed the whole interaction — the roll was never drained, so the
+    // player wasn't charged, but nothing resolved it either and the adapter had only a bare
+    // error to show. Divine intervention is the shape this exact situation already has (system
+    // fault, pre-roll, nothing authored, roll refunded by `WorldEngineImpl`'s F#21 branch), so
+    // it is reused rather than given a second, near-identical outcome type. Beat 2+ can't use it
+    // — the roll IS spent by then — and resolves as `timed_out` one level up instead.
+    let decideResult: PipelineDecideResult;
+    let criticCallIds: number[];
+    let validatorCallIds: number[];
+    try {
+      const { result: rawDecideResult, callId: decideCallId } = await this.llm.decide({ actionType, flags, context });
+      if (decideCallId !== 0) gatewayCallIds.push(decideCallId);
+      const critiqued = await this.critiqueDecide(rawDecideResult, actionType, flags, context);
+      criticCallIds = critiqued.criticCallIds;
+      const validated = await this.validateSingleOption(critiqued.result, actionType, flags, context);
+      decideResult = validated.result;
+      validatorCallIds = validated.validatorCallIds;
+    } catch (err) {
+      if (!isLlmStageFailure(err)) throw err;
+      return this.divineOnStageFailure(rawInput, kind, wage, err, 'decide');
+    }
 
     // §2 v12 QA: auto-resolve on first-beat `decision: []` — the LLM returned an empty
     // decision array, signalling this action needs no player branching. Jump straight to
@@ -274,7 +294,16 @@ export class PipelineActionStateMachine {
         lastActionAt: Date.now(),
         ...(allCallIds.length > 0 ? { llmCallIds: allCallIds } : {}),
       };
-      const resolved = await this.resolve(preState, char, items, decideResult.baseDc, [], syntheticOption);
+      // Same fail-open as the decide beat above: the auto-resolve path runs RESOLVE-MUTATE and
+      // RESOLVE-NARRATE inside start(), so a narrate parse failure here is still a beat-1 fault
+      // with the roll unspent.
+      let resolved: { state: PipelineInternalActionState; outcome: ActionOutcome };
+      try {
+        resolved = await this.resolve(preState, char, items, decideResult.baseDc, [], syntheticOption);
+      } catch (err) {
+        if (!isLlmStageFailure(err)) throw err;
+        return this.divineOnStageFailure(rawInput, kind, wage, err, 'auto-resolve');
+      }
       return { resolved: true, state: resolved.state, outcome: resolved.outcome };
     }
 
@@ -1283,12 +1312,6 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * The classify-fallback-total-failure path: heuristic missed AND the LLM fallback call
-   * rejected. Typed, not string-sentinel (risk table: don't overload `distilledType` with
-   * `'__divine__'` the way `FallbackLlmGateway.ts` does) — `isDivineIntervention: true` on the
-   * outcome is the only signal. Never lets the rejection escape `start()`.
-   */
-  /**
    * D7 two-critic-split resolution (settled by the lead): a SINGLE `CriticGateway.critique`
    * interface (the critic-v1 prompt, branching on `beat`) is invoked at two pipeline sites — a
    * gated coherence critic over DECIDE (major → one bounded re-decide, below) and a faithfulness
@@ -1452,6 +1475,32 @@ export class PipelineActionStateMachine {
     return { outcomeText, criticCallIds };
   }
 
+  /** Beat-1 LLM fault → the divine intervention below. The card the player gets is deliberately
+   *  in-voice and says nothing about DeepSeek, so this console line is the only place the real
+   *  cause survives — without it a run of stage failures is indistinguishable from a run of
+   *  ordinary refunds. */
+  private divineOnStageFailure(
+    rawInput: string,
+    kind: ActionKind,
+    wage: number,
+    err: unknown,
+    stage: string,
+  ): { resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome } {
+    console.error(
+      `[pipeline] beat-1 ${stage} failure — resolving as divine intervention:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return this.resolveDivineIntervention(rawInput, kind, wage);
+  }
+
+  /**
+   * The beat-1 system-fault path. Originally just classify-fallback-total-failure (heuristic
+   * missed AND the LLM fallback call rejected); since 0.3.4 any LLM stage failure inside
+   * `start()` lands here too, via `divineOnStageFailure`. Typed, not string-sentinel (risk
+   * table: don't overload `distilledType` with `'__divine__'` the way `FallbackLlmGateway.ts`
+   * does) — `isDivineIntervention: true` on the outcome is the only signal. Never lets the
+   * rejection escape `start()`.
+   */
   private resolveDivineIntervention(
     rawInput: string,
     kind: ActionKind,

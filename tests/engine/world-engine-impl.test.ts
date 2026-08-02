@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
 import { initDb, closeDb, getDb } from '../../src/db/connection.js';
 import { migrate, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
@@ -1106,5 +1106,188 @@ describe('WorldEngineImpl — RA-3 bounded: mint the foe the world named but nev
     expect(npcRepo.findByLocation(LOCATION).filter((n) => n.name === 'Raider')).toHaveLength(1);
 
     closeDb();
+  });
+});
+
+// ── 0.3.4: an LLM stage failure must never kill the day (0.3.3 agent smoke run) ──
+//
+// Two live runs died mid-day: one to a beat-1 `decide` abort thrown straight out of
+// `startAction`, one to a RESOLVE-NARRATE parse failure thrown out of `stepAction`. Both are
+// "DeepSeek didn't answer usefully", and both used to propagate to the adapter as a bare error.
+// They now fail open at the beat that owns the roll: beat 1 → divine intervention (roll never
+// drained), beat 2+ → timed_out (roll refunded).
+
+describe('WorldEngineImpl — pipeline stage failures fail open (0.3.4)', () => {
+  // Each test builds its own in-memory DB; the singleton has to go back before the next.
+  afterEach(closeDb);
+
+  const CHAR = {
+    name: 'Garrick',
+    class: 'Fighter',
+    upbringing: 'Village',
+    race: 'Human',
+    alignment: 'lawful good',
+    day_job: 'Guard',
+    stats: JSON.stringify({ physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }),
+    health: 10,
+    max_health: 10,
+    max_stamina: 10,
+    stamina: 10,
+    rolls_remaining: 3,
+    location: "The Warden's Oak",
+    wealth: 5,
+    last_action_state: null,
+  };
+
+  function jsonResponse(content: unknown): Response {
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: typeof content === 'string' ? content : JSON.stringify(content) }, finish_reason: 'stop' }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }
+
+  /** Routes on the stage marker the pipeline puts in its own user message, so the script can't
+   *  drift when a stage is added or the call order changes (call-index scripting would). */
+  function stageRouter(handlers: {
+    decide: (nth: number) => Response;
+    resolveMutate?: () => Response;
+    resolveNarrate?: () => Response;
+  }) {
+    let decideCalls = 0;
+    return vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String((init as RequestInit).body)) as { messages: { content: string }[] };
+      const userMessage = body.messages[1].content;
+      if (userMessage.includes('RESOLVE-NARRATE')) return (handlers.resolveNarrate ?? (() => jsonResponse({ outcome_text: 'It happens.' })))();
+      if (userMessage.includes('RESOLVE-MUTATE')) return (handlers.resolveMutate ?? (() => jsonResponse({ mutations: [] })))();
+      return handlers.decide(++decideCalls);
+    });
+  }
+
+  function makeEngine(fetchFn: ReturnType<typeof stageRouter>) {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const user = userRepo.create('999999999');
+    const characterId = charRepo.create(user.id, CHAR).id;
+
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: '__divine__', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlm: { apiKey: 'test-key', model: 'test-model', fetch: fetchFn as unknown as typeof fetch },
+      rollD20: () => 15,
+    });
+    return { engine, charRepo, characterId };
+  }
+
+  const withOneOption = {
+    distilledType: 'inspection',
+    stat: 'physical',
+    baseDc: 12,
+    required: true,
+    // Two options deliberately: a single-option decide routes through `validateSingleOption`,
+    // which spends another decide call and would consume the terminating script below.
+    decision: [
+      { label: 'Look closer', dcModifier: 0, stat: 'physical' },
+      { label: 'Force the hasp', dcModifier: 3, stat: 'physical' },
+    ],
+  };
+
+  it('resolves start as divine intervention (roll never drained) when the beat-1 decide aborts', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({
+        decide: () => {
+          const error = new Error('This operation was aborted') as Error & { name: string };
+          error.name = 'AbortError';
+          throw error;
+        },
+      }),
+    );
+
+    // The bug: this used to reject, killing the interaction with a bare AbortError.
+    const result = await engine.startAction(characterId, 'inspect the lockup');
+
+    expect(result.outcome?.isDivineIntervention).toBe(true);
+    expect(result.outcome?.rollRefunded).toBe(true);
+    expect(result.outcome?.rollsDelta).toBe(0);
+    // The roll was never spent — a system fault before beat 1 costs the player nothing.
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+    expect(charRepo.findById(characterId)!.last_action_state).toBeNull();
+
+  });
+
+  it('resolves start as divine intervention when the beat-1 decide returns unparseable JSON', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({ decide: () => jsonResponse('not json {') }),
+    );
+
+    const result = await engine.startAction(characterId, 'inspect the lockup');
+
+    expect(result.outcome?.isDivineIntervention).toBe(true);
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+
+  });
+
+  it('resolves start as divine intervention when DeepSeek answers beat-1 with empty content', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({ decide: () => jsonResponse('') }),
+    );
+
+    const result = await engine.startAction(characterId, 'inspect the lockup');
+
+    expect(result.outcome?.isDivineIntervention).toBe(true);
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+
+  });
+
+  it('resolves a step as timed_out (roll refunded) when RESOLVE-NARRATE comes back unparseable', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({
+        // Beat 1 offers a real option; the continue beat returns no options, which routes
+        // straight into the resolve pipeline — where narrate then fails.
+        decide: (nth) => jsonResponse(nth === 1 ? withOneOption : { ...withOneOption, required: false, decision: [] }),
+        resolveNarrate: () => jsonResponse('not json {'),
+      }),
+    );
+
+    await engine.startAction(characterId, 'inspect the lockup');
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(2); // drained at start
+
+    // The bug: this used to reject out of stepChoice/runWork and crash the whole day.
+    const result = await engine.stepAction(characterId, 'Look closer');
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.outcome).toBe('timed_out');
+      expect(result.outcome.rollRefunded).toBe(true);
+      expect(result.outcome.rollsDelta).toBe(0);
+    }
+    // Refunded back to the pre-action count, and no stuck state left behind.
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+    expect(charRepo.findById(characterId)!.last_action_state).toBeNull();
+
+  });
+
+  it('resolves a step as timed_out when RESOLVE-MUTATE fails', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({
+        decide: (nth) => jsonResponse(nth === 1 ? withOneOption : { ...withOneOption, required: false, decision: [] }),
+        resolveMutate: () => new Response('{"error":"boom"}', { status: 500, headers: { 'content-type': 'application/json' } }),
+      }),
+    );
+
+    await engine.startAction(characterId, 'inspect the lockup');
+    const result = await engine.stepAction(characterId, 'Look closer');
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) expect(result.outcome.outcome).toBe('timed_out');
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+
   });
 });

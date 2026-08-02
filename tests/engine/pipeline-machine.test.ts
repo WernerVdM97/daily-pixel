@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { deriveEnemyMaxHp } from '../../src/engine/action/combat-dc.js';
 import Database from 'better-sqlite3';
 import { PipelineActionStateMachine, enemyConditionBand } from '../../src/engine/action/PipelineActionStateMachine.js';
+import { PipelineStageError } from '../../src/llm/pipeline/PipelineStageError.js';
 import { createGeographyFinalize } from '../../src/engine/geography-finalize.js';
 import { runMigrations, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
@@ -3009,5 +3010,50 @@ describe('PipelineActionStateMachine — Stage 2: fatalBlow/decisionPrompt resol
     expect('fatalBlow' in narrateCall).toBe(false);
     expect('decisionPrompt' in mutateCall).toBe(false);
     expect('decisionPrompt' in narrateCall).toBe(false);
+  });
+});
+
+// ── 0.3.4: beat-1 LLM faults fail open, engine faults do not ──
+
+describe('PipelineActionStateMachine — beat-1 stage failures (0.3.4)', () => {
+  it('turns a decide stage failure into divine intervention instead of throwing', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decide = async () => {
+      throw new PipelineStageError('decide', 'timeout', 'ProdPipelineLlmGateway.decide: DeepSeek request aborted (timeout)');
+    };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    const result = await machine.start(testChar(), 'attack the goblin', testItems);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.isDivineIntervention).toBe(true);
+      expect(result.outcome.mutations).toEqual([]);
+    }
+  });
+
+  it('turns an auto-resolve narrate failure into divine intervention (the resolve runs inside start)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Empty decision on beat 1 → start() runs the whole resolve pipeline inline.
+    llm.decideResult = { distilledType: 'rest', stat: 'physical', baseDc: 10, required: false, decision: [] };
+    llm.resolveNarrate = async () => {
+      throw new PipelineStageError('resolveNarrate', 'parse', 'ProdPipelineLlmGateway.resolveNarrate: failed to parse DeepSeek response: {');
+    };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    const result = await machine.start(testChar(), 'rest by the fire', testItems);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) expect(result.outcome.isDivineIntervention).toBe(true);
+  });
+
+  it('still throws when the failure is NOT an LLM fault — an engine bug must not read as divine intervention', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decide = async () => { throw new Error('Cannot read properties of undefined'); };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    await expect(machine.start(testChar(), 'attack the goblin', testItems)).rejects.toThrow(
+      /Cannot read properties of undefined/,
+    );
   });
 });
