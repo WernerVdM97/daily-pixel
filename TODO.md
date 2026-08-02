@@ -4,7 +4,7 @@
 
 **Read first:** [`docs/engine/poc-plus-release-a-plan.md`](./docs/engine/poc-plus-release-a-plan.md) — the executor-grade build plan. § Execution state and § Task log carry the per-task handover and the owner locks (SL-1…SL-7, all settled); § Stage 4 measurement carries the v12-vs-v13 numbers and, more importantly, what the agent-player harness can and cannot measure. Parent tracking is [[poc-plus-roadmap]] § Re-sequencing.
 
-**State.** All of Release A's build work is landed, stage 4 included. `poc-plus/release-a` and local `dev` are both at `c6bef9e`; **`dev` is 10 commits ahead of `origin/dev` and has not been pushed.** One checkout only, the primary `~/projects/daily-pixel`. Baseline **89 files / 1662 tests**, typecheck clean. **v13 is live in every path** — `PROMPT_SET_VERSION = 'v13'` and `ProdPipelineGateway` defaults to `loadPromptSet()` — so production loads the new prose and the balance change is real. `CHANGELOG.md` `[Unreleased]` is current.
+**State.** All of Release A's build work is landed, stage 4 included. `poc-plus/release-a` and local `dev` are both at `c6bef9e`. Baseline **89 files / 1662 tests**, typecheck clean. **v13 is live in every path** — `PROMPT_SET_VERSION = 'v13'` and `ProdPipelineGateway` defaults to `loadPromptSet()` — so production loads the new prose and the balance change is real. `CHANGELOG.md` `[Unreleased]` is current.
 
 **Next, in this order:**
 
@@ -32,7 +32,6 @@ Full-period prod snapshot (`warden-20260723-201953`, 07-07 → 07-23, day 17, `0
 
 **Release A closeout — three decisions left open** (full write-ups in the plan's § Follow-up logged)
 
-- [?] **Should a failed day-job shift pay full wage?** The engine appends the job action's wage regardless of verdict, so botching *Inspect the lockup* pays what doing it well pays. Arguably right (you worked the shift), arguably the thing that makes the day job a risk-free floor — and it fights RA-1's "a failure must cost" on the highest-frequency action in the game. Owner call: full wage, reduced on failure, or success-only. Economy-wide blast radius, hence not folded into v13.
 - [?] **`opts.compact` has had no production caller since RA-6** — still plumbed through `buildOutcomeView`/`viewState.ts`/`commands/action.ts` with a unit test. Delete it, or keep it as a deliberate capability.
 - [ ] **Give the agent-player a way to exercise the quest loop** — an `AGENT_FORCE_FREE_ACTIONS`-style switch, or a brain prompt that rations day-job picks. Without it the harness can't answer any balance question about free actions (§ RESUME HERE, standing cautions).
 
@@ -45,8 +44,6 @@ Full-period prod snapshot (`warden-20260723-201953`, 07-07 → 07-23, day 17, `0
 
 Three live DeepSeek smoke runs (1d, 1d, 2d) all completed clean (exit 0, 0 formal findings, coherent gameplay, critic reports). Multi-day path confirmed (day advances, rolls refill, overnight regen + income, rest-to-Oak). These observations are NOT harness bugs (all self-recovered, no state corruption) — logged for maintainer/backlog:
 
-- [x] **[engine/content] `search`-category grants wealth, tripping category-telemetry** — *explained 2026-08-01, not a content bug.* `[category-telemetry] unexpected mutation "modify_wealth" on category "search"` fires because day-job work is free-text and classifies as `search`/`investigate` (stage 3's finding), and the engine appends the job action's wage as a `modify_wealth` after the resolve mutations. The allow-list isn't stale and search outcomes aren't granting coin — the telemetry is seeing the wage. Either teach the telemetry to ignore engine-appended wage mutations, or accept the noise; the underlying economy question is the wage item below.
-- [x] **[content/balance] wealth rose on every outcome, including failures** — *explained 2026-08-01, not an outcome-table bug.* Same root cause: `PipelineActionStateMachine.ts:1088`/`:1238` append `modify_wealth: state.wage` regardless of verdict, and the amounts match `day-jobs.yml` incomes exactly (*Inspect the lockup* 3, *Drill with the watch* 2). Across 35 isolated failure resolutions the prompt authored a positive reward **zero** times. The real open question is whether a failed shift should pay full wage — logged in the plan's § Follow-up logged, needs an owner call.
 - [ ] **[engine/prompt] LLM authored an out-of-graph `scene_location`** — twice in one run the model named a location outside the geography graph ("The Vale", then "Town Square · The Vale") with no relocate mutation; the travel-gate + graph validator correctly no-op'd both (no player-visible corruption). The `place · region` format matches the display convention (`src/discord/map-render.ts:117`, `src/llm/prompt-builder.ts:243`) — the model is likely echoing a compound display string back into the raw `scene_location` field. Sanity-check whether the prompt/context renders location as `place · region` somewhere the model could mistake it for the field value.
 - [ ] **[UX] bail-refund grace has no in-game signal** — the once-per-day free step-back (`last_bail_refund_day`, `src/engine/WorldEngineImpl.ts`) reads as inconsistent to a player (first bail refunds a roll, second same-day doesn't) with nothing explaining it; a small UI note ("first step-back today is free") would remove the ambiguity the critic flagged. Not a bug.
 - [ ] **[M4 enhancement] promote engine anomaly logs to transcript findings** — engine-emitted anomaly recoveries (`category-telemetry`, `travel-gate` injections/drops) print to stderr but the agent-player harness doesn't capture them as `finding`s, so they're invisible in the run scoreboard. Surfacing anomalies as findings is the harness's whole job; a future QA-capture slice could hook these engine emissions into transcript warnings. (The `play.ts` stdout-contamination defect the same runs caught is already FIXED — transcript now writes to a file, `AGENT_OUT`.)
@@ -56,14 +53,7 @@ Three live DeepSeek smoke runs (1d, 1d, 2d) all completed clean (exit 0, 0 forma
 *v13 has shipped, so the two items still open here carry to whatever prompt set comes next — route via the `prompt-versioning` skill and remember a published set is copied, never edited in place.*
 
 - [ ] **C6 symptom-A — mis-classification accuracy** *(deferred 0.3.2)*: actions the player intends as combat are sometimes classified as `skill`/`rest`, routing to the wrong spine. The auto-resolve guard (C6) prevents a combat-classified action from resolving without a fight, but the upstream classify decision is a prompt-template concern → route via `prompt-versioning` skill, [[prompt-v13-roadmap]].
-- [x] **C3 residual — LLM-authored/spawn_npc NPCs have NULL health** *(deferred 0.3.2, closed by stage 4 step 4)*: the engine already accepted and stored `health`, and `add_npc` now documents it as an optional field with a sane range, so the model can supply it. `deriveEnemyMaxHp(DC)` remains the fallback when it doesn't — an NPC minted without `health` is still NULL, which is the designed degradation rather than a residual.
 - [ ] **`ItemData` has no `kind`/`slot`/`consumable` column** *(RA-1 Stage 1 follow-up)*: the engine can't distinguish a consumable from a weapon and can't hold consumables to +1, so the v13 "consumable reads +1" guidance is prompt-only and unenforced until such a column exists.
-
-**In-app checks still outstanding:**
-
-- [ ] Start a real combat against a named NPC (e.g. Shadow Stag); the continue card must show the NPC's real name (C3).
-- [ ] Bail out of a fight mid-way, then re-engage; the opening frame must show banded condition, not `?/?` (C4). Fix shipped in `3bd266d` (the opener now reads name + condition off the persisted `in_combat` edge, anchor-guarded); this is the in-app re-verification.
-- [ ] On a Saturday, verify the threat NPC is at its announced location on `/look` and stays there, rather than wandering off (N1).
 
 **C4 follow-ups left out of that fix:**
 
