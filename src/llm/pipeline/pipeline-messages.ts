@@ -58,7 +58,7 @@ export function buildResolveUserMessage(
   input: PipelineResolveMutateInput | PipelineResolveNarrateInput,
   task: 'RESOLVE-MUTATE' | 'RESOLVE-NARRATE',
 ): string {
-  const { actionType, decision, chosenOption, verdict, d20Roll, context, fatalBlow, decisionPrompt } = input;
+  const { actionType, decision, chosenOption, verdict, d20Roll, context, fatalBlow, decisionPrompt, finalDc, foeDanger } = input;
 
   const out: string[] = [];
   out.push(`TASK: ${task}`);
@@ -78,6 +78,12 @@ export function buildResolveUserMessage(
   // means" gets explained in prose.
   if (fatalBlow) {
     out.push(`- fatal blow: ${fatalBlow}`);
+  }
+  if (finalDc !== undefined) {
+    out.push(`- final dc: ${finalDc}`);
+  }
+  if (foeDanger) {
+    out.push(`- foe danger: ${foeDanger}`);
   }
 
   out.push(...buildSceneBody(context));

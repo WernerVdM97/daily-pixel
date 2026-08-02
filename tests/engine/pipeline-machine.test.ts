@@ -387,6 +387,128 @@ describe('PipelineActionStateMachine — needs_roll: false', () => {
   });
 });
 
+describe('PipelineActionStateMachine — RESOLVE difficulty signal (P3)', () => {
+  it('a reactive combat resolution carries "foeDanger" (the fight\'s own baseDc, not the accumulated DC) and no "finalDc"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Mirrors the C6 fixture above: CLASSIFY hits combat/required, DECIDE authors a weak foe
+    // (baseDc 6 -> dangerTier 'easy'), a player nat-20 kills it in round 1 via the fatal-blow
+    // interstitial -> 'Finish it' resumes straight into resolveCombat — the cheapest reachable
+    // route to the two combat call sites (resolveCombat's resolveMutate/resolveNarrate).
+    llm.classifyResult = { kind: 'hit', actionType: 'combat', flags: { unsafe_location: false, needs_roll: true, target_present: true } };
+    llm.decideResult = {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+    };
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'The goblin falls.' };
+
+    const rolls = [20, 1]; // player nat-20, enemy nat-1 -> clean crit kill, round 1
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const mutateInput = llm.resolveMutateCalls[0];
+    // `in`, not `toBeUndefined()` — a spread of `{ finalDc: undefined }` would satisfy the latter
+    // just as happily as a genuinely absent key (the exact regression this fixture guards).
+    expect('foeDanger' in mutateInput).toBe(true);
+    expect(mutateInput.foeDanger).toBe('easy');
+    expect('finalDc' in mutateInput).toBe(false);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    const narrateInput = llm.resolveNarrateCalls[0];
+    expect('foeDanger' in narrateInput).toBe(true);
+    expect(narrateInput.foeDanger).toBe('easy');
+    expect('finalDc' in narrateInput).toBe(false);
+  });
+
+  it('a DC-checked non-combat resolution carries "finalDc" (the accumulated DC the roll actually faced) and no "foeDanger"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // A non-reactive, needs_roll:true action (skill, not combat) — the generic resolve() path
+    // (PipelineActionStateMachine.ts's private `resolve`, not `resolveCombat`).
+    llm.classifyResult = { kind: 'hit', actionType: 'skill', flags: { unsafe_location: false, needs_roll: true, target_present: true } };
+    llm.decideResult = {
+      distilledType: 'tinker',
+      stat: 'physical',
+      baseDc: 12,
+      required: false,
+      decision: [{ label: 'Force the lock', dcModifier: 3 }],
+    };
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'The lock gives.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // "ponder the void" matches zero heuristic tables -> the scripted LLM classify fallback runs.
+    const started = await machine.start(testChar(), 'ponder the void', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Force straight to resolve: script the follow-up decide (called inside step()) with zero
+    // real options, same technique as the "typed handoff" describe block above.
+    llm.decideResult = { ...llm.decideResult, decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, 'Force the lock', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const mutateInput = llm.resolveMutateCalls[0];
+    expect('finalDc' in mutateInput).toBe(true);
+    expect(mutateInput.finalDc).toBe(15); // accumulateDc(baseDc 12, [+3])
+    expect('foeDanger' in mutateInput).toBe(false);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    const narrateInput = llm.resolveNarrateCalls[0];
+    expect('finalDc' in narrateInput).toBe(true);
+    expect(narrateInput.finalDc).toBe(15);
+    expect('foeDanger' in narrateInput).toBe(false);
+  });
+
+  it('an auto-resolved (no-roll) rest action carries neither "finalDc" nor "foeDanger"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'rest',
+      stat: 'physical',
+      baseDc: 0,
+      required: false,
+      decision: [{ label: 'Settle in', dcModifier: 0 }],
+    };
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_stamina', amount: 3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You rest by the fire.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // classifier hits "rest" -> flags.needs_roll === false (same fixture as the describe block above).
+    const started = await machine.start(testChar(), 'rest at the camp', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = { ...llm.decideResult, decision: [{ label: 'Step back', dcModifier: null }] };
+    const chosen = started.firstDecision.options.find(o => o.dcModifier !== null);
+    expect(chosen).toBeDefined();
+
+    const step = await machine.step(started.state, chosen!.label, testChar(), testItems);
+    expect(step.resolved).toBe(true);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const mutateInput = llm.resolveMutateCalls[0];
+    expect('finalDc' in mutateInput).toBe(false);
+    expect('foeDanger' in mutateInput).toBe(false);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    const narrateInput = llm.resolveNarrateCalls[0];
+    expect('finalDc' in narrateInput).toBe(false);
+    expect('foeDanger' in narrateInput).toBe(false);
+  });
+});
+
 describe('PipelineActionStateMachine — D5b mutation-finalization inversion (Task 3)', () => {
   it('narrates and reports the FINAL mutations when an injected finalize drops a proposed one', async () => {
     const llm = new MockPipelineLlmGateway();

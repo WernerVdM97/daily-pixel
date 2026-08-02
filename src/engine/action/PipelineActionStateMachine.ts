@@ -31,6 +31,7 @@ import {
   ENEMY_HP_MIN,
   ENEMY_HP_MAX,
   MAX_COMBAT_ROUNDS,
+  dangerTier,
   type CombatBeatLog,
   type CombatRoundOutcome,
 } from './combat-dc.js';
@@ -950,6 +951,13 @@ export class PipelineActionStateMachine {
       ? { fatalBlow: fatalBlowMarker, decisionPrompt: state.pendingDecision.prompt }
       : {};
 
+    // Combat's difficulty signal (resolve-difficulty-signal.md): `dc` here is the fight's own
+    // baseDc (the same value `buildCombatBeat`'s `dc` param carries into the combat card the
+    // player already sees), NOT the accumulated `newDc` this method also receives — that one
+    // only threads the non-combat DC ladder through combat so it survives to a later non-combat
+    // action, and would name a fight the player never saw the number for.
+    const foeDangerHandoff = { foeDanger: dangerTier(dc) };
+
     // RESOLVE-MUTATE for ancillary loot only (the LLM never authors enemyHp/core damage).
     const { result: combatMutate, callId: combatMutateCallId } = await this.llm.resolveMutate({
       actionType: state.actionType,
@@ -959,6 +967,7 @@ export class PipelineActionStateMachine {
       d20Roll,
       context,
       ...fatalBlowHandoff,
+      ...foeDangerHandoff,
     });
     const proposedMutations = combatMutate.mutations;
     const combatResolveCallIds: number[] = combatMutateCallId !== 0 ? [combatMutateCallId] : [];
@@ -1073,6 +1082,7 @@ export class PipelineActionStateMachine {
       finalMutations: finalMutations as unknown[],
       context,
       ...fatalBlowHandoff,
+      ...foeDangerHandoff,
     });
     const rawOutcomeText = combatNarrate.outcomeText;
     if (combatNarrateCallId !== 0) combatResolveCallIds.push(combatNarrateCallId);
@@ -1175,6 +1185,13 @@ export class PipelineActionStateMachine {
     const decisionForHandoff = state.lastDecideResult;
     const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
 
+    // Gate on the same condition the roll stage above used (`state.flags.needs_roll`), not a
+    // truthiness check of `d20Roll` — rest/travel's auto-resolve leaves `d20Roll` at its literal
+    // `0` default, which reads falsy either way, so a truthiness check would happen to work here
+    // too; gating on the roll flag directly is what actually says "a roll happened" instead of
+    // relying on that coincidence (resolve-difficulty-signal.md).
+    const finalDcHandoff = state.flags.needs_roll ? { finalDc: newDc } : {};
+
     const { result: mutateResult, callId: resolveMutateCallId } = await this.llm.resolveMutate({
       actionType: state.actionType,
       decision: decisionForHandoff,
@@ -1182,6 +1199,7 @@ export class PipelineActionStateMachine {
       verdict,
       d20Roll,
       context,
+      ...finalDcHandoff,
     });
     const proposedMutations = mutateResult.mutations;
     const resolveCallIds: number[] = resolveMutateCallId !== 0 ? [resolveMutateCallId] : [];
@@ -1223,6 +1241,7 @@ export class PipelineActionStateMachine {
       d20Roll,
       finalMutations: finalMutations as unknown[],
       context,
+      ...finalDcHandoff,
     });
     const rawOutcomeText = narrateResult.outcomeText;
     if (resolveNarrateCallId !== 0) resolveCallIds.push(resolveNarrateCallId);

@@ -431,3 +431,45 @@ describe(`${PROMPT_SET_VERSION} content assertions — stage 4 acceptance`, () =
     expect(tpl).toMatch(/capped at ±5/);
   });
 });
+
+describe(`${PROMPT_SET_VERSION} content assertions — P3 RESOLVE difficulty signal (resolve-difficulty-signal.md)`, () => {
+  const RESOLVE_BASE_FILE = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    '..',
+    'assets',
+    'prompts',
+    'decision-prompts',
+    PROMPT_SET_VERSION,
+    'resolve',
+    'BASE.md',
+  );
+
+  it('the reward-scaling rule points at the "final dc" token and the v13 bands, not the chosen option\'s prose', () => {
+    const tpl = readFileSync(RESOLVE_BASE_FILE, 'utf-8');
+    const rewardLine = tpl.split('\n').find((line) => line.includes('Reward scales with the DC actually attempted'));
+    expect(rewardLine).toBeTruthy();
+    expect(rewardLine).toContain('final dc');
+    expect(rewardLine).toContain('11-13');
+    expect(rewardLine).toContain('16-18');
+    expect(rewardLine).toContain('20-24');
+    // States what to do when the token is absent — a routine reward, not a withheld one.
+    expect(rewardLine).toMatch(/no .*final dc.* line is present/i);
+  });
+
+  it('the "### What was decided" INPUT CONTEXT bullet documents both "final dc" and "foe danger", and that they never appear together', () => {
+    const tpl = readFileSync(RESOLVE_BASE_FILE, 'utf-8');
+    const bulletLine = tpl.split('\n').find((line) => line.includes('### What was decided'));
+    expect(bulletLine).toBeTruthy();
+    expect(bulletLine).toContain('final dc');
+    expect(bulletLine).toContain('foe danger');
+    expect(bulletLine).toMatch(/never appear together|never .* both/i);
+  });
+
+  it('resolve/combat/success.md names the "foe danger" tier vocabulary and no longer references baseDc', () => {
+    const tpl = readFileSync(path.join(COMBAT_RESOLVE_DIR, 'success.md'), 'utf-8');
+    expect(tpl).toContain('foe danger');
+    expect(tpl).toMatch(/easy.*medium.*hard.*risky.*fatal/);
+    expect(tpl).not.toContain('baseDc');
+  });
+});

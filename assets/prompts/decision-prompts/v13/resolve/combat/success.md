@@ -9,5 +9,5 @@
 - Never emit `modify_health` (the player's combat HP is engine-owned) or `enemyHp` / any `in_combat` relation edge (the enemy's health is engine-owned) — both are injected around this stage on every round.
 - Always: `modify_stamina` -1 to -3 (exertion, even in victory).
 - `add_item` (loot, a trophy from the fallen) and/or `modify_wealth` (coin from the fallen).
-- **Reward scales with the fight's difficulty:** a harder fight (higher `baseDc`, a tougher foe) earns a better `add_item` (higher modifier, more valuable) or a larger `modify_wealth`.
+- **Reward scales with the fight's difficulty:** the handoff carries a `- foe danger: easy|medium|hard|risky|fatal` line under `### What was decided` — a tougher tier (`hard`, `risky`, `fatal`) earns a better `add_item` (higher modifier, more valuable) or a larger `modify_wealth` than an `easy` or `medium` one.
 - Apply Rule 2a: on a natural 20, double the reward (two items, or one with a doubled modifier / doubled wealth).

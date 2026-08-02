@@ -1,4 +1,5 @@
 import type { ActionCategory, LlmContext, LlmDecisionOption } from '../LlmGateway.js';
+import type { DangerTier } from '../../engine/action/combat-dc.js';
 
 /**
  * Pipeline routing key. Reuses the canonical `ActionCategory` union (LlmGateway.ts) rather
@@ -92,6 +93,15 @@ export interface PipelineResolveMutateInput {
    *  no `prompt` field, so a hand-authored beat like the fatal-blow interstitial has no other way
    *  to reach the model. */
   decisionPrompt?: string;
+  /** The DC the roll was resolved against, present only when a DC check decided the verdict.
+   *  Not sent on combat — combat is contested (`resolveCombatRound`'s margin), not DC-checked,
+   *  so there is no threshold to report here; see `foeDanger` below for combat's own signal. */
+  finalDc?: number;
+  /** The worded encounter-danger tier (`dangerTier()`, combat-dc.ts), combat only. Combat has no
+   *  DC to resolve against (contested margin, not a threshold), so `finalDc` would name a number
+   *  the round was never tested against; this and `finalDc` are deliberately two fields, not one,
+   *  because the two resolve paths carry two different kinds of difficulty signal. */
+  foeDanger?: DangerTier;
 }
 
 /** RESOLVE-MUTATE's output: PROPOSED mutations only — pre-finalize. The engine's pure
@@ -122,6 +132,15 @@ export interface PipelineResolveNarrateInput {
    *  no `prompt` field, so a hand-authored beat like the fatal-blow interstitial has no other way
    *  to reach the model. */
   decisionPrompt?: string;
+  /** The DC the roll was resolved against, present only when a DC check decided the verdict.
+   *  Not sent on combat — combat is contested (`resolveCombatRound`'s margin), not DC-checked,
+   *  so there is no threshold to report here; see `foeDanger` below for combat's own signal. */
+  finalDc?: number;
+  /** The worded encounter-danger tier (`dangerTier()`, combat-dc.ts), combat only. Combat has no
+   *  DC to resolve against (contested margin, not a threshold), so `finalDc` would name a number
+   *  the round was never tested against; this and `finalDc` are deliberately two fields, not one,
+   *  because the two resolve paths carry two different kinds of difficulty signal. */
+  foeDanger?: DangerTier;
 }
 
 export interface PipelineResolveNarrateResult {

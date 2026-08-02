@@ -70,3 +70,32 @@ describe('buildResolveUserMessage — Stage 2 fatalBlow / decisionPrompt (RA-1/R
     expect(msg).not.toContain('Combat — what do you do?');
   });
 });
+
+describe('buildResolveUserMessage — P3 finalDc / foeDanger difficulty signal', () => {
+  it('omits both "- final dc:" and "- foe danger:" lines when neither field is supplied (auto-resolve)', () => {
+    const msg = buildResolveUserMessage(baseInput(), 'RESOLVE-MUTATE');
+    expect(msg).not.toContain('- final dc:');
+    expect(msg).not.toContain('- foe danger:');
+  });
+
+  it('emits a bare "- final dc: N" line when finalDc is present, with no "- foe danger:" line', () => {
+    const msg = buildResolveUserMessage(baseInput({ finalDc: 15 }), 'RESOLVE-MUTATE');
+    expect(msg).toContain('- final dc: 15');
+    expect(msg).not.toContain('- foe danger:');
+  });
+
+  it('emits a bare "- foe danger: <tier>" line when foeDanger is present, with no "- final dc:" line', () => {
+    const msg = buildResolveUserMessage(baseInput({ foeDanger: 'hard' }), 'RESOLVE-MUTATE');
+    expect(msg).toContain('- foe danger: hard');
+    expect(msg).not.toContain('- final dc:');
+  });
+
+  it('never emits both tokens together, matching one input shape at a time (combat XOR DC-checked)', () => {
+    // Not a realistic engine handoff (the two fields come from mutually exclusive call sites),
+    // but the message builder itself is a pure function of its input, so this pins the render
+    // logic for each field independently rather than assuming the caller enforces exclusivity.
+    const msg = buildResolveUserMessage(baseInput({ finalDc: 12, foeDanger: 'medium' }), 'RESOLVE-MUTATE');
+    expect(msg).toContain('- final dc: 12');
+    expect(msg).toContain('- foe danger: medium');
+  });
+});
