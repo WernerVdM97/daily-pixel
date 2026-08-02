@@ -253,6 +253,10 @@ class StubBackend implements RouterBackend {
     return scripted;
   }
 
+  getCharacter(_userId: string): CharacterData | null {
+    return stubChar;
+  }
+
   stampLastPlayed(_userId: string): void {
     this.calls.push('stampLastPlayed');
     if (this.stampResult === 'throw') throw new Error('stampLastPlayed boom');
@@ -366,10 +370,10 @@ function beatScreens(beats: GameResponse[]): Array<string | undefined> {
   return beats.map((b) => (b.ok ? b.view?.screen : undefined));
 }
 
-/** Error envelopes can carry `facts` (stale-session's narration) — they must survive the
- *  JSON seam like views do (round-trip c). */
+/** Both error and view envelopes can carry `facts` (error narration, character snapshots) —
+ *  they must survive the JSON seam like views do (round-trip c). */
 function assertFactsRoundTrip(response: GameResponse): void {
-  if (response.ok || response.facts === undefined) return;
+  if (response.facts === undefined) return;
   expect(roundTrip(response.facts)).toEqual(response.facts);
 }
 
@@ -611,12 +615,23 @@ runCaseBlock('conformance — dayjob.start', [
     assert: (o) => {
       expectOkView(o.response, 'outcome');
       if (!o.response.ok) throw new Error('unreachable');
-      expect(o.response.facts).toEqual({
+      expect(o.response.facts).toMatchObject({
         distilledType: 'scout',
         characterName: 'Aldric',
         actionId: 77,
         nav: { rollsRemaining: 3, hasPendingAction: false, hasRestedToday: false },
       });
+      expect(o.response.facts?.characterState).toMatchObject({
+        health: expect.any(Number),
+        maxHealth: expect.any(Number),
+        stamina: expect.any(Number),
+        maxStamina: expect.any(Number),
+        wealth: expect.any(Number),
+        location: expect.any(String),
+      });
+      expect(Object.keys(o.response.facts?.characterState ?? {}).sort()).toEqual(
+        ['health', 'location', 'maxHealth', 'maxStamina', 'stamina', 'wealth'],
+      );
       expect(o.beats).toHaveLength(2);
       expect(okView(o.beats[0])).toMatchObject({ screen: 'loading', body: `⏳ **Starting…**\n_${IDLE}_` });
       expect(okView(o.beats[1])).toEqual({ screen: 'commute', destination: 'The Town Gate', idle: IDLE });
@@ -761,13 +776,26 @@ runCaseBlock('conformance — action.custom', [
     assert: (o) => {
       expectOkView(o.response, 'outcome');
       if (!o.response.ok) throw new Error('unreachable');
-      expect(o.response.facts).toEqual({
+      expect(o.response.facts).toMatchObject({
         distilledType: 'scout',
         characterName: 'Aldric',
         actionId: 77,
         nav: { rollsRemaining: 3, hasPendingAction: false, hasRestedToday: false },
       });
-      expect('characterClass' in (o.response.facts ?? {})).toBe(false);
+      // characterClass is now populated by addCharacterFacts (DC-M6.1) on all view-bearing
+      // responses — the stub char has class 'Warrior'.
+      expect(o.response.facts?.characterClass).toBe('Warrior');
+      expect(o.response.facts?.characterState).toMatchObject({
+        health: expect.any(Number),
+        maxHealth: expect.any(Number),
+        stamina: expect.any(Number),
+        maxStamina: expect.any(Number),
+        wealth: expect.any(Number),
+        location: expect.any(String),
+      });
+      expect(Object.keys(o.response.facts?.characterState ?? {}).sort()).toEqual(
+        ['health', 'location', 'maxHealth', 'maxStamina', 'stamina', 'wealth'],
+      );
     },
   },
   {
@@ -861,13 +889,24 @@ runCaseBlock('conformance — action.choose', [
     assert: (o) => {
       expectOkView(o.response, 'outcome');
       if (!o.response.ok) throw new Error('unreachable');
-      expect(o.response.facts).toEqual({
+      expect(o.response.facts).toMatchObject({
         distilledType: 'scout',
         characterName: 'Aldric',
         characterClass: 'Warrior',
         actionId: 77,
         nav: { rollsRemaining: 3, hasPendingAction: false, hasRestedToday: false },
       });
+      expect(o.response.facts?.characterState).toMatchObject({
+        health: expect.any(Number),
+        maxHealth: expect.any(Number),
+        stamina: expect.any(Number),
+        maxStamina: expect.any(Number),
+        wealth: expect.any(Number),
+        location: expect.any(String),
+      });
+      expect(Object.keys(o.response.facts?.characterState ?? {}).sort()).toEqual(
+        ['health', 'location', 'maxHealth', 'maxStamina', 'stamina', 'wealth'],
+      );
     },
   },
   {

@@ -34,6 +34,9 @@ import { LlmCallRepository } from '../db/repositories/llm-call.js';
 import type { CharCreateData } from '../engine/WorldEngine.js';
 import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
+import { GameRouter } from '../protocol/router.js';
+import type { RouterBackend } from '../protocol/router.js';
+import { SessionController } from '../controller/SessionController.js';
 
 const SEED: CharCreateData = {
   name: 'Ashwin',
@@ -89,7 +92,15 @@ async function main(): Promise<void> {
     recorder: new LlmCallRepository(agentEngine.db),
     verbose: true,
   });
-  const harness = createAgentHarness(agentEngine, brain, USER_ID);
+  const harness = createAgentHarness(
+    agentEngine.engine,
+    new GameRouter(
+      new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs) as RouterBackend,
+      { idle: () => '' },
+    ),
+    brain,
+    USER_ID,
+  );
 
   const char = harness.seedCharacter(SEED);
   console.error(`Seeded ${char.name} (${char.class}) — playing ${days} day(s)…\n`);

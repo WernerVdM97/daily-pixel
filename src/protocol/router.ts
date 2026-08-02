@@ -64,8 +64,10 @@ const safeStringify = (err: unknown): string => {
 /** The controller surface the router calls (DC-P7) — exactly the SessionController methods
  *  the six flows need, signatures lifted verbatim so SessionController satisfies it
  *  structurally (the contract suite's real-backend wiring typechecks the assignment). The
- *  contract suite's canned stub is the interchangeability proof staying in M5 scope. */
+ *  contract suite's canned stub is the interchangeability proof staying in M5 scope.
+ *  Extended with `getCharacter` in M6.1 for the `characterState` fact (DC-M6.1). */
 export interface RouterBackend {
+  getCharacter(userId: string): CharacterData | null;
   stampLastPlayed(userId: string): void;
   openActionMenu(userId: string): ActionMenuResult;
   beginDayJob(userId: string, idx: number): DayJobStart;
@@ -161,11 +163,11 @@ export class GameRouter {
         // controller returned one; the slash /action stale paint's withNarration reads it.
         return this.error('stale-session', result.prompt, result.narration !== undefined ? { narration: result.narration } : undefined);
       case 'resume-decision':
-        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view });
+        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view, facts: this.addCharacterFacts(e.playerId) });
       case 'resume-error':
         return this.error('internal', result.message);
       case 'menu':
-        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view });
+        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view, facts: this.addCharacterFacts(e.playerId) });
     }
   }
 
@@ -196,7 +198,7 @@ export class GameRouter {
     }
 
     const worked = await this.backend.runWork(e.playerId, begin.workPrompt, begin.wage);
-    return this.finalize(this.renderStartResult(worked));
+    return this.finalize(this.renderStartResult(worked, e.playerId));
   }
 
   /** `action.custom`: beginCustomAction → (resume → view, no beat) → thinking beat →
@@ -210,14 +212,14 @@ export class GameRouter {
     if (begin.kind === 'no-character') return this.error('no-character', NO_CHARACTER_COPY);
     if (begin.kind === 'resume') {
       // An in-flight action resumes straight to its decision view — no thinking beat.
-      return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: begin.view });
+      return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: begin.view, facts: this.addCharacterFacts(e.playerId) });
     }
 
     const clipped = e.text.length > 280 ? `${e.text.slice(0, 279).trimEnd()}…` : e.text;
     this.emitBeat(onBeat, { v: PROTOCOL_VERSION, ok: true, view: { screen: 'loading', body: `**You:** ${clipped}\n\n⏳ **Thinking…**\n_${idleOnce()}_` } });
 
     const started = await this.backend.runCustomAction(e.playerId, e.text);
-    return this.finalize(this.renderStartResult(started));
+    return this.finalize(this.renderStartResult(started, e.playerId));
   }
 
   /** `action.choose`: beginChoice → resolveChoice → thinking beat with the resolved label
@@ -240,9 +242,9 @@ export class GameRouter {
     const stepped = await this.backend.stepChoice(e.playerId, label, begin.character);
     switch (stepped.kind) {
       case 'decision':
-        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: stepped.view });
+        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: stepped.view, facts: this.addCharacterFacts(e.playerId) });
       case 'outcome':
-        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: stepped.view, facts: this.outcomeFacts(stepped) });
+        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: stepped.view, facts: this.addCharacterFacts(e.playerId, this.outcomeFacts(stepped)) });
     }
   }
 
@@ -268,18 +270,21 @@ export class GameRouter {
   // ── Shared mapping (DC-P4) ──
 
   /** runWork/runCustomAction fan-out: the shared `StartRenderResult` → envelope map. The
-   *  RA-6 identical viewPrivate/viewPublic pair travels as ONE view across the seam. */
-  private renderStartResult(result: StartRenderResult): GameResponse {
+   *  RA-6 identical viewPrivate/viewPublic pair travels as ONE view across the seam.
+   *  `addCharacterFacts` adds the full character snapshot (DC-M6.1) on view-bearing
+   *  branches; the outcome already has `outcomeFacts`, which `addCharacterFacts` merges
+   *  with (same char data, second read within the same context). */
+  private renderStartResult(result: StartRenderResult, userId: string): GameResponse {
     switch (result.kind) {
       case 'outcome':
-        return { v: PROTOCOL_VERSION, ok: true, view: result.viewPrivate, facts: this.outcomeFacts(result) };
+        return { v: PROTOCOL_VERSION, ok: true, view: result.viewPrivate, facts: this.addCharacterFacts(userId, this.outcomeFacts(result)) };
       case 'empty-action':
         // Execution-state settle (1): the controller's raw firstDecision.prompt can be ''
         // and the validator rejects empty error.message — mirror the controller's own
         // resume-stale fallback. Copy-only on a dead edge.
         return this.error('empty-action', result.prompt || 'Could not recover.');
       case 'decision':
-        return { v: PROTOCOL_VERSION, ok: true, view: result.view };
+        return { v: PROTOCOL_VERSION, ok: true, view: result.view, facts: this.addCharacterFacts(userId) };
     }
   }
 
@@ -305,6 +310,37 @@ export class GameRouter {
         rollsRemaining: result.char.rollsRemaining,
         hasPendingAction: result.char.lastActionState !== null,
         hasRestedToday: result.char.hasRestedToday ?? false,
+      };
+    }
+    return facts;
+  }
+
+  /** Character snapshot facts (DC-M6.1): populates `characterName`, `characterClass`
+   *  (when non-null), `nav`, and `characterState` on view-bearing responses by reading
+   *  the character through the backend. Called on every view-bearing branch (menu,
+   *  resume, decision, outcome); the outcome path already has `outcomeFacts` setting the
+   *  same name/class/nav keys — the merge overwrites with identical values from a second
+   *  `getCharacter` read (same transaction, same data). When the character is null (the
+   *  caller already passed the guard, so this shouldn't happen), the existing facts are
+   *  returned unchanged. */
+  private addCharacterFacts(userId: string, existingFacts?: Record<string, unknown>): Record<string, unknown> {
+    const char = this.backend.getCharacter(userId);
+    const facts: Record<string, unknown> = { ...existingFacts };
+    if (char) {
+      facts.characterName = char.name;
+      if (char.class) facts.characterClass = char.class;
+      facts.nav = {
+        rollsRemaining: char.rollsRemaining,
+        hasPendingAction: char.lastActionState !== null,
+        hasRestedToday: char.hasRestedToday ?? false,
+      };
+      facts.characterState = {
+        health: char.health,
+        maxHealth: char.maxHealth,
+        stamina: char.stamina,
+        maxStamina: char.maxStamina,
+        wealth: char.wealth,
+        location: char.location,
       };
     }
     return facts;

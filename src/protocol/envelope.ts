@@ -28,7 +28,7 @@ export type GameResponse =
 /** The closed facts set (DC-P1). A key is added only when a consuming adapter justifies it —
  *  the validator rejects anything outside this set, which is what stops the "second
  *  protocol" escape hatch from growing silently. */
-const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration']);
+const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState']);
 
 const GAME_ERROR_CODES = new Set<GameErrorCode>(['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal']);
 
@@ -142,6 +142,36 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
         || typeof nav.hasRestedToday !== 'boolean'
       ) {
         return { ok: false, message: 'facts.nav must be exactly { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean }' };
+      }
+    }
+    // `characterState` — the agent brain's character snapshot (DC-M6.1). All six fields
+    // required; health/maxHealth/stamina/maxStamina are non-negative integers; wealth is
+    // an integer (no lower bound); location is a non-empty string.
+    if ('characterState' in raw.facts) {
+      const cs = raw.facts.characterState;
+      if (!isRecord(cs)) {
+        return { ok: false, message: 'facts.characterState must be a plain object' };
+      }
+      if (Object.keys(cs).length !== 6) {
+        return { ok: false, message: 'facts.characterState must have exactly 6 keys' };
+      }
+      if (!Number.isInteger(cs.health) || (cs.health as number) < 0) {
+        return { ok: false, message: 'facts.characterState.health must be a non-negative integer' };
+      }
+      if (!Number.isInteger(cs.maxHealth) || (cs.maxHealth as number) < 0) {
+        return { ok: false, message: 'facts.characterState.maxHealth must be a non-negative integer' };
+      }
+      if (!Number.isInteger(cs.stamina) || (cs.stamina as number) < 0) {
+        return { ok: false, message: 'facts.characterState.stamina must be a non-negative integer' };
+      }
+      if (!Number.isInteger(cs.maxStamina) || (cs.maxStamina as number) < 0) {
+        return { ok: false, message: 'facts.characterState.maxStamina must be a non-negative integer' };
+      }
+      if (!Number.isInteger(cs.wealth)) {
+        return { ok: false, message: 'facts.characterState.wealth must be an integer' };
+      }
+      if (!isString(cs.location) || cs.location.length === 0) {
+        return { ok: false, message: 'facts.characterState.location must be a non-empty string' };
       }
     }
   }

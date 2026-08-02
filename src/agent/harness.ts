@@ -1,35 +1,21 @@
 /**
- * The agent-player harness (JSON-seam M4.2). Stands a real `SessionController` up over a
- * Discord-free `WorldEngineImpl` and drives play with an `AgentPlayerGateway` brain, entering at
- * the SAME controller methods the Discord adapter calls (parent decision 3 — the M3 methods ARE
- * the seam). It is the "whole game, shorter horizon" QA/playtest harness (decision 6).
+ * The agent-player harness (JSON-seam M6, see docs/engine/json-seam-protocol.md § "M6 build
+ * plan"). Speaks only `GameEvent`/`GameResponse` through `GameRouter` for the mid-day loop —
+ * a true protocol client, exactly what a player sees. No controller imports remain in the
+ * action path; `viewToText` reads envelope views; the brain's character snapshot comes from
+ * the `characterState` fact (DC-M6.1).
  *
- * Character creation and the nightly rest+tick are Discord-only bookends with no controller seam
- * (DA-4), so those go engine-direct (`seedCharacter` here; the rest+tick lands in M4.3). The
- * interesting mid-day action loop — menu → work/custom → decision beats → outcome — goes entirely
- * through the controller, which is the seam this harness exists to exercise.
- *
- * M4.2 drove ONE action end-to-end. M4.3 wraps `playOneAction` in a full-day/multi-day loop:
- * `playDay` runs actions until the day ends (slept / out of rolls / stalled), then `playDays`
- * bookends each day with the engine-direct rest+nightly-tick (DA-4) and moves to the next.
- *
- * M4.4 turns it into a QA instrument (goal a): every seam call runs through `seam()`, which leaves
- * a breadcrumb so an uncaught exception becomes a structured `error` finding + a `crashed`
- * disposition that ends the run gracefully — the transcript up to the throw IS the repro. Cheap
- * invariant checks after each outcome and each nightly tick catch corrupt state (negative HP /
- * stamina / wealth, roll underflow) the engine let through. `Transcript.summary()` rolls the log
- * into a run scoreboard.
+ * Bookends (character creation, nightly rest+tick) stay engine-direct until M7 (DA-4).
  */
 
-import type { WorldEngine, CharacterData, CharCreateData, PendingChoiceSelector } from '../engine/WorldEngine.js';
-import type { SessionController, StartRenderResult } from '../controller/SessionController.js';
-import type { MenuViewState, DecisionViewState } from '../view/viewState.js';
-import type { AgentPlayerGateway, AgentMove, LegalMove } from './AgentPlayerGateway.js';
+import type { WorldEngine, CharacterData, CharCreateData } from '../engine/WorldEngine.js';
+import type { MenuViewState, DecisionViewState, ViewState } from '../view/viewState.js';
+import type { AgentPlayerGateway, AgentMove, LegalMove, AgentCharView } from './AgentPlayerGateway.js';
 import { viewToText } from './viewToText.js';
-import { agentCharView, menuLegalMoves, decisionLegalMoves, isLegal } from './agentMoves.js';
+import { menuLegalMoves, decisionLegalMoves, isLegal } from './agentMoves.js';
 import { Transcript } from './transcript.js';
-import type { AgentEngine } from './engineHarness.js';
-import { SessionController as SessionControllerImpl } from '../controller/SessionController.js';
+import type { GameRouter } from '../protocol/router.js';
+import type { GameResponse } from '../protocol/envelope.js';
 
 /** Safety valve on the decision loop — the pipeline beat cap is 2, so any run past this many
  *  beats in one action is a machine anomaly (logged as a finding), never normal play. Keeps a QA
@@ -45,12 +31,6 @@ const STUCK_LIMIT = 5;
  *  outcomes without ever depleting rolls or choosing sleep (would otherwise spin to the roll refill
  *  boundary and beyond). Far above a real day (3 rolls), so only a machine anomaly hits it. */
 const MAX_ACTIONS_PER_DAY = 50;
-
-/** A deterministic idle line for the harness's commute beat. The Discord flow injects a random
- *  "still thinking" flavour message here (it masks the multi-second LLM call as in-progress); the
- *  QA transcript wants no randomness, and the beat's information — the destination — rides its own
- *  field, so an empty idle keeps the render deterministic without losing anything. */
-const COMMUTE_IDLE = '';
 
 /** Render an unknown thrown value for a finding detail — the stack when we have one (it localises
  *  the failing call better than the bare message), else a best-effort string. */
@@ -87,15 +67,9 @@ export interface DaySummary {
 export class AgentHarness {
   readonly transcript = new Transcript();
 
-  /** Breadcrumb: the most recent seam call entered, so an uncaught throw can name where it died.
-   *  Updated by `seam()` before each controller/engine call — a throw in the pure code between two
-   *  seam calls (a `viewToText` render, a transcript push) would attribute to the prior seam, but
-   *  those paths are exhaustive string joins over already-typed fields and don't throw in practice. */
-  private phase = 'idle';
-
   constructor(
     private readonly engine: WorldEngine,
-    private readonly controller: SessionController,
+    private readonly router: GameRouter,
     private readonly brain: AgentPlayerGateway,
     private readonly userId: string,
   ) {}
@@ -106,47 +80,73 @@ export class AgentHarness {
     return this.engine.createCharacter(this.userId, data);
   }
 
-  /** Run one seam call, leaving a breadcrumb first so `playOneAction`'s catch can name the failing
-   *  call if the engine/controller/brain throws (M4.4). Pure pass-through otherwise. */
-  private async seam<T>(phase: string, fn: () => T | Promise<T>): Promise<T> {
-    this.phase = phase;
-    return await fn();
-  }
-
-  /** Drive one action from the action menu to a terminal disposition. Every seam call runs through
-   *  `seam()`; an uncaught exception from any of them is captured here as an `error` finding + a
-   *  `crashed` disposition (M4.4) — the run ends but the transcript survives as a repro, rather
-   *  than an unhandled rejection tearing the process down mid-run. */
+  /** Drive one action from the action menu to a terminal disposition. The router never throws
+   *  (every path through `dispatch` returns a `GameResponse` envelope), so the outer try/catch
+   *  only catches rendering errors in `ask()` and the error envelope → PlayResult mapping —
+   *  the action path itself is throw-safe by construction. */
   async playOneAction(): Promise<PlayResult> {
     try {
       return await this.runAction();
     } catch (e) {
-      this.transcript.finding('error', `uncaught exception during ${this.phase}`, formatError(e));
-      return { kind: 'crashed', phase: this.phase, error: formatError(e) };
+      this.transcript.finding('error', `uncaught exception during action loop`, formatError(e));
+      return { kind: 'crashed', phase: 'action', error: formatError(e) };
     }
   }
 
   private async runAction(): Promise<PlayResult> {
-    // The Discord `nav:action` click stamps last-played before opening the menu (M3.6 DC-N); mirror
-    // it so a multi-day agent run doesn't accrue a stale last_played_at and trip the absence nudge.
-    await this.seam('stampLastPlayed', () => this.controller.stampLastPlayed(this.userId));
-    const menu = await this.seam('openActionMenu', () => this.controller.openActionMenu(this.userId));
-    switch (menu.kind) {
+    // menu.open: stampLastPlayed + the full menu/resume branch, inside the router (DC-P6).
+    const menu = await this.router.dispatch({ type: 'menu.open', playerId: this.userId });
+
+    // Error branches: every GameErrorCode maps to an existing PlayResult disposition.
+    if (!menu.ok) return this.mapError(menu);
+
+    // All ok:true paths carry a view (menu.open never returns ok:true without one).
+    const view = menu.view!;
+
+    switch (view.screen) {
+      case 'menu':
+        return this.playMenu(view, menu.facts);
+      case 'decision':
+        return this.runDecisionLoop(view, menu.facts);
+      default:
+        // The router only emits menu/decision from menu.open. A commute/loading/notice/outcome
+        // from this event would be an internal invariant breach — log it and press on.
+        this.transcript.finding('error', `unexpected screen "${view.screen}" from menu.open`);
+        return { kind: 'dead-end', reason: 'unexpected-screen' };
+    }
+  }
+
+  /** Map a GameErrorCode to the PlayResult disposition the loop reads. Every code the router
+   *  can emit from the mid-day events has a designated path. */
+  private mapError(response: GameResponse & { ok: false }): PlayResult {
+    const code = response.error.code;
+    const msg = response.error.message;
+    switch (code) {
       case 'no-character':
         this.transcript.deadEnd('no-character');
         return { kind: 'no-character' };
       case 'no-rolls':
         return { kind: 'no-rolls' };
-      case 'resume-stale':
-        this.transcript.deadEnd('resume-stale', menu.prompt);
+      case 'stale-session':
+        this.transcript.deadEnd('resume-stale', msg);
         return { kind: 'dead-end', reason: 'resume-stale' };
-      case 'resume-error':
-        this.transcript.deadEnd('resume-error', menu.message);
-        return { kind: 'dead-end', reason: 'resume-error' };
-      case 'resume-decision':
-        return this.runDecisionLoop(menu.view);
-      case 'menu':
-        return this.playMenu(menu.view);
+      case 'session-expired':
+        this.transcript.deadEnd('session-expired');
+        return { kind: 'decision-abandoned' };
+      case 'illegal-move':
+        return { kind: 'dead-end', reason: 'illegal-move' };
+      case 'unsafe':
+        this.transcript.deadEnd('unsafe-ground', msg);
+        return { kind: 'dead-end', reason: 'unsafe' };
+      case 'empty-action':
+        this.transcript.deadEnd('empty-action', msg);
+        return { kind: 'dead-end', reason: 'empty-action' };
+      case 'invalid-event':
+        this.transcript.deadEnd('invalid-event', msg);
+        return { kind: 'dead-end', reason: 'invalid-event' };
+      case 'internal':
+        this.transcript.deadEnd('internal', msg);
+        return { kind: 'dead-end', reason: 'internal' };
     }
   }
 
@@ -280,9 +280,14 @@ export class AgentHarness {
     return Number(this.engine.getMeta('day_number') ?? '1');
   }
 
-  private async playMenu(view: MenuViewState): Promise<PlayResult> {
+  // ── Action loop — all through the protocol ──
+
+  private async playMenu(view: MenuViewState, facts?: Record<string, unknown>): Promise<PlayResult> {
+    const charView = this.charFromFacts(facts);
+    if (!charView) return { kind: 'no-character' };
+
     const moves = menuLegalMoves(view);
-    const move = await this.ask('menu', view, moves);
+    const move = await this.ask(view, charView, moves);
     if (!isLegal(move, moves)) {
       this.transcript.finding('warning', `illegal move on menu screen: ${move.kind}`);
       return { kind: 'illegal-move', move };
@@ -295,125 +300,160 @@ export class AgentHarness {
       case 'custom':
         return this.doCustom(move.text);
       default:
-        // choice/bail are not legal on a menu; isLegal already rejected them, so this is
-        // unreachable — kept exhaustive for the compiler.
         return { kind: 'illegal-move', move };
     }
   }
 
   private async doDayJob(idx: number): Promise<PlayResult> {
-    const begin = await this.seam('beginDayJob', () => this.controller.beginDayJob(this.userId, idx));
-    switch (begin.kind) {
-      case 'no-character':
-        this.transcript.deadEnd('no-character');
-        return { kind: 'no-character' };
-      case 'invalid-job':
-        this.transcript.finding('error', `beginDayJob returned invalid-job for menu index ${idx}`);
-        return { kind: 'dead-end', reason: 'invalid-job' };
-      case 'unsafe':
-        this.transcript.deadEnd('unsafe-ground', begin.location);
-        return { kind: 'dead-end', reason: 'unsafe' };
-      case 'ok': {
-        const commute = await this.seam('commuteForWork', () => this.controller.commuteForWork(this.userId, begin.workplace));
-        // The commute is a real beat the acting player sees before the work outcome (the "you
-        // moved to work" screen); record it so the transcript reads the way play did (M4.2 review).
-        if (commute.kind === 'commuted') {
-          this.transcript.commute(
-            commute.destination,
-            viewToText({ screen: 'commute', destination: commute.destination, idle: COMMUTE_IDLE }),
-          );
+    // Beat capture: the onBeat callback records commute beats into the transcript (DC-M6.3).
+    // Loading/thinking beats are absorbed silently — they're transport chrome for the player's wait.
+    const response = await this.router.dispatch(
+      { type: 'dayjob.start', playerId: this.userId, jobIndex: idx },
+      (beat) => {
+        if (beat.ok && beat.view?.screen === 'commute') {
+          this.transcript.commute(beat.view.destination, viewToText(beat.view));
         }
-        const result = await this.seam('runWork', () => this.controller.runWork(this.userId, begin.workPrompt, begin.wage));
-        return this.handleStartResult(result);
+      },
+    );
+
+    if (!response.ok) return this.mapError(response);
+
+    const view = response.view!;
+    switch (view.screen) {
+      case 'outcome': {
+        // Outcome: record the private (acting-player) view. The character snapshot is
+        // read fresh from the engine on the next menu.open, so no char extraction needed here.
+        this.transcript.outcome(viewToText(view));
+        return { kind: 'outcome' };
       }
+      case 'decision':
+        return this.runDecisionLoop(view, response.facts);
+      default:
+        this.transcript.finding('error', `unexpected screen "${view.screen}" from dayjob.start`);
+        return { kind: 'dead-end', reason: 'unexpected-screen' };
     }
   }
 
   private async doCustom(text: string): Promise<PlayResult> {
-    const begin = await this.seam('beginCustomAction', () => this.controller.beginCustomAction(this.userId));
-    if (begin.kind === 'no-character') {
-      this.transcript.deadEnd('no-character');
-      return { kind: 'no-character' };
-    }
-    if (begin.kind === 'resume') return this.runDecisionLoop(begin.view);
-    const result = await this.seam('runCustomAction', () => this.controller.runCustomAction(this.userId, text));
-    return this.handleStartResult(result);
-  }
+    const response = await this.router.dispatch(
+      { type: 'action.custom', playerId: this.userId, text },
+      // Thinking beats are absorbed (transport chrome, DC-M6.3).
+      undefined,
+    );
 
-  private async handleStartResult(result: StartRenderResult): Promise<PlayResult> {
-    switch (result.kind) {
-      case 'outcome':
-        // Decision 2: the agent sees what the ACTING player sees, so read the private arm even
-        // though RA-6 made it identical to the recap-thread broadcast copy — the distinction is
-        // the contract, not the current byte-equality, and a future divergence must follow it.
-        this.transcript.outcome(viewToText(result.viewPrivate));
-        return { kind: 'outcome' };
-      case 'empty-action':
-        this.transcript.deadEnd('empty-action', result.prompt);
-        return { kind: 'dead-end', reason: 'empty-action' };
+    if (!response.ok) return this.mapError(response);
+
+    const view = response.view!;
+    switch (view.screen) {
       case 'decision':
-        return this.runDecisionLoop(result.view);
+        return this.runDecisionLoop(view, response.facts);
+      case 'outcome':
+        this.transcript.outcome(viewToText(view));
+        return { kind: 'outcome' };
+      default:
+        this.transcript.finding('error', `unexpected screen "${view.screen}" from action.custom`);
+        return { kind: 'dead-end', reason: 'unexpected-screen' };
     }
   }
 
-  /** Loop the decision beats until the action resolves. A `bail` resolves to a bailed outcome via
-   *  the engine (not a special exit); only a null `resolveChoice` (the button's action already
-   *  resolved — "session expired") abandons the beat. */
-  private async runDecisionLoop(first: DecisionViewState): Promise<PlayResult> {
+  /** Loop the decision beats until the action resolves. Each beat dispatches an `action.choose`
+   *  event — the router handles beginChoice/resolveChoice/stepChoice internally. A `session-expired`
+   *  error from the router means the button no longer refers to a live decision (already resolved). */
+  private async runDecisionLoop(first: DecisionViewState, firstFacts?: Record<string, unknown>): Promise<PlayResult> {
     let current = first;
+    let currentFacts = firstFacts;
+
     for (let beat = 0; beat < MAX_BEATS; beat++) {
+      const charView = this.charFromFacts(currentFacts);
+      if (!charView) return { kind: 'no-character' };
+
       const moves = decisionLegalMoves(current);
-      const move = await this.ask('decision', current, moves);
+      const move = await this.ask(current, charView, moves);
       if (!isLegal(move, moves)) {
         this.transcript.finding('warning', `illegal move on decision screen: ${move.kind}`);
         return { kind: 'illegal-move', move };
       }
-      const selector: PendingChoiceSelector =
-        move.kind === 'bail' ? { kind: 'bail' } : { kind: 'option', index: (move as { index: number }).index };
 
-      const begin = await this.seam('beginChoice', () => this.controller.beginChoice(this.userId));
-      if (begin.kind === 'no-character') {
-        this.transcript.deadEnd('no-character');
-        return { kind: 'no-character' };
+      const selector =
+        move.kind === 'bail'
+          ? { kind: 'bail' as const }
+          : { kind: 'option' as const, index: (move as { kind: 'choice'; index: number }).index };
+
+      // Thinking beats absorbed (transport chrome, DC-M6.3).
+      const response = await this.router.dispatch(
+        { type: 'action.choose', playerId: this.userId, selector },
+        undefined,
+      );
+
+      if (!response.ok) {
+        if (response.error.code === 'session-expired') {
+          this.transcript.deadEnd('session-expired');
+          return { kind: 'decision-abandoned' };
+        }
+        return this.mapError(response);
       }
-      const label = await this.seam('resolveChoice', () => this.controller.resolveChoice(begin.character, selector));
-      if (label === null) {
-        this.transcript.deadEnd('session-expired');
-        return { kind: 'decision-abandoned' };
-      }
-      const step = await this.seam('stepChoice', () => this.controller.stepChoice(this.userId, label, begin.character));
-      if (step.kind === 'outcome') {
-        this.transcript.outcome(viewToText(step.view));
+
+      const view = response.view!;
+      if (view.screen === 'outcome') {
+        this.transcript.outcome(viewToText(view));
         return { kind: 'outcome' };
       }
-      current = step.view;
+      // Next decision screen — loop with its view and facts.
+      current = view as DecisionViewState;
+      currentFacts = response.facts;
     }
     this.transcript.finding('warning', `decision loop exceeded ${MAX_BEATS} beats`);
     return { kind: 'dead-end', reason: 'beat-cap' };
   }
 
-  /** Render the screen, ask the brain, and log the turn. Throws only if the character vanished
-   *  mid-turn (a real invariant break, not normal flow). */
+  /** Build an `AgentCharView` from the envelope's `facts` (DC-M6.1). Returns null when the
+   *  `characterState` fact is absent or malformed — a missing snapshot on a view-bearing
+   *  response is an internal invariant breach; the caller treats it as a fatal no-character. */
+  private charFromFacts(facts?: Record<string, unknown>): AgentCharView | null {
+    if (!facts) return null;
+    const cs = facts.characterState as Record<string, unknown> | undefined;
+    if (!cs) return null;
+    const name = typeof facts.characterName === 'string' ? facts.characterName : 'Unknown';
+    const cls = typeof facts.characterClass === 'string' ? facts.characterClass : 'Unknown';
+    const nav = facts.nav as Record<string, unknown> | undefined;
+    const rollsRemaining = nav && typeof nav.rollsRemaining === 'number' ? nav.rollsRemaining : 0;
+    return {
+      name,
+      class: cls,
+      health: typeof cs.health === 'number' ? cs.health : 0,
+      maxHealth: typeof cs.maxHealth === 'number' ? cs.maxHealth : 0,
+      stamina: typeof cs.stamina === 'number' ? cs.stamina : 0,
+      maxStamina: typeof cs.maxStamina === 'number' ? cs.maxStamina : 0,
+      rollsRemaining,
+      wealth: typeof cs.wealth === 'number' ? cs.wealth : 0,
+      location: typeof cs.location === 'string' ? cs.location : 'unknown',
+    };
+  }
+
+  /** Render the screen, ask the brain, and log the turn. The character snapshot comes from
+   *  `charView` (already extracted from the envelope facts by the caller), not from a direct
+   *  engine read — the agent never reads the engine in the action path. */
   private async ask(
-    screen: 'menu' | 'decision',
-    view: MenuViewState | DecisionViewState,
+    view: ViewState,
+    charView: AgentCharView,
     moves: LegalMove[],
   ): Promise<AgentMove> {
-    const char = await this.seam('getCharacter', () => this.engine.getCharacter(this.userId));
-    if (!char) throw new Error(`AgentHarness.ask: no character for ${this.userId} mid-turn`);
     const text = viewToText(view);
-    const move = await this.seam('brain.chooseMove', () =>
-      this.brain.chooseMove({ screenText: text, moves, character: agentCharView(char) }),
-    );
-    this.transcript.turn(screen, text, moves, move);
+    const move = await this.brain.chooseMove({ screenText: text, moves, character: charView });
+    this.transcript.turn(view.screen === 'decision' ? 'decision' : 'menu', text, moves, move);
     return move;
   }
 }
 
-/** Wire a harness over a built `AgentEngine` (a fresh `SessionController`, no character-gate set —
- *  the agent doesn't route slash commands). The character is seeded by the caller via
- *  `harness.seedCharacter`. */
-export function createAgentHarness(agentEngine: AgentEngine, brain: AgentPlayerGateway, userId: string): AgentHarness {
-  const controller = new SessionControllerImpl(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs);
-  return new AgentHarness(agentEngine.engine, controller, brain, userId);
+/** Wire a harness over a `GameRouter` + `WorldEngine` (the engine is for bookends only; the
+ *  action path goes through the router). No controller imports — the harness is a pure
+ *  protocol client (M6 gate). The router has already been wired to a real `SessionController`
+ *  or a stub `RouterBackend` by the caller. */
+export function createAgentHarness(
+  engine: WorldEngine,
+  router: GameRouter,
+  brain: AgentPlayerGateway,
+  userId: string,
+): AgentHarness {
+  return new AgentHarness(engine, router, brain, userId);
 }

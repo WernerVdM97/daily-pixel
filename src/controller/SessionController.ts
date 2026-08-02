@@ -90,6 +90,12 @@ export class SessionController {
     return this.characterGatedCommands.has(commandName) && !this.engine.characterExists(userId);
   }
 
+  /** Thin pass-through to the engine — the M6.1 `characterState` router fact needs the
+   *  character snapshot on every view-bearing response (DC-M6.1). */
+  getCharacter(userId: string): CharacterData | null {
+    return this.engine.getCharacter(userId);
+  }
+
   /** Stamp last-interaction time (M3.6 DC-N) — the `getCharacter` + `updateLastPlayed` pattern
    *  the pre-M3.6 slash-arm and nav-click leaves both ran inline. No character → no-op.
    *  (`beginDayJob` keeps its own inline stamp: it already holds the char from its guard.) */

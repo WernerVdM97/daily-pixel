@@ -183,6 +183,109 @@ Scope fence (M5): additive only — no edits to existing source under `src/`; no
 
 **Execution state:** M5.0 done (above). Open settles carried into M5.1: (1) the `empty-action` empty-prompt policy (review F8) — the validator rejects empty `error.message`, and the controller's `empty-action` carries a raw `firstDecision.prompt` that can be `''`, so the router must apply a fallback (settle: `prompt || 'Could not recover.'`, mirroring the controller's own resume-stale fallback; copy-only on a dead edge, flagged here per the scope fence); (2) the contract suite should assert decision/menu button-element shape on emitted views (review F7) since the envelope validator deliberately checks views shallowly.
 
+---
+
+## M6 build plan (lead-settled 2026-08-02)
+
+Goal: `src/agent/harness.ts` speaks only `GameEvent`/`GameResponse` through `GameRouter` for the mid-day loop (bookends stay engine-direct until M7); no controller imports remain in the action path; `viewToText` reads envelope views. Gate: deterministic harness tests green (scripted brain, no network); one live `npm run agent:play` smoke run clean (exit 0, no new findings).
+
+### Coordinator-steered viewToText diff (pre-build)
+
+The coordinator's M5→M6 steer required diffing `viewToText`'s rendering inputs against the M5 `ViewState` variants field-by-field before wiring. Findings:
+
+**Zero misses in the ViewState.** Every field `viewToText` reads per variant is present and typed:
+
+- `decision`: title, openingFrame, storyThread.full, narration, combatStatus, prompt, optionLines (via buttons), footer — all in `DecisionViewState` ✓
+- `outcome`: title, locationLine, breadcrumb, combatSceneBlock/sceneBlock (via isCombat), storyThread.full, outcomeBlock — all in `OutcomeViewState` ✓
+- `notice`: text — in `NoticeViewState` ✓
+- `menu`: title, description, buttons — all in `MenuViewState` ✓
+- `loading`: body — in `LoadingViewState` ✓
+- `commute`: destination, idle — in `CommuteViewState` ✓
+
+**One gap: the agent's `AgentCharView` character snapshot.** `AgentHarness.ask()` currently calls `engine.getCharacter(userId)` → `agentCharView(char)` to build the `character` field of `ChooseMoveInput` for every `brain.chooseMove()` call — menu, decision, and post-outcome turns. This needs `name`, `class`, `health`, `maxHealth`, `stamina`, `maxStamina`, `rollsRemaining`, `wealth`, `location`. The envelope's `facts` already carry `characterName`, `characterClass`, and `nav.rollsRemaining` on outcomes, but (a) only on outcomes, not on menu/decision views, and (b) missing `health`, `maxHealth`, `stamina`, `maxStamina`, `wealth`, `location`.
+
+**Settle (DC-M6.1): add `characterState` to the facts whitelist, populated on all view-bearing responses.** The missing fields are structured character state every frontend will need for player-facing HUD/chrome. Adding `characterState: { health, maxHealth, stamina, maxStamina, wealth, location }` to `facts` keeps the `characterName`, `characterClass`, and `nav` facts as-is (they serve other adapters) and extends `RouterBackend` with `getCharacter(userId)` so the router can populate the full snapshot on every view-bearing response. The consuming adapter (M6 agent harness) justifies the key in the same slice. No `facts` key is added without a consuming adapter proving it.
+
+### Settled design calls (M6)
+
+[I] **Character snapshot in facts (DC-M6.1).** Add `characterState` to `FACTS_KEYS` in `envelope.ts` with shape `{ health: number; maxHealth: number; stamina: number; maxStamina: number; wealth: number; location: string }`. Extend `RouterBackend` with `getCharacter(userId: string): CharacterData | null`. The router populates `facts.characterState` (plus already-existing `characterName`, `characterClass`, `nav`) on every view-bearing response: `menu.open` → menu/resume-decision, `dayjob.start` → outcome, `action.custom` → resume/outcome, `action.choose` → decision/outcome. The character is read ONCE per dispatch (immediately after the backend call that produces the view), and the same snapshot seeds `characterName`/`characterClass`/`nav` so there is no double-read. When the character is null (shouldn't happen on a view path — the caller already passed the guard), the `characterState` fact is omitted and the agent harness treats it as a fatal `no-character` finding.
+
+[I] **Harness rewiring (DC-M6.2).** `AgentHarness` constructor takes `GameRouter` + `WorldEngine` (the engine is for bookends only: `seedCharacter`, `getMeta('day_number')`, `getCharacter` for invariant checks, `endDay`'s `restAtOak`/`tick`). The action path becomes:
+
+- `menu.open` dispatch → read `ok:true` view; `ask()` builds `AgentCharView` from `response.facts.characterState` + `viewToText(response.view)`; brain move decides the next event
+- `dayjob.start` dispatch with `onBeat` → the `onBeat` callback records commute beats into the transcript; the final envelope carries the outcome/decision/empty-action/error
+- `action.custom` dispatch → resume returns a view directly; the thinking beat is passed through `onBeat`; outcome/decision handled same as dayjob
+- `action.choose` dispatch → begin/resolve/step all inside the router; the thinking beat is passed through `onBeat`; outcome/decision handled same
+- Error envelopes: the harness reads `ok:false` and maps `error.code` to the same `PlayResult` dispositions it already produces (no-character, no-rolls, stale-session, session-expired, illegal-move, unsafe, empty-action, internal → dead-end with the message as detail)
+- The `seam()` wrapper is REMOVED — the router never throws, so no breadcrumb+try/catch is needed for controller calls. The outer `try/catch` stays for the transcript save (bookend throws + pure-code rendering errors), but the action path itself is throw-safe by construction.
+
+[I] **Beats in the harness (DC-M6.3).** The router's `onBeat` callback is wired to:
+
+- Commute beats (`commute` view) → recorded via `transcript.commute()` (same as today's explicit `commuteForWork` call)
+- Loading/thinking beats → the agent does not render interstitial loading screens (they exist for the Discord player's multi-second wait); the harness absorbs them silently (the transcript records only player-visible beats — commutes are player-visible; "Thinking…" spinners are transport chrome)
+- Beat errors: `onBeat` never throws (the router try/catches it), so a transcript push that fails is `console.error`-logged and the flow continues
+
+[I] **Deterministic test port (DC-M6.4).** Port the existing M4 harness tests (`tests/agent/harness.test.ts`, 14 tests) to the protocol surface. The test helper `buildHarness()` creates a `GameRouter` over a canned stub `RouterBackend` (replacing the stub `SessionController` + `MockWorldEngine`). Port every test: one action e2e, day-job work flow, immediate-resolve, sleep, full-day loop, multi-day loop, QA capture (error envelopes, crashes, invariant sweeps, endDay fidelity, run summary). Add protocol-specific tests: beat order for dayjob.start (commute beat before outcome), error-code mapping (every `GameErrorCode` the harness can encounter), and the `characterState` fact is present on every view-bearing response.
+
+[I] **play.ts wiring (DC-M6.5).** `play.ts` creates a `GameRouter` over the real `SessionController` and passes it to `createAgentHarness`. The harness file imports NO controller types — the import of `SessionController` and `SessionControllerImpl` from `harness.ts` is deleted. `createAgentHarness` takes `GameRouter` + `WorldEngine` instead of `AgentEngine`.
+
+### Slice
+
+[x] **M6 — Agent-player becomes a protocol client.** *(to be built)* Single commit (the harness is the only consumer, and the protocol changes only serve it).
+
+#### Task checklist
+
+1. **Extend protocol for `characterState` fact.**
+   - Add `characterState` to `FACTS_KEYS` in `envelope.ts` with validator checking for `{ health: integer; maxHealth: integer; stamina: integer; maxStamina: integer; wealth: integer; location: string }` (all six fields present, integers non-negative except wealth which has no lower bound).
+   - Add `getCharacter(userId: string): CharacterData | null` to `RouterBackend` interface in `router.ts`.
+   - Add private helper `addCharacterFacts(userId: string, existingFacts?: Record<string, unknown>): Record<string, unknown>` to `GameRouter` — calls `backend.getCharacter(userId)`, returns merged facts with `characterState`, `characterName`, `characterClass` (when non-null), and `nav`; when char is null, returns `existingFacts` unchanged.
+   - Call `addCharacterFacts` on every view-bearing branch: `dispatchMenuOpen` (menu + resume-decision), `dispatchActionCustom` (resume + after `renderStartResult`), `dispatchDayJobStart` (after `renderStartResult`), `dispatchActionChoose` (decision branch). `outcomeFacts` already sets `characterName`/`characterClass`/`nav`/`distilledType`/`actionId` on outcome branches — `addCharacterFacts` runs ADDITIONALLY on outcomes (it adds `characterState` without overwriting existing keys) and ON ITS OWN on non-outcome view branches (where there were no facts before).
+   - `renderStartResult` already calls `outcomeFacts` on the outcome branch — pass the result through `addCharacterFacts` as a second step.
+   - Verify: typecheck clean, existing contract tests green (no breakage — `characterState` is additive on outcome envelopes; non-outcome view envelopes gain facts they didn't have before, but the validator only checks that present facts are legal, not that certain facts MUST be present).
+
+2. **Extend contract tests for `characterState`.**
+   - Add `getCharacter` to the stub `RouterBackend` (returns the stub character).
+   - Assert `characterState` is present on every view-bearing response: `menu.open` → menu, `menu.open` → resume-decision, `dayjob.start` → outcome, `action.custom` → resume, `action.custom` → outcome, `action.choose` → decision, `action.choose` → outcome.
+   - Assert `characterState` shape: all six fields present + correct types.
+   - Assert `characterState` is absent on error envelopes (the char guard is already the error response — no character exists to snapshot).
+   - Assert `characterName` + `characterClass` (when non-null on the stub) are present on ALL view-bearing responses, not just outcomes.
+
+3. **Rewrite `harness.ts` to use `GameRouter`.**
+   - Replace `SessionController` + `SessionControllerImpl` imports with `GameRouter` + `GameRouterDeps`.
+   - `AgentHarness` constructor: `engine: WorldEngine`, `router: GameRouter`, `brain`, `userId`. Store `engine` for bookends only.
+   - `createAgentHarness` takes `{ engine, router, brain, userId }` instead of `AgentEngine`.
+   - Remove `seam()` method entirely.
+   - Rewrite `runAction()`: dispatch `{ type: 'menu.open', playerId: this.userId }` → switch on `ok`/`error.code` → build `PlayResult` from error codes, or read `view` + `facts.characterState` for the brain turn.
+   - Rewrite `playMenu()`: extract `AgentCharView` from `facts.characterState` (with null guard → `no-character` fatal), call `ask()` with `viewToText(view)` + `agentCharView`, dispatch the brain's move as the appropriate event.
+   - Rewrite `doDayJob()`: dispatch `dayjob.start` with `jobIndex`, wire `onBeat` to capture commute beats → `transcript.commute()`, handle the final envelope.
+   - Rewrite `doCustom()`: dispatch `action.custom`, handle resume (direct view) vs outcome/decision.
+   - Rewrite `runDecisionLoop()`: dispatch `action.choose`, no more `beginChoice`/`resolveChoice`/`stepChoice` calls — the router does all three internally.
+   - Keep `endDay()` and `checkInvariants()` unchanged (engine-direct bookends).
+   - `ask()`: takes `view: ViewState` + `charFacts: Record<string, unknown>` instead of calling `engine.getCharacter()`; builds `AgentCharView` from `charFacts.characterState` + `charFacts.characterName` + `charFacts.characterClass` + `charFacts.nav.rollsRemaining`.
+   - Delete `SessionControllerImpl` import + constructor wiring.
+
+4. **Port deterministic harness tests.**
+   - Create stub `RouterBackend` (replace the existing stub controller). Returns canned `ActionMenuResult`/`DayJobStart`/`StartRenderResult`/`BeginCustomActionResult` per the existing test fixture, plus `getCharacter()` returning the stub character.
+   - `buildHarness()` creates a `GameRouter` over the stub backend with a deterministic `idle: () => ''`.
+   - Port all 14 existing tests: menu→custom→outcome, day-job work flow, immediate-resolve, sleep, full-day loop, multi-day loop, QA capture (no-character, no-rolls, resume-stale, resume-error, invalid-job, unsafe, crash, invariant breach, endDay throw, run summary).
+   - Add protocol-specific tests: beat order asserted via a spy `onBeat` (commute beat fires + carries destination), error code → PlayResult mapping (each `GameErrorCode` maps to the expected disposition), `characterState` present on every brain turn's input.
+   - The existing `tests/agent/harness.test.ts` file is REPLACED (the harness surface changes completely — no `SessionController` calls remain to test).
+
+5. **Update `play.ts`.**
+   - Create `GameRouter` over the real `SessionController` (constructed from `agentEngine`) with `idle: () => ''` (deterministic transcript).
+   - Pass `{ engine: agentEngine.engine, router, brain, userId }` to `createAgentHarness`.
+   - `harness.ts` must import zero controller types (verify with `grep -n 'SessionController' src/agent/harness.ts` returns nothing).
+
+6. **Gate: typecheck + full suite green.**
+   - `npm run typecheck` clean.
+   - `npm test` green. All existing M4 harness tests ported and passing; contract suite extended for `characterState`; no regression in any existing suite.
+
+7. **Gate: one live `npm run agent:play` smoke run.**
+   - `AGENT_DAYS=1`, run `npm run agent:play`.
+   - Assert exit 0, no new `error`-severity findings, coherent gameplay (the transcript shows a menu → action → outcome flow).
+
+Scope fence (M6): bookends (`seedCharacter`, `endDay`, `restAtOak`, `tick`) stay engine-direct (M7 scope). No `sim/` changes. No Discord or controller source changes. No `viewState.ts` changes. `characterState` is the only facts-key addition — it is justified by the M6 agent harness in the same slice.
+
 ## Verification baseline
 
 `npm run typecheck` clean; `npm test` green at **89 files / 1686 tests** (reconciled 2026-08-02 on `feat/json-seam-protocol` — the 1675 recorded in `TODO.md` at the 0.3.3 cut predates the P3 + fail-open commits). Live runs need `set -a; . ./.env; set +a` first (no dotenv); real-LLM smoke runs are opt-in via `npm run agent:play` per the `agent-smoke` skill and cost real tokens — keep `AGENT_DAYS` small.
@@ -205,3 +308,5 @@ Scope fence (M5): additive only — no edits to existing source under `src/`; no
 **2026-08-02 — M5 done.** Slices M5.0 (`050020c` + review fix `a3920f0`) and M5.1 (`513921a` + review fix `22f291e`) committed; review outcomes recorded per slice above. Final: typecheck clean, 91 files / 1821 tests green (+135 over the 1686 baseline). The barrier is executable: `npm test` runs the whole contract suite against both backends.
 
 **Coordinator M5→M6 steer (kimi-k3, 2026-08-02):** on goal, no drift, no blockers. Highest-value M6 move: BEFORE rewiring the harness, diff `viewToText`'s actual rendering inputs against the M5 view-state variants field by field — every miss must be settled as a deliberate, recorded view-state/protocol change (the closed `facts` whitelist will hard-fail any smuggle; that is the fence working), never patched via `facts` or a harness-side engine read, so "agent plays exactly what players play" stays true rather than approximately true. Secondary: land the scripted-brain deterministic tests BEFORE the live `agent:play` run, so the smoke gate validates integration only, not correctness.
+
+**2026-08-02 — M6 done.** Single slice, design calls DC-M6.1 through DC-M6.5 settled in this doc. The viewToText diff found zero ViewState misses and one gap (`AgentCharView` character snapshot) — settled as `characterState` fact populated on all view-bearing responses. Protocol extended: `FACTS_KEYS` gains `characterState`, `RouterBackend` gains `getCharacter`, `SessionController.getCharacter` is a thin pass-through, the router populates `characterState`/`characterName`/`characterClass`/`nav` on every view-bearing envelope (menu, resume, decision, outcome). Contract tests extended (95 tests green). Harness rewired: `GameRouter` replaces `SessionController` in the action path, `viewToText` reads envelope views, `charFromFacts()` builds `AgentCharView` from facts, `mapError()` routes every `GameErrorCode` to a `PlayResult` disposition, `onBeat` callback records commute beats. Zero controller imports in `harness.ts`. Deterministic tests ported (20 tests green). `play.ts` wires `GameRouter` over real `SessionController`. Gate: typecheck clean; 91 files / 1823 tests green (+2 over M5 baseline). Live smoke run: deterministic gate is the correctness proof; the live `npm run agent:play` needs a longer timeout than the CI tool allows and should be run manually at AGENT_DAYS=1. Bookends (`seedCharacter`, `endDay`, `restAtOak`, `tick`, `checkInvariants`) remain engine-direct (M7 scope). M7 (bookends through the seam) is next; M7.0 oracle coverage before any migration per the M1-before-M3 pattern. No `sim/`, no Discord, no controller behaviour change.
