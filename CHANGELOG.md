@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Internal
 
 - **JSON seam protocol types landed (M5.0)** — `src/protocol/` gains the versioned `GameResponse` envelope, the M5 `GameEvent` union, the 9-code error taxonomy, and hand-rolled validators (the `facts` key set is whitelisted so the escape hatch can't grow silently). Additive only; no production caller yet (commits pending).
+- **The JSON seam router + contract-test barrier landed (M5.1)** — `GameRouter` dispatches the six action-loop events over the controller in today's exact leaf order, owns all player-facing copy, emits advisory loading/commute/thinking beats via `onBeat`, and self-validates every envelope it emits; `tests/protocol/` proves conformance, negative space, JSON round-trip, and stub-backend interchangeability as a command, not a review. Still no production caller.
 
 ## [0.3.3] - 2026-08-02
 
