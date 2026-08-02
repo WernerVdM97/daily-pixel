@@ -395,4 +395,33 @@ describe(`${PROMPT_SET_VERSION} content assertions — stage 4 acceptance`, () =
     expect(addNpcLine).toBeTruthy();
     expect(addNpcLine).toContain('`health` (optional');
   });
+
+  it('decide/BASE.md restates the DC ladder on the final per-option DC, not baseDc alone, and states the anchor instruction (stage 4 finding 5)', () => {
+    const tpl = readFileSync(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'assets',
+        'prompts',
+        'decision-prompts',
+        PROMPT_SET_VERSION,
+        'decide',
+        'BASE.md',
+      ),
+      'utf-8',
+    );
+    // Anchor on the specific line stating the ladder bands, then require it to name the composed
+    // final DC (dcModifier) rather than passing vacuously on a bare band mention elsewhere in the
+    // file. This must fail if the ladder is ever restated on `baseDc` alone, per finding 5.
+    const ladderLine = tpl
+      .split('\n')
+      .find((line) => line.includes('11-13 routine, 16-18 hard, 20-24 daunting'));
+    expect(ladderLine).toBeTruthy();
+    expect(ladderLine).toContain('dcModifier');
+    // The anchor half: baseDc must be instructed to sit mid-spread, with the ±5 cap named as the
+    // reason, not just described as "base difficulty".
+    expect(tpl).toContain('anchor of the spread');
+    expect(tpl).toMatch(/capped at ±5/);
+  });
 });

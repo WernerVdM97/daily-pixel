@@ -62,14 +62,16 @@ export function criticShouldFire(
  * `baseDc` anomaly band. WHY these numbers: `accumulateDc` clamps the post-modifier DC to
  * [0,30] (dc.ts:12) and `validateDcModifier` bounds only the ±5 delta (dc.ts:17) — neither
  * clamps the raw authored `baseDc` itself, so a decide beat is free to author anything. The
- * authored guidance (`decide/BASE.md:29,46`) ladders "10-12 routine, 14-16 hard, 17+ daunting"
- * with NO stated ceiling, so a band tight around that ladder would misfire constantly once RA-1
- * pushes daunting attempts well past 17. Instead this band only flags the tails near the
- * engine's own absolute range: below MIN is under even the routine floor with real headroom
- * (an unusually trivial authored DC), above MAX is deep into "daunting-and-then-some", close
- * enough to the hard [0,30] clamp edge that it reads as a miscalibration/hallucination rather
- * than an intentionally brutal beat. Tune these once the A/B data shows where real authored DCs
- * actually land.
+ * authored guidance (`decide/BASE.md:29,48`) ladders the final per-option DC "11-13 routine,
+ * 16-18 hard, 20-24 daunting", with `baseDc` itself expected to sit mid-spread as the anchor
+ * (`decide/BASE.md:31`) rather than at either band edge: this band now brackets an anchor, not
+ * an attempt difficulty. It still has NO stated ceiling of its own, so a band tight around that
+ * ladder would misfire constantly once RA-1 pushes daunting attempts well past 18. Instead this
+ * band only flags the tails near the engine's own absolute range: below MIN is under even the
+ * routine floor with real headroom (an unusually trivial authored DC), above MAX is deep into
+ * "daunting-and-then-some", close enough to the hard [0,30] clamp edge that it reads as a
+ * miscalibration/hallucination rather than an intentionally brutal beat. Tune these once the A/B
+ * data shows where real authored DCs actually land.
  */
 export const BASE_DC_ANOMALY_MIN = 5;
 export const BASE_DC_ANOMALY_MAX = 25;

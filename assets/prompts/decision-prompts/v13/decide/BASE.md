@@ -26,8 +26,9 @@ The roll is an **ability check**: `d20 + the character's stat + matching item bo
 - Lean an option's `stat` toward what the fiction implies, and let the player's sheet and gear (the `Score`, `Gear`, and `Bonus` columns of the `### Ability checks` table) make some approaches stronger for them than others.
 - Never give all options the same flavour (all "safe/easy" or all "risky/hard"). At least one option per action should carry meaningful risk with a commensurate reward.
 - **Do NOT add a "step back" / retreat / bail option.** The engine appends one automatically whenever the player is free to walk away (`required: false`), and omits it when they cannot (`required: true`). Return ONLY the options the player would actively choose — never an option with `dc_modifier: null`.
-- Because the roll now adds the character's ability score, keep `base_dc` honest: a routine task is ~11-13, a hard one 16-18, a daunting one 20-24.
-- **Difficulty keys to the ambition of the individual option, not one flat DC per action — raise the top harder than the bottom.** Every option set must keep at least one option in the routine band, so an ungeared or off-stat character always has a real approach available; the daunting band is a gamble the player chooses to take, never a wall that traps them.
+- Because the roll now adds the character's ability score, keep the final DC honest: an option's final DC is `baseDc` + its own `dcModifier`, and it is that figure which should land ~11-13 routine, 16-18 hard, 20-24 daunting.
+- **Difficulty keys to the ambition of the individual option, not one flat DC per action — raise the top harder than the bottom.** Every option set must keep at least one option whose final DC sits in the routine band, so an ungeared or off-stat character always has a real approach available; the daunting band is a gamble the player chooses to take, never a wall that traps them.
+- **`baseDc` is the anchor of the spread, not the action's difficulty.** Set it in the middle of the band the set is meant to cover (around 16-17 for an ordinary action), then spread the options with `dcModifier` (capped at ±5): the routine option sits 3-5 below the anchor, the ambitious one 3-5 above. Anchoring at the routine end leaves no headroom to reach the daunting band at all (anchor 16, options at -4/+1/+5 give final DCs 12/17/21, one in each band).
 
 ### 4. Scene Framing
 - Options are concrete actions the player takes, not observations to make. Each `label` is verb-first, tactically differentiated from every other option in the set, and roughly 6-12 words: enough room for one vivid, specific detail, not a sentence of scene-setting.
@@ -44,7 +45,7 @@ The `### Present` block labels each NPC with an ephemeral tag: `[N1]`, `[N2]`, e
 
 1. **Options** — every option has a `stat` and is a real, active choice (no retreat/bail — the engine adds that); the mix tests at least two different stats.
 2. **No dead turns** — never emit an empty `decision` with no clear resolution path (empty is valid for pure travel/rest only).
-3. **`base_dc` honest** — 11-13 routine, 16-18 hard, 20-24 daunting. Remember the roll adds the character's stat + item bonus. Difficulty keys to each option's ambition, not one flat DC per action — every option set keeps at least one option in the routine band, so the daunting band is a gamble the player chooses, never a wall for the ungeared.
+3. **Final DC honest**: each option's `baseDc + dcModifier` lands 11-13 routine, 16-18 hard, 20-24 daunting; the anchor (`baseDc`) sits mid-spread, not at either end. Remember the roll adds the character's stat + item bonus. Difficulty keys to each option's ambition, not one flat DC per action; every option set keeps at least one option whose final DC is in the routine band, so the daunting band is a gamble the player chooses, never a wall for the ungeared.
 4. **Honour intent** — combat is never silently converted; absent targets are adapted, not blocked.
 
 ---
@@ -74,7 +75,7 @@ You signal "resolve now" by returning an **empty `decision` array**. A non-empty
 |---|---|---|
 | `distilledType` | always | Single lowercase label capturing the action's essence. One word preferred. |
 | `stat` | always | The action's default/primary stat. Used for an option that omits its own `stat`, and for outright (no-option) resolutions. |
-| `baseDc` | always | Base difficulty 10-24. Higher = harder. Remember the roll adds the character's stat + item bonus. |
+| `baseDc` | always | The anchor of the option spread, not the final difficulty: what the player rolls against is `baseDc` + the chosen option's `dcModifier`. Anchor mid-spread (10-24) so a routine option can sit at 11-13 and an ambitious one at 20-24 within the ±5 cap. Remember the roll adds the character's stat + item bonus. |
 | `required` | always | `true` when the player faces an active threat they cannot walk away from. |
 | `decision` | always | 2-4 active options (empty array to signal resolve — for pure travel/rest only). Each has `label` (short, vivid action description), `stat` (the ability this approach tests — optional, defaults to the top-level `stat`), and `dcModifier` (signed: negative = easier, positive = harder). Do NOT emit a retreat/bail option — the engine adds it. |
 | `narration` | CONTINUE only | 1-3 sentences, game-master voice, second person, present tense — the scene-framing prose that sets up this beat's options as a consequence of the player's last choice. Never states a roll verdict and never a mutation; that is the resolve stage's job. Absent on NEW_ACTION and on empty-`decision` (resolve-now) results. |
