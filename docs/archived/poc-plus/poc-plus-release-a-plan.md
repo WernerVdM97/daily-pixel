@@ -1,6 +1,6 @@
 ---
 title: "POC+ Release A — worth-returning-to (build plan)"
-status: decided
+status: archived
 domain: engine
 phase: poc
 tags:
@@ -17,7 +17,9 @@ related:
   - "[[action-engine-framework]]"
   - "[[the-poc]]"
 ---
-_Executor-grade build plan for **Release A** of the POC+ arc, inserted 2026-07-23 after the full-period prod-data review and re-sequencing recorded in [[poc-plus-roadmap]] (§ Re-sequencing). Release A front-loads the solo fun fundamentals the telemetry exposed, so the game is worth returning to before any more shared-world code lands. Parent tracking lives in [[poc-plus-roadmap]]; this plan is the per-stage contract, authored by the orchestrated-delegation lead at stage start. Status `decided` while active; archive → `archived/poc-plus/` on ship._
+_Shipped 2026-08-02 as v0.3.3 (cut on branch `poc-plus/release-a-polish`; the `dev` merge and the `v0.3.3` tag are pending the owner). RA-1 through RA-6 all landed, P1 (the daunting-band restatement) included; 89 files / 1663 tests green, typecheck clean. Two residuals carry forward unverified rather than dropped: RA-1's daunting band is fixed in prose but needs isolated DECIDE probes, not an agent-player run; RA-2's frequency dial needs human play, since the agent-player structurally cannot measure it (see `TODO.md` § RESUME HERE and [[poc-plus-roadmap]] tracking). Archived here post-cut for provenance._
+
+_Executor-grade build plan for **Release A** of the POC+ arc, inserted 2026-07-23 after the full-period prod-data review and re-sequencing recorded in [[poc-plus-roadmap]] (§ Re-sequencing). Release A front-loads the solo fun fundamentals the telemetry exposed, so the game is worth returning to before any more shared-world code lands. Parent tracking lives in [[poc-plus-roadmap]]; this plan is the per-stage contract, authored by the orchestrated-delegation lead at stage start._
 
 ---
 

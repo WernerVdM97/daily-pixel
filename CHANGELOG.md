@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-02
+
 ### Added
 
 - **A newcomer the story names now arrives with a body** *(RA-3, non-combat half / F#1)* — the narrator mints a named newcomer the moment it is described rather than leaving it as prose, and `add_npc` gained an optional `health` field so the townsperson you met is a real, re-encounterable NPC a later fight can measure itself against.
@@ -24,7 +26,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **Hard things are now actually hard** *(RA-1 / v13 prompt set)* — the old ladder capped the contract at DC 18 while calling 17+ "daunting", so no observed action ever exceeded 17 and 83% of everything succeeded. The bands are re-anchored to routine 11-13, hard 16-18, daunting 20-24, and every option set must still keep one option in the routine band, so an ungeared character always has a real approach and the top of the ladder is a gamble you choose. Success rewards now scale with the DC attempted.
+- **Hard things are now actually hard** *(RA-1 / v13 prompt set)* — the old ladder capped the contract at DC 18 while calling 17+ "daunting", so no observed action ever exceeded 17 and 83% of everything succeeded. The bands are re-anchored to routine 11-13, hard 16-18, daunting 20-24, and every option set must still keep one option in the routine band, so an ungeared character always has a real approach and the top of the ladder is a gamble you choose. Reward prose is now asked to track how ambitious the attempt was, since RESOLVE is never told a DC of any kind and can only read ambition off the chosen option's label.
+- **The daunting band is now actually reachable** *(P1 / v13 prompt set)* - the ladder above was stated on the anchor DC (`baseDc`), but a roll is always made against the anchor plus its option's modifier, so a measured 0 of 21 option sets ever reached daunting, even on deliberately extreme prompts. The ladder now names each band by the final per-option DC and derives every offset from the band that option must land in, so an anchor placed mid-range can reach routine, hard and daunting from one set without widening the existing ±5 modifier cap. Whether play now actually reaches daunting is unmeasured by design, pending isolated DECIDE probes rather than an agent-player run (commits `9a8bc8d`, `75dc928`).
 - **A failure now costs something a success does not** *(RA-1 / v13 prompt set)* — both verdicts charged stamina, so failing read as "success minus the reward" on the same axis. A failure must now carry a non-stamina cost (coin, an item, or a point of health), with stamina demoted to a secondary. The rest and search recipes, which could previously fail for free, comply.
 - **Inspiration is now rare and earned** *(RA-2)* — an extra roll landed on 29% of actions, inflating the day to ~4.8 rolls and making the three-a-day economy meaningless. It is off the routine skill, rest and catch-all menus, marked as an exceptional grant everywhere else, and a natural 20 now pays +1 rather than +2. Target is ~10% of actions, roughly 3.3 rolls per active day.
 - **A spared foe is no longer narrated as dead** *(RA-5c, prompt half)* — the combat-success recipe opened "the engine already resolved the kill" and looted "the fallen" regardless of the ending chosen. It now branches on the `fatal blow` token: sparing narrates a foe alive, wounded and remembered, and any reward is what the fight yielded rather than what was taken off a body.
