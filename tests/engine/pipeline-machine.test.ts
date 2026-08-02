@@ -507,6 +507,48 @@ describe('PipelineActionStateMachine — RESOLVE difficulty signal (P3)', () => 
     expect('finalDc' in narrateInput).toBe(false);
     expect('foeDanger' in narrateInput).toBe(false);
   });
+
+  it('a combat-classified action with required:false resolves through the generic (non-combat) path and carries "finalDc", not "foeDanger"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // The COMBAT SUB-MODE GATE (PipelineActionStateMachine.ts:366) only routes to
+    // handleCombatStep on `state.actionType === 'combat' && state.required`: `required` comes
+    // straight off DECIDE's JSON with no engine override. `combat` is still in
+    // ROLL_ACTION_TYPES (classifier.ts), so this decide result (required:false, the
+    // combatDecideResult() helper's default) falls through to the generic resolve() and gets a
+    // real DC check instead of a contested round.
+    llm.decideResult = combatDecideResult(); // baseDc: 12, required: false, 'Strike hard' dcModifier +2
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'The bout ends.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // Heuristic classify hits "attack the goblin" as combat (same fixture as the happy-path
+    // describe block above).
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Force straight to resolve: script the follow-up decide (called inside step()) with zero
+    // real options, same technique as the "typed handoff" describe block above.
+    llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const mutateInput = llm.resolveMutateCalls[0];
+    // Proof this is genuinely the generic resolve() path and not handleCombatStep: actionType
+    // reaching resolveMutate is still 'combat', yet the handoff carries finalDc, a token only
+    // the generic resolve() path ever emits.
+    expect(mutateInput.actionType).toBe('combat');
+    expect('finalDc' in mutateInput).toBe(true);
+    expect(mutateInput.finalDc).toBe(14); // accumulateDc(baseDc 12, [+2]) for 'Strike hard'
+    expect('foeDanger' in mutateInput).toBe(false);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    const narrateInput = llm.resolveNarrateCalls[0];
+    expect(narrateInput.actionType).toBe('combat');
+    expect('finalDc' in narrateInput).toBe(true);
+    expect(narrateInput.finalDc).toBe(14);
+    expect('foeDanger' in narrateInput).toBe(false);
+  });
 });
 
 describe('PipelineActionStateMachine — D5b mutation-finalization inversion (Task 3)', () => {

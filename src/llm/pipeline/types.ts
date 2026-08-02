@@ -1,4 +1,9 @@
 import type { ActionCategory, LlmContext, LlmDecisionOption } from '../LlmGateway.js';
+// Type-only import, erased at compile time: no runtime edge, so this does not create the
+// import cycle it would look like given engine/action also imports from llm/pipeline.
+// `combat-dc.ts` has zero imports of its own, so there is nothing to cycle back through.
+// Duplicating the DangerTier union here instead was rejected: two definitions of the same
+// vocabulary would drift the moment combat-dc.ts's tier ladder changes.
 import type { DangerTier } from '../../engine/action/combat-dc.js';
 
 /**

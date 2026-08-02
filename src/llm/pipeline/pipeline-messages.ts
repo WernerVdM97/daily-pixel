@@ -82,7 +82,7 @@ export function buildResolveUserMessage(
   if (finalDc !== undefined) {
     out.push(`- final dc: ${finalDc}`);
   }
-  if (foeDanger) {
+  if (foeDanger !== undefined) {
     out.push(`- foe danger: ${foeDanger}`);
   }
 
