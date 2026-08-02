@@ -243,9 +243,13 @@ class StubBackend implements RouterBackend {
   confirmationResult: NoticeViewState | 'throw' = noticeView;
   recordResult: 'ok' | 'throw' = 'ok';
 
+  /** When a 'throw' script fires, the value to throw instead of the standard Error —
+   *  exercises safeStringify on hostile non-Error throws. */
+  throwValue: unknown = undefined;
+
   private run<T>(name: string, scripted: T | 'throw'): T {
     this.calls.push(name);
-    if (scripted === 'throw') throw new Error(`${name} boom`);
+    if (scripted === 'throw') throw this.throwValue ?? new Error(`${name} boom`);
     return scripted;
   }
 
@@ -339,6 +343,7 @@ async function drive(router: GameRouter, event: unknown): Promise<DispatchOutcom
   for (const beat of beats) assertValid(beat);
   assertViewConformance(response);
   for (const beat of beats) assertViewConformance(beat);
+  assertFactsRoundTrip(response);
   return { response, beats };
 }
 
@@ -359,6 +364,13 @@ function okView(beat: GameResponse): ViewState | undefined {
 
 function beatScreens(beats: GameResponse[]): Array<string | undefined> {
   return beats.map((b) => (b.ok ? b.view?.screen : undefined));
+}
+
+/** Error envelopes can carry `facts` (stale-session's narration) — they must survive the
+ *  JSON seam like views do (round-trip c). */
+function assertFactsRoundTrip(response: GameResponse): void {
+  if (response.ok || response.facts === undefined) return;
+  expect(roundTrip(response.facts)).toEqual(response.facts);
 }
 
 function assertViewConformance(response: GameResponse): void {
@@ -467,7 +479,7 @@ runCaseBlock('conformance — menu.open', [
     event: MENU_OPEN,
     real: () => realRouter(realChar({ rollsRemaining: 0 })),
     stub: () => stubRouter((s) => { s.menuResult = { kind: 'no-rolls' }; }),
-    assert: (o) => expectError(o.response, 'no-rolls', NO_ROLLS_COPY),
+    assert: (o) => { expectError(o.response, 'no-rolls', NO_ROLLS_COPY); expect(o.beats).toEqual([]); },
   },
   {
     name: 'fresh menu view',
@@ -495,6 +507,7 @@ runCaseBlock('conformance — menu.open', [
       expectError(o.response, 'stale-session', 'The trail has gone cold.');
       if (o.response.ok) throw new Error('unreachable');
       expect(o.response.facts?.narration).toBe('You lost the trail.');
+      expect(o.beats).toEqual([]);
     },
   },
   {
@@ -513,6 +526,7 @@ runCaseBlock('conformance — menu.open', [
       expectError(o.response, 'stale-session', 'The trail has gone cold.');
       if (o.response.ok) throw new Error('unreachable');
       expect(o.response.facts).toBeUndefined();
+      expect(o.beats).toEqual([]);
     },
   },
   {
@@ -540,14 +554,14 @@ runCaseBlock('conformance — menu.open', [
     event: MENU_OPEN,
     real: () => realRouter(realChar({ lastActionState: IN_FLIGHT as never })), // no resume result → resumeAction throws
     stub: () => stubRouter((s) => { s.menuResult = { kind: 'resume-error', message: 'resume exploded' }; }),
-    assert: (o) => expectInternal(o.response),
+    assert: (o) => { expectInternal(o.response); expect(o.beats).toEqual([]); },
   },
   {
     name: 'backend throw → internal (real: unknown day job in composeActionMenu; stub: scripted throw)',
     event: MENU_OPEN,
     real: () => realRouter(realChar({ dayJob: 'Astronaut' })),
     stub: () => stubRouter((s) => { s.menuResult = 'throw'; }),
-    assert: (o) => expectInternal(o.response),
+    assert: (o) => { expectInternal(o.response); expect(o.beats).toEqual([]); },
   },
 ]);
 
@@ -560,14 +574,14 @@ runCaseBlock('conformance — dayjob.start', [
     event: DAYJOB_START(0),
     real: () => realRouter(new MockWorldEngine()),
     stub: () => stubRouter(),
-    assert: (o) => expectError(o.response, 'no-character', NO_CHARACTER_COPY),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
   },
   {
     name: 'out-of-range jobIndex → illegal-move',
     event: DAYJOB_START(5),
     real: () => realRouter(realChar()),
     stub: () => stubRouter((s) => { s.dayJobResult = { kind: 'invalid-job' }; }),
-    assert: (o) => expectError(o.response, 'illegal-move', INVALID_JOB_COPY),
+    assert: (o) => { expectError(o.response, 'illegal-move', INVALID_JOB_COPY); expect(o.beats).toEqual([]); },
   },
   {
     name: 'unsafe ground → unsafe with the ⚠️ copy and location interpolated',
@@ -578,7 +592,7 @@ runCaseBlock('conformance — dayjob.start', [
       return realRouter(engine);
     },
     stub: () => stubRouter((s) => { s.dayJobResult = { kind: 'unsafe', location: 'The Dark Woods' }; }),
-    assert: (o) => expectError(o.response, 'unsafe', UNSAFE_COPY('The Dark Woods')),
+    assert: (o) => { expectError(o.response, 'unsafe', UNSAFE_COPY('The Dark Woods')); expect(o.beats).toEqual([]); },
   },
   {
     name: 'ok + commute + work outcome → loading beat, commute beat, ok:true outcome with facts',
@@ -692,7 +706,7 @@ runCaseBlock('conformance — action.custom', [
     event: ACTION_CUSTOM,
     real: () => realRouter(new MockWorldEngine()),
     stub: () => stubRouter(),
-    assert: (o) => expectError(o.response, 'no-character', NO_CHARACTER_COPY),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
   },
   {
     name: 'in-flight action resumes → ok:true decision view, no thinking beat',
@@ -794,7 +808,7 @@ runCaseBlock('conformance — action.choose', [
     event: ACTION_CHOOSE,
     real: () => realRouter(new MockWorldEngine()),
     stub: () => stubRouter(),
-    assert: (o) => expectError(o.response, 'no-character', NO_CHARACTER_COPY),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
   },
   {
     name: 'resolveChoice returns null → session-expired',
@@ -808,7 +822,7 @@ runCaseBlock('conformance — action.choose', [
       s.choiceResult = { kind: 'ok', character: stubChar };
       s.resolveResult = null;
     }),
-    assert: (o) => expectError(o.response, 'session-expired', SESSION_EXPIRED_COPY),
+    assert: (o) => { expectError(o.response, 'session-expired', SESSION_EXPIRED_COPY); expect(o.beats).toEqual([]); },
   },
   {
     name: 'option resolves → thinking beat with the label, then a decision view',
@@ -971,12 +985,26 @@ describe('flow order (DC-P6) — the stub call log pins each leaf order', () => 
     expect(stub.calls).toEqual(['stampLastPlayed', 'openActionMenu']);
   });
 
-  it('dayjob.start: beginDayJob → commuteForWork → runWork', async () => {
+  it('dayjob.start: beginDayJob → [loading beat] → commuteForWork → runWork', async () => {
     const stub = new StubBackend();
     stub.dayJobResult = { kind: 'ok', workplace: 'The Town Gate', workPrompt: 'p', wage: 5 };
     stub.workResult = { kind: 'decision', view: decisionView };
-    await drive(new GameRouter(stub, { idle: () => IDLE }), DAYJOB_START(0));
-    expect(stub.calls).toEqual(['beginDayJob', 'commuteForWork', 'runWork']);
+    const router = new GameRouter(stub, { idle: () => IDLE });
+
+    // ONE interleaved log: the onBeat callback pushes a beat marker into the same array the
+    // stub's call log uses, pinning the loading beat's position RELATIVE to the backend calls.
+    const beats: GameResponse[] = [];
+    const promise = router.dispatch(DAYJOB_START(0), (beat) => {
+      beats.push(beat);
+      stub.calls.push('<loading beat>');
+    });
+    await expect(promise).resolves.toBeDefined();
+    const response = assertValid(await promise);
+    for (const beat of beats) assertValid(beat);
+    assertViewConformance(response);
+    for (const beat of beats) assertViewConformance(beat);
+
+    expect(stub.calls).toEqual(['beginDayJob', '<loading beat>', 'commuteForWork', 'runWork']);
   });
 
   it('action.custom: beginCustomAction → runCustomAction', async () => {
@@ -1071,6 +1099,20 @@ describe('negative space (b)', () => {
     await router.dispatch(null);
     await router.dispatch({ type: 'dayjob.start', playerId: USER, jobIndex: 'x' });
     expect(stub.calls).toEqual([]);
+  });
+
+  it('a hostile event whose getter throws during validation → ok:false invalid-event, never a rejection', async () => {
+    const hostile: unknown = {
+      type: 'menu.open',
+      get playerId(): string { throw new Error('boom'); },
+    };
+    const router = realRouter(new MockWorldEngine());
+    const promise = router.dispatch(hostile);
+    await expect(promise).resolves.toBeDefined();
+    const response = await promise;
+    if (response.ok) throw new Error('hostile event resolved ok:true');
+    expect(response.error.code).toBe('invalid-event');
+    expect(response.error.message).toBe('boom');
   });
 });
 
@@ -1180,6 +1222,15 @@ describe('error path (e)', () => {
     expectInternal(await realPromise);
   });
 
+  it('a throwing stampLastPlayed → internal, never a rejection (the stub stampResult:throw script)', async () => {
+    const stub = new StubBackend();
+    stub.stampResult = 'throw';
+    const router = new GameRouter(stub, { idle: () => IDLE });
+    const promise = router.dispatch(MENU_OPEN);
+    await expect(promise).resolves.toBeDefined();
+    expectInternal(await promise);
+  });
+
   it('a throwing recordFeedback still returns the confirmation envelope (best-effort persist)', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
@@ -1218,6 +1269,20 @@ describe('error path (e)', () => {
     const promise = router.dispatch(ACTION_CUSTOM);
     await expect(promise).resolves.toBeDefined();
     expectInternal(assertValid(await promise));
+  });
+
+  it('a backend throwing a hostile unstringable value → internal with [unstringable error], never a rejection', async () => {
+    const stub = new StubBackend();
+    stub.dayJobResult = { kind: 'ok', workplace: 'The Town Gate', workPrompt: 'p', wage: 5 };
+    stub.workResult = 'throw';
+    stub.throwValue = { [Symbol.toPrimitive]() { throw new Error('x'); } };
+    const router = new GameRouter(stub, { idle: () => IDLE });
+    const promise = router.dispatch(DAYJOB_START(0));
+    await expect(promise).resolves.toBeDefined();
+    const response = await promise;
+    if (response.ok) throw new Error('expected ok:false internal, got ok:true');
+    expect(response.error.code).toBe('internal');
+    expect(response.error.message).toBe('[unstringable error]');
   });
 });
 

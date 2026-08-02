@@ -23,7 +23,7 @@
  */
 
 import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse } from './envelope.js';
-import { validateGameEvent } from './events.js';
+import { validateGameEvent, type GameEvent } from './events.js';
 import type {
   ActionMenuResult,
   BeginChoiceResult,
@@ -49,6 +49,17 @@ const INVALID_JOB_COPY = 'Invalid job action.';
 const SESSION_EXPIRED_COPY = "❌ Your action session expired. Try `/action` again.";
 const UNSAFE_COPY = (location: string): string =>
   `⚠️ **It's no place for honest work here.**\nThe ${location} is too dangerous — make for safer ground before you set to your trade.`;
+
+/** Extracts a message from an unknown thrown value and never throws itself — a hostile
+ *  value (a Symbol.toPrimitive that throws) collapses to a fixed placeholder instead of
+ *  escaping the seam's never-throws boundary. */
+const safeStringify = (err: unknown): string => {
+  try {
+    return err instanceof Error ? err.message : String(err);
+  } catch {
+    return '[unstringable error]';
+  }
+};
 
 /** The controller surface the router calls (DC-P7) — exactly the SessionController methods
  *  the six flows need, signatures lifted verbatim so SessionController satisfies it
@@ -90,9 +101,6 @@ export class GameRouter {
   /** Validates, dispatches, maps — and never throws or rejects. Beats (loading/commute/
    *  thinking interstitials) are advisory; the returned envelope is authoritative. */
   async dispatch(event: unknown, onBeat?: (beat: GameResponse) => void): Promise<GameResponse> {
-    const gate = validateGameEvent(event);
-    if (!gate.ok) return this.error('invalid-event', gate.message);
-
     // Lazy single draw: idle() runs at most once per dispatch, only when a beat needs it.
     let idle: string | undefined;
     const idleOnce = (): string => {
@@ -101,6 +109,9 @@ export class GameRouter {
     };
 
     try {
+      const gate = this.validateEvent(event);
+      if (!gate.ok) return this.error('invalid-event', gate.message);
+
       const e = gate.event;
       switch (e.type) {
         case 'menu.open':
@@ -118,6 +129,18 @@ export class GameRouter {
       }
     } catch (err) {
       return this.internalError(err);
+    }
+  }
+
+  /** The gate runs inside the never-throws boundary, wrapped in its own catch: a hostile
+   *  event (a getter or Proxy that throws during validation) becomes ok:false
+   *  'invalid-event' carrying the thrown value's message — the outer catch would otherwise
+   *  mislabel it 'internal'. A plain invalid event keeps the validator's own message. */
+  private validateEvent(event: unknown): { ok: true; event: GameEvent } | { ok: false; message: string } {
+    try {
+      return validateGameEvent(event);
+    } catch (err) {
+      return { ok: false, message: safeStringify(err) };
     }
   }
 
@@ -209,7 +232,8 @@ export class GameRouter {
     if (begin.kind === 'no-character') return this.error('no-character', NO_CHARACTER_COPY);
 
     const label = this.backend.resolveChoice(begin.character, e.selector);
-    if (label === null) return this.error('session-expired', SESSION_EXPIRED_COPY);
+    // Falsy, mirroring the adapter's session-expired check byte-exactly (dispatchInteraction.ts:689).
+    if (!label) return this.error('session-expired', SESSION_EXPIRED_COPY);
 
     this.emitBeat(onBeat, { v: PROTOCOL_VERSION, ok: true, view: { screen: 'loading', body: `**You:** ${label}\n\n⏳ **Thinking…**\n_${idleOnce()}_` } });
 
@@ -236,7 +260,7 @@ export class GameRouter {
     try {
       this.backend.recordFeedback(surface, playerId, text, actionId);
     } catch (err) {
-      console.error(`[protocol] recordFeedback failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[protocol] recordFeedback failed: ${safeStringify(err)}`);
     }
     return this.finalize({ v: PROTOCOL_VERSION, ok: true, view });
   }
@@ -298,8 +322,7 @@ export class GameRouter {
   }
 
   private internalError(err: unknown): GameResponse {
-    const message = err instanceof Error ? err.message : String(err);
-    return this.error('internal', message);
+    return this.error('internal', safeStringify(err));
   }
 
   /** Structural barrier: every final envelope crosses the seam only after its own validator
@@ -323,7 +346,7 @@ export class GameRouter {
     try {
       onBeat(check.response);
     } catch (err) {
-      console.error(`[protocol] onBeat threw: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[protocol] onBeat threw: ${safeStringify(err)}`);
     }
   }
 }
