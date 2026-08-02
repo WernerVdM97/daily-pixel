@@ -8,13 +8,13 @@
 // to accept a canned full-decision (which its D5b split has no slot for). So the prod pipeline
 // gateway is NOT wrapped by `FallbackLlmGateway` at all. Resilience is **structural, owned by
 // `PipelineActionStateMachine`**: a `classify` rejection becomes the typed divine-intervention
-// outcome in `start()` (`resolveDivineIntervention`, `isDivineIntervention: true`); a
-// `decide`/`resolveMutate`/`resolveNarrate` throw propagates up by design (the machine
-// deliberately does not catch them — see `PipelineScriptedGateway`'s header). This gateway
-// therefore mirrors `DeepseekLlmGateway`'s single-attempt transport (no internal retry) and
-// throws loudly on transport/parse failure. `FallbackLlmGateway` stays on the v11 path only,
-// deleted with it in T7. (How `WorldEngineImpl` handles a propagated pipeline throw at the live
-// call site is T6's concern, not this gateway's.)
+// outcome in `start()` (`resolveDivineIntervention`, `isDivineIntervention: true`), and since
+// 0.3.4 so does any stage failure on beat 1 — see `start()`'s catch. A beat-2+ failure is caught
+// one level up, by `WorldEngineImpl.stepActionPipeline`, and resolved as `timed_out`. This gateway
+// therefore mirrors `DeepseekLlmGateway`'s single-attempt transport (no internal retry) and still
+// throws loudly on transport/parse failure — it just throws a `PipelineStageError`, so those two
+// call sites can fail open on an LLM fault without also swallowing an engine fault.
+// `FallbackLlmGateway` stays on the v11 path only, deleted with it in T7.
 
 import {
   ACTION_CATEGORIES,
@@ -25,6 +25,7 @@ import type { LlmCallRecorder } from '../LlmCallRecorder.js';
 import { DeepCapturePolicy } from '../capture-policy.js';
 import { buildUserMessage, buildContextDigest, loadPromptSet, type PromptSet } from '../prompt-builder.js';
 import { callDeepseek, type DeepseekResponse } from '../deepseek-transport.js';
+import { PipelineStageError, isPipelineStageError } from './PipelineStageError.js';
 import { buildClassifyUserMessage, buildResolveUserMessage } from './pipeline-messages.js';
 import { stripCR, parseStat, parseOptionStat, resolveNpcHandles } from './pipeline-parse.js';
 import { stampForPipelineStage, callKindForPipelineStage } from './stamping.js';
@@ -51,7 +52,7 @@ export interface ProdPipelineGatewayConfig {
   fetch?: typeof fetch;
   /** Optional audit sink — records every call attempt. */
   recorder?: LlmCallRecorder;
-  /** Injectable prompt set for tests. Defaults to `loadPromptSet('v12')`. */
+  /** Injectable prompt set for tests. Defaults to the active `PROMPT_SET_VERSION` set. */
   promptSet?: PromptSet;
   /** If true, console-log a one-line summary per stage (stage label, model, latency, token
    *  usage, response snippet) — mirrors DeepseekLlmGateway's verbose logging. */
@@ -93,7 +94,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
-    this.promptSet = config.promptSet ?? loadPromptSet('v12');
+    this.promptSet = config.promptSet ?? loadPromptSet();
     this.verbose = config.verbose ?? false;
     this.capturePolicy = config.capturePolicy ?? new DeepCapturePolicy();
   }
@@ -174,7 +175,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
         const rawEnemy = raw.combatEnemy as Record<string, unknown> | undefined;
         if (
           rawEnemy && typeof rawEnemy === 'object' &&
-          typeof rawEnemy.name === 'string' &&
+          typeof rawEnemy.name === 'string' && rawEnemy.name.trim() !== '' &&
           (rawEnemy.anchor === 'npc' || rawEnemy.anchor === 'location')
         ) {
           result.combatEnemy = { name: rawEnemy.name, anchor: rawEnemy.anchor };
@@ -265,24 +266,52 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
       reasoningContent = res.reasoningContent;
 
       if (!res.ok) {
-        throw new Error(
+        throw new PipelineStageError(
+          req.stageLabel,
+          'transport',
           `ProdPipelineLlmGateway.${req.stageLabel}: DeepSeek API error ${res.httpStatus}${res.errorText ? `: ${res.errorText}` : ''}`,
         );
       }
-      if (res.content === null) {
-        throw new Error(`ProdPipelineLlmGateway.${req.stageLabel}: DeepSeek returned empty response`);
+      // Whitespace-only counts as empty, not as a parse failure. DeepSeek does occasionally
+      // answer 200 with `content: ""`; that used to fall through to `JSON.parse('')` and surface
+      // as `failed to parse DeepSeek response:` with nothing after the colon — the one failure
+      // mode the message could not describe, and the one the 0.3.3 smoke run actually hit.
+      // `finishReason` is carried because it is the only signal that separates a truncated
+      // completion ('length') from a genuinely empty one ('stop').
+      if (res.content === null || res.content.trim() === '') {
+        throw new PipelineStageError(
+          req.stageLabel,
+          'empty',
+          `ProdPipelineLlmGateway.${req.stageLabel}: DeepSeek returned empty response (finishReason=${res.finishReason ?? 'none'})`,
+        );
       }
       content = res.content;
 
       let raw: Record<string, unknown>;
       try {
         raw = JSON.parse(content);
-      } catch {
-        throw new Error(`ProdPipelineLlmGateway.${req.stageLabel}: failed to parse DeepSeek response: ${content.slice(0, 200)}`);
+      } catch (cause) {
+        throw new PipelineStageError(
+          req.stageLabel,
+          'parse',
+          `ProdPipelineLlmGateway.${req.stageLabel}: failed to parse DeepSeek response: ${content.slice(0, 200)}`,
+          { cause },
+        );
       }
       parseOk = true;
 
-      result = req.parse(raw);
+      try {
+        result = req.parse(raw);
+      } catch (cause) {
+        // The stage parsers already namespace their own messages, so keep them verbatim and only
+        // re-type the throw.
+        throw new PipelineStageError(
+          req.stageLabel,
+          'validation',
+          cause instanceof Error ? cause.message : String(cause),
+          { cause },
+        );
+      }
 
       if (this.verbose) {
         const latencyMs = Date.now() - startedAt;
@@ -294,7 +323,11 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
         );
       }
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : String(err);
+      // Everything leaves this stage as a PipelineStageError. What reaches here unwrapped is
+      // raised below the envelope — the abort timeout in `deepseek-transport`, or a fetch-level
+      // network failure — and both are LLM faults the call sites are entitled to fail open on.
+      const wrapped = isPipelineStageError(err) ? err : wrapTransportFailure(req.stageLabel, err);
+      errorMsg = wrapped.message;
       // Unconditional (not gated on this.verbose) — mirrors DeepseekLlmGateway's [llm:error] /
       // [llm:parse-error] logging so a failed pipeline stage is never silent in prod.
       if (content !== null) {
@@ -302,7 +335,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
       } else {
         console.error(c.red(`[pipeline:${req.stageLabel}]`), errorMsg);
       }
-      throw err;
+      throw wrapped;
     } finally {
       if (this.recorder) {
         try {
@@ -350,6 +383,22 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     }
     return { result, callId };
   }
+}
+
+/** Re-types a below-the-envelope throw (abort timeout, network failure) as a stage failure. The
+ *  original error stays on `cause`, and the abort case keeps its own message so the existing
+ *  "timed out" reading of the logs is unchanged. */
+function wrapTransportFailure(stageLabel: string, err: unknown): PipelineStageError {
+  const e = err as { name?: string; message?: string } | null | undefined;
+  const aborted = e?.name === 'AbortError' || (e?.message ?? '').toLowerCase().includes('abort');
+  return new PipelineStageError(
+    stageLabel,
+    aborted ? 'timeout' : 'transport',
+    aborted
+      ? `ProdPipelineLlmGateway.${stageLabel}: DeepSeek request aborted (timeout)`
+      : `ProdPipelineLlmGateway.${stageLabel}: DeepSeek request failed: ${e?.message ?? String(err)}`,
+    { cause: err },
+  );
 }
 
 /** `dcModifier`: prefer camelCase (the v12 JSON contract's spelling); consult snake_case only when

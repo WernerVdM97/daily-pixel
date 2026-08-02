@@ -14,6 +14,7 @@ import { migration as playerLastBailRefundDay } from './202606300000_player_last
 import { migration as npcHomeLocation } from './202606300001_npc_home_location.js';
 import { migration as sceneRelations } from './202607041000_scene_relations.js';
 import { migration as npcCombatHealth } from './202607112100_npc_combat_health.js';
+import { migration as llmCallBeat } from './202607281200_llm_call_beat.js';
 
 /**
  * All migrations in apply order. Append new ones at the end — the runner applies
@@ -36,4 +37,5 @@ export const MIGRATIONS: Migration[] = [
   npcHomeLocation,
   sceneRelations,
   npcCombatHealth,
+  llmCallBeat,
 ];

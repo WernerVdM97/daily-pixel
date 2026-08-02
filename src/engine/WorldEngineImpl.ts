@@ -22,6 +22,7 @@ import { CharacterLocationRepository } from "../db/repositories/characterLocatio
 import { MetaRepository } from "../db/repositories/meta.js";
 import { LlmCallRepository } from "../db/repositories/llm-call.js";
 import { APP_VERSION } from "../version.js";
+import { PROMPT_SET_VERSION } from "../llm/prompt-builder.js";
 import {
   PipelineActionStateMachine,
   enemyConditionBand,
@@ -30,11 +31,13 @@ import type {
   PipelineInternalActionState,
 } from "./action/PipelineActionStateMachine.js";
 import { ProdPipelineLlmGateway, type ProdPipelineGatewayConfig } from "../llm/pipeline/ProdPipelineGateway.js";
+import { isLlmStageFailure } from "../llm/pipeline/PipelineStageError.js";
 import type { PipelineLlmGateway } from "../llm/pipeline/types.js";
 import type { PipelineContextResolver } from "./action/pipeline-context.js";
 import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
+import type { CriticGateMode } from "./action/critic-gate.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
-import { readCombatState } from "./action/combat-state.js";
+import { readCombatState, type CombatState } from "./action/combat-state.js";
 import type { NodeType } from "../db/repositories/relation.js";
 import type { SceneStateEdge } from "../llm/LlmGateway.js";
 import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
@@ -67,6 +70,8 @@ import type {
   StatBlock,
   Leaderboards,
   WeeklyActionSummary,
+  PendingChoiceSelector,
+  ActionOption,
 } from "./WorldEngine.js";
 import { sanitizeAuthored } from "./authored-text.js";
 
@@ -244,6 +249,8 @@ interface WorldEngineConfig {
   /** Coherence critic (Thread 2, opt-in): decision beats critiqued via CritiquedLlmGateway,
    *  resolution beats via the machine hook. Absent = disabled. */
   critic?: CriticGateway;
+  /** RA-4c: WHEN the critic above fires. Absent → machine default ('always', today's behaviour). */
+  criticGateMode?: CriticGateMode;
   /** v12 pipeline config. Not used when pipelineLlmGateway is present. */
   pipelineLlm?: ProdPipelineGatewayConfig;
 
@@ -384,6 +391,7 @@ export class WorldEngineImpl implements WorldEngine {
       contextResolver,
       this.geographyFinalize,
       config.critic,
+      config.criticGateMode,
     );
   }
 
@@ -617,7 +625,7 @@ export class WorldEngineImpl implements WorldEngine {
       playerRolled: outcome.playerRolled,
       outcome: outcome.outcome,
       appVersion: APP_VERSION,
-      promptVersion: 'v12',
+      promptVersion: PROMPT_SET_VERSION,
       appliedMutations:
         outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
       narrative: (outcome.outcomeText ?? "").slice(0, 500) || null,
@@ -640,7 +648,15 @@ export class WorldEngineImpl implements WorldEngine {
     // name at the same location is almost certainly an LLM accident; flag it and still create,
     // so the auditable world-state change is recorded even when we know it's a dup.
     for (const npc of applied.npcsToAdd) {
-      const atLocation = applied.location;
+      // An explicit `npc.location` wins over `applied.location`, which is the POST-mutation
+      // location and so is wrong for RA-3's combat mint whenever the same resolution also
+      // relocates the player (the D6 travel-coherence gate injecting a `set_location`). On that
+      // mismatch the minted row's `location` and its `homeLocation` (pinned to the fight's
+      // pre-mutation location) disagree, which defeats the nightly wander-skip
+      // (`home_location === location`) and lets the foe drift off on the 80% wander — after
+      // which the next encounter at the fight's location can't resolve it and mints a duplicate,
+      // since the collision check below only looks within one location.
+      const atLocation = npc.location ?? applied.location;
       const collision = this.npcRepo.findByLocation(atLocation)
         .find(existing => existing.name.trim().toLowerCase() === npc.name.trim().toLowerCase());
       if (collision) {
@@ -654,6 +670,7 @@ export class WorldEngineImpl implements WorldEngine {
         class: npc.class,
         race: npc.race,
         description: npc.description,
+        health: npc.health,
         location: atLocation,
         homeLocation: npc.homeLocation,
         createdByActionId: actionRow.id,
@@ -955,13 +972,13 @@ export class WorldEngineImpl implements WorldEngine {
     items: ItemData[],
     opts: { kind?: ActionKind; wage?: number },
   ): Promise<ActionStartResult> {
-    // No AbortError catch here — all 6 observed decide timeouts in the v12 QA session
-    // were beat-2 CONTINUE calls (stepActionPipeline path). A beat-1 decide timeout is
-    // theoretically possible but unobserved; catching it would require restructuring the
-    // roll-drain transaction (the roll hasn't been drained yet pre-start()) and plumbing a
-    // timed-out ActionOutcome through ActionStartResult, which is designed for
-    // divine-intervention outcomes only. If beat-1 timeouts become common, add a catch
-    // mirroring stepActionPipeline with a no-drain refund (roll was never spent).
+    // No LLM catch here, by design: `PipelineActionStateMachine.start` owns beat-1 resilience
+    // and converts any stage failure (timeout, transport, unparseable response) into a divine
+    // intervention, which arrives below as an ordinary `startResult.resolved` with
+    // `isDivineIntervention: true` — already the no-drain refund path. That keeps the
+    // roll-drain transaction and `ActionStartResult`'s outcome slot untouched, which is what
+    // made a catch at this level awkward when the beat-1 timeout was still hypothetical. The
+    // 0.3.3 smoke run made it real: a first-turn decide abort crashed the whole day.
     const machine = this.machine as PipelineActionStateMachine;
     // Snapshot before the machine finalizes: a frontier crossed inside start() mints its
     // provisional row here, so the diff after resolution is what it minted (N2).
@@ -1045,37 +1062,50 @@ export class WorldEngineImpl implements WorldEngine {
     // At this point startResult is resolved: false (the divine-intervention branch returned
     // early), so firstDecision is guaranteed.
     const firstDecision = (startResult as Extract<typeof startResult, { resolved: false }>).firstDecision;
+    const remembered = this.readPersistedCombatFoe(characterId, internalState, row.location);
+    const llmName = internalState.lastDecideResult.combatEnemy?.name;
     return {
       state: this.toPublicState(internalState),
       firstDecision,
       actionType: internalState.actionType,
-      combatEnemyName: internalState.lastDecideResult.combatEnemy?.name,
-      combatEnemyCondition: this.readPersistedEnemyCondition(characterId, internalState),
+      combatEnemyName: llmName ?? remembered?.name,
+      combatEnemyCondition: remembered?.condition,
     };
   }
 
   /**
-   * ANSI-F re-entry (0.3.2 C4): a prior bail leaves the `in_combat` edge persisted
-   * (`PipelineActionStateMachine.ts` handleBail), so a re-engaging combat action can read the
-   * foe's damage back and surface a BANDED condition on the opening frame instead of the empty
-   * "unknown" placeholder. Only called from the non-resolved `startActionPipeline` return (no
-   * opening frame renders on the auto-resolve path, so it's never worth computing there).
+   * ANSI-F re-entry (0.3.2 C4, extended for the C4 follow-up): a prior bail leaves the
+   * `in_combat` edge persisted (`PipelineActionStateMachine.ts` handleBail), so a re-engaging
+   * combat action can read the foe's name and damage back and surface a BANDED condition on the
+   * opening frame instead of the empty "unknown" placeholder. Only called from the non-resolved
+   * `startActionPipeline` return (no opening frame renders on the auto-resolve path, so it's
+   * never worth computing there).
    *
    * Guarded so a stale/mismatched edge never leaks onto a fresh or different fight: the action
    * must be `combat`, a sane persisted `CombatState` must exist, the enemy must still be alive,
    * genuinely damaged (not full HP — a full-HP edge reads identically to a fresh fight, so
-   * banding it would show a "condition" that isn't actually new information), and its name must
-   * match the current foe case-insensitively (a differently-named leftover edge from a previous,
-   * unrelated encounter must not be attributed to this one).
+   * banding it would show a "condition" that isn't actually new information). The remembered foe
+   * is then trusted only when it's provably THIS fight: if the LLM named a foe, its name must
+   * match case-insensitively (a differently-named leftover edge from a previous, unrelated
+   * encounter must not be attributed to this one); if the LLM stayed silent (e.g. vague re-engage
+   * text like "resume fight"), the edge is the only source of the foe's identity, so fall back to
+   * an anchor check — the remembered foe must still be located HERE.
+   *
+   * Caveat: the LLM-named branch gates on NAME ONLY, with no location/anchor check, so a
+   * coincidentally same-named foe anchored elsewhere would still match. The anchor check is the
+   * sole guard, and it applies only to the LLM-silent fallback.
+   *
+   * Under SL-7 a spare closes the `in_combat` edge, so this returns `undefined` after one — by
+   * design, not a regression: the fight is genuinely over, and a spared foe's wound now surfaces
+   * on the next establish via its minted NPC row (RA-3 bounded) rather than through this
+   * re-entry path. Don't re-open the edge to bring the banner back.
    */
-  private readPersistedEnemyCondition(
+  private readPersistedCombatFoe(
     characterId: number,
     internalState: PipelineInternalActionState,
-  ): { woundWord: string; filled: number; total: number } | undefined {
+    currentLocation: string,
+  ): { name: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
     if (internalState.actionType !== 'combat') return undefined;
-
-    const currentEnemyName = internalState.lastDecideResult.combatEnemy?.name;
-    if (!currentEnemyName) return undefined;
 
     // Mirrors `pipeline-context.ts`'s scene-relations projection (buildPipelineContext) —
     // the DB row shape back into the `SceneStateEdge` shape `readCombatState` expects.
@@ -1087,14 +1117,32 @@ export class WorldEngineImpl implements WorldEngine {
       props: JSON.parse(row.props) as Record<string, number | string | boolean>,
     }));
 
-    const combatState = readCombatState(edges);
-    if (!combatState) return undefined;
-    if (combatState.enemyHp <= 0 || combatState.enemyMaxHp <= 0) return undefined;
-    if (combatState.enemyHp >= combatState.enemyMaxHp) return undefined;
-    if (combatState.enemyName.toLowerCase() !== currentEnemyName.toLowerCase()) return undefined;
+    const cs = readCombatState(edges);
+    if (!cs) return undefined;
+    if (cs.enemyHp <= 0 || cs.enemyMaxHp <= 0) return undefined;   // dead foe: nothing to remember
+    if (cs.enemyHp >= cs.enemyMaxHp) return undefined;              // full HP reads identical to a fresh fight
 
-    const { filled, woundWord } = enemyConditionBand(combatState.enemyHp / combatState.enemyMaxHp);
-    return { woundWord, filled, total: 5 };
+    const llmName = internalState.lastDecideResult.combatEnemy?.name;
+    const matches = llmName
+      ? cs.enemyName.toLowerCase() === llmName.toLowerCase()
+      : this.combatAnchorIsHere(cs, currentLocation);
+    if (!matches) return undefined;
+
+    const { filled, woundWord } = enemyConditionBand(cs.enemyHp / cs.enemyMaxHp);
+    return { name: cs.enemyName, condition: { woundWord, filled, total: 5 } };
+  }
+
+  /** Is the remembered foe's anchor still at the player's current position? location anchor ->
+   *  name match; npc anchor -> the id-as-name (combat-state.ts caveat) is among the current
+   *  location's npcs. Only reached when the LLM stayed silent on the foe's name, so this is the
+   *  sole discriminator against a stale edge leaking onto an unrelated re-engage. */
+  private combatAnchorIsHere(cs: CombatState, currentLocation: string): boolean {
+    const anchor = cs.anchor;
+    if (anchor.node === 'location') return anchor.name === currentLocation;
+    if (anchor.node === 'npc') {
+      return this.npcRepo.findByLocation(currentLocation).some((n) => String(n.id) === anchor.name);
+    }
+    return false; // pc anchor is never a foe
   }
 
   async stepAction(
@@ -1256,10 +1304,16 @@ export class WorldEngineImpl implements WorldEngine {
       };
     } catch (_err) {
       const err = _err as Error & { name?: string };
-      if (err.name === 'AbortError' || (err.message ?? '').toLowerCase().includes('abort')) {
-        // DeepSeek decide timeout — resolve as timed_out instead of re-throwing so the
-        // player isn't re-served the same stuck decision (v12 QA §1: each timed-out
-        // CONTINUE beat re-presented the identical decision screen).
+      if (isLlmStageFailure(err)) {
+        // Any DeepSeek stage failure on a beat past the first — resolve as timed_out instead of
+        // re-throwing so the player isn't re-served the same stuck decision (v12 QA §1: each
+        // timed-out CONTINUE beat re-presented the identical decision screen).
+        //
+        // Widened from abort-only in 0.3.4: the 0.3.3 smoke run lost a day to a RESOLVE-NARRATE
+        // parse failure, which is the same fault from the player's side (the Warden didn't
+        // answer) but used to propagate and crash the session. Deliberately still narrow — the
+        // predicate matches only faults raised at the LLM boundary, so an engine bug behind it
+        // keeps throwing loudly rather than being dressed up as a timeout card.
         const timeoutState: PipelineInternalActionState = {
           ...internalState,
           lastActionAt: Date.now(),
@@ -1492,9 +1546,40 @@ export class WorldEngineImpl implements WorldEngine {
     return geographyRouteBetween(this.edgeRepo, from, to);
   }
 
-  /** Public visit-recorder for non-engine movement paths (the daily-work commute). */
-  recordVisit(characterId: number, locationName: string): void {
-    this.charLocRepo.recordVisit(characterId, locationName);
+  /** The day-job commute rule. Previously a Discord-layer direct DB write (`src/index.ts`);
+   *  the rule lives here so every frontend (agent-player, future clients) gets it for free. */
+  commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null {
+    const row = this.charRepo.findById(characterId);
+    if (!row) return null;
+
+    const oakName = "The Warden's Oak";
+    if (row.location !== oakName || !workplace || workplace === row.location) return null;
+
+    const stamina = Math.max(0, row.stamina - 1);
+    this.charRepo.update(characterId, { stamina, location: workplace });
+    this.charLocRepo.recordVisit(characterId, workplace);
+    return { to: workplace, stamina };
+  }
+
+  resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null {
+    const row = this.charRepo.findById(characterId);
+    if (!row || !row.last_action_state) {
+      return selector.kind === 'bail' ? 'Bail' : null;
+    }
+
+    // Same normalise-then-resolve shape as the deleted Discord `setPendingDecision` +
+    // `getChoiceLabel`/bail-find pair (M3.2 DC-A) — an empty option list stands in for
+    // a bare Continue button, so both selectors resolve against it identically.
+    const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
+    const rawOptions = internalState.pendingDecision?.options ?? [];
+    const options: ActionOption[] = rawOptions.length > 0
+      ? rawOptions
+      : [{ label: 'Continue', dcModifier: 0 }];
+
+    if (selector.kind === 'bail') {
+      return options.find((o) => o.dcModifier === null)?.label ?? 'Bail';
+    }
+    return options[selector.index]?.label ?? null;
   }
 
   // ── Feedback & bugs ──
@@ -2010,7 +2095,7 @@ export class WorldEngineImpl implements WorldEngine {
         playerRolled: null,
         outcome: "timed_out",
         appVersion: APP_VERSION,
-        promptVersion: 'v12',
+        promptVersion: PROMPT_SET_VERSION,
         narrative: message.slice(0, 500),
       });
       this.charRepo.update(characterId, { last_action_state: null });

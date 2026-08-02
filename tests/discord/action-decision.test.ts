@@ -1,7 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import { buildDecisionMessage, buildOutcomeEmbed, setPendingDecision, getChoiceLabel } from '../../src/discord/commands/action.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { buildDecisionMessage, buildOutcomeEmbed } from '../../src/discord/commands/action.js';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../src/engine/action/combat-dc.js';
+import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
+import { MockPipelineGateway } from '../helpers/MockPipelineGateway.js';
+import { initDb, closeDb, getDb } from '../../src/db/connection.js';
+import { migrate, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
+import { UserRepository } from '../../src/db/repositories/user.js';
+import { CharacterRepository } from '../../src/db/repositories/character.js';
+import { ItemRepository } from '../../src/db/repositories/item.js';
+import { ActionRepository } from '../../src/db/repositories/action.js';
+import { NpcRepository } from '../../src/db/repositories/npc.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function buttons(msg: ReturnType<typeof buildDecisionMessage>): any[] {
@@ -561,6 +570,48 @@ describe('buildDecisionMessage — last-stand / bail decision screen shows the r
   });
 });
 
+// ── SL-6: the fatal-blow interstitial on a WIN offers finish/spare instead of a silent
+// short-circuit to the outcome — see PipelineActionStateMachine's fatal-blow branch, whose exact
+// beat shape is pinned by `tests/engine/pipeline-machine.test.ts`
+// ("PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)"). Cloned from the
+// last-stand/bail idiom above: both options here are real (non-bail — `dcModifier: 0`), so
+// there is no worded terminal button, just two lettered choices. ──
+describe('buildDecisionMessage — fatal-blow (finish/spare) decision screen (SL-6)', () => {
+  const fatalBlowDecision = {
+    prompt: 'Shadow Stag is broken and cannot rise. Finish it, or let it live?',
+    // RA-3 correction: the real path can no longer produce `woundWord: 'Slain'` / `filled: 0`
+    // here — the player hasn't chosen finish/spare yet, so `handleCombatStep`'s fatal-blow
+    // branch deliberately bands a nominal 1 HP (never the real 0), reading a last-gasp
+    // survivor. 1/5 -> 'Battered', filled 1 (see `enemyConditionBand`'s own unit coverage).
+    combatStatus: {
+      enemyName: 'Shadow Stag',
+      woundWord: 'Battered',
+      pips: { filled: 1, total: 5 },
+      playerHp: 24,
+      playerMaxHp: 30,
+      playerHpDelta: 0,
+    },
+    combatRounds: [],
+    options: [
+      { label: 'Finish it', dcModifier: 0 },
+      { label: 'Show mercy', dcModifier: 0 },
+    ],
+  };
+
+  it('renders both options as lettered A/B body lines with no worded bail button', () => {
+    const msg = buildDecisionMessage(fatalBlowDecision, 1);
+    const desc = (msg.embeds[0] as any).description as string;
+
+    expect(desc).toContain('**A.** Finish it');
+    expect(desc).toContain('**B.** Show mercy');
+    expect(desc).toContain('Shadow Stag');
+
+    // Neither option is a bail (`dcModifier: 0` on both, per the RA-5c trap: a null dcModifier
+    // would route through step()'s bail path instead, charging stamina and leaving the fight live).
+    expect(buttons(msg).map((b: any) => b.label)).toEqual(['A', 'B']);
+  });
+});
+
 describe('buildDecisionMessage — option stat emoji degrades gracefully on a missing/unknown stat', () => {
   it('renders no icon (and does not crash) when stat is absent or unrecognised', () => {
     const msg = buildDecisionMessage({
@@ -577,13 +628,67 @@ describe('buildDecisionMessage — option stat emoji degrades gracefully on a mi
 });
 
 describe('Option decorations are render-only — the raw label persists as `chosen`', () => {
-  it('getChoiceLabel returns the undecorated label, with no stat emoji or dcArrow', () => {
-    setPendingDecision('narration-test-user', {
-      prompt: 'x',
-      narration: 'Something happens.',
-      options: [{ label: 'Shoulder-charge the brute', dcModifier: 2, stat: 'physical' }],
+  // Pins the real seam: the stat emoji + dcArrow shown on a decision's rendered option
+  // LINE (see actionViewState.ts's `optionLines` build) are cosmetic to that line only.
+  // The engine indexes and resolves `opt.label` itself — via `resolvePendingChoice` — which
+  // must stay undecorated, since that's what a bail/option click echoes back as `chosen`
+  // (M3.2 DC-A/C). A same-object mutation check (the old version of this test) can't fail
+  // even if decoration DID leak into the persisted label, because nothing here mutates the
+  // input option — it only proves buildDecisionMessage doesn't write back to its input, not
+  // that resolution stays undecorated. Wiring a real WorldEngineImpl end to end closes that
+  // gap: it renders the decorated line AND resolves the same seeded option through the real
+  // `resolvePendingChoice` path (mirrors tests/engine/resolve-pending-choice.test.ts's setup).
+  let engine: WorldEngineImpl;
+  let charRepo: CharacterRepository;
+  let characterId: number;
+
+  beforeEach(() => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    charRepo = new CharacterRepository(getDb());
+    engine = new WorldEngineImpl({
+      db: getDb(),
+      userRepo: new UserRepository(getDb()),
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new MockPipelineGateway(),
+      rollD20: () => 15,
     });
-    expect(getChoiceLabel('narration-test-user', 0)).toBe('Shoulder-charge the brute');
+    const char = engine.createCharacter('u1', {
+      name: 'Kael', class: 'Hunter', upbringing: 'Outskirts',
+      race: 'Human', alignment: 'Neutral', dayJob: 'Forager',
+    });
+    characterId = char.id;
+  });
+
+  afterEach(() => closeDb());
+
+  it('renders a decorated option line but resolves the raw, undecorated label', () => {
+    const options = [{ label: 'Shoulder-charge the brute', dcModifier: 2, stat: 'physical' }];
+    charRepo.update(characterId, {
+      last_action_state: JSON.stringify({ pendingDecision: { prompt: 'A brute blocks the path.', options } }),
+    });
+
+    // dcModifier: 2 (nonzero) + stat: 'physical' → the rendered line gains both the stat
+    // emoji prefix and the dcArrow suffix.
+    const msg = buildDecisionMessage(
+      { prompt: 'A brute blocks the path.', options },
+      0,
+      { rawInput: 'fight the brute', decisions: [], accumulatedDc: 8 },
+      { stats: { physical: 10, wisdom: 10, intelligence: 10, charisma: 10 } },
+    );
+    const desc = (msg.embeds[0] as any).description as string;
+    expect(desc).toContain('💪'); // physical stat emoji prefix
+    expect(desc).toContain('⬆️'); // dcArrow suffix (positive dcModifier)
+    expect(desc).toContain('**A.** 💪 Shoulder-charge the brute ⬆️');
+
+    // The label the engine actually indexes/resolves — via the real resolvePendingChoice,
+    // against the same seeded options — must be the raw label, with no decoration.
+    const resolved = engine.resolvePendingChoice(characterId, { kind: 'option', index: 0 });
+    expect(resolved).toBe('Shoulder-charge the brute');
   });
 });
 
@@ -696,8 +801,8 @@ describe('buildOutcomeEmbed — combat frame on outcome (0.3.2 P2)', () => {
     });
     const desc = (embed as any).description as string;
     // The enemy's banded condition (wound word) from the last beat appears.
-    // enemyHpBefore=6, enemyHpAfter=0 → fraction 0 → 'Critical'.
-    expect(desc).toContain('Critical');
+    // enemyHpAfter=0 (banded against enemyMaxHp=24) → fraction 0 → 'Slain' (RA-5a).
+    expect(desc).toContain('Slain');
   });
 
   it('a non-combat outcome still shows the location scene as before', () => {

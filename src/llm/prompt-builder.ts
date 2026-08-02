@@ -9,7 +9,7 @@ export const CRITIC_VERSION = 'v1';
 
 // v12 prompt-*set* version (docs/decisions/v12-prompt-set-versioning.md). The engine
 // now consumes loadPromptSet exclusively — the old v11 PROMPT_VERSION is gone.
-export const PROMPT_SET_VERSION = 'v12';
+export const PROMPT_SET_VERSION = 'v13';
 
 /** Maximum decision beats per action. Mirrors PipelineActionStateMachine's beat cap: after
  *  the first decision (index 0), the second is the final beat before resolve triggers.

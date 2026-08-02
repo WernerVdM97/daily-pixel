@@ -11,6 +11,7 @@
 import type { LocationRepository } from "../db/repositories/location.js";
 import type { LocationEdgeRepository } from "../db/repositories/locationEdge.js";
 import {
+  clampAuthoredItemModifiers,
   collapseStackedDeltas,
   validateMutations,
   type MutationContext,
@@ -181,7 +182,9 @@ export const CATEGORY_MUTATION_MAP: Record<string, string[]> = {
   // `in_combat`, social's `trust`/`disposition`/`knows_secret`/`fears`/`owes_debt`, skill/search's
   // `puzzle`. Pipeline-only ops in this pass (decision 1) — no live-path LLM emits them yet, so
   // this is additive telemetry config, not a behaviour change for existing ops.
-  combat:  ['modify_stamina', 'modify_health', 'add_item', 'update_npc', 'remove_npc', 'set_relation', 'update_relation'],
+  // add_npc: RA-3 bounded — the engine mints a survivor whose name never resolved to an
+  // NPC row, so it's now an expected combat mutation, not LLM-authored deviation noise.
+  combat:  ['modify_stamina', 'modify_health', 'add_item', 'add_npc', 'update_npc', 'remove_npc', 'set_relation', 'update_relation'],
   travel:  ['move_to', 'cross_frontier', 'modify_stamina', 'add_npc', 'add_item'],
   social:  ['modify_wealth', 'add_npc', 'update_npc', 'add_item', 'remove_item', 'set_relation', 'update_relation'],
   skill:   ['modify_stamina', 'modify_max_stamina', 'modify_rolls_remaining', 'set_relation', 'update_relation'],
@@ -231,9 +234,17 @@ function finalizeMutations(
     knownLocations: [...(ctx.knownLocations ?? []), ...geo.minted],
   };
 
+  // RA-1 Stage 1: clamp any over-limit LLM-authored `add_item.modifier` here, ahead of collapse
+  // and validation. This is the seam because finalize's output is what feeds RESOLVE-NARRATE's
+  // `### Final mutations`, the `actions.applied_mutations` audit column and the persisted item
+  // row alike, so all three agree on the number that landed. Clamping in `applyMutations` instead
+  // would leave the narration describing a +5 blade that persisted as +2 — the exact D5b
+  // incoherence this pipeline exists to remove.
+  const itemClamped = clampAuthoredItemModifiers(geo.mutations);
+
   // §5a stacked-delta clamp: collapse same-axis scalar deltas before validation so
   // the validator sees the already-summed (and capped) set, not individual −1/−2 pairs.
-  const collapsed = collapseStackedDeltas(geo.mutations);
+  const collapsed = collapseStackedDeltas(itemClamped);
 
   // §5 category deviation telemetry: log when a mutation falls outside its category's
   // expected set. Flag-only — never dropped (emergent scenes are legitimate). Must run on the

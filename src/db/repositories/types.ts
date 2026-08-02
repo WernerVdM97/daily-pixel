@@ -67,6 +67,7 @@ export interface LlmCallRow {
   prompt_version: string;
   call_kind: string;                  // 'decision' | 'critic'
   critic_severity: string | null;     // 'ok' | 'minor' | 'major' (critic calls only)
+  beat: string | null;                // 'decision' | 'resolution' (critic calls only; NULL pre-migration)
   model: string;
   temperature: number | null;
   tier: number;

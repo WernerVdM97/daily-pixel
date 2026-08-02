@@ -87,6 +87,10 @@ export interface ActionOption {
   stat?: string;
 }
 
+/** Selects which pending-decision option a player clicked, for `resolvePendingChoice`
+ *  (M3.2 DC-A) — 'option' picks by button index, 'bail' asks for the bail option's label. */
+export type PendingChoiceSelector = { kind: 'option'; index: number } | { kind: 'bail' };
+
 export interface ActionDecisionRecord {
   prompt: string;
   options: ActionOption[];
@@ -421,10 +425,17 @@ export interface WorldEngine {
    *  computed but not yet charged as stamina (deferred to fast-travel, §9). */
   routeBetween(from: string, to: string): TravelRoute | null;
 
-  /** Mark a location discovered (fog-of-war). For non-engine movement paths (the
-   *  daily-work commute) that set location directly — the resolution path records
-   *  visits itself. The target is a seeded node, so no edge is minted. */
-  recordVisit(characterId: number, locationName: string): void;
+  /** The day-job commute rule: a character standing at The Warden's Oak whose
+   *  workplace is elsewhere moves there for −1 stamina (floored at 0), and the
+   *  visit is recorded (fog-of-war). Returns the applied move, or null when no
+   *  commute applies (not at the Oak, no/unknown workplace, or already there). */
+  commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null;
+
+  /** Resolves a clicked decision button to its option label, replicating the deleted
+   *  Discord `pendingDecisions` map (M3.2 DC-A) so `stepAction` stays label-based. Reads
+   *  `last_action_state.pendingDecision.options` fresh off the row rather than trusting
+   *  client-held state — same "engine re-reads" spirit as `commuteToWorkplace` (M0). */
+  resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null;
 
   // Feedback & bugs — actionId links the report to the action whose outcome the button was
   // on (undefined for the /feedback, /bug slash commands and the nightly/release prompts).

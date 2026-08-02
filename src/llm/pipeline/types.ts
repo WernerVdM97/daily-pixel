@@ -1,4 +1,10 @@
 import type { ActionCategory, LlmContext, LlmDecisionOption } from '../LlmGateway.js';
+// Type-only import, erased at compile time: no runtime edge, so this does not create the
+// import cycle it would look like given engine/action also imports from llm/pipeline.
+// `combat-dc.ts` has zero imports of its own, so there is nothing to cycle back through.
+// Duplicating the DangerTier union here instead was rejected: two definitions of the same
+// vocabulary would drift the moment combat-dc.ts's tier ladder changes.
+import type { DangerTier } from '../../engine/action/combat-dc.js';
 
 /**
  * Pipeline routing key. Reuses the canonical `ActionCategory` union (LlmGateway.ts) rather
@@ -82,6 +88,25 @@ export interface PipelineResolveMutateInput {
   /** The raw d20 roll (1-20), or 0 for auto-resolve (no-roll types like rest/travel). */
   d20Roll: number;
   context: LlmContext;
+  /** SL-6's fatal-blow ending, when this resolution is one — `loadPromptSet` only selects on
+   *  category plus verdict (`prompt-builder.ts`), so both endings land on the same `success`
+   *  template and this is the prompt layer's only way to tell a kill from a spare. Absent on
+   *  every non-fatal-blow resolution. */
+  fatalBlow?: 'finish' | 'spare';
+  /** The interstitial's real prompt text, when the generic reconstruction
+   *  (`reconstructDecisionPrompt`) can't produce it — `PipelineDecideResult` deliberately carries
+   *  no `prompt` field, so a hand-authored beat like the fatal-blow interstitial has no other way
+   *  to reach the model. */
+  decisionPrompt?: string;
+  /** The DC the roll was resolved against, present only when a DC check decided the verdict.
+   *  Not sent on combat — combat is contested (`resolveCombatRound`'s margin), not DC-checked,
+   *  so there is no threshold to report here; see `foeDanger` below for combat's own signal. */
+  finalDc?: number;
+  /** The worded encounter-danger tier (`dangerTier()`, combat-dc.ts), combat only. Combat has no
+   *  DC to resolve against (contested margin, not a threshold), so `finalDc` would name a number
+   *  the round was never tested against; this and `finalDc` are deliberately two fields, not one,
+   *  because the two resolve paths carry two different kinds of difficulty signal. */
+  foeDanger?: DangerTier;
 }
 
 /** RESOLVE-MUTATE's output: PROPOSED mutations only — pre-finalize. The engine's pure
@@ -102,6 +127,25 @@ export interface PipelineResolveNarrateInput {
   d20Roll: number;
   finalMutations: unknown[];
   context: LlmContext;
+  /** SL-6's fatal-blow ending, when this resolution is one — `loadPromptSet` only selects on
+   *  category plus verdict (`prompt-builder.ts`), so both endings land on the same `success`
+   *  template and this is the prompt layer's only way to tell a kill from a spare. Absent on
+   *  every non-fatal-blow resolution. */
+  fatalBlow?: 'finish' | 'spare';
+  /** The interstitial's real prompt text, when the generic reconstruction
+   *  (`reconstructDecisionPrompt`) can't produce it — `PipelineDecideResult` deliberately carries
+   *  no `prompt` field, so a hand-authored beat like the fatal-blow interstitial has no other way
+   *  to reach the model. */
+  decisionPrompt?: string;
+  /** The DC the roll was resolved against, present only when a DC check decided the verdict.
+   *  Not sent on combat — combat is contested (`resolveCombatRound`'s margin), not DC-checked,
+   *  so there is no threshold to report here; see `foeDanger` below for combat's own signal. */
+  finalDc?: number;
+  /** The worded encounter-danger tier (`dangerTier()`, combat-dc.ts), combat only. Combat has no
+   *  DC to resolve against (contested margin, not a threshold), so `finalDc` would name a number
+   *  the round was never tested against; this and `finalDc` are deliberately two fields, not one,
+   *  because the two resolve paths carry two different kinds of difficulty signal. */
+  foeDanger?: DangerTier;
 }
 
 export interface PipelineResolveNarrateResult {
