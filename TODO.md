@@ -1,15 +1,14 @@
 # TODO
 
-## ⏭️ RESUME HERE - Release A cut as 0.3.3, owner to tag + merge (last touched 2026-08-02)
+## ⏭️ RESUME HERE - Release A shipped as 0.3.3 (merged to main, tagged v0.3.3); JSON seam M5–M10 arc is next (last touched 2026-08-02)
 
 **Read first:** [`docs/archived/poc-plus/poc-plus-release-a-plan.md`](./docs/archived/poc-plus/poc-plus-release-a-plan.md), the executor-grade build plan, archived post-cut. § Execution state and § Task log carry the per-task handover and the owner locks (SL-1…SL-7, all settled); § Stage 4 measurement and § P1 carry the v12-vs-v13 numbers and, more importantly, what the agent-player harness can and cannot measure. Parent tracking is [[poc-plus-roadmap]] § Re-sequencing.
 
-**State.** Release A is fully built, P1 (the daunting-band restatement) included, and the release is cut: `VERSION`/`package.json` at `0.3.3`, `CHANGELOG.md` `[0.3.3]` promoted and dated 2026-08-02, `assets/release-notes/v0.3.3.yml` written. P3 (the RESOLVE difficulty signal, [[resolve-difficulty-signal]]) was folded into the cut afterwards, because editing v13 in place is only available until 0.3.3 deploys and starts stamping rows. Baseline **89 files / 1675 tests**, typecheck clean. **v13 is live in every path**, `PROMPT_SET_VERSION = 'v13'` and `ProdPipelineGateway` defaults to `loadPromptSet()`, so production loads the new prose and the balance change is real.
+**State.** Release A is fully built, P1 (the daunting-band restatement) included, and the release is cut: `VERSION`/`package.json` at `0.3.3`, `CHANGELOG.md` `[0.3.3]` promoted and dated 2026-08-02, `assets/release-notes/v0.3.3.yml` written. P3 (the RESOLVE difficulty signal, [[resolve-difficulty-signal]]) was folded into the cut afterwards, because editing v13 in place is only available until 0.3.3 deploys and starts stamping rows. Baseline **89 files / 1686 tests** (reconciled 2026-08-02 by the json-seam lead — the 1675 recorded at the cut predates the P3 + fail-open commits), typecheck clean. **v13 is live in every path**, `PROMPT_SET_VERSION = 'v13'` and `ProdPipelineGateway` defaults to `loadPromptSet()`, so production loads the new prose and the balance change is real.
 
-**Two things left, both the owner's, per the `releasing` skill:**
+**Owner steps, both done 2026-08-02:** the work merged through `dev` to `main` (`3d76005 release: v0.3.3`) and `v0.3.3` is tagged. `dev` sits at `56e127d`, an ancestor of `main`.
 
-1. **Merge the work through to `main`**: `poc-plus/release-a-polish` → `dev`, then `dev` → `main` (`--no-ff`). No agent commits, pushes, or checks out `dev`/`main` directly; this is the owner's step end to end.
-2. **Tag `v0.3.3`** and push it.
+**Next arc:** the JSON protocol seam refactor (M5–M10), specced in [[json-seam-protocol]] — branch `feat/json-seam-protocol`, execution state in that doc.
 
 **Two standing cautions for whoever picks this up next.**
 
@@ -19,6 +18,24 @@
 **Discipline (unchanged, and not release-specific):** one orchestrated-delegation loop per task: lead scouts and finalises the handoff, executor builds, lead verifies (typecheck + suite + the task's acceptance boxes), commit, fresh-context reviewer critiques, lead triages, fixer lands accepted findings, verify, commit. Atomic commit per task; changelog current per task. **A green suite is not evidence that a prompt rule is reachable.** Stage 4's review caught an inspiration grant gated on a natural 20 in a category that never rolls; P1's review caught a reward instruction keyed to a DC that RESOLVE is never sent. Prose that keys off an engine signal (`D20:`, `PHASE:`, `needs_roll`, a category flag, any numeric the prompt names) must be checked against the message the engine actually builds, not merely read for sense. Live runs need `set -a; . ./.env; set +a` first (there is no `dotenv`). Prod host `192.168.0.242` was unreachable as of 2026-07-29, so re-pulling a snapshot may not be possible. Scope fences hold: no lethality, no shared-world plumbing, no classify-accuracy work, no item-economy depth.
 
 ## scratchpad (humans start here)
+
+### Prod-data review — two-week window (2026-07-19 → 08-02, snapshot `warden-20260802-212213`)
+
+Fresh pull succeeded, day 27, 123 actions / 1016 LLM calls / 5 chars — so the RESUME HERE note that prod host `192.168.0.242` was unreachable no longer holds. Two-week window: 37 actions across 8 active days, 3 players (BendiusOver, WernerVanDerMervwe, Sir Gary); **Schlong and Ser Redquad churned after week one** (nothing since 07-13/07-14). BendiusOver is the only tester on new content (45 of 123 lifetime actions) and he ended the week at 1/10 HP after his worst session. The **only feedback filed in the entire window is "This sucked"** (F#14, 08-02 14:41, 12s after bailing a fight) — sentiment is otherwise silent, the player only files when something breaks.
+
+**The 08-02 wolf fight is the pain centre** (B#17-19): 13 combat rounds, 14 LLM calls, ~95k tokens, ~20 min wall-clock (14:20 → 14:40), avg ~19s per round, ending in a bail worth just −1 stamina. Player-reported state inconsistencies: enemy HP bar bounces down and back to full mid-action, difficulty flips hard→medium, card shows a minion instead of the wolf, and a "final stand" fires mid-win with a −7 margin and both sides losing 1 HP. This was also the **first human exposure to the v13 hard 16-18 ladder** and it ended in frustration, so the RESUME HERE "combined feel may read stingy" caution is now a live concern, not theory.
+
+**Latency degraded sharply in the last 3 days**: 07-31 avg 16.1s (5 calls >30s, one 60s abort — the reality-fracture decide), 08-02 avg 18.7s (5 calls >30s, max 43s), vs 5.7-7.9s avg for 07-19 → 07-30. The 07-31 spike ran v12 prompts, so it predates v13 → provider-side contention on deepseek-v4-flash is the prime suspect, not the prompt set. Note 0.3.3's fail-open fix (commit `15277e3`) has not yet absorbed a real abort — the 07-31 one died under 0.3.2.
+
+**Health checks that came back green**: parse_ok 99.8% (2 failures ever, both 60s aborts), zero fallbacks, zero validation warnings, zero HTTP errors, no `done` auto-resolve outcomes at all. Roll-economy question answered: B#16 "was my roll really refunded" — yes, the 07-28 10:30 timed-out fish (DC 14, no roll spent) was retried at 10:36 with a fresh roll and succeeded.
+
+**Follow-ups:**
+
+- [ ] **Combat length**: 13 rounds reads as "repeat spamming press the attack" (F#14/B#19). A round cap or an explicit mid-fight "press the advantage / break off" affordance; the bail path exists but costs nothing and reads as defeat.
+- [ ] **Combat state desync**: minion↔wolf mixup, HP-bar bounce, hard→medium drift (B#17-19) point at the persisted in-combat edge disagreeing with what the card renders. Trace the 08-02 calls end-to-end. Related to the open C4 in_combat-edge-duplication item.
+- [ ] **Latency investigation**: decide-call latency roughly tripled 07-30 → 07-31/08-02 (avg ~19s on 08-02; 10 calls >30s across two sessions). Suspect provider contention; also check reasoning-length growth per beat. Cross-refs the MVP "LLM latency" item and the classify-critic TBD item.
+- [ ] **RA-1/RA-2 first-exposure watch**: the re-anchored ladder's only human test ended in a bail + "This sucked", and the player is at 1/10 HP; combined stinginess remains unmeasured. The next BendiusOver session is the datapoint.
+- [ ] **Retention**: 2/5 characters churned after week one; the active tester's worst session was the most recent. Worth revisiting the stage-2 solo-first plan (nat 1/20 beats) as a hook before wider invites.
 
 ### POC+ re-sequencing — prod-data review (2026-07-23)
 
@@ -67,6 +84,7 @@ Three live DeepSeek smoke runs (1d, 1d, 2d) all completed clean (exit 0, 0 forma
 - [ ] remove critic from classify. conditionally. latency seems high. mine prod for investigation *(note: RA-4 already gated the narrate critic — `CRITIC_GATE_MODE`, default `narrate-gated`; this item is the classify stage specifically.)*
 - [ ] many frame has two spaces for padding left. refactor to 1
 - [ ] map seems formatted weird:
+
 ```
 The Vale (home)
 🌳🛡️ The Warden's Oak
@@ -90,8 +108,10 @@ Unexplored paths
 🌿 The Forest Edge
 └─ 🏃 ➡️ The Stag's Den
 ```
+
 the bottom unexplored path for the stags den should actually render in the top, but greyed out or something to show its unexplored.
 one would look at the "you are here" first , then aroud you, and having the forest edge not show there is bad UX
+
 - [ ] improve art blocks on messages
   - drop the old ugly scene ascii. this will be only used for look.
   - like the art on the classified outcome page should be redisplayed on the thinking page.
