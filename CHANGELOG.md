@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.3.3] - 2026-08-02
+### Internal
+
+- **JSON seam protocol types landed (M5.0)** — `src/protocol/` gains the versioned `GameResponse` envelope, the M5 `GameEvent` union, the 9-code error taxonomy, and hand-rolled validators (the `facts` key set is whitelisted so the escape hatch can't grow silently). Additive only; no production caller yet (commits pending).
 
 ### Added
 
