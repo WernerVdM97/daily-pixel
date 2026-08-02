@@ -147,7 +147,6 @@ Fresh reports from a single QA session (snapshot `warden-20260708-201456`, chara
 
 **Feedback / feature asks**
 
-- [x] **NPC coherency — mint on first sight** — narrative said the player sees a caravan, then said they don't; the NPC wasn't persisted on first mention (F#1). Both halves now landed: RA-3's combat half and stage 4 step 4's non-combat vocab. See [[mvp+npc-economy]], [[mvp-data-model]] (world-state tracking).
 - [ ] **Richer `/hi` opening prose** — pressing Hi should generate a prose opener that scales with time since last interaction (referencing days or a few actions) and reminds the player of their work, quests, and loose ends (F#2). Extends the existing "morning/evening custom prose" and "add /hi to the new-hero message" TBD items.
 - [ ] **Buttons going missing is annoying — do the menu rework soon** (F#5). Fresh datapoint bumping the "menu framework coupled to views" MVP item / [[discord-interaction-layer]].
 
