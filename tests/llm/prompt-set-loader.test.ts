@@ -411,14 +411,20 @@ describe(`${PROMPT_SET_VERSION} content assertions — stage 4 acceptance`, () =
       ),
       'utf-8',
     );
-    // Anchor on the specific line stating the ladder bands, then require it to name the composed
-    // final DC (dcModifier) rather than passing vacuously on a bare band mention elsewhere in the
-    // file. This must fail if the ladder is ever restated on `baseDc` alone, per finding 5.
-    const ladderLine = tpl
+    // Anchor on EVERY line stating the ladder bands, not just the first: the file states the
+    // ladder twice (the rule bullet and the pre-flight check), and a regression that reverts only
+    // one of them (e.g. the pre-flight check back to a bare `baseDc` claim) must not pass
+    // undetected because `.find()` only ever checked the first match. Require there to be more
+    // than one such line, so the test itself fails loudly if the file is ever restructured to
+    // carry the band string in only one place, and require every one of them to name the
+    // composed final DC (dcModifier) rather than passing vacuously on a bare band mention.
+    const ladderLines = tpl
       .split('\n')
-      .find((line) => line.includes('11-13 routine, 16-18 hard, 20-24 daunting'));
-    expect(ladderLine).toBeTruthy();
-    expect(ladderLine).toContain('dcModifier');
+      .filter((line) => line.includes('11-13 routine, 16-18 hard, 20-24 daunting'));
+    expect(ladderLines.length).toBeGreaterThan(1);
+    for (const line of ladderLines) {
+      expect(line).toContain('dcModifier');
+    }
     // The anchor half: baseDc must be instructed to sit mid-spread, with the ±5 cap named as the
     // reason, not just described as "base difficulty".
     expect(tpl).toContain('anchor of the spread');
