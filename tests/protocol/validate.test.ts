@@ -346,14 +346,54 @@ describe('validateGameResponse — invalid envelopes', () => {
     }
   });
 
+  it('rejects a non-integer or non-finite nav rollsRemaining', () => {
+    // typeof number passes NaN/Infinity/fractionals, so the check must be Number.isInteger
+    for (const rollsRemaining of [NaN, 1.5, Infinity, -Infinity]) {
+      const result = validateGameResponse({
+        v: PROTOCOL_VERSION, ok: true,
+        facts: { nav: { rollsRemaining, hasPendingAction: false, hasRestedToday: true } },
+      });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
   it('rejects a non-JSON-serialisable facts value', () => {
     for (const facts of [
       { narration: undefined },
-      { narration: () => 'nope' }, // JSON.stringify throws on a top-level function
+      { narration: () => 'nope' }, // stringify only returns undefined for a TOP-LEVEL function
     ]) {
       const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts });
       expect(result).toEqual({ ok: false, message: expect.any(String) });
     }
+  });
+
+  it('rejects a nested function deep inside a facts value', () => {
+    // a nested function/undefined is silently DROPPED by JSON.stringify, so only a
+    // deep walk catches it — stringify alone would call this value "serialisable"
+    for (const facts of [
+      { narration: { nested: () => 'nope' } },
+      { narration: [{ inner: { deeper: () => 'nope' } }] },
+    ]) {
+      const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects an ok:true envelope that also carries error', () => {
+    const result = validateGameResponse({
+      v: PROTOCOL_VERSION, ok: true,
+      error: { code: 'internal', message: 'boom' },
+    });
+    expect(result).toEqual({ ok: false, message: expect.any(String) });
+  });
+
+  it('rejects an ok:false envelope that also carries view', () => {
+    const result = validateGameResponse({
+      v: PROTOCOL_VERSION, ok: false,
+      error: { code: 'internal', message: 'boom' },
+      view: noticeView,
+    });
+    expect(result).toEqual({ ok: false, message: expect.any(String) });
   });
 
   it('rejects ok:false without an error object', () => {

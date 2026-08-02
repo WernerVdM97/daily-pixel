@@ -48,12 +48,25 @@ const isTitle = (value: unknown): boolean =>
 const isOptionalStoryThread = (value: unknown): boolean =>
   value === undefined || (isRecord(value) && isString(value.full) && isString(value.collapsed));
 
-/** JSON drops undefined and functions (stringify returns undefined), throws on
- *  bigints/circular refs — probing with stringify is the literal "is this field
- *  JSON-serialisable" check without cloning anything. */
+/** Deep JSON-serialisability walk: rejects undefined, functions, symbols and
+ *  bigints ANYWHERE in the value, not just at the top level — JSON.stringify
+ *  silently DROPS a nested undefined/function/symbol and only signals trouble
+ *  for a top-level one (returns undefined) or for bigints (throws), so probing
+ *  with stringify would let a nested poison pass as "serialisable". Circular
+ *  references blow the recursion and are caught by the try/catch below. */
 const isJsonSerialisable = (value: unknown): boolean => {
   try {
-    return JSON.stringify(value) !== undefined;
+    if (
+      value === undefined
+      || typeof value === 'function'
+      || typeof value === 'symbol'
+      || typeof value === 'bigint'
+    ) {
+      return false;
+    }
+    if (value === null || typeof value !== 'object') return true;
+    if (Array.isArray(value)) return value.every(isJsonSerialisable);
+    return Object.keys(value).every((key) => isJsonSerialisable((value as Record<string, unknown>)[key]));
   } catch {
     return false;
   }
@@ -124,7 +137,7 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
       if (
         !isRecord(nav)
         || Object.keys(nav).length !== 3
-        || typeof nav.rollsRemaining !== 'number'
+        || !Number.isInteger(nav.rollsRemaining)
         || typeof nav.hasPendingAction !== 'boolean'
         || typeof nav.hasRestedToday !== 'boolean'
       ) {
@@ -134,6 +147,10 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
   }
 
   if (raw.ok) {
+    // ok:true envelopes must not smuggle the error arm's members across the seam
+    if ('error' in raw) {
+      return { ok: false, message: 'ok:true envelope must not carry an error field' };
+    }
     if (raw.view !== undefined && !validateView(raw.view)) {
       return { ok: false, message: 'envelope.view is not a valid ViewState' };
     }
@@ -141,7 +158,11 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
   }
 
   // ok: false — error.code + error.message are the only required members (facts already
-  // checked above; the stale-session narration rides it).
+  // checked above; the stale-session narration rides it), and the view arm's member
+  // must not leak across the seam either.
+  if ('view' in raw) {
+    return { ok: false, message: 'ok:false envelope must not carry a view field' };
+  }
   const error = raw.error;
   if (
     !isRecord(error)

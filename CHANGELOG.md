@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **JSON seam protocol types landed (M5.0)** — `src/protocol/` gains the versioned `GameResponse` envelope, the M5 `GameEvent` union, the 9-code error taxonomy, and hand-rolled validators (the `facts` key set is whitelisted so the escape hatch can't grow silently). Additive only; no production caller yet (commits pending).
 
+## [0.3.3] - 2026-08-02
+
 ### Added
 
 - **A newcomer the story names now arrives with a body** *(RA-3, non-combat half / F#1)* — the narrator mints a named newcomer the moment it is described rather than leaving it as prose, and `add_npc` gained an optional `health` field so the townsperson you met is a real, re-encounterable NPC a later fight can measure itself against.
