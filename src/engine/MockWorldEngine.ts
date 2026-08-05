@@ -43,6 +43,7 @@ export class MockWorldEngine implements WorldEngine {
   private _exits: LocationExits | null = null;
   private _tickResult: TickResult | null = null;
   private _soulsInUnsafe = 0;
+  private _activePlayersSince = 0;
   private _leaderboards: Leaderboards = { wealth: [], might: [] };
   private _weeklyActions: WeeklyActionSummary[] = [];
   private _meta: Map<string, string> = new Map();
@@ -67,6 +68,7 @@ export class MockWorldEngine implements WorldEngine {
     updateLastPlayed: number[];
     modifyHealth: { discordUserId: string; amount: number }[];
     countSoulsInUnsafe: void[];
+    countActivePlayersSince: string[];
     tick: boolean[];
     restAtOak: string[];
     spawnNpc: { name: string; location: string }[];
@@ -90,6 +92,7 @@ export class MockWorldEngine implements WorldEngine {
     updateLastPlayed: [],
     modifyHealth: [],
     countSoulsInUnsafe: [],
+    countActivePlayersSince: [],
     restAtOak: [],
     tick: [],
     spawnNpc: [],
@@ -143,6 +146,10 @@ export class MockWorldEngine implements WorldEngine {
   }
   setSoulsInUnsafe(count: number): void {
     this._soulsInUnsafe = count;
+  }
+
+  setActivePlayersSince(count: number): void {
+    this._activePlayersSince = count;
   }
 
   setCommuteResult(result: { to: string; stamina: number } | null): void {
@@ -394,5 +401,10 @@ export class MockWorldEngine implements WorldEngine {
   countSoulsInUnsafe(): number {
     this.calls.countSoulsInUnsafe.push();
     return this._soulsInUnsafe;
+  }
+
+  countActivePlayersSince(startIso: string): number {
+    this.calls.countActivePlayersSince.push(startIso);
+    return this._activePlayersSince;
   }
 }
