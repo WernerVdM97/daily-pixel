@@ -220,6 +220,14 @@ describe('validateGameResponse — valid envelopes', () => {
     expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
   });
 
+  it('accepts a well-formed restUnsafe fact (unsafe rest, DC-M7.1.4)', () => {
+    const envelope = {
+      v: PROTOCOL_VERSION, ok: true,
+      facts: { restUnsafe: { name: 'Werner', prev: { health: 10, stamina: 10 }, updated: { health: 9, stamina: 10 } } },
+    };
+    expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
+  });
+
   it('accepts ok:false with facts (the stale-session narration case)', () => {
     const envelope = {
       v: PROTOCOL_VERSION, ok: false,
@@ -352,6 +360,68 @@ describe('validateGameResponse — invalid envelopes', () => {
       const result = validateGameResponse({
         v: PROTOCOL_VERSION, ok: true,
         facts: { nav: { rollsRemaining, hasPendingAction: false, hasRestedToday: true } },
+      });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a restUnsafe fact that is not a plain object', () => {
+    for (const restUnsafe of ['nope', 42, null, []]) {
+      const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts: { restUnsafe } });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a restUnsafe fact without exactly 3 keys', () => {
+    for (const restUnsafe of [
+      { name: 'Werner' }, // missing prev + updated
+      { name: 'Werner', prev: { health: 10, stamina: 10 } }, // missing updated
+      { name: 'Werner', prev: { health: 10, stamina: 10 }, updated: { health: 10, stamina: 10 }, extra: 1 },
+    ]) {
+      const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts: { restUnsafe } });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a restUnsafe fact with a missing, empty, or wrong-typed name', () => {
+    for (const name of [undefined, '', 42]) {
+      const result = validateGameResponse({
+        v: PROTOCOL_VERSION, ok: true,
+        facts: { restUnsafe: { name, prev: { health: 10, stamina: 10 }, updated: { health: 10, stamina: 10 } } },
+      });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a malformed restUnsafe prev', () => {
+    for (const prev of [
+      undefined, // missing
+      'nope',
+      { health: 10 }, // missing stamina
+      { health: -1, stamina: 10 }, // negative health
+      { health: 10, stamina: 1.5 }, // non-integer stamina
+      { health: 10, stamina: 10, extra: 1 }, // extra key
+    ]) {
+      const result = validateGameResponse({
+        v: PROTOCOL_VERSION, ok: true,
+        facts: { restUnsafe: { name: 'Werner', prev, updated: { health: 10, stamina: 10 } } },
+      });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a malformed restUnsafe updated', () => {
+    for (const updated of [
+      undefined, // missing
+      'nope',
+      { health: 10 }, // missing stamina
+      { health: -1, stamina: 10 }, // negative health
+      { health: 10, stamina: 1.5 }, // non-integer stamina
+      { health: 10, stamina: 10, extra: 1 }, // extra key
+    ]) {
+      const result = validateGameResponse({
+        v: PROTOCOL_VERSION, ok: true,
+        facts: { restUnsafe: { name: 'Werner', prev: { health: 10, stamina: 10 }, updated } },
       });
       expect(result).toEqual({ ok: false, message: expect.any(String) });
     }

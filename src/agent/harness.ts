@@ -224,10 +224,12 @@ export class AgentHarness {
    *  −1 HP now surfaces for the first time as a `warning` finding from the `restUnsafe` fact (closes
    *  M4.5 fidelity caveat 2). The nightly world tick stays engine-direct — the cron advances the
    *  world for everyone, so an idler still takes its unsafe-ground stamina drain. The day-line
-   *  label still reads `before.rollsRemaining` (a QA label, not a rule). Error ENVELOPES never
-   *  abort — only a THROWN bookend call stops the run. `rollsRemaining` MUST be read before the
-   *  tick (which refills it). Returns false if a bookend call throws (captured as a finding naming
-   *  the step) so the caller stops rather than advancing into a day that never ticked. */
+   *  label still reads `before.rollsRemaining` (a QA label, not a rule). No-character and
+   *  illegal-move error envelopes never abort; a THROWN bookend call or an 'internal' rest
+   *  envelope (the router converting a thrown beginRest/restAtOak) stops the run. `rollsRemaining`
+   *  MUST be read before the tick (which refills it). Returns false if a bookend call throws or
+   *  the rest half returns 'internal' (both captured as a finding naming the step) so the caller
+   *  stops rather than advancing into a day that never ticked. */
   private async endDay(): Promise<boolean> {
     let step = 'nightly rest (read character)';
     try {
@@ -249,6 +251,12 @@ export class AgentHarness {
         }
       } else if (response.error.code === 'no-character') {
         this.transcript.deadEnd('no-character');
+      } else if (response.error.code === 'internal') {
+        // The router never throws: a throwing beginRest/restAtOak becomes an ok:false 'internal'
+        // envelope. A rest-half crash means DB/state trouble the nightly tick would likely repeat,
+        // so capture it as an error finding and stop — the pre-M7.1 restAtOak throw contract.
+        this.transcript.finding('error', `nightly rest failed: ${response.error.message}`);
+        return false;
       }
       // illegal-move (rolls unspent or mid-action) = idler — no finding, no abort.
 
