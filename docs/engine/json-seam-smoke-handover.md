@@ -1,6 +1,7 @@
 ---
 title: JSON Seam — Smoke-Run Upgrade Brainstorm (lead prompt)
-status: spark
+status: superseded
+superseded_by: "[[json-seam-protocol]] § Smoke-run tooling plan (M8.5)"
 domain: engine
 phase: mvp
 tags: [architecture, engine, protocol, seam, agent-player, smoke, qa, brainstorm, handover]
@@ -12,6 +13,19 @@ related:
 Brainstorm prompt for a fresh lead session: how the JSON seam upgrades the agent-player smoke runs, so the model inputs directly into the seam and plays the full player lifecycle exactly like a user would, and the smoke artifacts become protocol-shaped, replayable QA instruments. Paste in full to a fresh lead agent. This session SPECS, it does not implement: the deliverable is a settled design (a "smoke-run tooling plan" section in [[json-seam-protocol]] with settled calls, or a `docs/decisions/` record where a settled decision changes) plus the next slice's shape.
 
 ---
+
+## Settled (2026-08-05)
+
+This session settled all six design questions (Q1–Q6) as DC-S1–S6 in [[json-seam-protocol]]'s new "Smoke-run tooling plan" section (lead-settled 2026-08-05, docs only — no code landed):
+
+- Q1 protocol transcript → **DC-S1** (Option A — augment, recorded always)
+- Q2 replay + stub-backed modes → **DC-S2**
+- Q3 full-lifecycle parity → **DC-S3**
+- Q4 observer/player boundary → **DC-S4**
+- Q5 choice-fidelity invariants → **DC-S5**
+- Q6 slice shape + gate → **DC-S6** (a dedicated **M8.5** slice between M8 and M9)
+
+The four brainstorm deliverables landed as: the "Smoke-run tooling plan" section in the spec doc (deliverable 1); no `docs/decisions/` record (deliverable 2 — the observer boundary is a clarification of the law's scope, not a change); the M8.5 slice outline in the plan section (deliverable 3); and this doc's supersede flip + TODO.md reconcile (deliverable 4). The body below stays intact as the historical record of the questions.
 
 ## The opportunity (why now)
 
