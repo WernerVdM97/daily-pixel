@@ -336,6 +336,9 @@ class StubBackend implements RouterBackend {
   stepResult: StepChoiceResult | 'throw' = { kind: 'decision', view: decisionView };
   restResult: RestBeginResult | 'throw' = { kind: 'no-character' };
   hiResult: HiOpenResult | 'throw' = { kind: 'no-character' };
+  /** Overridable no-log read for addCharacterFacts' nav facts — lets a stub case mirror the
+   *  real backend's mid-action character (DC-P7 observability, e.g. hasPendingAction). */
+  character: CharacterData = stubChar;
   confirmationResult: NoticeViewState | 'throw' = noticeView;
   recordResult: 'ok' | 'throw' = 'ok';
 
@@ -350,7 +353,7 @@ class StubBackend implements RouterBackend {
   }
 
   getCharacter(_userId: string): CharacterData | null {
-    return stubChar;
+    return this.character;
   }
 
   stampLastPlayed(_userId: string): void {
@@ -699,7 +702,7 @@ describe('conformance — hi.open (fake timers: Wednesday 2026-07-15)', () => {
         });
         return realRouter(engine);
       },
-      stub: () => stubRouter((s) => { s.hiResult = HI_RESUME; }),
+      stub: () => stubRouter((s) => { s.hiResult = HI_RESUME; s.character = { ...stubChar, lastActionState: IN_FLIGHT as never }; }),
       assert: (o) => {
         const view = expectOkView(o.response, 'notice') as NoticeViewState;
         expect(view.text).toContain('The trail forks. Continue?');
@@ -714,7 +717,7 @@ describe('conformance — hi.open (fake timers: Wednesday 2026-07-15)', () => {
           wealth: expect.any(Number),
           location: expect.any(String),
         });
-        expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: expect.any(Boolean), hasRestedToday: false });
+        expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: true, hasRestedToday: false });
         expect(o.beats).toEqual([]);
       },
     },

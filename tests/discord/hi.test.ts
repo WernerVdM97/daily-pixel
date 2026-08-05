@@ -221,15 +221,18 @@ describe("unfinished-action screen", () => {
       getLocation: () => ({ name: "The Warden's Oak", emoji: "🌳", isSafe: true }),
       resumeAction: () => ({ nextDecision: { prompt: "What do you do?", narration: "The path forks." } }),
       getMeta: () => "1",
+      updateLastPlayed: vi.fn(),
     } as unknown as WorldEngine;
   }
 
   it("does not offer the impossible free-text continue instruction", async () => {
-    const hi = makeHandler(makeEngineWithPending(), mockDayJobs);
+    const engine = makeEngineWithPending();
+    const hi = makeHandler(engine, mockDayJobs);
     const out = await hi({ user: { id: "u1" } });
     expect(out).toContain("Unfinished Action");
     expect(out).toContain("Press the **Action** button to continue.");
     expect(out).not.toContain("action <what you do>");
+    expect((engine as unknown as { updateLastPlayed: ReturnType<typeof vi.fn> }).updateLastPlayed).not.toHaveBeenCalled();
   });
 });
 
@@ -241,6 +244,7 @@ describe("greeting screen through the router", () => {
       getCharacter: () => makeChar(),
       getLocation: () => null,
       getMeta: () => "1",
+      updateLastPlayed: vi.fn(),
     } as unknown as WorldEngine;
   }
 
@@ -250,13 +254,15 @@ describe("greeting screen through the router", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-07-15T12:00:00Z"));
     try {
-      const hi = makeHandler(makeEngineWithCharacter(), mockDayJobs);
+      const engine = makeEngineWithCharacter();
+      const hi = makeHandler(engine, mockDayJobs);
       const out = await hi({ user: { id: "u1" } });
 
       expect(out).toContain("The Town Forge");
       expect(out).toContain("Daily Work");
       expect(out).toContain("Press the **Action** button or type `action <what you do>` to start.");
       expect(out).not.toContain("Weekend");
+      expect((engine as unknown as { updateLastPlayed: ReturnType<typeof vi.fn> }).updateLastPlayed).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
