@@ -28,7 +28,7 @@ export type GameResponse =
 /** The closed facts set (DC-P1). A key is added only when a consuming adapter justifies it —
  *  the validator rejects anything outside this set, which is what stops the "second
  *  protocol" escape hatch from growing silently. */
-const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe']);
+const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter']);
 
 const GAME_ERROR_CODES = new Set<GameErrorCode>(['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal']);
 
@@ -111,6 +111,27 @@ const validateView = (view: unknown): boolean => {
       return isString(view.body);
     case 'commute':
       return isString(view.destination) && isString(view.idle);
+    case 'wizard':
+      return Number.isInteger(view.step)
+        && Number.isInteger(view.totalSteps)
+        && isString(view.ledger)
+        && isString(view.body)
+        && isString(view.footer)
+        && Array.isArray(view.buttons)
+        && view.buttons.every(b =>
+          isRecord(b) && isString(b.kind) && isString(b.label) && (b.emoji === undefined || isString(b.emoji)))
+        && (view.nameField === undefined || (
+          isRecord(view.nameField)
+          && isString(view.nameField.label)
+          && isString(view.nameField.placeholder)
+          && Number.isInteger(view.nameField.minLength)
+          && Number.isInteger(view.nameField.maxLength)
+        ))
+        && (view.options === undefined || (
+          Array.isArray(view.options)
+          && view.options.every(o =>
+            isRecord(o) && isString(o.value) && isString(o.label) && (o.emoji === undefined || isString(o.emoji)))
+        ));
     default:
       return false;
   }
@@ -198,6 +219,27 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
       }
       if (!vitalsOk(ru.updated)) {
         return { ok: false, message: 'facts.restUnsafe.updated must be { health: number; stamina: number }' };
+      }
+    }
+    // `createdCharacter` — the M7.3 confirm result (DC-M7.3.7): the exact CharCreateData
+    // (name/class/upbringing/race/alignment/dayJob non-empty strings + optional
+    // itemSetName; nothing else — consumer in-slice: the rewired join confirm handler's
+    // public ✨ announcement).
+    if ('createdCharacter' in raw.facts) {
+      const cc = raw.facts.createdCharacter;
+      if (!isRecord(cc)) {
+        return { ok: false, message: 'facts.createdCharacter must be a plain object' };
+      }
+      if (!Object.keys(cc).every(k => ['name', 'class', 'upbringing', 'race', 'alignment', 'dayJob', 'itemSetName'].includes(k))) {
+        return { ok: false, message: 'facts.createdCharacter carries an unknown key' };
+      }
+      for (const k of ['name', 'class', 'upbringing', 'race', 'alignment', 'dayJob']) {
+        if (!isString(cc[k]) || (cc[k] as string).length === 0) {
+          return { ok: false, message: `facts.createdCharacter.${k} must be a non-empty string` };
+        }
+      }
+      if (cc.itemSetName !== undefined && !isString(cc.itemSetName)) {
+        return { ok: false, message: 'facts.createdCharacter.itemSetName must be a string when present' };
       }
     }
   }

@@ -5,12 +5,14 @@
  * action path; `viewToText` reads envelope views; the brain's character snapshot comes from
  * the `characterState` fact (DC-M6.1).
  *
- * Bookends: character creation stays engine-direct until M7.3; the nightly rest half of
- * `endDay` crosses the seam as `rest.begin` (M7.1) — only the world `tick(true)` cron call
- * stays engine-direct (the cron mechanism is engine-owned, not agent lifecycle).
+ * Bookends: the nightly rest half of `endDay` crosses the seam as `rest.begin` (M7.1);
+ * character creation crossed as the wizard events at M7.3 (DC-M7.3.9 — `seedCharacter`
+ * left the harness; `seedCharacterViaProtocol` drives the walk through the router) — only
+ * the world `tick(true)` cron call stays engine-direct (the cron mechanism is engine-owned,
+ * not agent lifecycle).
  */
 
-import type { WorldEngine, CharacterData, CharCreateData } from '../engine/WorldEngine.js';
+import type { WorldEngine, CharacterData } from '../engine/WorldEngine.js';
 import type { MenuViewState, DecisionViewState, ViewState } from '../view/viewState.js';
 import type { AgentPlayerGateway, AgentMove, LegalMove, AgentCharView } from './AgentPlayerGateway.js';
 import { viewToText } from './viewToText.js';
@@ -75,12 +77,6 @@ export class AgentHarness {
     private readonly brain: AgentPlayerGateway,
     private readonly userId: string,
   ) {}
-
-  /** Create the character engine-direct — the `join` wizard is a Discord-only bookend with no
-   *  controller seam (DA-4), so the harness seeds it straight on the engine, like `sim/` does. */
-  seedCharacter(data: CharCreateData): CharacterData {
-    return this.engine.createCharacter(this.userId, data);
-  }
 
   /** Drive one action from the action menu to a terminal disposition. The router never throws
    *  (every path through `dispatch` returns a `GameResponse` envelope), so the outer try/catch

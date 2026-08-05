@@ -1792,6 +1792,283 @@ Range-born. Your family kept the borders, watched the roads, knew when something
 ]
 `;
 
+exports[`bookend oracle — join > 17 · wizard TTL expiry → ephemeral 'session expired' safeNotify, session cleared 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ Your character creation session expired. Type \`/join\` to start over.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 18 · _userInFlight double-click guard → a second click while the first hangs produces ZERO acks 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Soldier",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎖️",
+              },
+              "label": "Soldier",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Merchant",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "⚖️",
+              },
+              "label": "Merchant",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Scholar",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📚",
+              },
+              "label": "Scholar",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Folk Hero",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🌟",
+              },
+              "label": "Folk Hero",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Outcast",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🏚️",
+              },
+              "label": "Outcast",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Noble",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "👑",
+              },
+              "label": "Noble",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Artisan",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🪚",
+              },
+              "label": "Artisan",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Farmstead",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🌾",
+              },
+              "label": "Farmstead",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Temple-Raised",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "⛪",
+              },
+              "label": "Temple-Raised",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Urchin",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🗝️",
+              },
+              "label": "Urchin",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Entertainer",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎭",
+              },
+              "label": "Entertainer",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Scout",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🧭",
+              },
+              "label": "Scout",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ ~~Class~~ → ⚔️ **Warrior**
+🌱 **Upbringing** ◀
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Upbringing**__
+🎖️ **Soldier**
+> 💪+1 📖-1
+Raised in a military family. Discipline was your first language. The scars are your father's.
+
+⚖️ **Merchant**
+> 💪-1 📖+1 💬+1
+Grew up behind a counter. You could read a ledger before you could read a story.
+
+📚 **Scholar**
+> 💪-1 📖+2 💬-1
+Books over breakfast. Your parents taught you the old tongues — some of them true.
+
+🌟 **Folk Hero**
+> 💬+1
+Common blood, uncommon courage. Your village still tells stories about the fire you pulled them from.
+
+🏚️ **Outcast**
+> 🧠+1 💬-1
+You grew up on the edge of things. The forest taught you what people wouldn't.
+
+👑 **Noble**
+> 💪-1 🧠-1 📖+1 💬+2
+Manor-born. You learned poise, politics, and how to make a room listen.
+
+🪚 **Artisan**
+> 💪+1 🧠+1 📖-1 💬-1
+Your hands know wood, stone, or metal before your mind knows letters.
+
+🌾 **Farmstead**
+> 💪+1 🧠+1 💬-1
+You read weather, soil, and seasons like others read books.
+
+⛪ **Temple-Raised**
+> 🧠+2 📖-1 💬-1
+Given to the old faith as a child. The hymns are still in your bones.
+
+🗝️ **Urchin**
+> 💪+1 🧠+1 💬-2
+The gutter taught you everything. Pockets, roofs, escape routes.
+
+🎭 **Entertainer**
+> 💪-1 📖-1 💬+2
+You travelled with a troupe. You learned to read a room before you learned to read a page.
+
+🧭 **Scout**
+> 💪+1 🧠+2 💬-2
+Range-born. Your family kept the borders, watched the roads, knew when something changed.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 3 of 7 — Upbringing",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 19 · illegal-choice (wrong step) → ephemeral 'That option is no longer available' safeNotify; session still at step 2 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ That option is no longer available. Type \`/join\` to start over.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
 exports[`bookend oracle — sleep > 12 · unsafe rest (THE M7.1 pin) → restAtOak + modifyHealth(−1), ⚠️ penalty section, announceCollapse once 1`] = `
 [
   {

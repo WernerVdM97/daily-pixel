@@ -21,7 +21,12 @@ export type GameEvent =
   | { type: 'feedback.submit'; playerId: string; surface: 'sleep' | 'release' | 'outcome-feedback'; text: string; actionId?: number }
   | { type: 'bug.submit'; playerId: string; text: string; actionId?: number }
   | { type: 'rest.begin'; playerId: string }
-  | { type: 'hi.open'; playerId: string };
+  | { type: 'hi.open'; playerId: string }
+  | { type: 'join.open'; playerId: string }
+  | { type: 'wizard.answer'; playerId: string; text: string }
+  | { type: 'wizard.choose'; playerId: string; step: number; value: string }
+  | { type: 'wizard.restart'; playerId: string }
+  | { type: 'character.create'; playerId: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -49,6 +54,17 @@ export function validateGameEvent(raw: unknown): { ok: true; event: GameEvent } 
     case 'rest.begin':
       return { ok: true, event: raw as unknown as GameEvent };
     case 'hi.open':
+      return { ok: true, event: raw as unknown as GameEvent };
+    case 'join.open':
+    case 'wizard.restart':
+    case 'character.create':
+      return { ok: true, event: raw as unknown as GameEvent };
+    case 'wizard.answer':
+      if (!isNonEmptyString(raw.text)) return { ok: false, message: 'text must be a non-empty string' };
+      return { ok: true, event: raw as unknown as GameEvent };
+    case 'wizard.choose':
+      if (!isNonNegativeInteger(raw.step)) return { ok: false, message: 'step must be a non-negative integer' };
+      if (!isNonEmptyString(raw.value)) return { ok: false, message: 'value must be a non-empty string' };
       return { ok: true, event: raw as unknown as GameEvent };
     case 'dayjob.start':
       if (!isNonNegativeInteger(raw.jobIndex)) {

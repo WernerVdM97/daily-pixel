@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadYamlFile } from "../../src/assets/yaml-loader.js";
-import { buildStepOptions, type CharDefs } from "../../src/discord/commands/join.js";
+import { buildStepOptions, type CharDefs } from "../../src/controller/joinWizard.js";
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "assets", "char-creation");
 

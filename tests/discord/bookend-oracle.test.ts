@@ -313,6 +313,79 @@ describe("bookend oracle — join", () => {
     expect((edit.arg as any).embeds[0].footer.text).toBe("Step 3 of 7 — Upbringing");
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
+
+  it("17 · wizard TTL expiry → ephemeral 'session expired' safeNotify, session cleared", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(false);
+    const userId = "bookend-join-ttl";
+    wizardAtStep(h.joinWizards, userId, 2);
+    // Advance the fake clock past the 10-min TTL (the transcript-10 local-clock pattern).
+    vi.setSystemTime(new Date("2026-07-15T12:11:00Z"));
+    try {
+      const { intr, _acks } = buttonInteraction(userId, `join:choice:2:${CLASS}`);
+      await dispatchInteraction(intr as never, h.deps);
+
+      nonEmpty(_acks);
+      const reply = _acks.find((a) => a.method === "reply")!;
+      expect((reply.arg as any).flags).toBe(64); // ephemeral safeNotify
+      expect((reply.arg as any).content).toBe(
+        "❌ Your character creation session expired. Type `/join` to start over.",
+      );
+      // The expiry clears the draft (the old getOrThrow's delete-on-expiry semantics).
+      expect(h.joinWizards.getSession(userId)).toBeUndefined();
+      expect(snapshotAcks(_acks)).toMatchSnapshot();
+    } finally {
+      vi.setSystemTime(new Date("2026-07-15T12:00:00Z")); // back to the file-level Wednesday
+    }
+  });
+
+  it("18 · _userInFlight double-click guard → a second click while the first hangs produces ZERO acks", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(false);
+    const userId = "bookend-join-inflight";
+    wizardAtStep(h.joinWizards, userId, 2); // at step 2 → the choice path's first ack is deferUpdate
+
+    // Gate A's deferUpdate (the first interaction ack on the choice path) on a test-held
+    // promise so A is provably in flight when B arrives.
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
+    const a = buttonInteraction(userId, `join:choice:2:${CLASS}`);
+    (a.intr as any).deferUpdate = vi.fn(async () => {
+      a._acks.push({ method: "deferUpdate", arg: null });
+      await gate;
+    });
+    const b = buttonInteraction(userId, `join:choice:2:${CLASS}`);
+
+    const promiseA = dispatchInteraction(a.intr as never, h.deps);
+    await vi.waitFor(() => expect((a.intr as any).deferUpdate).toHaveBeenCalled());
+    await dispatchInteraction(b.intr as never, h.deps);
+
+    // B dropped silently — no acks at all.
+    expect(b._acks).toEqual([]);
+
+    releaseGate();
+    await promiseA;
+    expect(a._acks.map((x) => x.method)).toEqual(["deferUpdate", "editReply"]);
+    expect(snapshotAcks(a._acks)).toMatchSnapshot();
+  });
+
+  it("19 · illegal-choice (wrong step) → ephemeral 'That option is no longer available' safeNotify; session still at step 2", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(false);
+    const userId = "bookend-join-illegal";
+    wizardAtStep(h.joinWizards, userId, 2); // at step 2 — a step-3 click is illegal
+    const { intr, _acks } = buttonInteraction(userId, `join:choice:3:${UPBRINGING}`);
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    const reply = _acks.find((a) => a.method === "reply")!;
+    expect((reply.arg as any).flags).toBe(64); // ephemeral safeNotify
+    expect((reply.arg as any).content).toBe(
+      "❌ That option is no longer available. Type `/join` to start over.",
+    );
+    expect(h.joinWizards.getSession(userId)!.step).toBe(2);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

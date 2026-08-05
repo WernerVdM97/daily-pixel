@@ -3,6 +3,8 @@ import { makeHiCommand } from "../../src/discord/commands/hi.js";
 import { formatCharacterHeader, isWeekend } from "../../src/controller/hiScreen.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";
+import { WizardSession } from "../../src/discord/WizardSession.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 import {
   getDayJobActions,
   getWorkplaceLocation,
@@ -85,8 +87,12 @@ const mockDayJobs: DayJobDef[] = [
 /** M7.2 (DC-M7.2.4): the handler is translate + paint — every call goes through a
  *  GameRouter over a real SessionController wrapping the SAME engine (the sleep.test.ts
  *  M7.1 pattern). */
+// M7.3: the controller requires the wizard deps at every construction site — this suite
+// never touches the wizard, so the store is fresh and the defs empty.
+const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
+
 function makeHandler(engine: WorldEngine, dayJobs: DayJobDef[]) {
-  const controller = new SessionController(engine, () => "", dayJobs);
+  const controller = new SessionController(engine, () => "", dayJobs, undefined, new WizardSession(), EMPTY_DEFS);
   const router = new GameRouter(controller, { idle: () => "" });
   return makeHiCommand(router);
 }

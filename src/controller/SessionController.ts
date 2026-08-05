@@ -9,11 +9,13 @@
  * that later slices extend as the seam grows.
  */
 
-import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResult } from '../engine/WorldEngine.js';
-import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState } from '../view/viewState.js';
+import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResult, CharCreateData } from '../engine/WorldEngine.js';
+import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState, WizardViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
 import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
 import { composeHiScreen } from './hiScreen.js';
+import { composeWizardView, isValidWizardChoice, type CharDefs } from './joinWizard.js';
+import type { WizardSession, WizardState } from '../discord/WizardSession.js';
 
 export type FeedbackSurface = 'sleep' | 'release' | 'outcome-feedback' | 'outcome-bug';
 
@@ -67,6 +69,44 @@ export type HiOpenResult =
   | { kind: 'resume'; view: NoticeViewState }
   | { kind: 'greeting'; view: NoticeViewState };
 
+// ── M7.3 wizard results (DC-M7.3.5) — the five `character.create`-flow results. Guard
+// order mirrors the old join handlers exactly; the step→field map (2 class … 7 itemSet)
+// lives below. The view arms carry `WizardViewState` (DC-M7.3.3); the `created` arm carries
+// the hi greeting + the CharCreateData the router crosses as the `createdCharacter` fact. ──
+
+export type JoinOpenResult = { kind: 'has-character' } | { kind: 'view'; view: WizardViewState };
+
+export type WizardAnswerResult =
+  | { kind: 'no-session' }
+  | { kind: 'invalid-name'; message: string }
+  | { kind: 'illegal-step' }
+  | { kind: 'view'; view: WizardViewState };
+
+export type WizardOptionResult =
+  | { kind: 'no-session' }
+  | { kind: 'illegal-choice' }
+  | { kind: 'view'; view: WizardViewState };
+
+export type WizardRestartResult = { kind: 'view'; view: WizardViewState }; // restart always starts fresh (reset + start)
+
+export type WizardConfirmResult =
+  | { kind: 'no-session' }
+  | { kind: 'not-ready' }
+  | { kind: 'created'; view: NoticeViewState; created: CharCreateData };
+
+/** The wizard's step→state-field map (2 class … 7 itemSet) — the controller owns it. */
+const WIZARD_FIELD_MAP: Record<
+  number,
+  'class' | 'upbringing' | 'race' | 'alignment' | 'dayJob' | 'itemSet'
+> = {
+  2: 'class',
+  3: 'upbringing',
+  4: 'race',
+  5: 'alignment',
+  6: 'dayJob',
+  7: 'itemSet',
+};
+
 /** Outcome of `beginDayJob` — mirrors the pre-M3.4 `action:dayjob:<n>` button handler's
  *  guard order exactly (char guard -> `updateLastPlayed` -> invalid-job -> unsafe-ground ->
  *  ok). `unsafe` carries the raw `location` so the adapter can render the inline warning. */
@@ -102,6 +142,12 @@ export class SessionController {
     private readonly getCurrentScene: (userId: string) => string,
     private readonly dayJobs: DayJobDef[],
     private readonly characterGatedCommands: ReadonlySet<string> = new Set(),
+    // M7.3 (DC-M7.3.1/5): the join wizard's multi-step draft is controller-held session state
+    // (see docs/decisions/wizard-session-ownership.md) — the store is constructor-injected
+    // (index.ts creates ONE instance shared with the dispatcher's joinWizards dep), and the
+    // defs the wizard renders from are required at every construction site.
+    private readonly wizards: WizardSession,
+    private readonly wizardDefs: CharDefs,
   ) {}
 
   /** Reroute-to-join gate for a slash command (M3.6 DC-O) — true when the command needs a
@@ -238,6 +284,93 @@ export class SessionController {
     const character = this.engine.getCharacter(userId);
     if (!character) return { kind: 'no-character' };
     return composeHiScreen(this.engine, this.dayJobs, character);
+  }
+
+  /** `join.open` (DC-M7.3.5) — mirrors the old slash handler's guard order exactly:
+   *  `characterExists` → start-or-resume (the old try/catch resume logic: a start throw
+   *  means an active session, which resumes — or restarts when expired) → composed view. */
+  openJoin(userId: string): JoinOpenResult {
+    if (this.engine.characterExists(userId)) return { kind: 'has-character' };
+
+    let state: WizardState;
+    try {
+      state = this.wizards.start(userId);
+    } catch {
+      // Already in a wizard — resume (or restart if expired).
+      const existing = this.wizards.getSession(userId);
+      if (!existing || this.wizards.isExpired(userId)) {
+        this.wizards.reset(userId);
+        state = this.wizards.start(userId);
+      } else {
+        state = existing;
+      }
+    }
+    return { kind: 'view', view: composeWizardView(state, this.wizardDefs) };
+  }
+
+  /** `wizard.answer` (DC-M7.3.5) — the step-1 free-text name. No-session/expired (reset on
+   *  expiry) → step-1 check (`illegal-step`) → `setName` in try/catch (`invalid-name` with
+   *  the store's message). */
+  answerWizardName(userId: string, name: string): WizardAnswerResult {
+    const state = this.wizardStateOrNull(userId);
+    if (!state) return { kind: 'no-session' };
+    if (state.step !== 1) return { kind: 'illegal-step' };
+    try {
+      const updated = this.wizards.setName(userId, name);
+      return { kind: 'view', view: composeWizardView(updated, this.wizardDefs) };
+    } catch (e) {
+      return { kind: 'invalid-name', message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** `wizard.choose` (DC-M7.3.5) — steps 2-7 option buttons. No-session/expired → `step`
+   *  matches AND `isValidWizardChoice` (`illegal-choice`) → `choose` (the pre-checks make
+   *  its throw unreachable). */
+  chooseWizardOption(userId: string, step: number, value: string): WizardOptionResult {
+    const state = this.wizardStateOrNull(userId);
+    if (!state) return { kind: 'no-session' };
+    if (state.step !== step || !isValidWizardChoice(step, value, this.wizardDefs, state.class)) {
+      return { kind: 'illegal-choice' };
+    }
+    const updated = this.wizards.choose(userId, step, WIZARD_FIELD_MAP[step], value);
+    return { kind: 'view', view: composeWizardView(updated, this.wizardDefs) };
+  }
+
+  /** `wizard.restart` (DC-M7.3.5) — reset + start always yields a fresh step-1 view. */
+  restartWizard(userId: string): WizardRestartResult {
+    this.wizards.reset(userId);
+    const state = this.wizards.start(userId);
+    return { kind: 'view', view: composeWizardView(state, this.wizardDefs) };
+  }
+
+  /** `character.create` (DC-M7.3.5) — the step-8 confirm. No-session/expired → step 8
+   *  (`not-ready`) → `wizards.confirm` → `engine.createCharacter` → the new hero's /hi
+   *  greeting (the same composition the dispatcher's post-confirm renderHiScreen paints).
+   *  The char guard precedent: `updated`-style reads assume the engine persisted the row
+   *  (the M7.0 transcript 6 canned char is the mock's documented non-persist stand-in). */
+  confirmWizard(userId: string): WizardConfirmResult {
+    const state = this.wizardStateOrNull(userId);
+    if (!state) return { kind: 'no-session' };
+    if (state.step !== 8) return { kind: 'not-ready' };
+    const data = this.wizards.confirm(userId);
+    this.engine.createCharacter(userId, data);
+    const char = this.engine.getCharacter(userId);
+    if (!char) throw new Error(`confirmWizard: createCharacter did not persist a character for ${userId}`);
+    const hi = composeHiScreen(this.engine, this.dayJobs, char);
+    return { kind: 'created', view: hi.view, created: data };
+  }
+
+  /** The wizard store's no-session/expired gate — an expired session is cleared (the old
+   *  getOrThrow's delete-on-expiry semantics) and reported as no-session so the router
+   *  paints the WIZARD_NO_SESSION_COPY. */
+  private wizardStateOrNull(userId: string): WizardState | null {
+    const state = this.wizards.getSession(userId);
+    if (!state) return null;
+    if (this.wizards.isExpired(userId)) {
+      this.wizards.reset(userId);
+      return null;
+    }
+    return state;
   }
 
   /** Reproduces the pre-M3.4 `action:dayjob:<n>` button handler's guard order exactly

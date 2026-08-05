@@ -54,7 +54,32 @@ const loadingView = { screen: 'loading', body: '⏳ Starting…' };
 
 const commuteView = { screen: 'commute', destination: 'The mine', idle: 'The road is quiet.' };
 
-const allViews = [decisionView, outcomeView, noticeView, menuView, loadingView, commuteView];
+const wizardView = {
+  screen: 'wizard',
+  step: 3,
+  totalSteps: 7,
+  ledger: '📝 ~~Name~~ → **Werner**\n🛡️ ~~Class~~ → ⚔️ **Warrior**\n🌱 **Upbringing** ◀',
+  body: '__**Upbringing**__\n🎖️ **Soldier**\nRaised in a military family.',
+  footer: 'Step 3 of 7 — Upbringing',
+  options: [{ value: 'Soldier', label: 'Soldier', emoji: '🎖️' }],
+  buttons: [
+    { kind: 'choice', step: 3, value: 'Soldier', label: 'Soldier', emoji: '🎖️' },
+    { kind: 'restart', label: 'Start Over', emoji: '🔄' },
+  ],
+};
+
+const wizardStep1View = {
+  screen: 'wizard',
+  step: 1,
+  totalSteps: 7,
+  ledger: '📝 **Name** ◀',
+  body: '__**Name**__\nWhat shall the songs call you?',
+  footer: 'Step 1 of 7 — 2-30 characters, no @ or #',
+  nameField: { label: 'Character Name', placeholder: 'Enter a name (2-30 characters)', minLength: 2, maxLength: 30 },
+  buttons: [{ kind: 'name', label: 'Enter Name', emoji: '📝' }],
+};
+
+const allViews = [decisionView, outcomeView, noticeView, menuView, loadingView, commuteView, wizardView, wizardStep1View];
 
 const allFacts = {
   distilledType: 'patrol',
@@ -224,6 +249,22 @@ describe('validateGameResponse — valid envelopes', () => {
     const envelope = {
       v: PROTOCOL_VERSION, ok: true,
       facts: { restUnsafe: { name: 'Werner', prev: { health: 10, stamina: 10 }, updated: { health: 9, stamina: 10 } } },
+    };
+    expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
+  });
+
+  it('accepts a well-formed createdCharacter fact (the M7.3 confirm result, DC-M7.3.7)', () => {
+    const envelope = {
+      v: PROTOCOL_VERSION, ok: true,
+      facts: { createdCharacter: { name: 'Werner', class: 'Warrior', upbringing: 'Soldier', race: 'Human', alignment: 'lawful good', dayJob: 'Town Guard', itemSetName: "Soldier's Kit" } },
+    };
+    expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
+  });
+
+  it('accepts a createdCharacter fact without itemSetName (item sets are optional)', () => {
+    const envelope = {
+      v: PROTOCOL_VERSION, ok: true,
+      facts: { createdCharacter: { name: 'Werner', class: 'Warrior', upbringing: 'Soldier', race: 'Human', alignment: 'lawful good', dayJob: 'Wanderer' } },
     };
     expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
   });
@@ -423,6 +464,22 @@ describe('validateGameResponse — invalid envelopes', () => {
         v: PROTOCOL_VERSION, ok: true,
         facts: { restUnsafe: { name: 'Werner', prev: { health: 10, stamina: 10 }, updated } },
       });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a malformed createdCharacter fact', () => {
+    for (const createdCharacter of [
+      'nope',
+      null,
+      [],
+      { name: 'Werner' }, // missing the other required fields
+      { name: '', class: 'Warrior', upbringing: 'Soldier', race: 'Human', alignment: 'lawful good', dayJob: 'Town Guard' }, // empty name
+      { name: 'Werner', class: 'Warrior', upbringing: 'Soldier', race: 'Human', alignment: 'lawful good', dayJob: 42 }, // wrong-typed dayJob
+      { name: 'Werner', class: 'Warrior', upbringing: 'Soldier', race: 'Human', alignment: 'lawful good', dayJob: 'Town Guard', bonus: 1 }, // unknown key
+      { name: 'Werner', class: 'Warrior', upbringing: 'Soldier', race: 'Human', alignment: 'lawful good', dayJob: 'Town Guard', itemSetName: 42 }, // wrong-typed itemSetName
+    ]) {
+      const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts: { createdCharacter } });
       expect(result).toEqual({ ok: false, message: expect.any(String) });
     }
   });

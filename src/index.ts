@@ -112,8 +112,8 @@ import {
 } from "./discord/release-notes.js";
 import {
   makeJoinCommand,
-  type CharDefs,
 } from "./discord/commands/join.js";
+import type { CharDefs } from "./controller/joinWizard.js";
 import {
   makeActionCommand,
 } from "./discord/commands/action.js";
@@ -1269,8 +1269,26 @@ async function main() {
   // The JSON seam router (M5.1) — every game mechanic crosses it; the controller is its real
   // backend. Created here (before the registry) because the /sleep handler needs the router
   // (M7.1 DC-M7.1.7); the dispatcher's deps reuse the same instance below. rest.begin draws no
-  // idle today — the real source keeps production parity for future beats.
-  const controller = new SessionController(engine, getCurrentScene, dayJobs, CHARACTER_GATED_COMMANDS);
+  // idle today — the real source keeps production parity for future beats. The wizard store is
+  // ONE instance shared by the controller and the dispatcher's `joinWizards` dep (M7.3
+  // DC-M7.3.1/10 — docs/decisions/wizard-session-ownership.md), so the bookend oracle's
+  // direct store reads stay valid.
+  const joinWizards = new WizardSession();
+  const controller = new SessionController(
+    engine,
+    getCurrentScene,
+    dayJobs,
+    CHARACTER_GATED_COMMANDS,
+    joinWizards,
+    {
+      classes: assets.classes as CharDefs["classes"],
+      backgrounds: assets.backgrounds as CharDefs["backgrounds"],
+      races: assets.races as CharDefs["races"],
+      alignments: assets.alignments as CharDefs["alignments"],
+      dayJobs: assets.dayJobs as CharDefs["dayJobs"],
+      itemSets: assets.itemSets as CharDefs["itemSets"],
+    },
+  );
   const router = new GameRouter(controller, { idle: () => randomIdleMessage() });
 
   const registry = new CommandRegistry();
@@ -1309,18 +1327,10 @@ async function main() {
   registry.register("bug", withTextOption(makeBugCommand(engine)));
   registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
   registry.register("hi", asHandler(makeHiCommand(router)));
-  const joinWizards = new WizardSession();
   registry.register(
     "join",
     asHandler(
-      makeJoinCommand(engine, joinWizards, {
-        classes: assets.classes as CharDefs["classes"],
-        backgrounds: assets.backgrounds as CharDefs["backgrounds"],
-        races: assets.races as CharDefs["races"],
-        alignments: assets.alignments as CharDefs["alignments"],
-        dayJobs: assets.dayJobs as CharDefs["dayJobs"],
-        itemSets: assets.itemSets as CharDefs["itemSets"],
-      }),
+      makeJoinCommand(router),
     ),
   );
 

@@ -25,26 +25,51 @@
 import { writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
+import { seedCharacterViaProtocol } from './seedCharacter.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
 import { LlmCallRepository } from '../db/repositories/llm-call.js';
 import type { CharCreateData } from '../engine/WorldEngine.js';
+import { loadYamlFile } from '../assets/yaml-loader.js';
 import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
 import { GameRouter } from '../protocol/router.js';
 import type { RouterBackend } from '../protocol/router.js';
 import { SessionController } from '../controller/SessionController.js';
+import { WizardSession } from '../discord/WizardSession.js';
+import type { CharDefs } from '../controller/joinWizard.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CC_DIR = path.join(__dirname, '..', '..', 'assets', 'char-creation');
+
+/** The real char-creation defs the controller's wizard renders from — same files main() loads. */
+function loadDefs(): CharDefs {
+  return {
+    classes: loadYamlFile(path.join(CC_DIR, 'classes.yml')) as CharDefs['classes'],
+    backgrounds: loadYamlFile(path.join(CC_DIR, 'backgrounds.yml')) as CharDefs['backgrounds'],
+    races: loadYamlFile(path.join(CC_DIR, 'races.yml')) as CharDefs['races'],
+    alignments: loadYamlFile(path.join(CC_DIR, 'alignments.yml')) as CharDefs['alignments'],
+    dayJobs: loadYamlFile(path.join(CC_DIR, 'day-jobs.yml')) as CharDefs['dayJobs'],
+    itemSets: loadYamlFile(path.join(CC_DIR, 'item-sets.yml')) as CharDefs['itemSets'],
+  };
+}
 
 const SEED: CharCreateData = {
   name: 'Ashwin',
   class: 'Warrior',
   upbringing: 'Soldier',
   race: 'Human',
-  alignment: 'Lawful Good',
+  // The wizard persists step-5 values lowercase and the controller validates the value
+  // against the defs (DC-M7.3.9) — the pre-seam title-case fixture would be rejected.
+  alignment: 'lawful good',
   dayJob: 'Town Guard',
+  // The walk can't reach step 8 without the step-7 kit (a Warrior's "Soldier's Kit" —
+  // the profile fixture gains the wizard's itemSet field the current SEED lacks, DC-S3).
+  itemSetName: "Soldier's Kit",
 };
 
 const USER_ID = 'agent:play';
@@ -92,18 +117,23 @@ async function main(): Promise<void> {
     recorder: new LlmCallRepository(agentEngine.db),
     verbose: true,
   });
-  const harness = createAgentHarness(
-    agentEngine.engine,
-    new GameRouter(
-      new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs) as RouterBackend,
-      { idle: () => '' },
-    ),
-    brain,
-    USER_ID,
+  // M7.3 (DC-M7.3.10): the router is hoisted so the SEED walk dispatches through it (the
+  // same router the harness plays through). The controller now owns the wizard store + defs.
+  const router = new GameRouter(
+    new SessionController(
+      agentEngine.engine,
+      agentEngine.getCurrentScene,
+      agentEngine.dayJobs,
+      undefined,
+      new WizardSession(),
+      loadDefs(),
+    ) as RouterBackend,
+    { idle: () => '' },
   );
+  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID);
 
-  const char = harness.seedCharacter(SEED);
-  console.error(`Seeded ${char.name} (${char.class}) — playing ${days} day(s)…\n`);
+  await seedCharacterViaProtocol(router, USER_ID, SEED);
+  console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
 
   // The transcript is the repro (goal a): dump it in `finally` so a run that throws before finishing
   // still writes what it saw up to the failure, not just an opaque stack.

@@ -31,10 +31,15 @@ import type {
   DayJobStart,
   FeedbackSurface,
   HiOpenResult,
+  JoinOpenResult,
   RestBeginResult,
   SessionController,
   StartRenderResult,
   StepChoiceResult,
+  WizardAnswerResult,
+  WizardConfirmResult,
+  WizardOptionResult,
+  WizardRestartResult,
 } from '../controller/SessionController.js';
 import type { CharacterData, PendingChoiceSelector } from '../engine/WorldEngine.js';
 import type { NoticeViewState } from '../view/viewState.js';
@@ -51,6 +56,18 @@ const INVALID_JOB_COPY = 'Invalid job action.';
 const SESSION_EXPIRED_COPY = "❌ Your action session expired. Try `/action` again.";
 const UNSAFE_COPY = (location: string): string =>
   `⚠️ **It's no place for honest work here.**\nThe ${location} is too dangerous — make for safer ground before you set to your trade.`;
+
+// ── character.create flow copy (M7.3, DC-M7.3.6) — the four wizard copy constants. The
+// wizard error copies carry NO ❌ — the handler paints them via safeNotify (`❌ ${message}`,
+// M7.0 transcript 4's byte path); HAS_CHARACTER_COPY is painted via editReply (transcript
+// 2's path, no ❌). HAS_CHARACTER_COPY is byte-pinned by transcript 2; WIZARD_NO_SESSION_COPY
+// is new copy pinned by the new TTL transcript 17; WIZARD_ILLEGAL_CHOICE_COPY is pinned by
+// the new illegal-choice transcript 19. ──
+
+const HAS_CHARACTER_COPY = "You already have a character. Type `/stats` to see it.";
+const WIZARD_NO_SESSION_COPY = "Your character creation session expired. Type `/join` to start over.";
+const WIZARD_ILLEGAL_CHOICE_COPY = "That option is no longer available. Type `/join` to start over.";
+const WIZARD_NOT_READY_COPY = "Character creation isn't ready to confirm. Type `/join` to start over.";
 
 // ── rest.begin copy (M7.1, DC-M7.1.3) — the unsafe-rest −1 HP RULE moved into the engine
 // (DC-M7.1.1); the ⚠️ penalty prose and the rest screen are copy that now lives here. The
@@ -154,6 +171,11 @@ export interface RouterBackend {
   stepChoice(userId: string, label: string, prevChar: CharacterData): Promise<StepChoiceResult>;
   beginRest(userId: string): RestBeginResult;
   openHi(userId: string): HiOpenResult;
+  openJoin(userId: string): JoinOpenResult;
+  answerWizardName(userId: string, text: string): WizardAnswerResult;
+  chooseWizardOption(userId: string, step: number, value: string): WizardOptionResult;
+  restartWizard(userId: string): WizardRestartResult;
+  confirmWizard(userId: string): WizardConfirmResult;
   feedbackConfirmation(surface: FeedbackSurface): NoticeViewState;
   recordFeedback(surface: FeedbackSurface, userId: string, text: string, actionId?: number): void;
 }
@@ -208,6 +230,16 @@ export class GameRouter {
           return this.dispatchRestBegin(e);
         case 'hi.open':
           return this.dispatchHiOpen(e);
+        case 'join.open':
+          return this.dispatchJoinOpen(e);
+        case 'wizard.answer':
+          return this.dispatchWizardAnswer(e);
+        case 'wizard.choose':
+          return this.dispatchWizardChoose(e);
+        case 'wizard.restart':
+          return this.dispatchWizardRestart(e);
+        case 'character.create':
+          return this.dispatchCharacterCreate(e);
       }
     } catch (err) {
       return this.internalError(err);
@@ -406,6 +438,79 @@ export class GameRouter {
           ok: true,
           view: result.view,
           facts: this.addCharacterFacts(e.playerId),
+        });
+    }
+  }
+
+  /** `wizard.choose` — steps 2-7 option buttons (M7.3, DC-M7.3.6). The router's range/state
+   *  checks (step is the current step, value is in the step's options) come back as
+   *  `illegal-move` with WIZARD_ILLEGAL_CHOICE_COPY; a gone/expired session is `session-expired`
+   *  with WIZARD_NO_SESSION_COPY. View arms carry NO facts (the walk's user has no character). */
+  private dispatchWizardChoose(e: { type: 'wizard.choose'; playerId: string; step: number; value: string }): GameResponse {
+    const result = this.backend.chooseWizardOption(e.playerId, e.step, e.value);
+    switch (result.kind) {
+      case 'no-session':
+        return this.error('session-expired', WIZARD_NO_SESSION_COPY);
+      case 'illegal-choice':
+        return this.error('illegal-move', WIZARD_ILLEGAL_CHOICE_COPY);
+      case 'view':
+        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view });
+    }
+  }
+
+  /** `join.open` — the slash `/join` start-or-resume (M7.3, DC-M7.3.6). `has-character`
+   *  is an `illegal-move` with HAS_CHARACTER_COPY (byte-pinned by M7.0 transcript 2, painted
+   *  via editReply without ❌); the view arm is the composed step screen, no facts. */
+  private dispatchJoinOpen(e: { type: 'join.open'; playerId: string }): GameResponse {
+    const result = this.backend.openJoin(e.playerId);
+    switch (result.kind) {
+      case 'has-character':
+        return this.error('illegal-move', HAS_CHARACTER_COPY);
+      case 'view':
+        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view });
+    }
+  }
+
+  /** `wizard.answer` — the step-1 free-text name (M7.3, DC-M7.3.6). `invalid-name` carries
+   *  the store's own message (transcript 4 pins the handler's `❌ ${message}` paint); an
+   *  answer aimed at a non-step-1 session is `illegal-move` with WIZARD_ILLEGAL_CHOICE_COPY. */
+  private dispatchWizardAnswer(e: { type: 'wizard.answer'; playerId: string; text: string }): GameResponse {
+    const result = this.backend.answerWizardName(e.playerId, e.text);
+    switch (result.kind) {
+      case 'no-session':
+        return this.error('session-expired', WIZARD_NO_SESSION_COPY);
+      case 'invalid-name':
+        return this.error('illegal-move', result.message);
+      case 'illegal-step':
+        return this.error('illegal-move', WIZARD_ILLEGAL_CHOICE_COPY);
+      case 'view':
+        return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view });
+    }
+  }
+
+  /** `wizard.restart` — reset + start always yields a fresh step-1 view (no error arms). */
+  private dispatchWizardRestart(e: { type: 'wizard.restart'; playerId: string }): GameResponse {
+    const result = this.backend.restartWizard(e.playerId);
+    return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view });
+  }
+
+  /** `character.create` — the step-8 confirm (M7.3, DC-M7.3.6/7). The created arm returns
+   *  the new hero's /hi greeting as the view with `facts = { createdCharacter, ...addCharacterFacts }`
+   *  (the announcement embed is welded adapter-side from the fact; the character facts follow
+   *  the backend's getCharacter result — the mock's canned char on the bookend-oracle path). */
+  private dispatchCharacterCreate(e: { type: 'character.create'; playerId: string }): GameResponse {
+    const result = this.backend.confirmWizard(e.playerId);
+    switch (result.kind) {
+      case 'no-session':
+        return this.error('session-expired', WIZARD_NO_SESSION_COPY);
+      case 'not-ready':
+        return this.error('illegal-move', WIZARD_NOT_READY_COPY);
+      case 'created':
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: result.view,
+          facts: this.addCharacterFacts(e.playerId, { createdCharacter: result.created }),
         });
     }
   }

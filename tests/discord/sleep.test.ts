@@ -5,17 +5,23 @@ import { buildMorningAnnouncement } from "../../src/discord/announcements.js";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";
+import { WizardSession } from "../../src/discord/WizardSession.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 import type { WorldEngine } from "../../src/engine/WorldEngine.js";
 
 // Set up admin user ID before importing the sleep command
 const ADMIN_ID = 'admin-123';
 process.env.ADMIN_USER_ID = ADMIN_ID;
 
+/** The controller's wizard deps — this suite never touches the wizard, so the store is
+ *  fresh and the defs empty (M7.3: the constructor requires both at every site). */
+const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
+
 /** M7.1 (DC-M7.1.5): the handler is translate + paint — every player-path call goes through a
  *  GameRouter over a real SessionController wrapping the SAME engine (the admin-tick branch
  *  never reaches the router, so a tick-only fake engine still works there). */
 function makeHandler(engine: WorldEngine) {
-  const controller = new SessionController(engine, () => "", []);
+  const controller = new SessionController(engine, () => "", [], undefined, new WizardSession(), EMPTY_DEFS);
   const router = new GameRouter(controller, { idle: () => "" });
   return makeSleepCommand(engine, router);
 }

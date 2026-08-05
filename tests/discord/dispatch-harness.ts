@@ -9,7 +9,7 @@ import { CommandRegistry, type CommandHandler } from "../../src/discord/CommandR
 import { loadYamlFile } from "../../src/assets/yaml-loader.js";
 import type { DispatchDeps } from "../../src/discord/dispatchInteraction.js";
 import type { DayJobDef } from "../../src/controller/dayJob.js";
-import type { CharDefs } from "../../src/discord/commands/join.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 
 import { makeHelpCommand } from "../../src/discord/commands/help.js";
 import { makeStatsCommand } from "../../src/discord/commands/stats.js";
@@ -109,7 +109,7 @@ function withTextOption(
 
 export function buildRegistry(
   engine: MockWorldEngine,
-  joinWizards: WizardSession,
+  _joinWizards: WizardSession,
   getCurrentScene: (userId: string) => string,
   router: GameRouter,
 ): CommandRegistry {
@@ -147,7 +147,7 @@ export function buildRegistry(
   registry.register("hi", asHandler(makeHiCommand(router)));
   registry.register(
     "join",
-    asHandler(makeJoinCommand(engine, joinWizards, CHAR_DEFS)),
+    asHandler(makeJoinCommand(router)),
   );
   registry.register(
     "action",
@@ -178,7 +178,7 @@ export function makeHarness(): Harness {
   // reaches it, so it must be a stable realistic value rather than "" for the golden
   // snapshots to be honest and deterministic.
   const getCurrentScene = (): string => "A quiet clearing under the oak.";
-  const controller = new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS);
+  const controller = new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS, joinWizards, CHAR_DEFS);
   // M7.1 (DC-M7.1.7): a GameRouter over the real controller (the same wiring main() uses)
   // with a deterministic idle — the M7.0 transcripts keep passing UNCHANGED because
   // MockWorldEngine.restAtOak replicates the new engine behaviour.

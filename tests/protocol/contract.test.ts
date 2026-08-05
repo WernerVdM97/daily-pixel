@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { GameRouter, type RouterBackend } from '../../src/protocol/router.js';
 import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse } from '../../src/protocol/envelope.js';
@@ -10,14 +12,22 @@ import type {
   DayJobStart,
   FeedbackSurface,
   HiOpenResult,
+  JoinOpenResult,
   RestBeginResult,
   StartRenderResult,
   StepChoiceResult,
+  WizardAnswerResult,
+  WizardConfirmResult,
+  WizardOptionResult,
+  WizardRestartResult,
 } from '../../src/controller/SessionController.js';
 import { MockWorldEngine } from '../../src/engine/MockWorldEngine.js';
-import type { ActionOutcome, CharacterData, PendingChoiceSelector } from '../../src/engine/WorldEngine.js';
+import type { ActionOutcome, CharacterData, CharCreateData, PendingChoiceSelector } from '../../src/engine/WorldEngine.js';
 import { getDayJobActions, type DayJobDef } from '../../src/controller/dayJob.js';
-import type { DecisionViewState, MenuViewState, NoticeViewState, OutcomeViewState, ViewState } from '../../src/view/viewState.js';
+import type { DecisionViewState, MenuViewState, NoticeViewState, OutcomeViewState, ViewState, WizardViewState } from '../../src/view/viewState.js';
+import { loadYamlFile } from '../../src/assets/yaml-loader.js';
+import { WizardSession } from '../../src/discord/WizardSession.js';
+import type { CharDefs } from '../../src/controller/joinWizard.js';
 
 // ── M5.1 — the contract-test barrier (see docs/engine/json-seam-protocol.md § "M5 build
 // plan", slice M5.1, and § "The contract-test barrier"). Every event × every reachable
@@ -66,6 +76,16 @@ const ROLLS_REMAINING_COPY = [
   'The day is still young — you have actions left to take.',
   'Spend your remaining rolls before bedding down beneath the Oak.',
 ].join('\n');
+
+// ── character.create flow copy (DC-M7.3.6) — hard-coded here, not imported from the
+// router, so the suite is the net that catches copy drift. HAS_CHARACTER_COPY is
+// byte-pinned by M7.0 bookend-oracle transcript 2; WIZARD_NO_SESSION_COPY by the new
+// transcript 17; WIZARD_ILLEGAL_CHOICE_COPY by the new transcript 19. ──
+
+const HAS_CHARACTER_COPY = "You already have a character. Type `/stats` to see it.";
+const WIZARD_NO_SESSION_COPY = "Your character creation session expired. Type `/join` to start over.";
+const WIZARD_ILLEGAL_CHOICE_COPY = "That option is no longer available. Type `/join` to start over.";
+const WIZARD_NOT_READY_COPY = "Character creation isn't ready to confirm. Type `/join` to start over.";
 
 // ── Real-backend fixtures ──
 
@@ -221,6 +241,100 @@ const noticeView: NoticeViewState = { screen: 'notice', text: '🙏 Thanks. The 
 
 const stubChar: CharacterData = MockWorldEngine.defaultCharacter({ dayJob: 'Town Guard' });
 
+// ── M7.3 wizard fixtures (DC-M7.3.11) — canonical views for the stub backend + the real
+// wizard conformance. Step 1 has nameField + a name button; steps 2-7 carry non-empty
+// options + choice buttons + a restart; step 8 confirm + restart. ──
+
+const WIZARD_SEPARATOR = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+const wizardStep1View: WizardViewState = {
+  screen: 'wizard',
+  step: 1,
+  totalSteps: 7,
+  ledger: '📝 **Name** ◀\n🛡️ Class\n🌱 Upbringing\n🧬 Race\n⚖️ Alignment\n🔧 Day Job\n🎒 Starting Kit',
+  body: '__**Name**__\nWhat shall the songs call you?',
+  footer: 'Step 1 of 7 — 2-30 characters, no @ or #',
+  nameField: { label: 'Character Name', placeholder: 'Enter a name (2-30 characters)', minLength: 2, maxLength: 30 },
+  buttons: [{ kind: 'name', label: 'Enter Name', emoji: '📝' }],
+};
+
+/** A generic mid-walk (steps 2-7) wizard view — the stub scripts it for answer/choose ok. */
+function wizardStepNView(step: number): WizardViewState {
+  return {
+    screen: 'wizard',
+    step,
+    totalSteps: 7,
+    ledger: '📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 **Upbringing** ◀',
+    body: '__**Upbringing**__\n🎖️ **Soldier**\nRaised in a military family. Discipline was your first language.',
+    footer: `Step ${step} of 7 — Upbringing`,
+    options: [{ value: 'Soldier', label: 'Soldier', emoji: '🎖️' }],
+    buttons: [
+      { kind: 'choice', step, value: 'Soldier', label: 'Soldier', emoji: '🎖️' },
+      { kind: 'restart', label: 'Start Over', emoji: '🔄' },
+    ],
+  };
+}
+
+const wizardStep8View: WizardViewState = {
+  screen: 'wizard',
+  step: 8,
+  totalSteps: 7,
+  ledger: '📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 ~~Upbringing~~ → 🎖️ **Soldier**\n🧬 ~~Race~~ → 🧑 **Human**\n⚖️ ~~Alignment~~ → 😇 **Lawful Good**\n🔧 ~~Day Job~~ → 🛡️ **Town Guard**\n🎒 ~~Starting Kit~~ → **Soldier\'s Kit**',
+  body: '__**Ready**__\nYour hero stands ready. Confirm to step into the world — or start over.',
+  footer: 'Review your choices and confirm',
+  buttons: [
+    { kind: 'confirm', label: 'Confirm', emoji: '✅' },
+    { kind: 'restart', label: 'Start Over', emoji: '🔄' },
+  ],
+};
+
+/** The stub's character.create created arm — a canned hi greeting observably equivalent to
+ *  the real backend's post-confirm compose (both carry the Oak location line + the daily
+ *  work block + the seed-era header), plus the exact CharCreateData the shared assert pins. */
+const CREATED_DATA: CharCreateData = {
+  name: 'Rowan',
+  class: 'Warrior',
+  upbringing: 'Soldier',
+  race: 'Human',
+  alignment: 'lawful good',
+  dayJob: 'Town Guard',
+  itemSetName: "Soldier's Kit",
+};
+
+const CREATED_HI: NoticeViewState = {
+  screen: 'notice',
+  text: [
+    "📍 **The Warden's Oak** — Use `look` for the full scene.",
+    '',
+    '⚔️  **Rowan** — Warrior',
+    WIZARD_SEPARATOR,
+    '',
+    '❤️ 10/10  ┃  ⚡ 10/10  ┃  🎲 3  ┃  💰 5',
+    '',
+    '🛡️ **Town Guard — Town Square — Daily Work**',
+    '',
+    '📦 Press the **Action** button or type `action <what you do>` to start.',
+  ].join('\n'),
+  ephemeral: true,
+};
+
+const WIZARD_CREATED: WizardConfirmResult = { kind: 'created', view: CREATED_HI, created: CREATED_DATA };
+
+/** Real char-creation defs (DC-M7.3.10) — the controller's wizard renders from the same
+ *  YAMLs main() loads, mirroring the DAY_JOBS load. */
+const CC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets', 'char-creation');
+function loadDefs<T>(file: string): T[] {
+  return loadYamlFile(path.join(CC_DIR, file)) as T[];
+}
+const REAL_DEFS: CharDefs = {
+  classes: loadDefs('classes.yml'),
+  backgrounds: loadDefs('backgrounds.yml'),
+  races: loadDefs('races.yml'),
+  alignments: loadDefs('alignments.yml'),
+  dayJobs: loadDefs('day-jobs.yml'),
+  itemSets: loadDefs('item-sets.yml'),
+};
+
 /** The stub's rest.begin rested arm — safe at the Oak. */
 const RESTED_SAFE: RestBeginResult = {
   kind: 'rested',
@@ -336,6 +450,15 @@ class StubBackend implements RouterBackend {
   stepResult: StepChoiceResult | 'throw' = { kind: 'decision', view: decisionView };
   restResult: RestBeginResult | 'throw' = { kind: 'no-character' };
   hiResult: HiOpenResult | 'throw' = { kind: 'no-character' };
+  // M7.3 wizard scripts (DC-M7.3.11). The `join.open` call logs as 'startWizard' — the
+  // DC-M7.3.11 flow-order pin's recorded name for the start-or-resume arm.
+  joinResult: JoinOpenResult | 'throw' = { kind: 'view', view: wizardStep1View };
+  answerResult: WizardAnswerResult | 'throw' = { kind: 'no-session' };
+  chooseResult: WizardOptionResult | 'throw' = { kind: 'no-session' };
+  restartResult: WizardRestartResult | 'throw' = { kind: 'view', view: wizardStep1View };
+  confirmResult: WizardConfirmResult | 'throw' = { kind: 'no-session' };
+  /** Step-specific wizard views a scripted walk can return (DC-M7.3.11). */
+  wizardViews: Record<number, WizardViewState> = {};
   /** Overridable no-log read for addCharacterFacts' nav facts — lets a stub case mirror the
    *  real backend's mid-action character (DC-P7 observability, e.g. hasPendingAction). */
   character: CharacterData = stubChar;
@@ -405,6 +528,26 @@ class StubBackend implements RouterBackend {
     return this.run('openHi', this.hiResult);
   }
 
+  openJoin(_userId: string): JoinOpenResult {
+    return this.run('startWizard', this.joinResult);
+  }
+
+  answerWizardName(_userId: string, _text: string): WizardAnswerResult {
+    return this.run('answerWizardName', this.answerResult);
+  }
+
+  chooseWizardOption(_userId: string, _step: number, _value: string): WizardOptionResult {
+    return this.run('chooseWizardOption', this.chooseResult);
+  }
+
+  restartWizard(_userId: string): WizardRestartResult {
+    return this.run('restartWizard', this.restartResult);
+  }
+
+  confirmWizard(_userId: string): WizardConfirmResult {
+    return this.run('confirmWizard', this.confirmResult);
+  }
+
   feedbackConfirmation(surface: FeedbackSurface): NoticeViewState {
     this.confirmationSurfaces.push(surface);
     return this.run('feedbackConfirmation', this.confirmationResult);
@@ -419,11 +562,20 @@ class StubBackend implements RouterBackend {
 
 // ── Router factories ──
 
-function realRouter(engine: MockWorldEngine): GameRouter {
+function realRouter(engine: MockWorldEngine, wizards?: WizardSession): GameRouter {
   // The assignment is the runtime-side structural proof (DC-P7): SessionController must
   // satisfy RouterBackend or this line fails to compile. The typecheck-time proof lives
   // in src/protocol/router.ts (exported `SessionControllerSatisfiesRouterBackend`).
-  const backend: RouterBackend = new SessionController(engine, () => SCENE, DAY_JOBS);
+  // M7.3 (DC-M7.3.10): the controller owns the wizard store + defs; a per-call fresh store
+  // unless the caller seeds one (the wizard conformance cases pass their own).
+  const backend: RouterBackend = new SessionController(
+    engine,
+    () => SCENE,
+    DAY_JOBS,
+    undefined,
+    wizards ?? new WizardSession(),
+    REAL_DEFS,
+  );
   return new GameRouter(backend, { idle: () => IDLE });
 }
 
@@ -576,6 +728,11 @@ const FEEDBACK = (surface: string, actionId?: number): unknown => ({ type: 'feed
 const BUG = (actionId?: number): unknown => ({ type: 'bug.submit', playerId: USER, text: 'the door is stuck', actionId });
 const REST_BEGIN = { type: 'rest.begin' as const, playerId: USER };
 const HI_OPEN = { type: 'hi.open' as const, playerId: USER };
+const JOIN_OPEN = { type: 'join.open' as const, playerId: USER };
+const WIZARD_ANSWER = { type: 'wizard.answer' as const, playerId: USER, text: 'Rowan' };
+const WIZARD_CHOOSE = (step: number, value: string): unknown => ({ type: 'wizard.choose', playerId: USER, step, value });
+const WIZARD_RESTART = { type: 'wizard.restart' as const, playerId: USER };
+const CHARACTER_CREATE = { type: 'character.create' as const, playerId: USER };
 
 // ── rest.begin (M7.1, DC-M7.1.3: no-character → guards → rested notice view; NO beats) ──
 
@@ -709,20 +866,252 @@ describe('conformance — hi.open (fake timers: Wednesday 2026-07-15)', () => {
         expect(view.text).toContain('You stand at the ridgeline, wind pulling at your cloak.');
         if (!o.response.ok) throw new Error('unreachable');
         expect(o.response.facts?.characterName).toBe('Aldric');
-        expect(o.response.facts?.characterState).toMatchObject({
-          health: expect.any(Number),
-          maxHealth: expect.any(Number),
-          stamina: expect.any(Number),
-          maxStamina: expect.any(Number),
-          wealth: expect.any(Number),
-          location: expect.any(String),
-        });
+      expect(o.response.facts?.characterState).toMatchObject({
+        health: expect.any(Number),
+        maxHealth: expect.any(Number),
+        stamina: expect.any(Number),
+        maxStamina: expect.any(Number),
+        wealth: expect.any(Number),
+        location: expect.any(String),
+      });
         expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: true, hasRestedToday: false });
         expect(o.beats).toEqual([]);
       },
     },
   ]);
 });
+
+// ── character.create flow (M7.3, DC-M7.3.6/11): the five wizard events — join.open,
+// wizard.answer, wizard.choose, wizard.restart, character.create. No beats on any of them;
+// the wizard view arms carry NO facts (the walk's user has no character); the created arm
+// returns the hi greeting with `{ createdCharacter, ...addCharacterFacts }`. ──
+
+/** Shared structural asserts the stub fixtures satisfy identically to the real compositions
+ *  (DC-M7.3.11): step 1 has nameField + a name button; steps 2-7 non-empty options + choice
+ *  buttons + restart; step 8 confirm + restart. */
+function assertWizardStep1(view: ViewState): void {
+  const w = view as WizardViewState;
+  expect(w.screen).toBe('wizard');
+  expect(w.step).toBe(1);
+  expect(w.totalSteps).toBe(7);
+  expect(w.nameField).toMatchObject({ label: expect.any(String), placeholder: expect.any(String), minLength: 2, maxLength: 30 });
+  expect(w.buttons.some(b => b.kind === 'name' && b.label.length > 0)).toBe(true);
+  expect(w.buttons.some(b => b.kind === 'confirm')).toBe(false);
+}
+
+function assertWizardOptionStep(view: ViewState): void {
+  const w = view as WizardViewState;
+  expect(w.screen).toBe('wizard');
+  expect(w.step).toBeGreaterThanOrEqual(2);
+  expect(w.step).toBeLessThanOrEqual(7);
+  expect(w.options?.length).toBeGreaterThan(0);
+  const choices = w.buttons.filter(b => b.kind === 'choice');
+  expect(choices.length).toBeGreaterThan(0);
+  for (const c of choices) {
+    if (c.kind === 'choice') {
+      expect(c.step).toBe(w.step);
+      expect(c.value.length).toBeGreaterThan(0);
+      expect(c.label.length).toBeGreaterThan(0);
+    }
+  }
+  expect(w.buttons.some(b => b.kind === 'restart')).toBe(true);
+}
+
+function assertWizardStep8(view: ViewState): void {
+  const w = view as WizardViewState;
+  expect(w.screen).toBe('wizard');
+  expect(w.step).toBe(8);
+  expect(w.buttons.some(b => b.kind === 'confirm')).toBe(true);
+  expect(w.buttons.some(b => b.kind === 'restart')).toBe(true);
+}
+
+/** Seed a real wizard session up to the given step with REAL_DEFS-valid choices. */
+function seedWizard(wizards: WizardSession, userId: string, step: number): void {
+  wizards.start(userId);
+  wizards.setName(userId, 'Rowan');
+  if (step > 2) wizards.choose(userId, 2, 'class', 'Warrior');
+  if (step > 3) wizards.choose(userId, 3, 'upbringing', 'Soldier');
+  if (step > 4) wizards.choose(userId, 4, 'race', 'Human');
+  if (step > 5) wizards.choose(userId, 5, 'alignment', 'lawful good');
+  if (step > 6) wizards.choose(userId, 6, 'dayJob', 'Town Guard');
+  if (step > 7) wizards.choose(userId, 7, 'itemSet', "Soldier's Kit");
+}
+
+runCaseBlock('conformance — join.open', [
+  {
+    name: 'has-character → illegal-move with HAS_CHARACTER_COPY (byte-pinned by M7.0 transcript 2), no beats',
+    event: JOIN_OPEN,
+    real: () => {
+      const engine = realChar();
+      engine.setCharacterExists(true);
+      return realRouter(engine);
+    },
+    stub: () => stubRouter((s) => { s.joinResult = { kind: 'has-character' }; }),
+    assert: (o) => { expectError(o.response, 'illegal-move', HAS_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'view → ok:true wizard step-1 view (nameField + name button), NO facts, zero beats',
+    event: JOIN_OPEN,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'wizard');
+      assertWizardStep1(view);
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts).toBeUndefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — wizard.answer', [
+  {
+    name: 'no-session → session-expired with WIZARD_NO_SESSION_COPY (the new TTL copy, pinned by transcript 17)',
+    event: WIZARD_ANSWER,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'session-expired', WIZARD_NO_SESSION_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'invalid-name → illegal-move with the store validation message',
+    event: { type: 'wizard.answer', playerId: USER, text: 'Bad@Name' },
+    real: () => {
+      const wizards = new WizardSession();
+      wizards.start(USER);
+      return realRouter(new MockWorldEngine(), wizards);
+    },
+    stub: () => stubRouter((s) => { s.answerResult = { kind: 'invalid-name', message: 'Name must not contain @ or # (Discord pings)' }; }),
+    assert: (o) => { expectError(o.response, 'illegal-move', 'Name must not contain @ or # (Discord pings)'); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'ok → ok:true wizard step-2 view (nameField gone, options + choice buttons), NO facts, zero beats',
+    event: WIZARD_ANSWER,
+    real: () => {
+      const wizards = new WizardSession();
+      wizards.start(USER);
+      return realRouter(new MockWorldEngine(), wizards);
+    },
+    stub: () => stubRouter((s) => { s.answerResult = { kind: 'view', view: wizardStepNView(2) }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'wizard');
+      assertWizardOptionStep(view);
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts).toBeUndefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — wizard.choose', [
+  {
+    name: 'no-session → session-expired with WIZARD_NO_SESSION_COPY',
+    event: WIZARD_CHOOSE(2, 'Warrior'),
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'session-expired', WIZARD_NO_SESSION_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'illegal-choice (right value, wrong step) → illegal-move with WIZARD_ILLEGAL_CHOICE_COPY (transcript 19 pins the paint)',
+    event: WIZARD_CHOOSE(3, 'Soldier'),
+    real: () => {
+      const wizards = new WizardSession();
+      seedWizard(wizards, USER, 2); // session is at step 2 — a step-3 click is illegal
+      return realRouter(new MockWorldEngine(), wizards);
+    },
+    stub: () => stubRouter((s) => { s.chooseResult = { kind: 'illegal-choice' }; }),
+    assert: (o) => { expectError(o.response, 'illegal-move', WIZARD_ILLEGAL_CHOICE_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'ok → ok:true wizard step-3 view (options + choice buttons + restart), NO facts, zero beats',
+    event: WIZARD_CHOOSE(2, 'Warrior'),
+    real: () => {
+      const wizards = new WizardSession();
+      seedWizard(wizards, USER, 2);
+      return realRouter(new MockWorldEngine(), wizards);
+    },
+    stub: () => stubRouter((s) => { s.chooseResult = { kind: 'view', view: wizardStepNView(3) }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'wizard');
+      assertWizardOptionStep(view);
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts).toBeUndefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — wizard.restart', [
+  {
+    name: 'mid-walk restart → ok:true wizard step-1 view, NO facts, zero beats (restart always starts fresh)',
+    event: WIZARD_RESTART,
+    real: () => {
+      const wizards = new WizardSession();
+      seedWizard(wizards, USER, 5);
+      return realRouter(new MockWorldEngine(), wizards);
+    },
+    stub: () => stubRouter(),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'wizard');
+      assertWizardStep1(view);
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts).toBeUndefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — character.create', [
+  {
+    name: 'no-session → session-expired with WIZARD_NO_SESSION_COPY',
+    event: CHARACTER_CREATE,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'session-expired', WIZARD_NO_SESSION_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'not-ready (session below step 8) → illegal-move with WIZARD_NOT_READY_COPY',
+    event: CHARACTER_CREATE,
+    real: () => {
+      const wizards = new WizardSession();
+      seedWizard(wizards, USER, 2);
+      return realRouter(new MockWorldEngine(), wizards);
+    },
+    stub: () => stubRouter((s) => { s.confirmResult = { kind: 'not-ready' }; }),
+    assert: (o) => { expectError(o.response, 'illegal-move', WIZARD_NOT_READY_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'created → ok:true hi-greeting notice view + the createdCharacter fact + character facts (per the backend getCharacter), zero beats',
+    event: CHARACTER_CREATE,
+    real: () => {
+      // MockWorldEngine.createCharacter does not persist into getCharacter (M7.0 review
+      // note 3 — the bookend oracle depends on the canned char): the canned char stands
+      // in for the created row so composeHiScreen + the character facts have a snapshot.
+      const wizards = new WizardSession();
+      seedWizard(wizards, USER, 8);
+      return realRouter(realChar({ dayJob: 'Town Guard' }), wizards);
+    },
+    stub: () => stubRouter((s) => { s.confirmResult = WIZARD_CREATED; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.ephemeral).toBe(true);
+      expect(view.text).toContain("The Warden's Oak");
+      expect(view.text).toContain('Daily Work');
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.createdCharacter).toEqual(CREATED_DATA);
+      expect(o.response.facts?.characterName).toBe('Aldric');
+      expect(o.response.facts?.characterState).toMatchObject({
+        health: expect.any(Number),
+        maxHealth: expect.any(Number),
+        stamina: expect.any(Number),
+        maxStamina: expect.any(Number),
+        wealth: expect.any(Number),
+        location: expect.any(String),
+      });
+      expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: false, hasRestedToday: false });
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
 
 // ── menu.open (DC-P6: stampLastPlayed FIRST, then the menu branch) ──
 
@@ -1350,6 +1739,39 @@ describe('flow order (DC-P6) — the stub call log pins each leaf order', () => 
     expect(o.response.facts?.nav).toBeDefined();
   });
 
+  it('join.open: startWizard is the only backend call (DC-M7.3.11)', async () => {
+    const stub = new StubBackend();
+    await drive(new GameRouter(stub, { idle: () => IDLE }), JOIN_OPEN);
+    expect(stub.calls).toEqual(['startWizard']);
+  });
+
+  it('wizard.answer: answerWizardName is the only backend call', async () => {
+    const stub = new StubBackend();
+    stub.answerResult = { kind: 'view', view: wizardStepNView(2) };
+    await drive(new GameRouter(stub, { idle: () => IDLE }), WIZARD_ANSWER);
+    expect(stub.calls).toEqual(['answerWizardName']);
+  });
+
+  it('wizard.choose: chooseWizardOption is the only backend call', async () => {
+    const stub = new StubBackend();
+    stub.chooseResult = { kind: 'view', view: wizardStepNView(3) };
+    await drive(new GameRouter(stub, { idle: () => IDLE }), WIZARD_CHOOSE(2, 'Warrior'));
+    expect(stub.calls).toEqual(['chooseWizardOption']);
+  });
+
+  it('wizard.restart: restartWizard is the only backend call', async () => {
+    const stub = new StubBackend();
+    await drive(new GameRouter(stub, { idle: () => IDLE }), WIZARD_RESTART);
+    expect(stub.calls).toEqual(['restartWizard']);
+  });
+
+  it('character.create: confirmWizard is the only backend call', async () => {
+    const stub = new StubBackend();
+    stub.confirmResult = WIZARD_CREATED;
+    await drive(new GameRouter(stub, { idle: () => IDLE }), CHARACTER_CREATE);
+    expect(stub.calls).toEqual(['confirmWizard']);
+  });
+
   it('rest.begin unsafe arm adds the restUnsafe fact ONLY on unsafe rested envelopes', async () => {
     const stub = new StubBackend();
     stub.restResult = RESTED_SAFE;
@@ -1408,6 +1830,20 @@ const GARBAGE_EVENTS: unknown[] = [
   { type: 'hi.open' },
   { type: 'hi.open', playerId: '' },
   { type: 'hi.open', playerId: 42 },
+  { type: 'join.open' },
+  { type: 'join.open', playerId: '' },
+  { type: 'wizard.answer', playerId: USER },
+  { type: 'wizard.answer', playerId: USER, text: '' },
+  { type: 'wizard.answer', playerId: USER, text: 42 },
+  { type: 'wizard.choose', playerId: USER, value: 'Warrior' }, // missing step
+  { type: 'wizard.choose', playerId: USER, step: 1.5, value: 'x' },
+  { type: 'wizard.choose', playerId: USER, step: -1, value: 'x' },
+  { type: 'wizard.choose', playerId: USER, step: 2 }, // missing value
+  { type: 'wizard.choose', playerId: USER, step: 2, value: '' },
+  { type: 'wizard.restart' },
+  { type: 'character.create' },
+  { type: 'character.create', playerId: '' },
+  { type: 'character.create', playerId: 42 },
   { type: 'warp.drive', playerId: USER },
 ];
 
@@ -1466,6 +1902,48 @@ describe('round-trip (c)', () => {
     expect(roundTrip(response.view)).toEqual(response.view);
     expect(roundTrip(response.facts)).toEqual(response.facts);
   });
+
+  it('a full wizard walk through the real backend (step 1 → 8) round-trips every WizardViewState variant, and the created arm round-trips its facts', async () => {
+    // The canned char stands in for the created row (the mock does not persist
+    // createCharacter into getCharacter — M7.0 review note 3); characterExists stays
+    // false, so the walk itself is unblocked.
+    const wizards = new WizardSession();
+    const router = realRouter(realChar({ dayJob: 'Town Guard' }), wizards);
+
+    // Step 1 (join.open) and step 2 (answer) — drive() already asserts the round-trip.
+    const start = await drive(router, JOIN_OPEN);
+    assertWizardStep1(expectOkView(start.response, 'wizard'));
+    if (!start.response.ok) throw new Error('unreachable');
+    expect(roundTrip(start.response.view)).toEqual(start.response.view);
+
+    const answered = await drive(router, WIZARD_ANSWER);
+    assertWizardOptionStep(expectOkView(answered.response, 'wizard'));
+    if (!answered.response.ok) throw new Error('unreachable');
+    expect(roundTrip(answered.response.view)).toEqual(answered.response.view);
+
+    for (const [step, value] of [[2, 'Warrior'], [3, 'Soldier'], [4, 'Human'], [5, 'lawful good'], [6, 'Town Guard']] as const) {
+      const chosen = await drive(router, WIZARD_CHOOSE(step, value));
+      assertWizardOptionStep(expectOkView(chosen.response, 'wizard'));
+      if (!chosen.response.ok) throw new Error('unreachable');
+      expect(roundTrip(chosen.response.view)).toEqual(chosen.response.view);
+    }
+
+    // Step 7 lands the step-8 confirm screen — and the stub's canned step-8 fixture
+    // satisfies the same structural asserts as this real composition (interchangeability).
+    assertWizardStep8(wizardStep8View);
+    const kit = await drive(router, WIZARD_CHOOSE(7, "Soldier's Kit"));
+    const review = expectOkView(kit.response, 'wizard');
+    expect((review as WizardViewState).step).toBe(8);
+    assertWizardStep8(review);
+    if (!kit.response.ok) throw new Error('unreachable');
+    expect(roundTrip(kit.response.view)).toEqual(kit.response.view);
+
+    const created = await drive(router, CHARACTER_CREATE);
+    expectOkView(created.response, 'notice');
+    if (!created.response.ok) throw new Error('unreachable');
+    expect(roundTrip(created.response.view)).toEqual(created.response.view);
+    expect(roundTrip(created.response.facts)).toEqual(created.response.facts);
+  });
 });
 
 // ── Beats (d): order, conformance, single idle draw, and a throwing onBeat never escapes ──
@@ -1477,10 +1955,8 @@ describe('beats (d)', () => {
     engine.setStartActionResult(RESOLVED_WORK);
 
     let idleDraws = 0;
-    const router = new GameRouter(
-      new SessionController(engine, () => SCENE, DAY_JOBS),
-      { idle: () => { idleDraws += 1; return IDLE; } },
-    );
+    const controller = new SessionController(engine, () => SCENE, DAY_JOBS, undefined, new WizardSession(), REAL_DEFS);
+    const router = new GameRouter(controller, { idle: () => { idleDraws += 1; return IDLE; } });
     const { beats } = await drive(router, DAYJOB_START(0));
 
     expect(idleDraws).toBe(1);
@@ -1731,6 +2207,9 @@ describe('barrier coverage (M5.1 checklist)', () => {
     const notice = await drive(realRouter(realChar()), FEEDBACK('sleep'));
     if (notice.response.ok && notice.response.view) screens.add(notice.response.view.screen);
 
-    expect([...screens].sort()).toEqual(['commute', 'decision', 'loading', 'menu', 'notice', 'outcome']);
+    const wizard = await drive(realRouter(new MockWorldEngine()), WIZARD_RESTART);
+    if (wizard.response.ok && wizard.response.view) screens.add(wizard.response.view.screen);
+
+    expect([...screens].sort()).toEqual(['commute', 'decision', 'loading', 'menu', 'notice', 'outcome', 'wizard']);
   });
 });

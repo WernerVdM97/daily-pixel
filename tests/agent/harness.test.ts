@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { AgentHarness, createAgentHarness } from '../../src/agent/harness.js';
+import { seedCharacterViaProtocol } from '../../src/agent/seedCharacter.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
 import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
 import { SessionController } from '../../src/controller/SessionController.js';
 import { GameRouter } from '../../src/protocol/router.js';
 import type { RouterBackend } from '../../src/protocol/router.js';
+import { WizardSession } from '../../src/discord/WizardSession.js';
 import { CID_DAYJOB, CID_DAYJOB_CUSTOM } from '../../src/controller/dayJob.js';
 import type { PipelineScript } from '../../src/sim/types.js';
 import type { CharCreateData, CharacterData, WorldEngine } from '../../src/engine/WorldEngine.js';
@@ -15,6 +19,8 @@ import type { MenuViewState, OutcomeViewState } from '../../src/view/viewState.j
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
 import type { CriticGateway, CriticInput, CriticVerdict } from '../../src/llm/LlmGateway.js';
 import { viewToText } from '../../src/agent/viewToText.js';
+import { loadYamlFile } from '../../src/assets/yaml-loader.js';
+import type { CharDefs } from '../../src/controller/joinWizard.js';
 
 // ── M6 — harness tests ported to the protocol surface. `buildHarness` wires a `GameRouter`
 // over a real `SessionController` + scripted pipeline (same deterministic engine as M4),
@@ -61,11 +67,31 @@ const SEED: CharCreateData = {
   class: 'Warrior',
   upbringing: 'Soldier',
   race: 'Human',
-  alignment: 'Lawful Good',
+  // The wizard persists step-5 values lowercase and the controller validates the value
+  // against the defs (DC-M7.3.9) — the pre-seam title-case fixture would be rejected.
+  alignment: 'lawful good',
   dayJob: 'Town Guard',
+  // The walk can't reach step 8 without the step-7 kit (a Warrior's "Soldier's Kit" —
+  // the profile fixture gains the wizard's itemSet field the current SEED lacks, DC-S3).
+  itemSetName: "Soldier's Kit",
 };
 
 const USER_ID = 'agent:test';
+
+// The real char-creation defs the controller's wizard renders from (DC-M7.3.10) — the same
+// YAMLs the engine harness loads for its day jobs.
+const CC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets', 'char-creation');
+function loadDefs<T>(file: string): T[] {
+  return loadYamlFile(path.join(CC_DIR, file)) as T[];
+}
+const REAL_DEFS: CharDefs = {
+  classes: loadDefs('classes.yml'),
+  backgrounds: loadDefs('backgrounds.yml'),
+  races: loadDefs('races.yml'),
+  alignments: loadDefs('alignments.yml'),
+  dayJobs: loadDefs('day-jobs.yml'),
+  itemSets: loadDefs('item-sets.yml'),
+};
 
 function buildHarness(brainMoves: AgentMove[], script: PipelineScript = pipelineScript) {
   const agentEngine = buildAgentEngine({
@@ -74,12 +100,20 @@ function buildHarness(brainMoves: AgentMove[], script: PipelineScript = pipeline
   });
   const brain = new ScriptedAgentPlayerGateway(brainMoves);
   // Wire a GameRouter over a real SessionController — the harness is a true protocol client.
-  const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs);
+  const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS);
   const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
   return {
     harness: createAgentHarness(agentEngine.engine, router, brain, USER_ID),
     brain,
     agentEngine,
+    router,
+    // M7.3 (DC-M7.3.9): the character is created THROUGH the protocol — the wizard walk
+    // dispatches over the same router the harness plays through. Returns the created char
+    // (read from the engine — the real engine persists createCharacter).
+    seed: async (data: CharCreateData = SEED): Promise<CharacterData> => {
+      await seedCharacterViaProtocol(router, USER_ID, data);
+      return agentEngine.engine.getCharacter(USER_ID)!;
+    },
     // Exposed for tests that drive the controller directly (e.g. viewToText assertions).
     controller,
   };
@@ -87,12 +121,12 @@ function buildHarness(brainMoves: AgentMove[], script: PipelineScript = pipeline
 
 describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
   it('drives menu → custom action → decision beat → outcome through the protocol', async () => {
-    const { harness, brain, agentEngine } = buildHarness([
+    const { harness, brain, agentEngine, seed } = buildHarness([
       { kind: 'custom', text: 'attack the goblin' }, // pick the free-text slot from the menu
       { kind: 'choice', index: 0 },
       { kind: 'choice', index: 0 },
     ]);
-    const char = harness.seedCharacter(SEED);
+    const char = await seed();
     expect(char.name).toBe('Bram');
     expect(char.stats.physical).toBeGreaterThan(0);
 
@@ -124,12 +158,12 @@ describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
   });
 
   it('picking a day-job menu button runs the work flow to an outcome through the protocol', async () => {
-    const { harness, agentEngine } = buildHarness([
+    const { harness, agentEngine, seed } = buildHarness([
       { kind: 'menu-pick', index: 0 },
       { kind: 'choice', index: 0 },
       { kind: 'choice', index: 0 },
     ]);
-    const char = harness.seedCharacter(SEED);
+    const char = await seed();
     const result = await harness.playOneAction();
 
     expect(result).toEqual({ kind: 'outcome' });
@@ -141,8 +175,8 @@ describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
   });
 
   it('an action that resolves immediately transcripts the private (acting-player) view', async () => {
-    const { harness, brain } = buildHarness([{ kind: 'custom', text: 'polish my boots' }], immediateScript);
-    harness.seedCharacter(SEED);
+    const { harness, brain, seed } = buildHarness([{ kind: 'custom', text: 'polish my boots' }], immediateScript);
+    await seed();
     const result = await harness.playOneAction();
     expect(result).toEqual({ kind: 'outcome' });
     expect(brain.calls).toHaveLength(1);
@@ -154,7 +188,7 @@ describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
       pipelineLlmGateway: new PipelineScriptedGateway(immediateScript),
       rollD20: () => 20,
     });
-    const c2 = new SessionController(ae2.engine, ae2.getCurrentScene, ae2.dayJobs);
+    const c2 = new SessionController(ae2.engine, ae2.getCurrentScene, ae2.dayJobs, undefined, new WizardSession(), REAL_DEFS);
     ae2.engine.createCharacter(USER_ID, SEED);
     const r2 = await c2.runCustomAction(USER_ID, 'polish my boots');
     expect(r2.kind).toBe('outcome');
@@ -166,20 +200,20 @@ describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
   });
 
   it('the sleep move ends the day without acting', async () => {
-    const { harness } = buildHarness([{ kind: 'sleep' }]);
-    harness.seedCharacter(SEED);
+    const { harness, seed } = buildHarness([{ kind: 'sleep' }]);
+    await seed();
     const result = await harness.playOneAction();
     expect(result).toEqual({ kind: 'slept' });
     expect(harness.transcript.events).toHaveLength(1); // just the menu turn
   });
 
   it('the brain receives the characterState fact on every turn', async () => {
-    const { harness, brain } = buildHarness([
+    const { harness, brain, seed } = buildHarness([
       { kind: 'custom', text: 'attack the goblin' },
       { kind: 'choice', index: 0 },
       { kind: 'choice', index: 0 },
     ]);
-    harness.seedCharacter(SEED);
+    await seed();
     await harness.playOneAction();
 
     // Every brain.chooseMove call received a character snapshot with all required fields.
@@ -198,12 +232,13 @@ describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
   });
 
   it('the brain receives the character snapshot from facts, not engine-direct', async () => {
-    const { harness, brain } = buildHarness([
+    const { harness, brain, seed } = buildHarness([
       { kind: 'custom', text: 'attack the goblin' },
       { kind: 'choice', index: 0 },
       { kind: 'choice', index: 0 },
     ]);
-    harness.seedCharacter(SEED);
+
+    await seed();
 
     await harness.playOneAction();
 
@@ -240,10 +275,10 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
       rollD20: () => 20,
       criticGateway: critic,
     });
-    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs);
+    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS);
     const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
     const harness = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
-    harness.seedCharacter(SEED);
+    await seedCharacterViaProtocol(router, USER_ID, SEED);
 
     await harness.playOneAction();
 
@@ -258,10 +293,10 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
       criticGateway: critic,
       criticEnabled: false,
     });
-    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs);
+    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS);
     const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
     const harness = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
-    harness.seedCharacter(SEED);
+    await seedCharacterViaProtocol(router, USER_ID, SEED);
 
     await harness.playOneAction();
 
@@ -279,8 +314,8 @@ describe('AgentHarness — full-day + multi-day loop (M6 protocol)', () => {
   ];
 
   it('plays down to no-rolls without asking the brain past the last roll', async () => {
-    const { harness, brain, agentEngine } = buildHarness([...goblinAction, ...goblinAction, ...goblinAction]);
-    harness.seedCharacter(SEED);
+    const { harness, brain, agentEngine, seed } = buildHarness([...goblinAction, ...goblinAction, ...goblinAction]);
+    await seed();
 
     const summary = await harness.playDay();
 
@@ -290,8 +325,8 @@ describe('AgentHarness — full-day + multi-day loop (M6 protocol)', () => {
   });
 
   it('runs multiple days, advancing the day and refilling rolls each night', async () => {
-    const { harness, agentEngine } = buildHarness([...goblinAction, { kind: 'sleep' }, { kind: 'sleep' }]);
-    const seeded = harness.seedCharacter(SEED);
+    const { harness, agentEngine, seed } = buildHarness([...goblinAction, { kind: 'sleep' }, { kind: 'sleep' }]);
+    const seeded = await seed();
 
     const summaries = await harness.playDays(2);
 
@@ -311,8 +346,8 @@ describe('AgentHarness — full-day + multi-day loop (M6 protocol)', () => {
 
   it('stops the multi-day run when a day stalls', async () => {
     const illegal: AgentMove = { kind: 'choice', index: 0 };
-    const { harness, brain, agentEngine } = buildHarness([illegal, illegal, illegal, illegal, illegal, illegal]);
-    harness.seedCharacter(SEED);
+    const { harness, brain, agentEngine, seed } = buildHarness([illegal, illegal, illegal, illegal, illegal, illegal]);
+    await seed();
 
     const summaries = await harness.playDays(3);
 
@@ -428,6 +463,14 @@ function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHa
       wasUnsafe: false,
       unsafeFromName: "The Warden's Oak",
     },
+    openHi: () => ({ kind: 'no-character' }),
+    // M7.3 wizard surface — the harness never walks the wizard (creation is the caller's
+    // seedCharacterViaProtocol job), so the minimal no-session defaults are all it needs.
+    openJoin: () => ({ kind: 'has-character' }),
+    answerWizardName: () => ({ kind: 'no-session' }),
+    chooseWizardOption: () => ({ kind: 'no-session' }),
+    restartWizard: () => ({ kind: 'view', view: { screen: 'wizard' as const, step: 1, totalSteps: 7, ledger: '', body: '', footer: '', buttons: [] } }),
+    confirmWizard: () => ({ kind: 'no-session' }),
     feedbackConfirmation: () => ({ screen: 'notice' as const, text: 'Thanks', ephemeral: true }),
     recordFeedback: () => {},
   };
@@ -532,13 +575,13 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
   });
 
   it('rolls the transcript up into a run summary', async () => {
-    const { harness } = buildHarness([
+    const { harness, seed } = buildHarness([
       { kind: 'custom', text: 'attack the goblin' },
       { kind: 'choice', index: 0 },
       { kind: 'choice', index: 0 },
       { kind: 'sleep' },
     ]);
-    harness.seedCharacter(SEED);
+    await seed();
     await harness.playDay();
 
     const s = harness.transcript.summary();
@@ -588,8 +631,8 @@ describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', (
   ];
 
   it('idles without resting while rolls remain', async () => {
-    const { harness, agentEngine } = buildHarness([...dayJobAction, { kind: 'sleep' }]);
-    harness.seedCharacter(SEED);
+    const { harness, agentEngine, seed } = buildHarness([...dayJobAction, { kind: 'sleep' }]);
+    await seed();
 
     await harness.playDays(1);
 
@@ -599,8 +642,8 @@ describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', (
   });
 
   it('rests to the Oak once every roll is spent', async () => {
-    const { harness, agentEngine } = buildHarness([...dayJobAction, ...dayJobAction, ...dayJobAction]);
-    harness.seedCharacter(SEED);
+    const { harness, agentEngine, seed } = buildHarness([...dayJobAction, ...dayJobAction, ...dayJobAction]);
+    await seed();
 
     const summaries = await harness.playDays(1);
 
