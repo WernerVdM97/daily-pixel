@@ -117,6 +117,7 @@ export function isMorningSuppressedDay(now: Date): boolean {
 /**
  * Why the morning announcement should be skipped, in priority order:
  * already-posted → tick-incomplete → suppressed-weekday. Null = post normally.
+ * The 0/3/6 weekday set must stay in lockstep with `isMorningSuppressedDay` (same set).
  */
 export function morningSkipReason(input: {
   alreadyPosted: boolean;

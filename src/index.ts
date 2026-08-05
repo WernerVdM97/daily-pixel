@@ -464,23 +464,23 @@ async function runGoodnightAnnouncement(
 ): Promise<boolean> {
   const today = new Date().toISOString().slice(0, 10);
 
-  const reason = goodnightSkipReason({
-    alreadyPosted: engine.getMeta("last_goodnight_date") === today,
-    activePlayersToday: engine.countActivePlayersSince(today),
-  });
-  if (reason === "already-posted") {
-    console.log(c.grey("[cron] Goodnight already posted today — skipping."));
-    return false;
-  }
-  if (reason === "no-activity") {
-    console.log(c.grey("[cron] No PC activity today — skipping goodnight."));
-    // Intentional quiet, not a failure — stamp the idempotency meta anyway so the
-    // boot-time catch-up in scheduleGoodnightAnnouncement can't resurrect it later.
-    engine.setMeta("last_goodnight_date", today);
-    return false;
-  }
-
   try {
+    const reason = goodnightSkipReason({
+      alreadyPosted: engine.getMeta("last_goodnight_date") === today,
+      activePlayersToday: engine.countActivePlayersSince(today),
+    });
+    if (reason === "already-posted") {
+      console.log(c.grey("[cron] Goodnight already posted today — skipping."));
+      return false;
+    }
+    if (reason === "no-activity") {
+      console.log(c.grey("[cron] No PC activity today — skipping goodnight."));
+      // Intentional quiet, not a failure — stamp the idempotency meta anyway so the
+      // boot-time catch-up in scheduleGoodnightAnnouncement can't resurrect it later.
+      engine.setMeta("last_goodnight_date", today);
+      return false;
+    }
+
     const soulsInUnsafe = engine.countSoulsInUnsafe();
     const day = Number(engine.getMeta("day_number") ?? "1");
     const content = buildEveningAnnouncement({ day, soulsInUnsafe });
@@ -571,44 +571,44 @@ async function runMorningAnnouncement(
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
 
-  // Priority contract: already-posted → tick-incomplete → suppressed-weekday. The
-  // stall alert must survive suppressed days, so the tick check comes first.
-  const reason = morningSkipReason({
-    alreadyPosted: engine.getMeta("last_announcement_date") === today,
-    tickCompleted: engine.getMeta("last_cron_date") === today,
-    weekday: now.getUTCDay(),
-  });
-  if (reason === "already-posted") {
-    console.log(c.grey("[cron] Announcement already sent today — skipping."));
-    return false;
-  }
-  if (reason === "tick-incomplete") {
-    console.log(
-      c.grey("[cron] Tick did not complete today — skipping announcement."),
-    );
-    // World stalled: the tick failed/never ran, so no day advanced. Alert the
-    // admin so it doesn't sit silently (recoverable via admin `/sleep`).
-    const lastCron = engine.getMeta("last_cron_date");
-    void notifyAdmin(
-      "World stalled — announcement skipped",
-      new Error(
-        `Nightly tick did not complete for ${today} (last_cron_date=${lastCron ?? "none"}). ` +
-          "No day advanced. Run admin `/sleep` to catch up.",
-      ),
-    );
-    return false;
-  }
-  if (reason === "suppressed-weekday") {
-    const beat = now.getUTCDay() === 6 ? "Saturday threat reveal" : "leaderboards";
-    console.log(
-      c.grey(`[cron] Morning announcement suppressed — today's ${beat} lands at noon instead.`),
-    );
-    // Stamp so the boot-time catch-up can't resurrect the morning on this day (D4).
-    engine.setMeta("last_announcement_date", today);
-    return false;
-  }
-
   try {
+    // Priority contract: already-posted → tick-incomplete → suppressed-weekday. The
+    // stall alert must survive suppressed days, so the tick check comes first.
+    const reason = morningSkipReason({
+      alreadyPosted: engine.getMeta("last_announcement_date") === today,
+      tickCompleted: engine.getMeta("last_cron_date") === today,
+      weekday: now.getUTCDay(),
+    });
+    if (reason === "already-posted") {
+      console.log(c.grey("[cron] Announcement already sent today — skipping."));
+      return false;
+    }
+    if (reason === "tick-incomplete") {
+      console.log(
+        c.grey("[cron] Tick did not complete today — skipping announcement."),
+      );
+      // World stalled: the tick failed/never ran, so no day advanced. Alert the
+      // admin so it doesn't sit silently (recoverable via admin `/sleep`).
+      const lastCron = engine.getMeta("last_cron_date");
+      void notifyAdmin(
+        "World stalled — announcement skipped",
+        new Error(
+          `Nightly tick did not complete for ${today} (last_cron_date=${lastCron ?? "none"}). ` +
+            "No day advanced. Run admin `/sleep` to catch up.",
+        ),
+      );
+      return false;
+    }
+    if (reason === "suppressed-weekday") {
+      const beat = now.getUTCDay() === 6 ? "Saturday threat reveal" : "leaderboards";
+      console.log(
+        c.grey(`[cron] Morning announcement suppressed — today's ${beat} lands at noon instead.`),
+      );
+      // Stamp so the boot-time catch-up can't resurrect the morning on this day (D4).
+      engine.setMeta("last_announcement_date", today);
+      return false;
+    }
+
     const dayNumber = engine.getMeta("day_number") ?? "1";
     const playersAffected = Number(
       engine.getMeta("last_tick_players_affected") ?? "0",
