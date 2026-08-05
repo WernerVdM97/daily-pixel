@@ -30,6 +30,7 @@ import type {
   BeginCustomActionResult,
   DayJobStart,
   FeedbackSurface,
+  HiOpenResult,
   RestBeginResult,
   SessionController,
   StartRenderResult,
@@ -152,6 +153,7 @@ export interface RouterBackend {
   resolveChoice(character: CharacterData, selector: PendingChoiceSelector): string | null;
   stepChoice(userId: string, label: string, prevChar: CharacterData): Promise<StepChoiceResult>;
   beginRest(userId: string): RestBeginResult;
+  openHi(userId: string): HiOpenResult;
   feedbackConfirmation(surface: FeedbackSurface): NoticeViewState;
   recordFeedback(surface: FeedbackSurface, userId: string, text: string, actionId?: number): void;
 }
@@ -204,6 +206,8 @@ export class GameRouter {
           return await this.dispatchFeedback('outcome-bug', e.playerId, e.text, e.actionId);
         case 'rest.begin':
           return this.dispatchRestBegin(e);
+        case 'hi.open':
+          return this.dispatchHiOpen(e);
       }
     } catch (err) {
       return this.internalError(err);
@@ -378,6 +382,31 @@ export class GameRouter {
           facts,
         });
       }
+    }
+  }
+
+  /** `hi.open` — the `/hi` greeting screen (M7.2, DC-M7.2.3). No beats (single-reply flow,
+   *  like `rest.begin`). NO_CHARACTER_COPY unifies the two no-character copies: the old
+   *  handler's "…yet. Type `/join` to create one." copy is dead behind the slash gate (hi is
+   *  in CHARACTER_GATED_COMMANDS), and the genuinely-reachable charless `nav:hi` edge (public
+   *  announcement buttons — the generic nav branch calls the registry handler ungated)
+   *  changes from "yet" to "first" — cosmetic, unpinned by any test (M1's nav:hi transcript
+   *  and M7.0 transcripts 9–11 all have characters), the same unification M7.1 applied to
+   *  the parallel charless `nav:sleep` edge; recorded for the reviewer. Both view arms
+   *  return the NoticeViewState with the character facts (no new facts key). */
+  private dispatchHiOpen(e: { type: 'hi.open'; playerId: string }): GameResponse {
+    const result = this.backend.openHi(e.playerId);
+    switch (result.kind) {
+      case 'no-character':
+        return this.error('no-character', NO_CHARACTER_COPY);
+      case 'resume':
+      case 'greeting':
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: result.view,
+          facts: this.addCharacterFacts(e.playerId),
+        });
     }
   }
 

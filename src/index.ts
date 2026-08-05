@@ -1308,7 +1308,7 @@ async function main() {
   registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
   registry.register("bug", withTextOption(makeBugCommand(engine)));
   registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
-  registry.register("hi", asHandler(makeHiCommand(engine, dayJobs)));
+  registry.register("hi", asHandler(makeHiCommand(router)));
   const joinWizards = new WizardSession();
   registry.register(
     "join",

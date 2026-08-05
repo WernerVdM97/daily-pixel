@@ -144,7 +144,7 @@ export function buildRegistry(
   registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
   registry.register("bug", withTextOption(makeBugCommand(engine)));
   registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
-  registry.register("hi", asHandler(makeHiCommand(engine, DAY_JOBS)));
+  registry.register("hi", asHandler(makeHiCommand(router)));
   registry.register(
     "join",
     asHandler(makeJoinCommand(engine, joinWizards, CHAR_DEFS)),

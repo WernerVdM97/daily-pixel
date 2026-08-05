@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { GameRouter, type RouterBackend } from '../../src/protocol/router.js';
 import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse } from '../../src/protocol/envelope.js';
@@ -9,13 +9,14 @@ import type {
   BeginCustomActionResult,
   DayJobStart,
   FeedbackSurface,
+  HiOpenResult,
   RestBeginResult,
   StartRenderResult,
   StepChoiceResult,
 } from '../../src/controller/SessionController.js';
 import { MockWorldEngine } from '../../src/engine/MockWorldEngine.js';
 import type { ActionOutcome, CharacterData, PendingChoiceSelector } from '../../src/engine/WorldEngine.js';
-import type { DayJobDef } from '../../src/controller/dayJob.js';
+import { getDayJobActions, type DayJobDef } from '../../src/controller/dayJob.js';
 import type { DecisionViewState, MenuViewState, NoticeViewState, OutcomeViewState, ViewState } from '../../src/view/viewState.js';
 
 // ── M5.1 — the contract-test barrier (see docs/engine/json-seam-protocol.md § "M5 build
@@ -241,6 +242,54 @@ const RESTED_UNSAFE: RestBeginResult = {
   unsafeFromName: 'The Broken Keep',
 };
 
+/** The seeded action labels the /hi day-job block renders for the default character on
+ *  day 1 — computed exactly the way composeHiScreen computes them (same day-job, same
+ *  characterId/dayNumber seed), so the stub's greeting fixture and the real backend's
+ *  greeting text are observably equivalent (the interchangeability point). */
+const HI_SEEDED_LABELS = getDayJobActions('Town Guard', DAY_JOBS, { characterId: 1, dayNumber: 1 }).map((a) => a.label);
+
+/** The stub's hi.open weekday-greeting arm — the action lines are built FROM the seeded
+ *  labels, so the shared conformance assert proves real/stub equivalence label by label. */
+const HI_GREETING: HiOpenResult = {
+  kind: 'greeting',
+  view: {
+    screen: 'notice',
+    text: [
+      "📍 **The Warden's Oak** — Use `look` for the full scene.",
+      '',
+      '🔹  **Aldric** — Warrior',
+      SEPARATOR,
+      '',
+      '🔨 **Town Guard — The Town Gate — Daily Work**',
+      '',
+      ...HI_SEEDED_LABELS.map((label, i) => `  ${['🎯', '🔧', '📋'][i]} **${label}** — ${label.toLowerCase()} hook`),
+      '',
+      '📦 Press the **Action** button or type `action <what you do>` to start.',
+    ].join('\n'),
+    ephemeral: true,
+  },
+};
+
+/** The stub's hi.open unfinished-action arm — prompt + narration, mirroring the real
+ *  backend's resume compose. */
+const HI_RESUME: HiOpenResult = {
+  kind: 'resume',
+  view: {
+    screen: 'notice',
+    text: [
+      '⏳ **Unfinished Action**',
+      SEPARATOR,
+      '',
+      'You stand at the ridgeline, wind pulling at your cloak.',
+      '',
+      'The trail forks. Continue?',
+      '',
+      'Press the **Action** button to continue.',
+    ].join('\n'),
+    ephemeral: true,
+  },
+};
+
 /** The stub's day-job outcome — observably equivalent to the real backend's (same
  *  distilledType/characterName/actionId and the same post-action char, hence the same nav). */
 const STUB_OUTCOME: StartRenderResult = {
@@ -286,6 +335,7 @@ class StubBackend implements RouterBackend {
   resolveResult: string | null | 'throw' = null;
   stepResult: StepChoiceResult | 'throw' = { kind: 'decision', view: decisionView };
   restResult: RestBeginResult | 'throw' = { kind: 'no-character' };
+  hiResult: HiOpenResult | 'throw' = { kind: 'no-character' };
   confirmationResult: NoticeViewState | 'throw' = noticeView;
   recordResult: 'ok' | 'throw' = 'ok';
 
@@ -346,6 +396,10 @@ class StubBackend implements RouterBackend {
 
   beginRest(_userId: string): RestBeginResult {
     return this.run('beginRest', this.restResult);
+  }
+
+  openHi(_userId: string): HiOpenResult {
+    return this.run('openHi', this.hiResult);
   }
 
   feedbackConfirmation(surface: FeedbackSurface): NoticeViewState {
@@ -518,6 +572,7 @@ const ACTION_BAIL = { type: 'action.choose' as const, playerId: USER, selector: 
 const FEEDBACK = (surface: string, actionId?: number): unknown => ({ type: 'feedback.submit', playerId: USER, surface, text: 'loving the atmosphere', actionId });
 const BUG = (actionId?: number): unknown => ({ type: 'bug.submit', playerId: USER, text: 'the door is stuck', actionId });
 const REST_BEGIN = { type: 'rest.begin' as const, playerId: USER };
+const HI_OPEN = { type: 'hi.open' as const, playerId: USER };
 
 // ── rest.begin (M7.1, DC-M7.1.3: no-character → guards → rested notice view; NO beats) ──
 
@@ -590,6 +645,81 @@ runCaseBlock('conformance — rest.begin', [
     },
   },
 ]);
+
+// ── hi.open (M7.2, DC-M7.2.3: no-character → greeting/resume notice view; NO beats) ──
+// Fake timers pin the weekday branch (the real backend reads new Date() for the weekend
+// hooks, mirroring the M7.0 bookend oracle's date control).
+
+describe('conformance — hi.open (fake timers: Wednesday 2026-07-15)', () => {
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-07-15T12:00:00Z')); });
+  afterEach(() => vi.useRealTimers());
+
+  runCaseBlock('conformance — hi.open', [
+    {
+      name: 'no-character → no-character with NO_CHARACTER_COPY (the gate reroutes gated commands, recorded unification)',
+      event: HI_OPEN,
+      real: () => realRouter(new MockWorldEngine()),
+      stub: () => stubRouter(),
+      assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+    },
+    {
+      name: 'weekday greeting → ok:true notice view with the location line, character header, day-job block and every seeded action label; characterState/nav/characterName facts; zero beats',
+      event: HI_OPEN,
+      real: () => realRouter(realChar()),
+      stub: () => stubRouter((s) => { s.hiResult = HI_GREETING; }),
+      assert: (o) => {
+        const view = expectOkView(o.response, 'notice') as NoticeViewState;
+        expect(view.text).toContain('— Use `look` for the full scene.');
+        expect(view.text).toContain('Warrior');
+        expect(view.text).toContain('Daily Work');
+        for (const label of HI_SEEDED_LABELS) expect(view.text).toContain(label);
+        expect(view.text).not.toContain('Weekend');
+        if (!o.response.ok) throw new Error('unreachable');
+        expect(o.response.facts?.characterName).toBe('Aldric');
+        expect(o.response.facts?.characterState).toMatchObject({
+          health: expect.any(Number),
+          maxHealth: expect.any(Number),
+          stamina: expect.any(Number),
+          maxStamina: expect.any(Number),
+          wealth: expect.any(Number),
+          location: expect.any(String),
+        });
+        expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: false, hasRestedToday: false });
+        expect(o.beats).toEqual([]);
+      },
+    },
+    {
+      name: 'unfinished action → ok:true notice view with the prompt + narration, facts present, zero beats',
+      event: HI_OPEN,
+      real: () => {
+        const engine = realChar({ lastActionState: IN_FLIGHT as never });
+        engine.setResumeResult({
+          state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 10, kind: 'quest' },
+          nextDecision: { prompt: 'The trail forks. Continue?', options: [], narration: 'You stand at the ridgeline, wind pulling at your cloak.' },
+        });
+        return realRouter(engine);
+      },
+      stub: () => stubRouter((s) => { s.hiResult = HI_RESUME; }),
+      assert: (o) => {
+        const view = expectOkView(o.response, 'notice') as NoticeViewState;
+        expect(view.text).toContain('The trail forks. Continue?');
+        expect(view.text).toContain('You stand at the ridgeline, wind pulling at your cloak.');
+        if (!o.response.ok) throw new Error('unreachable');
+        expect(o.response.facts?.characterName).toBe('Aldric');
+        expect(o.response.facts?.characterState).toMatchObject({
+          health: expect.any(Number),
+          maxHealth: expect.any(Number),
+          stamina: expect.any(Number),
+          maxStamina: expect.any(Number),
+          wealth: expect.any(Number),
+          location: expect.any(String),
+        });
+        expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: expect.any(Boolean), hasRestedToday: false });
+        expect(o.beats).toEqual([]);
+      },
+    },
+  ]);
+});
 
 // ── menu.open (DC-P6: stampLastPlayed FIRST, then the menu branch) ──
 
@@ -1206,6 +1336,17 @@ describe('flow order (DC-P6) — the stub call log pins each leaf order', () => 
     expect(stub.calls).toEqual(['beginRest']);
   });
 
+  it('hi.open: openHi is the only backend call (the character snapshot read is a stub no-log read, pinned by the facts assertions)', async () => {
+    const stub = new StubBackend();
+    stub.hiResult = HI_GREETING;
+    const o = await drive(new GameRouter(stub, { idle: () => IDLE }), HI_OPEN);
+    expect(stub.calls).toEqual(['openHi']);
+    if (!o.response.ok) throw new Error('unreachable');
+    expect(o.response.facts?.characterName).toBe('Aldric');
+    expect(o.response.facts?.characterState).toBeDefined();
+    expect(o.response.facts?.nav).toBeDefined();
+  });
+
   it('rest.begin unsafe arm adds the restUnsafe fact ONLY on unsafe rested envelopes', async () => {
     const stub = new StubBackend();
     stub.restResult = RESTED_SAFE;
@@ -1261,6 +1402,9 @@ const GARBAGE_EVENTS: unknown[] = [
   { type: 'rest.begin' },
   { type: 'rest.begin', playerId: '' },
   { type: 'rest.begin', playerId: 42 },
+  { type: 'hi.open' },
+  { type: 'hi.open', playerId: '' },
+  { type: 'hi.open', playerId: 42 },
   { type: 'warp.drive', playerId: USER },
 ];
 

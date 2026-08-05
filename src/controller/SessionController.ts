@@ -13,6 +13,7 @@ import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResu
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
 import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
+import { composeHiScreen } from './hiScreen.js';
 
 export type FeedbackSurface = 'sleep' | 'release' | 'outcome-feedback' | 'outcome-bug';
 
@@ -55,6 +56,16 @@ export type RestBeginResult =
   | { kind: 'mid-action' }
   | { kind: 'rolls-remaining' }
   | { kind: 'rested'; alreadyThere: boolean; prev: { health: number; stamina: number }; updated: CharacterData; wasUnsafe: boolean; unsafeFromName: string };
+
+/** Outcome of `openHi` (M7.2, DC-M7.2.2) — the `/hi` greeting screen crosses the seam as
+ *  `hi.open`. Char guard, then `composeHiScreen` (the composition lifted byte-for-byte from
+ *  the pre-seam hi.ts handler into the controller layer). NO stamp: the dispatcher's generic
+ *  post-handler `stampLastPlayed` covers `/hi`, and the nav branch stamps before its handler
+ *  — a stamp here would double-stamp. */
+export type HiOpenResult =
+  | { kind: 'no-character' }
+  | { kind: 'resume'; view: NoticeViewState }
+  | { kind: 'greeting'; view: NoticeViewState };
 
 /** Outcome of `beginDayJob` — mirrors the pre-M3.4 `action:dayjob:<n>` button handler's
  *  guard order exactly (char guard -> `updateLastPlayed` -> invalid-job -> unsafe-ground ->
@@ -218,6 +229,15 @@ export class SessionController {
       wasUnsafe: result.wasUnsafe,
       unsafeFromName: result.unsafeFromName,
     };
+  }
+
+  /** The `/hi` greeting screen (M7.2, DC-M7.2.2) — char guard, then the composeHiScreen
+   *  fan-out (greeting pieces built, then the lastActionState short-circuit to the resume
+   *  screen, exactly the old handler's branch order). No stamp (see HiOpenResult). */
+  openHi(userId: string): HiOpenResult {
+    const character = this.engine.getCharacter(userId);
+    if (!character) return { kind: 'no-character' };
+    return composeHiScreen(this.engine, this.dayJobs, character);
   }
 
   /** Reproduces the pre-M3.4 `action:dayjob:<n>` button handler's guard order exactly

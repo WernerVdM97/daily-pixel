@@ -20,7 +20,8 @@ export type GameEvent =
   | { type: 'action.choose'; playerId: string; selector: { kind: 'option'; index: number } | { kind: 'bail' } }
   | { type: 'feedback.submit'; playerId: string; surface: 'sleep' | 'release' | 'outcome-feedback'; text: string; actionId?: number }
   | { type: 'bug.submit'; playerId: string; text: string; actionId?: number }
-  | { type: 'rest.begin'; playerId: string };
+  | { type: 'rest.begin'; playerId: string }
+  | { type: 'hi.open'; playerId: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -46,6 +47,8 @@ export function validateGameEvent(raw: unknown): { ok: true; event: GameEvent } 
     case 'menu.open':
       return { ok: true, event: raw as unknown as GameEvent };
     case 'rest.begin':
+      return { ok: true, event: raw as unknown as GameEvent };
+    case 'hi.open':
       return { ok: true, event: raw as unknown as GameEvent };
     case 'dayjob.start':
       if (!isNonNegativeInteger(raw.jobIndex)) {
