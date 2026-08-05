@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-08-05
+
+### Changed
+
+- **Daily announcement spam trimmed** — the morning greeting no longer posts on the days the weekend hunt or the weekly leaderboards already speak (Saturday, Wednesday, Sunday), and the evening goodnight only posts on days a soul actually stirred; a day nobody played now ends in quiet (commits `a380f0a`, `d575fd9`).
+
 ## [0.3.3] - 2026-08-02
 
 ### Added
