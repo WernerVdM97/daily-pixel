@@ -410,6 +410,12 @@ export interface WorldEngine {
    *  "goodnight" announcement (souls still out as night falls). */
   countSoulsInUnsafe(): number;
 
+  /** Count player characters who engaged at/after `startIso` (lexical compare of
+   *  `last_played_at` >= `startIso`; 'YYYY-MM-DD' boundaries include that day). Read
+   *  live by the evening "goodnight" announcement to decide whether anything changed
+   *  for player characters today. */
+  countActivePlayersSince(startIso: string): number;
+
   // Journal
   getJournal(characterId: number): JournalData;
 

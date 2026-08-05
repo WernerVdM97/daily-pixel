@@ -86,13 +86,15 @@ import { setCollapseBroadcaster } from "./discord/collapse.js";
 import {
   pickWeeklyThreat,
   buildThreatAnnouncement,
-  buildThreatHeadsUp,
   buildLeaderboardAnnouncement,
   LEADERBOARD_MARKER,
 } from "./discord/afternoon.js";
 import {
   buildMorningAnnouncement,
   buildEveningAnnouncement,
+  isMorningSuppressedDay,
+  morningSkipReason,
+  goodnightSkipReason,
 } from "./discord/announcements.js";
 import { pinMessage, pinReplacing, pinKeepingNewest } from "./discord/pin.js";
 import {
@@ -462,8 +464,19 @@ async function runGoodnightAnnouncement(
 ): Promise<boolean> {
   const today = new Date().toISOString().slice(0, 10);
 
-  if (engine.getMeta("last_goodnight_date") === today) {
+  const reason = goodnightSkipReason({
+    alreadyPosted: engine.getMeta("last_goodnight_date") === today,
+    activePlayersToday: engine.countActivePlayersSince(today),
+  });
+  if (reason === "already-posted") {
     console.log(c.grey("[cron] Goodnight already posted today — skipping."));
+    return false;
+  }
+  if (reason === "no-activity") {
+    console.log(c.grey("[cron] No PC activity today — skipping goodnight."));
+    // Intentional quiet, not a failure — stamp the idempotency meta anyway so the
+    // boot-time catch-up in scheduleGoodnightAnnouncement can't resurrect it later.
+    engine.setMeta("last_goodnight_date", today);
     return false;
   }
 
@@ -555,22 +568,27 @@ async function runMorningAnnouncement(
   client: Client,
   channelId: string,
 ): Promise<boolean> {
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
 
-  const lastAnnouncement = engine.getMeta("last_announcement_date");
-  if (lastAnnouncement === today) {
+  // Priority contract: already-posted → tick-incomplete → suppressed-weekday. The
+  // stall alert must survive suppressed days, so the tick check comes first.
+  const reason = morningSkipReason({
+    alreadyPosted: engine.getMeta("last_announcement_date") === today,
+    tickCompleted: engine.getMeta("last_cron_date") === today,
+    weekday: now.getUTCDay(),
+  });
+  if (reason === "already-posted") {
     console.log(c.grey("[cron] Announcement already sent today — skipping."));
     return false;
   }
-
-  // H3: gate on tick success — don't post stale stats if the tick hasn't completed today.
-  const lastCron = engine.getMeta("last_cron_date");
-  if (lastCron !== today) {
+  if (reason === "tick-incomplete") {
     console.log(
       c.grey("[cron] Tick did not complete today — skipping announcement."),
     );
     // World stalled: the tick failed/never ran, so no day advanced. Alert the
     // admin so it doesn't sit silently (recoverable via admin `/sleep`).
+    const lastCron = engine.getMeta("last_cron_date");
     void notifyAdmin(
       "World stalled — announcement skipped",
       new Error(
@@ -578,6 +596,15 @@ async function runMorningAnnouncement(
           "No day advanced. Run admin `/sleep` to catch up.",
       ),
     );
+    return false;
+  }
+  if (reason === "suppressed-weekday") {
+    const beat = now.getUTCDay() === 6 ? "Saturday threat reveal" : "leaderboards";
+    console.log(
+      c.grey(`[cron] Morning announcement suppressed — today's ${beat} lands at noon instead.`),
+    );
+    // Stamp so the boot-time catch-up can't resurrect the morning on this day (D4).
+    engine.setMeta("last_announcement_date", today);
     return false;
   }
 
@@ -590,17 +617,10 @@ async function runMorningAnnouncement(
       engine.getMeta("last_tick_npc_movement_count") ?? "0",
     );
 
-    // Saturday: fold an early heads-up of the day's wilderness threat into the dawn message, so the
-    // warning lands at 05:30 — not only at the 12:00 reveal (which names + spawns the foe).
-    const now = new Date();
-    const threatHeadsUp =
-      now.getUTCDay() === 6 ? buildThreatHeadsUp(pickWeeklyThreat(now)) : undefined;
-
     const content = buildMorningAnnouncement({
       day: Number(dayNumber),
       playersAffected,
       npcMovementCount,
-      threatHeadsUp,
     });
 
     const channel = await client.channels.fetch(channelId);
@@ -661,7 +681,13 @@ function scheduleMorningAnnouncement(
   if (next.getTime() <= now) {
     const lastAnnouncement = engine.getMeta("last_announcement_date");
     const lastCron = engine.getMeta("last_cron_date");
-    if (lastAnnouncement !== today && lastCron === today) {
+    // Belt-and-braces alongside the rule-3 stamp (D4): never resurrect a morning on a
+    // day the midday beat owns, even if the suppression stamp somehow went missing.
+    if (
+      lastAnnouncement !== today &&
+      lastCron === today &&
+      !isMorningSuppressedDay(new Date())
+    ) {
       console.log(
         c.yellow("[cron] Boot-time catch-up: running missed announcement now."),
       );
@@ -733,6 +759,8 @@ async function runAfternoonBeat(
   const weekday = now.getUTCDay(); // 0 = Sunday … 6 = Saturday
 
   try {
+    // Weekday checks must stay in lockstep with isMorningSuppressedDay
+    // (src/discord/announcements.ts) — these are exactly the suppressed morning slots.
     if (weekday === 6) {
       // Saturday — wilderness threat.
       if (engine.getMeta("last_threat_date") === dateStr) {
