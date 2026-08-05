@@ -307,7 +307,7 @@ Goal: the three Discord-only bookends — rest+tick (`sleep.ts`), `/hi` (`hi.ts`
 [x] **M7.0 — Bookend oracle.** *(done 2026-08-05 — build `9e61011`, review clean, execution state below)* Extend the golden-transcript characterisation to the join/hi/sleep dispatch paths (detailed checklist below — the only slice fully specced today). Test-only, additive: no `src/` edits. Gate: new transcripts + snapshots green, existing oracle + suite untouched.
 [x] **M7.1 — Rest + nightly tick.** *(done 2026-08-05 — build `e669262` + review fix `d47a835`, execution state below)* Move the unsafe-rest −1 HP rule (condition + penalty + prose inputs, value and conditions unchanged) into the engine, mirroring the M0 commute move; `rest.begin` event + router branch + controller `beginRest`; the guards (mid-action, rolls-remaining) move behind the seam with it; `sleep.ts` rewires to translate + paint (the admin-tick branch stays adapter-direct — flagged watch item); the harness `endDay` rest half dispatches `rest.begin` (the `tick(true)` cron call stays engine-direct), so the agent surfaces unsafe-rest feedback for the first time (closes the M4.5 fidelity caveat 2). The collapse announcement crosses as facts for the adapter to announce (consuming adapter in-slice: the rewired `sleep.ts`). Contract tests in the same commit.
 [x] **M7.2 — `/hi` through the seam.** *(done 2026-08-05 — build `078aaba` + review fix `8b08059`, execution state below)* `hi.open` event; controller `openHi` composes the three screen variants as `NoticeViewState`; router branch + `addCharacterFacts`; `hi.ts` becomes translate + paint. Consuming adapter in-slice: the rewired `hi.ts`. Contract tests in the same commit.
-[ ] **M7.3 — Character creation through the seam (hardest; judge candidate).** Wizard state ownership settles as a genuine extension of parent decision 1 (controller-held session state keyed by `playerId` vs engine-persisted draft) — **a `docs/decisions/` record is part of this slice's deliverables, not a slice note** (coordinator pre-flight steer + handover). `character.create` + wizard-step events; a wizard view-state carrying the step screen semantically (ledger, options, buttons) so the adapter re-welds `EmbedBuilder`/`ButtonBuilder`/`ModalBuilder`; the confirm fan-out (announcement + `/hi` swap) crosses as facts/views; the agent seeds its character through the protocol. Contract tests in the same commit.
+[ ] **M7.3 — Character creation through the seam (hardest; judge candidate).** *(checklist below — lead-settled 2026-08-05)*
 
 ### M7.0 — Bookend oracle (slice checklist, lead-settled 2026-08-05)
 
@@ -417,6 +417,121 @@ Tasks:
 8. **Verify:** `npm run typecheck` clean; `npm test` green; `git status` shows zero changes to `tests/discord/bookend-oracle.test.ts` + its snapshot, `dispatchInteraction.ts`, `src/engine/`, `src/agent/`, `src/protocol/envelope.ts`, `src/view/`; M1/M2 snapshots zero churn.
 
 Scope fence (M7.2): no game-rule/balance/prompt changes (hi has no rule to move — read-only screen composition only); no engine changes; no harness changes (the agent never calls `/hi`; the M7 gate's "zero engine-direct bookends" refers to rest + character creation — rest moved at M7.1, creation is M7.3); `dispatchInteraction.ts` not touched (the dispatcher's hi paint path — nav bar, ephemeral flags, `renderHiScreen` — stays adapter-side until M9); no new view-state variant (NoticeViewState); no new facts key; no beats on `hi.open`; `PROTOCOL_VERSION` stays 1; M7.0 transcripts 9–11 + M1 `nav:hi` + M1/M2 snapshots zero churn.
+
+### M7.3 — Character creation through the seam (slice checklist, lead-settled 2026-08-05)
+
+Slice goal: the join wizard (`join.ts` 511 lines + `WizardSession.ts`) crosses the seam as `join.open` + `wizard.answer`/`wizard.choose`/`wizard.restart` + `character.create`, with the wizard draft controller-held per [[wizard-session-ownership]] (the `docs/decisions/` record written in this slice — a deliverable, not a slice note), a new `wizard` ViewState variant carrying the step screen semantically, and the agent's character creation crossing the protocol (the last engine-direct bookend leaves the harness). Gate: typecheck clean; full suite green; **the M7.0 bookend-oracle stays green with ZERO changes to the existing 16 transcripts or their snapshot** (transcripts 1–8 are this migration's byte net); contract suite extended for the five new events in the same commit; `dispatchInteraction.ts` untouched; the `docs/decisions/` record committed with the checklist.
+
+### Design calls (M7.3)
+
+[I] **Wizard state ownership — controller-held, decision 1 extended (DC-M7.3.1).** Settled in `docs/decisions/wizard-session-ownership.md` (written + committed in this slice): `SessionController` drives the existing `WizardSession` store (constructor-injected; index.ts creates ONE instance shared by the controller and the dispatcher's `joinWizards` dep — the bookend oracle's direct store reads keep working). The store stays at `src/discord/WizardSession.ts` (pure TS — the controller already crosses into such modules per the `dayJob.ts`/`format.js` precedent, DC-M7.2.1); its API, TTL and `wizard-session.test.ts` are UNCHANGED. The engine never touches the draft.
+
+[I] **The event surface (DC-M7.3.2) — these names are now pinned for M8.5's parity beats.**
+
+```ts
+| { type: 'join.open'; playerId: string }
+| { type: 'wizard.answer'; playerId: string; text: string }        // step-1 free-text name (the modal doesn't map onto request/response — M6→M7 steer)
+| { type: 'wizard.choose'; playerId: string; step: number; value: string }  // steps 2-7 option buttons; value is the persisted key
+| { type: 'wizard.restart'; playerId: string }
+| { type: 'character.create'; playerId: string }                   // step-8 confirm
+```
+
+Validator shape checks only (DC-P3): `wizard.answer.text` non-empty; `wizard.choose.step` non-negative integer + `value` non-empty. Range/state checks (step is the current step, value is in the step's options) are the router's job → `illegal-move`. `join.open` mirrors the old slash handler's guard order: `characterExists` → start-or-resume (the old try/catch resume logic moves into the controller).
+
+[I] **Wizard view-state (DC-M7.3.3).** New `WizardViewState` in `src/view/viewState.ts` + the union + the envelope validator's `validateView` case. The M2 pattern holds: pure strings pre-rendered (byte-identity), interactive/data parts semantic. Shape:
+
+```ts
+export interface WizardViewState {
+  screen: 'wizard';
+  /** 1-8; 8 = the confirm review screen. */
+  step: number;
+  /** The walk has 7 option steps (step 8 is the review). */
+  totalSteps: number;
+  /** Pre-rendered progress ledger (one line per step; ◀ marker; struck-through chosen values with the option's own emoji). */
+  ledger: string;
+  /** Pre-rendered body block: step prompt + option list (steps 2-7), the name prompt (step 1), the ready prose (step 8). */
+  body: string;
+  footer: string;
+  /** Step 1 only — the modal the adapter welds (customIds are medium chrome). */
+  nameField?: { label: string; placeholder: string; minLength: number; maxLength: number };
+  /** Steps 2-7 only — value is the persisted key, label the display, emoji from the defs (FALLBACK_EMOJI "🔹" when absent). */
+  options?: Array<{ value: string; label: string; emoji?: string }>;
+  /** Semantic buttons the adapter welds (customIds + styles + chunking are medium chrome). */
+  buttons: Array<
+    | { kind: 'name'; label: string; emoji: string }
+    | { kind: 'choice'; step: number; value: string; label: string; emoji?: string }
+    | { kind: 'confirm'; label: string; emoji: string }
+    | { kind: 'restart'; label: string; emoji: string }
+  >;
+}
+```
+
+The embed chrome (title `⚔️  Forge Your Hero` — double space, pinned verbatim; goldenrod; Oak thumbnail; Oak files) stays in the medium step, not the view. The view is NOT wrapped in character facts (the walk's user has no character — DC-M6.1's null-char rule).
+
+[I] **Composition moves to the controller layer (DC-M7.3.4).** New `src/controller/joinWizard.ts` (the hiScreen.ts pattern): `CharDefs`/`NamedDef`/`ItemSetDef` (moved from join.ts), `OptionDef`, `buildStepOptions(step, defs, chosenClass?)` (signature unchanged — join-options.test.ts keeps its bodies), `titleCase`, `formatStatBonuses`, `sumItemModifiers`, `FALLBACK_EMOJI`, `STEPS` metadata, and `composeWizardView(state: WizardState, defs: CharDefs): WizardViewState` — a faithful lift of `buildStepMessage`'s content assembly (ledger lines incl. the `chosenEmoji` rule and the `~~heading~~ → **value**` struck-through line, the option-block body with stat-bonus blockquotes, the name prompt, the ready prose, the footers, the step 7 class-filtered kits), plus `isValidWizardChoice(step, value, defs, chosenClass?)` for the router's illegal-move arm. `join.ts` stops exporting `CharDefs`/`buildStepOptions` (dispatch-harness + join-options + join tests update imports). `wizardViewToDiscord(view)` lands in `src/discord/viewToDiscord.ts` (embed + button rows, ≤5/row, `files: imageFiles(OAK_IMAGE)`), and `buildNameModal(view)` stays in join.ts (welds `join:name:modal`/`join:name:input` + the view's `nameField`).
+
+[I] **Controller wizard surface + RouterBackend (DC-M7.3.5).** `SessionController` constructor gains `wizards: WizardSession` and `wizardDefs: CharDefs` (required — every construction site updates). New methods + result types:
+
+```ts
+export type JoinOpenResult = { kind: 'has-character' } | { kind: 'view'; view: WizardViewState };
+export type WizardAnswerResult = { kind: 'no-session' } | { kind: 'invalid-name'; message: string } | { kind: 'illegal-step' } | { kind: 'view'; view: WizardViewState };
+export type WizardOptionResult = { kind: 'no-session' } | { kind: 'illegal-choice' } | { kind: 'view'; view: WizardViewState };
+export type WizardRestartResult = { kind: 'view'; view: WizardViewState };  // restart always starts fresh (reset + start)
+export type WizardConfirmResult = { kind: 'no-session' } | { kind: 'not-ready' } | { kind: 'created'; view: NoticeViewState; created: CharCreateData };
+```
+
+Guard order mirrors the old handlers: `openJoin` = `characterExists` → start-or-resume (the old try/catch) → composed view; `answerWizardName` = no-session/expired (reset on expiry) → step 1 check (`illegal-step`) → `setName` in try/catch (`invalid-name` with the store's message); `chooseWizardOption` = no-session/expired → `step` matches AND `isValidWizardChoice` (`illegal-choice`) → `choose` (pre-checks make its throw unreachable); `restartWizard` = reset + start; `confirmWizard` = no-session/expired → step 8 (`not-ready`) → `wizards.confirm` → `engine.createCharacter` → `composeHiScreen(this.engine, this.dayJobs, char)` → `{ kind: 'created', view: hi.view, created: data }`. The step→field map (2 class … 7 itemSet) lives in the controller. `RouterBackend` gains the five methods (the `SessionControllerSatisfiesRouterBackend` type-level check stays honest).
+
+[I] **Router branches + copy (DC-M7.3.6).** `rest.begin`-style single-reply branches, no beats:
+
+| Result | Envelope |
+| --- | --- |
+| `openJoin` has-character | `ok:false 'illegal-move'`, **HAS_CHARACTER_COPY** = `"You already have a character. Type \`/stats\` to see it."` (byte-pinned by transcript 2) |
+| `openJoin` view | `ok:true`, view (no facts) |
+| `answerWizardName` no-session | `ok:false 'session-expired'`, **WIZARD_NO_SESSION_COPY** = `"Your character creation session expired. Type \`/join\` to start over."` (new copy — TTL branch is unpinned; new transcript pins it) |
+| `answerWizardName` invalid-name | `ok:false 'illegal-move'`, message = the store's message (`"Name must be 2-30 characters"` / `"Name must not contain @ or # (Discord pings)"` — transcript 4 pins the paint `❌ ${message}`) |
+| `answerWizardName` illegal-step | `ok:false 'illegal-move'`, **WIZARD_ILLEGAL_CHOICE_COPY** = `"That option is no longer available. Type \`/join\` to start over."` |
+| `chooseWizardOption` no-session | `ok:false 'session-expired'`, WIZARD_NO_SESSION_COPY |
+| `chooseWizardOption` illegal-choice | `ok:false 'illegal-move'`, WIZARD_ILLEGAL_CHOICE_COPY |
+| `chooseWizardOption` view | `ok:true`, view |
+| `restartWizard` | `ok:true`, view (step 1) |
+| `confirmWizard` no-session | `ok:false 'session-expired'`, WIZARD_NO_SESSION_COPY |
+| `confirmWizard` not-ready | `ok:false 'illegal-move'`, **WIZARD_NOT_READY_COPY** = `"Character creation isn't ready to confirm. Type \`/join\` to start over."` |
+| `confirmWizard` created | `ok:true`, view = the hi greeting NoticeViewState, facts = `{ createdCharacter, ...addCharacterFacts }` |
+
+The wizard error copies carry NO `❌` — the handler paints them via `safeNotify` (`❌ ${message}`, transcript 4's byte path); HAS_CHARACTER_COPY is painted via `editReply` (transcript 2's path, no `❌`).
+
+[I] **`createdCharacter` fact (DC-M7.3.7).** `FACTS_KEYS` gains `createdCharacter` = the `CharCreateData` (name/class/upbringing/race/alignment/dayJob non-empty strings + optional itemSetName; validator checks exactly that shape). Consumer in-slice: the rewired join confirm handler (the public ✨ announcement) — the announcement embed (title, `**${name}** the ${race} ${class}` + titleCase'd alignment line, colour, Oak image, content `<@userId>`, the `nav:hi` button row, `allowedMentions`) is welded adapter-side from this fact.
+
+[I] **join.ts rewires to translate + paint (DC-M7.3.8).** `makeJoinCommand(router: GameRouter)` (defs drop — the controller owns them; sets the module-level `_router` for `handleInteraction`, documented as an M9 casualty) → slash handler: `deferReply({ flags: 64 })` FIRST (transcript 1), then dispatch `join.open`; `ok:false` → `editReply({ content: error.message })` (transcript 2's byte path); `ok:true` → `editReply(wizardViewToDiscord(view))` (transcripts 1/8). `handleInteraction` KEEPS its signature `(i, engine: WorldEngine, wizards: WizardSession, renderHiScreen?)` — the frozen dispatcher's join branch (dispatchInteraction.ts:238) passes `engine` + `joinWizards`, so both params become documented dead-until-M9 compat params and the handler dispatches through the module-level `_router`. Rewired bodies: `join:name` button → dispatch `join.open` (idempotent) → weld + `showModal` from `view.nameField` (transcript 3); name modal submit → dispatch `wizard.answer` → `ok:false` → `safeNotify(i, "❌ " + message)` (transcript 4); `join:choice:<step>:<value>` → dispatch `wizard.choose` → ok → `deferUpdate` + `editReply(wizardViewToDiscord(view))` (transcript 5); `join:restart` → dispatch `wizard.restart` → same paint (transcript 7); `join:confirm` → `deferUpdate` → dispatch `character.create` → release the `_userInFlight` lock early → announcement `followUp` from `facts.createdCharacter` (transcript 6's exact ack order: deferUpdate, followUp-announcement, deleteReply, followUp-hi) → `renderHiScreen(userId)` → `deleteReply` + `followUp` (bytes unchanged; the no-render fallback `editReply` pointer stays). The `_userInFlight` guard stays (transcript 18 pins it).
+
+[I] **Harness: `seedCharacter` leaves; a standalone protocol walk (DC-M7.3.9).** New `src/agent/seedCharacter.ts` exporting `seedCharacterViaProtocol(router: GameRouter, userId: string, data: CharCreateData): Promise<void>` — dispatches `join.open` → `wizard.answer` (data.name) → `wizard.choose` × steps 2–6 (class/upbringing/race/alignment/dayJob) → step 7 when `itemSetName` → `character.create`; any `ok:false` throws with the envelope message. `AgentHarness.seedCharacter` is REMOVED (DC-S4's stated end state: the observer surface is exactly getCharacter/getMeta/tick). play.ts + the agent tests call the helper. **SEED alignment becomes lowercase** (`'lawful good'`) — the wizard persists step-5 values lowercase (the view offers them that way) and the controller VALIDATES the value against the defs, so the title-case fixture would now be rejected. Verify no test asserts the title-case alignment.
+
+[I] **Wiring (DC-M7.3.10).** `src/index.ts`: `const joinWizards = new WizardSession()` moves UP before the controller construction; the controller gains `(engine, getCurrentScene, dayJobs, CHARACTER_GATED_COMMANDS, joinWizards, { classes: assets.classes as CharDefs["classes"], … })`; `makeJoinCommand(router)`. `tests/discord/dispatch-harness.ts`: same — `makeHarness` passes `joinWizards` + `CHAR_DEFS` into the controller; `buildRegistry` uses `makeJoinCommand(router)`. `tests/protocol/contract.test.ts` `realRouter`: `new SessionController(engine, () => SCENE, DAY_JOBS, undefined, new WizardSession(), REAL_DEFS)` (defs loaded from the char-creation YAMLs, mirroring the DAY_JOBS load). `tests/agent/harness.test.ts` `buildHarness` + `src/agent/play.ts`: controller gains the wizard deps + defs; both call `seedCharacterViaProtocol` (play.ts hoists its inline router and logs from SEED).
+
+[I] **Contract tests (DC-M7.3.11, same commit).** `StubBackend` gains the five wizard methods with scripted results + call log (`startWizard`/`answerWizardName`/`chooseWizardOption`/`restartWizard`/`confirmWizard`; fixtures: step-1 view, step-N views, has-character, no-session, invalid-name, illegal-choice, not-ready, created with a canned hi NoticeViewState + `created` CharCreateData; a `wizardViews: Record<number, WizardViewState>` map so scripts can return step-specific views). Conformance sections per event × branches against BOTH backends (shared asserts on envelope shape + event-specific copy/shape; the stub fixtures satisfy the same structural asserts as the real compositions — step 1 has nameField + a name button, steps 2–7 non-empty options + choice buttons, step 8 confirm+restart): `join.open` has-character → HAS_CHARACTER_COPY; `join.open` view (step 1); `wizard.answer` ok (step 2 view) / invalid-name (store message) / no-session; `wizard.choose` ok / illegal-choice / no-session; `wizard.restart` (step 1 view); `character.create` created (notice view + `createdCharacter` fact shaped + characterState facts per the backend's getCharacter) / not-ready / no-session. Negative space: malformed variants join `GARBAGE_EVENTS` (`{ type: 'wizard.choose', playerId, step: 1.5 }`, missing `value`, empty `text`, `{ type: 'character.create' }` no playerId…). JSON round-trip: WizardViewState (every step variant) + createdCharacter. Flow-order pins: `join.open` → only `startWizard`; `character.create` → only `confirmWizard`. Zero beats on all five events.
+
+[I] **New bookend-oracle transcripts (DC-M7.3.12) — the M7.0 review notes + the new copy pins.** Three NEW `it` blocks added to `tests/discord/bookend-oracle.test.ts` (existing 16 + snapshots UNTOUCHED; unique userIds; fresh `makeHarness()`): (17) **wizard TTL expiry** (review note 2 — WizardSession.ts:163): session at step 2 via direct store calls, advance the fake clock past 10 min (`vi.setSystemTime` to 12:11Z in try/finally, transcript-10 pattern), fire `join:choice:2:<value>` → ephemeral `reply` containing "Your character creation session expired", session cleared; (18) **`_userInFlight` double-click guard** (review note 1 — join.ts:134): a button interaction whose first awaited call (deferUpdate) hangs on a test-controlled gate; `dispatchInteraction(A)` (don't await), `await vi.waitFor(...)` the gate is held, `await dispatchInteraction(B)` (same userId) → B produced ZERO acks, release the gate, await A → A's acks normal; (19) **illegal-choice copy**: session at step 2, fire `join:choice:3:<value>` → ephemeral `reply` containing "That option is no longer available", session still at step 2. (D2 stale `/hi` resume edge: LEFT RECORDED — the M7.2 execution-state entry records it; pinning needs a resumeAction-throw mock mode + the hi paint path, both M9 territory. Recorded loudly in the slice record.)
+
+[I] **Unit-suite rewiring (DC-M7.3.13).** `wizard-session.test.ts` UNTOUCHED (the store's API is unchanged). `join-options.test.ts`: imports of `buildStepOptions`/`CharDefs` move to `src/controller/joinWizard.js`, bodies unchanged. `join.test.ts`: factory + handler tests rewire to a `GameRouter` over a real `SessionController(engine, () => "", [], undefined, wizard, defs)` + `{ idle: () => "" }` (the sleep.test.ts/hi.test.ts M7.1/M7.2 pattern); the slash tests assert through the handler's `editReply`; the confirm tests keep the `handleInteraction(intr, engine, wizard, renderHiScreen)` call (engine/wizard now compat params) with the shared wizard instance + `makeJoinCommand(router)` having set the module-level router; the FORMAT_DEFS screen-formatting tests rewire to assert `wizardViewToDiscord(view).embeds[0].description` (byte assertions unchanged). `src/agent/viewToText.ts` gains a `'wizard'` case (render ledger + body; never reached at M7.3 — exhaustiveness + M8.5 parity). `view-state.test.ts` untouched unless the typecheck demands a wizard case.
+
+Tasks:
+
+1. **Decision record + checklist commit (docs only):** `docs/decisions/wizard-session-ownership.md` (already drafted, above) + this checklist; atomic `docs(m7): settle wizard state ownership + M7.3 slice checklist` commit.
+2. **View-state:** `WizardViewState` + union + `validateView` case in `envelope.ts` (+ round-trip helper additions where the suite checks variants).
+3. **Controller:** `src/controller/joinWizard.ts` (defs/types/`buildStepOptions`/`titleCase`/`composeWizardView`/`isValidWizardChoice`) + `SessionController` wizard deps + the five methods + result types (DC-M7.3.4/5).
+4. **Protocol:** five events + validator cases (DC-M7.3.2); `RouterBackend` methods; five dispatch branches + the four copy constants + `composeRestCopy`-style care that HAS_CHARACTER_COPY is byte-identical (DC-M7.3.6); `createdCharacter` in `FACTS_KEYS` + validator (DC-M7.3.7).
+5. **Medium step:** `wizardViewToDiscord` in `viewToDiscord.ts` (DC-M7.3.3) — embed title/colour/thumbnail/files + button rows, chunked ≤5.
+6. **join.ts:** rewire per DC-M7.3.8 (factory, slash handler, `handleInteraction` with dead compat params, `buildNameModal`, customId constants stay, `_userInFlight` stays, `_router` module-level).
+7. **Harness:** `src/agent/seedCharacter.ts` + `AgentHarness.seedCharacter` removal (DC-M7.3.9); `play.ts` + agent tests rewire.
+8. **Wiring:** `index.ts` + `dispatch-harness.ts` (DC-M7.3.10).
+9. **Contract tests:** stub methods + the five conformance sections + negative space + round-trip + flow-order pins (DC-M7.3.11).
+10. **Bookend oracle:** transcripts 17–19 added (DC-M7.3.12).
+11. **Unit suites:** join-options import moves, join.test.ts rewire, viewToText wizard case (DC-M7.3.13).
+12. **Changelog:** `[Unreleased]` → `### Internal` one-liner.
+13. **Verify:** `npm run typecheck` clean; `npm test` green; `git status` shows zero changes to `dispatchInteraction.ts`, `src/engine/`, `src/view/viewState.ts` is a NEW variant (allowed — the fence below), the M7.0 oracle's existing 16 transcripts + snapshot zero churn, M1/M2 snapshots zero churn.
+
+Scope fence (M7.3): no game-rule/balance/prompt changes; `WizardSession`'s API + TTL unchanged (only its driver moves); no `sim/` changes; `dispatchInteraction.ts` NOT touched (the join branch stays call-compatible — dead compat params + module-level `_router` are the documented price, both M9 casualties); `PROTOCOL_VERSION` stays 1; `createdCharacter` is the only facts-key addition (consumer in-slice: the rewired join confirm handler); the wizard view-state is the only new view variant; no beats on the five events; M7.0 transcripts 1–8 + M1/M2 snapshots zero churn; the M7.3 transcripts 17–19 are ADDITIONS to the bookend oracle, never edits to existing ones.
 
 Scope fence (M7 whole): no game-rule/balance/prompt changes — the unsafe-rest penalty *moves*, it does not change value or conditions; no `sim/` changes; no network transport; the admin-tick `/sleep` branch stays adapter-direct until M9 (watch item, recorded at M7.1); `PROTOCOL_VERSION` stays 1; no `facts` key without a consuming adapter in the same slice; `dispatchInteraction.ts` is not touched in M7 (the profanity guard and the slash `/action` stale-resume copy drift stay M9 items).
 
