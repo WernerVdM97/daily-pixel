@@ -1,0 +1,2213 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`bookend oracle — hi > 9 · slash /hi weekday → day-job greeting (location line, header, seeded actions) + nav bar 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "📍 🛡️ **The Warden's Oak** — Use \`look\` for the full scene.
+
+⚔️  **Aldric** — Warrior",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "❤️ 10/10  ┃  ⚡ 10/10  ┃  🎲 3  ┃  💰 5",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "🛡️ **Town Guard — Town Square — Daily Work**
+
+  🎯 **Drill with the watch** — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.
+  🔧 **Inspect the lockup** — You check the cells. One door's hinge has been worked loose — from the inside.
+  📋 **Stand the gate** — You hold the gate, marking who comes and goes. A few faces you don't know, and one you wish you didn't.
+
+📦 Press the **Action** button or type \`action <what you do>\` to start.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:look",
+              "emoji": {
+                "name": "👁️",
+              },
+              "label": "Look",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:map",
+              "emoji": {
+                "name": "🗺️",
+              },
+              "label": "Map",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — hi > 10 · slash /hi weekend → adventure hooks (clock locally set to Saturday 2026-07-18, restored after) 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "📍 🛡️ **The Warden's Oak** — Use \`look\` for the full scene.
+
+⚔️  **Aldric** — Warrior",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "❤️ 10/10  ┃  ⚡ 10/10  ┃  🎲 3  ┃  💰 5",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "🌅 **Weekend — The world is yours.**
+
+Adventure hooks:
+  • **Travel** — Head east, west, or into the wilds.
+  • **Scout** — Survey the area for threats or resources.
+  • **Hunt** — Track game in the forest.
+  • **Talk** — Seek out NPCs and learn their stories.
+  • **Explore** — Go where no one has yet.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:look",
+              "emoji": {
+                "name": "👁️",
+              },
+              "label": "Look",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:map",
+              "emoji": {
+                "name": "🗺️",
+              },
+              "label": "Map",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — hi > 11 · slash /hi with a pending action → ⏳ Unfinished Action screen (prompt + narration), no startAction 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "⏳ **Unfinished Action**",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "You stand at the ridgeline, wind pulling at your cloak.
+
+The trail forks. Continue?
+
+Press the **Action** button to continue.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:look",
+              "emoji": {
+                "name": "👁️",
+              },
+              "label": "Look",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:map",
+              "emoji": {
+                "name": "🗺️",
+              },
+              "label": "Map",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 1 · slash /join start → ephemeral defer + step-1 screen (name button, step footer, Oak files); session at step 1 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:name",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📝",
+              },
+              "label": "Enter Name",
+              "style": 1,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 **Name** ◀
+🛡️ Class
+🌱 Upbringing
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Name**__
+What shall the songs call you?",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 1 of 7 — 2-30 characters, no @ or #",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 2 · slash /join with an existing character → 'already have a character' editReply; no session started 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "content": "You already have a character. Type \`/stats\` to see it.",
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 3 · join:name button → the name modal (join:name:modal) 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:name:input",
+              "label": "Character Name",
+              "max_length": 30,
+              "min_length": 2,
+              "placeholder": "Enter a name (2-30 characters)",
+              "required": true,
+              "style": 1,
+              "type": 4,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "custom_id": "join:name:modal",
+      "title": "Name Your Character",
+    },
+    "method": "showModal",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 4 · name modal with an invalid name (Bad@Name) → ephemeral ❌ safeNotify; session stays at step 1 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ Name must not contain @ or # (Discord pings)",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 5 · choice walk steps 2→7 — one button-fire per step, screens 3→8 snapshot each (itemSet lands the confirm screen) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Soldier",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎖️",
+              },
+              "label": "Soldier",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Merchant",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "⚖️",
+              },
+              "label": "Merchant",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Scholar",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📚",
+              },
+              "label": "Scholar",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Folk Hero",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🌟",
+              },
+              "label": "Folk Hero",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Outcast",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🏚️",
+              },
+              "label": "Outcast",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Noble",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "👑",
+              },
+              "label": "Noble",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Artisan",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🪚",
+              },
+              "label": "Artisan",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Farmstead",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🌾",
+              },
+              "label": "Farmstead",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Temple-Raised",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "⛪",
+              },
+              "label": "Temple-Raised",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Urchin",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🗝️",
+              },
+              "label": "Urchin",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Entertainer",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎭",
+              },
+              "label": "Entertainer",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Scout",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🧭",
+              },
+              "label": "Scout",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ ~~Class~~ → ⚔️ **Warrior**
+🌱 **Upbringing** ◀
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Upbringing**__
+🎖️ **Soldier**
+> 💪+1 📖-1
+Raised in a military family. Discipline was your first language. The scars are your father's.
+
+⚖️ **Merchant**
+> 💪-1 📖+1 💬+1
+Grew up behind a counter. You could read a ledger before you could read a story.
+
+📚 **Scholar**
+> 💪-1 📖+2 💬-1
+Books over breakfast. Your parents taught you the old tongues — some of them true.
+
+🌟 **Folk Hero**
+> 💬+1
+Common blood, uncommon courage. Your village still tells stories about the fire you pulled them from.
+
+🏚️ **Outcast**
+> 🧠+1 💬-1
+You grew up on the edge of things. The forest taught you what people wouldn't.
+
+👑 **Noble**
+> 💪-1 🧠-1 📖+1 💬+2
+Manor-born. You learned poise, politics, and how to make a room listen.
+
+🪚 **Artisan**
+> 💪+1 🧠+1 📖-1 💬-1
+Your hands know wood, stone, or metal before your mind knows letters.
+
+🌾 **Farmstead**
+> 💪+1 🧠+1 💬-1
+You read weather, soil, and seasons like others read books.
+
+⛪ **Temple-Raised**
+> 🧠+2 📖-1 💬-1
+Given to the old faith as a child. The hymns are still in your bones.
+
+🗝️ **Urchin**
+> 💪+1 🧠+1 💬-2
+The gutter taught you everything. Pockets, roofs, escape routes.
+
+🎭 **Entertainer**
+> 💪-1 📖-1 💬+2
+You travelled with a troupe. You learned to read a room before you learned to read a page.
+
+🧭 **Scout**
+> 💪+1 🧠+2 💬-2
+Range-born. Your family kept the borders, watched the roads, knew when something changed.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 3 of 7 — Upbringing",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 5 · choice walk steps 2→7 — one button-fire per step, screens 3→8 snapshot each (itemSet lands the confirm screen) 2`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:4:Human",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🧑",
+              },
+              "label": "Human",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:4:Dwarf",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🪓",
+              },
+              "label": "Dwarf",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:4:Elf",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🧝",
+              },
+              "label": "Elf",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:4:Halfling",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🍀",
+              },
+              "label": "Halfling",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:4:Half-Elf",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🌗",
+              },
+              "label": "Half-Elf",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:4:Half-Orc",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "💪",
+              },
+              "label": "Half-Orc",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:4:Dúnedain",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🏔️",
+              },
+              "label": "Dúnedain",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ ~~Class~~ → ⚔️ **Warrior**
+🌱 ~~Upbringing~~ → 🎖️ **Soldier**
+🧬 **Race** ◀
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Race**__
+🧑 **Human**
+> 💬+1
+The most common folk. Adaptable, ambitious, everywhere.
+
+🪓 **Dwarf**
+> 💪+1 🧠+1 💬-2
+Stone and steel. Stocky, stubborn, unshakeable.
+
+🧝 **Elf**
+> 💪-1 🧠+1 📖+1
+Grace and age. You've seen centuries. The Oak was a sapling when you were young.
+
+🍀 **Halfling**
+> 💪-2 💬+2
+Small and lucky. The world is big — you've learned to slip through the cracks.
+
+🌗 **Half-Elf**
+> 💪-1 🧠+1 📖+1
+Two bloodlines, one heart. You walk between worlds — welcome in neither, at home in both.
+
+💪 **Half-Orc**
+> 💪+2 🧠-1 💬-1
+Two bloods, one fist. You carry the strength of one world and the rejection of both.
+
+🏔️ **Dúnedain**
+> 💪+1 🧠+1 💬-1
+Blood of the West. Your people have guarded the borders for so long the villages forgot you exist.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 4 of 7 — Race",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 5 · choice walk steps 2→7 — one button-fire per step, screens 3→8 snapshot each (itemSet lands the confirm screen) 3`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:5:lawful good",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "😇",
+              },
+              "label": "Lawful Good",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:5:neutral good",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🕊️",
+              },
+              "label": "Neutral Good",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:5:chaotic good",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔥",
+              },
+              "label": "Chaotic Good",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:5:lawful neutral",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📏",
+              },
+              "label": "Lawful Neutral",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:5:true neutral",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "⚖️",
+              },
+              "label": "True Neutral",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:5:chaotic neutral",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎲",
+              },
+              "label": "Chaotic Neutral",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:5:lawful evil",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🗡️",
+              },
+              "label": "Lawful Evil",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:5:neutral evil",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🐍",
+              },
+              "label": "Neutral Evil",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:5:chaotic evil",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "💀",
+              },
+              "label": "Chaotic Evil",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ ~~Class~~ → ⚔️ **Warrior**
+🌱 ~~Upbringing~~ → 🎖️ **Soldier**
+🧬 ~~Race~~ → 🧑 **Human**
+⚖️ **Alignment** ◀
+🔧 Day Job
+🎒 Starting Kit
+
+__**Alignment**__
+😇 **Lawful Good**
+Order and compassion. The code is the shield.
+
+🕊️ **Neutral Good**
+Kindness above all. Rules are tools, not masters.
+
+🔥 **Chaotic Good**
+Freedom and mercy. Break the law to save the innocent.
+
+📏 **Lawful Neutral**
+Order is its own virtue. The code, always.
+
+⚖️ **True Neutral**
+Balance. You walk the middle road.
+
+🎲 **Chaotic Neutral**
+Impulse and instinct. No master, no chain.
+
+🗡️ **Lawful Evil**
+Cruelty within the rules. The system serves you.
+
+🐍 **Neutral Evil**
+Selfishness without restraint. You take what you want.
+
+💀 **Chaotic Evil**
+Destruction for its own sake. The world burns.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 5 of 7 — Alignment",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 5 · choice walk steps 2→7 — one button-fire per step, screens 3→8 snapshot each (itemSet lands the confirm screen) 4`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:6:Town Guard",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🛡️",
+              },
+              "label": "Town Guard",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:6:Blacksmith",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔨",
+              },
+              "label": "Blacksmith",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:6:Hunter",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🏹",
+              },
+              "label": "Hunter",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:6:Scribe",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📜",
+              },
+              "label": "Scribe",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:6:Herbalist",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🌿",
+              },
+              "label": "Herbalist",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:6:Minstrel",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎶",
+              },
+              "label": "Minstrel",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:6:Merchant",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "💰",
+              },
+              "label": "Merchant",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:6:Acolyte",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🕯️",
+              },
+              "label": "Acolyte",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:6:Wanderer",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🚶",
+              },
+              "label": "Wanderer",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ ~~Class~~ → ⚔️ **Warrior**
+🌱 ~~Upbringing~~ → 🎖️ **Soldier**
+🧬 ~~Race~~ → 🧑 **Human**
+⚖️ ~~Alignment~~ → 😇 **Lawful Good**
+🔧 **Day Job** ◀
+🎒 Starting Kit
+
+__**Day Job**__
+🛡️ **Town Guard**
+Patrol the walls. Break up tavern brawls. The town sleeps safer.
+
+🔨 **Blacksmith**
+Hammer and anvil. Every town needs one. Every blade remembers your name.
+
+🏹 **Hunter**
+Track game in the eastern woods. The Oak's larder depends on you.
+
+📜 **Scribe**
+Copy manuscripts. Translate old tongues. The warden's library is yours.
+
+🌿 **Herbalist**
+Gather roots and remedies. The sick come to you before the priest.
+
+🎶 **Minstrel**
+Play the taverns. Carry news between towns. Every song is a secret.
+
+💰 **Merchant**
+Buy low in Stonebridge, sell high at the Oak. Coin before creed.
+
+🕯️ **Acolyte**
+Tend the shrine. Bless the harvest. The people need someone to believe in.
+
+🚶 **Wanderer**
+No roof, no boss, no routine. You sleep under the Oak and eat what luck brings.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 6 of 7 — Day Job",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 5 · choice walk steps 2→7 — one button-fire per step, screens 3→8 snapshot each (itemSet lands the confirm screen) 5`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:7:Soldier's Kit",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎒",
+              },
+              "label": "Soldier's Kit",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:7:Berserker's Kit",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎒",
+              },
+              "label": "Berserker's Kit",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ ~~Class~~ → ⚔️ **Warrior**
+🌱 ~~Upbringing~~ → 🎖️ **Soldier**
+🧬 ~~Race~~ → 🧑 **Human**
+⚖️ ~~Alignment~~ → 😇 **Lawful Good**
+🔧 ~~Day Job~~ → 🛡️ **Town Guard**
+🎒 **Starting Kit** ◀
+
+__**Starting Kit**__
+🎒 **Soldier's Kit**
+> 💪+3
+Standard issue. Nothing fancy, nothing missing.
+
+🎒 **Berserker's Kit**
+> 💪+3
+Heavy blade, hot blood. No shield — you are the wall.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 7 of 7 — Starting Kit",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 5 · choice walk steps 2→7 — one button-fire per step, screens 3→8 snapshot each (itemSet lands the confirm screen) 6`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:confirm",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "✅",
+              },
+              "label": "Confirm",
+              "style": 3,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ ~~Class~~ → ⚔️ **Warrior**
+🌱 ~~Upbringing~~ → 🎖️ **Soldier**
+🧬 ~~Race~~ → 🧑 **Human**
+⚖️ ~~Alignment~~ → 😇 **Lawful Good**
+🔧 ~~Day Job~~ → 🛡️ **Town Guard**
+🎒 ~~Starting Kit~~ → **Soldier's Kit**
+
+__**Ready**__
+Your hero stands ready. Confirm to step into the world — or start over.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Review your choices and confirm",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 6 · join:confirm → createCharacter with the full CharCreateData, ✨ public announcement followUp, deleteReply + /hi followUp 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "allowedMentions": {
+        "users": [],
+      },
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "content": "<@bookend-join-confirm>",
+      "embeds": [
+        {
+          "color": 3066993,
+          "description": "**Rowan** the Human Warrior
+Lawful Good • Soldier upbringing • Town Guard",
+          "image": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "✨ A new hero joins the Oak",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "followUp",
+  },
+  {
+    "arg": null,
+    "method": "deleteReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "📍 🛡️ **The Warden's Oak** — Use \`look\` for the full scene.
+
+⚔️  **Aldric** — Warrior",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "❤️ 10/10  ┃  ⚡ 10/10  ┃  🎲 3  ┃  💰 5",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "🛡️ **Town Guard — Town Square — Daily Work**
+
+  🎯 **Drill with the watch** — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.
+  🔧 **Inspect the lockup** — You check the cells. One door's hinge has been worked loose — from the inside.
+  📋 **Stand the gate** — You hold the gate, marking who comes and goes. A few faces you don't know, and one you wish you didn't.
+
+📦 Press the **Action** button or type \`action <what you do>\` to start.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:look",
+              "emoji": {
+                "name": "👁️",
+              },
+              "label": "Look",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:map",
+              "emoji": {
+                "name": "🗺️",
+              },
+              "label": "Map",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "followUp",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 7 · join:restart → session reset to step 1; step-1 screen repainted 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:name",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📝",
+              },
+              "label": "Enter Name",
+              "style": 1,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 **Name** ◀
+🛡️ Class
+🌱 Upbringing
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Name**__
+What shall the songs call you?",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 1 of 7 — 2-30 characters, no @ or #",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — join > 8 · re-/join mid-wizard (session at step 3) → resumes the existing session, not step 1 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Soldier",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎖️",
+              },
+              "label": "Soldier",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Merchant",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "⚖️",
+              },
+              "label": "Merchant",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Scholar",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📚",
+              },
+              "label": "Scholar",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Folk Hero",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🌟",
+              },
+              "label": "Folk Hero",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Outcast",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🏚️",
+              },
+              "label": "Outcast",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Noble",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "👑",
+              },
+              "label": "Noble",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Artisan",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🪚",
+              },
+              "label": "Artisan",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Farmstead",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🌾",
+              },
+              "label": "Farmstead",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Temple-Raised",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "⛪",
+              },
+              "label": "Temple-Raised",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Urchin",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🗝️",
+              },
+              "label": "Urchin",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:choice:3:Entertainer",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🎭",
+              },
+              "label": "Entertainer",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "join:choice:3:Scout",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🧭",
+              },
+              "label": "Scout",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "join:restart",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "🔄",
+              },
+              "label": "Start Over",
+              "style": 4,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 ~~Name~~ → **Rowan**
+🛡️ ~~Class~~ → ⚔️ **Warrior**
+🌱 **Upbringing** ◀
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Upbringing**__
+🎖️ **Soldier**
+> 💪+1 📖-1
+Raised in a military family. Discipline was your first language. The scars are your father's.
+
+⚖️ **Merchant**
+> 💪-1 📖+1 💬+1
+Grew up behind a counter. You could read a ledger before you could read a story.
+
+📚 **Scholar**
+> 💪-1 📖+2 💬-1
+Books over breakfast. Your parents taught you the old tongues — some of them true.
+
+🌟 **Folk Hero**
+> 💬+1
+Common blood, uncommon courage. Your village still tells stories about the fire you pulled them from.
+
+🏚️ **Outcast**
+> 🧠+1 💬-1
+You grew up on the edge of things. The forest taught you what people wouldn't.
+
+👑 **Noble**
+> 💪-1 🧠-1 📖+1 💬+2
+Manor-born. You learned poise, politics, and how to make a room listen.
+
+🪚 **Artisan**
+> 💪+1 🧠+1 📖-1 💬-1
+Your hands know wood, stone, or metal before your mind knows letters.
+
+🌾 **Farmstead**
+> 💪+1 🧠+1 💬-1
+You read weather, soil, and seasons like others read books.
+
+⛪ **Temple-Raised**
+> 🧠+2 📖-1 💬-1
+Given to the old faith as a child. The hymns are still in your bones.
+
+🗝️ **Urchin**
+> 💪+1 🧠+1 💬-2
+The gutter taught you everything. Pockets, roofs, escape routes.
+
+🎭 **Entertainer**
+> 💪-1 📖-1 💬+2
+You travelled with a troupe. You learned to read a room before you learned to read a page.
+
+🧭 **Scout**
+> 💪+1 🧠+2 💬-2
+Range-born. Your family kept the borders, watched the roads, knew when something changed.",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 3 of 7 — Upbringing",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`bookend oracle — sleep > 12 · unsafe rest (THE M7.1 pin) → restAtOak + modifyHealth(−1), ⚠️ penalty section, announceCollapse once 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "🏕️ **The Warden's Oak**",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "You bank the fire and bed down beneath the Oak.",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "⚠️ **Resting on unsafe ground costs 1 HP.**
+You bedded down at **The Broken Keep**, far from the Oak's protection — no safe fire, no walls, one eye open all night.
+
+The night was rough — you lost **1 HP**. (9/10 ❤️)
+
+_Return to the Oak (or your workplace) **before** resting to avoid this._",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "The day turns when the world wills it — not when you do.
+
+*The ember glows. The Oak stands watch. Rest, for now.*",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "sleep:feedback",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — sleep > 13 · workplace exemption (H1) → rest at the Town Guard's workplace proceeds with NO penalty 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "🏕️ **The Warden's Oak**",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "You bank the fire and bed down beneath the Oak.",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "The day turns when the world wills it — not when you do.
+
+*The ember glows. The Oak stands watch. Rest, for now.*",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "sleep:feedback",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — sleep > 14 · guards → ⛔ 'day is still young' (rolls remain) and ⛔ 'Cannot rest now' (mid-action); no restAtOak either way 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "⛔ **Cannot rest now**",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "The day is still young — you have actions left to take.
+Spend your remaining rolls before bedding down beneath the Oak.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "sleep:feedback",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — sleep > 14 · guards → ⛔ 'day is still young' (rolls remain) and ⛔ 'Cannot rest now' (mid-action); no restAtOak either way 2`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "⛔ **Cannot rest now**",
+              "type": 10,
+            },
+            {
+              "type": 14,
+            },
+            {
+              "content": "You are mid-action — finish what you started before bedding down.
+
+Use \`/action continue\` to resume, or let it time out after 30 minutes.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "sleep:feedback",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — sleep > 15 · admin tick → tick(true), morning announcement with banner files, NO nav bar / sleep:feedback row 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "items": [
+                {
+                  "media": {
+                    "url": "attachment://daily-pixel-banner.png",
+                  },
+                },
+              ],
+              "type": 12,
+            },
+            {
+              "content": "🌅 **Day 2 begins.**
+
+Dew silvers the yard, and somewhere a rooster is losing its patience.
+
+The Oak awaits. \`/hi\` to begin.
+
+─ 1 soul(s) stirred, 1 NPC(s) on the move.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "daily-pixel-banner.png",
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`bookend oracle — sleep > 16 · no-character /sleep → reroutes through the character gate to the join wizard (step-1 screen, no reply) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:name",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📝",
+              },
+              "label": "Enter Name",
+              "style": 1,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 **Name** ◀
+🛡️ Class
+🌱 Upbringing
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Name**__
+What shall the songs call you?",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 1 of 7 — 2-30 characters, no @ or #",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;

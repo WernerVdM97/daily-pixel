@@ -290,6 +290,7 @@ export function buttonInteraction(
     followUp: spy("followUp"),
     fetchReply: spy("fetchReply", () => ({ id: "msg-1" })),
     showModal: spy("showModal"),
+    deleteReply: spy("deleteReply"),
     webhook: {
       editMessage: vi.fn(async (_id: string, payload: unknown) => {
         acks.push({ method: "webhook.editMessage", arg: payload });
