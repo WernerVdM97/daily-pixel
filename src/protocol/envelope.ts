@@ -28,7 +28,7 @@ export type GameResponse =
 /** The closed facts set (DC-P1). A key is added only when a consuming adapter justifies it —
  *  the validator rejects anything outside this set, which is what stops the "second
  *  protocol" escape hatch from growing silently. */
-const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState']);
+const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe']);
 
 const GAME_ERROR_CODES = new Set<GameErrorCode>(['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal']);
 
@@ -172,6 +172,32 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
       }
       if (!isString(cs.location) || cs.location.length === 0) {
         return { ok: false, message: 'facts.characterState.location must be a non-empty string' };
+      }
+    }
+    // `restUnsafe` — the unsafe-rest −1 HP feedback (DC-M7.1.4): the actor's name plus the
+    // prev/updated vitals, present ONLY on unsafe rested envelopes (consumers: the rewired
+    // sleep.ts announceCollapse call and the agent harness's finding).
+    if ('restUnsafe' in raw.facts) {
+      const ru = raw.facts.restUnsafe;
+      if (!isRecord(ru)) {
+        return { ok: false, message: 'facts.restUnsafe must be a plain object' };
+      }
+      if (Object.keys(ru).length !== 3) {
+        return { ok: false, message: 'facts.restUnsafe must have exactly 3 keys' };
+      }
+      if (!isString(ru.name) || ru.name.length === 0) {
+        return { ok: false, message: 'facts.restUnsafe.name must be a non-empty string' };
+      }
+      const vitalsOk = (v: unknown): boolean =>
+        isRecord(v)
+        && Object.keys(v).length === 2
+        && Number.isInteger(v.health) && (v.health as number) >= 0
+        && Number.isInteger(v.stamina) && (v.stamina as number) >= 0;
+      if (!vitalsOk(ru.prev)) {
+        return { ok: false, message: 'facts.restUnsafe.prev must be { health: number; stamina: number }' };
+      }
+      if (!vitalsOk(ru.updated)) {
+        return { ok: false, message: 'facts.restUnsafe.updated must be { health: number; stamina: number }' };
       }
     }
   }

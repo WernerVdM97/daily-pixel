@@ -80,7 +80,7 @@ import { makeFeedbackCommand } from "./discord/commands/feedback.js";
 import { makeBugCommand } from "./discord/commands/bug.js";
 import { makeSleepCommand } from "./discord/commands/sleep.js";
 import { makeHiCommand } from "./discord/commands/hi.js";
-import { type DayJobDef } from "./controller/dayJob.js";
+import type { DayJobDef } from "./controller/dayJob.js";
 import { registerEmoji } from "./discord/format.js";
 import { setCollapseBroadcaster } from "./discord/collapse.js";
 import {
@@ -119,6 +119,8 @@ import {
 } from "./discord/commands/action.js";
 import { dispatchInteraction, type DispatchDeps } from "./discord/dispatchInteraction.js";
 import { SessionController } from "./controller/SessionController.js";
+import { GameRouter } from "./protocol/router.js";
+import { randomIdleMessage } from "./engine/IdleMessageSelector.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
@@ -1249,19 +1251,10 @@ async function main() {
 
   // 7. Command handlers
   const dayJobs = assets.dayJobs as DayJobDef[];
-  const registry = new CommandRegistry();
 
   // Cast through unknown — handlers take stricter param types than CommandHandler
   // ({ user: { id } } vs unknown); at runtime the interaction matches the shape.
   const asHandler = (fn: unknown): CommandHandler => fn as CommandHandler;
-
-  registry.register(
-    "ping",
-    asHandler(async () => "pong"),
-  );
-  registry.register("help", asHandler(makeHelpCommand()));
-  registry.register("stats", asHandler(makeStatsCommand(engine)));
-  registry.register("backpack", asHandler(makeBackpackCommand(engine)));
 
   // Scene helpers
   const getCurrentScene = (discordUserId: string): string => {
@@ -1272,6 +1265,23 @@ async function main() {
     const sceneName = tagResolver.resolve(tags);
     return scenes.get(sceneName)?.body ?? "";
   };
+
+  // The JSON seam router (M5.1) — every game mechanic crosses it; the controller is its real
+  // backend. Created here (before the registry) because the /sleep handler needs the router
+  // (M7.1 DC-M7.1.7); the dispatcher's deps reuse the same instance below. rest.begin draws no
+  // idle today — the real source keeps production parity for future beats.
+  const controller = new SessionController(engine, getCurrentScene, dayJobs, CHARACTER_GATED_COMMANDS);
+  const router = new GameRouter(controller, { idle: () => randomIdleMessage() });
+
+  const registry = new CommandRegistry();
+
+  registry.register(
+    "ping",
+    asHandler(async () => "pong"),
+  );
+  registry.register("help", asHandler(makeHelpCommand()));
+  registry.register("stats", asHandler(makeStatsCommand(engine)));
+  registry.register("backpack", asHandler(makeBackpackCommand(engine)));
 
   registry.register(
     "look",
@@ -1297,7 +1307,7 @@ async function main() {
   });
   registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
   registry.register("bug", withTextOption(makeBugCommand(engine)));
-  registry.register("sleep", asHandler(makeSleepCommand(engine, dayJobs)));
+  registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
   registry.register("hi", asHandler(makeHiCommand(engine, dayJobs)));
   const joinWizards = new WizardSession();
   registry.register(
@@ -1474,8 +1484,9 @@ ${headInfo}`);
 
   // Handle all interactions — dispatch is hoisted to ./discord/dispatchInteraction.ts
   // (M1.1); wire the main()-scope bindings + the self-executing index.ts module
-  // state the closure used to capture into `deps`.
-  const controller = new SessionController(engine, getCurrentScene, dayJobs, CHARACTER_GATED_COMMANDS);
+  // state the closure used to capture into `deps`. The controller is the seam instance
+  // created above (M7.1 DC-M7.1.7 — moved up so the registry's /sleep handler could use
+  // the router).
   const dispatchDeps: DispatchDeps = {
     engine,
     registry,

@@ -9,6 +9,7 @@ import type {
   BeginCustomActionResult,
   DayJobStart,
   FeedbackSurface,
+  RestBeginResult,
   StartRenderResult,
   StepChoiceResult,
 } from '../../src/controller/SessionController.js';
@@ -41,6 +42,29 @@ const INVALID_JOB_COPY = 'Invalid job action.';
 const SESSION_EXPIRED_COPY = "❌ Your action session expired. Try `/action` again.";
 const UNSAFE_COPY = (location: string): string =>
   `⚠️ **It's no place for honest work here.**\nThe ${location} is too dangerous — make for safer ground before you set to your trade.`;
+
+// ── rest.begin copy (DC-M7.1.3) — the guard copies + the rest screen are byte-for-byte
+// lifts of the old sleep.ts reply assembly; M7.0 bookend-oracle transcripts 12/14 and the
+// M1 oracle's /sleep leaves pin them. ──
+
+const SEPARATOR = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+const MID_ACTION_COPY = [
+  '⛔ **Cannot rest now**',
+  SEPARATOR,
+  '',
+  'You are mid-action — finish what you started before bedding down.',
+  '',
+  'Use `/action continue` to resume, or let it time out after 30 minutes.',
+].join('\n');
+
+const ROLLS_REMAINING_COPY = [
+  '⛔ **Cannot rest now**',
+  SEPARATOR,
+  '',
+  'The day is still young — you have actions left to take.',
+  'Spend your remaining rolls before bedding down beneath the Oak.',
+].join('\n');
 
 // ── Real-backend fixtures ──
 
@@ -196,6 +220,27 @@ const noticeView: NoticeViewState = { screen: 'notice', text: '🙏 Thanks. The 
 
 const stubChar: CharacterData = MockWorldEngine.defaultCharacter({ dayJob: 'Town Guard' });
 
+/** The stub's rest.begin rested arm — safe at the Oak. */
+const RESTED_SAFE: RestBeginResult = {
+  kind: 'rested',
+  alreadyThere: true,
+  prev: { health: 10, stamina: 10 },
+  updated: stubChar,
+  wasUnsafe: false,
+  unsafeFromName: "The Warden's Oak",
+};
+
+/** The stub's rest.begin rested arm — unsafe, so the penalty fired (10 → 7 HP shown here
+ *  is the stub's own fixture; the real backend clamps through modifyHealth). */
+const RESTED_UNSAFE: RestBeginResult = {
+  kind: 'rested',
+  alreadyThere: false,
+  prev: { health: 8, stamina: 10 },
+  updated: { ...stubChar, health: 7, location: "The Warden's Oak" },
+  wasUnsafe: true,
+  unsafeFromName: 'The Broken Keep',
+};
+
 /** The stub's day-job outcome — observably equivalent to the real backend's (same
  *  distilledType/characterName/actionId and the same post-action char, hence the same nav). */
 const STUB_OUTCOME: StartRenderResult = {
@@ -240,6 +285,7 @@ class StubBackend implements RouterBackend {
   choiceResult: BeginChoiceResult | 'throw' = { kind: 'no-character' };
   resolveResult: string | null | 'throw' = null;
   stepResult: StepChoiceResult | 'throw' = { kind: 'decision', view: decisionView };
+  restResult: RestBeginResult | 'throw' = { kind: 'no-character' };
   confirmationResult: NoticeViewState | 'throw' = noticeView;
   recordResult: 'ok' | 'throw' = 'ok';
 
@@ -296,6 +342,10 @@ class StubBackend implements RouterBackend {
 
   async stepChoice(_userId: string, _label: string, _prevChar: CharacterData): Promise<StepChoiceResult> {
     return this.run('stepChoice', this.stepResult);
+  }
+
+  beginRest(_userId: string): RestBeginResult {
+    return this.run('beginRest', this.restResult);
   }
 
   feedbackConfirmation(surface: FeedbackSurface): NoticeViewState {
@@ -467,6 +517,79 @@ const ACTION_CHOOSE = { type: 'action.choose' as const, playerId: USER, selector
 const ACTION_BAIL = { type: 'action.choose' as const, playerId: USER, selector: { kind: 'bail' } };
 const FEEDBACK = (surface: string, actionId?: number): unknown => ({ type: 'feedback.submit', playerId: USER, surface, text: 'loving the atmosphere', actionId });
 const BUG = (actionId?: number): unknown => ({ type: 'bug.submit', playerId: USER, text: 'the door is stuck', actionId });
+const REST_BEGIN = { type: 'rest.begin' as const, playerId: USER };
+
+// ── rest.begin (M7.1, DC-M7.1.3: no-character → guards → rested notice view; NO beats) ──
+
+runCaseBlock('conformance — rest.begin', [
+  {
+    name: 'no-character → no-character with the other-events copy (the gate reroutes gated commands, recorded unification)',
+    event: REST_BEGIN,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'mid-action → illegal-move with the ⛔ cannot-rest-now copy',
+    event: REST_BEGIN,
+    real: () => realRouter(realChar({ rollsRemaining: 0, lastActionState: IN_FLIGHT as never })),
+    stub: () => stubRouter((s) => { s.restResult = { kind: 'mid-action' }; }),
+    assert: (o) => { expectError(o.response, 'illegal-move', MID_ACTION_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'rolls remaining → illegal-move with the day-is-still-young copy',
+    event: REST_BEGIN,
+    real: () => realRouter(realChar({ rollsRemaining: 1 })),
+    stub: () => stubRouter((s) => { s.restResult = { kind: 'rolls-remaining' }; }),
+    assert: (o) => { expectError(o.response, 'illegal-move', ROLLS_REMAINING_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'safe rest at the Oak → ok:true notice view, characterState/nav/characterName facts, NO restUnsafe, zero beats',
+    event: REST_BEGIN,
+    real: () => realRouter(realChar({ rollsRemaining: 0 })),
+    stub: () => stubRouter((s) => { s.restResult = RESTED_SAFE; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice');
+      expect((view as NoticeViewState).text).toContain("The Oak's familiar boughs cradle you once more.");
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.restUnsafe).toBeUndefined();
+      expect(o.response.facts?.characterName).toBe('Aldric');
+      expect(o.response.facts?.characterState).toMatchObject({
+        health: expect.any(Number),
+        maxHealth: expect.any(Number),
+        stamina: expect.any(Number),
+        maxStamina: expect.any(Number),
+        wealth: expect.any(Number),
+        location: expect.any(String),
+      });
+      expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: false, hasRestedToday: false });
+      expect(o.beats).toEqual([]);
+    },
+  },
+  {
+    name: 'unsafe rest → ⚠️ penalty section in the view text + the restUnsafe fact shape, zero beats',
+    event: REST_BEGIN,
+    real: () => {
+      const engine = realChar({ rollsRemaining: 0, location: 'The Broken Keep', health: 8, maxHealth: 10 });
+      engine.setLocation({ name: 'The Broken Keep', description: 'Ruins.', tags: ['ruins'], isSafe: false, emoji: '🏚️' });
+      return realRouter(engine);
+    },
+    stub: () => stubRouter((s) => { s.restResult = RESTED_UNSAFE; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice');
+      expect((view as NoticeViewState).text).toContain('⚠️ **Resting on unsafe ground costs 1 HP.**');
+      expect((view as NoticeViewState).text).toContain('You bedded down at **The Broken Keep**');
+      expect((view as NoticeViewState).text).toContain('you lost **1 HP**. (7/10 ❤️)');
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.restUnsafe).toEqual({
+        name: 'Aldric',
+        prev: { health: 8, stamina: 10 },
+        updated: { health: 7, stamina: 10 },
+      });
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
 
 // ── menu.open (DC-P6: stampLastPlayed FIRST, then the menu branch) ──
 
@@ -1076,6 +1199,26 @@ describe('flow order (DC-P6) — the stub call log pins each leaf order', () => 
     expect(stub.feedbackLog).toEqual([{ surface: 'outcome-bug', userId: USER, text: 'the door is stuck', actionId: 7 }]);
   });
 
+  it('rest.begin: beginRest is the only backend call (the character snapshot read is a stub no-log read, pinned by the facts assertions)', async () => {
+    const stub = new StubBackend();
+    stub.restResult = RESTED_SAFE;
+    await drive(new GameRouter(stub, { idle: () => IDLE }), REST_BEGIN);
+    expect(stub.calls).toEqual(['beginRest']);
+  });
+
+  it('rest.begin unsafe arm adds the restUnsafe fact ONLY on unsafe rested envelopes', async () => {
+    const stub = new StubBackend();
+    stub.restResult = RESTED_SAFE;
+    const safe = await drive(new GameRouter(stub, { idle: () => IDLE }), REST_BEGIN);
+    expect(safe.response.ok && safe.response.facts?.restUnsafe).toBeUndefined();
+
+    const stub2 = new StubBackend();
+    stub2.restResult = RESTED_UNSAFE;
+    const unsafe = await drive(new GameRouter(stub2, { idle: () => IDLE }), REST_BEGIN);
+    if (!unsafe.response.ok) throw new Error('unreachable');
+    expect(unsafe.response.facts?.restUnsafe).toBeDefined();
+  });
+
   it('dayjob.start emits the commute beat ONLY when the commute happened', async () => {
     const commuted = new StubBackend();
     commuted.dayJobResult = { kind: 'ok', workplace: 'The Town Gate', workPrompt: 'p', wage: 5 };
@@ -1115,6 +1258,9 @@ const GARBAGE_EVENTS: unknown[] = [
   { type: 'feedback.submit', playerId: USER, text: 'x' },
   { type: 'feedback.submit', playerId: USER, surface: 'sleep', text: 'x', actionId: 0 },
   { type: 'bug.submit', playerId: USER, text: 'x', actionId: -3 },
+  { type: 'rest.begin' },
+  { type: 'rest.begin', playerId: '' },
+  { type: 'rest.begin', playerId: 42 },
   { type: 'warp.drive', playerId: USER },
 ];
 

@@ -23,6 +23,7 @@ import { makeSleepCommand } from "../../src/discord/commands/sleep.js";
 import { makeHiCommand } from "../../src/discord/commands/hi.js";
 import { makeJoinCommand } from "../../src/discord/commands/join.js";
 import { makeActionCommand } from "../../src/discord/commands/action.js";
+import { GameRouter } from "../../src/protocol/router.js";
 
 /**
  * Faithful `DispatchDeps` construction for the golden-transcript oracle — mirrors
@@ -110,6 +111,7 @@ export function buildRegistry(
   engine: MockWorldEngine,
   joinWizards: WizardSession,
   getCurrentScene: (userId: string) => string,
+  router: GameRouter,
 ): CommandRegistry {
   const registry = new CommandRegistry();
 
@@ -141,7 +143,7 @@ export function buildRegistry(
   });
   registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
   registry.register("bug", withTextOption(makeBugCommand(engine)));
-  registry.register("sleep", asHandler(makeSleepCommand(engine, DAY_JOBS)));
+  registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
   registry.register("hi", asHandler(makeHiCommand(engine, DAY_JOBS)));
   registry.register(
     "join",
@@ -176,7 +178,12 @@ export function makeHarness(): Harness {
   // reaches it, so it must be a stable realistic value rather than "" for the golden
   // snapshots to be honest and deterministic.
   const getCurrentScene = (): string => "A quiet clearing under the oak.";
-  const registry = buildRegistry(engine, joinWizards, getCurrentScene);
+  const controller = new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS);
+  // M7.1 (DC-M7.1.7): a GameRouter over the real controller (the same wiring main() uses)
+  // with a deterministic idle — the M7.0 transcripts keep passing UNCHANGED because
+  // MockWorldEngine.restAtOak replicates the new engine behaviour.
+  const router = new GameRouter(controller, { idle: () => "" });
+  const registry = buildRegistry(engine, joinWizards, getCurrentScene, router);
   const notifyAdmin = vi.fn(async () => {});
   const safeErrorReply = vi.fn(async () => {});
 
@@ -186,7 +193,7 @@ export function makeHarness(): Harness {
     getCurrentScene,
     dayJobs: DAY_JOBS,
     joinWizards,
-    controller: new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS),
+    controller,
     notifyAdmin,
     safeErrorReply,
     VERBOSE: false,

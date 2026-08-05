@@ -5,7 +5,9 @@
  * action path; `viewToText` reads envelope views; the brain's character snapshot comes from
  * the `characterState` fact (DC-M6.1).
  *
- * Bookends (character creation, nightly rest+tick) stay engine-direct until M7 (DA-4).
+ * Bookends: character creation stays engine-direct until M7.3; the nightly rest half of
+ * `endDay` crosses the seam as `rest.begin` (M7.1) — only the world `tick(true)` cron call
+ * stays engine-direct (the cron mechanism is engine-owned, not agent lifecycle).
  */
 
 import type { WorldEngine, CharacterData, CharCreateData } from '../engine/WorldEngine.js';
@@ -192,7 +194,8 @@ export class AgentHarness {
     return { dayNumber, outcomes, ended: 'stalled' };
   }
 
-  /** Play up to `days` game days, bookending each with the engine-direct rest+nightly-tick (DA-4).
+  /** Play up to `days` game days, bookending each with the nightly rest (through the seam as
+   *  `rest.begin`, M7.1) + the engine-direct world tick (the cron mechanism stays engine-owned).
    *  The run stops early on `no-character` (fatal — nothing left to play) OR `stalled` (the brain
    *  wedged): a stalled day leaves whatever pending action wedged it untouched, and the nightly
    *  auto-expiry gates on real wall-clock so it never fires across a harness run's millisecond
@@ -209,31 +212,46 @@ export class AgentHarness {
       if (summary.ended !== 'slept' && summary.ended !== 'no-rolls') break;
       // A throwing nightly tick is itself a captured finding (endDay returns false) — stop rather
       // than march into a day whose world never advanced.
-      if (!this.endDay()) break;
+      if (!(await this.endDay())) break;
     }
     return summaries;
   }
 
-  /** DA-4 end-of-day bookend, engine-direct (no controller seam). The rolls-gate is faithful to
-   *  real play (M4.4 decision): a player can only `/sleep`-rest once their rolls are spent, so
-   *  `restAtOak` runs ONLY when `rollsRemaining === 0` — with rolls left the real player would just
-   *  idle where they are, not be teleported home. The nightly tick runs regardless (the cron
-   *  advances the world for everyone), so an idler still takes its unsafe-ground stamina drain.
-   *  `rollsRemaining` MUST be read before the tick (which refills it). This does NOT reproduce the
-   *  `/sleep` command's unsafe-rest -1 HP penalty (that lives in the Discord command, not
-   *  `restAtOak`) — noted for M4.5. `tick(true)` = admin, bypassing the wall-clock cron-idempotency
-   *  guard so the day always advances. Returns false if a bookend call throws (captured as a
-   *  finding naming the step) so the caller stops rather than advancing into a day that never
-   *  ticked. */
-  private endDay(): boolean {
+  /** M7.1 (DC-M7.1.6) end-of-day bookend: the rest half dispatches `rest.begin` through the
+   *  router — the controller's guards (no-character → mid-action → rolls-remaining) replace the
+   *  harness's own rolls gate, so a character with rolls unspent or a pending action is an idler
+   *  (an `illegal-move` envelope, non-aborting) rather than being teleported home. The unsafe-rest
+   *  −1 HP now surfaces for the first time as a `warning` finding from the `restUnsafe` fact (closes
+   *  M4.5 fidelity caveat 2). The nightly world tick stays engine-direct — the cron advances the
+   *  world for everyone, so an idler still takes its unsafe-ground stamina drain. The day-line
+   *  label still reads `before.rollsRemaining` (a QA label, not a rule). Error ENVELOPES never
+   *  abort — only a THROWN bookend call stops the run. `rollsRemaining` MUST be read before the
+   *  tick (which refills it). Returns false if a bookend call throws (captured as a finding naming
+   *  the step) so the caller stops rather than advancing into a day that never ticked. */
+  private async endDay(): Promise<boolean> {
     let step = 'nightly rest (read character)';
     try {
       const before = this.engine.getCharacter(this.userId);
+      // QA label only — the controller's guards decide who actually rests.
       const rested = before?.rollsRemaining === 0;
-      if (rested) {
-        step = 'nightly rest (restAtOak)';
-        this.engine.restAtOak(this.userId);
+
+      step = 'nightly rest (rest.begin)';
+      const response = await this.router.dispatch({ type: 'rest.begin', playerId: this.userId });
+      if (response.ok) {
+        const restUnsafe = response.facts?.restUnsafe as
+          | { name?: unknown; prev?: unknown; updated?: unknown }
+          | undefined;
+        if (restUnsafe) {
+          this.transcript.finding(
+            'warning',
+            `unsafe rest: ${typeof restUnsafe.name === 'string' ? restUnsafe.name : 'unknown'} lost 1 HP resting away from the Oak`,
+          );
+        }
+      } else if (response.error.code === 'no-character') {
+        this.transcript.deadEnd('no-character');
       }
+      // illegal-move (rolls unspent or mid-action) = idler — no finding, no abort.
+
       step = 'nightly tick';
       const tick = this.engine.tick(true);
       this.transcript.day(

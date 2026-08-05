@@ -30,6 +30,7 @@ import type {
   BeginCustomActionResult,
   DayJobStart,
   FeedbackSurface,
+  RestBeginResult,
   SessionController,
   StartRenderResult,
   StepChoiceResult,
@@ -49,6 +50,78 @@ const INVALID_JOB_COPY = 'Invalid job action.';
 const SESSION_EXPIRED_COPY = "❌ Your action session expired. Try `/action` again.";
 const UNSAFE_COPY = (location: string): string =>
   `⚠️ **It's no place for honest work here.**\nThe ${location} is too dangerous — make for safer ground before you set to your trade.`;
+
+// ── rest.begin copy (M7.1, DC-M7.1.3) — the unsafe-rest −1 HP RULE moved into the engine
+// (DC-M7.1.1); the ⚠️ penalty prose and the rest screen are copy that now lives here. The
+// guard copies + composeRestCopy are byte-for-byte lifts of the old sleep.ts reply assembly
+// — M7.0 bookend-oracle transcripts 12/14 and the M1 oracle's /sleep leaves pin them. ──
+
+// protocol/ imports nothing from src/discord (the Home rule), so the format.ts separator
+// constant is copied here; byte-identity is what the transcript net asserts.
+const SEPARATOR = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+const MID_ACTION_COPY = [
+  '⛔ **Cannot rest now**',
+  SEPARATOR,
+  '',
+  'You are mid-action — finish what you started before bedding down.',
+  '',
+  'Use `/action continue` to resume, or let it time out after 30 minutes.',
+].join('\n');
+
+const ROLLS_REMAINING_COPY = [
+  '⛔ **Cannot rest now**',
+  SEPARATOR,
+  '',
+  'The day is still young — you have actions left to take.',
+  'Spend your remaining rolls before bedding down beneath the Oak.',
+].join('\n');
+
+/** The /sleep rest screen — a byte-for-byte lift of the old sleep.ts reply assembly
+ *  (DC-M7.1.3): header / SEPARATOR / locationLine by `alreadyThere`, the ⚠️ penalty section
+ *  when the rest was unsafe, then the closing prose. The `(x/max ❤️)` suffix is always
+ *  present on this path — the char guard precedes the engine call, so `updated` is never
+ *  null when the controller returns the rested arm. */
+function composeRestCopy(result: {
+  alreadyThere: boolean;
+  updated: CharacterData;
+  wasUnsafe: boolean;
+  unsafeFromName: string;
+}): string {
+  const penaltyLine = result.wasUnsafe
+    ? [
+        '⚠️ **Resting on unsafe ground costs 1 HP.**',
+        `You bedded down at **${result.unsafeFromName}**, far from the Oak's protection — no safe fire, no walls, one eye open all night.`,
+        '',
+        `The night was rough — you lost **1 HP**. (${result.updated.health}/${result.updated.maxHealth} ❤️)`,
+        '',
+        '_Return to the Oak (or your workplace) **before** resting to avoid this._',
+      ].join('\n')
+    : '';
+
+  const locationLine = result.alreadyThere
+    ? "The Oak's familiar boughs cradle you once more."
+    : 'You bank the fire and bed down beneath the Oak.';
+
+  const lines: string[] = [
+    "🏕️ **The Warden's Oak**",
+    SEPARATOR,
+    '',
+    locationLine,
+  ];
+  if (penaltyLine) {
+    lines.push(SEPARATOR);
+    lines.push('');
+    lines.push(penaltyLine);
+  }
+  lines.push(SEPARATOR);
+  lines.push('');
+  lines.push('The day turns when the world wills it — not when you do.');
+  lines.push('');
+  lines.push('*The ember glows. The Oak stands watch. Rest, for now.*');
+
+  return lines.join('\n');
+}
 
 /** Extracts a message from an unknown thrown value and never throws itself — a hostile
  *  value (a Symbol.toPrimitive that throws) collapses to a fixed placeholder instead of
@@ -78,6 +151,7 @@ export interface RouterBackend {
   beginChoice(userId: string): BeginChoiceResult;
   resolveChoice(character: CharacterData, selector: PendingChoiceSelector): string | null;
   stepChoice(userId: string, label: string, prevChar: CharacterData): Promise<StepChoiceResult>;
+  beginRest(userId: string): RestBeginResult;
   feedbackConfirmation(surface: FeedbackSurface): NoticeViewState;
   recordFeedback(surface: FeedbackSurface, userId: string, text: string, actionId?: number): void;
 }
@@ -128,6 +202,8 @@ export class GameRouter {
           return await this.dispatchFeedback(e.surface, e.playerId, e.text, e.actionId);
         case 'bug.submit':
           return await this.dispatchFeedback('outcome-bug', e.playerId, e.text, e.actionId);
+        case 'rest.begin':
+          return this.dispatchRestBegin(e);
       }
     } catch (err) {
       return this.internalError(err);
@@ -265,6 +341,44 @@ export class GameRouter {
       console.error(`[protocol] recordFeedback failed: ${safeStringify(err)}`);
     }
     return this.finalize({ v: PROTOCOL_VERSION, ok: true, view });
+  }
+
+  /** `rest.begin` — the player's `/sleep` goodnight (M7.1, DC-M7.1.3). No beats (single-reply
+   *  flow): the two guards map to `illegal-move` with the exact ⛔ copies from the old sleep.ts
+   *  handler, the no-character arm uses the non-menu copy (the dispatcher's character gate
+   *  reroutes gated commands before the handler — recorded copy unification), and the rested
+   *  path returns the rest screen as a NoticeViewState with the character facts, adding the
+   *  `restUnsafe` fact only when the rest was unsafe (DC-M7.1.4). */
+  private dispatchRestBegin(e: { type: 'rest.begin'; playerId: string }): GameResponse {
+    const result = this.backend.beginRest(e.playerId);
+    switch (result.kind) {
+      case 'no-character':
+        return this.error('no-character', NO_CHARACTER_COPY);
+      case 'mid-action':
+        return this.error('illegal-move', MID_ACTION_COPY);
+      case 'rolls-remaining':
+        return this.error('illegal-move', ROLLS_REMAINING_COPY);
+      case 'rested': {
+        let facts = this.addCharacterFacts(e.playerId);
+        if (result.wasUnsafe) {
+          const name = typeof facts.characterName === 'string' ? facts.characterName : 'Unknown';
+          facts = {
+            ...facts,
+            restUnsafe: {
+              name,
+              prev: result.prev,
+              updated: { health: result.updated.health, stamina: result.updated.stamina },
+            },
+          };
+        }
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: { screen: 'notice', text: composeRestCopy(result), ephemeral: false },
+          facts,
+        });
+      }
+    }
   }
 
   // ── Shared mapping (DC-P4) ──

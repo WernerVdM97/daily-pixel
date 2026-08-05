@@ -45,6 +45,17 @@ export type ActionMenuResult =
   | { kind: 'resume-error'; message: string }
   | { kind: 'menu'; view: MenuViewState };
 
+/** Outcome of `beginRest` (M7.1, DC-M7.1.2) — mirrors the pre-M7.1 `/sleep` handler's guard
+ *  order exactly: no-character → mid-action (`lastActionState !== null`) → rolls-remaining
+ *  (`rollsRemaining > 0`) → rest. `alreadyThere`/`prev`/`unsafeFromName` come from the pre-rest
+ *  char; `updated`/`wasUnsafe` from the engine result (the unsafe-rest −1 HP rule lives inside
+ *  `restAtOak` now — this side only computes the workplace exemption the engine needs). */
+export type RestBeginResult =
+  | { kind: 'no-character' }
+  | { kind: 'mid-action' }
+  | { kind: 'rolls-remaining' }
+  | { kind: 'rested'; alreadyThere: boolean; prev: { health: number; stamina: number }; updated: CharacterData; wasUnsafe: boolean; unsafeFromName: string };
+
 /** Outcome of `beginDayJob` — mirrors the pre-M3.4 `action:dayjob:<n>` button handler's
  *  guard order exactly (char guard -> `updateLastPlayed` -> invalid-job -> unsafe-ground ->
  *  ok). `unsafe` carries the raw `location` so the adapter can render the inline warning. */
@@ -175,6 +186,38 @@ export class SessionController {
     }
 
     return { kind: 'menu', view: composeActionMenu(this.engine, this.dayJobs, character) };
+  }
+
+  /** Reproduces the pre-M7.1 `/sleep` handler's guard order exactly (DC-M7.1.2): no-character
+   *  → mid-action → rolls-remaining → rest. The H1 workplace exemption is computed here (the
+   *  controller owns dayJobs) and passed to `engine.restAtOak` as `opts.workplace`; the unsafe
+   *  condition + −1 penalty live in the engine (DC-M7.1.1). `updated` is never null on the
+   *  rested arm — the char guard precedes the engine call. */
+  beginRest(userId: string): RestBeginResult {
+    const character = this.engine.getCharacter(userId);
+    if (!character) return { kind: 'no-character' };
+
+    if (character.lastActionState !== null) return { kind: 'mid-action' };
+
+    if (character.rollsRemaining > 0) return { kind: 'rolls-remaining' };
+
+    const alreadyThere = character.location === "The Warden's Oak";
+    const dayNumber = Number(this.engine.getMeta('day_number') ?? '1');
+    // H1: treat sleeping at your own workplace as safe (no HP penalty for doing your job).
+    const workplace = getWorkplaceLocation(character.dayJob, this.dayJobs, {
+      characterId: character.id,
+      dayNumber,
+    });
+    const result = this.engine.restAtOak(userId, { workplace });
+    // The char guard above guarantees the engine saw a character — non-null on this path.
+    return {
+      kind: 'rested',
+      alreadyThere,
+      prev: { health: character.health, stamina: character.stamina },
+      updated: result.character!,
+      wasUnsafe: result.wasUnsafe,
+      unsafeFromName: result.unsafeFromName,
+    };
   }
 
   /** Reproduces the pre-M3.4 `action:dayjob:<n>` button handler's guard order exactly

@@ -10,7 +10,7 @@ import type { RouterBackend } from '../../src/protocol/router.js';
 import { CID_DAYJOB, CID_DAYJOB_CUSTOM } from '../../src/controller/dayJob.js';
 import type { PipelineScript } from '../../src/sim/types.js';
 import type { CharCreateData, CharacterData, WorldEngine } from '../../src/engine/WorldEngine.js';
-import type { ActionMenuResult, DayJobStart, StartRenderResult } from '../../src/controller/SessionController.js';
+import type { ActionMenuResult, DayJobStart, RestBeginResult, StartRenderResult } from '../../src/controller/SessionController.js';
 import type { MenuViewState, OutcomeViewState } from '../../src/view/viewState.js';
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
 import type { CriticGateway, CriticInput, CriticVerdict } from '../../src/llm/LlmGateway.js';
@@ -375,6 +375,7 @@ interface StubBackendConfig {
   dayJob?: DayJobStart;
   start?: StartRenderResult;
   customResume?: import('../../src/controller/SessionController.js').BeginCustomActionResult;
+  rest?: RestBeginResult;
   throwOn?: 'openActionMenu' | 'runCustomAction' | 'tick';
   char?: Partial<CharacterData>;
 }
@@ -419,6 +420,14 @@ function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHa
     beginChoice: () => ({ kind: 'ok', character }),
     resolveChoice: () => 'Press on',
     stepChoice: async () => ({ kind: 'outcome' as const, view: OUTCOME_VIEW, distilledType: 'chore', characterName: 'Stub', characterClass: 'Warrior', char: character, prevChar: character }),
+    beginRest: () => opts.rest ?? {
+      kind: 'rested' as const,
+      alreadyThere: true,
+      prev: { health: 10, stamina: 10 },
+      updated: character,
+      wasUnsafe: false,
+      unsafeFromName: "The Warden's Oak",
+    },
     feedbackConfirmation: () => ({ screen: 'notice' as const, text: 'Thanks', ephemeral: true }),
     recordFeedback: () => {},
   };
@@ -568,9 +577,10 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
   });
 });
 
-// ── M4.4 — faithful endDay (engine-direct bookend, unchanged from M4) ──
+// ── M4.4 — faithful endDay (M7.1: the rest half crosses the seam as rest.begin; the world
+// tick stays engine-direct) ──
 
-describe('AgentHarness — faithful endDay (M6, engine-direct bookend)', () => {
+describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', () => {
   const dayJobAction: AgentMove[] = [
     { kind: 'menu-pick', index: 0 },
     { kind: 'choice', index: 0 },
@@ -596,5 +606,28 @@ describe('AgentHarness — faithful endDay (M6, engine-direct bookend)', () => {
 
     expect(summaries[0].ended).toBe('no-rolls');
     expect(agentEngine.engine.getCharacter(USER_ID)!.location).toBe("The Warden's Oak");
+  });
+
+  it('surfaces the unsafe-rest −1 HP as a warning finding (restUnsafe fact → transcript)', async () => {
+    const h = stubHarness({
+      menu: { kind: 'menu', view: SLEEP_ONLY_MENU },
+      moves: [{ kind: 'sleep' }],
+      rest: {
+        kind: 'rested',
+        alreadyThere: false,
+        prev: { health: 10, stamina: 10 },
+        updated: { ...stubChar(), health: 9, location: "The Warden's Oak" },
+        wasUnsafe: true,
+        unsafeFromName: 'The Broken Keep',
+      },
+    });
+
+    const summaries = await h.playDays(1);
+
+    expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'slept' }]);
+    const finding = h.transcript.events.find((e) => e.type === 'finding' && e.severity === 'warning');
+    expect(finding?.type === 'finding' && finding.summary).toContain('lost 1 HP');
+    // The tick still advanced the world — an unsafe rest never aborts the nightly cron.
+    expect(h.transcript.events.some((e) => e.type === 'day')).toBe(true);
   });
 });
