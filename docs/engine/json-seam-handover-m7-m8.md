@@ -82,3 +82,7 @@ Scope fences that also bind you: no game-rule/balance/prompt changes (the unsafe
 ## Definition of done (stop condition)
 
 M7 and M8 fully landed: every bookend and every read-only screen crosses the seam; the contract suite covers them; the harness plays the whole player lifecycle; typecheck + full suite green; changelog current; spec doc execution state records M7/M8 with slice records; `TODO.md`'s RESUME HERE reflects the new state (M9 next). Leave a short note in this handover doc if anything blocked, drifted, or changed scope — the owner reads it before writing the M9 handover.
+
+## Slice notes (2026-08-05)
+
+- **M7.2 `/hi` (done, build `078aaba` + review fix `8b08059`).** One recorded behaviour drift, no blocks: the D2 stale-action `/hi` resume throw now surfaces as `ok:false 'internal'` — the bare timeout copy is painted as content and `notifyAdmin` no longer fires for that edge. Consistent with the seam's internal-error convention (the `action.custom` D2 edge has behaved identically since M6) and unpinned; pin it in M7.3/M9 if it matters. Also recorded: the charless `nav:hi` copy unifies onto "…Type `/join` first." (the old "yet" copy was dead behind the slash gate). Full record in the spec doc's M7.2 execution-state entry.
