@@ -1707,6 +1707,10 @@ export class WorldEngineImpl implements WorldEngine {
     return count;
   }
 
+  countActivePlayersSince(startIso: string): number {
+    return this.charRepo.countActiveSince(startIso);
+  }
+
   // ── Health modifier ──
 
   modifyHealth(discordUserId: string, amount: number): CharacterData | null {
