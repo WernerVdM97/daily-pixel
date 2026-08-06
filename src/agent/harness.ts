@@ -8,12 +8,15 @@
  * Bookends: the nightly rest half of `endDay` crosses the seam as `rest.begin` (M7.1);
  * character creation crossed as the wizard events at M7.3 and, at M8.5 (DC-S7), the walk
  * moved INTO the harness as `createCharacter` (dispatching through the recorded `dispatch`
- * so the creation walk lands in the protocol log — replay re-seeding depends on it) — only
- * the world `tick(true)` cron call stays engine-direct (the cron mechanism is engine-owned,
- * not agent lifecycle).
+ * so the creation walk lands in the protocol log — replay re-seeding depends on it).
+ *
+ * Engine access runs through the `AgentObserver` seam alone (DC-S4, M8.5): the QA-OBSERVER
+ * path (invariant checks, the day-line label, the nightly world cron) — never the play
+ * path. The observer is imported from './observer.js'; the harness imports zero WorldEngine
+ * types and performs zero engine-direct reads.
  */
 
-import type { WorldEngine, CharacterData, CharCreateData } from '../engine/WorldEngine.js';
+import type { AgentObserver, CharacterData, CharCreateData } from './observer.js';
 import type { MenuViewState, DecisionViewState, ViewState } from '../view/viewState.js';
 import type { AgentPlayerGateway, AgentMove, LegalMove, AgentCharView } from './AgentPlayerGateway.js';
 import { viewToText } from './viewToText.js';
@@ -87,7 +90,7 @@ export class AgentHarness {
   readonly transcript = new Transcript();
 
   constructor(
-    private readonly engine: WorldEngine,
+    private readonly observer: AgentObserver,
     private readonly router: GameRouter,
     private readonly brain: AgentPlayerGateway,
     private readonly userId: string,
@@ -274,7 +277,8 @@ export class AgentHarness {
   }
 
   /** Play up to `days` game days, bookending each with the nightly rest (through the seam as
-   *  `rest.begin`, M7.1) + the engine-direct world tick (the cron mechanism stays engine-owned).
+   *  `rest.begin`, M7.1) + the nightly world tick through the observer (the cron mechanism
+   *  stays engine-owned).
    *  The run stops early on `no-character` (fatal — nothing left to play) OR `stalled` (the brain
    *  wedged): a stalled day leaves whatever pending action wedged it untouched, and the nightly
    *  auto-expiry gates on real wall-clock so it never fires across a harness run's millisecond
@@ -301,8 +305,9 @@ export class AgentHarness {
    *  harness's own rolls gate, so a character with rolls unspent or a pending action is an idler
    *  (an `illegal-move` envelope, non-aborting) rather than being teleported home. The unsafe-rest
    *  −1 HP now surfaces for the first time as a `warning` finding from the `restUnsafe` fact (closes
-   *  M4.5 fidelity caveat 2). The nightly world tick stays engine-direct — the cron advances the
-   *  world for everyone, so an idler still takes its unsafe-ground stamina drain. The day-line
+   *  M4.5 fidelity caveat 2). The nightly world tick goes through the observer (the QA-OBSERVER
+   *  path — the cron advances the world for everyone, so an idler still takes its unsafe-ground
+   *  stamina drain). The day-line
    *  label still reads `before.rollsRemaining` (a QA label, not a rule). No-character and
    *  illegal-move error envelopes never abort; a THROWN bookend call or an 'internal' rest
    *  envelope (the router converting a thrown beginRest/restAtOak) stops the run. `rollsRemaining`
@@ -312,7 +317,7 @@ export class AgentHarness {
   private async endDay(): Promise<boolean> {
     let step = 'nightly rest (read character)';
     try {
-      const before = this.engine.getCharacter(this.userId);
+      const before = this.observer.getCharacter(this.userId);
       // QA label only — the controller's guards decide who actually rests.
       const rested = before?.rollsRemaining === 0;
 
@@ -340,7 +345,7 @@ export class AgentHarness {
       // illegal-move (rolls unspent or mid-action) = idler — no finding, no abort.
 
       step = 'nightly tick';
-      const tick = this.engine.tick(true);
+      const tick = this.observer.tick(true);
       // DC-S1: the nightly-cron marker — recorded only when the tick succeeds (matching the
       // existing flow; a throwing tick is caught below and never logged as a marker).
       this.transcript.recordTick(tick.dayNumber);
@@ -366,7 +371,7 @@ export class AgentHarness {
   private checkInvariants(phase: string): void {
     let char: CharacterData | null;
     try {
-      char = this.engine.getCharacter(this.userId);
+      char = this.observer.getCharacter(this.userId);
     } catch (e) {
       this.transcript.finding('error', `invariant check could not read the character after ${phase}`, formatError(e));
       return;
@@ -382,10 +387,10 @@ export class AgentHarness {
     for (const b of breaches) this.transcript.finding('error', `invariant breach after ${phase}: ${b}`);
   }
 
-  /** Current game day (`day_number` meta, default 1) — read straight off the engine, the same
+  /** Current game day (`day_number` meta, default 1) — read through the observer, the same
    *  source `tick` advances. */
   private currentDay(): number {
-    return Number(this.engine.getMeta('day_number') ?? '1');
+    return Number(this.observer.getMeta('day_number') ?? '1');
   }
 
   // ── Action loop — all through the protocol ──
@@ -548,16 +553,18 @@ export class AgentHarness {
   }
 }
 
-/** Wire a harness over a `GameRouter` + `WorldEngine` (the engine is for bookends only; the
- *  action path goes through the router). No controller imports — the harness is a pure
- *  protocol client (M6 gate). The router has already been wired to a real `SessionController`
- *  or a stub `RouterBackend` by the caller. */
+/** Wire a harness over a `GameRouter` + the world's observer surface (DC-S4, M8.5). The
+ *  first parameter is the `AgentObserver` seam: the engine satisfies it STRUCTURALLY
+ *  (WorldEngineImpl → AgentObserver — verified at the src-side call sites, e.g. play.ts
+ *  passing `agentEngine.engine`, at typecheck time). The action path goes through the
+ *  router; the observer is the QA-OBSERVER path (reads + the nightly cron), never play.
+ *  No controller imports — the harness is a pure protocol client (M6 gate). */
 export function createAgentHarness(
-  engine: WorldEngine,
+  observer: AgentObserver,
   router: GameRouter,
   brain: AgentPlayerGateway,
   userId: string,
   options?: AgentHarnessOptions,
 ): AgentHarness {
-  return new AgentHarness(engine, router, brain, userId, options);
+  return new AgentHarness(observer, router, brain, userId, options);
 }

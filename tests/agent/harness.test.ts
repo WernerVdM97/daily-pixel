@@ -12,7 +12,8 @@ import type { RouterBackend } from '../../src/protocol/router.js';
 import { WizardSession } from '../../src/discord/WizardSession.js';
 import { CID_DAYJOB, CID_DAYJOB_CUSTOM } from '../../src/controller/dayJob.js';
 import type { PipelineScript } from '../../src/sim/types.js';
-import type { CharCreateData, CharacterData, WorldEngine } from '../../src/engine/WorldEngine.js';
+import type { CharCreateData, CharacterData } from '../../src/engine/WorldEngine.js';
+import type { AgentObserver } from '../../src/agent/observer.js';
 import type { ActionMenuResult, DayJobStart, RestBeginResult, StartRenderResult } from '../../src/controller/SessionController.js';
 import type { MenuViewState, OutcomeViewState } from '../../src/view/viewState.js';
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
@@ -458,8 +459,10 @@ interface StubBackendConfig {
   char?: Partial<CharacterData>;
 }
 
-function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHarness {
-  const character = stubChar(opts.char);
+/** The stub RouterBackend — the minimal surface the six flows need. Extracted from
+ *  stubHarness so the DC-S4 minimal-observer test can wire a bare three-method observer
+ *  over the same backend shape. */
+function stubBackend(character: CharacterData, opts: StubBackendConfig): RouterBackend {
   const outcome: StartRenderResult = {
     kind: 'outcome',
     viewPrivate: OUTCOME_VIEW,
@@ -469,18 +472,7 @@ function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHa
     char: character,
     prevChar: character,
   };
-  const engine = {
-    getCharacter: () => character,
-    getMeta: () => '1',
-    restAtOak: () => character,
-    tick: () => {
-      if (opts.throwOn === 'tick') throw new Error('tick blew up');
-      return { dayNumber: 2, playersAffected: 0, npcMovements: [], absentWarnings: [], collapsedNames: [] };
-    },
-  } as unknown as WorldEngine;
-
-  // Stub RouterBackend — the minimal surface the six flows need.
-  const backend: RouterBackend = {
+  return {
     getCharacter: () => character,
     stampLastPlayed: () => {},
     openActionMenu: () => {
@@ -526,11 +518,27 @@ function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHa
     feedbackConfirmation: () => ({ screen: 'notice' as const, text: 'Thanks', ephemeral: true }),
     recordFeedback: () => {},
   };
+}
 
-  const router = new GameRouter(backend, { idle: () => IDLE });
+function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHarness {
+  const character = stubChar(opts.char);
+  // DC-S4: the stub observer is the QA-OBSERVER surface — getCharacter/getMeta/tick, the
+  // harness's only engine touch. restAtOak is extra (structural typing tolerates it) and
+  // dead — the rest half dispatches rest.begin through the router (M7.1).
+  const observer = {
+    getCharacter: () => character,
+    getMeta: () => '1',
+    restAtOak: () => character,
+    tick: () => {
+      if (opts.throwOn === 'tick') throw new Error('tick blew up');
+      return { dayNumber: 2, playersAffected: 0, npcMovements: [], absentWarnings: [], collapsedNames: [] };
+    },
+  } as unknown as AgentObserver;
+
+  const router = new GameRouter(stubBackend(character, opts), { idle: () => IDLE });
   const brain = new ScriptedAgentPlayerGateway(opts.moves ?? []);
   // The stub-router backend class is 'stub' — the protocol-log header must be honest (DC-S2).
-  return new AgentHarness(engine, router, brain, USER_ID, { backend: 'stub' });
+  return new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' });
 }
 
 describe('AgentHarness — QA capture (M6 protocol)', () => {
@@ -726,5 +734,38 @@ describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', (
     expect(finding?.type === 'finding' && finding.summary).toContain('lost 1 HP');
     // The tick still advanced the world — an unsafe rest never aborts the nightly cron.
     expect(h.transcript.events.some((e) => e.type === 'day')).toBe(true);
+  });
+});
+
+// ── M8.5 (DC-S4) — the observer boundary's behavioural half: the harness runs a full day
+// against an observer with EXACTLY the three methods (getCharacter/getMeta/tick) over the
+// stub RouterBackend shape — proof the harness needs nothing beyond the three-method
+// observer surface (the pin's structural half lives in tests/agent/observer.test.ts). ──
+
+describe('AgentHarness — minimal observer (DC-S4: the observer is exactly three methods)', () => {
+  it('plays a full day against a bare three-method observer', async () => {
+    // The "exactly three" surface: no restAtOak, no createCharacter, no setMeta — just the
+    // QA-OBSERVER reads + the nightly cron. Typed straight as AgentObserver (no cast), so a
+    // fourth member would fail the excess-property check; and if the harness still called
+    // any fourth engine method at runtime, the run below would throw.
+    const observer: AgentObserver = {
+      getCharacter: () => stubChar(),
+      getMeta: () => '1',
+      tick: () => ({ dayNumber: 2 }),
+    };
+
+    const router = new GameRouter(
+      stubBackend(stubChar(), { menu: { kind: 'menu', view: SLEEP_ONLY_MENU } }),
+      { idle: () => IDLE },
+    );
+    const brain = new ScriptedAgentPlayerGateway([{ kind: 'sleep' }]);
+    const harness = new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' });
+
+    const summaries = await harness.playDays(1);
+
+    // The full day ran: menu.open → sleep → rest.begin → the nightly tick through the
+    // observer (its { dayNumber: 2 } advanced the world — the day-boundary event records 2).
+    expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'slept' }]);
+    expect(harness.transcript.events.some((e) => e.type === 'day' && e.dayNumber === 2)).toBe(true);
   });
 });
