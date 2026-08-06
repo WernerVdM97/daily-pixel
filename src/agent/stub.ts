@@ -125,7 +125,9 @@ class CannedStubBackend extends StubBackend {
 
   override chooseWizardOption(_userId: string, step: number, _value: string): WizardOptionResult {
     this.calls.push('chooseWizardOption');
-    return { kind: 'view', view: this.wizardViews[step] ?? wizardStepNView(step) };
+    // Choosing step N advances the wizard to step N+1 (the real controller's progression) —
+    // the response view mirrors what a real walk would return after each choose.
+    return { kind: 'view', view: this.wizardViews[step + 1] ?? wizardStepNView(step + 1) };
   }
 
   override async stepChoice(_userId: string, _label: string, _prevChar: CharacterData): Promise<StepChoiceResult> {
@@ -259,21 +261,33 @@ export async function stubRun(days: number, opts: StubRunOptions = {}): Promise<
   return { harness, summaries, outPath, protocolOut, backend };
 }
 
-function parseArgs(argv: string[]): { days: number | undefined; inherit: boolean } {
+function parseArgs(argv: string[]): { days: number | undefined; inherit: boolean; error?: string } {
   let days: number | undefined;
   let inherit = false;
+  const positionals: string[] = [];
   for (const arg of argv) {
     if (arg === '--inherit') {
       inherit = true;
-    } else if (!arg.startsWith('-') && days === undefined) {
-      days = Number(arg);
+    } else if (arg.startsWith('-')) {
+      return { days: undefined, inherit: false, error: `unknown flag "${arg}"` };
+    } else {
+      positionals.push(arg);
     }
   }
+  if (positionals.length > 1) {
+    return { days: undefined, inherit: false, error: `unexpected argument "${positionals[1]}"` };
+  }
+  if (positionals.length === 1) days = Number(positionals[0]);
   return { days, inherit };
 }
 
 async function main(): Promise<void> {
-  const { days, inherit } = parseArgs(process.argv.slice(2));
+  const { days, inherit, error } = parseArgs(process.argv.slice(2));
+  if (error) {
+    console.error(`agent:stub: ${error}`);
+    process.exitCode = 1;
+    return;
+  }
   if (days === undefined || !Number.isInteger(days) || days < 1) {
     console.error(`agent:stub: <days> must be a positive integer (got "${process.argv.slice(2).find((a) => !a.startsWith('-')) ?? ''}").`);
     process.exitCode = 1;

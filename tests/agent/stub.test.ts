@@ -93,6 +93,17 @@ describe('stubRun — fresh arm (DC-S2 canned full-lifecycle script)', () => {
       expect(ds[idx + 1].event.type).toBe('screen.look');
     }
 
+    // The beats SUCCEED (F1 net gap): the screen.stats / screen.look / rest.begin envelopes
+    // are all ok:true — the canned script must feed them real views, not the base stub's
+    // silent no-character defaults (a future deletion of those config lines fails here).
+    const stats = ds.find((d) => d.event.type === 'screen.stats');
+    expect(stats?.response.ok).toBe(true);
+    for (const look of ds.filter((d) => d.event.type === 'screen.look')) {
+      expect(look.response.ok).toBe(true);
+    }
+    const rest = ds.find((d) => d.event.type === 'rest.begin');
+    expect(rest?.response.ok).toBe(true);
+
     // The nightly rest.begin dispatch precedes the tick marker, which reports day 2.
     const restIdx = protocol.findIndex((e) => e.kind === 'dispatch' && e.event.type === 'rest.begin');
     const tickIdx = protocol.findIndex((e) => e.kind === 'tick');
