@@ -15,10 +15,15 @@
  * recursive structural comparison, not a JSON.stringify string compare (key order is
  * irrelevant — pinned by the key-reordering test below).
  *
- * Scope note: real-backend replay stays a same-weekday-class reproducer (SF2 — the day-start
- * greeting reads wall-clock `isWeekend()`, so a weekday-recorded transcript replayed on a
- * weekend deep-equal-mismatches its hi.open envelope). These tests record and replay
- * in-process on the same day, so the caveat is inert here.
+ * Scope note: real-backend replay stays a same-weekday-class reproducer (SF3), and the
+ * wall-clock dependence is broader than the greeting: the day-start greeting reads
+ * `isWeekend()`, AND the nightly tick is wall-clock dependent too — the Saturday tick grants
+ * the bonus roll and runs the Saturday NPC script (`getUTCDay() === 6`, WorldEngineImpl.ts)
+ * and the 5-day absence nudge fires on the tick crossing five idle days — so a weekday-
+ * recorded transcript replayed on a weekend deep-equal-mismatches (its hi.open envelope; a
+ * MULTI-DAY recording also drifts in the action hints keyed off rollsRemaining after a
+ * Saturday re-tick). These tests record and replay in-process on the same day, so the caveat
+ * is inert here.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -27,6 +32,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { replayLog, replayFile } from '../../src/agent/replay.js';
+import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
 import { stubRun } from '../../src/agent/stub.js';
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { createAgentHarness } from '../../src/agent/harness.js';
@@ -239,6 +245,57 @@ describe('replay — validation failures (malformed/missing entries are failures
     }
   });
 
+  it('an action.choose WITHOUT a selector is an event-invalid failure, not a crash (SF1)', async () => {
+    const run = await stubRun(1);
+    const protocol = JSON.parse(JSON.stringify(run.harness.transcript.protocol)) as ProtocolEntry[];
+
+    // Pin the fixture: the entry before the first action.choose records a decision view, so
+    // pre-fix the sanity block dereferenced event.selector.kind and threw a TypeError. The fix
+    // validates the event BEFORE the sanity block, so a missing selector is an event-invalid
+    // per-entry validation failure.
+    const ds = dispatches(protocol);
+    const choose = ds.find((d) => d.event.type === 'action.choose')!;
+    const before = ds[ds.indexOf(choose) - 1];
+    expect(before.event.type).toBe('dayjob.start');
+    expect(before.response.ok && before.response.view?.screen).toBe('decision');
+    delete (choose.event as { selector?: unknown }).selector;
+
+    const result = await replayLog(protocol);
+
+    expect(result.ok).toBe(false);
+    const entry = result.entries.find((e) => e.seq === choose.seq)!;
+    expect(entry.ok).toBe(false);
+    expect(entry.validationError).toContain('event invalid');
+    expect(entry.validationError).toContain('selector');
+  });
+
+  it('a tick marker before the first dispatch is a fatal structural failure (SF2)', async () => {
+    // Fabricated tick-led stream: [header, tick, action.custom] — a tick only ever follows a
+    // day's dispatches, so a tick-led stream is structurally malformed (entries.length counts
+    // ticks, so the first-dispatch invariant would otherwise be evadable by a leading tick).
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'replay-test-'));
+    const file = path.join(dir, 'tick-led.json');
+    const tickLed: ProtocolEntry[] = [
+      { seq: 0, kind: 'header', v: PROTOCOL_VERSION, userId: USER_ID, brain: 'scripted', backend: 'stub' },
+      { seq: 1, kind: 'tick', dayNumber: 2 },
+      { seq: 2, kind: 'dispatch', event: { type: 'action.custom', playerId: USER_ID, text: 'hi' }, response: { v: PROTOCOL_VERSION, ok: true } },
+    ];
+    writeFileSync(file, JSON.stringify(tickLed));
+    try {
+      const result = await replayFile(file);
+      expect(result.ok).toBe(false);
+      expect(result.fatal).toContain('tick marker precedes the first dispatch');
+    } finally {
+      unlinkSync(file);
+    }
+
+    // In-process arm: replayLog cannot file-reject, but its first-dispatch invariant must
+    // still catch the tick-led stream (the dispatch-only counter, not entries.length).
+    const direct = await replayLog(tickLed);
+    expect(direct.ok).toBe(false);
+    expect(direct.entries.find((e) => e.kind === 'dispatch')?.ok).toBe(false);
+  });
+
   it('a real-backend replay of an inherit-class transcript (no creation walk) errors out', async () => {
     // A genuine inherit-class recording: the stub inherit arm's stream has no walk.
     const run = await stubRun(1, { inherit: true });
@@ -388,6 +445,21 @@ describe('replay — deterministic real-backend round trip (PROBE B made permane
     expect(result.warnings.some((w) => w.includes("'stub'") && w.includes('forces'))).toBe(true);
     // The recorded stub envelopes are canned fixtures — the real engine emits real views, so
     // the replay reports the divergence rather than silently passing.
+    expect(result.ok).toBe(false);
+    expect(result.entries.some((e) => !e.ok)).toBe(true);
+  });
+
+  it('a real recording forced onto the stub backend is honored with a warning (mismatches reported, not silent)', async () => {
+    const protocol = await recordRealSession();
+    expect(protocol[0].kind === 'header' && protocol[0].backend).toBe('real');
+
+    const result = await replayLog(protocol, { backend: 'stub' });
+
+    expect(result.fatal).toBeUndefined(); // honored, not refused
+    expect(result.backend).toBe('stub');
+    expect(result.warnings.some((w) => w.includes("'real'") && w.includes('forces'))).toBe(true);
+    // The canned stub fixtures cannot equal the real engine's envelopes — the divergence is
+    // reported per-entry rather than silently passing.
     expect(result.ok).toBe(false);
     expect(result.entries.some((e) => !e.ok)).toBe(true);
   });

@@ -12,6 +12,14 @@
  * verify-first probe (stage 7 Task A) confirmed characterId assignment IS reproducible on a
  * fresh engine (the fresh DB's first created character is again id 1, and mulberry32 is
  * keyed by characterId/dayNumber, so day-job actions/workplaces/rolls re-seed identically).
+ * The determinism caveat is the same-weekday-class one, and it is NOT just the greeting: the
+ * day-start greeting reads wall-clock `isWeekend()` (hiScreen.ts), and the nightly tick is
+ * wall-clock dependent TOO — the Saturday tick grants the bonus roll and runs the Saturday
+ * NPC script (`getUTCDay() === 6`, WorldEngineImpl.ts) and the 5-day absence nudge fires on
+ * the tick crossing five idle days — so a MULTI-DAY real-backend recording must be replayed
+ * in the same weekday class it was recorded in (a weekday recording replayed on a Saturday
+ * re-ticks with one extra roll). The envelope-visible effect lands in the action hints keyed
+ * off rollsRemaining.
  * The real-backend arm rebuilds a fresh deterministic engine (scripted pipeline gateway +
  * rollD20:()=>20) and re-seeds by REPLAYING the recorded creation walk (the stream's
  * join.open → wizard.* → character.create dispatches run on the fresh engine as-is); a
@@ -67,8 +75,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 // has no narration) drop — a field that is present-with-undefined on the live object and
 // absent in the recorded JSON carries zero information, and the contract suite's own
 // round-trip convention (`JSON.parse(JSON.stringify(view))` toEqual-ing the view) already
-// blesses exactly this equivalence. Comparing the JSON forms is byte-for-byte: two envelopes
-// are equal here iff their JSON.stringify bytes are equal. ──
+// blesses exactly this equivalence. The comparison is structural and order-independent over
+// the JSON forms: two envelopes are equal here iff their JSON forms deep-equal — equal
+// envelopes can stringify to different bytes (key order is irrelevant, pinned by the
+// key-reordering test). ──
 
 /** Deep-compare two plain-JSON values. */
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -129,6 +139,11 @@ function validateProtocolFile(raw: unknown): { ok: true; entries: ProtocolEntry[
   if (!isRecord(head) || head.kind !== 'header') {
     return { ok: false, message: 'entry 0 must be the header entry { kind: "header", v, userId, brain, backend }' };
   }
+  // The header's seq is pinned to 0 — a header claiming a later seq (e.g. `seq: 99`) would
+  // otherwise replay exit-0 while being silently rebuilt as 0 here.
+  if (head.seq !== 0) {
+    return { ok: false, message: 'header entry: seq must be 0' };
+  }
   if (head.v !== PROTOCOL_VERSION) {
     return { ok: false, message: `header.v must equal PROTOCOL_VERSION (${PROTOCOL_VERSION}); got ${JSON.stringify(head.v)}` };
   }
@@ -145,10 +160,12 @@ function validateProtocolFile(raw: unknown): { ok: true; entries: ProtocolEntry[
   const header: ProtocolHeaderEntry = { seq: 0, kind: 'header', v: head.v, userId: head.userId, brain: head.brain, backend: head.backend };
   const entries: ProtocolEntry[] = [header];
   let seq = 1;
+  let sawDispatch = false;
   for (const entry of rest) {
     if (!isRecord(entry)) return { ok: false, message: `entry ${seq}: must be a plain object` };
     if (entry.seq !== seq) return { ok: false, message: `entry ${seq}: seq must be ${seq} (got ${JSON.stringify(entry.seq)})` };
     if (entry.kind === 'dispatch') {
+      sawDispatch = true;
       if (!isRecord(entry.event) || typeof entry.event.type !== 'string') {
         return { ok: false, message: `entry ${seq}: dispatch must carry event: { type: string, ... }` };
       }
@@ -166,6 +183,12 @@ function validateProtocolFile(raw: unknown): { ok: true; entries: ProtocolEntry[
         ...(Array.isArray(entry.beats) ? { beats: entry.beats as GameResponse[] } : {}),
       });
     } else if (entry.kind === 'tick') {
+      // Tick markers only follow a day's dispatches — a tick-led stream is structurally
+      // malformed (SF2: entries.length counts ticks, so the first-dispatch invariant would
+      // otherwise be evadable by a leading tick marker).
+      if (!sawDispatch) {
+        return { ok: false, message: `tick entry ${seq}: tick marker precedes the first dispatch` };
+      }
       if (!Number.isInteger(entry.dayNumber)) {
         return { ok: false, message: `entry ${seq}: tick must carry an integer dayNumber` };
       }
@@ -210,7 +233,10 @@ export interface ReplayResult {
   entries: ReplayEntryResult[];
 }
 
-/** Replay an in-process protocol log (the CLI's engine; tests drive this directly). */
+/** Replay an in-process protocol log (the CLI's engine; tests drive this directly). The log is
+ *  consumed in its JSON form: in-process callers passing live transcript objects are normalized
+ *  through a JSON round trip up front (undefined-valued optional view fields drop — exactly what
+ *  a recorded file holds), so a live object and its recorded twin compare equal. */
 export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions = {}): Promise<ReplayResult> {
   const header = protocol[0];
   if (!header || header.kind !== 'header') {
@@ -222,6 +248,10 @@ export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions =
       entries: [],
     };
   }
+
+  // The JSON-form contract (see the JSDoc): normalize before any comparison. A no-op for JSON
+  // callers (the CLI, file-loaded logs) — live transcript objects gain the same form.
+  protocol = JSON.parse(JSON.stringify(protocol)) as ProtocolEntry[];
 
   const backend = opts.backend ?? header.backend;
   const warnings: string[] = [];
@@ -268,6 +298,10 @@ export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions =
   // invariant reads the RECORDED stream); `walkActive` tracks the leading creation-walk prefix.
   let lastView: ViewState | undefined;
   let walkActive = firstDispatch?.event.type === 'join.open';
+  // Dispatch-only counter for the first-dispatch invariant — tick markers are not dispatches
+  // (a tick-led stream's first dispatch would otherwise dodge the check; validateProtocolFile
+  // rejects tick-led files, this is the in-process belt-and-braces).
+  let dispatchCount = 0;
 
   for (const entry of protocol) {
     if (entry.kind === 'header') continue;
@@ -293,6 +327,11 @@ export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions =
     const event = entry.event;
     const type = event.type;
 
+    // DC-S5: every event validates (validateGameEvent) — FIRST, so the sequence-sanity block
+    // below may deref the validated event's fields unguarded (SF1: an action.choose without a
+    // selector is an event-invalid validation failure, never a TypeError crash).
+    const ev = validateGameEvent(event);
+
     // ── DC-S5 sequence sanity (the stale-rule carve: the scripted beats hi.open /
     // screen.stats / screen.look are chrome — no preceding-view check; only action.choose
     // and dayjob.start are checked against the preceding envelope's view). ──
@@ -310,15 +349,18 @@ export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions =
     }
 
     // The first dispatch must be the creation walk's join.open, hi.open (inherit/beats) or
-    // menu.open (mid-session).
-    if (entries.length === 0) {
+    // menu.open (mid-session) — counted in dispatches only, so a leading tick marker cannot
+    // swallow the check (SF2).
+    if (dispatchCount === 0) {
       if (type !== 'join.open' && type !== 'hi.open' && type !== 'menu.open') {
         sanityFailures.push(`first dispatch is ${type} — must be join.open (creation walk), hi.open (inherit) or menu.open (mid-session)`);
       }
     }
+    dispatchCount++;
 
-    // The two preceding-view legality rules (DC-S5).
-    if (type === 'action.choose') {
+    // The two preceding-view legality rules (DC-S5) — shape-dependent, so they only run on a
+    // validated event (the shape guarantees selector/jobIndex exist).
+    if (ev.ok && type === 'action.choose') {
       const view = lastView;
       if (!view || view.screen !== 'decision') {
         sanityFailures.push('action.choose without a preceding decision view');
@@ -328,7 +370,7 @@ export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions =
           sanityFailures.push(`action.choose selector ${JSON.stringify(event.selector)} not within the preceding decision view's buttons`);
         }
       }
-    } else if (type === 'dayjob.start') {
+    } else if (ev.ok && type === 'dayjob.start') {
       const view = lastView;
       if (!view || view.screen !== 'menu') {
         sanityFailures.push('dayjob.start without a preceding menu view');
@@ -339,9 +381,6 @@ export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions =
 
     let validationError: string | undefined;
     if (sanityFailures.length) validationError = sanityFailures.join('; ');
-
-    // DC-S5: every event validates (validateGameEvent).
-    const ev = validateGameEvent(event);
     if (!ev.ok) {
       validationError = validationError ? `${validationError}; event invalid: ${ev.message}` : `event invalid: ${ev.message}`;
     }
