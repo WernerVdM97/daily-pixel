@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { createAgentHarness, type AgentHarnessOptions } from '../../src/agent/harness.js';
-import { seedCharacterViaProtocol } from '../../src/agent/seedCharacter.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
 import { Transcript } from '../../src/agent/transcript.js';
 import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
@@ -86,14 +85,15 @@ function buildHarness(brainMoves: AgentMove[], options?: AgentHarnessOptions) {
   const brain = new ScriptedAgentPlayerGateway(brainMoves);
   const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
   const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
+  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID, options);
   return {
-    harness: createAgentHarness(agentEngine.engine, router, brain, USER_ID, options),
+    harness,
     agentEngine,
     router,
-    // M7.3: creation goes through the protocol via the raw router — the DC-S7 recording-gap
-    // (the walk not landing in the protocol log) is task 4's fix, not task 1's.
+    // M8.5 (DC-S7): creation goes through the harness's recorded dispatch — the walk lands
+    // in the protocol log (the recording-gap fix; stage 7's replay re-seeding depends on it).
     seed: async (data: CharCreateData = SEED): Promise<CharacterData> => {
-      await seedCharacterViaProtocol(router, USER_ID, data);
+      await harness.createCharacter(data);
       return agentEngine.engine.getCharacter(USER_ID)!;
     },
   };
@@ -145,14 +145,30 @@ describe('AgentHarness — protocol log dispatch entries (DC-S1)', () => {
     expect(result).toEqual({ kind: 'outcome' });
 
     const protocol = harness.transcript.protocol;
-    // header + one entry per dispatch (menu.open → dayjob.start → action.choose ×2).
-    expect(protocol.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
+    // header + the creation walk (join.open → wizard.answer → wizard.choose ×6 →
+    // character.create) + one entry per play dispatch (menu.open → dayjob.start →
+    // action.choose ×2).
+    expect(protocol.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
 
     const ds = dispatches(protocol);
-    expect(ds.map((d) => d.event.type)).toEqual(['menu.open', 'dayjob.start', 'action.choose', 'action.choose']);
+    expect(ds.map((d) => d.event.type)).toEqual([
+      'join.open',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'character.create',
+      'menu.open',
+      'dayjob.start',
+      'action.choose',
+      'action.choose',
+    ]);
 
     // The dayjob.start entry carries the caller's event fields verbatim (jobIndex).
-    const dayJob = ds[1];
+    const dayJob = ds[10];
     expect(dayJob.event.type === 'dayjob.start' && dayJob.event.jobIndex).toBe(0);
     expect(dayJob.response.ok).toBe(true);
 
@@ -197,6 +213,64 @@ describe('AgentHarness — protocol log dispatch entries (DC-S1)', () => {
     expect(dayJob!.beats!.map((b) => (b.ok ? b.view?.screen : `err:${b.error.code}`))).toEqual([
       'loading',
       'commute',
+    ]);
+  });
+});
+
+describe('AgentHarness — protocol log creation walk (DC-S7)', () => {
+  it('records the full creation walk in order before the first play dispatch', async () => {
+    const { harness, seed } = buildHarness([
+      { kind: 'menu-pick', index: 0 },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+    ]);
+    await seed();
+
+    // The load-bearing DC-S7 assertion: the creation walk lands in the protocol log IN ORDER
+    // — join.open → wizard.answer → wizard.choose ×6 (steps 2-7) → character.create. Stage 7's
+    // replay re-seeding replays exactly these dispatches on a fresh engine, so a missing or
+    // reordered walk entry here is a hard failure, not a churn.
+    const walk = dispatches(harness.transcript.protocol);
+    expect(walk.map((d) => d.event.type)).toEqual([
+      'join.open',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'character.create',
+    ]);
+
+    // The wizard steps are in order 2-7 and the step-5 alignment value passes through as given
+    // (the lowercase fixture — the controller validates against the defs). Every walk envelope
+    // is ok (the walk throws on any rejection, so an ok:false here would have surfaced already).
+    const chooseSteps = walk
+      .filter((d): d is ProtocolDispatchEntry & { event: { type: 'wizard.choose'; step: number; value: string } } => d.event.type === 'wizard.choose')
+      .map((d) => d.event.step);
+    expect(chooseSteps).toEqual([2, 3, 4, 5, 6, 7]);
+    const step5 = walk.find((d) => d.event.type === 'wizard.choose' && d.event.step === 5);
+    expect(step5?.event.type === 'wizard.choose' && step5.event.value).toBe('lawful good');
+    for (const d of walk) expect(d.response.ok).toBe(true);
+
+    // The first PLAY dispatch follows the walk — the play stream starts after character.create.
+    await harness.playOneAction();
+    const after = dispatches(harness.transcript.protocol);
+    expect(after.map((d) => d.event.type)).toEqual([
+      'join.open',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'character.create',
+      'menu.open',
+      'dayjob.start',
+      'action.choose',
+      'action.choose',
     ]);
   });
 });

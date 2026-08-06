@@ -6,13 +6,14 @@
  * the `characterState` fact (DC-M6.1).
  *
  * Bookends: the nightly rest half of `endDay` crosses the seam as `rest.begin` (M7.1);
- * character creation crossed as the wizard events at M7.3 (DC-M7.3.9 — `seedCharacter`
- * left the harness; `seedCharacterViaProtocol` drives the walk through the router) — only
+ * character creation crossed as the wizard events at M7.3 and, at M8.5 (DC-S7), the walk
+ * moved INTO the harness as `createCharacter` (dispatching through the recorded `dispatch`
+ * so the creation walk lands in the protocol log — replay re-seeding depends on it) — only
  * the world `tick(true)` cron call stays engine-direct (the cron mechanism is engine-owned,
  * not agent lifecycle).
  */
 
-import type { WorldEngine, CharacterData } from '../engine/WorldEngine.js';
+import type { WorldEngine, CharacterData, CharCreateData } from '../engine/WorldEngine.js';
 import type { MenuViewState, DecisionViewState, ViewState } from '../view/viewState.js';
 import type { AgentPlayerGateway, AgentMove, LegalMove, AgentCharView } from './AgentPlayerGateway.js';
 import { viewToText } from './viewToText.js';
@@ -118,6 +119,46 @@ export class AgentHarness {
     const response = await this.router.dispatch(event, wrapped);
     this.transcript.recordDispatch(event, response, this.recordBeats ? beats : undefined);
     return response;
+  }
+
+  /** M8.5 (DC-S7) — the FRESH spawn bootstrap: drives the join wizard through the seam exactly
+   *  as a player would (the walk that lived in `src/agent/seedCharacter.ts` until M8.5, absorbed
+   *  into the harness), dispatching through the harness's recorded `dispatch` so the creation walk
+   *  lands in the protocol log (stage 7's replay re-seeding depends on it). Walk: `join.open` →
+   *  `wizard.answer` (the free-text name) → `wizard.choose` × steps 2–7
+   *  (class/upbringing/race/alignment/dayJob + the mandatory starting kit) → `character.create`.
+   *  `itemSetName` is required (the wizard's step 7 has no skip — a kit-less seed is impossible
+   *  through the protocol). Any `ok:false` throws with the envelope's message (the router never
+   *  throws — a rejection here is a real protocol failure the run should surface). */
+  async createCharacter(data: CharCreateData): Promise<void> {
+    let response = await this.dispatch({ type: 'join.open', playerId: this.userId });
+    if (!response.ok) throw new Error(response.error.message);
+
+    response = await this.dispatch({ type: 'wizard.answer', playerId: this.userId, text: data.name });
+    if (!response.ok) throw new Error(response.error.message);
+
+    // Steps 2-6: class, upbringing, race, alignment, dayJob. The persisted keys are the def
+    // names — except alignment, which the wizard persists lowercase ("lawful good"), so the
+    // caller's fixture must carry the lowercase value (the controller validates against the
+    // defs, so a title-case fixture would now be rejected).
+    for (const [step, value] of [[2, data.class], [3, data.upbringing], [4, data.race], [5, data.alignment], [6, data.dayJob]] as const) {
+      response = await this.dispatch({ type: 'wizard.choose', playerId: this.userId, step, value });
+      if (!response.ok) throw new Error(response.error.message);
+    }
+
+    // Step 7 (Starting Kit) is MANDATORY in the wizard — the walk can only reach the step-8
+    // confirm screen by choosing a kit, so a kit-less seed is impossible through the protocol
+    // (old createCharacter had no such constraint). Fail loudly up front rather than stall at
+    // step 7 and surface the confusing "isn't ready to confirm" envelope at character.create.
+    if (!data.itemSetName) {
+      throw new Error('seed: itemSetName is required — the wizard has no kit-less creation path (step 7 is mandatory)');
+    }
+
+    response = await this.dispatch({ type: 'wizard.choose', playerId: this.userId, step: 7, value: data.itemSetName });
+    if (!response.ok) throw new Error(response.error.message);
+
+    response = await this.dispatch({ type: 'character.create', playerId: this.userId });
+    if (!response.ok) throw new Error(response.error.message);
   }
 
   /** Drive one action from the action menu to a terminal disposition. The router never throws

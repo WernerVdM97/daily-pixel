@@ -17,6 +17,10 @@
  *
  * Env: DEEPSEEK_API_KEY (required), DEEPSEEK_MODEL (optional override), AGENT_DAYS (default 1),
  * AGENT_OUT (transcript path; default a timestamped file under the OS temp dir),
+ * AGENT_PROTOCOL_OUT (protocol-log path; default `<AGENT_OUT>.protocol.json`),
+ * AGENT_PROTOCOL_BEATS (record router beats into the protocol log, default off),
+ * AGENT_USER_ID (session id; default a per-session unique `agent:play-<timestamp>`),
+ * AGENT_INHERIT ("1" = play as the existing AGENT_USER_ID player, no creation walk),
  * ENABLE_COHERENCE_CRITIC (RA-4 Finding 1, default on — "false" opts out, same as index.ts),
  * CRITIC_GATE_MODE (RA-4c, "always" default | "anomaly" — see src/engine/action/critic-gate.ts,
  * only relevant while the critic above is enabled).
@@ -29,7 +33,6 @@ import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
-import { seedCharacterViaProtocol } from './seedCharacter.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
 import { LlmCallRepository } from '../db/repositories/llm-call.js';
@@ -72,9 +75,21 @@ const SEED: CharCreateData = {
   itemSetName: "Soldier's Kit",
 };
 
-const USER_ID = 'agent:play';
+// DC-S7 session identity: the default is a per-session unique fake id — userId is the only
+// collision key (names are not unique in the DB), so a fresh spawn always lands on a fresh
+// player. AGENT_USER_ID overrides: inherit mode (AGENT_INHERIT=1) must set it to the recorded
+// session id the protocol header carries.
+const userId = process.env.AGENT_USER_ID ?? `agent:play-${Date.now()}`;
+const inherit = process.env.AGENT_INHERIT === '1';
 
 async function main(): Promise<void> {
+  // Inherit mode needs the recorded session id to find the existing player — there is no
+  // name→userId lookup (DC-S7), so a missing AGENT_USER_ID is a hard config error.
+  if (inherit && !process.env.AGENT_USER_ID) {
+    console.error('agent:play: AGENT_INHERIT=1 requires AGENT_USER_ID (the recorded session id to inherit)');
+    process.exitCode = 1;
+    return;
+  }
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
     console.error('agent:play needs DEEPSEEK_API_KEY set — this is the opt-in real-LLM run.');
@@ -132,11 +147,22 @@ async function main(): Promise<void> {
     { idle: () => '' },
   );
   // The header's brain class is 'prod' (this is the real-LLM run) so a recorded transcript's
-  // protocol header is honest for replay (DC-S1/DC-S2). NOTHING else in play.ts is task 1.
-  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID, { brain: 'prod' });
+  // protocol header is honest for replay (DC-S1/DC-S2). recordBeats honors the
+  // AGENT_PROTOCOL_BEATS knob — read here, in the runner, so the library stays env-free (DC-S1).
+  const harness = createAgentHarness(agentEngine.engine, router, brain, userId, {
+    brain: 'prod',
+    ...(process.env.AGENT_PROTOCOL_BEATS === '1' ? { recordBeats: true } : {}),
+  });
 
-  await seedCharacterViaProtocol(router, USER_ID, SEED);
-  console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
+  if (inherit) {
+    // DC-S7 inherit mode: no creation walk — the session starts at menu.open as that player.
+    console.error(`Inheriting ${userId} — playing ${days} day(s)…\n`);
+  } else {
+    // DC-S7 fresh spawn: the full join wizard walk through the harness's recorded dispatch,
+    // so the creation walk lands in the protocol log (stage 7's replay re-seeding depends on it).
+    await harness.createCharacter(SEED);
+    console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
+  }
 
   // The transcript is the repro (goal a): dump it in `finally` so a run that throws before finishing
   // still writes what it saw up to the failure, not just an opaque stack.
@@ -147,7 +173,12 @@ async function main(): Promise<void> {
     // Transcript → a file (always clean JSON, immune to stdout log noise); everything human-readable
     // → stderr. Written in finally so a throwing run still leaves the repro up to the failure point.
     writeFileSync(outPath, JSON.stringify(harness.transcript.events, null, 2));
+    // DC-S1: the parallel protocol log lands beside the semantic transcript (default
+    // `<AGENT_OUT>.protocol.json`) — the replayable instrument, same finally-guarantee.
+    const protocolOut = process.env.AGENT_PROTOCOL_OUT ?? `${outPath}.protocol.json`;
+    writeFileSync(protocolOut, JSON.stringify(harness.transcript.protocol, null, 2));
     console.error(`\n── transcript written to ${outPath} ──`);
+    console.error(`── protocol log written to ${protocolOut} ──`);
     console.error('\n── day summaries ──');
     for (const s of summaries) {
       console.error(`  day ${s.dayNumber}: ${s.outcomes} outcome(s), ended ${s.ended}`);

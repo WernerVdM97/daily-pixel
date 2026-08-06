@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { AgentHarness, createAgentHarness } from '../../src/agent/harness.js';
-import { seedCharacterViaProtocol } from '../../src/agent/seedCharacter.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
 import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
 import { SessionController } from '../../src/controller/SessionController.js';
@@ -102,16 +101,18 @@ function buildHarness(brainMoves: AgentMove[], script: PipelineScript = pipeline
   // Wire a GameRouter over a real SessionController — the harness is a true protocol client.
   const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
   const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
+  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID);
   return {
-    harness: createAgentHarness(agentEngine.engine, router, brain, USER_ID),
+    harness,
     brain,
     agentEngine,
     router,
-    // M7.3 (DC-M7.3.9): the character is created THROUGH the protocol — the wizard walk
-    // dispatches over the same router the harness plays through. Returns the created char
-    // (read from the engine — the real engine persists createCharacter).
+    // M8.5 (DC-S7): the character is created THROUGH the harness's recorded dispatch — the
+    // wizard walk lands in the protocol log (the recording-gap fix; replay re-seeding depends
+    // on it). Returns the created char (read from the engine — the real engine persists
+    // createCharacter).
     seed: async (data: CharCreateData = SEED): Promise<CharacterData> => {
-      await seedCharacterViaProtocol(router, USER_ID, data);
+      await harness.createCharacter(data);
       return agentEngine.engine.getCharacter(USER_ID)!;
     },
     // Exposed for tests that drive the controller directly (e.g. viewToText assertions).
@@ -250,6 +251,48 @@ describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
   });
 });
 
+// ── M8.5 (DC-S7) — inherit-mode session bootstrap: a second harness on the same
+// engine+router with the same userId plays as the existing character with NO creation walk ──
+
+describe('AgentHarness — inherit-mode session bootstrap (DC-S7)', () => {
+  it('a no-walk harness plays a day as the existing character', async () => {
+    // Wiring inline (same shape as buildHarness) so a SECOND harness can share the same
+    // engine + router + userId — the inherit arm's construction.
+    const agentEngine = buildAgentEngine({
+      pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
+      rollD20: () => 20,
+    });
+    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
+    const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
+
+    // Fresh spawn: the walk through the harness's recorded dispatch creates the player.
+    const creator = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway([]), USER_ID);
+    await creator.createCharacter(SEED);
+    expect(agentEngine.engine.getCharacter(USER_ID)!.name).toBe('Bram');
+
+    // Inherit spawn: same engine/router/userId, NO createCharacter call — the session starts
+    // as that existing player at menu.open.
+    const inheritor = createAgentHarness(
+      agentEngine.engine,
+      router,
+      new ScriptedAgentPlayerGateway([
+        { kind: 'menu-pick', index: 0 },
+        { kind: 'choice', index: 0 },
+        { kind: 'choice', index: 0 },
+      ]),
+      USER_ID,
+    );
+    const result = await inheritor.playOneAction();
+    expect(result).toEqual({ kind: 'outcome' });
+
+    // menu.open did NOT return no-character: the inherit session's first dispatch is a plain
+    // menu.open — no join.open/wizard walk in its own protocol log (the walk belongs to the
+    // fresh session that created the player).
+    const first = inheritor.transcript.protocol.find((e) => e.kind === 'dispatch');
+    expect(first?.kind === 'dispatch' && first.event.type).toBe('menu.open');
+  });
+});
+
 // ── RA-4 Finding 1 — `criticEnabled` opt-out (unchanged: engine-level, not protocol). ──
 
 class MockCriticGateway implements CriticGateway {
@@ -278,7 +321,7 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
     const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
     const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
     const harness = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
-    await seedCharacterViaProtocol(router, USER_ID, SEED);
+    await harness.createCharacter(SEED);
 
     await harness.playOneAction();
 
@@ -296,7 +339,7 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
     const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
     const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
     const harness = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
-    await seedCharacterViaProtocol(router, USER_ID, SEED);
+    await harness.createCharacter(SEED);
 
     await harness.playOneAction();
 
@@ -472,8 +515,9 @@ function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHa
     openBackpack: () => ({ kind: 'no-character' }),
     openJournal: () => ({ kind: 'no-character' }),
     openHelp: () => ({ kind: 'view', view: { screen: 'notice', text: '', ephemeral: true } }),
-    // M7.3 wizard surface — the harness never walks the wizard (creation is the caller's
-    // seedCharacterViaProtocol job), so the minimal no-session defaults are all it needs.
+    // M7.3 wizard surface — these QA tests never spawn a character (createCharacter is only
+    // exercised by the protocol-log suite), so the minimal no-session defaults are all the
+    // stub needs.
     openJoin: () => ({ kind: 'has-character' }),
     answerWizardName: () => ({ kind: 'no-session' }),
     chooseWizardOption: () => ({ kind: 'no-session' }),
