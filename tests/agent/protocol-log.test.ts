@@ -1,81 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { createAgentHarness, type AgentHarnessOptions } from '../../src/agent/harness.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
 import { Transcript } from '../../src/agent/transcript.js';
+import { deterministicPipelineScript as pipelineScript, SEED, buildDeterministicRouter } from '../../src/agent/deterministicSession.js';
 import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
-import { SessionController } from '../../src/controller/SessionController.js';
-import { GameRouter } from '../../src/protocol/router.js';
-import type { RouterBackend } from '../../src/protocol/router.js';
 import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
-import { WizardSession } from '../../src/discord/WizardSession.js';
-import type { PipelineScript } from '../../src/sim/types.js';
 import type { CharCreateData, CharacterData } from '../../src/engine/WorldEngine.js';
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
 import type { ProtocolDispatchEntry, ProtocolEntry } from '../../src/agent/transcript.js';
-import { loadYamlFile } from '../../src/assets/yaml-loader.js';
-import type { CharDefs } from '../../src/controller/joinWizard.js';
+
+// M8.5 stage 7 (DC-S2): the deterministic session wiring (pipeline script, SEED profile, the
+// SessionController→router construction) moved to src/agent/deterministicSession.ts — the
+// replay runner needs the src-side source; this suite imports it (the pipelineScript alias
+// keeps the test bodies unchanged). The REPLAY tests replay this suite's stream shape.
 
 // ── M8.5 task 1 (DC-S1) — the protocol log. Same deterministic buildHarness shape as
 // harness.test.ts (real SessionController + scripted pipeline gateway + seeded character
 // through the protocol) so the run is byte-deterministic and the assertions read the
 // transcript's parallel `protocol` array next to the unchanged semantic `events`. ──
 
-const IDLE = '';
-
-// The proven goblin-skirmish shape (same fixture as harness.test.ts): a day-job work flow
-// yields a decision with two real options + bail, so a day-job action dispatches
-// menu.open → dayjob.start → action.choose ×2 → outcome.
-const pipelineScript: PipelineScript = {
-  classify: () => ({
-    kind: 'hit',
-    actionType: 'combat',
-    flags: { unsafe_location: false, needs_roll: true, target_present: true },
-  }),
-  decide: () => ({
-    distilledType: 'combat',
-    stat: 'physical',
-    baseDc: 8,
-    required: false,
-    decision: [
-      { label: 'Press the attack', dcModifier: 0 },
-      { label: 'Feint and strike', dcModifier: 1 },
-      { label: 'Step back', dcModifier: null },
-    ],
-  }),
-  resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 5 }] }),
-  resolveNarrate: () => ({ outcomeText: 'Your blade finds its mark; the goblin falls.' }),
-};
-
-const SEED: CharCreateData = {
-  name: 'Bram',
-  class: 'Warrior',
-  upbringing: 'Soldier',
-  race: 'Human',
-  // The wizard persists step-5 values lowercase and the controller validates the value
-  // against the defs (DC-M7.3.9) — same lowercase fixture as harness.test.ts.
-  alignment: 'lawful good',
-  dayJob: 'Town Guard',
-  itemSetName: "Soldier's Kit",
-};
-
 const USER_ID = 'agent:protocol-log';
-
-const CC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets', 'char-creation');
-function loadDefs<T>(file: string): T[] {
-  return loadYamlFile(path.join(CC_DIR, file)) as T[];
-}
-const REAL_DEFS: CharDefs = {
-  classes: loadDefs('classes.yml'),
-  backgrounds: loadDefs('backgrounds.yml'),
-  races: loadDefs('races.yml'),
-  alignments: loadDefs('alignments.yml'),
-  dayJobs: loadDefs('day-jobs.yml'),
-  itemSets: loadDefs('item-sets.yml'),
-};
 
 function buildHarness(brainMoves: AgentMove[], options?: AgentHarnessOptions) {
   const agentEngine = buildAgentEngine({
@@ -83,8 +29,8 @@ function buildHarness(brainMoves: AgentMove[], options?: AgentHarnessOptions) {
     rollD20: () => 20,
   });
   const brain = new ScriptedAgentPlayerGateway(brainMoves);
-  const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
-  const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
+  // M8.5 stage 7 (DC-S2): the SessionController wiring lives in deterministicSession.ts.
+  const router = buildDeterministicRouter(agentEngine);
   const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID, options);
   return {
     harness,

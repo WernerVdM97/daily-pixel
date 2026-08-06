@@ -120,7 +120,7 @@ const DAY_MOVES: AgentMove[] = [
  *  action.choose on a decision view returns another decision (the loop deliberates twice
  *  per flow — the brain script's choice ×2), the second resolves to the outcome. The base's
  *  single static chooseResult/stepResult fields can't express either alternation. */
-class CannedStubBackend extends StubBackend {
+export class CannedStubBackend extends StubBackend {
   private chooseBeats = 0;
 
   override chooseWizardOption(_userId: string, step: number, _value: string): WizardOptionResult {
@@ -161,8 +161,10 @@ class StubObserver implements AgentObserver {
 }
 
 /** Wire the canned full-lifecycle script onto a fresh backend instance. Everything static
- *  lives here; the two stateful alternations live in CannedStubBackend. */
-function configureCannedScript(backend: StubBackend): void {
+ *  lives here; the two stateful alternations live in CannedStubBackend. Exported for the
+ *  replay runner (stage 7, DC-S2): a stub-class replay builds a FRESH CannedStubBackend +
+ *  configureCannedScript so the replayed stream hits the same canned script the recording ran. */
+export function configureCannedScript(backend: StubBackend): void {
   // Day loop: the day-job start and the custom slot both open the decision flow, which
   // resolves through TWO action.choose beats (see CannedStubBackend.stepChoice).
   backend.menuResult = { kind: 'menu', view: MENU_VIEW };
