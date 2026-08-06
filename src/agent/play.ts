@@ -154,20 +154,22 @@ async function main(): Promise<void> {
     ...(process.env.AGENT_PROTOCOL_BEATS === '1' ? { recordBeats: true } : {}),
   });
 
-  if (inherit) {
-    // DC-S7 inherit mode: no creation walk — the session starts at menu.open as that player.
-    console.error(`Inheriting ${userId} — playing ${days} day(s)…\n`);
-  } else {
-    // DC-S7 fresh spawn: the full join wizard walk through the harness's recorded dispatch,
-    // so the creation walk lands in the protocol log (stage 7's replay re-seeding depends on it).
-    await harness.createCharacter(SEED);
-    console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
-  }
-
   // The transcript is the repro (goal a): dump it in `finally` so a run that throws before finishing
-  // still writes what it saw up to the failure, not just an opaque stack.
+  // still writes what it saw up to the failure, not just an opaque stack. The creation walk is inside
+  // the try for the same reason — a mid-walk rejection (e.g. a has-character collision on a shared
+  // backend) must still land the partial walk in the protocol log via finally, and the walk IS the
+  // repro (DC-S7's recording-gap fix).
   let summaries: Awaited<ReturnType<typeof harness.playDays>> = [];
   try {
+    if (inherit) {
+      // DC-S7 inherit mode: no creation walk — the session starts at menu.open as that player.
+      console.error(`Inheriting ${userId} — playing ${days} day(s)…\n`);
+    } else {
+      // DC-S7 fresh spawn: the full join wizard walk through the harness's recorded dispatch,
+      // so the creation walk lands in the protocol log (stage 7's replay re-seeding depends on it).
+      await harness.createCharacter(SEED);
+      console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
+    }
     summaries = await harness.playDays(days);
   } finally {
     // Transcript → a file (always clean JSON, immune to stdout log noise); everything human-readable
@@ -192,6 +194,14 @@ async function main(): Promise<void> {
     // RA-4a: queried from the SAME `:memory:` db `recordLlmCalls` wrote into — must run here,
     // before the process exits and that db (and its llm_calls rows) is gone for good.
     console.error(`\n${formatLlmCostSummary(summarizeLlmCosts(agentEngine.db))}`);
+  }
+
+  // Inherit-mode asymmetry (review c022d1f): a stale/missing AGENT_USER_ID plays zero turns and
+  // would otherwise exit 0 like a success — the fresh arm fails loud on a walk rejection, so the
+  // inherit arm must too (smoke-run automation keys on the exit code).
+  if (inherit && summaries.some((s) => s.ended === 'no-character')) {
+    console.error(`agent:play: no character found for ${userId} (AGENT_INHERIT=1) — nothing played (exit 1).`);
+    process.exitCode = 1;
   }
 
   // M4.5 feedback pass (goal b): a critic reads the completed transcript and writes a qualitative

@@ -255,7 +255,7 @@ describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
 // engine+router with the same userId plays as the existing character with NO creation walk ──
 
 describe('AgentHarness — inherit-mode session bootstrap (DC-S7)', () => {
-  it('a no-walk harness plays a day as the existing character', async () => {
+  it('a no-walk harness plays an action as the existing character', async () => {
     // Wiring inline (same shape as buildHarness) so a SECOND harness can share the same
     // engine + router + userId — the inherit arm's construction.
     const agentEngine = buildAgentEngine({
