@@ -137,6 +137,10 @@ export async function handleInteraction(
         const response = await _router!.dispatch({ type: "join.open", playerId: userId });
         if (response.ok) {
           await i.showModal(buildNameModal(response.view as WizardViewState));
+        } else {
+          // has-character (or any other error arm) — the click must still be acked, else
+          // Discord shows "This interaction failed" after 3s (reviewer ACCEPT-2).
+          await safeNotify(i, response.error.message);
         }
       } catch {
         /* stale (10062) or already acked (40060) — ignore */

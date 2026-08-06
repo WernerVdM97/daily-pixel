@@ -984,6 +984,17 @@ runCaseBlock('conformance — wizard.answer', [
     assert: (o) => { expectError(o.response, 'illegal-move', 'Name must not contain @ or # (Discord pings)'); expect(o.beats).toEqual([]); },
   },
   {
+    name: 'illegal-step (name answer aimed at a non-step-1 session) → illegal-move with WIZARD_ILLEGAL_CHOICE_COPY',
+    event: WIZARD_ANSWER,
+    real: () => {
+      const wizards = new WizardSession();
+      seedWizard(wizards, USER, 3); // session at step 3 — a step-1 name answer is illegal
+      return realRouter(new MockWorldEngine(), wizards);
+    },
+    stub: () => stubRouter((s) => { s.answerResult = { kind: 'illegal-step' }; }),
+    assert: (o) => { expectError(o.response, 'illegal-move', WIZARD_ILLEGAL_CHOICE_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
     name: 'ok → ok:true wizard step-2 view (nameField gone, options + choice buttons), NO facts, zero beats',
     event: WIZARD_ANSWER,
     real: () => {
