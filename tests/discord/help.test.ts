@@ -3,7 +3,8 @@ import { makeHelpCommand } from "../../src/discord/commands/help.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";
 import { WizardSession } from "../../src/discord/WizardSession.js";
-import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";import type { CharDefs } from "../../src/controller/joinWizard.js";
+import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 
 // M8.1 (DC-M8.3/4): the handler is translate + paint — every call goes through a GameRouter
 // over a real SessionController. screen.help has NO character guard (help works charless
