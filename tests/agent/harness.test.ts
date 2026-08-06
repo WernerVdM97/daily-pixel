@@ -745,9 +745,11 @@ describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', (
 describe('AgentHarness — minimal observer (DC-S4: the observer is exactly three methods)', () => {
   it('plays a full day against a bare three-method observer', async () => {
     // The "exactly three" surface: no restAtOak, no createCharacter, no setMeta — just the
-    // QA-OBSERVER reads + the nightly cron. Typed straight as AgentObserver (no cast), so a
-    // fourth member would fail the excess-property check; and if the harness still called
-    // any fourth engine method at runtime, the run below would throw.
+    // QA-OBSERVER reads + the nightly cron. Typed straight as AgentObserver (no cast); the
+    // excess-property check is typecheck-only (tests are NOT under tsc — the tsconfig
+    // src-only gate, the M9 watch-item class), so the REAL enforcement here is runtime: if
+    // the harness called any fourth engine method on the day flow, the run below would
+    // throw and the summaries would mismatch.
     const observer: AgentObserver = {
       getCharacter: () => stubChar(),
       getMeta: () => '1',
