@@ -17,6 +17,7 @@ import type { AgentObserver } from '../../src/agent/observer.js';
 import type { ActionMenuResult, DayJobStart, RestBeginResult, StartRenderResult } from '../../src/controller/SessionController.js';
 import type { MenuViewState, OutcomeViewState } from '../../src/view/viewState.js';
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
+import type { ProtocolDispatchEntry } from '../../src/agent/transcript.js';
 import type { CriticGateway, CriticInput, CriticVerdict } from '../../src/llm/LlmGateway.js';
 import { viewToText } from '../../src/agent/viewToText.js';
 import { loadYamlFile } from '../../src/assets/yaml-loader.js';
@@ -652,7 +653,10 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
       deadEnds: 0,
       commutes: 0,
       dayBoundaries: 0,
-      greetings: 0,
+      // DC-S3: this is the REAL backend with a seeded character, so the scripted day-start
+      // greeting beat recorded one greeting (the stubHarness tests keep greetings: 0 — the
+      // stub's openHi returns no-character and the beats are silent on no-character).
+      greetings: 1,
       findings: { error: 0, warning: 0 },
     });
   });
@@ -734,6 +738,87 @@ describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', (
     expect(finding?.type === 'finding' && finding.summary).toContain('lost 1 HP');
     // The tick still advanced the world — an unsafe rest never aborts the nightly cron.
     expect(h.transcript.events.some((e) => e.type === 'day')).toBe(true);
+  });
+});
+
+// ── M8.5 (DC-S3) — the AGENT_BRAIN_CHOOSES_CHAR realism arm: the brain authors the
+// character through the wizard (name + step choices) instead of the scripted walk. All picks
+// below are REAL def values from assets/char-creation/*.yml — the first option of each step
+// (the wizard's step-5 alignment values are persisted LOWERCASE, step-7 kits are
+// class-filtered, and each step's buttons carry a trailing restart button the script never
+// picks — index 0 is always the first real option). ──
+
+describe('AgentHarness — brain-driven character creation (DC-S3)', () => {
+  it('the brain authors the character through the wizard, landing real def values', async () => {
+    const { harness, brain, agentEngine } = buildHarness([
+      { kind: 'custom', text: 'Birch' }, // step 1: the free-text name slot
+      { kind: 'menu-pick', index: 0 }, // step 2: first class (Warrior)
+      { kind: 'menu-pick', index: 0 }, // step 3: first upbringing (Soldier)
+      { kind: 'menu-pick', index: 0 }, // step 4: first race (Human)
+      { kind: 'menu-pick', index: 0 }, // step 5: first alignment, lowercase (lawful good)
+      { kind: 'menu-pick', index: 0 }, // step 6: first day job (Town Guard)
+      { kind: 'menu-pick', index: 0 }, // step 7: first kit for a Warrior (Soldier's Kit)
+      { kind: 'menu-pick', index: 0 }, // step 8: confirm
+    ]);
+    await harness.createCharacterWithBrain();
+
+    // The created character exists with the picked values — every one a real def value
+    // (first option of its step), the alignment lowercased per the wizard's persistence.
+    const char = agentEngine.engine.getCharacter(USER_ID)!;
+    expect(char.name).toBe('Birch');
+    expect(char.class).toBe('Warrior');
+    expect(char.upbringing).toBe('Soldier');
+    expect(char.race).toBe('Human');
+    expect(char.alignment).toBe('lawful good');
+    expect(char.dayJob).toBe('Town Guard');
+    // The step-7 kit pick lands in the inventory: the Soldier's Kit's starting item is on
+    // the character (getItems is the engine's read — the walk itself only knows def values).
+    expect(agentEngine.engine.getItems(char.id).some((i) => i.name === 'Iron Sword')).toBe(true);
+
+    // The protocol log records the full brain-authored walk, in order — the same shape as the
+    // scripted walk's, proving the realism arm crosses the seam identically.
+    const walk = harness.transcript.protocol
+      .filter((e) => e.kind === 'dispatch')
+      .map((d) => d.event.type);
+    expect(walk).toEqual([
+      'join.open',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'character.create',
+    ]);
+    const chooses = harness.transcript.protocol.filter(
+      (e): e is ProtocolDispatchEntry & { event: { type: 'wizard.choose'; step: number; value: string } } =>
+        e.kind === 'dispatch' && e.event.type === 'wizard.choose',
+    );
+    expect(chooses.map((d) => d.event.value)).toEqual([
+      'Warrior',
+      'Soldier',
+      'Human',
+      'lawful good',
+      'Town Guard',
+      "Soldier's Kit",
+    ]);
+
+    // The brain saw the wizard screen with the all-zeros placeholder char (the wizard
+    // envelope carries NO character facts — DC-M6.1's null-char rule).
+    expect(brain.calls).toHaveLength(8);
+    expect(brain.calls[0].screenText.length).toBeGreaterThan(0);
+    expect(brain.calls[0].character).toEqual({
+      name: '',
+      class: '',
+      health: 0,
+      maxHealth: 0,
+      stamina: 0,
+      maxStamina: 0,
+      rollsRemaining: 0,
+      wealth: 0,
+      location: '',
+    });
   });
 });
 

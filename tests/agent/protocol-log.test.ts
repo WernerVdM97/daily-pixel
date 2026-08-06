@@ -147,8 +147,8 @@ describe('AgentHarness — protocol log dispatch entries (DC-S1)', () => {
     const protocol = harness.transcript.protocol;
     // header + the creation walk (join.open → wizard.answer → wizard.choose ×6 →
     // character.create) + one entry per play dispatch (menu.open → dayjob.start →
-    // action.choose ×2).
-    expect(protocol.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    // action.choose ×2) + the DC-S3 look-after-outcome beat (screen.look after the outcome).
+    expect(protocol.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
 
     const ds = dispatches(protocol);
     expect(ds.map((d) => d.event.type)).toEqual([
@@ -165,6 +165,7 @@ describe('AgentHarness — protocol log dispatch entries (DC-S1)', () => {
       'dayjob.start',
       'action.choose',
       'action.choose',
+      'screen.look',
     ]);
 
     // The dayjob.start entry carries the caller's event fields verbatim (jobIndex).
@@ -255,6 +256,8 @@ describe('AgentHarness — protocol log creation walk (DC-S7)', () => {
     for (const d of walk) expect(d.response.ok).toBe(true);
 
     // The first PLAY dispatch follows the walk — the play stream starts after character.create.
+    // The look-after-outcome beat (screen.look) appends AFTER the play dispatches — nothing
+    // inserts before them (the walk is before, the look after).
     await harness.playOneAction();
     const after = dispatches(harness.transcript.protocol);
     expect(after.map((d) => d.event.type)).toEqual([
@@ -271,6 +274,7 @@ describe('AgentHarness — protocol log creation walk (DC-S7)', () => {
       'dayjob.start',
       'action.choose',
       'action.choose',
+      'screen.look',
     ]);
   });
 });
@@ -303,6 +307,43 @@ describe('AgentHarness — protocol log nightly tick marker (DC-S1)', () => {
     }
     const dayEvent = harness.transcript.events.find((e) => e.type === 'day');
     expect(dayEvent?.type === 'day' && dayEvent.dayNumber).toBe(2);
+  });
+});
+
+describe('AgentHarness — protocol log day-start + look beats (DC-S3)', () => {
+  it('records the day-start greeting + stats beats before play and the look beat after the outcome', async () => {
+    const { harness, seed } = buildHarness([
+      { kind: 'menu-pick', index: 0 },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+      { kind: 'sleep' },
+    ]);
+    await seed();
+
+    const summaries = await harness.playDays(1);
+    expect(summaries).toEqual([{ dayNumber: 1, outcomes: 1, ended: 'slept' }]);
+
+    // The semantic greeting event — the hi screen text (loose: non-empty + carries the
+    // character's name), and the summary counts it.
+    const greeting = harness.transcript.events.find((e) => e.type === 'greeting');
+    expect(greeting?.type === 'greeting' && greeting.text.length).toBeGreaterThan(0);
+    expect(greeting?.type === 'greeting' && greeting.text).toContain('Bram');
+    expect(harness.transcript.summary().greetings).toBe(1);
+
+    // The protocol log: the day-start hi.open + screen.stats dispatches sit BEFORE the first
+    // menu.open (hi first, stats beside it — the DC-S3 scripted order).
+    const ds = dispatches(harness.transcript.protocol);
+    const firstMenu = ds.findIndex((d) => d.event.type === 'menu.open');
+    expect(firstMenu).toBeGreaterThan(-1);
+    expect(ds.slice(firstMenu - 2, firstMenu).map((d) => d.event.type)).toEqual(['hi.open', 'screen.stats']);
+    // No greeting when no-character (not reachable on this path) — the greeting is only
+    // recorded from an ok hi.open, never from a finding.
+
+    // The look-after-outcome beat: screen.look is the dispatch immediately AFTER the
+    // outcome-producing action.choose.
+    const lastChoose = ds.findLastIndex((d) => d.event.type === 'action.choose');
+    expect(lastChoose).toBeGreaterThan(-1);
+    expect(ds[lastChoose + 1].event.type).toBe('screen.look');
   });
 });
 

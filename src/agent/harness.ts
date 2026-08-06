@@ -20,7 +20,7 @@ import type { AgentObserver, CharacterData, CharCreateData } from './observer.js
 import type { MenuViewState, DecisionViewState, ViewState } from '../view/viewState.js';
 import type { AgentPlayerGateway, AgentMove, LegalMove, AgentCharView } from './AgentPlayerGateway.js';
 import { viewToText } from './viewToText.js';
-import { menuLegalMoves, decisionLegalMoves, isLegal } from './agentMoves.js';
+import { menuLegalMoves, decisionLegalMoves, wizardLegalMoves, isLegal } from './agentMoves.js';
 import { Transcript } from './transcript.js';
 import type { GameRouter } from '../protocol/router.js';
 import type { GameResponse } from '../protocol/envelope.js';
@@ -40,6 +40,26 @@ const STUCK_LIMIT = 5;
  *  outcomes without ever depleting rolls or choosing sleep (would otherwise spin to the roll refill
  *  boundary and beyond). Far above a real day (3 rolls), so only a machine anomaly hits it. */
 const MAX_ACTIONS_PER_DAY = 50;
+
+/** DC-S3's brain-driven wizard walk step guard: a sane wizard is 8 dispatches (join.open +
+ *  name + 6 choices + confirm). 16 bounds the pathological restart-loop (a brain that keeps
+ *  picking the restart button on the confirm screen) so the realism arm can't hang a live run. */
+const MAX_WIZARD_STEPS = 16;
+
+/** The brain's character snapshot on the wizard walk (DC-S3): the wizard envelope carries NO
+ *  character facts — the walk's user has no character (DC-M6.1's null-char rule) — so the
+ *  realism arm hands the brain an all-zeros placeholder rather than inventing one. */
+const WIZARD_PLACEHOLDER_CHAR: AgentCharView = {
+  name: '',
+  class: '',
+  health: 0,
+  maxHealth: 0,
+  stamina: 0,
+  maxStamina: 0,
+  rollsRemaining: 0,
+  wealth: 0,
+  location: '',
+};
 
 /** Render an unknown thrown value for a finding detail — the stack when we have one (it localises
  *  the failing call better than the bare message), else a best-effort string. */
@@ -170,7 +190,11 @@ export class AgentHarness {
    *  the action path itself is throw-safe by construction. */
   async playOneAction(): Promise<PlayResult> {
     try {
-      return await this.runAction();
+      const result = await this.runAction();
+      // DC-S3: the look-after-outcome parity beat — the player looks around the new scene
+      // after each completed action (scripted + deterministic, never a brain pick).
+      if (result.kind === 'outcome') await this.lookAfterOutcome();
+      return result;
     } catch (e) {
       this.transcript.finding('error', `uncaught exception during action loop`, formatError(e));
       return { kind: 'crashed', phase: 'action', error: formatError(e) };
@@ -240,6 +264,10 @@ export class AgentHarness {
    *  consecutive stumbles (or the action cap) ends the day as `stalled` with a logged finding. */
   async playDay(): Promise<DaySummary> {
     const dayNumber = this.currentDay();
+    // DC-S3: the scripted day-start parity beats — the greeting + the stats screen, once per
+    // day, before the action loop (the brain never picks chrome; parity argues for scripted
+    // beats). Both protocol-logged, both NO-STAMP pure reads (hi.open/stats carry no stamp).
+    await this.dayStartBeats();
     let outcomes = 0;
     let stumbles = 0;
     for (let action = 0; action < MAX_ACTIONS_PER_DAY; action++) {
@@ -298,6 +326,106 @@ export class AgentHarness {
       if (!(await this.endDay())) break;
     }
     return summaries;
+  }
+
+  /** DC-S3's scripted day-start beats: the `hi.open` greeting (recorded as the semantic
+   *  `greeting` event — the transcript's day-start chrome the critic sees) + the `screen.stats`
+   *  beat. Both dispatched through the seam; both silent on `no-character` (the day ends
+   *  no-character at the first menu.open anyway — a finding there would be noise). Anything
+   *  else going wrong IS a finding: the beats are part of the player's reachable surface. */
+  private async dayStartBeats(): Promise<void> {
+    const hi = await this.dispatch({ type: 'hi.open', playerId: this.userId });
+    if (hi.ok && hi.view) {
+      this.transcript.greeting(viewToText(hi.view));
+    } else if (!hi.ok && hi.error.code !== 'no-character') {
+      this.transcript.finding('warning', `day-start greeting failed: ${hi.error.code}`);
+    }
+
+    const stats = await this.dispatch({ type: 'screen.stats', playerId: this.userId });
+    if (!stats.ok && stats.error.code !== 'no-character') {
+      this.transcript.finding('warning', `day-start stats beat failed: ${stats.error.code}`);
+    }
+  }
+
+  /** DC-S3's scripted look-after-outcome beat — the player looks around the new scene after
+   *  each completed action. Silent on `no-character` (the next menu.open reports it anyway);
+   *  any other failure is a warning finding. */
+  private async lookAfterOutcome(): Promise<void> {
+    const look = await this.dispatch({ type: 'screen.look', playerId: this.userId });
+    if (!look.ok && look.error.code !== 'no-character') {
+      this.transcript.finding('warning', `look-after-outcome beat failed: ${look.error.code}`);
+    }
+  }
+
+  /** DC-S3's realism arm (`AGENT_BRAIN_CHOOSES_CHAR=1`): the brain authors the character
+   *  through the wizard like a real user — the free-text name (step 1) + one pick per step
+   *  2-7 + the step-8 confirm. Non-deterministic + token-heavy, live runs only; the standard
+   *  fleet keeps the deterministic scripted `createCharacter`. The walk is protocol-logged
+   *  but records NO semantic turn: the wizard steps are not play turns (the critic reviews
+   *  play, not creation), so the brain call is inlined here rather than routed through
+   *  `ask()`'s transcript.turn.
+   *  Throws on any protocol rejection or brain mispick (a live-run config error, not a
+   *  recoverable play state). */
+  async createCharacterWithBrain(): Promise<void> {
+    let response = await this.dispatch({ type: 'join.open', playerId: this.userId });
+    if (!response.ok) throw new Error(response.error.message);
+    let view = response.view;
+
+    for (let steps = 0; steps < MAX_WIZARD_STEPS; steps++) {
+      if (!view || view.screen !== 'wizard') {
+        throw new Error(`brain-walk: expected a wizard screen, got ${view?.screen ?? 'none'}`);
+      }
+      // Inline brain call — no semantic turn recorded (wizard steps are not play turns).
+      // The character snapshot is the all-zeros placeholder (the wizard envelope carries no
+      // character facts — DC-M6.1's null-char rule).
+      const move = await this.brain.chooseMove({
+        screenText: viewToText(view),
+        moves: wizardLegalMoves(view),
+        character: WIZARD_PLACEHOLDER_CHAR,
+      });
+
+      if (view.step === 1) {
+        // Step 1 is the free-text name (the Discord modal is NOT a protocol action).
+        if (move.kind !== 'custom' || move.text.trim() === '') {
+          throw new Error('brain-walk: step 1 requires a non-empty custom name');
+        }
+        response = await this.dispatch({ type: 'wizard.answer', playerId: this.userId, text: move.text });
+      } else if (view.step === 8) {
+        // Step 8 is the review screen: confirm creates, restart loops back to step 1 (the
+        // step guard bounds the loop).
+        if (move.kind !== 'menu-pick') {
+          throw new Error('brain-walk: the confirm screen requires a menu-pick');
+        }
+        const button = view.buttons[move.index];
+        if (!button) throw new Error(`brain-walk: no button at index ${move.index} on the confirm screen`);
+        if (button.kind === 'confirm') {
+          response = await this.dispatch({ type: 'character.create', playerId: this.userId });
+          if (!response.ok) throw new Error(response.error.message);
+          return;
+        }
+        if (button.kind === 'restart') {
+          response = await this.dispatch({ type: 'wizard.restart', playerId: this.userId });
+        } else {
+          throw new Error(`brain-walk: unexpected ${button.kind} button on the confirm screen`);
+        }
+      } else {
+        // Steps 2-7: one menu-pick per step, validated against the view's own buttons so the
+        // brain's index is the view button position (the play-loop convention).
+        if (move.kind !== 'menu-pick') {
+          throw new Error(`brain-walk: step ${view.step} requires a menu-pick`);
+        }
+        const button = view.buttons[move.index];
+        if (!button) throw new Error(`brain-walk: no button at index ${move.index} on step ${view.step}`);
+        if (button.kind !== 'choice') {
+          throw new Error(`brain-walk: step ${view.step} has an unexpected ${button.kind} button`);
+        }
+        response = await this.dispatch({ type: 'wizard.choose', playerId: this.userId, step: view.step, value: button.value });
+      }
+
+      if (!response.ok) throw new Error(response.error.message);
+      view = response.view;
+    }
+    throw new Error('brain-walk: wizard did not complete within the step guard');
   }
 
   /** M7.1 (DC-M7.1.6) end-of-day bookend: the rest half dispatches `rest.begin` through the

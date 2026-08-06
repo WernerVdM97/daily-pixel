@@ -19,6 +19,9 @@
  * AGENT_OUT (transcript path; default a timestamped file under the OS temp dir),
  * AGENT_PROTOCOL_OUT (protocol-log path; default `<AGENT_OUT>.protocol.json`),
  * AGENT_PROTOCOL_BEATS (record router beats into the protocol log, default off),
+ * AGENT_BRAIN_CHOOSES_CHAR ("1" = the opt-in realism arm: the brain authors the character
+ * through the join wizard — name + step choices — instead of the deterministic scripted walk;
+ * non-deterministic + token-heavy, live runs only),
  * AGENT_USER_ID (session id; default a per-session unique `agent:play-<timestamp>`),
  * AGENT_INHERIT ("1" = play as the existing AGENT_USER_ID player, no creation walk),
  * ENABLE_COHERENCE_CRITIC (RA-4 Finding 1, default on — "false" opts out, same as index.ts),
@@ -167,8 +170,16 @@ async function main(): Promise<void> {
     } else {
       // DC-S7 fresh spawn: the full join wizard walk through the harness's recorded dispatch,
       // so the creation walk lands in the protocol log (stage 7's replay re-seeding depends on it).
-      await harness.createCharacter(SEED);
-      console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
+      if (process.env.AGENT_BRAIN_CHOOSES_CHAR === '1') {
+        // DC-S3 opt-in realism arm: the brain authors the character (name + wizard steps) like
+        // a real user — non-deterministic + token-heavy, live runs only (the standard fleet
+        // keeps the deterministic scripted walk below).
+        await harness.createCharacterWithBrain();
+        console.error('Brain chose the character — playing …\n');
+      } else {
+        await harness.createCharacter(SEED);
+        console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
+      }
     }
     summaries = await harness.playDays(days);
   } finally {
