@@ -82,9 +82,12 @@ export function oracleChar(overrides?: Record<string, unknown>) {
 }
 
 // ── Registry — mirrors main()'s registry.register(...) wiring, with two deliberate
-// test stubs where no transcript drives the real collaborator:
+// test stubs where a stable value beats the live collaborator:
 //   • the `look` scene-renderer (~below) is stubbed (`() => ({ sceneName, ascii })`)
-//     rather than resolving real tags→scene, because `/look` is driven by no transcript.
+//     rather than resolving real tags→scene — a DELIBERATE determinism choice for
+//     the screens oracle (M8.0): the golden transcripts pin the code-block wrapper
+//     and the surrounding scene, not real art, so the snapshots never depend on the
+//     tag→scene catalog. Not a coverage gap.
 //   • `getCurrentScene` (passed into the action command) is a FIXED realistic scene
 //     string (see makeHarness) rather than main()'s live tag→scene resolution — the
 //     only path that reaches it is the outcome render, and a stable value is all the
