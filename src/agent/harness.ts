@@ -61,7 +61,8 @@ export type PlayResult =
 export interface AgentHarnessOptions {
   /** Record the router's interstitial beats into the protocol log's dispatch entries (DC-S1's
    *  knob, default off — beats are advisory transport chrome, the final envelope is the contract).
-   *  `play.ts` reads the AGENT_PROTOCOL_BEATS env here; the library stays env-free. */
+   *  The caller opts in; `play.ts` maps the AGENT_PROTOCOL_BEATS=1 env to this in task 2 (the
+   *  library stays env-free). */
   recordBeats?: boolean;
   /** The brain class, for the protocol-log header (replay's interpretation hint). */
   brain?: 'scripted' | 'prod';

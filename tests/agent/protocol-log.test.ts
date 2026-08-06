@@ -192,13 +192,12 @@ describe('AgentHarness — protocol log dispatch entries (DC-S1)', () => {
     const ds = dispatches(harness.transcript.protocol);
     const dayJob = ds.find((d) => d.event.type === 'dayjob.start');
     expect(dayJob).toBeDefined();
-    // The router emits a loading beat + a commute beat on this flow (the char commutes to work).
-    expect(dayJob!.beats).toBeDefined();
-    expect(dayJob!.beats!.length).toBeGreaterThanOrEqual(1);
-    for (const beat of dayJob!.beats!) {
-      expect(beat.ok).toBe(true);
-      expect(beat.v).toBe(PROTOCOL_VERSION);
-    }
+    // The router emits a loading beat then a commute beat on this flow (the char commutes to
+    // work) — pin the exact sequence so a future beat reorder/rename flags as drift.
+    expect(dayJob!.beats!.map((b) => (b.ok ? b.view?.screen : `err:${b.error.code}`))).toEqual([
+      'loading',
+      'commute',
+    ]);
   });
 });
 
