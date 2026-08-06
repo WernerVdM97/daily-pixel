@@ -2249,6 +2249,7 @@ describe('choice fidelity (agent stream) — DC-S5 (M8.5 stage 8)', () => {
   beforeAll(async () => {
     const run = await stubRun(1);
     fixture = JSON.parse(JSON.stringify(run.harness.transcript.protocol)) as ProtocolEntry[];
+    expect(streamDispatches(fixture).length).toBeGreaterThan(0);
   });
 
   // The per-event allowed view-screen families (DC-S5: "every envelope is in that event's
@@ -2277,6 +2278,9 @@ describe('choice fidelity (agent stream) — DC-S5 (M8.5 stage 8)', () => {
         throw new Error(`seq ${entry.seq} (${entry.event.type}) envelope failed validation: ${check.message}`);
       }
       expect(check.response.v, `seq ${entry.seq} (${entry.event.type})`).toBe(PROTOCOL_VERSION);
+      if (check.response.ok) {
+        expect(check.response.view, `seq ${entry.seq} (${entry.event.type}): ok:true must carry a view`).toBeDefined();
+      }
       assertViewConformance(check.response);
       assertFactsRoundTrip(check.response);
       if (check.response.ok && check.response.view) {
