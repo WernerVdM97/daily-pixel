@@ -24,12 +24,21 @@ const CORPUS_FILE = path.join(
   'stub-1d.protocol.json',
 );
 
+// Hermetic against an ambient AGENT_PROTOCOL_BEATS=1 (the DC-S1 beats knob): a beats-bearing
+// fresh log could not deep-equal the committed no-beats corpus — force the knob off.
+delete process.env.AGENT_PROTOCOL_BEATS;
+
 describe('protocol-transcript smoke assertion (M8.5 gate)', () => {
   it('an in-process stub session → protocol log → replay → byte-equal', async () => {
     const run = await stubRun(1);
     const protocol = JSON.parse(JSON.stringify(run.harness.transcript.protocol)) as ProtocolEntry[];
 
     const result = await replayLog(protocol);
+
+    // Every non-header protocol entry got a replay result — cannot pass vacuously on an
+    // empty stream (a dead dispatch recorder would otherwise replay exit-green with zero
+    // entries).
+    expect(result.entries.length).toBe(protocol.length - 1);
 
     expect(result.fatal).toBeUndefined();
     expect(result.ok).toBe(true);
