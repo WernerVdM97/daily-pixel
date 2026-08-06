@@ -1,0 +1,1019 @@
+[
+  {
+    "seq": 0,
+    "kind": "header",
+    "v": 1,
+    "userId": "agent:stub",
+    "brain": "scripted",
+    "backend": "stub"
+  },
+  {
+    "seq": 1,
+    "kind": "dispatch",
+    "event": {
+      "type": "join.open",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 1,
+        "totalSteps": 7,
+        "ledger": "📝 **Name** ◀\n🛡️ Class\n🌱 Upbringing\n🧬 Race\n⚖️ Alignment\n🔧 Day Job\n🎒 Starting Kit",
+        "body": "__**Name**__\nWhat shall the songs call you?",
+        "footer": "Step 1 of 7 — 2-30 characters, no @ or #",
+        "nameField": {
+          "label": "Character Name",
+          "placeholder": "Enter a name (2-30 characters)",
+          "minLength": 2,
+          "maxLength": 30
+        },
+        "buttons": [
+          {
+            "kind": "name",
+            "label": "Enter Name",
+            "emoji": "📝"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 2,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.answer",
+      "playerId": "agent:stub",
+      "text": "Rowan"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 2,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 **Upbringing** ◀",
+        "body": "__**Upbringing**__\n🎖️ **Soldier**\nRaised in a military family. Discipline was your first language.",
+        "footer": "Step 2 of 7 — Upbringing",
+        "options": [
+          {
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 2,
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 3,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:stub",
+      "step": 2,
+      "value": "Warrior"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 3,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 **Upbringing** ◀",
+        "body": "__**Upbringing**__\n🎖️ **Soldier**\nRaised in a military family. Discipline was your first language.",
+        "footer": "Step 3 of 7 — Upbringing",
+        "options": [
+          {
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 4,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:stub",
+      "step": 3,
+      "value": "Soldier"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 4,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 **Upbringing** ◀",
+        "body": "__**Upbringing**__\n🎖️ **Soldier**\nRaised in a military family. Discipline was your first language.",
+        "footer": "Step 4 of 7 — Upbringing",
+        "options": [
+          {
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 4,
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 5,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:stub",
+      "step": 4,
+      "value": "Human"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 5,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 **Upbringing** ◀",
+        "body": "__**Upbringing**__\n🎖️ **Soldier**\nRaised in a military family. Discipline was your first language.",
+        "footer": "Step 5 of 7 — Upbringing",
+        "options": [
+          {
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 6,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:stub",
+      "step": 5,
+      "value": "lawful good"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 6,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 **Upbringing** ◀",
+        "body": "__**Upbringing**__\n🎖️ **Soldier**\nRaised in a military family. Discipline was your first language.",
+        "footer": "Step 6 of 7 — Upbringing",
+        "options": [
+          {
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 7,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:stub",
+      "step": 6,
+      "value": "Town Guard"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 7,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 **Upbringing** ◀",
+        "body": "__**Upbringing**__\n🎖️ **Soldier**\nRaised in a military family. Discipline was your first language.",
+        "footer": "Step 7 of 7 — Upbringing",
+        "options": [
+          {
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 7,
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 8,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:stub",
+      "step": 7,
+      "value": "Soldier's Kit"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 8,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Rowan**\n🛡️ ~~Class~~ → 🗡️ **Warrior**\n🌱 ~~Upbringing~~ → 🎖️ **Soldier**\n🧬 ~~Race~~ → 🧑 **Human**\n⚖️ ~~Alignment~~ → 😇 **Lawful Good**\n🔧 ~~Day Job~~ → 🛡️ **Town Guard**\n🎒 ~~Starting Kit~~ → **Soldier's Kit**",
+        "body": "__**Ready**__\nYour hero stands ready. Confirm to step into the world — or start over.",
+        "footer": "Review your choices and confirm",
+        "buttons": [
+          {
+            "kind": "confirm",
+            "label": "Confirm",
+            "emoji": "✅"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 9,
+    "kind": "dispatch",
+    "event": {
+      "type": "character.create",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "📍 **The Warden's Oak** — Use `look` for the full scene.\n\n⚔️  **Rowan** — Warrior\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🛡️ **Town Guard — Daily Work**\n\n📦 Press the **Action** button to start.",
+        "ephemeral": true
+      },
+      "facts": {
+        "createdCharacter": {
+          "name": "Rowan",
+          "class": "Warrior",
+          "upbringing": "Soldier",
+          "race": "Human",
+          "alignment": "lawful good",
+          "dayJob": "Town Guard",
+          "itemSetName": "Soldier's Kit"
+        },
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 10,
+    "kind": "dispatch",
+    "event": {
+      "type": "hi.open",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "🙏 Thanks. The warden listens.",
+        "ephemeral": true
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 11,
+    "kind": "dispatch",
+    "event": {
+      "type": "screen.stats",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "🙏 Thanks. The warden listens.",
+        "ephemeral": true
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 12,
+    "kind": "dispatch",
+    "event": {
+      "type": "menu.open",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "menu",
+        "title": {
+          "emoji": "🛠️",
+          "text": "Town Guard — Daily Work"
+        },
+        "description": "Pick a task to start:",
+        "buttons": [
+          {
+            "label": "Walk the rounds",
+            "customId": "action:dayjob:0",
+            "style": "secondary"
+          },
+          {
+            "label": "Custom…",
+            "customId": "action:dayjob:custom",
+            "style": "primary"
+          }
+        ]
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 13,
+    "kind": "dispatch",
+    "event": {
+      "type": "dayjob.start",
+      "playerId": "agent:stub",
+      "jobIndex": 0
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "decision",
+        "title": {
+          "emoji": "🤔",
+          "text": "Decision"
+        },
+        "colorIntent": "decision",
+        "prompt": "> The gate creaks. What do you do?",
+        "optionLines": [
+          "**A.** Advance carefully"
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "letter": "A",
+            "customId": "action:choice:0:0",
+            "favoured": false
+          },
+          {
+            "kind": "bail",
+            "label": "Leave",
+            "customId": "action:bail"
+          }
+        ],
+        "footer": "What do you do?"
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 14,
+    "kind": "dispatch",
+    "event": {
+      "type": "action.choose",
+      "playerId": "agent:stub",
+      "selector": {
+        "kind": "option",
+        "index": 0
+      }
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "decision",
+        "title": {
+          "emoji": "🤔",
+          "text": "Decision"
+        },
+        "colorIntent": "decision",
+        "prompt": "> The gate creaks. What do you do?",
+        "optionLines": [
+          "**A.** Advance carefully"
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "letter": "A",
+            "customId": "action:choice:0:0",
+            "favoured": false
+          },
+          {
+            "kind": "bail",
+            "label": "Leave",
+            "customId": "action:bail"
+          }
+        ],
+        "footer": "What do you do?"
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 15,
+    "kind": "dispatch",
+    "event": {
+      "type": "action.choose",
+      "playerId": "agent:stub",
+      "selector": {
+        "kind": "option",
+        "index": 0
+      }
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "outcome",
+        "title": {
+          "emoji": "💰",
+          "text": "Scout"
+        },
+        "colorIntent": "success",
+        "isCombat": false,
+        "outcomeBlock": "You earned 5 silver."
+      },
+      "facts": {
+        "distilledType": "scout",
+        "characterName": "Aldric",
+        "actionId": 77,
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 16,
+    "kind": "dispatch",
+    "event": {
+      "type": "screen.look",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "🙏 Thanks. The warden listens.",
+        "ephemeral": true
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 17,
+    "kind": "dispatch",
+    "event": {
+      "type": "menu.open",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "menu",
+        "title": {
+          "emoji": "🛠️",
+          "text": "Town Guard — Daily Work"
+        },
+        "description": "Pick a task to start:",
+        "buttons": [
+          {
+            "label": "Walk the rounds",
+            "customId": "action:dayjob:0",
+            "style": "secondary"
+          },
+          {
+            "label": "Custom…",
+            "customId": "action:dayjob:custom",
+            "style": "primary"
+          }
+        ]
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 18,
+    "kind": "dispatch",
+    "event": {
+      "type": "action.custom",
+      "playerId": "agent:stub",
+      "text": "Scout the ridgeline"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "decision",
+        "title": {
+          "emoji": "🤔",
+          "text": "Decision"
+        },
+        "colorIntent": "decision",
+        "prompt": "> The gate creaks. What do you do?",
+        "optionLines": [
+          "**A.** Advance carefully"
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "letter": "A",
+            "customId": "action:choice:0:0",
+            "favoured": false
+          },
+          {
+            "kind": "bail",
+            "label": "Leave",
+            "customId": "action:bail"
+          }
+        ],
+        "footer": "What do you do?"
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 19,
+    "kind": "dispatch",
+    "event": {
+      "type": "action.choose",
+      "playerId": "agent:stub",
+      "selector": {
+        "kind": "option",
+        "index": 0
+      }
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "decision",
+        "title": {
+          "emoji": "🤔",
+          "text": "Decision"
+        },
+        "colorIntent": "decision",
+        "prompt": "> The gate creaks. What do you do?",
+        "optionLines": [
+          "**A.** Advance carefully"
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "letter": "A",
+            "customId": "action:choice:0:0",
+            "favoured": false
+          },
+          {
+            "kind": "bail",
+            "label": "Leave",
+            "customId": "action:bail"
+          }
+        ],
+        "footer": "What do you do?"
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 20,
+    "kind": "dispatch",
+    "event": {
+      "type": "action.choose",
+      "playerId": "agent:stub",
+      "selector": {
+        "kind": "option",
+        "index": 0
+      }
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "outcome",
+        "title": {
+          "emoji": "💰",
+          "text": "Scout"
+        },
+        "colorIntent": "success",
+        "isCombat": false,
+        "outcomeBlock": "You earned 5 silver."
+      },
+      "facts": {
+        "distilledType": "scout",
+        "characterName": "Aldric",
+        "actionId": 77,
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 21,
+    "kind": "dispatch",
+    "event": {
+      "type": "screen.look",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "🙏 Thanks. The warden listens.",
+        "ephemeral": true
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 22,
+    "kind": "dispatch",
+    "event": {
+      "type": "menu.open",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "menu",
+        "title": {
+          "emoji": "🛠️",
+          "text": "Town Guard — Daily Work"
+        },
+        "description": "Pick a task to start:",
+        "buttons": [
+          {
+            "label": "Walk the rounds",
+            "customId": "action:dayjob:0",
+            "style": "secondary"
+          },
+          {
+            "label": "Custom…",
+            "customId": "action:dayjob:custom",
+            "style": "primary"
+          }
+        ]
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 23,
+    "kind": "dispatch",
+    "event": {
+      "type": "rest.begin",
+      "playerId": "agent:stub"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "🏕️ **The Warden's Oak**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nThe Oak's familiar boughs cradle you once more.\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nThe day turns when the world wills it — not when you do.\n\n*The ember glows. The Oak stands watch. Rest, for now.*",
+        "ephemeral": false
+      },
+      "facts": {
+        "characterName": "Aldric",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 5,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 24,
+    "kind": "tick",
+    "dayNumber": 2
+  }
+]
