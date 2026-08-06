@@ -336,6 +336,8 @@ export class AgentHarness {
   private async dayStartBeats(): Promise<void> {
     const hi = await this.dispatch({ type: 'hi.open', playerId: this.userId });
     if (hi.ok && hi.view) {
+      // Both arms land here: the greeting, or the resume arm (pending action) whose text is the
+      // "⏳ Unfinished Action" notice — defensible parity, only reachable in inherit-after-interruption.
       this.transcript.greeting(viewToText(hi.view));
     } else if (!hi.ok && hi.error.code !== 'no-character') {
       this.transcript.finding('warning', `day-start greeting failed: ${hi.error.code}`);
@@ -410,16 +412,22 @@ export class AgentHarness {
         }
       } else {
         // Steps 2-7: one menu-pick per step, validated against the view's own buttons so the
-        // brain's index is the view button position (the play-loop convention).
+        // brain's index is the view button position (the play-loop convention). The trailing
+        // restart button is on the legal-move list too (wizardLegalMoves maps ALL buttons
+        // positionally), so a mid-walk restart pick loops back to step 1 — the step guard
+        // bounds the loop.
         if (move.kind !== 'menu-pick') {
           throw new Error(`brain-walk: step ${view.step} requires a menu-pick`);
         }
         const button = view.buttons[move.index];
         if (!button) throw new Error(`brain-walk: no button at index ${move.index} on step ${view.step}`);
-        if (button.kind !== 'choice') {
+        if (button.kind === 'restart') {
+          response = await this.dispatch({ type: 'wizard.restart', playerId: this.userId });
+        } else if (button.kind === 'choice') {
+          response = await this.dispatch({ type: 'wizard.choose', playerId: this.userId, step: view.step, value: button.value });
+        } else {
           throw new Error(`brain-walk: step ${view.step} has an unexpected ${button.kind} button`);
         }
-        response = await this.dispatch({ type: 'wizard.choose', playerId: this.userId, step: view.step, value: button.value });
       }
 
       if (!response.ok) throw new Error(response.error.message);

@@ -820,6 +820,56 @@ describe('AgentHarness — brain-driven character creation (DC-S3)', () => {
       location: '',
     });
   });
+
+  it('loops a mid-walk restart pick (step 3 → step 1 → done) and completes the walk', async () => {
+    // The brain is OFFERED the trailing restart button on every option step (wizardLegalMoves
+    // maps view.buttons positionally, and joinWizard.ts:208 appends restart AFTER the choices)
+    // — the SF1 pin: a mid-walk restart must dispatch wizard.restart and loop, not throw.
+    const restartIdx = REAL_DEFS.backgrounds.length; // step 3 = backgrounds; restart is always last
+    const { harness, brain, agentEngine } = buildHarness([
+      { kind: 'custom', text: 'Temporary' }, // step 1: first name — discarded by the restart
+      { kind: 'menu-pick', index: 0 }, // step 2: first class (Warrior)
+      { kind: 'menu-pick', index: restartIdx }, // step 3: restart button → back to step 1
+      { kind: 'custom', text: 'Birch' }, // step 1 again: the name that survives
+      { kind: 'menu-pick', index: 0 }, // step 2: first class (Warrior)
+      { kind: 'menu-pick', index: 0 }, // step 3: first upbringing (Soldier)
+      { kind: 'menu-pick', index: 0 }, // step 4: first race (Human)
+      { kind: 'menu-pick', index: 0 }, // step 5: first alignment, lowercase (lawful good)
+      { kind: 'menu-pick', index: 0 }, // step 6: first day job (Town Guard)
+      { kind: 'menu-pick', index: 0 }, // step 7: first kit for a Warrior (Soldier's Kit)
+      { kind: 'menu-pick', index: 0 }, // step 8: confirm
+    ]);
+    await harness.createCharacterWithBrain();
+
+    // The walk completed with the SECOND name — the restart discarded the first.
+    const char = agentEngine.engine.getCharacter(USER_ID)!;
+    expect(char.name).toBe('Birch');
+    expect(char.upbringing).toBe('Soldier');
+
+    // The restart was dispatched mid-walk (looped, not ignored): the protocol log shows
+    // wizard.restart between the two wizard.answer entries, and the walk still ends in
+    // character.create.
+    const walk = harness.transcript.protocol
+      .filter((e) => e.kind === 'dispatch')
+      .map((d) => d.event.type);
+    expect(walk).toEqual([
+      'join.open',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.restart',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'character.create',
+    ]);
+
+    // The brain saw the wizard 11 times (join.open + name + pick + restart + name + 6 picks).
+    expect(brain.calls).toHaveLength(11);
+  });
 });
 
 // ── M8.5 (DC-S4) — the observer boundary's behavioural half: the harness runs a full day
