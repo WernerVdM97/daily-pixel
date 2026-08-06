@@ -20,6 +20,7 @@ import { menuLegalMoves, decisionLegalMoves, isLegal } from './agentMoves.js';
 import { Transcript } from './transcript.js';
 import type { GameRouter } from '../protocol/router.js';
 import type { GameResponse } from '../protocol/envelope.js';
+import type { GameEvent } from '../protocol/events.js';
 
 /** Safety valve on the decision loop — the pipeline beat cap is 2, so any run past this many
  *  beats in one action is a machine anomaly (logged as a finding), never normal play. Keeps a QA
@@ -57,6 +58,18 @@ export type PlayResult =
   | { kind: 'illegal-move'; move: AgentMove }
   | { kind: 'crashed'; phase: string; error: string };
 
+export interface AgentHarnessOptions {
+  /** Record the router's interstitial beats into the protocol log's dispatch entries (DC-S1's
+   *  knob, default off — beats are advisory transport chrome, the final envelope is the contract).
+   *  `play.ts` reads the AGENT_PROTOCOL_BEATS env here; the library stays env-free. */
+  recordBeats?: boolean;
+  /** The brain class, for the protocol-log header (replay's interpretation hint). */
+  brain?: 'scripted' | 'prod';
+  /** The backend class the router was wired to, for the protocol-log header (replay's backend
+   *  selector, DC-S2). */
+  backend?: 'real' | 'stub';
+}
+
 /** The disposition of a single game day — the QA/loop signal `playDays` reads. `slept`/`no-rolls`
  *  are clean day ends; `stalled` means the brain got stuck (STUCK_LIMIT or the action cap, both
  *  logged as findings); `no-character` is fatal (the character vanished — `playDays` stops). */
@@ -76,7 +89,35 @@ export class AgentHarness {
     private readonly router: GameRouter,
     private readonly brain: AgentPlayerGateway,
     private readonly userId: string,
-  ) {}
+    options: AgentHarnessOptions = {},
+  ) {
+    this.recordBeats = options.recordBeats ?? false;
+    // The protocol-log header (DC-S1): written once at construction so every dispatch entry that
+    // follows has the session identity (brain class + backend class) to interpret it against.
+    this.transcript.protocolHeader(userId, options.brain ?? 'scripted', options.backend ?? 'real');
+  }
+
+  private readonly recordBeats: boolean;
+
+  /** DC-S1's single recording point — every dispatch in the harness flows through here so the
+   *  protocol log gets exactly one `{ seq, event, response, beats? }` entry per dispatch, at one
+   *  place in the code. Collects the router's interstitial beats when `recordBeats` is on, and
+   *  ALWAYS delegates `onBeat` through to the router (doDayJob's commute capture must keep
+   *  working regardless of the knob). Purely additive — the returned envelope is exactly what
+   *  `router.dispatch` returned; only the log grows. */
+  private async dispatch(event: GameEvent, onBeat?: (beat: GameResponse) => void): Promise<GameResponse> {
+    const beats: GameResponse[] = [];
+    const wrapped: ((beat: GameResponse) => void) | undefined =
+      onBeat || this.recordBeats
+        ? (beat) => {
+            if (this.recordBeats) beats.push(beat);
+            onBeat?.(beat);
+          }
+        : undefined;
+    const response = await this.router.dispatch(event, wrapped);
+    this.transcript.recordDispatch(event, response, this.recordBeats ? beats : undefined);
+    return response;
+  }
 
   /** Drive one action from the action menu to a terminal disposition. The router never throws
    *  (every path through `dispatch` returns a `GameResponse` envelope), so the outer try/catch
@@ -93,7 +134,7 @@ export class AgentHarness {
 
   private async runAction(): Promise<PlayResult> {
     // menu.open: stampLastPlayed + the full menu/resume branch, inside the router (DC-P6).
-    const menu = await this.router.dispatch({ type: 'menu.open', playerId: this.userId });
+    const menu = await this.dispatch({ type: 'menu.open', playerId: this.userId });
 
     // Error branches: every GameErrorCode maps to an existing PlayResult disposition.
     if (!menu.ok) return this.mapError(menu);
@@ -234,7 +275,7 @@ export class AgentHarness {
       const rested = before?.rollsRemaining === 0;
 
       step = 'nightly rest (rest.begin)';
-      const response = await this.router.dispatch({ type: 'rest.begin', playerId: this.userId });
+      const response = await this.dispatch({ type: 'rest.begin', playerId: this.userId });
       if (response.ok) {
         const restUnsafe = response.facts?.restUnsafe as
           | { name?: unknown; prev?: unknown; updated?: unknown }
@@ -258,6 +299,9 @@ export class AgentHarness {
 
       step = 'nightly tick';
       const tick = this.engine.tick(true);
+      // DC-S1: the nightly-cron marker — recorded only when the tick succeeds (matching the
+      // existing flow; a throwing tick is caught below and never logged as a marker).
+      this.transcript.recordTick(tick.dayNumber);
       this.transcript.day(
         tick.dayNumber,
         rested ? 'nightly tick — rested at the Oak, world advanced' : 'nightly tick — idled with rolls unspent, world advanced',
@@ -329,7 +373,7 @@ export class AgentHarness {
   private async doDayJob(idx: number): Promise<PlayResult> {
     // Beat capture: the onBeat callback records commute beats into the transcript (DC-M6.3).
     // Loading/thinking beats are absorbed silently — they're transport chrome for the player's wait.
-    const response = await this.router.dispatch(
+    const response = await this.dispatch(
       { type: 'dayjob.start', playerId: this.userId, jobIndex: idx },
       (beat) => {
         if (beat.ok && beat.view?.screen === 'commute') {
@@ -357,11 +401,7 @@ export class AgentHarness {
   }
 
   private async doCustom(text: string): Promise<PlayResult> {
-    const response = await this.router.dispatch(
-      { type: 'action.custom', playerId: this.userId, text },
-      // Thinking beats are absorbed (transport chrome, DC-M6.3).
-      undefined,
-    );
+    const response = await this.dispatch({ type: 'action.custom', playerId: this.userId, text });
 
     if (!response.ok) return this.mapError(response);
 
@@ -402,9 +442,8 @@ export class AgentHarness {
           : { kind: 'option' as const, index: (move as { kind: 'choice'; index: number }).index };
 
       // Thinking beats absorbed (transport chrome, DC-M6.3).
-      const response = await this.router.dispatch(
+      const response = await this.dispatch(
         { type: 'action.choose', playerId: this.userId, selector },
-        undefined,
       );
 
       if (!response.ok) {
@@ -476,6 +515,7 @@ export function createAgentHarness(
   router: GameRouter,
   brain: AgentPlayerGateway,
   userId: string,
+  options?: AgentHarnessOptions,
 ): AgentHarness {
-  return new AgentHarness(engine, router, brain, userId);
+  return new AgentHarness(engine, router, brain, userId, options);
 }

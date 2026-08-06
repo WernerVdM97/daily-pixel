@@ -131,7 +131,9 @@ async function main(): Promise<void> {
     ) as RouterBackend,
     { idle: () => '' },
   );
-  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID);
+  // The header's brain class is 'prod' (this is the real-LLM run) so a recorded transcript's
+  // protocol header is honest for replay (DC-S1/DC-S2). NOTHING else in play.ts is task 1.
+  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID, { brain: 'prod' });
 
   await seedCharacterViaProtocol(router, USER_ID, SEED);
   console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);

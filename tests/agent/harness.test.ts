@@ -464,6 +464,14 @@ function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHa
       unsafeFromName: "The Warden's Oak",
     },
     openHi: () => ({ kind: 'no-character' }),
+    // M8.1 screen surface — the harness never dispatches `screen.*` events, so minimal
+    // canned defaults are all this stub needs to satisfy RouterBackend structurally.
+    openLook: () => ({ kind: 'no-character' }),
+    openMap: () => ({ kind: 'no-character' }),
+    openStats: () => ({ kind: 'no-character' }),
+    openBackpack: () => ({ kind: 'no-character' }),
+    openJournal: () => ({ kind: 'no-character' }),
+    openHelp: () => ({ kind: 'view', view: { screen: 'notice', text: '', ephemeral: true } }),
     // M7.3 wizard surface — the harness never walks the wizard (creation is the caller's
     // seedCharacterViaProtocol job), so the minimal no-session defaults are all it needs.
     openJoin: () => ({ kind: 'has-character' }),
@@ -477,7 +485,8 @@ function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHa
 
   const router = new GameRouter(backend, { idle: () => IDLE });
   const brain = new ScriptedAgentPlayerGateway(opts.moves ?? []);
-  return new AgentHarness(engine, router, brain, USER_ID);
+  // The stub-router backend class is 'stub' — the protocol-log header must be honest (DC-S2).
+  return new AgentHarness(engine, router, brain, USER_ID, { backend: 'stub' });
 }
 
 describe('AgentHarness — QA capture (M6 protocol)', () => {
@@ -591,6 +600,7 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
       deadEnds: 0,
       commutes: 0,
       dayBoundaries: 0,
+      greetings: 0,
       findings: { error: 0, warning: 0 },
     });
   });
