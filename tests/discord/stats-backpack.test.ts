@@ -2,11 +2,30 @@ import { describe, it, expect } from "vitest";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { makeStatsCommand } from "../../src/discord/commands/stats.js";
 import { makeBackpackCommand } from "../../src/discord/commands/backpack.js";
+import { SessionController } from "../../src/controller/SessionController.js";
+import { GameRouter } from "../../src/protocol/router.js";
+import { WizardSession } from "../../src/discord/WizardSession.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 import type {
   CharacterData,
   ItemData,
   StatBlock,
 } from "../../src/engine/WorldEngine.js";
+
+// M8.1 (DC-M8.4/5): the handlers are translate + paint — every call goes through a
+// GameRouter over a real SessionController wrapping the SAME engine (the look.test.ts
+// M8.1 pattern). The behavior asserts are unchanged.
+const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
+function makeHandler(engine: MockWorldEngine) {
+  const controller = new SessionController(engine, () => "", [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+  const router = new GameRouter(controller, { idle: () => "" });
+  return {
+    stats: makeStatsCommand(router),
+    backpack: makeBackpackCommand(router),
+  };
+}
 
 function makeChar(overrides?: Partial<CharacterData>): CharacterData {
   const stats: StatBlock = {
@@ -59,16 +78,16 @@ describe("/stats", () => {
   it("returns error when user has no character", async () => {
     const engine = new MockWorldEngine();
     // default: no character
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "no-char" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "no-char" } } as never);
     expect(result).toContain("don't have a character");
   });
 
   it("displays character name, class, and stats", async () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar());
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("Aldric");
     expect(result).toContain("Warrior");
@@ -81,8 +100,8 @@ describe("/stats", () => {
   it("displays upbringing, race, and alignment", async () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar());
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("Soldier");
     expect(result).toContain("Human");
@@ -92,8 +111,8 @@ describe("/stats", () => {
   it("displays day job and location", async () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar());
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("Blacksmith");
     expect(result).toContain("The Warden's Oak");
@@ -110,8 +129,8 @@ describe("/stats", () => {
         rollsRemaining: 1,
       }),
     );
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("5");
     expect(result).toContain("12");
@@ -125,8 +144,8 @@ describe("/stats", () => {
     engine.setCharacter(
       makeChar({ health: 5, maxHealth: 12, stamina: 3, maxStamina: 10 }),
     );
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "user-1" } } as never);
 
     // Stamina must carry its ceiling, like health does and like /hi shows it.
     expect(result).toContain("**Health:** 5/12");
@@ -137,8 +156,8 @@ describe("/stats", () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar()); // base physical 4
     engine.setItems([makeItem({ stat: "physical", modifier: 2 })]); // +2 gear
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "user-1" } } as never);
 
     // Effective physical is base 4 + gear 2 = 6, with the breakdown spelled out.
     const phyLine = result.split("\n").find((l) => l.includes("💪 PHY"))!;
@@ -151,8 +170,8 @@ describe("/stats", () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar()); // base charisma 1, no items touch it
     engine.setItems([makeItem({ stat: "physical", modifier: 2 })]);
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "user-1" } } as never);
 
     const chaLine = result.split("\n").find((l) => l.includes("💬 CHA"))!;
     expect(chaLine).toContain("+1");
@@ -162,8 +181,8 @@ describe("/stats", () => {
   it('drops the word "remaining" from the rolls line (one vocabulary with /hi)', async () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar({ rollsRemaining: 2 }));
-    const handler = makeStatsCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.stats({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("**Rolls:** 2");
     expect(result).not.toContain("remaining");
@@ -175,8 +194,8 @@ describe("/stats", () => {
 describe("/backpack", () => {
   it("returns error when user has no character", async () => {
     const engine = new MockWorldEngine();
-    const handler = makeBackpackCommand(engine);
-    const result = await handler({ user: { id: "no-char" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.backpack({ user: { id: "no-char" } } as never);
     expect(result).toContain("don't have a character");
   });
 
@@ -184,8 +203,8 @@ describe("/backpack", () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar());
     engine.setItems([]);
-    const handler = makeBackpackCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.backpack({ user: { id: "user-1" } } as never);
     expect(result).toContain("empty");
   });
 
@@ -196,8 +215,8 @@ describe("/backpack", () => {
       makeItem({ name: "Iron Sword", emoji: "⚔️" }),
       makeItem({ name: "Wooden Shield", emoji: "🛡️" }),
     ]);
-    const handler = makeBackpackCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.backpack({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("⚔️");
     expect(result).toContain("🛡️");
@@ -209,8 +228,8 @@ describe("/backpack", () => {
     engine.setItems([
       makeItem({ name: "Travel Rations", emoji: "🍞", quantity: 3 }),
     ]);
-    const handler = makeBackpackCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.backpack({ user: { id: "user-1" } } as never);
 
     // Should have 3 bread emojis
     // The emoji grid line has 3, the legend has 1 → 4 total.
@@ -228,8 +247,8 @@ describe("/backpack", () => {
       makeItem({ name: "Iron Sword", emoji: "⚔️" }),
       makeItem({ name: "Travel Rations", emoji: "🍞", quantity: 3 }),
     ]);
-    const handler = makeBackpackCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.backpack({ user: { id: "user-1" } } as never);
 
     // 4 used → header shows 4/40; the first grid row fills 4 slots, leaving 6 empties.
     expect(result).toContain("(4/40)");
@@ -241,8 +260,8 @@ describe("/backpack", () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(makeChar());
     engine.setItems([]);
-    const handler = makeBackpackCommand(engine);
-    const result = await handler({ user: { id: "user-1" } } as never);
+    const handler = makeHandler(engine);
+    const result = await handler.backpack({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("(0/40)");
     expect(result).toContain("empty");

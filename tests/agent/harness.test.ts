@@ -100,7 +100,7 @@ function buildHarness(brainMoves: AgentMove[], script: PipelineScript = pipeline
   });
   const brain = new ScriptedAgentPlayerGateway(brainMoves);
   // Wire a GameRouter over a real SessionController — the harness is a true protocol client.
-  const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS);
+  const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
   const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
   return {
     harness: createAgentHarness(agentEngine.engine, router, brain, USER_ID),
@@ -188,7 +188,7 @@ describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
       pipelineLlmGateway: new PipelineScriptedGateway(immediateScript),
       rollD20: () => 20,
     });
-    const c2 = new SessionController(ae2.engine, ae2.getCurrentScene, ae2.dayJobs, undefined, new WizardSession(), REAL_DEFS);
+    const c2 = new SessionController(ae2.engine, ae2.getCurrentScene, ae2.dayJobs, undefined, new WizardSession(), REAL_DEFS, ae2.resolveScene);
     ae2.engine.createCharacter(USER_ID, SEED);
     const r2 = await c2.runCustomAction(USER_ID, 'polish my boots');
     expect(r2.kind).toBe('outcome');
@@ -275,7 +275,7 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
       rollD20: () => 20,
       criticGateway: critic,
     });
-    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS);
+    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
     const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
     const harness = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
     await seedCharacterViaProtocol(router, USER_ID, SEED);
@@ -293,7 +293,7 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
       criticGateway: critic,
       criticEnabled: false,
     });
-    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS);
+    const controller = new SessionController(agentEngine.engine, agentEngine.getCurrentScene, agentEngine.dayJobs, undefined, new WizardSession(), REAL_DEFS, agentEngine.resolveScene);
     const router = new GameRouter(controller as RouterBackend, { idle: () => IDLE });
     const harness = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
     await seedCharacterViaProtocol(router, USER_ID, SEED);

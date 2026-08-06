@@ -206,7 +206,7 @@ exports[`screens oracle — backpack > 12 · nav:backpack (with-char) → the sa
 ]
 `;
 
-exports[`screens oracle — backpack > 13 · nav:backpack charless → 'yet' copy, no nav bar, no stamp 1`] = `
+exports[`screens oracle — backpack > 13 · nav:backpack charless → 'first' copy, no nav bar, no stamp 1`] = `
 [
   {
     "arg": {
@@ -214,7 +214,7 @@ exports[`screens oracle — backpack > 13 · nav:backpack charless → 'yet' cop
         {
           "components": [
             {
-              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "content": "You don't have a character. Type \`/join\` first.",
               "type": 10,
             },
           ],
@@ -620,7 +620,7 @@ exports[`screens oracle — journal > 15 · nav:journal (with-char) → the same
 ]
 `;
 
-exports[`screens oracle — journal > 16 · nav:journal charless → 'yet' copy, no nav bar, no stamp 1`] = `
+exports[`screens oracle — journal > 16 · nav:journal charless → 'first' copy, no nav bar, no stamp 1`] = `
 [
   {
     "arg": {
@@ -628,7 +628,7 @@ exports[`screens oracle — journal > 16 · nav:journal charless → 'yet' copy,
         {
           "components": [
             {
-              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "content": "You don't have a character. Type \`/join\` first.",
               "type": 10,
             },
           ],
@@ -966,7 +966,7 @@ exports[`screens oracle — look > 3 · nav:look (with-char) → the same scene 
 ]
 `;
 
-exports[`screens oracle — look > 4 · nav:look charless → 'yet' copy, NO nav bar, no stamp, zero look reads 1`] = `
+exports[`screens oracle — look > 4 · nav:look charless → 'first' copy, NO nav bar, no stamp, zero look reads 1`] = `
 [
   {
     "arg": {
@@ -974,7 +974,7 @@ exports[`screens oracle — look > 4 · nav:look charless → 'yet' copy, NO nav
         {
           "components": [
             {
-              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "content": "You don't have a character. Type \`/join\` first.",
               "type": 10,
             },
           ],
@@ -1257,7 +1257,7 @@ exports[`screens oracle — map > 7 · nav:map (with-char, no options) → the f
 ]
 `;
 
-exports[`screens oracle — map > 8 · nav:map charless → 'yet' copy, no nav bar, no stamp 1`] = `
+exports[`screens oracle — map > 8 · nav:map charless → 'first' copy, no nav bar, no stamp 1`] = `
 [
   {
     "arg": {
@@ -1265,7 +1265,7 @@ exports[`screens oracle — map > 8 · nav:map charless → 'yet' copy, no nav b
         {
           "components": [
             {
-              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "content": "You don't have a character. Type \`/join\` first.",
               "type": 10,
             },
           ],
@@ -1384,7 +1384,7 @@ exports[`screens oracle — stats > 9 · nav:stats (with-char) → the stats she
 ]
 `;
 
-exports[`screens oracle — stats > 10 · nav:stats charless → 'yet' copy, no nav bar, no stamp 1`] = `
+exports[`screens oracle — stats > 10 · nav:stats charless → 'first' copy, no nav bar, no stamp 1`] = `
 [
   {
     "arg": {
@@ -1392,7 +1392,7 @@ exports[`screens oracle — stats > 10 · nav:stats charless → 'yet' copy, no 
         {
           "components": [
             {
-              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "content": "You don't have a character. Type \`/join\` first.",
               "type": 10,
             },
           ],

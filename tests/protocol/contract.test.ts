@@ -11,9 +11,11 @@ import type {
   BeginCustomActionResult,
   DayJobStart,
   FeedbackSurface,
+  HelpOpenResult,
   HiOpenResult,
   JoinOpenResult,
   RestBeginResult,
+  ScreenOpenResult,
   StartRenderResult,
   StepChoiceResult,
   WizardAnswerResult,
@@ -241,6 +243,24 @@ const noticeView: NoticeViewState = { screen: 'notice', text: '🙏 Thanks. The 
 
 const stubChar: CharacterData = MockWorldEngine.defaultCharacter({ dayJob: 'Town Guard' });
 
+// ── M8.1 screens (DC-M8.3/4) — fixtures for the six screen.* events. The stub's view arms
+// are canned notice texts observably equivalent to the real compositions (screen
+// discriminator + facts + the no-character copy are what the shared asserts pin; the
+// byte-identity of the full screen text is the screens oracle's job, not the contract
+// suite's). SCENE_STUB is the controller's 7th constructor arg at the test construction
+// sites — a fixed scene-renderer (the dispatch-harness stub pattern, DC-M8.5). ──
+
+const SCENE_STUB = () => ({ sceneName: 'test', ascii: '...' });
+
+const SCREEN_VIEWS: Record<'look' | 'map' | 'stats' | 'backpack' | 'journal' | 'help', NoticeViewState> = {
+  look: { screen: 'notice', text: ["```", '...', '```', '', "🌳 **The Warden's Oak**"].join('\n'), ephemeral: true },
+  map: { screen: 'notice', text: '🏠 **The Vale**\n🗺️ The roads you know.', ephemeral: true },
+  stats: { screen: 'notice', text: '🗡️  **Aldric** — Warrior', ephemeral: true },
+  backpack: { screen: 'notice', text: '🎒 **Backpack** (0/40)', ephemeral: true },
+  journal: { screen: 'notice', text: "📖 **Aldric's Journal**", ephemeral: true },
+  help: { screen: 'notice', text: "📜 **The Warden's Oak — Command List**", ephemeral: true },
+};
+
 // ── M7.3 wizard fixtures (DC-M7.3.11) — canonical views for the stub backend + the real
 // wizard conformance. Step 1 has nameField + a name button; steps 2-7 carry non-empty
 // options + choice buttons + a restart; step 8 confirm + restart. ──
@@ -450,6 +470,14 @@ class StubBackend implements RouterBackend {
   stepResult: StepChoiceResult | 'throw' = { kind: 'decision', view: decisionView };
   restResult: RestBeginResult | 'throw' = { kind: 'no-character' };
   hiResult: HiOpenResult | 'throw' = { kind: 'no-character' };
+  // M8.1 screens (DC-M8.3) — scriptable results; the five gated default to the
+  // no-character arm (the router's NO_CHARACTER_COPY case), help to its view arm.
+  lookResult: ScreenOpenResult | 'throw' = { kind: 'no-character' };
+  mapResult: ScreenOpenResult | 'throw' = { kind: 'no-character' };
+  statsResult: ScreenOpenResult | 'throw' = { kind: 'no-character' };
+  backpackResult: ScreenOpenResult | 'throw' = { kind: 'no-character' };
+  journalResult: ScreenOpenResult | 'throw' = { kind: 'no-character' };
+  helpResult: HelpOpenResult | 'throw' = { kind: 'view', view: SCREEN_VIEWS.help };
   // M7.3 wizard scripts (DC-M7.3.11). The `join.open` call logs as 'startWizard' — the
   // DC-M7.3.11 flow-order pin's recorded name for the start-or-resume arm.
   joinResult: JoinOpenResult | 'throw' = { kind: 'view', view: wizardStep1View };
@@ -460,8 +488,9 @@ class StubBackend implements RouterBackend {
   /** Step-specific wizard views a scripted walk can return (DC-M7.3.11). */
   wizardViews: Record<number, WizardViewState> = {};
   /** Overridable no-log read for addCharacterFacts' nav facts — lets a stub case mirror the
-   *  real backend's mid-action character (DC-P7 observability, e.g. hasPendingAction). */
-  character: CharacterData = stubChar;
+   *  real backend's mid-action character (DC-P7 observability, e.g. hasPendingAction) or the
+   *  charless state (M8.1: the screen.help no-gate cases set this to null). */
+  character: CharacterData | null = stubChar;
   confirmationResult: NoticeViewState | 'throw' = noticeView;
   recordResult: 'ok' | 'throw' = 'ok';
 
@@ -528,6 +557,30 @@ class StubBackend implements RouterBackend {
     return this.run('openHi', this.hiResult);
   }
 
+  openLook(_userId: string): ScreenOpenResult {
+    return this.run('openLook', this.lookResult);
+  }
+
+  openMap(_userId: string, _focus?: string): ScreenOpenResult {
+    return this.run('openMap', this.mapResult);
+  }
+
+  openStats(_userId: string): ScreenOpenResult {
+    return this.run('openStats', this.statsResult);
+  }
+
+  openBackpack(_userId: string): ScreenOpenResult {
+    return this.run('openBackpack', this.backpackResult);
+  }
+
+  openJournal(_userId: string): ScreenOpenResult {
+    return this.run('openJournal', this.journalResult);
+  }
+
+  openHelp(_userId: string): HelpOpenResult {
+    return this.run('openHelp', this.helpResult);
+  }
+
   openJoin(_userId: string): JoinOpenResult {
     return this.run('startWizard', this.joinResult);
   }
@@ -575,6 +628,7 @@ function realRouter(engine: MockWorldEngine, wizards?: WizardSession): GameRoute
     undefined,
     wizards ?? new WizardSession(),
     REAL_DEFS,
+    SCENE_STUB,
   );
   return new GameRouter(backend, { idle: () => IDLE });
 }
@@ -733,6 +787,16 @@ const WIZARD_ANSWER = { type: 'wizard.answer' as const, playerId: USER, text: 'R
 const WIZARD_CHOOSE = (step: number, value: string): unknown => ({ type: 'wizard.choose', playerId: USER, step, value });
 const WIZARD_RESTART = { type: 'wizard.restart' as const, playerId: USER };
 const CHARACTER_CREATE = { type: 'character.create' as const, playerId: USER };
+
+// ── M8.1 screens (DC-M8.1) — the six flat screen.* events. SCREEN_MAP carries the
+// optional slash-arm focus (absent → the full map). ──
+
+const SCREEN_LOOK = { type: 'screen.look' as const, playerId: USER };
+const SCREEN_MAP = (focus?: string): unknown => ({ type: 'screen.map', playerId: USER, ...(focus !== undefined ? { focus } : {}) });
+const SCREEN_STATS = { type: 'screen.stats' as const, playerId: USER };
+const SCREEN_BACKPACK = { type: 'screen.backpack' as const, playerId: USER };
+const SCREEN_JOURNAL = { type: 'screen.journal' as const, playerId: USER };
+const SCREEN_HELP = { type: 'screen.help' as const, playerId: USER };
 
 // ── rest.begin (M7.1, DC-M7.1.3: no-character → guards → rested notice view; NO beats) ──
 
@@ -1119,6 +1183,176 @@ runCaseBlock('conformance — character.create', [
         location: expect.any(String),
       });
       expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: false, hasRestedToday: false });
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+// ── M8.1 screens (DC-M8.4) — the six screen.* events. The five char-gated events: the
+// no-character arm uses NO_CHARACTER_COPY (the recorded "yet"→"first" unification pinned
+// by the screens oracle's five charless-nav transcripts), the view arm returns the notice
+// screen + character facts. screen.help has NO no-character arm (DC-M8.3 — help works
+// charless today), so its charless real-backend case still resolves to the view with no
+// facts. No beats on any of them. ──
+
+runCaseBlock('conformance — screen.look', [
+  {
+    name: 'no-character → no-character with NO_CHARACTER_COPY (the charless nav edges, pinned by transcript 4)',
+    event: SCREEN_LOOK,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'view → ok:true notice scene with character facts, zero beats',
+    event: SCREEN_LOOK,
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => { s.lookResult = { kind: 'view', view: SCREEN_VIEWS.look }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text).toContain('The Warden');
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.characterName).toBe('Aldric');
+      expect(o.response.facts?.characterState).toBeDefined();
+      expect(o.response.facts?.nav).toMatchObject({ rollsRemaining: expect.any(Number), hasPendingAction: false, hasRestedToday: false });
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — screen.map', [
+  {
+    name: 'no-character → no-character with NO_CHARACTER_COPY',
+    event: SCREEN_MAP(),
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'full map (no focus) → ok:true notice view with character facts',
+    event: SCREEN_MAP(),
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => { s.mapResult = { kind: 'view', view: SCREEN_VIEWS.map }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text.length).toBeGreaterThan(0);
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.characterName).toBe('Aldric');
+      expect(o.response.facts?.characterState).toBeDefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+  {
+    name: 'focus drill-down → ok:true notice view (the slash arm forwards the adapter-extracted place)',
+    event: SCREEN_MAP('The Vale'),
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => { s.mapResult = { kind: 'view', view: SCREEN_VIEWS.map }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text.length).toBeGreaterThan(0);
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.characterName).toBe('Aldric');
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — screen.stats', [
+  {
+    name: 'no-character → no-character with NO_CHARACTER_COPY',
+    event: SCREEN_STATS,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'view → ok:true notice sheet with character facts, zero beats',
+    event: SCREEN_STATS,
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => { s.statsResult = { kind: 'view', view: SCREEN_VIEWS.stats }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text).toContain('Warrior');
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.characterName).toBe('Aldric');
+      expect(o.response.facts?.characterState).toBeDefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — screen.backpack', [
+  {
+    name: 'no-character → no-character with NO_CHARACTER_COPY',
+    event: SCREEN_BACKPACK,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'view → ok:true notice grid with character facts, zero beats',
+    event: SCREEN_BACKPACK,
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => { s.backpackResult = { kind: 'view', view: SCREEN_VIEWS.backpack }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text).toContain('Backpack');
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.characterName).toBe('Aldric');
+      expect(o.response.facts?.characterState).toBeDefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — screen.journal', [
+  {
+    name: 'no-character → no-character with NO_CHARACTER_COPY',
+    event: SCREEN_JOURNAL,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter(),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
+    name: 'view → ok:true notice chronicle with character facts, zero beats',
+    event: SCREEN_JOURNAL,
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => { s.journalResult = { kind: 'view', view: SCREEN_VIEWS.journal }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text).toContain('Journal');
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.characterName).toBe('Aldric');
+      expect(o.response.facts?.characterState).toBeDefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+]);
+
+runCaseBlock('conformance — screen.help', [
+  {
+    name: 'charless → ok:true notice view with NO facts (no no-character arm — the DC-M8.3 no-gate pin)',
+    event: SCREEN_HELP,
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter((s) => { s.helpResult = { kind: 'view', view: SCREEN_VIEWS.help }; s.character = null; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text).toContain('Command List');
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts).toBeUndefined();
+      expect(o.beats).toEqual([]);
+    },
+  },
+  {
+    name: 'with-char → ok:true notice view with character facts (the identical text either way)',
+    event: SCREEN_HELP,
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => { s.helpResult = { kind: 'view', view: SCREEN_VIEWS.help }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text).toContain('Command List');
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.characterName).toBe('Aldric');
       expect(o.beats).toEqual([]);
     },
   },
@@ -1783,6 +2017,46 @@ describe('flow order (DC-P6) — the stub call log pins each leaf order', () => 
     expect(stub.calls).toEqual(['confirmWizard']);
   });
 
+  it('screen.look: openLook is the only backend call (the character snapshot read is a stub no-log read, pinned by the facts assertions)', async () => {
+    const stub = new StubBackend();
+    stub.lookResult = { kind: 'view', view: SCREEN_VIEWS.look };
+    const o = await drive(new GameRouter(stub, { idle: () => IDLE }), SCREEN_LOOK);
+    expect(stub.calls).toEqual(['openLook']);
+    if (!o.response.ok) throw new Error('unreachable');
+    expect(o.response.facts?.characterName).toBe('Aldric');
+  });
+
+  it('screen.map: openMap is the only backend call (focus forwarded to the backend)', async () => {
+    const stub = new StubBackend();
+    stub.mapResult = { kind: 'view', view: SCREEN_VIEWS.map };
+    const o = await drive(new GameRouter(stub, { idle: () => IDLE }), SCREEN_MAP('The Vale'));
+    expect(stub.calls).toEqual(['openMap']);
+    if (!o.response.ok) throw new Error('unreachable');
+    expect(o.response.facts?.characterName).toBe('Aldric');
+  });
+
+  it('screen.stats/backpack/journal: openStats/openBackpack/openJournal are the only backend calls', async () => {
+    for (const [event, result, name] of [
+      [SCREEN_STATS, 'statsResult', 'openStats'],
+      [SCREEN_BACKPACK, 'backpackResult', 'openBackpack'],
+      [SCREEN_JOURNAL, 'journalResult', 'openJournal'],
+    ] as const) {
+      const stub = new StubBackend();
+      stub[result] = { kind: 'view', view: SCREEN_VIEWS[name === 'openStats' ? 'stats' : name === 'openBackpack' ? 'backpack' : 'journal'] };
+      await drive(new GameRouter(stub, { idle: () => IDLE }), event);
+      expect(stub.calls).toEqual([name]);
+    }
+  });
+
+  it('screen.help: openHelp is the only backend call', async () => {
+    const stub = new StubBackend();
+    stub.character = null; // the charless no-gate case — no character facts follow
+    const o = await drive(new GameRouter(stub, { idle: () => IDLE }), SCREEN_HELP);
+    expect(stub.calls).toEqual(['openHelp']);
+    if (!o.response.ok) throw new Error('unreachable');
+    expect(o.response.facts).toBeUndefined(); // charless stub → no character facts
+  });
+
   it('rest.begin unsafe arm adds the restUnsafe fact ONLY on unsafe rested envelopes', async () => {
     const stub = new StubBackend();
     stub.restResult = RESTED_SAFE;
@@ -1855,6 +2129,21 @@ const GARBAGE_EVENTS: unknown[] = [
   { type: 'character.create' },
   { type: 'character.create', playerId: '' },
   { type: 'character.create', playerId: 42 },
+  { type: 'screen.look' },
+  { type: 'screen.look', playerId: '' },
+  { type: 'screen.look', playerId: 42 },
+  { type: 'screen.map' },
+  { type: 'screen.map', playerId: '' },
+  { type: 'screen.map', playerId: USER, focus: 42 },
+  { type: 'screen.map', playerId: USER, focus: {} },
+  { type: 'screen.stats' },
+  { type: 'screen.stats', playerId: 42 },
+  { type: 'screen.backpack' },
+  { type: 'screen.backpack', playerId: '' },
+  { type: 'screen.journal' },
+  { type: 'screen.journal', playerId: 42 },
+  { type: 'screen.help' },
+  { type: 'screen.help', playerId: '' },
   { type: 'warp.drive', playerId: USER },
 ];
 
@@ -1966,7 +2255,7 @@ describe('beats (d)', () => {
     engine.setStartActionResult(RESOLVED_WORK);
 
     let idleDraws = 0;
-    const controller = new SessionController(engine, () => SCENE, DAY_JOBS, undefined, new WizardSession(), REAL_DEFS);
+    const controller = new SessionController(engine, () => SCENE, DAY_JOBS, undefined, new WizardSession(), REAL_DEFS, SCENE_STUB);
     const router = new GameRouter(controller, { idle: () => { idleDraws += 1; return IDLE; } });
     const { beats } = await drive(router, DAYJOB_START(0));
 

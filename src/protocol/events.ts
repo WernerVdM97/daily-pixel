@@ -26,13 +26,27 @@ export type GameEvent =
   | { type: 'wizard.answer'; playerId: string; text: string }
   | { type: 'wizard.choose'; playerId: string; step: number; value: string }
   | { type: 'wizard.restart'; playerId: string }
-  | { type: 'character.create'; playerId: string };
+  | { type: 'character.create'; playerId: string }
+  // M8.1 (DC-M8.1): the six read-only screens cross the seam as flat `screen.*` events
+  // (names pinned for M8.5's parity beats). `screen.map` carries an optional `focus` — the
+  // slash-arm drill-down — empty-string allowed (the registry's `getString("place") ??
+  // undefined` can hand `''`, which today renders the full map); a non-string focus is
+  // malformed (shape check only, DC-P3).
+  | { type: 'screen.look'; playerId: string }
+  | { type: 'screen.map'; playerId: string; focus?: string }
+  | { type: 'screen.stats'; playerId: string }
+  | { type: 'screen.backpack'; playerId: string }
+  | { type: 'screen.journal'; playerId: string }
+  | { type: 'screen.help'; playerId: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isNonEmptyString = (value: unknown): boolean =>
   typeof value === 'string' && value.length > 0;
+
+/** `screen.map`'s optional `focus` is plain-string-typed (empty allowed — see the union). */
+const isString = (value: unknown): boolean => typeof value === 'string';
 
 /** `jobIndex` and selector indices are array positions — negative or fractional positions
  *  are malformed, not "illegal moves"; the router decides whether the position exists. */
@@ -58,6 +72,16 @@ export function validateGameEvent(raw: unknown): { ok: true; event: GameEvent } 
     case 'join.open':
     case 'wizard.restart':
     case 'character.create':
+    case 'screen.look':
+    case 'screen.stats':
+    case 'screen.backpack':
+    case 'screen.journal':
+    case 'screen.help':
+      return { ok: true, event: raw as unknown as GameEvent };
+    case 'screen.map':
+      if (raw.focus !== undefined && !isString(raw.focus)) {
+        return { ok: false, message: 'focus must be a string when present' };
+      }
       return { ok: true, event: raw as unknown as GameEvent };
     case 'wizard.answer':
       if (!isNonEmptyString(raw.text)) return { ok: false, message: 'text must be a non-empty string' };

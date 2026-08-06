@@ -30,9 +30,11 @@ import type {
   BeginCustomActionResult,
   DayJobStart,
   FeedbackSurface,
+  HelpOpenResult,
   HiOpenResult,
   JoinOpenResult,
   RestBeginResult,
+  ScreenOpenResult,
   SessionController,
   StartRenderResult,
   StepChoiceResult,
@@ -171,6 +173,12 @@ export interface RouterBackend {
   stepChoice(userId: string, label: string, prevChar: CharacterData): Promise<StepChoiceResult>;
   beginRest(userId: string): RestBeginResult;
   openHi(userId: string): HiOpenResult;
+  openLook(userId: string): ScreenOpenResult;
+  openMap(userId: string, focus?: string): ScreenOpenResult;
+  openStats(userId: string): ScreenOpenResult;
+  openBackpack(userId: string): ScreenOpenResult;
+  openJournal(userId: string): ScreenOpenResult;
+  openHelp(userId: string): HelpOpenResult;
   openJoin(userId: string): JoinOpenResult;
   answerWizardName(userId: string, text: string): WizardAnswerResult;
   chooseWizardOption(userId: string, step: number, value: string): WizardOptionResult;
@@ -240,6 +248,18 @@ export class GameRouter {
           return this.dispatchWizardRestart(e);
         case 'character.create':
           return this.dispatchCharacterCreate(e);
+        case 'screen.look':
+          return this.dispatchScreenLook(e);
+        case 'screen.map':
+          return this.dispatchScreenMap(e);
+        case 'screen.stats':
+          return this.dispatchScreenStats(e);
+        case 'screen.backpack':
+          return this.dispatchScreenBackpack(e);
+        case 'screen.journal':
+          return this.dispatchScreenJournal(e);
+        case 'screen.help':
+          return this.dispatchScreenHelp(e);
       }
     } catch (err) {
       return this.internalError(err);
@@ -395,7 +415,7 @@ export class GameRouter {
       case 'rolls-remaining':
         return this.error('illegal-move', ROLLS_REMAINING_COPY);
       case 'rested': {
-        let facts = this.addCharacterFacts(e.playerId);
+        let facts = this.addCharacterFacts(e.playerId) ?? {}; // the rested arm always has a char, but the type can't know
         if (result.wasUnsafe) {
           const name = typeof facts.characterName === 'string' ? facts.characterName : 'Unknown';
           facts = {
@@ -515,6 +535,108 @@ export class GameRouter {
     }
   }
 
+  // ── M8.1 screens (DC-M8.4) — the six `screen.*` branches. Single-reply flows, no beats,
+  // no stamps (the dispatcher's slash-arm post-handler stamp + nav branch pre-handler stamp
+  // cover both arms; double-stamping is the bug being avoided). The five char-gated branches
+  // share the no-character arm with NO_CHARACTER_COPY — the recorded "yet"→"first"
+  // unification: behind the slash gate the old "yet" copy is dead, and the genuinely-reachable
+  // charless `nav:*` edges change bytes (pinned by screens-oracle transcripts 4/8/10/13/16,
+  // the M8.1 gate — nothing else churns). `screen.help` has NO no-character arm (DC-M8.3). ──
+
+  /** `screen.look` — the scene survey. */
+  private dispatchScreenLook(e: { type: 'screen.look'; playerId: string }): GameResponse {
+    const result = this.backend.openLook(e.playerId);
+    switch (result.kind) {
+      case 'no-character':
+        return this.error('no-character', NO_CHARACTER_COPY);
+      case 'view':
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: result.view,
+          facts: this.addCharacterFacts(e.playerId),
+        });
+    }
+  }
+
+  /** `screen.map` — the discovered-graph render; the optional `focus` drills into a region
+   *  or zooms to a place (adapter-extracted from the slash option until M9). */
+  private dispatchScreenMap(e: { type: 'screen.map'; playerId: string; focus?: string }): GameResponse {
+    const result = this.backend.openMap(e.playerId, e.focus);
+    switch (result.kind) {
+      case 'no-character':
+        return this.error('no-character', NO_CHARACTER_COPY);
+      case 'view':
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: result.view,
+          facts: this.addCharacterFacts(e.playerId),
+        });
+    }
+  }
+
+  /** `screen.stats` — the character sheet. */
+  private dispatchScreenStats(e: { type: 'screen.stats'; playerId: string }): GameResponse {
+    const result = this.backend.openStats(e.playerId);
+    switch (result.kind) {
+      case 'no-character':
+        return this.error('no-character', NO_CHARACTER_COPY);
+      case 'view':
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: result.view,
+          facts: this.addCharacterFacts(e.playerId),
+        });
+    }
+  }
+
+  /** `screen.backpack` — the inventory grid + stat groups. */
+  private dispatchScreenBackpack(e: { type: 'screen.backpack'; playerId: string }): GameResponse {
+    const result = this.backend.openBackpack(e.playerId);
+    switch (result.kind) {
+      case 'no-character':
+        return this.error('no-character', NO_CHARACTER_COPY);
+      case 'view':
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: result.view,
+          facts: this.addCharacterFacts(e.playerId),
+        });
+    }
+  }
+
+  /** `screen.journal` — the chronicle + NPC list. */
+  private dispatchScreenJournal(e: { type: 'screen.journal'; playerId: string }): GameResponse {
+    const result = this.backend.openJournal(e.playerId);
+    switch (result.kind) {
+      case 'no-character':
+        return this.error('no-character', NO_CHARACTER_COPY);
+      case 'view':
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: result.view,
+          facts: this.addCharacterFacts(e.playerId),
+        });
+    }
+  }
+
+  /** `screen.help` — the command list + Economy block. No no-character arm (DC-M8.3): help
+   *  works charless today, so the event always resolves to the view (facts follow the
+   *  backend's getCharacter — absent on the charless path). */
+  private dispatchScreenHelp(e: { type: 'screen.help'; playerId: string }): GameResponse {
+    const result = this.backend.openHelp(e.playerId);
+    return this.finalize({
+      v: PROTOCOL_VERSION,
+      ok: true,
+      view: result.view,
+      facts: this.addCharacterFacts(e.playerId),
+    });
+  }
+
   // ── Shared mapping (DC-P4) ──
 
   /** runWork/runCustomAction fan-out: the shared `StartRenderResult` → envelope map. The
@@ -568,10 +690,11 @@ export class GameRouter {
    *  the character through the backend. Called on every view-bearing branch (menu,
    *  resume, decision, outcome); the outcome path already has `outcomeFacts` setting the
    *  same name/class/nav keys — the merge overwrites with identical values from a second
-   *  `getCharacter` read (same transaction, same data). When the character is null (the
-   *  caller already passed the guard, so this shouldn't happen), the existing facts are
-   *  returned unchanged. */
-  private addCharacterFacts(userId: string, existingFacts?: Record<string, unknown>): Record<string, unknown> {
+   *  `getCharacter` read (same transaction, same data). Returns `undefined` when it
+   *  produced nothing (no character AND no existing facts) — the M8.1 `screen.help`
+   *  charless case, whose envelope then carries no facts key (the same no-facts
+   *  convention as the wizard events). */
+  private addCharacterFacts(userId: string, existingFacts?: Record<string, unknown>): Record<string, unknown> | undefined {
     const char = this.backend.getCharacter(userId);
     const facts: Record<string, unknown> = { ...existingFacts };
     if (char) {
@@ -591,7 +714,7 @@ export class GameRouter {
         location: char.location,
       };
     }
-    return facts;
+    return Object.keys(facts).length === 0 ? undefined : facts;
   }
 
   // ── Envelope construction + the self-validation barrier ──

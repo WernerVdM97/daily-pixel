@@ -1266,6 +1266,15 @@ async function main() {
     return scenes.get(sceneName)?.body ?? "";
   };
 
+  // M8.1 (DC-M8.5): look's tag→scene resolver — now a SessionController constructor dep
+  // (the type moved with the composer into src/controller/lookScreen.ts). Previously passed
+  // per-call to makeLookCommand; the controller owns it and openLook feeds it to the composer.
+  const resolveScene = (tags: string[]): { sceneName: string; ascii: string } => {
+    const sceneName = tagResolver.resolve(tags);
+    const scene = scenes.get(sceneName);
+    return { sceneName, ascii: scene?.body ?? "..." };
+  };
+
   // The JSON seam router (M5.1) — every game mechanic crosses it; the controller is its real
   // backend. Created here (before the registry) because the /sleep handler needs the router
   // (M7.1 DC-M7.1.7); the dispatcher's deps reuse the same instance below. rest.begin draws no
@@ -1288,6 +1297,7 @@ async function main() {
       dayJobs: assets.dayJobs as CharDefs["dayJobs"],
       itemSets: assets.itemSets as CharDefs["itemSets"],
     },
+    resolveScene,
   );
   const router = new GameRouter(controller, { idle: () => randomIdleMessage() });
 
@@ -1297,22 +1307,13 @@ async function main() {
     "ping",
     asHandler(async () => "pong"),
   );
-  registry.register("help", asHandler(makeHelpCommand()));
-  registry.register("stats", asHandler(makeStatsCommand(engine)));
-  registry.register("backpack", asHandler(makeBackpackCommand(engine)));
+  registry.register("help", asHandler(makeHelpCommand(router)));
+  registry.register("stats", asHandler(makeStatsCommand(router)));
+  registry.register("backpack", asHandler(makeBackpackCommand(router)));
 
-  registry.register(
-    "look",
-    asHandler(
-      makeLookCommand(engine, (tags) => {
-        const sceneName = tagResolver.resolve(tags);
-        const scene = scenes.get(sceneName);
-        return { sceneName, ascii: scene?.body ?? "..." };
-      }),
-    ),
-  );
-  registry.register("journal", asHandler(makeJournalCommand(engine)));
-  const mapCommand = makeMapCommand(engine);
+  registry.register("look", asHandler(makeLookCommand(router)));
+  registry.register("journal", asHandler(makeJournalCommand(router)));
+  const mapCommand = makeMapCommand(router);
   registry.register("map", async (interaction: unknown) => {
     const cmd = interaction as ChatInputCommandInteraction;
     // Reads `place` from the slash command; a nav-button click has no options

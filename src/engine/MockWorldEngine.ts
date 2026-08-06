@@ -63,6 +63,11 @@ export class MockWorldEngine implements WorldEngine {
     getItems: number[];
     getNearbyEntities: number[];
     getJournal: number[];
+    // M8.1 (obligation O3): `getExits`/`getDiscoveredGraph` log like every other read — the
+    // M8.0 residual that left the screens-oracle zero-read assertions byte-proven instead of
+    // log-proven. The oracle transcripts 1/3/6/7 now assert these logs.
+    getExits: string[];
+    getDiscoveredGraph: number[];
     submitFeedback: { characterId: number; text: string; actionId?: number }[];
     submitBug: { characterId: number; text: string; actionId?: number }[];
     updateLastPlayed: number[];
@@ -86,6 +91,8 @@ export class MockWorldEngine implements WorldEngine {
     getItems: [],
     getNearbyEntities: [],
     getJournal: [],
+    getExits: [],
+    getDiscoveredGraph: [],
     submitFeedback: [],
     submitBug: [],
     updateLastPlayed: [],
@@ -299,7 +306,8 @@ export class MockWorldEngine implements WorldEngine {
     return this._location;
   }
 
-  getExits(_location: string): LocationExits {
+  getExits(location: string): LocationExits {
+    this.calls.getExits.push(location);
     return this._exits ?? { neighbours: [], frontiers: [] };
   }
 
@@ -320,7 +328,8 @@ export class MockWorldEngine implements WorldEngine {
     );
   }
 
-  getDiscoveredGraph(_characterId: number): DiscoveredGraph {
+  getDiscoveredGraph(characterId: number): DiscoveredGraph {
+    this.calls.getDiscoveredGraph.push(characterId);
     return this._discoveredGraph ?? { current: "The Warden's Oak", nodes: [], edges: [], frontiers: [] };
   }
 

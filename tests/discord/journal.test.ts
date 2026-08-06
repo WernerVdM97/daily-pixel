@@ -1,6 +1,21 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { makeJournalCommand } from "../../src/discord/commands/journal.js";
+import { SessionController } from "../../src/controller/SessionController.js";
+import { GameRouter } from "../../src/protocol/router.js";
+import { WizardSession } from "../../src/discord/WizardSession.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
+
+// M8.1 (DC-M8.4/5): the handler is translate + paint — every call goes through a GameRouter
+// over a real SessionController wrapping the SAME engine (the look.test.ts M8.1 pattern).
+const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
+function makeHandler(engine: MockWorldEngine) {
+  const controller = new SessionController(engine, () => "", [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+  const router = new GameRouter(controller, { idle: () => "" });
+  return makeJournalCommand(router);
+}
 describe("/journal", () => {
   let engine: MockWorldEngine;
 
@@ -10,7 +25,7 @@ describe("/journal", () => {
   });
 
   it("returns error when user has no character", async () => {
-    const handler = makeJournalCommand(new MockWorldEngine());
+    const handler = makeHandler(new MockWorldEngine());
     const result = await handler({ user: { id: "no-char" } } as never);
     expect(result).toContain("character");
   });
@@ -22,7 +37,7 @@ describe("/journal", () => {
       npcsEncountered: [],
       recentActions: [],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
     expect(result).not.toContain("Known Locations");
     expect(result).not.toContain("Stone Bridge"); // the location list is gone
@@ -39,7 +54,7 @@ describe("/journal", () => {
         { type: "search", outcome: "failure", createdAt: "2026-01-01T12:00:00Z", narrative: "searched the broken shrine", location: "The Sunken Road", locationEmoji: "🪨" },
       ],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
     expect(result).toContain("**📜 Chronicle**");
     expect(result).toContain("🐺 Wolf Hollow · drove off a starving wolf — ✅ **Success**");
@@ -63,7 +78,7 @@ describe("/journal", () => {
         },
       ],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
     expect(result).toContain("🐺 Wolf Hollow · pressed on past the tree line — ✅ **Success**");
     expect(result).toContain("└─ 🗺️ Discovered **Whispering Vale**");
@@ -79,7 +94,7 @@ describe("/journal", () => {
         { type: "combat", outcome: "success", createdAt: "2026-01-02T12:00:00Z", narrative: "drove off a starving wolf", location: "Wolf Hollow", locationEmoji: "🐺" },
       ],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
     expect(result).not.toContain("└─");
   });
@@ -91,7 +106,7 @@ describe("/journal", () => {
       npcsEncountered: [{ name: "Greta", class: "Blacksmith", location: "The Warden's Oak" }],
       recentActions: [],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
     expect(result).toContain("**🧑‍🤝‍🧑 NPCs Encountered**");
   });
@@ -106,7 +121,7 @@ describe("/journal", () => {
       ],
       recentActions: [],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("Greta");
@@ -122,7 +137,7 @@ describe("/journal", () => {
       npcsEncountered: [{ name: "Stranger", class: null, location: null }],
       recentActions: [],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
     expect(result).toContain("Stranger");
   });
@@ -137,7 +152,7 @@ describe("/journal", () => {
         { type: "travel", outcome: "failure", createdAt: "2026-01-01T10:00:00Z" },
       ],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("hunt — ✅ **Success**");
@@ -152,7 +167,7 @@ describe("/journal", () => {
       npcsEncountered: [],
       recentActions: [],
     });
-    const handler = makeJournalCommand(engine);
+    const handler = makeHandler(engine);
     const result = await handler({ user: { id: "user-1" } } as never);
 
     expect(result).toContain("Journal");

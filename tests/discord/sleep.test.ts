@@ -17,11 +17,15 @@ process.env.ADMIN_USER_ID = ADMIN_ID;
  *  fresh and the defs empty (M7.3: the constructor requires both at every site). */
 const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
 
+// M8.1 (DC-M8.5): the controller's 7th constructor arg (openLook's scene renderer) — a
+// fixed stub; this suite never reaches openLook.
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
 /** M7.1 (DC-M7.1.5): the handler is translate + paint — every player-path call goes through a
  *  GameRouter over a real SessionController wrapping the SAME engine (the admin-tick branch
  *  never reaches the router, so a tick-only fake engine still works there). */
 function makeHandler(engine: WorldEngine) {
-  const controller = new SessionController(engine, () => "", [], undefined, new WizardSession(), EMPTY_DEFS);
+  const controller = new SessionController(engine, () => "", [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
   const router = new GameRouter(controller, { idle: () => "" });
   return makeSleepCommand(engine, router);
 }

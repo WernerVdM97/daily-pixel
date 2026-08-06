@@ -135,6 +135,27 @@ describe('validateGameEvent — valid events', () => {
     const event = { type: 'bug.submit', playerId: 'user-1', text: 'crash on /action', actionId: 7 };
     expect(validateGameEvent(event)).toEqual({ ok: true, event });
   });
+
+  it('accepts the six screen.* events (M8.1, DC-M8.1)', () => {
+    for (const event of [
+      { type: 'screen.look', playerId: 'user-1' },
+      { type: 'screen.stats', playerId: 'user-1' },
+      { type: 'screen.backpack', playerId: 'user-1' },
+      { type: 'screen.journal', playerId: 'user-1' },
+      { type: 'screen.help', playerId: 'user-1' },
+    ]) {
+      expect(validateGameEvent(event)).toEqual({ ok: true, event });
+    }
+  });
+
+  it('accepts screen.map with and without focus (empty focus allowed — the slash option can hand \'\')', () => {
+    const noFocus = { type: 'screen.map', playerId: 'user-1' };
+    expect(validateGameEvent(noFocus)).toEqual({ ok: true, event: noFocus });
+    const withFocus = { type: 'screen.map', playerId: 'user-1', focus: 'The Vale' };
+    expect(validateGameEvent(withFocus)).toEqual({ ok: true, event: withFocus });
+    const emptyFocus = { type: 'screen.map', playerId: 'user-1', focus: '' };
+    expect(validateGameEvent(emptyFocus)).toEqual({ ok: true, event: emptyFocus });
+  });
 });
 
 // ── validateGameEvent — malformed payloads are rejected with a message, never thrown ──
@@ -150,6 +171,24 @@ describe('validateGameEvent — invalid events', () => {
   it('rejects an unknown event type', () => {
     const result = validateGameEvent({ type: 'menu.unknown', playerId: 'user-1' });
     expect(result).toEqual({ ok: false, message: expect.any(String) });
+  });
+
+  it('rejects malformed screen.* events (M8.1)', () => {
+    for (const raw of [
+      { type: 'screen.look' },
+      { type: 'screen.look', playerId: '' },
+      { type: 'screen.look', playerId: 42 },
+      { type: 'screen.map', playerId: 'user-1', focus: 42 },
+      { type: 'screen.map', playerId: 'user-1', focus: {} },
+      { type: 'screen.map', playerId: 'user-1', focus: null },
+      { type: 'screen.stats' },
+      { type: 'screen.backpack', playerId: 42 },
+      { type: 'screen.journal', playerId: '' },
+      { type: 'screen.help' },
+    ]) {
+      const result = validateGameEvent(raw);
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
   });
 
   it('rejects a missing, empty, or wrong-typed playerId', () => {

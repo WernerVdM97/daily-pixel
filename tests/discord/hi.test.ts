@@ -91,8 +91,12 @@ const mockDayJobs: DayJobDef[] = [
 // never touches the wizard, so the store is fresh and the defs empty.
 const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
 
+// M8.1 (DC-M8.5): the controller's 7th constructor arg (openLook's scene renderer) — a
+// fixed stub; this suite never reaches openLook.
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
 function makeHandler(engine: WorldEngine, dayJobs: DayJobDef[]) {
-  const controller = new SessionController(engine, () => "", dayJobs, undefined, new WizardSession(), EMPTY_DEFS);
+  const controller = new SessionController(engine, () => "", dayJobs, undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
   const router = new GameRouter(controller, { idle: () => "" });
   return makeHiCommand(router);
 }

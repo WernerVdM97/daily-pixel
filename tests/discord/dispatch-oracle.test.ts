@@ -241,15 +241,38 @@ describe("dispatch oracle — slash arm", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
-  it("a throwing handler routes through notifyAdmin + safeErrorReply", async () => {
+  // M8.1 (recorded drift, the M7.2 D2 pattern now pinned for /stats): /stats crosses the
+  // seam as screen.stats, and the router NEVER throws — a throwing engine read is absorbed
+  // into ok:false 'internal' and the handler paints the bare message as content, so the
+  // dispatcher's catch (notifyAdmin + safeErrorReply) does NOT fire. The dispatcher catch
+  // remains reachable for ADAPTER-side throws (the /action test right below).
+  it("a throwing engine read on /stats surfaces as internal-error content through the seam (no notifyAdmin)", async () => {
     const h = makeHarness();
     h.engine.setCharacterExists(true);
     h.engine.setCharacter(oracleChar());
-    // makeStatsCommand calls engine.getItems — make it throw to hit the slash catch.
+    // openStats → composeStatsScreen calls engine.getItems — make it throw.
     vi.spyOn(h.engine, "getItems").mockImplementation(() => {
       throw new Error("boom");
     });
-    const { intr } = slashInteraction("slash-error", "stats");
+    const { intr, _acks } = slashInteraction("slash-error", "stats");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(h.safeErrorReply).not.toHaveBeenCalled();
+    const reply = _acks.find((a) => a.method === "reply")!;
+    expect(JSON.stringify(reply.arg)).toContain("boom"); // the router's internal-error message IS the painted content
+  });
+
+  it("a throwing ADAPTER-side read (the engine-direct /action command) still routes through notifyAdmin + safeErrorReply", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(oracleChar());
+    // /action is not through the seam until M9 — makeActionCommand reads the engine
+    // directly, so a throw propagates to the dispatcher's slash catch.
+    vi.spyOn(h.engine, "getCharacter").mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const { intr } = slashInteraction("slash-error-action", "action");
     await dispatchInteraction(intr as never, h.deps);
 
     expect(h.notifyAdmin).toHaveBeenCalledTimes(1);

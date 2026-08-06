@@ -127,6 +127,7 @@ async function main(): Promise<void> {
       undefined,
       new WizardSession(),
       loadDefs(),
+      agentEngine.resolveScene,
     ) as RouterBackend,
     { idle: () => '' },
   );

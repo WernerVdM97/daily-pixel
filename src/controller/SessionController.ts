@@ -15,6 +15,12 @@ import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js'
 import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
 import { composeHiScreen } from './hiScreen.js';
 import { composeWizardView, isValidWizardChoice, type CharDefs } from './joinWizard.js';
+import { composeLookScreen, type SceneLookupFn } from './lookScreen.js';
+import { composeMapScreen } from './mapScreen.js';
+import { composeStatsScreen } from './statsScreen.js';
+import { composeBackpackScreen } from './backpackScreen.js';
+import { composeJournalScreen } from './journalScreen.js';
+import { composeHelpScreen } from './helpScreen.js';
 import type { WizardSession, WizardState } from '../discord/WizardSession.js';
 
 export type FeedbackSurface = 'sleep' | 'release' | 'outcome-feedback' | 'outcome-bug';
@@ -94,6 +100,21 @@ export type WizardConfirmResult =
   | { kind: 'not-ready' }
   | { kind: 'created'; view: NoticeViewState; created: CharCreateData };
 
+// ── M8.1 screen results (DC-M8.3) — the six `screen.*` flows. The five char-gated screens
+// return `ScreenOpenResult` (char guard, then the composed NoticeViewState); `openHelp` has
+// NO char guard (help works charless today — DC-M8.3's no-gate pin) and returns
+// `HelpOpenResult`. NO stamps inside any `open*`: the dispatcher's slash-arm post-handler
+// stamp and the nav branch's pre-handler stamp cover both arms — a stamp here would
+// double-stamp (the hi.open precedent; DC-M8.7 pins it). The views carry `ephemeral: true`
+// (informational — the dispatcher's ephemeralCommands list drives the actual paint until
+// M9, the same note as the hi screen). ──
+
+export type ScreenOpenResult =
+  | { kind: 'no-character' }
+  | { kind: 'view'; view: NoticeViewState };
+
+export type HelpOpenResult = { kind: 'view'; view: NoticeViewState };
+
 /** The wizard's step→state-field map (2 class … 7 itemSet) — the controller owns it. */
 const WIZARD_FIELD_MAP: Record<
   number,
@@ -148,6 +169,11 @@ export class SessionController {
     // defs the wizard renders from are required at every construction site.
     private readonly wizards: WizardSession,
     private readonly wizardDefs: CharDefs,
+    // M8.1 (DC-M8.5): look's `resolveScene` is a controller constructor dep (the wizardDefs
+    // precedent) — the type moved with the composer into src/controller/lookScreen.ts. The
+    // dispatch-harness constructs this with its FIXED stub (a deliberate determinism choice
+    // for the screens oracle); index.ts/play.ts pass the real tag→scene resolver.
+    private readonly resolveScene: SceneLookupFn,
   ) {}
 
   /** Reroute-to-join gate for a slash command (M3.6 DC-O) — true when the command needs a
@@ -284,6 +310,71 @@ export class SessionController {
     const character = this.engine.getCharacter(userId);
     if (!character) return { kind: 'no-character' };
     return composeHiScreen(this.engine, this.dayJobs, character);
+  }
+
+  // ── M8.1 screens (DC-M8.3/5/6) — one controller method per screen; each is the char guard
+  // (except openHelp) then the byte-for-byte composition lifted into the controller layer.
+  // No stamps, no beats (single-reply flows). ──
+
+  /** `screen.look` — the scene survey. The null-location branch lives inside the composer
+   *  (byte-for-byte: the "lost to the warden's sight" copy precedes resolveScene). */
+  openLook(userId: string): ScreenOpenResult {
+    const character = this.engine.getCharacter(userId);
+    if (!character) return { kind: 'no-character' };
+    return {
+      kind: 'view',
+      view: { screen: 'notice', text: composeLookScreen(this.engine, this.resolveScene, character), ephemeral: true },
+    };
+  }
+
+  /** `screen.map` — the discovered-graph render. `focus` is the slash-arm drill-down
+   *  (adapter-extracted until M9); absent → the full map. */
+  openMap(userId: string, focus?: string): ScreenOpenResult {
+    const character = this.engine.getCharacter(userId);
+    if (!character) return { kind: 'no-character' };
+    return {
+      kind: 'view',
+      view: { screen: 'notice', text: composeMapScreen(this.engine, character, focus), ephemeral: true },
+    };
+  }
+
+  /** `screen.stats` — the character sheet (formatStats + the gear breakdown). */
+  openStats(userId: string): ScreenOpenResult {
+    const character = this.engine.getCharacter(userId);
+    if (!character) return { kind: 'no-character' };
+    return {
+      kind: 'view',
+      view: { screen: 'notice', text: composeStatsScreen(this.engine, character), ephemeral: true },
+    };
+  }
+
+  /** `screen.backpack` — the inventory emoji grid + stat groups. */
+  openBackpack(userId: string): ScreenOpenResult {
+    const character = this.engine.getCharacter(userId);
+    if (!character) return { kind: 'no-character' };
+    return {
+      kind: 'view',
+      view: { screen: 'notice', text: composeBackpackScreen(this.engine, character), ephemeral: true },
+    };
+  }
+
+  /** `screen.journal` — the chronicle + NPC list. */
+  openJournal(userId: string): ScreenOpenResult {
+    const character = this.engine.getCharacter(userId);
+    if (!character) return { kind: 'no-character' };
+    return {
+      kind: 'view',
+      view: { screen: 'notice', text: composeJournalScreen(this.engine, character), ephemeral: true },
+    };
+  }
+
+  /** `screen.help` — the command list + Economy block. NO char guard (DC-M8.3): help works
+   *  charless today and gating it would be a behaviour change, so the event has no
+   *  no-character arm and this method always returns the view. `_userId` is the seam's
+   *  uniform playerId — help performs no engine read, so it is deliberately unused (the
+   *  MockWorldEngine `getExits(_location)` convention). */
+  openHelp(_userId: string): HelpOpenResult {
+    return { kind: 'view', view: { screen: 'notice', text: composeHelpScreen(), ephemeral: true } };
   }
 
   /** `join.open` (DC-M7.3.5) — mirrors the old slash handler's guard order exactly:

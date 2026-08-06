@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { makeLookCommand } from "../../src/discord/commands/look.js";
+import { SessionController } from "../../src/controller/SessionController.js";
+import { GameRouter } from "../../src/protocol/router.js";
+import { WizardSession } from "../../src/discord/WizardSession.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 import type { SceneFile } from "../../src/scenes/SceneLoader.js";
 import { TagResolver } from "../../src/scenes/TagResolver.js";
 
@@ -11,6 +15,17 @@ function lookupSceneFn(scenes: Map<string, SceneFile>) {
 		const scene = scenes.get(name)!;
 		return { sceneName: name, ascii: scene.body };
 	};
+}
+
+// M8.1 (DC-M8.4/5): the handler is translate + paint — every call goes through a GameRouter
+// over a real SessionController wrapping the SAME engine, with the TagResolver scenes as the
+// controller's 7th constructor arg (resolveScene). The behavior asserts are unchanged.
+const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
+
+function makeHandler(engine: MockWorldEngine, resolveScene: (tags: string[]) => { sceneName: string; ascii: string }) {
+	const controller = new SessionController(engine, () => "", [], undefined, new WizardSession(), EMPTY_DEFS, resolveScene);
+	const router = new GameRouter(controller, { idle: () => "" });
+	return makeLookCommand(router);
 }
 
 describe("/look", () => {
@@ -36,7 +51,7 @@ describe("/look", () => {
 	});
 
 	it("returns error when user has no character", async () => {
-		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const handler = makeHandler(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "no-char" } } as never);
 		expect(result).toContain("character");
 	});
@@ -53,7 +68,7 @@ describe("/look", () => {
 			emoji: "🌳",
 		});
 
-		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const handler = makeHandler(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 
 		expect(result).toContain("The Warden's Oak");
@@ -76,7 +91,7 @@ describe("/look", () => {
 			frontiers: [{ direction: "E", teaser: "the road to the eastern town", difficulty: 2 }],
 		});
 
-		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const handler = makeHandler(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 
 		expect(result).toContain("🧭 Paths");
@@ -100,7 +115,7 @@ describe("/look", () => {
 			frontiers: [],
 		});
 
-		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const handler = makeHandler(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 		const order = ["Northward", "Eastward", "Southward", "Westward"].map((n) => result.indexOf(n));
 		expect(order).toEqual([...order].sort((a, b) => a - b)); // strictly increasing → N,E,S,W
@@ -117,7 +132,7 @@ describe("/look", () => {
 			isSafe: false,
 		});
 
-		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const handler = makeHandler(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 
 		expect(result).toContain("The Void");
@@ -133,7 +148,7 @@ describe("/look", () => {
 		// not the old mock default.
 		engine.setLocation(null);
 
-		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const handler = makeHandler(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 		expect(result).toContain("lost");
 	});
@@ -147,7 +162,7 @@ describe("/look", () => {
 			isSafe: true,
 		});
 
-		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const handler = makeHandler(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 
 		expect(result).toContain("safe");
@@ -164,7 +179,7 @@ describe("/look", () => {
 			isSafe: false,
 		});
 
-		const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+		const handler = makeHandler(engine, lookupSceneFn(scenes));
 		const result = await handler({ user: { id: "user-1" } } as never);
 
 		expect(result).toContain("⚠️");
@@ -190,7 +205,7 @@ describe("/look", () => {
 				{ name: "Grey Wolf", classOrType: "Beast", description: "A massive she-wolf.", isPlayer: false },
 			]);
 
-			const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+			const handler = makeHandler(engine, lookupSceneFn(scenes));
 			const result = await handler({ user: { id: "user-1" } } as never);
 
 			// PCs highlighted
@@ -215,7 +230,7 @@ describe("/look", () => {
 			});
 			engine.setNearbyEntities([]);
 
-			const handler = makeLookCommand(engine, lookupSceneFn(scenes));
+			const handler = makeHandler(engine, lookupSceneFn(scenes));
 			const result = await handler({ user: { id: "user-1" } } as never);
 
 			expect(result).not.toContain("Nearby");

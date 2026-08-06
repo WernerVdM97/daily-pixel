@@ -203,6 +203,7 @@ describe("screens oracle — look", () => {
     // mock resolves EVERY name to the single canned location — see review notes).
     expect(h.engine.calls.getLocation).toEqual(["The Warden's Oak", "Town Square"]);
     expect(h.engine.calls.getNearbyEntities).toEqual([1]);
+    expect(h.engine.calls.getExits).toEqual(["The Warden's Oak"]); // M8.1 residual: log-proven now
     expect(h.engine.calls.updateLastPlayed).toContain(1);
     const reply = _acks.find((a) => a.method === "reply")!;
     expect((reply.arg as any).flags).toBe(32768 | 64); // Components V2 + ephemeral
@@ -234,6 +235,7 @@ describe("screens oracle — look", () => {
     nonEmpty(_acks);
     expect(h.engine.calls.getLocation).toEqual(["The Warden's Oak"]);
     expect(h.engine.calls.getNearbyEntities.length).toBe(0);
+    expect(h.engine.calls.getExits.length).toBe(0); // M8.1 residual: log-proven now
     expect(h.engine.calls.updateLastPlayed).toContain(1);
     const reply = _acks.find((a) => a.method === "reply")!;
     const text = payloadText(reply.arg);
@@ -258,6 +260,7 @@ describe("screens oracle — look", () => {
     expect(h.engine.calls.updateLastPlayed).toContain(1); // nav branch stamps pre-handler
     expect(h.engine.calls.getLocation).toEqual(["The Warden's Oak", "Town Square"]);
     expect(h.engine.calls.getNearbyEntities).toEqual([1]);
+    expect(h.engine.calls.getExits).toEqual(["The Warden's Oak"]); // M8.1 residual: log-proven now
     const reply = _acks.find((a) => a.method === "reply")!;
     expect((reply.arg as any).flags).toBe(32768 | 64); // ephemeral per-clicker reply
     const text = payloadText(reply.arg);
@@ -270,7 +273,7 @@ describe("screens oracle — look", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
-  it("4 · nav:look charless → 'yet' copy, NO nav bar, no stamp, zero look reads", async () => {
+  it("4 · nav:look charless → 'first' copy, NO nav bar, no stamp, zero look reads", async () => {
     const h = makeHarness();
     h.engine.setCharacterExists(false);
     h.engine.setCharacter(null);
@@ -282,9 +285,13 @@ describe("screens oracle — look", () => {
     expect(h.engine.calls.characterExists.length).toBe(0); // the nav branch is ungated
     expect(h.engine.calls.getLocation.length).toBe(0);
     expect(h.engine.calls.getNearbyEntities.length).toBe(0);
+    expect(h.engine.calls.getExits.length).toBe(0); // M8.1 residual: log-proven now
     const reply = _acks.find((a) => a.method === "reply")!;
     const text = payloadText(reply.arg);
-    expect(text).toContain("You don't have a character yet. Type `/join` to create one.");
+    // M8.1 (DC-M8.4): the "yet"→"first" unification — the genuinely-reachable charless
+    // nav edge now paints the router's NO_CHARACTER_COPY (this is ONE of the five pinned
+    // charless-nav snapshots that churns; the M8.1 gate reads "only these five").
+    expect(text).toContain("You don't have a character. Type `/join` first.");
     expect((reply.arg as any).components.length).toBe(1); // container only — !char → no nav bar
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
@@ -327,6 +334,7 @@ describe("screens oracle — map", () => {
 
     nonEmpty(_acks);
     expect(h.engine.calls.getCharacter).toContain("slash-map-focus");
+    expect(h.engine.calls.getDiscoveredGraph).toEqual([1]); // M8.1 residual: log-proven now
     expect(h.engine.calls.updateLastPlayed).toContain(1);
     const reply = _acks.find((a) => a.method === "reply")!;
     const text = payloadText(reply.arg);
@@ -349,6 +357,7 @@ describe("screens oracle — map", () => {
     await dispatchInteraction(intr as never, h.deps);
 
     nonEmpty(_acks);
+    expect(h.engine.calls.getDiscoveredGraph).toEqual([1]); // M8.1 residual: log-proven now
     expect(h.engine.calls.updateLastPlayed).toContain(1);
     const reply = _acks.find((a) => a.method === "reply")!;
     const text = payloadText(reply.arg);
@@ -365,7 +374,7 @@ describe("screens oracle — map", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
-  it("8 · nav:map charless → 'yet' copy, no nav bar, no stamp", async () => {
+  it("8 · nav:map charless → 'first' copy, no nav bar, no stamp", async () => {
     const h = makeHarness();
     h.engine.setCharacterExists(false);
     h.engine.setCharacter(null);
@@ -374,8 +383,10 @@ describe("screens oracle — map", () => {
 
     nonEmpty(_acks);
     expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    expect(h.engine.calls.getDiscoveredGraph.length).toBe(0); // M8.1 residual: log-proven now
     const reply = _acks.find((a) => a.method === "reply")!;
-    expect(payloadText(reply.arg)).toContain("You don't have a character yet. Type `/join` to create one.");
+    // M8.1 (DC-M8.4): the "yet"→"first" unification — one of the five pinned charless-nav snapshots.
+    expect(payloadText(reply.arg)).toContain("You don't have a character. Type `/join` first.");
     expect((reply.arg as any).components.length).toBe(1);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
@@ -412,7 +423,7 @@ describe("screens oracle — stats", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
-  it("10 · nav:stats charless → 'yet' copy, no nav bar, no stamp", async () => {
+  it("10 · nav:stats charless → 'first' copy, no nav bar, no stamp", async () => {
     const h = makeHarness();
     h.engine.setCharacterExists(false);
     h.engine.setCharacter(null);
@@ -423,7 +434,8 @@ describe("screens oracle — stats", () => {
     expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(h.engine.calls.getItems.length).toBe(0);
     const reply = _acks.find((a) => a.method === "reply")!;
-    expect(payloadText(reply.arg)).toContain("You don't have a character yet. Type `/join` to create one.");
+    // M8.1 (DC-M8.4): the "yet"→"first" unification — one of the five pinned charless-nav snapshots.
+    expect(payloadText(reply.arg)).toContain("You don't have a character. Type `/join` first.");
     expect((reply.arg as any).components.length).toBe(1);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
@@ -478,7 +490,7 @@ describe("screens oracle — backpack", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
-  it("13 · nav:backpack charless → 'yet' copy, no nav bar, no stamp", async () => {
+  it("13 · nav:backpack charless → 'first' copy, no nav bar, no stamp", async () => {
     const h = makeHarness();
     h.engine.setCharacterExists(false);
     h.engine.setCharacter(null);
@@ -489,7 +501,8 @@ describe("screens oracle — backpack", () => {
     expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(h.engine.calls.getItems.length).toBe(0);
     const reply = _acks.find((a) => a.method === "reply")!;
-    expect(payloadText(reply.arg)).toContain("You don't have a character yet. Type `/join` to create one.");
+    // M8.1 (DC-M8.4): the "yet"→"first" unification — one of the five pinned charless-nav snapshots.
+    expect(payloadText(reply.arg)).toContain("You don't have a character. Type `/join` first.");
     expect((reply.arg as any).components.length).toBe(1);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
@@ -549,7 +562,7 @@ describe("screens oracle — journal", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
-  it("16 · nav:journal charless → 'yet' copy, no nav bar, no stamp", async () => {
+  it("16 · nav:journal charless → 'first' copy, no nav bar, no stamp", async () => {
     const h = makeHarness();
     h.engine.setCharacterExists(false);
     h.engine.setCharacter(null);
@@ -560,7 +573,8 @@ describe("screens oracle — journal", () => {
     expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(h.engine.calls.getJournal.length).toBe(0);
     const reply = _acks.find((a) => a.method === "reply")!;
-    expect(payloadText(reply.arg)).toContain("You don't have a character yet. Type `/join` to create one.");
+    // M8.1 (DC-M8.4): the "yet"→"first" unification — one of the five pinned charless-nav snapshots.
+    expect(payloadText(reply.arg)).toContain("You don't have a character. Type `/join` first.");
     expect((reply.arg as any).components.length).toBe(1);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });

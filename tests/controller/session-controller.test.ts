@@ -9,13 +9,17 @@ import type { CharDefs } from '../../src/controller/joinWizard.js';
 // never touches the wizard, so the store is fresh and the defs empty.
 const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
 
+// M8.1 (DC-M8.5): the controller's 7th constructor arg (openLook's scene renderer) — a
+// fixed stub; this suite never reaches openLook.
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
 // ── M3.1 — pins the controller seam: `feedbackConfirmation` is a pure function of the
 // surface (so it can be shown BEFORE the best-effort persist), and `recordFeedback` routes
 // each surface to the right engine call with the right arg count, matching the four
 // pre-M3.1 dispatchInteraction.ts leaves exactly. ──
 
 describe('SessionController — feedbackConfirmation', () => {
-  const controller = new SessionController(new MockWorldEngine(), () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS);
+  const controller = new SessionController(new MockWorldEngine(), () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
 
   it('returns the sleep-feedback copy', () => {
     expect(controller.feedbackConfirmation('sleep')).toEqual({
@@ -54,7 +58,7 @@ describe('SessionController — recordFeedback', () => {
   it('routes sleep/release to submitFeedback with no actionId', () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1 }));
-    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS);
+    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
 
     controller.recordFeedback('sleep', 'user-1', 'loving the atmosphere');
     controller.recordFeedback('release', 'user-1', 'more day jobs please');
@@ -69,7 +73,7 @@ describe('SessionController — recordFeedback', () => {
   it('routes outcome-feedback to submitFeedback with the actionId', () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1 }));
-    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS);
+    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
 
     controller.recordFeedback('outcome-feedback', 'user-1', 'good fight', 42);
 
@@ -82,7 +86,7 @@ describe('SessionController — recordFeedback', () => {
   it('routes outcome-bug to submitBug with the actionId', () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1 }));
-    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS);
+    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
 
     controller.recordFeedback('outcome-bug', 'user-1', 'the door is stuck', 7);
 
@@ -94,7 +98,7 @@ describe('SessionController — recordFeedback', () => {
 
   it('is a no-op when the user has no character', () => {
     const engine = new MockWorldEngine();
-    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS);
+    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
 
     controller.recordFeedback('sleep', 'unknown-user', 'hello?');
 

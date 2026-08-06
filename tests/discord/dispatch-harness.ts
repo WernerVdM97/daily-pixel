@@ -87,7 +87,10 @@ export function oracleChar(overrides?: Record<string, unknown>) {
 //     rather than resolving real tags→scene — a DELIBERATE determinism choice for
 //     the screens oracle (M8.0): the golden transcripts pin the code-block wrapper
 //     and the surrounding scene, not real art, so the snapshots never depend on the
-//     tag→scene catalog. Not a coverage gap.
+//     tag→scene catalog. Not a coverage gap. Since M8.1 (DC-M8.5) the stub lives at
+//     the SessionController construction site in makeHarness (the controller's 7th
+//     param, `resolveScene`) — the registry's look handler is now makeLookCommand(router),
+//     and openLook feeds the same fixed stub to the composer.
 //   • `getCurrentScene` (passed into the action command) is a FIXED realistic scene
 //     string (see makeHarness) rather than main()'s live tag→scene resolution — the
 //     only path that reaches it is the outcome render, and a stable value is all the
@@ -122,17 +125,12 @@ export function buildRegistry(
     "ping",
     asHandler(async () => "pong"),
   );
-  registry.register("help", asHandler(makeHelpCommand()));
-  registry.register("stats", asHandler(makeStatsCommand(engine)));
-  registry.register("backpack", asHandler(makeBackpackCommand(engine)));
-  registry.register(
-    "look",
-    asHandler(
-      makeLookCommand(engine, () => ({ sceneName: "test", ascii: "..." })),
-    ),
-  );
-  registry.register("journal", asHandler(makeJournalCommand(engine)));
-  const mapCommand = makeMapCommand(engine);
+  registry.register("help", asHandler(makeHelpCommand(router)));
+  registry.register("stats", asHandler(makeStatsCommand(router)));
+  registry.register("backpack", asHandler(makeBackpackCommand(router)));
+  registry.register("look", asHandler(makeLookCommand(router)));
+  registry.register("journal", asHandler(makeJournalCommand(router)));
+  const mapCommand = makeMapCommand(router);
   registry.register("map", async (interaction: unknown) => {
     const cmd = interaction as {
       user: { id: string };
@@ -181,7 +179,12 @@ export function makeHarness(): Harness {
   // reaches it, so it must be a stable realistic value rather than "" for the golden
   // snapshots to be honest and deterministic.
   const getCurrentScene = (): string => "A quiet clearing under the oak.";
-  const controller = new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS, joinWizards, CHAR_DEFS);
+  // M8.1 (DC-M8.5 + the M8.0→M8.1 coordinator obligation): the controller's 7th constructor
+  // dep is the FIXED scene-renderer stub — NOT the real tag→scene resolver — so the screens
+  // oracle's look transcripts stay deterministic (the code-block wrapper + surrounding scene
+  // are what the golden transcripts pin, never real art). Survives M8.1 or transcripts 1/3
+  // churn beyond the planned five charless-nav snapshots.
+  const controller = new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS, joinWizards, CHAR_DEFS, () => ({ sceneName: "test", ascii: "..." }));
   // M7.1 (DC-M7.1.7): a GameRouter over the real controller (the same wiring main() uses)
   // with a deterministic idle — the M7.0 transcripts keep passing UNCHANGED because
   // MockWorldEngine.restAtOak replicates the new engine behaviour.

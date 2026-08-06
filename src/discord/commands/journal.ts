@@ -1,61 +1,26 @@
-import type { WorldEngine } from "../../engine/WorldEngine.js";
-import { SEPARATOR } from "../format.js";
+/**
+ * /journal — the chronicle + NPC list crosses the JSON seam as `screen.journal` (M8.1,
+ * DC-M8.4): the composition moved into the controller layer
+ * (src/controller/journalScreen.ts). This handler is translate + paint only — the router's
+ * error.message IS the string the dispatcher paints, and the view maps through
+ * `noticeViewToDiscord`.
+ */
+import { noticeViewToDiscord } from "../viewToDiscord.js";
+import type { GameRouter } from "../../protocol/router.js";
+import type { NoticeViewState } from "../../view/viewState.js";
 
-export function makeJournalCommand(engine: WorldEngine) {
+export function makeJournalCommand(router: GameRouter) {
   return async (interaction: { user: { id: string } }): Promise<string> => {
-    const character = engine.getCharacter(interaction.user.id);
-    if (!character) {
-      return "You don't have a character yet. Type `/join` to create one.";
+    const response = await router.dispatch({
+      type: "screen.journal",
+      playerId: interaction.user.id,
+    });
+
+    if (!response.ok) {
+      return response.error.message;
     }
 
-    const journal = engine.getJournal(character.id);
-    const lines: string[] = [];
-
-    // /journal owns TIME (a chronicle of what you did, where); /map owns SPACE.
-    lines.push(`📖 **${character.name}'s Journal**`);
-    lines.push(SEPARATOR);
-
-    // Chronicle — recent actions, each tagged with the place it happened in. Outcomes get a
-    // bold, colour-coded tag (not a bare ✓/✗) so a run of failures reads at a glance; any intel
-    // the action turned up (a place revealed, an NPC met) hangs off it as a rail, matching the
-    // /backpack box-drawing convention.
-    lines.push("**📜 Chronicle**");
-    if (journal.recentActions.length === 0) {
-      lines.push("*No actions recorded yet — your story is unwritten.*");
-    } else {
-      for (const action of journal.recentActions) {
-        const outcomeTag =
-          action.outcome === "success" ? " — ✅ **Success**"
-          : action.outcome === "failure" ? " — ❌ **Failed**"
-          : "";
-        const where = action.location ? `${action.locationEmoji ?? "📍"} ${action.location}` : "🧭 (on the road)";
-        const what = action.narrative
-          ? (action.narrative.length > 140 ? action.narrative.slice(0, 137) + "…" : action.narrative)
-          : action.type;
-        lines.push(`${where} · ${what}${outcomeTag}`);
-        for (const discovery of action.discoveries ?? []) {
-          lines.push(`    └─ ${discovery}`);
-        }
-      }
-    }
-
-    // NPCs encountered — who you've crossed paths with.
-    lines.push("");
-    lines.push(SEPARATOR);
-    lines.push("**🧑‍🤝‍🧑 NPCs Encountered**");
-    if (journal.npcsEncountered.length === 0) {
-      lines.push("  *You have met no NPCs yet.*");
-    } else {
-      for (const npc of journal.npcsEncountered) {
-        const detail = npc.class ? `the ${npc.class}` : "";
-        const where = npc.location ? ` (at ${npc.location})` : "";
-        lines.push(`  • **${npc.name}** ${detail}${where}`.trim());
-      }
-    }
-
-    lines.push("");
-    lines.push("*Use `/map` to see where you've been.*");
-
-    return lines.join("\n");
+    const view = response.view as NoticeViewState | undefined;
+    return view ? noticeViewToDiscord(view).content : "Something went wrong.";
   };
 }

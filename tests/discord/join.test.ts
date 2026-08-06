@@ -9,6 +9,10 @@ import { wizardViewToDiscord } from "../../src/discord/viewToDiscord.js";
 
 const CID_CONFIRM = "join:confirm";
 
+// M8.1 (DC-M8.5): the controller's 7th constructor arg (openLook's scene renderer) — a
+// fixed stub; this suite never reaches openLook.
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
 /** Minimal char-creation defs — enough entries to exercise formatting, bonuses, and a miss. */
 const FORMAT_DEFS: CharDefs = {
   classes: [
@@ -76,7 +80,7 @@ function makeFixture() {
   const engine = new MockWorldEngine();
   engine.setCharacterExists(false);
   const wizard = new WizardSession();
-  const controller = new SessionController(engine, () => "", [], undefined, wizard, FORMAT_DEFS);
+  const controller = new SessionController(engine, () => "", [], undefined, wizard, FORMAT_DEFS, SCENE_STUB);
   const router = new GameRouter(controller, { idle: () => "" });
   const handler = makeJoinCommand(router);
   return { engine, wizard, router, handler };
