@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,6 +26,9 @@ import {
   STUB_OUTCOME,
   STUB_STEP_OUTCOME,
 } from '../../src/protocol/stubBackend.js';
+import { stubRun } from '../../src/agent/stub.js';
+import { replayLog } from '../../src/agent/replay.js';
+import type { ProtocolDispatchEntry, ProtocolEntry } from '../../src/agent/transcript.js';
 
 // ── M5.1 — the contract-test barrier (see docs/engine/json-seam-protocol.md § "M5 build
 // plan", slice M5.1, and § "The contract-test barrier"). Every event × every reachable
@@ -2221,5 +2224,119 @@ describe('barrier coverage (M5.1 checklist)', () => {
     if (wizard.response.ok && wizard.response.view) screens.add(wizard.response.view.screen);
 
     expect([...screens].sort()).toEqual(['commute', 'decision', 'loading', 'menu', 'notice', 'outcome', 'wizard']);
+  });
+});
+
+// ── M8.5 stage 8 (DC-S5) — choice fidelity over the agent stream. The recorded deterministic
+// event-stream fixture is generated IN-PROCESS at test time (a stubRun(1) session's protocol
+// log — the stage-9 smoke pattern), so record and replay share the same wall-clock (SF3's
+// same-weekday-class caveat is sidestepped) and the M8.5-corpus location stays a stage-9
+// decision. Legality is routed through replay.ts's validated machinery (replayLog runs
+// validateGameEvent + validateGameResponse + the DC-S5 sequence sanity on every entry) — never
+// reimplemented here; this describe adds the contract suite's own command on top: every
+// envelope the stream produces is in its event's allowed response set, and the stream replays
+// through BOTH backends. ──
+
+const streamDispatches = (protocol: ProtocolEntry[]): ProtocolDispatchEntry[] =>
+  protocol.filter((e): e is ProtocolDispatchEntry => e.kind === 'dispatch');
+
+describe('choice fidelity (agent stream) — DC-S5 (M8.5 stage 8)', () => {
+  // The fixture: a deterministic stub session's protocol log, JSON-round-tripped (the file's
+  // exact shape — the suite's round-trip convention). Byte-deterministic across fresh runs
+  // (the stub-run dogfood pin), so the describe's assertions are stable.
+  let fixture: ProtocolEntry[];
+
+  beforeAll(async () => {
+    const run = await stubRun(1);
+    fixture = JSON.parse(JSON.stringify(run.harness.transcript.protocol)) as ProtocolEntry[];
+  });
+
+  // The per-event allowed view-screen families (DC-S5: "every envelope is in that event's
+  // allowed response set" — the ok-branch screens the case tables above pin; error envelopes
+  // carry no view). The fixture stream is all-ok, so the screens are the whole assertion.
+  const ALLOWED_SCREENS: Record<string, ReadonlyArray<string>> = {
+    'join.open': ['wizard'],
+    'wizard.answer': ['wizard'],
+    'wizard.choose': ['wizard'],
+    'wizard.restart': ['wizard'],
+    'character.create': ['notice'],
+    'hi.open': ['notice'],
+    'rest.begin': ['notice'],
+    'screen.look': ['notice'],
+    'screen.stats': ['notice'],
+    'menu.open': ['menu', 'decision'],
+    'dayjob.start': ['decision', 'outcome'],
+    'action.custom': ['decision', 'outcome'],
+    'action.choose': ['decision', 'outcome'],
+  };
+
+  it('the fixture is a legal stream — every recorded envelope is in its event\'s allowed response set', () => {
+    for (const entry of streamDispatches(fixture)) {
+      const check = validateGameResponse(entry.response);
+      if (!check.ok) {
+        throw new Error(`seq ${entry.seq} (${entry.event.type}) envelope failed validation: ${check.message}`);
+      }
+      expect(check.response.v, `seq ${entry.seq} (${entry.event.type})`).toBe(PROTOCOL_VERSION);
+      assertViewConformance(check.response);
+      assertFactsRoundTrip(check.response);
+      if (check.response.ok && check.response.view) {
+        const allowed = ALLOWED_SCREENS[entry.event.type];
+        if (!allowed) throw new Error(`seq ${entry.seq} (${entry.event.type}) has no allowed-screen family`);
+        expect(allowed).toContain(check.response.view.screen);
+      }
+    }
+  });
+
+  it('the fixture replays byte-equal through the stub backend (DC-S2: every event legal, every envelope matched)', async () => {
+    const result = await replayLog(fixture);
+    expect(result.fatal).toBeUndefined();
+    expect(result.warnings).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.entries.every((e) => e.ok)).toBe(true);
+  });
+
+  it('the fixture replays through the real backend with the choice-fidelity invariants holding (the interchangeability proof)', async () => {
+    const result = await replayLog(fixture, { backend: 'real' });
+    expect(result.fatal).toBeUndefined();
+    // The header records 'stub'; the forced real arm is honored with a warning, never silent.
+    expect(result.warnings.some((w) => w.includes("'stub'") && w.includes('forces'))).toBe(true);
+    // Zero validation failures: every event validates (validateGameEvent) AND the DC-S5
+    // sequence sanity holds — the next event is legal for the returned view, re-seeding
+    // through the recorded creation walk on the fresh engine included.
+    expect(result.entries.every((e) => e.validationError === undefined)).toBe(true);
+
+    // The one recorded structural divergence: the canned script idealizes rest (always
+    // rested ok:true) while the real engine correctly rejects resting with rolls unspent
+    // (the stub day's flows consume no rolls in the script). Pinned explicitly so a future
+    // fixture change that makes the stub day roll-faithful updates this pin with it.
+    const restBegin = result.entries.find((e) => e.eventType === 'rest.begin');
+    if (!restBegin) throw new Error('the stream must carry a rest.begin entry');
+    expect(restBegin.ok).toBe(false);
+    expect(restBegin.validationError).toBeUndefined();
+    expect([...(restBegin.diff ?? [])].sort()).toEqual([
+      'response.error: missing in recorded',
+      'response.facts: missing in live',
+      'response.ok: false !== true',
+      'response.view: missing in live',
+    ]);
+
+    // Structural fidelity everywhere else: the real engine's envelopes match the recorded
+    // stub envelopes in every envelope-level field — ok/error/view presence and the view
+    // screen. Diffs may touch view content and facts VALUES only (different character
+    // profiles); a screen, ok, error-code, or validator divergence is an interchangeability
+    // breach, not fixture noise.
+    for (const entry of result.entries) {
+      if (entry.ok || entry === restBegin) continue;
+      const diffs = entry.diff ?? [];
+      expect(diffs.length, `seq ${entry.seq} (${entry.eventType}) should carry content diffs`).toBeGreaterThan(0);
+      for (const d of diffs) {
+        expect(
+          d.startsWith('response.view.') || d.startsWith('response.facts.'),
+          `seq ${entry.seq} (${entry.eventType}): structural diff ${JSON.stringify(d)}`,
+        ).toBe(true);
+        expect(d).not.toContain('response.view.screen');
+        expect(d).not.toContain('failed its own validator');
+      }
+    }
   });
 });
