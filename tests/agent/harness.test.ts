@@ -531,6 +531,21 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
     expect(unsafe.transcript.events.some((e) => e.type === 'dead-end' && e.reason === 'unsafe-ground')).toBe(true);
   });
 
+  it('maps a divine-intervention refund to a dead-end, not a completed action (M9.1, DC-M9.3)', async () => {
+    const divineText = 'The warden intervenes — your roll is refunded.';
+    const h = stubHarness({
+      menu: { kind: 'menu', view: CUSTOM_MENU },
+      moves: [{ kind: 'custom', text: 'do a thing' }],
+      start: { kind: 'divine', text: divineText },
+    });
+    expect(await h.playOneAction()).toEqual({ kind: 'dead-end', reason: 'divine-intervention' });
+    expect(
+      h.transcript.events.some(
+        (e) => e.type === 'dead-end' && e.reason === 'divine-intervention' && e.detail === divineText,
+      ),
+    ).toBe(true);
+  });
+
   it('captures a backend throw as an internal error dead-end (router never throws)', async () => {
     const h = stubHarness({ throwOn: 'openActionMenu' });
     const result = await h.playOneAction();

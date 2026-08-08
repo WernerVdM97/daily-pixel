@@ -121,7 +121,7 @@ describe('validateGameEvent — valid events', () => {
   });
 
   it('accepts feedback.submit on every surface, with and without actionId', () => {
-    for (const surface of ['sleep', 'release', 'outcome-feedback']) {
+    for (const surface of ['sleep', 'release', 'outcome-feedback', 'slash-feedback']) {
       const event = { type: 'feedback.submit', playerId: 'user-1', surface, text: 'loved it' };
       expect(validateGameEvent(event)).toEqual({ ok: true, event });
     }
@@ -134,6 +134,15 @@ describe('validateGameEvent — valid events', () => {
   it('accepts bug.submit with an actionId', () => {
     const event = { type: 'bug.submit', playerId: 'user-1', text: 'crash on /action', actionId: 7 };
     expect(validateGameEvent(event)).toEqual({ ok: true, event });
+  });
+
+  it('accepts bug.submit with surface absent (today\'s caller), or explicitly outcome-bug/slash-bug (M9.1, DC-M9.5)', () => {
+    const noSurface = { type: 'bug.submit', playerId: 'user-1', text: 'crash on /action' };
+    expect(validateGameEvent(noSurface)).toEqual({ ok: true, event: noSurface });
+    for (const surface of ['outcome-bug', 'slash-bug']) {
+      const event = { type: 'bug.submit', playerId: 'user-1', surface, text: 'crash on /action' };
+      expect(validateGameEvent(event)).toEqual({ ok: true, event });
+    }
   });
 
   it('accepts the six screen.* events (M8.1, DC-M8.1)', () => {
@@ -229,8 +238,15 @@ describe('validateGameEvent — invalid events', () => {
   });
 
   it('rejects a missing or unknown feedback.submit surface', () => {
-    for (const surface of [undefined, 'outcome-bug', 'SLEEP', 3]) {
+    for (const surface of [undefined, 'outcome-bug', 'slash-bug', 'SLEEP', 3]) {
       const result = validateGameEvent({ type: 'feedback.submit', playerId: 'user-1', surface, text: 'hey' });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it("rejects a present-but-wrong bug.submit surface — 'slash-feedback' deliberately excluded (M9.1, DC-M9.5; the split is pinned by events.ts's doc comment)", () => {
+    for (const surface of ['slash-feedback', 'sleep', '', 3, null]) {
+      const result = validateGameEvent({ type: 'bug.submit', playerId: 'user-1', surface, text: 'crash on /action' });
       expect(result).toEqual({ ok: false, message: expect.any(String) });
     }
   });
