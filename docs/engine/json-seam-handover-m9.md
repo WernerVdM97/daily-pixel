@@ -39,6 +39,8 @@ Otherwise the M7/M8 rules stand unchanged: atomic commit per slice, build and re
 
 **DC-M9.7** moves the profanity guard behind the seam. The plan settles it as "move it", but it is a behaviour change on the slash path and **the owner signs it off before M9.3 lands**. Without sign-off, build M9.3 leaving the guard where it is and flag it. Do not block the slice, do not smuggle the change.
 
+**Discharged — the owner approved DC-M9.7 on 2026-08-08.** M9.3 builds the move: `checkProfanity` runs inside the router's `action.custom` branch, so both text entry points are filtered by one rule in one place, and free text typed into `/action <description>` — unfiltered today — is rejected after M9. The scope fence still binds: the guard *moves*, its word list and its verdict do not change. Record the resulting behaviour change in M9.3's execution-state entry the way M7.1's rule move was recorded.
+
 ## Done
 
 Zero runtime engine/controller imports on the Discord interaction path; the DC-M9.1 structural check green and proven non-vacuous; every action surface crossing the seam; the contract suite covering every addition; all four oracles byte-green with only the declared churn; the M8.5 replay gate green; typecheck + full suite green; changelog current; execution state recording all five slices; `TODO.md` reflecting M10 as next. Note anything that blocked, drifted or changed scope at the bottom of this doc, the way the M7/M8 briefing does. The owner reads it before writing the M10 handover.
