@@ -138,13 +138,19 @@ const NAV_BUTTONS: NavButtonDef[] = [
   { id: 'map',      label: 'Map',      emoji: '🗺️', showOnPages: ['hi', 'journal', 'backpack', 'stats', 'look'] },
 ];
 
+/** Either the raw character shape (`lastActionState`, `hasPendingAction` derived) or the
+ *  protocol's `facts.nav` shape (`hasPendingAction` already computed) — DC-M9.6. */
+type NavButtonsChar =
+  | { rollsRemaining: number; lastActionState: unknown; hasRestedToday?: boolean }
+  | { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean };
+
 /**
  * Build nav Action Row(s) — up to 2 rows, 5 buttons max each. Omits buttons whose
  * `showIf` returns false and the button matching `currentCommand` (so a view never
  * shows its own nav button).
  */
 export function getNavButtons(
-  char: { rollsRemaining: number; lastActionState: unknown; hasRestedToday?: boolean },
+  char: NavButtonsChar,
   currentCommand?: string,
 ): Array<{
   type: number;
@@ -152,7 +158,7 @@ export function getNavButtons(
 }> {
   const ctx = {
     rollsRemaining: char.rollsRemaining,
-    hasPendingAction: char.lastActionState !== null,
+    hasPendingAction: 'hasPendingAction' in char ? char.hasPendingAction : char.lastActionState !== null,
     hasRestedToday: char.hasRestedToday ?? false,
   };
 

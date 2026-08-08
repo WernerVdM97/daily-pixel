@@ -147,6 +147,33 @@ const RESOLVED_STEP_RESULT: ActionStepResult = {
   outcome: RESOLVED_OUTCOME,
 };
 
+/** M9.1 (DC-M9.3): a refunded divine-intervention roll — no mutations, no actionId (the
+ *  engine never persists an action row on this path). */
+const DIVINE_OUTCOME: ActionOutcome = {
+  distilledType: "scout",
+  finalDc: 11,
+  playerRolled: null,
+  outcome: "skipped",
+  mutations: [],
+  outcomeText: "The warden intervenes — your roll is refunded.",
+  isDivineIntervention: true,
+};
+
+const DIVINE_START_RESULT: ActionStartResult = {
+  state: { rawInput: "scout the northern ridge", decisions: [], accumulatedDc: 11, kind: "quest" },
+  firstDecision: { prompt: "", options: [] },
+  outcome: DIVINE_OUTCOME,
+  actionType: "search",
+};
+
+/** As above but for the day-job work flow. */
+const DIVINE_WORK_RESULT: ActionStartResult = {
+  state: { rawInput: "Keep the gate — Walk the rounds", decisions: [], accumulatedDc: 11, kind: "work", wage: 5 },
+  firstDecision: { prompt: "", options: [] },
+  outcome: DIVINE_OUTCOME,
+  actionType: "other",
+};
+
 /** True when any ack carried the outcome service buttons (`outcome:feedback`/`outcome:bug`),
  *  the tell that the resolved/outcome path rendered rather than a decision prompt. */
 function hasOutcomeButtons(acks: Recorded[]): boolean {
@@ -597,6 +624,73 @@ describe("dispatch oracle — resolved / outcome render path", () => {
     // the inner catch handled it.
     expect(h.notifyAdmin).not.toHaveBeenCalled();
     expect(_acks.some((a) => a.method === "reply")).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M9.1 (DC-M9.3) — the divine-intervention arm: a refunded roll is a system fault, not a
+// real outcome. The controller's `divine` StartRenderResult arm short-circuits BEFORE the
+// outcome branch, so these two direct-consumer sites paint the distinct grey ⚠️ System
+// embed and stop — no service buttons, no broadcast, no collapse announce.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("dispatch oracle — divine intervention (M9.1, DC-M9.3)", () => {
+  it("action:custom:modal → divine intervention paints the grey System embed, no broadcast", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar({ lastActionState: null }));
+    h.engine.setStartActionResult(DIVINE_START_RESULT as never);
+    broadcastOutcomeSpy.mockClear();
+    announceCollapseSpy.mockClear();
+    const { intr, _acks } = modalInteraction(
+      "cid-custom-divine",
+      "action:custom:modal",
+      "scout the northern ridge",
+    );
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    const paint = _acks.find(
+      (a) => a.method === "editReply" && (a.arg as any)?.embeds?.[0]?.title === "⚠️ System",
+    );
+    expect(paint).toBeTruthy();
+    expect((paint!.arg as any).embeds[0].description).toBe(
+      "The warden intervenes — your roll is refunded.",
+    );
+    expect((paint!.arg as any).embeds[0].color).toBe(0x95a5a6);
+    expect((paint!.arg as any).components).toEqual([]);
+    expect(hasOutcomeButtons(_acks)).toBe(false);
+    expect(broadcastOutcomeSpy).not.toHaveBeenCalled();
+    expect(announceCollapseSpy).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("action:dayjob:<n> → divine intervention paints the grey System embed, no broadcast", async () => {
+    const h = makeHarness();
+    h.engine.setMeta("day_number", "1");
+    h.engine.setCharacter(oracleChar({ location: "The Warden's Oak" }));
+    h.engine.setCommuteResult({ to: "Town Square", stamina: 9 });
+    h.engine.setStartActionResult(DIVINE_WORK_RESULT as never);
+    broadcastOutcomeSpy.mockClear();
+    announceCollapseSpy.mockClear();
+    const { intr, _acks } = buttonInteraction("cid-dayjob-divine", "action:dayjob:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    const paint = _acks.find(
+      (a) =>
+        a.method === "webhook.editMessage" &&
+        (a.arg as any)?.embeds?.[0]?.title === "⚠️ System",
+    );
+    expect(paint).toBeTruthy();
+    expect((paint!.arg as any).embeds[0].description).toBe(
+      "The warden intervenes — your roll is refunded.",
+    );
+    expect((paint!.arg as any).embeds[0].color).toBe(0x95a5a6);
+    expect((paint!.arg as any).components).toEqual([]);
+    expect(hasOutcomeButtons(_acks)).toBe(false);
+    expect(broadcastOutcomeSpy).not.toHaveBeenCalled();
+    expect(announceCollapseSpy).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
 

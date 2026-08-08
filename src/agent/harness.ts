@@ -249,6 +249,11 @@ export class AgentHarness {
       case 'empty-action':
         this.transcript.deadEnd('empty-action', msg);
         return { kind: 'dead-end', reason: 'empty-action' };
+      case 'divine-intervention':
+        // DC-M9.3: the roll was refunded and nothing happened — a stumble in playDay's
+        // accounting, not a completed action.
+        this.transcript.deadEnd('divine-intervention', msg);
+        return { kind: 'dead-end', reason: 'divine-intervention' };
       case 'invalid-event':
         this.transcript.deadEnd('invalid-event', msg);
         return { kind: 'dead-end', reason: 'invalid-event' };

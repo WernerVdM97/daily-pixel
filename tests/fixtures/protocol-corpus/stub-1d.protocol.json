@@ -640,6 +640,17 @@
           "hasPendingAction": false,
           "hasRestedToday": false
         },
+        "collapse": {
+          "name": "Aldric",
+          "prev": {
+            "health": 10,
+            "stamina": 10
+          },
+          "updated": {
+            "health": 10,
+            "stamina": 10
+          }
+        },
         "characterState": {
           "health": 10,
           "maxHealth": 10,
@@ -882,6 +893,17 @@
           "rollsRemaining": 3,
           "hasPendingAction": false,
           "hasRestedToday": false
+        },
+        "collapse": {
+          "name": "Aldric",
+          "prev": {
+            "health": 10,
+            "stamina": 10
+          },
+          "updated": {
+            "health": 10,
+            "stamina": 10
+          }
         },
         "characterState": {
           "health": 10,

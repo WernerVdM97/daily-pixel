@@ -19,7 +19,8 @@ export const PROTOCOL_VERSION = 1;
 
 export type GameErrorCode =
   | 'no-character' | 'no-rolls' | 'stale-session' | 'session-expired'
-  | 'illegal-move' | 'unsafe' | 'empty-action' | 'invalid-event' | 'internal';
+  | 'illegal-move' | 'unsafe' | 'empty-action' | 'invalid-event' | 'internal'
+  | 'divine-intervention';
 
 export type GameResponse =
   | { v: number; ok: true; view?: ViewState; facts?: Record<string, unknown> }
@@ -28,9 +29,9 @@ export type GameResponse =
 /** The closed facts set (DC-P1). A key is added only when a consuming adapter justifies it —
  *  the validator rejects anything outside this set, which is what stops the "second
  *  protocol" escape hatch from growing silently. */
-const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter']);
+const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter', 'collapse']);
 
-const GAME_ERROR_CODES = new Set<GameErrorCode>(['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal']);
+const GAME_ERROR_CODES = new Set<GameErrorCode>(['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal', 'divine-intervention']);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -74,6 +75,15 @@ const isJsonSerialisable = (value: unknown): boolean => {
 
 const isGameErrorCode = (value: unknown): value is GameErrorCode =>
   isString(value) && GAME_ERROR_CODES.has(value as GameErrorCode);
+
+/** Shared shape check for a `{ health, stamina }` vitals pair — non-negative integers,
+ *  exactly those two keys. Used by both `restUnsafe` and `collapse` (DC-M9.2), the two
+ *  facts that carry a before/after vitals snapshot. */
+const vitalsOk = (v: unknown): boolean =>
+  isRecord(v)
+  && Object.keys(v).length === 2
+  && Number.isInteger(v.health) && (v.health as number) >= 0
+  && Number.isInteger(v.stamina) && (v.stamina as number) >= 0;
 
 /** Structural check per variant: screen discriminant + required string fields are strings
  *  (+ the few required non-string primitives), optional fields type-checked when present.
@@ -209,16 +219,34 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
       if (!isString(ru.name) || ru.name.length === 0) {
         return { ok: false, message: 'facts.restUnsafe.name must be a non-empty string' };
       }
-      const vitalsOk = (v: unknown): boolean =>
-        isRecord(v)
-        && Object.keys(v).length === 2
-        && Number.isInteger(v.health) && (v.health as number) >= 0
-        && Number.isInteger(v.stamina) && (v.stamina as number) >= 0;
       if (!vitalsOk(ru.prev)) {
         return { ok: false, message: 'facts.restUnsafe.prev must be { health: number; stamina: number }' };
       }
       if (!vitalsOk(ru.updated)) {
         return { ok: false, message: 'facts.restUnsafe.updated must be { health: number; stamina: number }' };
+      }
+    }
+    // `collapse` (DC-M9.2) — rides every outcome envelope that carries a post-action
+    // character, unconditionally (mirroring restUnsafe's unconditional ride on every
+    // unsafe rest): the actor's name plus the pre/post vitals, so `announceCollapse`
+    // (src/discord/collapse.ts) can decide — behind the seam — whether a transition to 0
+    // actually happened. Consumer: the dispatcher's three announceCollapse call sites (M9.3).
+    if ('collapse' in raw.facts) {
+      const cl = raw.facts.collapse;
+      if (!isRecord(cl)) {
+        return { ok: false, message: 'facts.collapse must be a plain object' };
+      }
+      if (Object.keys(cl).length !== 3) {
+        return { ok: false, message: 'facts.collapse must have exactly 3 keys' };
+      }
+      if (!isString(cl.name) || cl.name.length === 0) {
+        return { ok: false, message: 'facts.collapse.name must be a non-empty string' };
+      }
+      if (!vitalsOk(cl.prev)) {
+        return { ok: false, message: 'facts.collapse.prev must be { health: number; stamina: number }' };
+      }
+      if (!vitalsOk(cl.updated)) {
+        return { ok: false, message: 'facts.collapse.updated must be { health: number; stamina: number }' };
       }
     }
     // `createdCharacter` — the M7.3 confirm result (DC-M7.3.7): the exact CharCreateData

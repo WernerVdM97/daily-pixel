@@ -292,6 +292,14 @@ describe('validateGameResponse — valid envelopes', () => {
     expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
   });
 
+  it('accepts a well-formed collapse fact (DC-M9.2)', () => {
+    const envelope = {
+      v: PROTOCOL_VERSION, ok: true,
+      facts: { collapse: { name: 'Aldric', prev: { health: 4, stamina: 10 }, updated: { health: 0, stamina: 10 } } },
+    };
+    expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
+  });
+
   it('accepts a well-formed createdCharacter fact (the M7.3 confirm result, DC-M7.3.7)', () => {
     const envelope = {
       v: PROTOCOL_VERSION, ok: true,
@@ -318,7 +326,7 @@ describe('validateGameResponse — valid envelopes', () => {
   });
 
   it('accepts every GameErrorCode', () => {
-    for (const code of ['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal']) {
+    for (const code of ['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal', 'divine-intervention']) {
       const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: false, error: { code, message: 'boom' } });
       expect(result).toEqual({ ok: true, response: { v: PROTOCOL_VERSION, ok: false, error: { code, message: 'boom' } } });
     }
@@ -502,6 +510,68 @@ describe('validateGameResponse — invalid envelopes', () => {
       const result = validateGameResponse({
         v: PROTOCOL_VERSION, ok: true,
         facts: { restUnsafe: { name: 'Werner', prev: { health: 10, stamina: 10 }, updated } },
+      });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a collapse fact that is not a plain object', () => {
+    for (const collapse of ['nope', 42, null, []]) {
+      const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts: { collapse } });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a collapse fact without exactly 3 keys', () => {
+    for (const collapse of [
+      { name: 'Aldric' }, // missing prev + updated
+      { name: 'Aldric', prev: { health: 10, stamina: 10 } }, // missing updated
+      { name: 'Aldric', prev: { health: 10, stamina: 10 }, updated: { health: 10, stamina: 10 }, extra: 1 },
+    ]) {
+      const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts: { collapse } });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a collapse fact with a missing, empty, or wrong-typed name', () => {
+    for (const name of [undefined, '', 42]) {
+      const result = validateGameResponse({
+        v: PROTOCOL_VERSION, ok: true,
+        facts: { collapse: { name, prev: { health: 10, stamina: 10 }, updated: { health: 10, stamina: 10 } } },
+      });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a malformed collapse prev', () => {
+    for (const prev of [
+      undefined, // missing
+      'nope',
+      { health: 10 }, // missing stamina
+      { health: -1, stamina: 10 }, // negative health
+      { health: 10, stamina: 1.5 }, // non-integer stamina
+      { health: 10, stamina: 10, extra: 1 }, // extra key
+    ]) {
+      const result = validateGameResponse({
+        v: PROTOCOL_VERSION, ok: true,
+        facts: { collapse: { name: 'Aldric', prev, updated: { health: 10, stamina: 10 } } },
+      });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a malformed collapse updated', () => {
+    for (const updated of [
+      undefined, // missing
+      'nope',
+      { health: 10 }, // missing stamina
+      { health: -1, stamina: 10 }, // negative health
+      { health: 10, stamina: 1.5 }, // non-integer stamina
+      { health: 10, stamina: 10, extra: 1 }, // extra key
+    ]) {
+      const result = validateGameResponse({
+        v: PROTOCOL_VERSION, ok: true,
+        facts: { collapse: { name: 'Aldric', prev: { health: 10, stamina: 10 }, updated } },
       });
       expect(result).toEqual({ ok: false, message: expect.any(String) });
     }

@@ -18,8 +18,11 @@ export type GameEvent =
   | { type: 'dayjob.start'; playerId: string; jobIndex: number }
   | { type: 'action.custom'; playerId: string; text: string }
   | { type: 'action.choose'; playerId: string; selector: { kind: 'option'; index: number } | { kind: 'bail' } }
-  | { type: 'feedback.submit'; playerId: string; surface: 'sleep' | 'release' | 'outcome-feedback'; text: string; actionId?: number }
-  | { type: 'bug.submit'; playerId: string; text: string; actionId?: number }
+  // M9.1 (DC-M9.5): 'slash-feedback' is the /feedback slash command's surface; bug.submit
+  // gains an OPTIONAL surface ('outcome-bug' | 'slash-bug') so today's caller (which sends
+  // no surface at all) is unaffected — absent means the existing 'outcome-bug' default.
+  | { type: 'feedback.submit'; playerId: string; surface: 'sleep' | 'release' | 'outcome-feedback' | 'slash-feedback'; text: string; actionId?: number }
+  | { type: 'bug.submit'; playerId: string; surface?: 'outcome-bug' | 'slash-bug'; text: string; actionId?: number }
   | { type: 'rest.begin'; playerId: string }
   | { type: 'hi.open'; playerId: string }
   | { type: 'join.open'; playerId: string }
@@ -112,8 +115,14 @@ export function validateGameEvent(raw: unknown): { ok: true; event: GameEvent } 
     case 'bug.submit': {
       if (!isNonEmptyString(raw.text)) return { ok: false, message: 'text must be a non-empty string' };
       if (raw.type === 'feedback.submit'
-        && raw.surface !== 'sleep' && raw.surface !== 'release' && raw.surface !== 'outcome-feedback') {
-        return { ok: false, message: "surface must be one of 'sleep' | 'release' | 'outcome-feedback'" };
+        && raw.surface !== 'sleep' && raw.surface !== 'release' && raw.surface !== 'outcome-feedback' && raw.surface !== 'slash-feedback') {
+        return { ok: false, message: "surface must be one of 'sleep' | 'release' | 'outcome-feedback' | 'slash-feedback'" };
+      }
+      // bug.submit's surface is OPTIONAL — absent stays valid (today's caller); present but
+      // not one of the two members is malformed.
+      if (raw.type === 'bug.submit' && raw.surface !== undefined
+        && raw.surface !== 'outcome-bug' && raw.surface !== 'slash-bug') {
+        return { ok: false, message: "surface must be one of 'outcome-bug' | 'slash-bug' when present" };
       }
       if (raw.actionId !== undefined && !isPositiveInteger(raw.actionId)) {
         return { ok: false, message: 'actionId must be a positive integer when present' };

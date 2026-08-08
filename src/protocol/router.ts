@@ -233,7 +233,7 @@ export class GameRouter {
         case 'feedback.submit':
           return await this.dispatchFeedback(e.surface, e.playerId, e.text, e.actionId);
         case 'bug.submit':
-          return await this.dispatchFeedback('outcome-bug', e.playerId, e.text, e.actionId);
+          return await this.dispatchFeedback(e.surface ?? 'outcome-bug', e.playerId, e.text, e.actionId);
         case 'rest.begin':
           return this.dispatchRestBegin(e);
         case 'hi.open':
@@ -382,14 +382,20 @@ export class GameRouter {
 
   /** feedback.submit/bug.submit: reply-first best-effort (today's resilience) — the
    *  confirmation envelope is returned regardless of the persist's fate; a throwing
-   *  recordFeedback is console.error-logged, never surfaced. bug.submit maps to the
-   *  controller's 'outcome-bug' surface (DC-P2). */
+   *  recordFeedback is console.error-logged, never surfaced. bug.submit defaults to the
+   *  controller's 'outcome-bug' surface when absent (DC-P2). The two slash surfaces are the
+   *  one exception to reply-first (DC-M9.5, M9.1): `/feedback` and `/bug` guard on a
+   *  character today, so this guard preserves that — the other four surfaces are untouched,
+   *  no extra `getCharacter` read on their path. */
   private dispatchFeedback(
     surface: FeedbackSurface,
     playerId: string,
     text: string,
     actionId: number | undefined,
   ): GameResponse {
+    if ((surface === 'slash-feedback' || surface === 'slash-bug') && this.backend.getCharacter(playerId) === null) {
+      return this.error('no-character', NO_CHARACTER_COPY);
+    }
     const view = this.backend.feedbackConfirmation(surface);
     try {
       this.backend.recordFeedback(surface, playerId, text, actionId);
@@ -653,21 +659,29 @@ export class GameRouter {
         // and the validator rejects empty error.message — mirror the controller's own
         // resume-stale fallback. Copy-only on a dead edge.
         return this.error('empty-action', result.prompt || 'Could not recover.');
+      case 'divine':
+        // DC-M9.3: same dead-edge shape as empty-action above — the engine's divine
+        // outcomeText is never empty; the fallback exists only because the validator
+        // rejects an empty error.message. Copy-only on a dead edge.
+        return this.error('divine-intervention', result.text || 'Your roll has been refunded.');
       case 'decision':
         return { v: PROTOCOL_VERSION, ok: true, view: result.view, facts: this.addCharacterFacts(userId) };
     }
   }
 
   /** Outcome facts (DC-P1 whitelist): dayjob.start/action.custom outcomes carry
-   *  { distilledType, characterName, actionId?, nav }; action.choose adds characterClass
-   *  (only its result carries it). `nav` is the exact three fields getNavButtons reads,
-   *  from the result's post-action char — omitted when the char is gone. */
+   *  { distilledType, characterName, actionId?, nav, collapse }; action.choose adds
+   *  characterClass (only its result carries it). `nav` is the exact three fields
+   *  getNavButtons reads; `collapse` (DC-M9.2) is the pre/post vitals `announceCollapse`
+   *  needs, from the result's `prevChar`/post-action `char` — both omitted when the char
+   *  is gone (a null `next` makes `collapseNotice` a no-op, so omitting is lossless). */
   private outcomeFacts(result: {
     distilledType: string;
     characterName: string;
     actionId?: number;
     characterClass?: string | null;
     char: CharacterData | null;
+    prevChar: CharacterData;
   }): Record<string, unknown> {
     const facts: Record<string, unknown> = {
       distilledType: result.distilledType,
@@ -680,6 +694,11 @@ export class GameRouter {
         rollsRemaining: result.char.rollsRemaining,
         hasPendingAction: result.char.lastActionState !== null,
         hasRestedToday: result.char.hasRestedToday ?? false,
+      };
+      facts.collapse = {
+        name: result.char.name,
+        prev: { health: result.prevChar.health, stamina: result.prevChar.stamina },
+        updated: { health: result.char.health, stamina: result.char.stamina },
       };
     }
     return facts;

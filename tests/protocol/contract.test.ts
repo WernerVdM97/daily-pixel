@@ -147,6 +147,26 @@ const DECISION_WORK: Parameters<MockWorldEngine['setStartActionResult']>[0] = {
   actionType: 'other',
 };
 
+// M9.1 (DC-M9.3) — a refunded divine-intervention roll: no mutations, no actionId written
+// (the engine never persists an action row on this path).
+const DIVINE_TEXT = 'The warden intervenes — your roll is refunded.';
+
+/** startAction → refunded divine intervention (work kind, day-job flow). */
+const DIVINE_WORK: Parameters<MockWorldEngine['setStartActionResult']>[0] = {
+  state: { rawInput: 'Walk the rounds', decisions: [], accumulatedDc: 11, kind: 'work', wage: 5 },
+  firstDecision: { prompt: '', options: [] },
+  outcome: { ...RESOLVED_OUTCOME, actionId: undefined, mutations: [], outcomeText: DIVINE_TEXT, isDivineIntervention: true },
+  actionType: 'other',
+};
+
+/** startAction → refunded divine intervention (quest kind, custom-action flow). */
+const DIVINE_START: Parameters<MockWorldEngine['setStartActionResult']>[0] = {
+  state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 11, kind: 'quest' },
+  firstDecision: { prompt: '', options: [] },
+  outcome: { ...RESOLVED_OUTCOME, actionId: undefined, mutations: [], outcomeText: DIVINE_TEXT, isDivineIntervention: true },
+  actionType: 'search',
+};
+
 /** startAction → stops on a first decision (quest kind, for the custom-action flow). */
 const DECISION_QUEST: Parameters<MockWorldEngine['setStartActionResult']>[0] = {
   state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 10, kind: 'quest' },
@@ -493,6 +513,8 @@ const ACTION_CHOOSE = { type: 'action.choose' as const, playerId: USER, selector
 const ACTION_BAIL = { type: 'action.choose' as const, playerId: USER, selector: { kind: 'bail' } };
 const FEEDBACK = (surface: string, actionId?: number): unknown => ({ type: 'feedback.submit', playerId: USER, surface, text: 'loving the atmosphere', actionId });
 const BUG = (actionId?: number): unknown => ({ type: 'bug.submit', playerId: USER, text: 'the door is stuck', actionId });
+// M9.1 (DC-M9.5): bug.submit's optional surface — 'slash-bug' rides the same event shape.
+const BUG_SURFACE = (surface: string, actionId?: number): unknown => ({ type: 'bug.submit', playerId: USER, surface, text: 'the door is stuck', actionId });
 const REST_BEGIN = { type: 'rest.begin' as const, playerId: USER };
 const HI_OPEN = { type: 'hi.open' as const, playerId: USER };
 const JOIN_OPEN = { type: 'join.open' as const, playerId: USER };
@@ -1220,7 +1242,10 @@ runCaseBlock('conformance — dayjob.start', [
     stub: () => stubRouter((s) => {
       s.dayJobResult = { kind: 'ok', workplace: 'The Town Gate', workPrompt: 'Walk the rounds — The wall is quiet tonight.', wage: 5 };
       s.commuteResult = { kind: 'commuted', destination: 'The Town Gate' };
-      s.workResult = STUB_OUTCOME;
+      // Observably equivalent to the real backend's commute-then-work re-read (DC-P7): the
+      // commute above costs 1 stamina, so both prevChar and char reflect it — STUB_OUTCOME's
+      // plain stubChar wouldn't (it never models the commute mutation).
+      s.workResult = { ...STUB_OUTCOME, prevChar: { ...stubChar, stamina: 9 }, char: { ...stubChar, stamina: 9 } };
     }),
     assert: (o) => {
       expectOkView(o.response, 'outcome');
@@ -1242,6 +1267,15 @@ runCaseBlock('conformance — dayjob.start', [
       expect(Object.keys(o.response.facts?.characterState ?? {}).sort()).toEqual(
         ['health', 'location', 'maxHealth', 'maxStamina', 'stamina', 'wealth'],
       );
+      // collapse (DC-M9.2) — rides every outcome envelope with a post-action char. `prevChar`
+      // is read in `runWork` AFTER `commuteForWork` already applied the commute's stamina
+      // cost (9, per the canned commute result above) — the mock never mutates vitals beyond
+      // that, so prev === updated on this path.
+      expect(o.response.facts?.collapse).toEqual({
+        name: 'Aldric',
+        prev: { health: 10, stamina: 9 },
+        updated: { health: 10, stamina: 9 },
+      });
       expect(o.beats).toHaveLength(2);
       expect(okView(o.beats[0])).toMatchObject({ screen: 'loading', body: `⏳ **Starting…**\n_${IDLE}_` });
       expect(okView(o.beats[1])).toEqual({ screen: 'commute', destination: 'The Town Gate', idle: IDLE });
@@ -1263,6 +1297,29 @@ runCaseBlock('conformance — dayjob.start', [
     }),
     assert: (o) => {
       expectOkView(o.response, 'decision');
+      expect(o.beats).toHaveLength(1);
+      expect(okView(o.beats[0])).toMatchObject({ screen: 'loading' });
+    },
+  },
+  {
+    // M9.1 (DC-M9.3): the divine arm crosses as an error envelope on a tenth code, ahead of
+    // the outcome branch — the loading beat still fires (it precedes runWork), but there is
+    // no commute beat and no outcome view; assert what actually happens, not `[]`.
+    name: 'divine intervention → divine-intervention error after the loading beat only',
+    event: DAYJOB_START(0),
+    real: () => {
+      const engine = realChar();
+      engine.setCommuteResult(null);
+      engine.setStartActionResult(DIVINE_WORK);
+      return realRouter(engine);
+    },
+    stub: () => stubRouter((s) => {
+      s.dayJobResult = { kind: 'ok', workplace: 'The Town Gate', workPrompt: 'p', wage: 5 };
+      s.commuteResult = { kind: 'none' };
+      s.workResult = { kind: 'divine', text: DIVINE_TEXT };
+    }),
+    assert: (o) => {
+      expectError(o.response, 'divine-intervention', DIVINE_TEXT);
       expect(o.beats).toHaveLength(1);
       expect(okView(o.beats[0])).toMatchObject({ screen: 'loading' });
     },
@@ -1406,6 +1463,32 @@ runCaseBlock('conformance — action.custom', [
       expect(Object.keys(o.response.facts?.characterState ?? {}).sort()).toEqual(
         ['health', 'location', 'maxHealth', 'maxStamina', 'stamina', 'wealth'],
       );
+      // collapse (DC-M9.2) — see the dayjob.start case's note on prev === updated.
+      expect(o.response.facts?.collapse).toEqual({
+        name: 'Aldric',
+        prev: { health: 10, stamina: 10 },
+        updated: { health: 10, stamina: 10 },
+      });
+    },
+  },
+  {
+    // M9.1 (DC-M9.3): same tenth-code crossing as dayjob.start above — the thinking beat
+    // still fires (it precedes runCustomAction), but there is no outcome view.
+    name: 'divine intervention → divine-intervention error after the thinking beat only',
+    event: ACTION_CUSTOM,
+    real: () => {
+      const engine = realChar();
+      engine.setStartActionResult(DIVINE_START);
+      return realRouter(engine);
+    },
+    stub: () => stubRouter((s) => {
+      s.customResult = { kind: 'start' };
+      s.customWorkResult = { kind: 'divine', text: DIVINE_TEXT };
+    }),
+    assert: (o) => {
+      expectError(o.response, 'divine-intervention', DIVINE_TEXT);
+      expect(o.beats).toHaveLength(1);
+      expect(okView(o.beats[0])).toEqual({ screen: 'loading', body: `**You:** scout the ridge\n\n⏳ **Thinking…**\n_${IDLE}_` });
     },
   },
   {
@@ -1517,6 +1600,12 @@ runCaseBlock('conformance — action.choose', [
       expect(Object.keys(o.response.facts?.characterState ?? {}).sort()).toEqual(
         ['health', 'location', 'maxHealth', 'maxStamina', 'stamina', 'wealth'],
       );
+      // collapse (DC-M9.2) — see the dayjob.start case's note on prev === updated.
+      expect(o.response.facts?.collapse).toEqual({
+        name: 'Aldric',
+        prev: { health: 10, stamina: 10 },
+        updated: { health: 10, stamina: 10 },
+      });
     },
   },
   {
@@ -1555,6 +1644,26 @@ runCaseBlock('conformance — action.choose', [
     assert: (o) => expectInternal(o.response),
   },
 ]);
+
+// ── collapse (DC-M9.2) — absent when the post-action char is null. Stub-only: the real
+// MockWorldEngine cannot produce a resolved outcome with no post-action character (the
+// M9.0 execution-state note records reaching this as characterising a concurrent-deletion
+// state the mock cannot script, not a coverage gap). ──
+
+describe('collapse fact (DC-M9.2) — negative space', () => {
+  it('action.choose outcome with a null post-action char → no collapse fact (and no nav — addCharacterFacts sees the same gone character)', async () => {
+    const stub = new StubBackend();
+    stub.choiceResult = { kind: 'ok', character: stubChar };
+    stub.resolveResult = 'Advance carefully';
+    stub.stepResult = { ...STUB_STEP_OUTCOME, char: null };
+    stub.character = null;
+    const o = await drive(new GameRouter(stub, { idle: () => IDLE }), ACTION_CHOOSE);
+    expectOkView(o.response, 'outcome');
+    if (!o.response.ok) throw new Error('unreachable');
+    expect(o.response.facts?.collapse).toBeUndefined();
+    expect(o.response.facts?.nav).toBeUndefined();
+  });
+});
 
 // ── feedback.submit / bug.submit (reply-first best-effort) ──
 
@@ -1598,6 +1707,27 @@ runCaseBlock('conformance — feedback.submit', [
     stub: () => stubRouter((s) => { s.confirmationResult = noticeView; }),
     assert: (o) => expectOkView(o.response, 'notice'),
   },
+  {
+    // DC-M9.5: the /feedback slash surface — same confirmation copy as 'sleep', but see the
+    // next case: unlike the other four surfaces, a charless slash surface does NOT reply-first.
+    name: 'slash-feedback surface → the same confirmation notice as sleep',
+    event: FEEDBACK('slash-feedback'),
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => { s.confirmationResult = noticeView; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice');
+      expect((view as NoticeViewState).text).toBe('🙏 Thanks. The warden listens.');
+    },
+  },
+  {
+    // DC-M9.5: the router guards the two slash surfaces on a character (matching
+    // commands/feedback.ts today) — the recorded "yet"→"first" unification.
+    name: 'slash-feedback with no character → no-character error, NOT the confirmation notice',
+    event: FEEDBACK('slash-feedback'),
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter((s) => { s.character = null; }),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
+  },
 ]);
 
 runCaseBlock('conformance — bug.submit', [
@@ -1621,6 +1751,28 @@ runCaseBlock('conformance — bug.submit', [
       s.confirmationResult = { screen: 'notice', text: '🐛 Bug noted. The warden will investigate.', ephemeral: true };
     }),
     assert: (o) => expectOkView(o.response, 'notice'),
+  },
+  {
+    // DC-M9.5: the /bug slash surface — same confirmation copy as the outcome surface.
+    name: 'slash-bug surface → the same confirmation notice as outcome-bug',
+    event: BUG_SURFACE('slash-bug'),
+    real: () => realRouter(realChar()),
+    stub: () => stubRouter((s) => {
+      s.confirmationResult = { screen: 'notice', text: '🐛 Bug noted. The warden will investigate.', ephemeral: true };
+    }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice');
+      expect((view as NoticeViewState).text).toBe('🐛 Bug noted. The warden will investigate.');
+    },
+  },
+  {
+    // DC-M9.5: unlike bare bug.submit (no surface, reply-first), the slash-bug surface
+    // guards on a character — matching commands/bug.ts today.
+    name: 'slash-bug with no character → no-character error, NOT the confirmation notice',
+    event: BUG_SURFACE('slash-bug'),
+    real: () => realRouter(new MockWorldEngine()),
+    stub: () => stubRouter((s) => { s.character = null; }),
+    assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_COPY); expect(o.beats).toEqual([]); },
   },
 ]);
 
@@ -1684,6 +1836,19 @@ describe('flow order (DC-P6) — the stub call log pins each leaf order', () => 
     await drive(new GameRouter(stub, { idle: () => IDLE }), BUG(7));
     expect(stub.confirmationSurfaces).toEqual(['outcome-bug']);
     expect(stub.feedbackLog).toEqual([{ surface: 'outcome-bug', userId: USER, text: 'the door is stuck', actionId: 7 }]);
+  });
+
+  it('feedback.submit slash-feedback: feedbackConfirmation → recordFeedback (the getCharacter guard is a stub no-log read)', async () => {
+    const stub = new StubBackend();
+    await drive(new GameRouter(stub, { idle: () => IDLE }), FEEDBACK('slash-feedback'));
+    expect(stub.calls).toEqual(['feedbackConfirmation', 'recordFeedback']);
+  });
+
+  it('bug.submit routes the slash-bug surface through the controller', async () => {
+    const stub = new StubBackend();
+    await drive(new GameRouter(stub, { idle: () => IDLE }), BUG_SURFACE('slash-bug'));
+    expect(stub.confirmationSurfaces).toEqual(['slash-bug']);
+    expect(stub.feedbackLog).toEqual([{ surface: 'slash-bug', userId: USER, text: 'the door is stuck', actionId: undefined }]);
   });
 
   it('rest.begin: beginRest is the only backend call (the character snapshot read is a stub no-log read, pinned by the facts assertions)', async () => {
@@ -2145,6 +2310,28 @@ describe('real backend — feedback/bug persist routing', () => {
     expect(engine.calls.submitFeedback).toEqual([]);
     expect(engine.calls.submitBug).toEqual([]);
   });
+
+  it('feedback.submit slash-feedback → submitFeedback with no actionId (DC-M9.5, same routing as sleep/release)', async () => {
+    const engine = realChar();
+    await drive(realRouter(engine), FEEDBACK('slash-feedback'));
+    expect(engine.calls.submitFeedback).toEqual([{ characterId: 1, text: 'loving the atmosphere', actionId: undefined }]);
+    expect(engine.calls.submitBug).toEqual([]);
+  });
+
+  it('bug.submit slash-bug → submitBug with no actionId (DC-M9.5, matching commands/bug.ts today)', async () => {
+    const engine = realChar();
+    await drive(realRouter(engine), BUG_SURFACE('slash-bug'));
+    expect(engine.calls.submitBug).toEqual([{ characterId: 1, text: 'the door is stuck', actionId: undefined }]);
+    expect(engine.calls.submitFeedback).toEqual([]);
+  });
+
+  it('slash-feedback/slash-bug with no character → the router guards BEFORE any engine call (DC-M9.5, unlike the other surfaces)', async () => {
+    const engine = new MockWorldEngine();
+    await drive(realRouter(engine), FEEDBACK('slash-feedback'));
+    await drive(realRouter(engine), BUG_SURFACE('slash-bug'));
+    expect(engine.calls.submitFeedback).toEqual([]);
+    expect(engine.calls.submitBug).toEqual([]);
+  });
 });
 
 // ── Barrier summary: one dispatch per reachable error code and per ViewState variant,
@@ -2189,8 +2376,13 @@ describe('barrier coverage (M5.1 checklist)', () => {
 
     codes.add(errorCodeOf(await drive(realRouter(realChar()), DAYJOB_START(0)))); // internal — startAction throws
 
+    const divineEngine = realChar();
+    divineEngine.setCommuteResult(null);
+    divineEngine.setStartActionResult(DIVINE_WORK);
+    codes.add(errorCodeOf(await drive(realRouter(divineEngine), DAYJOB_START(0)))); // divine-intervention
+
     expect([...codes].sort()).toEqual([
-      'empty-action', 'illegal-move', 'internal', 'invalid-event',
+      'divine-intervention', 'empty-action', 'illegal-move', 'internal', 'invalid-event',
       'no-character', 'no-rolls', 'session-expired', 'stale-session', 'unsafe',
     ]);
   });

@@ -23,7 +23,10 @@ import { composeJournalScreen } from './journalScreen.js';
 import { composeHelpScreen } from './helpScreen.js';
 import type { WizardSession, WizardState } from '../discord/WizardSession.js';
 
-export type FeedbackSurface = 'sleep' | 'release' | 'outcome-feedback' | 'outcome-bug';
+// M9.1 (DC-M9.5): 'slash-feedback'/'slash-bug' are the /feedback and /bug slash commands'
+// surfaces — same persist routing and confirmation copy as their outcome siblings, guarded
+// on a character in the router (dispatchFeedback) rather than here.
+export type FeedbackSurface = 'sleep' | 'release' | 'outcome-feedback' | 'outcome-bug' | 'slash-feedback' | 'slash-bug';
 
 /** Outcome of the `getCharacter` guard the pre-M3.2 button handler ran BEFORE deferring —
  *  split out from choice resolution (M3.2c) so the adapter can defer unconditionally right
@@ -146,7 +149,9 @@ export type DayJobStart =
 export type StartRenderResult =
   | { kind: 'outcome'; viewPrivate: OutcomeViewState; viewPublic: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; char: CharacterData; prevChar: CharacterData }
   | { kind: 'empty-action'; prompt: string }
-  | { kind: 'decision'; view: DecisionViewState };
+  | { kind: 'decision'; view: DecisionViewState }
+  // DC-M9.3: a refunded divine-intervention roll — a system fault, not a real outcome.
+  | { kind: 'divine'; text: string };
 
 /** Outcome of `beginCustomAction` — mirrors the pre-M3.5 `action:custom:modal` submit leaf's
  *  guard order exactly (char guard -> resume-in-progress -> start). No stale-empty-options
@@ -550,6 +555,12 @@ export class SessionController {
    *  result here. `getCurrentScene` is called ONCE per outcome, matching the original single
    *  call site. */
   private renderStartResult(userId: string, prevChar: CharacterData, result: ActionStartResult): StartRenderResult {
+    // Divine intervention is a system fault, not a real action outcome — return the distinct
+    // `divine` arm and stop, BEFORE the outcome branch below (which would otherwise repaint a
+    // refunded roll as a normal outcome and misreport it), mirroring action.ts:155-157's ordering.
+    if (result.outcome?.isDivineIntervention) {
+      return { kind: 'divine', text: result.outcome.outcomeText };
+    }
     if (result.outcome) {
       // Re-read AFTER startAction so the embed + nav reflect the spent roll and mutations —
       // `prevChar` is the pre-action snapshot, the before-baseline for announceCollapse.
@@ -583,21 +594,24 @@ export class SessionController {
    *  can be shown BEFORE the best-effort persist (preserving reply-first resilience). */
   feedbackConfirmation(surface: FeedbackSurface): NoticeViewState {
     const text =
-      surface === 'outcome-bug' ? '🐛 Bug noted. The warden will investigate.'
+      surface === 'outcome-bug' || surface === 'slash-bug' ? '🐛 Bug noted. The warden will investigate.'
       : surface === 'release'   ? '🙏 Noted. The warden carries your words forward.'
       : '🙏 Thanks. The warden listens.';
     return { screen: 'notice', text, ephemeral: true };
   }
 
   /** Best-effort persist. No character → no-op (matches the current `if (char)` guard). Passes an
-   *  actionId only for the outcome surfaces, matching each leaf's current arg count exactly. */
+   *  actionId only for the outcome surfaces, matching each leaf's current arg count exactly.
+   *  `slash-bug` mirrors `outcome-bug` minus the actionId — commands/bug.ts calls
+   *  `submitBug(character.id, interaction.text)` with no actionId today. */
   recordFeedback(surface: FeedbackSurface, userId: string, text: string, actionId?: number): void {
     const char = this.engine.getCharacter(userId);
     if (!char) return;
     switch (surface) {
       case 'outcome-bug': this.engine.submitBug(char.id, text, actionId); break;
+      case 'slash-bug': this.engine.submitBug(char.id, text); break;
       case 'outcome-feedback': this.engine.submitFeedback(char.id, text, actionId); break;
-      default: this.engine.submitFeedback(char.id, text); break; // sleep, release — no actionId
+      default: this.engine.submitFeedback(char.id, text); break; // sleep, release, slash-feedback — no actionId
     }
   }
 }

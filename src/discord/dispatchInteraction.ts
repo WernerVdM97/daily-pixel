@@ -386,6 +386,20 @@ export async function dispatchInteraction(
           ],
           components: [],
         });
+      } else if (run.kind === "divine") {
+        // DC-M9.3: a refunded roll is a system fault, not a real outcome — paint the
+        // distinct grey ⚠️ System embed (modelled on commands/action.ts:158-170) and stop,
+        // without broadcasting or announcing a collapse.
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("⚠️ System")
+              .setDescription(run.text)
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+          components: [],
+        });
       } else {
         await interaction.editReply(decisionViewToDiscord(run.view));
       }
@@ -609,6 +623,20 @@ export async function dispatchInteraction(
             new EmbedBuilder()
               .setTitle("⚔️ Action")
               .setDescription(run.prompt)
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+          components: [],
+        });
+      } else if (run.kind === "divine") {
+        // DC-M9.3: a refunded roll is a system fault, not a real outcome — paint the
+        // distinct grey ⚠️ System embed (modelled on commands/action.ts:158-170) and stop,
+        // without broadcasting or announcing a collapse.
+        await interaction.webhook.editMessage(interaction.message.id, {
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("⚠️ System")
+              .setDescription(run.text)
               .setColor(0x95a5a6)
               .toJSON(),
           ],

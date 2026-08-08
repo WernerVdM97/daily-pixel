@@ -535,6 +535,96 @@ exports[`dispatch oracle — customId branches > sleep:feedback:modal → thanks
 ]
 `;
 
+exports[`dispatch oracle — divine intervention (M9.1, DC-M9.3) > action:custom:modal → divine intervention paints the grey System embed, no broadcast 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** scout the northern ridge
+
+⏳ **Thinking…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "The warden intervenes — your roll is refunded.",
+          "title": "⚠️ System",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — divine intervention (M9.1, DC-M9.3) > action:dayjob:<n> → divine intervention paints the grey System embed, no broadcast 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You head to the Town Square.**  
+⚡ -1 stamina
+
+⏳ **Setting to work…**
+_The warden tends the fire._",
+          "title": "🚶 Daily Commute",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "The warden intervenes — your roll is refunded.",
+          "title": "⚠️ System",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
 exports[`dispatch oracle — nav: sub-branches > nav:<generic> (nav:hi) → renders the target screen with a nav bar 1`] = `
 [
   {
