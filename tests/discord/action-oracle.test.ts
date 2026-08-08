@@ -285,6 +285,7 @@ describe("action oracle — bare slash /action (day-job menu)", () => {
       "Use `/action <what you do>` to start an action.",
     );
     expect((reply.arg as any).flags).toBe(64);
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
@@ -336,6 +337,7 @@ describe("action oracle — slash /action <text> (new action)", () => {
     // Candidate churn class b (recon addendum): the router's action.custom clips at 280
     // chars; the slash arm today echoes the FULL description, uncut.
     expect((interstitial.arg as any).embeds[0].description).toContain(`**You:** ${LONG_DESCRIPTION}`);
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -364,6 +366,7 @@ describe("action oracle — slash /action <text> (new action)", () => {
     // the screen this settled call exists to stop M9.2 deleting.
     expect(broadcastOutcomeSpy).not.toHaveBeenCalled();
     expect(announceCollapseSpy).not.toHaveBeenCalled();
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -430,6 +433,7 @@ describe("action oracle — slash /action <text> (new action)", () => {
     expect(broadcastOutcomeSpy).toHaveBeenCalledTimes(1);
     // announceCollapse sits inside the SAME try as broadcastOutcome — a throw skips it too.
     expect(announceCollapseSpy).not.toHaveBeenCalled();
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -454,6 +458,7 @@ describe("action oracle — slash /action <text> (new action)", () => {
     // handler's inner try/catch around engine.startAction — it never escapes.
     expect(h.notifyAdmin).not.toHaveBeenCalled();
     expect(h.safeErrorReply).not.toHaveBeenCalled();
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
@@ -509,6 +514,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
       "You stand over scattered tracks, unsure which lead to trust.\n\nThe trail has gone cold. Continue?",
     );
     expect((edit.arg as any).components).toEqual([]);
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -531,6 +537,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
     // ('Could not recover.') — a second copy the M9.2 crossing must declare.
     expect((edit.arg as any).embeds[0].description).toBe("Your previous action could not be recovered.");
     expect((edit.arg as any).components).toEqual([]);
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -549,6 +556,8 @@ describe("action oracle — slash /action (mid-action resume)", () => {
       "❌ **Could not resume.**\nMockWorldEngine.resumeAction: no canned result set",
     );
     expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(h.safeErrorReply).not.toHaveBeenCalled();
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
