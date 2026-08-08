@@ -180,6 +180,22 @@ const DECISION_QUEST: Parameters<MockWorldEngine['setStartActionResult']>[0] = {
   actionType: 'other',
 };
 
+/** startAction → stops on a first decision, combat-classified, with a named enemy and a
+ *  banded re-entry condition (DC-M9.2.2's threading proof — see the standalone test below). */
+const DECISION_COMBAT: Parameters<MockWorldEngine['setStartActionResult']>[0] = {
+  state: { rawInput: 'confront the boar', decisions: [], accumulatedDc: 10, kind: 'quest' },
+  firstDecision: {
+    prompt: 'The boar snarls and lowers its tusks. What do you do?',
+    options: [
+      { label: 'Strike first', dcModifier: 0 },
+      { label: 'Hold your ground', dcModifier: 1 },
+    ],
+  },
+  actionType: 'combat',
+  combatEnemyName: 'Ironback Boar',
+  combatEnemyCondition: { woundWord: 'Bloodied', filled: 3, total: 5 },
+};
+
 /** stepAction → a continue-decision beat. */
 const NEXT_DECISION_STEP: Parameters<MockWorldEngine['setStepActionResult']>[0] = {
   resolved: false,
@@ -1193,9 +1209,32 @@ runCaseBlock('conformance — menu.open', [
     assert: (o) => { expectInternal(o.response); expect(o.beats).toEqual([]); },
   },
   {
-    name: 'backend throw → internal (real: unknown day job in composeActionMenu; stub: scripted throw)',
+    // M9.2 (DC-M9.2.3): composeActionMenu is now called TRIED inside openActionMenu — a
+    // throw (an unknown day job, on the real backend) no longer escapes as ok:false
+    // 'internal'; it returns the byte-identical day-job-name fallback copy
+    // (commands/action.ts:133's old inline text) as an ok:true notice.
+    name: 'composeActionMenu throws → ok:true, the day-job-name fallback notice (DC-M9.2.3)',
     event: MENU_OPEN,
     real: () => realRouter(realChar({ dayJob: 'Astronaut' })),
+    stub: () => stubRouter((s) => { s.menuResult = { kind: 'menu-fallback', text: '🔧 **Astronaut**\n\nUse `/action <what you do>` to start an action.' }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'notice') as NoticeViewState;
+      expect(view.text).toContain('Use `/action <what you do>` to start an action.');
+      expect(view.ephemeral).toBe(true);
+      expect(o.beats).toEqual([]);
+    },
+  },
+  {
+    // The genuinely-still-throwing arm: a backend failure OTHER than composeActionMenu's
+    // own try/catch (an engine read openActionMenu doesn't guard) still reaches the
+    // router's own outer catch → ok:false 'internal', exactly as before M9.2.
+    name: 'backend throw → internal (real: engine.getCharacter throws; stub: scripted throw)',
+    event: MENU_OPEN,
+    real: () => {
+      const engine = realChar();
+      vi.spyOn(engine, 'getCharacter').mockImplementation(() => { throw new Error('getCharacter boom'); });
+      return realRouter(engine);
+    },
     stub: () => stubRouter((s) => { s.menuResult = 'throw'; }),
     assert: (o) => { expectInternal(o.response); expect(o.beats).toEqual([]); },
   },
@@ -1411,6 +1450,16 @@ runCaseBlock('conformance — action.custom', [
     assert: (o) => { expectOkView(o.response, 'decision'); expect(o.beats).toEqual([]); },
   },
   {
+    // DC-M9.2 fix: the pre-port top guard (rollsRemaining <= 0 && !lastActionState) never
+    // crossed the seam — moved behind beginCustomAction. Precedes the loading beat, exactly
+    // like menu.open's own no-rolls arm above.
+    name: 'no-rolls, no pending action → the 🛌 copy, no beat',
+    event: ACTION_CUSTOM,
+    real: () => realRouter(realChar({ rollsRemaining: 0, lastActionState: null })),
+    stub: () => stubRouter((s) => { s.customResult = { kind: 'no-rolls' }; }),
+    assert: (o) => { expectError(o.response, 'no-rolls', NO_ROLLS_COPY); expect(o.beats).toEqual([]); },
+  },
+  {
     name: 'start → thinking beat, then a decision view',
     event: ACTION_CUSTOM,
     real: () => {
@@ -1520,6 +1569,30 @@ runCaseBlock('conformance — action.custom', [
     assert: (o) => expectInternal(o.response),
   },
 ]);
+
+// DC-M9.2.2 — the threading proof, real backend only (no stub arm: StubBackend never builds
+// a DecisionViewState through buildDecisionView, so it cannot exercise this loss). `actionType`,
+// `combatEnemyName` and `combatEnemyCondition` are consumed INSIDE buildDecisionView to select
+// and fill the opening frame, and only the rendered `openingFrame` string survives onto
+// DecisionViewState — so this is the only layer that can prove the fix, and every oracle
+// fixture arc-wide omits `actionType` deliberately (keeps the ANSI renderer out of dispatch-level
+// determinism scope), which is why the byte gate is structurally blind here. Before the
+// SessionController.ts:590 fix (args 6/7 missing from the buildDecisionView call), this fails:
+// the frame renders the "Unknown foe" / "?/?" placeholders instead of the real enemy.
+it('DC-M9.2.2 threading proof — action.custom\'s decision view carries the combat opening frame\'s enemy name + banded condition', async () => {
+  const engine = realChar();
+  engine.setStartActionResult(DECISION_COMBAT);
+  const router = realRouter(engine);
+  const response = await router.dispatch(ACTION_CUSTOM);
+  expect(response.ok).toBe(true);
+  if (!response.ok) throw new Error('unreachable');
+  const view = response.view as DecisionViewState;
+  expect(view.openingFrame).toBeDefined();
+  expect(view.openingFrame).toContain('Ironback Boar');
+  expect(view.openingFrame).toContain('Bloodied');
+  expect(view.openingFrame).not.toContain('Unknown foe');
+  expect(view.openingFrame).not.toContain('?/?');
+});
 
 // ── action.choose (DC-P6: beginChoice → resolveChoice → thinking beat → stepChoice) ──
 

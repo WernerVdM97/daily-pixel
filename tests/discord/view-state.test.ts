@@ -3,7 +3,7 @@ import { ButtonStyle, MessageFlags } from 'discord.js';
 import {
   buildDecisionView,
   buildOutcomeView,
-} from '../../src/discord/commands/action.js';
+} from '../../src/view/actionViewState.js';
 import { decisionViewToDiscord, noticeViewToDiscord, outcomeViewToDiscord } from '../../src/discord/viewToDiscord.js';
 import { distilledActionEmoji } from '../../src/engine/OutcomeRenderer.js';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';

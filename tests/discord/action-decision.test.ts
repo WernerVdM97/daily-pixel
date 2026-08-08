@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildDecisionMessage, buildOutcomeEmbed } from '../../src/discord/commands/action.js';
-import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
+import { buildDecisionView, buildOutcomeView } from '../../src/view/actionViewState.js';
+import { decisionViewToDiscord, outcomeViewToDiscord } from '../../src/discord/viewToDiscord.js';
+import type { ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType, WorldEngine } from '../../src/engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../src/engine/action/combat-dc.js';
 import { WorldEngineImpl } from '../../src/engine/WorldEngineImpl.js';
 import { MockPipelineGateway } from '../helpers/MockPipelineGateway.js';
@@ -13,6 +14,52 @@ import { ActionRepository } from '../../src/db/repositories/action.js';
 import { NpcRepository } from '../../src/db/repositories/npc.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * M9.2 (DC-M9.2.7): `buildDecisionMessage`/`buildOutcomeEmbed` are gone from
+ * `commands/action.ts` — genuinely dead after the port, since the router pre-builds views
+ * and the handler paints them directly via `decisionViewToDiscord`/`outcomeViewToDiscord`.
+ * Rehomed here as local wrappers over the pure builder + painter pair (byte-for-byte the
+ * same bodies the two production functions had) so every assertion below stays unchanged.
+ */
+function buildDecisionMessage(
+  decision: {
+    prompt: string;
+    narration?: string;
+    combatStatus?: CombatStatusData | string;
+    combatRounds?: CombatBeatLog[];
+    options: Array<{ label: string; dcModifier: number | null; stat?: string }>;
+  },
+  decisionIdx: number,
+  state?: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; narration?: string }>; accumulatedDc?: number; kind?: ActionKind },
+  char?: {
+    stats: { physical: number; wisdom: number; intelligence: number; charisma: number };
+    dayJob?: string;
+    name?: string;
+    health?: number;
+    maxHealth?: number;
+    location?: string;
+  },
+  actionType?: ClassifiedActionType,
+  combatEnemyName?: string,
+  combatEnemyCondition?: { woundWord: string; filled: number; total: number },
+) {
+  return decisionViewToDiscord(
+    buildDecisionView(decision, decisionIdx, state, char, actionType, combatEnemyName, combatEnemyCondition),
+  );
+}
+
+function buildOutcomeEmbed(
+  outcome: ActionOutcome,
+  character: CharacterData | null | undefined,
+  scene: string | null | undefined,
+  state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string; narration?: string }>; kind?: ActionKind },
+  opts?: { compact?: boolean },
+  engine?: WorldEngine,
+) {
+  return outcomeViewToDiscord(buildOutcomeView(outcome, character, scene, state, opts, engine));
+}
+
 function buttons(msg: ReturnType<typeof buildDecisionMessage>): any[] {
   return msg.components.flatMap((r: any) => r.components);
 }

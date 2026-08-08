@@ -855,6 +855,15 @@ export async function dispatchInteraction(
             });
             break;
           }
+          case "menu-fallback":
+            // DC-M9.2.3: composeActionMenu threw — the byte-identical day-job fallback
+            // copy (consistent with the ported slash handler's noticeViewToDiscord paint
+            // of this same arm). Without this case the switch silently drops the reply.
+            await interaction.reply({
+              content: result.text,
+              flags: MessageFlags.Ephemeral,
+            });
+            break;
         }
       } catch (err) {
         void notifyAdmin("Nav (action) failed", err);

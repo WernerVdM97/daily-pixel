@@ -24,6 +24,7 @@ import { makeHiCommand } from "../../src/discord/commands/hi.js";
 import { makeJoinCommand } from "../../src/discord/commands/join.js";
 import { makeActionCommand } from "../../src/discord/commands/action.js";
 import { GameRouter } from "../../src/protocol/router.js";
+import { randomIdleMessage } from "../../src/engine/IdleMessageSelector.js";
 
 /**
  * Faithful `DispatchDeps` construction for the golden-transcript oracle — mirrors
@@ -116,7 +117,7 @@ function withTextOption(
 export function buildRegistry(
   engine: MockWorldEngine,
   _joinWizards: WizardSession,
-  getCurrentScene: (userId: string) => string,
+  _getCurrentScene: (userId: string) => string,
   router: GameRouter,
 ): CommandRegistry {
   const registry = new CommandRegistry();
@@ -142,8 +143,8 @@ export function buildRegistry(
         : undefined;
     return mapCommand({ user: { id: cmd.user.id }, focus });
   });
-  registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
-  registry.register("bug", withTextOption(makeBugCommand(engine)));
+  registry.register("feedback", withTextOption(makeFeedbackCommand(router)));
+  registry.register("bug", withTextOption(makeBugCommand(router)));
   registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
   registry.register("hi", asHandler(makeHiCommand(router)));
   registry.register(
@@ -152,7 +153,7 @@ export function buildRegistry(
   );
   registry.register(
     "action",
-    asHandler(makeActionCommand(engine, getCurrentScene, DAY_JOBS)),
+    asHandler(makeActionCommand(router, engine)),
   );
 
   return registry;
@@ -185,10 +186,16 @@ export function makeHarness(): Harness {
   // are what the golden transcripts pin, never real art). Survives M8.1 or transcripts 1/3
   // churn beyond the planned five charless-nav snapshots.
   const controller = new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS, joinWizards, CHAR_DEFS, () => ({ sceneName: "test", ascii: "..." }));
-  // M7.1 (DC-M7.1.7): a GameRouter over the real controller (the same wiring main() uses)
-  // with a deterministic idle — the M7.0 transcripts keep passing UNCHANGED because
-  // MockWorldEngine.restAtOak replicates the new engine behaviour.
-  const router = new GameRouter(controller, { idle: () => "" });
+  // M7.1 (DC-M7.1.7): a GameRouter over the real controller (the same wiring main() uses).
+  // M9.2: idle is wired to the REAL randomIdleMessage (matching index.ts's own
+  // `{ idle: () => randomIdleMessage() }` exactly) rather than a fixed empty string — until
+  // the slash /action port, no dispatchInteraction-driven flow ever reached a router-level
+  // beat (dayjob.start/action.custom/action.choose all still call the controller directly
+  // from dispatchInteraction.ts), so the fixed `() => ""` had no observable effect. The
+  // slash `/action <text>` arm is the first to fire a router beat through this harness, and
+  // action-oracle.test.ts's IdleMessageSelector mock only lands on it if this calls the real
+  // (mockable) function — the M7.0 transcripts stay unaffected (no idle-bearing beat there).
+  const router = new GameRouter(controller, { idle: () => randomIdleMessage() });
   const registry = buildRegistry(engine, joinWizards, getCurrentScene, router);
   const notifyAdmin = vi.fn(async () => {});
   const safeErrorReply = vi.fn(async () => {});

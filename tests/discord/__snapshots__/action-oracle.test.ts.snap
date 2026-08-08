@@ -62,7 +62,7 @@ exports[`action oracle — /feedback + /bug > 16 · slash /feedback charless →
         {
           "components": [
             {
-              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "content": "You don't have a character. Type \`/join\` first.",
               "type": 10,
             },
           ],
@@ -138,7 +138,7 @@ exports[`action oracle — /feedback + /bug > 18 · slash /bug charless → the 
         {
           "components": [
             {
-              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "content": "You don't have a character. Type \`/join\` first.",
               "type": 10,
             },
           ],
@@ -318,7 +318,7 @@ exports[`action oracle — slash /action (mid-action resume) > 12 · mid-action 
       "embeds": [
         {
           "color": 9807270,
-          "description": "Your previous action could not be recovered.",
+          "description": "Could not recover.",
           "title": "⏳ Stale Action",
         },
       ],
@@ -361,7 +361,7 @@ exports[`action oracle — slash /action <text> (new action) > 5 · /action <tex
           "color": 9807270,
           "description": "**You:** scout the northern ridge
 
-⏳ **Starting…**
+⏳ **Thinking…**
 _The warden tends the fire._",
         },
       ],
@@ -426,9 +426,9 @@ exports[`action oracle — slash /action <text> (new action) > 6 · /action <tex
       "embeds": [
         {
           "color": 9807270,
-          "description": "**You:** I creep along the tree line at the edge of the northern ridge, watching the mist for any sign of movement, listening for hoofbeats or voices on the wind, and marking every game trail and broken branch that might tell me which way the herd has gone before the light fails and the cold sets in for the night.
+          "description": "**You:** I creep along the tree line at the edge of the northern ridge, watching the mist for any sign of movement, listening for hoofbeats or voices on the wind, and marking every game trail and broken branch that might tell me which way the herd has gone before the light fails and the…
 
-⏳ **Starting…**
+⏳ **Thinking…**
 _The warden tends the fire._",
         },
       ],
@@ -495,7 +495,7 @@ exports[`action oracle — slash /action <text> (new action) > 7 · /action <tex
           "color": 9807270,
           "description": "**You:** pray at the shrine
 
-⏳ **Starting…**
+⏳ **Thinking…**
 _The warden tends the fire._",
         },
       ],
@@ -533,7 +533,7 @@ exports[`action oracle — slash /action <text> (new action) > 8 · /action <tex
           "color": 9807270,
           "description": "**You:** scout the northern ridge
 
-⏳ **Starting…**
+⏳ **Thinking…**
 _The warden tends the fire._",
         },
       ],
@@ -641,7 +641,7 @@ exports[`action oracle — slash /action <text> (new action) > 9 · auto-finish 
           "color": 9807270,
           "description": "**You:** scout the northern ridge
 
-⏳ **Starting…**
+⏳ **Thinking…**
 _The warden tends the fire._",
         },
       ],
@@ -749,7 +749,7 @@ exports[`action oracle — slash /action <text> (new action) > 14 · /action <te
           "color": 9807270,
           "description": "**You:** scout the northern ridge
 
-⏳ **Starting…**
+⏳ **Thinking…**
 _The warden tends the fire._",
         },
       ],
@@ -760,6 +760,74 @@ _The warden tends the fire._",
     "arg": {
       "content": "❌ **Could not act.**
 MockWorldEngine.startAction: no canned result set",
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 19 · /action <text> with 0 rolls and no pending action → a single plain reply with the bare 🛌 copy (DC-M9.2 fix: the pre-port top guard moves behind beginCustomAction, deferred LAZILY so this guard rejection never pays for a defer), startAction never called, no stamp 1`] = `
+[
+  {
+    "arg": {
+      "content": "🛌 **Out of actions for today.**
+Rest by the Oak (\`/sleep\`) and try again tomorrow.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 20 · /action <text> while mid-action → resumes: deferReply then editReply, the decision at decisionIdx = state.decisions.length (DC-M9.2 fix: the resume arm has no beat, so the defer rides the late/decision-view branch, not the eager pre-restructure defer) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:1:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:choice:1:1",
+              "emoji": undefined,
+              "label": "B",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🧭 **Quest:** scout the northern ridge
+
+↪ **Advance carefully**
+
+> A shadow shifts ahead. Press on?
+
+**A.** Push forward ⬆️
+**B.** Fall back",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Decision 2",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
     },
     "method": "editReply",
   },

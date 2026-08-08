@@ -228,9 +228,9 @@ describe("action oracle — slash /action guards + gate", () => {
     );
     expect((reply.arg as any).flags).toBe(64); // MessageFlags.Ephemeral
     expect((reply.arg as any).components).toBeUndefined();
-    // The no-stamp property (M9.0 settled call 2): the handler replies inside itself, so
-    // the dispatcher's post-handler `interaction.replied` early-return skips stampLastPlayed.
-    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    // DC-M9.2.4 class 3 (inverted from M9.0): the router's menu.open flow stamps FIRST on
+    // EVERY arm, including this guard rejection — a call-log change the byte gate can't see.
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
@@ -256,9 +256,9 @@ describe("action oracle — bare slash /action (day-job menu)", () => {
     const buttons = (reply.arg as any).components[0].components as Array<{ custom_id: string; label: string }>;
     expect(buttons).toHaveLength(4); // 3 seeded day-job actions + Custom…
     expect(buttons.at(-1)).toMatchObject({ custom_id: "action:dayjob:custom", label: "Custom…" });
-    // Candidate churn class c (recon addendum): bare /action does NOT stamp today —
-    // DC-P6's menu.open flow order will add a stampLastPlayed the router performs.
-    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    // DC-M9.2.4 class 3 (inverted from M9.0's candidate churn class c): DC-P6's menu.open
+    // flow order stamps FIRST, before the menu branch even runs.
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -285,7 +285,8 @@ describe("action oracle — bare slash /action (day-job menu)", () => {
       "Use `/action <what you do>` to start an action.",
     );
     expect((reply.arg as any).flags).toBe(64);
-    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    // DC-M9.2.4 class 3: stampLastPlayed fires first, before the fallback-composing attempt.
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
@@ -308,8 +309,9 @@ describe("action oracle — slash /action <text> (new action)", () => {
     const methods = _acks.map((a) => a.method);
     expect(methods).toEqual(["deferReply", "editReply", "editReply"]);
     const interstitial = _acks[1];
+    // DC-M9.2.4 class 1: the router's action.custom beat copy is "Thinking…", not "Starting…".
     expect((interstitial.arg as any).embeds[0].description).toBe(
-      "**You:** scout the northern ridge\n\n⏳ **Starting…**\n_The warden tends the fire._",
+      "**You:** scout the northern ridge\n\n⏳ **Thinking…**\n_The warden tends the fire._",
     );
     const decisionEdit = _acks[2];
     expect((decisionEdit.arg as any).embeds[0].description).toContain(
@@ -334,9 +336,13 @@ describe("action oracle — slash /action <text> (new action)", () => {
 
     nonEmpty(_acks);
     const interstitial = _acks.find((a) => a.method === "editReply")!;
-    // Candidate churn class b (recon addendum): the router's action.custom clips at 280
-    // chars; the slash arm today echoes the FULL description, uncut.
-    expect((interstitial.arg as any).embeds[0].description).toContain(`**You:** ${LONG_DESCRIPTION}`);
+    // DC-M9.2.4 class 2: the router's action.custom clips the ECHOED interstitial text at
+    // 280 chars — the slash arm echoed it uncut before the port. The unclipped text still
+    // reaches the engine (asserted below via startAction's own call log).
+    const clipped = `${LONG_DESCRIPTION.slice(0, 279).trimEnd()}…`;
+    expect((interstitial.arg as any).embeds[0].description).toContain(`**You:** ${clipped}`);
+    expect((interstitial.arg as any).embeds[0].description).not.toContain(LONG_DESCRIPTION);
+    expect(h.engine.calls.startAction[0].rawInput).toBe(LONG_DESCRIPTION);
     expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
@@ -461,6 +467,56 @@ describe("action oracle — slash /action <text> (new action)", () => {
     expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
+
+  it("19 · /action <text> with 0 rolls and no pending action → a single plain reply with the bare 🛌 copy (DC-M9.2 fix: the pre-port top guard moves behind beginCustomAction, deferred LAZILY so this guard rejection never pays for a defer), startAction never called, no stamp", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(oracleChar({ rollsRemaining: 0, lastActionState: null }));
+    const { intr, _acks } = slashInteraction("action-19-norolls-text", "action", {
+      description: "scout the northern ridge",
+    });
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    // The guard rejection returns before any router beat fires, so the lazy-defer never
+    // triggers — a single plain ephemeral reply, matching transcript 2's bare-/action
+    // ack shape exactly (no ❌ prefix, no defer-then-edit round trip).
+    const methods = _acks.map((a) => a.method);
+    expect(methods).toEqual(["reply"]);
+    const reply = _acks[0];
+    expect((reply.arg as any).content).toBe(
+      "🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.",
+    );
+    expect((reply.arg as any).flags).toBe(64); // MessageFlags.Ephemeral
+    expect(h.engine.calls.startAction.length).toBe(0);
+    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("20 · /action <text> while mid-action → resumes: deferReply then editReply, the decision at decisionIdx = state.decisions.length (DC-M9.2 fix: the resume arm has no beat, so the defer rides the late/decision-view branch, not the eager pre-restructure defer)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(
+      oracleChar({
+        lastActionState: { rawInput: "scout the northern ridge", decisions: [{}], accumulatedDc: 11 },
+      }),
+    );
+    h.engine.setResumeResult(RESUME_DECISION_RESULT);
+    const { intr, _acks } = slashInteraction("action-20-resume-text", "action", {
+      description: "keep scouting",
+    });
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    expect(h.engine.calls.resumeAction).toEqual([1]);
+    expect(h.engine.calls.startAction.length).toBe(0);
+    const methods = _acks.map((a) => a.method);
+    expect(methods).toEqual(["deferReply", "editReply"]);
+    const edit = _acks.at(-1)!;
+    expect((edit.arg as any).embeds[0].description).toContain("A shadow shifts ahead. Press on?");
+    expect(rawIds((edit.arg as any).components)).toEqual(["action:choice:1:0", "action:choice:1:1"]);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
 });
 
 describe("action oracle — slash /action (mid-action resume)", () => {
@@ -485,7 +541,8 @@ describe("action oracle — slash /action (mid-action resume)", () => {
     expect((edit.arg as any).embeds[0].description).toContain("A shadow shifts ahead. Press on?");
     // decisionIdx = state.decisions.length (1, from RESUME_DECISION_RESULT's one prior record).
     expect(rawIds((edit.arg as any).components)).toEqual(["action:choice:1:0", "action:choice:1:1"]);
-    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    // DC-M9.2.4 class 3: menu.open stamps first, on this resume arm too.
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -514,7 +571,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
       "You stand over scattered tracks, unsure which lead to trust.\n\nThe trail has gone cold. Continue?",
     );
     expect((edit.arg as any).components).toEqual([]);
-    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -533,11 +590,12 @@ describe("action oracle — slash /action (mid-action resume)", () => {
 
     nonEmpty(_acks);
     const edit = _acks.at(-1)!;
-    // The M5 watch item: this handler's own fallback differs from the router's
-    // ('Could not recover.') — a second copy the M9.2 crossing must declare.
-    expect((edit.arg as any).embeds[0].description).toBe("Your previous action could not be recovered.");
+    // DC-M9.2.4 class 5 (the M5 watch item, now settled): the handler's own
+    // "Your previous action could not be recovered." fallback unifies onto the
+    // controller's "Could not recover." — a copy unification on a dead edge.
+    expect((edit.arg as any).embeds[0].description).toBe("Could not recover.");
     expect((edit.arg as any).components).toEqual([]);
-    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
@@ -557,7 +615,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
     );
     expect(h.notifyAdmin).not.toHaveBeenCalled();
     expect(h.safeErrorReply).not.toHaveBeenCalled();
-    expect(h.engine.calls.updateLastPlayed.length).toBe(0);
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
@@ -610,8 +668,9 @@ describe("action oracle — /feedback + /bug", () => {
     const methods = _acks.map((a) => a.method);
     expect(methods).toEqual(["reply"]);
     const reply = _acks[0];
-    // Declared churn class 3 (DC-M9.10): unifies onto "first" like every other crossing.
-    expect(payloadText(reply.arg)).toBe("You don't have a character yet. Type `/join` to create one.");
+    // Declared churn class 3 (DC-M9.10, live per DC-M9.2.4): unifies onto "first" like
+    // every other crossing.
+    expect(payloadText(reply.arg)).toBe("You don't have a character. Type `/join` first.");
     expect((reply.arg as any).components.length).toBe(1); // container only — no nav bar
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
@@ -650,7 +709,7 @@ describe("action oracle — /feedback + /bug", () => {
     expect(h.engine.calls.submitBug.length).toBe(0);
     expect(h.engine.calls.updateLastPlayed.length).toBe(0);
     const reply = _acks.find((a) => a.method === "reply")!;
-    expect(payloadText(reply.arg)).toBe("You don't have a character yet. Type `/join` to create one.");
+    expect(payloadText(reply.arg)).toBe("You don't have a character. Type `/join` first.");
     expect((reply.arg as any).components.length).toBe(1);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });

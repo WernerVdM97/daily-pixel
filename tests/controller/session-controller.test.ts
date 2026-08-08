@@ -54,6 +54,41 @@ describe('SessionController — feedbackConfirmation', () => {
   });
 });
 
+// ── beginCustomAction (DC-M9.2 fix): the pre-port `commands/action.ts:67` top guard
+// (rollsRemaining <= 0 && !lastActionState) never crossed the seam — moved behind the
+// controller. Guard order: char guard -> resume-in-progress -> rolls -> start. ──
+
+describe('SessionController — beginCustomAction', () => {
+  it('returns no-rolls when out of rolls with no pending action', () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1, rollsRemaining: 0, lastActionState: null }));
+    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+
+    expect(controller.beginCustomAction('user-1')).toEqual({ kind: 'no-rolls' });
+  });
+
+  it('still resumes a mid-action character with 0 rolls remaining — NOT no-rolls (the regression a naive fix would reintroduce)', () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1, rollsRemaining: 0, lastActionState: '{...}' as never }));
+    engine.setResumeResult({
+      state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 12 } as never,
+      nextDecision: {
+        prompt: 'The ridge forks ahead.',
+        options: [
+          { label: 'Climb', dcModifier: 2 },
+          { label: 'Step back', dcModifier: null },
+        ],
+      },
+    });
+    const controller = new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+
+    const result = controller.beginCustomAction('user-1');
+
+    expect(result.kind).toBe('resume');
+    expect(engine.calls.resumeAction).toContain(1);
+  });
+});
+
 describe('SessionController — recordFeedback', () => {
   it('routes sleep/release to submitFeedback with no actionId', () => {
     const engine = new MockWorldEngine();

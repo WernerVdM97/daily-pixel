@@ -300,6 +300,15 @@ export class GameRouter {
         return this.error('internal', result.message);
       case 'menu':
         return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: result.view, facts: this.addCharacterFacts(e.playerId) });
+      case 'menu-fallback':
+        // DC-M9.2.3: composeActionMenu threw — the byte-identical fallback copy crosses
+        // as an ok:true NoticeViewState rather than an internal-error string.
+        return this.finalize({
+          v: PROTOCOL_VERSION,
+          ok: true,
+          view: { screen: 'notice', text: result.text, ephemeral: true },
+          facts: this.addCharacterFacts(e.playerId),
+        });
     }
   }
 
@@ -346,6 +355,10 @@ export class GameRouter {
       // An in-flight action resumes straight to its decision view — no thinking beat.
       return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: begin.view, facts: this.addCharacterFacts(e.playerId) });
     }
+    // DC-M9.2 fix: the guard the pre-port top-of-handler check performed (rollsRemaining
+    // <= 0, no pending action) never crossed the seam — moved behind beginCustomAction.
+    // Precedes the loading beat, exactly like the other guard arms above.
+    if (begin.kind === 'no-rolls') return this.error('no-rolls', NO_ROLLS_COPY);
 
     const clipped = e.text.length > 280 ? `${e.text.slice(0, 279).trimEnd()}…` : e.text;
     this.emitBeat(onBeat, { v: PROTOCOL_VERSION, ok: true, view: { screen: 'loading', body: `**You:** ${clipped}\n\n⏳ **Thinking…**\n_${idleOnce()}_` } });

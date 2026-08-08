@@ -290,21 +290,40 @@ describe("dispatch oracle — slash arm", () => {
     expect(JSON.stringify(reply.arg)).toContain("boom"); // the router's internal-error message IS the painted content
   });
 
-  it("a throwing ADAPTER-side read (the engine-direct /action command) still routes through notifyAdmin + safeErrorReply", async () => {
+  it("a throwing ADAPTER-side ack (/action's own reply call, unguarded by any try/catch) still routes through notifyAdmin + safeErrorReply", async () => {
+    // M9.2: /action's engine reads now cross the seam (menu.open/action.custom), so an
+    // engine-level throw is absorbed by the router's own catch and painted inline —
+    // exactly like the /stats case above — rather than escaping here. The genuinely
+    // adapter-side failure left in this command is a Discord ack itself throwing (the
+    // guard reply below is unguarded by any try/catch, same as before the port).
     const h = makeHarness();
     h.engine.setCharacterExists(true);
-    h.engine.setCharacter(oracleChar());
-    // /action is not through the seam until M9 — makeActionCommand reads the engine
-    // directly, so a throw propagates to the dispatcher's slash catch.
-    vi.spyOn(h.engine, "getCharacter").mockImplementation(() => {
+    h.engine.setCharacter(oracleChar({ rollsRemaining: 0, lastActionState: null }));
+    const { intr } = slashInteraction("slash-error-action", "action");
+    (intr as { reply: unknown }).reply = vi.fn(async () => {
       throw new Error("boom");
     });
-    const { intr } = slashInteraction("slash-error-action", "action");
     await dispatchInteraction(intr as never, h.deps);
 
     expect(h.notifyAdmin).toHaveBeenCalledTimes(1);
     expect(h.safeErrorReply).toHaveBeenCalledTimes(1);
     expect(h.safeErrorReply.mock.calls[0][1]).toContain("Something went wrong");
+  });
+
+  it("M9.2: an engine-level throw no longer escapes /action's guard — the router's own catch absorbs it and the handler paints it inline (contrast with the ack-throw case above)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(oracleChar());
+    vi.spyOn(h.engine, "getCharacter").mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const { intr, _acks } = slashInteraction("slash-error-action-2", "action");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(h.safeErrorReply).not.toHaveBeenCalled();
+    const edit = _acks.find((a) => a.method === "editReply");
+    expect(JSON.stringify(edit?.arg)).toContain("boom");
   });
 });
 
@@ -712,6 +731,28 @@ describe("dispatch oracle — nav: sub-branches", () => {
     expect((reply.arg as any).components.length).toBeGreaterThan(0);
     expect(_acks.some((a) => a.method === "fetchReply")).toBe(true);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("nav:action where composeActionMenu throws → the day-job fallback notice still reaches the player (DC-M9.2.3's menu-fallback arm, unhandled by this switch before the fix, silently dropped the reply)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar({ rollsRemaining: 3, lastActionState: null }));
+    // composeActionMenu's first read is engine.getMeta('day_number') — forcing IT to throw
+    // reaches openActionMenu's own try/catch (the action-oracle transcript 4 technique).
+    vi.spyOn(h.engine, "getMeta").mockImplementation(() => {
+      throw new Error("day_number lookup boom");
+    });
+    const { intr, _acks } = buttonInteraction("nav-action-throws", "nav:action");
+    await dispatchInteraction(intr as never, h.deps);
+
+    // Non-vacuity: before the fix, the switch had no "menu-fallback" case, so nothing
+    // replied — this assertion is what fails against pre-fix code.
+    const reply = _acks.find((a) => a.method === "reply");
+    expect(reply).toBeDefined();
+    expect((reply!.arg as any).content).toContain(
+      "Use `/action <what you do>` to start an action.",
+    );
+    expect((reply!.arg as any).flags).toBe(64); // ephemeral
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
   });
 
   it("nav:sleep → a loading beat then the sleep result", async () => {

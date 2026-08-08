@@ -1324,8 +1324,8 @@ async function main() {
         : undefined;
     return mapCommand({ user: { id: cmd.user.id }, focus });
   });
-  registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
-  registry.register("bug", withTextOption(makeBugCommand(engine)));
+  registry.register("feedback", withTextOption(makeFeedbackCommand(router)));
+  registry.register("bug", withTextOption(makeBugCommand(router)));
   registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
   registry.register("hi", asHandler(makeHiCommand(router)));
   registry.register(
@@ -1337,7 +1337,7 @@ async function main() {
 
   registry.register(
     "action",
-    asHandler(makeActionCommand(engine, getCurrentScene, dayJobs)),
+    asHandler(makeActionCommand(router, engine)),
   );
 
   // 8. Discord client

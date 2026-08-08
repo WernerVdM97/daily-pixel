@@ -13,6 +13,7 @@ import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResu
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState, WizardViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
 import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
+import { dayJobEmoji } from '../discord/format.js';
 import { composeHiScreen } from './hiScreen.js';
 import { composeWizardView, isValidWizardChoice, type CharDefs } from './joinWizard.js';
 import { composeLookScreen, type SceneLookupFn } from './lookScreen.js';
@@ -55,7 +56,11 @@ export type ActionMenuResult =
   | { kind: 'resume-stale'; prompt: string; narration?: string }
   | { kind: 'resume-decision'; view: DecisionViewState }
   | { kind: 'resume-error'; message: string }
-  | { kind: 'menu'; view: MenuViewState };
+  | { kind: 'menu'; view: MenuViewState }
+  // DC-M9.2.3: composeActionMenu is called untried, so a throw (e.g. an engine.getMeta
+  // failure) needs a seam-visible fallback — the byte-identical day-job-name copy
+  // commands/action.ts:133 painted inline before the port.
+  | { kind: 'menu-fallback'; text: string };
 
 /** Outcome of `beginRest` (M7.1, DC-M7.1.2) — mirrors the pre-M7.1 `/sleep` handler's guard
  *  order exactly: no-character → mid-action (`lastActionState !== null`) → rolls-remaining
@@ -154,12 +159,16 @@ export type StartRenderResult =
   | { kind: 'divine'; text: string };
 
 /** Outcome of `beginCustomAction` — mirrors the pre-M3.5 `action:custom:modal` submit leaf's
- *  guard order exactly (char guard -> resume-in-progress -> start). No stale-empty-options
+ *  guard order exactly (char guard -> resume-in-progress -> rolls -> start). No stale-empty-options
  *  guard and no try around `resumeAction` (unlike `openActionMenu`) — a resume throw here
- *  propagates to the adapter's outer try, matching the leaf. */
+ *  propagates to the adapter's outer try, matching the leaf.
+ *  DC-M9.2 fix: the pre-port `commands/action.ts:67` top guard (`rollsRemaining <= 0 &&
+ *  !lastActionState`) never crossed the seam — the resume arm above already claims every
+ *  pending-action case, so `no-rolls` needs no `lastActionState` conjunct of its own. */
 export type BeginCustomActionResult =
   | { kind: 'no-character' }
   | { kind: 'resume'; view: DecisionViewState }
+  | { kind: 'no-rolls' }
   | { kind: 'start' };
 
 export class SessionController {
@@ -273,7 +282,17 @@ export class SessionController {
       }
     }
 
-    return { kind: 'menu', view: composeActionMenu(this.engine, this.dayJobs, character) };
+    // DC-M9.2.3: composeActionMenu is called untried today (a throw propagates to the
+    // caller's own catch) — wrapped here so the fallback copy travels with the flow it
+    // belongs to instead of surfacing a raw internal-error string.
+    try {
+      return { kind: 'menu', view: composeActionMenu(this.engine, this.dayJobs, character) };
+    } catch {
+      return {
+        kind: 'menu-fallback',
+        text: `${dayJobEmoji(character.dayJob)} **${character.dayJob}**\n\nUse \`/action <what you do>\` to start an action.`,
+      };
+    }
   }
 
   /** Reproduces the pre-M7.1 `/sleep` handler's guard order exactly (DC-M7.1.2): no-character
@@ -525,10 +544,13 @@ export class SessionController {
     return this.renderStartResult(userId, prevChar, result);
   }
 
-  /** `beginCustomAction`'s char/resume guard (DC-M2) — mirrors the pre-M3.5
-   *  `action:custom:modal` submit leaf's guard order exactly. No try around `resumeAction`
-   *  (unlike `openActionMenu`'s stale-embed handling): a resume throw propagates to the
-   *  adapter's outer try, matching the leaf. */
+  /** `beginCustomAction`'s char/resume/rolls guard (DC-M2, DC-M9.2 fix) — mirrors the
+   *  pre-M3.5 `action:custom:modal` submit leaf's guard order exactly. No try around
+   *  `resumeAction` (unlike `openActionMenu`'s stale-embed handling): a resume throw
+   *  propagates to the adapter's outer try, matching the leaf. The rolls check runs AFTER
+   *  the resume check (not before, unlike `openActionMenu`'s combined
+   *  `rollsRemaining <= 0 && !lastActionState` guard) — a mid-action player with 0 rolls
+   *  must still resume. */
   beginCustomAction(userId: string): BeginCustomActionResult {
     const char = this.engine.getCharacter(userId);
     if (!char) return { kind: 'no-character' };
@@ -536,6 +558,7 @@ export class SessionController {
       const r = this.engine.resumeAction(char.id);
       return { kind: 'resume', view: buildDecisionView(r.nextDecision, r.state.decisions.length, r.state, char) };
     }
+    if (char.rollsRemaining <= 0) return { kind: 'no-rolls' };
     return { kind: 'start' };
   }
 
@@ -587,7 +610,11 @@ export class SessionController {
     if (result.firstDecision.options.length === 0) {
       return { kind: 'empty-action', prompt: result.firstDecision.prompt };
     }
-    return { kind: 'decision', view: buildDecisionView(result.firstDecision, 0, result.state, prevChar, result.actionType) };
+    // DC-M9.2.2: actionType/combatEnemyName/combatEnemyCondition are consumed INSIDE
+    // buildDecisionView to fill the opening frame and don't survive onto DecisionViewState —
+    // dropping args 6/7 here silently rendered every combat opening frame with the
+    // 'Unknown foe' placeholder and no banded condition since the paths crossed the seam.
+    return { kind: 'decision', view: buildDecisionView(result.firstDecision, 0, result.state, prevChar, result.actionType, result.combatEnemyName, result.combatEnemyCondition) };
   }
 
   /** The confirmation copy for a feedback/bug submission — a pure function of the surface, so it
