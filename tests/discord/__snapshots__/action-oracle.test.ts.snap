@@ -1,0 +1,842 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`action oracle — /feedback + /bug > 15 · slash /feedback with-char → 🙏 Thanks. The warden listens. + nav bar; submitFeedback(characterId, text); stamped 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "🙏 Thanks. The warden listens.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`action oracle — /feedback + /bug > 16 · slash /feedback charless → the 'yet' copy, NO gate reroute (feedback isn't gated), no nav bar, submitFeedback not called 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`action oracle — /feedback + /bug > 17 · slash /bug with-char → 🐛 Bug noted. The warden will investigate. + nav bar; submitBug(characterId, text); stamped 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "🐛 Bug noted. The warden will investigate.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`action oracle — /feedback + /bug > 18 · slash /bug charless → the same 'yet' copy, no nav bar, submitBug not called 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "You don't have a character yet. Type \`/join\` to create one.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`action oracle — bare slash /action (day-job menu) > 3 · bare /action with-char, rolls > 0 → the day-job menu (composeActionMenu embed + buttons), fetchReply stash, no stamp 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:dayjob:0",
+              "emoji": undefined,
+              "label": "Drill with the watch",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:dayjob:1",
+              "emoji": undefined,
+              "label": "Inspect the lockup",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:dayjob:2",
+              "emoji": undefined,
+              "label": "Stand the gate",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:dayjob:custom",
+              "emoji": undefined,
+              "label": "Custom…",
+              "style": 1,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "Pick a task to start:",
+          "title": "🛡️ Town Guard — Daily Work",
+        },
+      ],
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+  {
+    "arg": null,
+    "method": "fetchReply",
+  },
+]
+`;
+
+exports[`action oracle — bare slash /action (day-job menu) > 4 · bare /action where menu composition throws → the day-job fallback copy (composeActionMenu forced to throw via a spy on engine.getMeta — no MockWorldEngine widening) 1`] = `
+[
+  {
+    "arg": {
+      "content": "🛡️ **Town Guard**
+
+Use \`/action <what you do>\` to start an action.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action (mid-action resume) > 10 · mid-action → resume: deferReply, resumeAction(characterId), the decision at decisionIdx = state.decisions.length 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:1:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:choice:1:1",
+              "emoji": undefined,
+              "label": "B",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🧭 **Quest:** scout the northern ridge
+
+↪ **Advance carefully**
+
+> A shadow shifts ahead. Press on?
+
+**A.** Push forward ⬆️
+**B.** Fall back",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Decision 2",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action (mid-action resume) > 11 · mid-action → stale resume (empty options, narration present) → ⏳ Stale Action embed with the withNarration prefix, no buttons 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "You stand over scattered tracks, unsure which lead to trust.
+
+The trail has gone cold. Continue?",
+          "title": "⏳ Stale Action",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action (mid-action resume) > 12 · mid-action → stale resume, empty prompt AND no narration → the 'could not be recovered' fallback 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "Your previous action could not be recovered.",
+          "title": "⏳ Stale Action",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action (mid-action resume) > 13 · mid-action where resumeAction throws → ❌ Could not resume. 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "content": "❌ **Could not resume.**
+MockWorldEngine.resumeAction: no canned result set",
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 5 · /action <text> with-char → the interstitial (⏳ Starting…) then the first-decision render; startAction(characterId, text) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** scout the northern ridge
+
+⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:0:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:choice:0:1",
+              "emoji": undefined,
+              "label": "B",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🧭 **Quest:** scout the northern ridge
+
+> The trail forks at a mossy stone. Which way?
+
+**A.** 💪 Take the left fork
+**B.** Take the right fork ⬆️",
+          "footer": {
+            "icon_url": undefined,
+            "text": "What do you do?",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 6 · /action <text> with a >280-char description → the interstitial echoes it UNCLIPPED 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** I creep along the tree line at the edge of the northern ridge, watching the mist for any sign of movement, listening for hoofbeats or voices on the wind, and marking every game trail and broken branch that might tell me which way the herd has gone before the light fails and the cold sets in for the night.
+
+⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:0:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:choice:0:1",
+              "emoji": undefined,
+              "label": "B",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🧭 **Quest:** scout the northern ridge
+
+> The trail forks at a mossy stone. Which way?
+
+**A.** 💪 Take the left fork
+**B.** Take the right fork ⬆️",
+          "footer": {
+            "icon_url": undefined,
+            "text": "What do you do?",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 7 · /action <text> → divine intervention → the grey ⚠️ System embed, no buttons, no broadcast/collapse 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** pray at the shrine
+
+⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "A quiet hand steadies your roll — this one didn't count against you.",
+          "title": "⚠️ System",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 8 · /action <text> → auto-finish (non-divine) → outcome embed + nav buttons + service buttons; broadcastOutcome + announceCollapse each called once 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** scout the northern ridge
+
+⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "outcome:feedback:88",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "outcome:bug:88",
+              "emoji": {
+                "name": "🐛",
+              },
+              "label": "Bug Report",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 3066993,
+          "description": "📍 The Warden's Oak
+
+🧭
+
+\`\`\`
+A quiet clearing under the oak.
+\`\`\`
+
+> 🧭 **Quest:** scout the northern ridge
+
+💪 🎲 14 + 3 = **17**  vs  11  →  ✅ **SUCCESS**
+
+You crest the ridge and chart the northern approach.
+
+\`⚡ 10/10 (-1)  ┃  🎲 3 (-1)\`",
+          "title": "🧭 Scout",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 9 · auto-finish where broadcastOutcome throws → the isolated inner catch: the private outcome stays painted, NO ❌ Could not act. repaint 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** scout the northern ridge
+
+⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "outcome:feedback:88",
+              "emoji": {
+                "name": "💬",
+              },
+              "label": "Feedback",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "outcome:bug:88",
+              "emoji": {
+                "name": "🐛",
+              },
+              "label": "Bug Report",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 3066993,
+          "description": "📍 The Warden's Oak
+
+🧭
+
+\`\`\`
+A quiet clearing under the oak.
+\`\`\`
+
+> 🧭 **Quest:** scout the northern ridge
+
+💪 🎲 14 + 3 = **17**  vs  11  →  ✅ **SUCCESS**
+
+You crest the ridge and chart the northern approach.
+
+\`⚡ 10/10 (-1)  ┃  🎲 3 (-1)\`",
+          "title": "🧭 Scout",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 14 · /action <text> where startAction throws → ❌ Could not act. (the handler's OWN catch, notifyAdmin NOT called) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** scout the northern ridge
+
+⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "content": "❌ **Could not act.**
+MockWorldEngine.startAction: no canned result set",
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action guards + gate > 1 · charless slash /action → the character-gate reroute (join wizard step 1); the handler's own 'yet' copy never paints 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "join:name",
+              "emoji": {
+                "animated": false,
+                "id": undefined,
+                "name": "📝",
+              },
+              "label": "Enter Name",
+              "style": 1,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "📝 **Name** ◀
+🛡️ Class
+🌱 Upbringing
+🧬 Race
+⚖️ Alignment
+🔧 Day Job
+🎒 Starting Kit
+
+__**Name**__
+What shall the songs call you?",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Step 1 of 7 — 2-30 characters, no @ or #",
+          },
+          "thumbnail": {
+            "url": "attachment://theoak.png",
+          },
+          "title": "⚔️  Forge Your Hero",
+        },
+      ],
+      "files": [
+        {
+          "_attachment": "theoak.png",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action guards + gate > 2 · with-char, 0 rolls, no description → 🛌 Out of actions, ephemeral reply, no defer, no nav bar, no stamp 1`] = `
+[
+  {
+    "arg": {
+      "content": "🛌 **Out of actions for today.**
+Rest by the Oak (\`/sleep\`) and try again tomorrow.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
