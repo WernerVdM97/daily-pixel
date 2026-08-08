@@ -848,7 +848,13 @@ runCaseBlock('conformance — wizard.restart', [
   },
 ]);
 
-runCaseBlock('conformance — character.create', [
+// The `created` arm returns the first-day /hi view, so this block reads `new Date()` for the
+// weekday/weekend branch exactly like hi.open below — pin the clock or it fails every weekend.
+describe('conformance — character.create (fake timers: Wednesday 2026-07-15)', () => {
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-07-15T12:00:00Z')); });
+  afterEach(() => vi.useRealTimers());
+
+  runCaseBlock('conformance — character.create', [
   {
     name: 'no-session → session-expired with WIZARD_NO_SESSION_COPY',
     event: CHARACTER_CREATE,
@@ -899,7 +905,8 @@ runCaseBlock('conformance — character.create', [
       expect(o.beats).toEqual([]);
     },
   },
-]);
+  ]);
+});
 
 // ── M8.1 screens (DC-M8.4) — the six screen.* events. The five char-gated events: the
 // no-character arm uses NO_CHARACTER_COPY (the recorded "yet"→"first" unification pinned
