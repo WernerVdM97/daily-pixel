@@ -6,7 +6,7 @@
 import type { WorldEngine, CharacterData, ItemData } from "../engine/WorldEngine.js";
 import { formatStatLabel } from "../engine/stat-format.js";
 import { itemStatModifier } from "../engine/action/dc.js";
-import { SEPARATOR, classEmoji } from "../discord/format.js";
+import { SEPARATOR, classEmoji } from "../render/format.js";
 
 export function composeStatsScreen(engine: WorldEngine, character: CharacterData): string {
   return formatStats(character, engine.getItems(character.id));

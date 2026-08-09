@@ -128,23 +128,31 @@ function normalizeClause(clause: string): string {
   return outside ? `${outside}, { ${inside} }` : inside;
 }
 
-function findRuntimeCrossLayerImports(file: string, src: string): ImportHit[] {
+// `isBanned` is a parameter rather than a hardcoded call to isBannedModule so the same
+// parser serves both directions of the boundary: the DC-M9.1 check below asks "does the
+// adapter reach DOWN into engine/controller", and the DC-M10.9 check asks "does anything
+// else reach UP into the adapter". Same four import forms, same type-only rules.
+function findRuntimeCrossLayerImports(
+  file: string,
+  src: string,
+  isBanned: (module: string) => boolean = isBannedModule,
+): ImportHit[] {
   const hits: ImportHit[] = [];
   for (const match of src.matchAll(IMPORT_RE)) {
     const [, clause, module] = match;
-    if (!isBannedModule(module)) continue;
+    if (!isBanned(module)) continue;
     if (isTypeOnlyClause(clause)) continue;
     hits.push({ file, module, clause: normalizeClause(clause) });
   }
   for (const match of src.matchAll(SIDE_EFFECT_IMPORT_RE)) {
     const [, module] = match;
-    if (!isBannedModule(module)) continue;
+    if (!isBanned(module)) continue;
     // No type-only form exists for a side-effect import — always a runtime hit.
     hits.push({ file, module, clause: '<side-effect import>' });
   }
   for (const match of src.matchAll(DYNAMIC_IMPORT_RE)) {
     const [, module] = match;
-    if (!isBannedModule(module)) continue;
+    if (!isBanned(module)) continue;
     // No type-only form exists for a dynamic import — always a runtime hit.
     hits.push({ file, module, clause: '<dynamic import>' });
   }
@@ -274,5 +282,88 @@ describe('DC-M9.4.5 — the six DC-M9.3.12 call sites in dispatchInteraction.ts,
     // The alias/destructure dodge: a rename must trip this test even though it leaves
     // zero occurrences of the literal strings the three counts above look for.
     expect(findAliasHits(DISPATCH_SRC)).toEqual([]);
+  });
+});
+
+describe('DC-M10.9 — the boundary in the other direction: nothing outside src/discord/ imports it, except the composition root', () => {
+  // The mirror of the DC-M9.1 check, and the reason it exists is that the arc kept
+  // rediscovering this edge rather than being told about it. M9's own recon (finding: "the
+  // layering inversion runs both ways") found `SessionController` and `mapScreen` importing
+  // out of src/discord/; M9.4 moved those two modules and CREATED a fresh one in the same
+  // slice (`src/render/map-render.ts` -> `src/discord/format.js`), which nothing caught
+  // because the M9.4 check only ever looked downward. M10.1 rehomed the display-vocabulary
+  // half of format.ts to src/render/format.ts, which cleared the last of them — so this
+  // check is what stops the next slice from quietly opening another.
+  //
+  // `src/index.ts` is exempt by role, not by accident: it is the composition root, so wiring
+  // the adapter to everything else is precisely its job. Every OTHER module under src/ is in
+  // scope, which is what makes the exemption meaningful rather than a hole.
+  const SRC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
+  const COMPOSITION_ROOT = 'index.ts';
+
+  // `discord.js` (the npm package) is emphatically NOT the src/discord/ directory. Matching
+  // on a bare `discord` substring would flag every `from 'discord.js'` in the tree, so the
+  // predicate requires a relative specifier resolving into the directory.
+  function importsIntoDiscordDir(module: string): boolean {
+    if (!module.startsWith('.')) return false; // bare package specifier, e.g. 'discord.js'
+    const stripped = module.replace(/^\.\/|^(?:\.\.\/)+/, '');
+    return stripped.startsWith('discord/');
+  }
+
+  it('no module under src/ outside the adapter (and outside index.ts) imports src/discord/ at runtime', () => {
+    const files = listAllTsFiles(SRC_DIR)
+      .filter((f) => !f.startsWith('discord/') && f !== COMPOSITION_ROOT)
+      .sort();
+    // Non-vacuity on the walk itself, same as the DC-M9.1 check: a path typo returning zero
+    // files would pass this test while proving nothing.
+    expect(files.length).toBeGreaterThanOrEqual(50);
+
+    const hits = files.flatMap((f) =>
+      findRuntimeCrossLayerImports(f, readFileSync(path.join(SRC_DIR, f), 'utf8'), importsIntoDiscordDir),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it('is non-vacuous: the same predicate DOES flag an inbound import, proven in-file rather than by a commit-message tamper', () => {
+    // DC-M9.4.6's stronger form — the negative case runs on every suite run instead of
+    // living in a commit body someone has to trust. The three forms that must all be caught
+    // are the ones the M9.4 review found easy to miss: a plain import, a re-export (the
+    // DC-M9.4.3 compat-re-export hazard), and an inline-type clause carrying one live
+    // binding among type-only ones.
+    const plain = findRuntimeCrossLayerImports(
+      'fake/screen.ts',
+      `import { SEPARATOR } from '../discord/format.js';`,
+      importsIntoDiscordDir,
+    );
+    const reExport = findRuntimeCrossLayerImports(
+      'fake/screen.ts',
+      `export { SEPARATOR } from '../discord/format.js';`,
+      importsIntoDiscordDir,
+    );
+    const mixedTypeClause = findRuntimeCrossLayerImports(
+      'fake/screen.ts',
+      `import { type NavFacts, getNavButtons } from '../discord/format.js';`,
+      importsIntoDiscordDir,
+    );
+    expect(plain).toHaveLength(1);
+    expect(reExport).toHaveLength(1);
+    expect(mixedTypeClause).toHaveLength(1);
+
+    // ...and the legal shapes stay legal: a type-only import is inert at runtime, and
+    // `discord.js` the npm package must never be confused with src/discord/ the directory.
+    expect(
+      findRuntimeCrossLayerImports(
+        'fake/screen.ts',
+        `import type { NavFacts } from '../discord/CommandRegistry.js';`,
+        importsIntoDiscordDir,
+      ),
+    ).toEqual([]);
+    expect(
+      findRuntimeCrossLayerImports(
+        'fake/screen.ts',
+        `import { EmbedBuilder } from 'discord.js';`,
+        importsIntoDiscordDir,
+      ),
+    ).toEqual([]);
   });
 });

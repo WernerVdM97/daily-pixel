@@ -5,11 +5,11 @@
  *  Composition lives in the controller layer, not the router: the router's Home rule
  *  (DC-P8) forbids src/discord/ imports, and the M3–M6 pattern composes views in the
  *  backend's view layer (composeActionMenu → MenuViewState, buildDecisionView,
- *  buildOutcomeView). It imports classEmoji/dayJobEmoji/SEPARATOR from src/discord/format.js
+ *  buildOutcomeView). It imports classEmoji/dayJobEmoji/SEPARATOR from src/render/format.js
  *  — the exact dayJob.ts precedent (that module imports nothing from discord.js). */
 
 import type { WorldEngine, CharacterData } from "../engine/WorldEngine.js";
-import { SEPARATOR, classEmoji, dayJobEmoji } from "../discord/format.js";
+import { SEPARATOR, classEmoji, dayJobEmoji } from "../render/format.js";
 import { getDayJobActions, getWorkplaceLocation, type DayJobDef } from "./dayJob.js";
 import type { NoticeViewState } from "../view/viewState.js";
 

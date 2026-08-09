@@ -1,5 +1,5 @@
 import type { DiscoveredGraph, DiscoveredNode } from "../engine/WorldEngine.js";
-import { SEPARATOR, directionArrow, directionRank, oppositeDirection } from "../discord/format.js";
+import { SEPARATOR, directionArrow, directionRank, oppositeDirection } from "./format.js";
 
 /** Effort glyph from an incoming edge's difficulty band (§5). */
 const EFFORT = ["", "🚶", "🏃", "🧗"] as const;

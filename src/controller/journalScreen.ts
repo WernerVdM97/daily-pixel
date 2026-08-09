@@ -4,7 +4,7 @@
  *  engine reads (getJournal), same join("\n") output — /journal owns TIME, /map owns SPACE. */
 
 import type { WorldEngine, CharacterData } from "../engine/WorldEngine.js";
-import { SEPARATOR } from "../discord/format.js";
+import { SEPARATOR } from "../render/format.js";
 
 export function composeJournalScreen(engine: WorldEngine, character: CharacterData): string {
   const journal = engine.getJournal(character.id);

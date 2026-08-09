@@ -21,7 +21,8 @@ import {
   type ChatInputCommandInteraction,
 } from 'discord.js';
 import type { WorldEngine } from '../../engine/WorldEngine.js';
-import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons, classEmoji } from '../format.js';
+import { getNavButtons, getOutcomeServiceButtons, getPublicOutcomeButtons } from '../format.js';
+import { classEmoji } from '../../render/format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 import { decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord, noticeViewToDiscord } from '../viewToDiscord.js';

@@ -83,7 +83,7 @@ import { makeBugCommand } from "./discord/commands/bug.js";
 import { makeSleepCommand } from "./discord/commands/sleep.js";
 import { makeHiCommand } from "./discord/commands/hi.js";
 import type { DayJobDef } from "./controller/dayJob.js";
-import { registerEmoji } from "./discord/format.js";
+import { registerEmoji } from "./render/format.js";
 import { setCollapseBroadcaster } from "./discord/collapse.js";
 import {
   pickWeeklyThreat,

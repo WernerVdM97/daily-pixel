@@ -1,6 +1,6 @@
 import type { WorldEngine, CharacterData } from '../engine/WorldEngine.js';
 import type { MenuViewState } from '../view/viewState.js';
-import { dayJobEmoji } from '../discord/format.js';
+import { dayJobEmoji } from '../render/format.js';
 
 // ── Day job types (day-jobs.yml shape) ──
 

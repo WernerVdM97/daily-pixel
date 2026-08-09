@@ -33,8 +33,8 @@ import {
   getPublicOutcomeButtons,
   navResponseMode,
   parseOutcomeActionId,
-  classEmoji,
 } from "./format.js";
+import { classEmoji } from "../render/format.js";
 import { announceCollapse } from "./collapse.js";
 import { BANNER_IMAGE, imageFiles } from "./images.js";
 import { handleInteraction as handleJoinInteraction } from "./commands/join.js";

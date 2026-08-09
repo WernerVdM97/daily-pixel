@@ -12,7 +12,7 @@ import type { CombatBeatLog } from '../engine/action/combat-dc.js';
 import { dangerTier } from '../engine/action/combat-dc.js';
 import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../engine/stat-format.js';
-import { dayJobEmoji } from '../discord/format.js';
+import { dayJobEmoji } from '../render/format.js';
 import { BORDERS, PALETTES, type BorderStyle } from '../render/AnsiRenderer.js';
 import { renderOpeningFrame, type OpeningFrameSlots } from '../render/OpeningFrameRenderer.js';
 import { renderCombatContinueCard, renderCombatTerminalCard, type ContinueCardInput, type CombatTerminalCard } from '../render/CombatCardRenderer.js';

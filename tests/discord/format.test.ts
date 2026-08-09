@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildComponentPayload, getNavButtons, navResponseMode, getOutcomeServiceButtons, parseOutcomeActionId, classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
+import { buildComponentPayload, getNavButtons, navResponseMode, getOutcomeServiceButtons, parseOutcomeActionId, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
+// The display-vocabulary half rehomed to src/render/format.js at M10.1 (DC-M10.7).
+import { classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR } from "../../src/render/format.js";
 
 const CONTAINER = 17;
 const TEXT_DISPLAY = 10;

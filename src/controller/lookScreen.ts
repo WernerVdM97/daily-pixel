@@ -4,7 +4,7 @@
  *  outputs. Composition lives in the controller layer, not the router: the router's Home
  *  rule (DC-P8) forbids src/discord/ imports, and the M3–M8 pattern composes views in the
  *  controller layer (composeHiScreen, composeActionMenu). It imports SEPARATOR/direction
- *  helpers from src/discord/format.js — the exact dayJob.ts/hiScreen.ts precedent (pure,
+ *  helpers from src/render/format.js — the exact dayJob.ts/hiScreen.ts precedent (pure,
  *  nothing from discord.js).
  *
  * DC-M8.5: the `SceneLookupFn` type moved WITH the composer — `SessionController` now takes
@@ -14,7 +14,7 @@
  *  for the screens oracle, not a coverage gap (see the M8.0 sanctioned comment). */
 
 import type { WorldEngine, CharacterData, NearbyEntity } from "../engine/WorldEngine.js";
-import { SEPARATOR, directionArrow, directionRank } from "../discord/format.js";
+import { SEPARATOR, directionArrow, directionRank } from "../render/format.js";
 
 export type SceneLookupFn = (tags: string[]) => {
   sceneName: string;

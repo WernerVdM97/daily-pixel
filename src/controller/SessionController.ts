@@ -13,7 +13,7 @@ import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResu
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState, WizardViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
 import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
-import { dayJobEmoji } from '../discord/format.js';
+import { dayJobEmoji } from '../render/format.js';
 import { composeHiScreen } from './hiScreen.js';
 import { composeWizardView, isValidWizardChoice, type CharDefs } from './joinWizard.js';
 import { composeLookScreen, type SceneLookupFn } from './lookScreen.js';

@@ -6,7 +6,7 @@
 
 import type { WorldEngine, CharacterData, ItemData } from "../engine/WorldEngine.js";
 import { STAT_LABELS } from "../engine/stat-format.js";
-import { SEPARATOR } from "../discord/format.js";
+import { SEPARATOR } from "../render/format.js";
 
 /** How many item slots a character can carry. */
 export const BACKPACK_CAPACITY = 40;

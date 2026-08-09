@@ -3,7 +3,7 @@
  *  and NO character guard (help works charless today — the DC-M8.3 pin that `screen.help`
  *  has no no-character arm; gating it would be a behaviour change). */
 
-import { SEPARATOR } from "../discord/format.js";
+import { SEPARATOR } from "../render/format.js";
 
 export function composeHelpScreen(): string {
   return [
