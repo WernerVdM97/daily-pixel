@@ -26,6 +26,7 @@ import type { GameRouter } from "../protocol/router.js";
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState } from "../view/viewState.js";
 import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord, loadingViewToDiscord, commuteViewToDiscord } from "./viewToDiscord.js";
 import { c } from "../util/colors.js";
+import { trackPaint } from "./beatPaint.js";
 import {
   buildComponentPayload,
   getNavButtons,
@@ -325,12 +326,12 @@ export async function dispatchInteraction(
       (beat) => {
         if (beat.ok && beat.view?.screen === "loading" && !beatPaint) {
           const body = beat.view.body;
-          beatPaint = (async () => {
+          beatPaint = trackPaint((async () => {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             await interaction.editReply({
               embeds: [new EmbedBuilder().setDescription(body).setColor(0x95a5a6).toJSON()],
             });
-          })();
+          })());
         }
       },
     );
@@ -689,17 +690,17 @@ export async function dispatchInteraction(
           if (!beat.ok) return;
           if (beat.view?.screen === "loading" && !beatPaint) {
             const body = beat.view.body;
-            beatPaint = (async () => {
+            beatPaint = trackPaint((async () => {
               await interaction.deferUpdate();
               await interaction.editReply(loadingViewToDiscord({ screen: "loading", body }));
-            })();
+            })());
           } else if (beat.view?.screen === "commute") {
             // Merge the commute INTO the loading page (don't replace it): chained onto the
             // loading beat's own promise, since it can only paint once that ack has landed.
             const { destination, idle } = beat.view;
-            beatPaint = (beatPaint ?? Promise.resolve()).then(async () => {
+            beatPaint = trackPaint((beatPaint ?? Promise.resolve()).then(async () => {
               await interaction.editReply(commuteViewToDiscord({ screen: "commute", destination, idle }));
-            });
+            }));
           }
         },
       );
@@ -866,13 +867,13 @@ export async function dispatchInteraction(
         (beat) => {
           if (beat.ok && beat.view?.screen === "loading" && !beatPaint) {
             const body = beat.view.body;
-            beatPaint = (async () => {
+            beatPaint = trackPaint((async () => {
               await interaction.deferUpdate();
               await interaction.editReply({
                 embeds: [new EmbedBuilder().setDescription(body).setColor(0x95a5a6).toJSON()],
                 components: [],
               });
-            })();
+            })());
           }
         },
       );

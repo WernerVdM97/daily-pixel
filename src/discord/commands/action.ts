@@ -26,6 +26,7 @@ import { classEmoji } from '../../render/format.js';
 import { announceCollapse } from '../collapse.js';
 import { broadcastOutcome, META_RECAP_THREAD_ID } from '../weekly-recap.js';
 import { decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord, noticeViewToDiscord } from '../viewToDiscord.js';
+import { trackPaint } from '../beatPaint.js';
 import type { GameRouter } from '../../protocol/router.js';
 import type { DecisionViewState, MenuViewState, NoticeViewState, OutcomeViewState } from '../../view/viewState.js';
 
@@ -138,12 +139,12 @@ export function makeActionCommand(router: GameRouter, engine: WorldEngine) {
       (beat) => {
         if (beat.ok && beat.view?.screen === 'loading' && !beatPaint) {
           const body = beat.view.body;
-          beatPaint = (async () => {
+          beatPaint = trackPaint((async () => {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             await interaction.editReply({
               embeds: [new EmbedBuilder().setDescription(body).setColor(0x95a5a6).toJSON()],
             });
-          })();
+          })());
         }
       },
     );

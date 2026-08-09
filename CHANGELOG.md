@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A feedback or bug report that fails to save pages the operator again** — the seam crossing routed the two slash commands' persist failure into a `persistFailed` fact that neither handler read, so `/feedback` and `/bug` went silent on a failed save while the four in-message report buttons still paged. Player-visible copy is unchanged.
+- **A failed loading screen no longer pages the operator twice** — the interstitial paint promise sat unobserved across the whole model call, so an ack that expired mid-call tripped the process-level unhandled-rejection net on top of the handler's own page. One failure, one page.
+
 ## [0.3.4] - 2026-08-05
 
 ### Changed
