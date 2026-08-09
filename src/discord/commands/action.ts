@@ -206,8 +206,48 @@ export function makeActionCommand(router: GameRouter, engine: WorldEngine) {
       return 'action_error';
     }
 
-    // Divine intervention is a system fault, not a real action outcome — the distinct
-    // grey ⚠️ System embed, no buttons, no broadcast/collapse (DC-M9.3).
+    // `beatPaint` is the phase signal: no beat fired means the error came from the pre-beat
+    // half (beginCustomAction — no-character/no-rolls/resume-stale/a resume throw), a beat
+    // means it came from the post-beat half (runCustomAction). M9.2 review fix: this used to
+    // fall through unconditionally to the ❌ **Could not act.** catch below on an interaction
+    // that was NEVER deferred (a resume throw on the ordinary D2 30-minute timeout has no
+    // beat), which threw a raw discord.js error at the player and paged the admin for a
+    // normal game event.
+    if (!beatPaint) {
+      // Guard rejections — no defer, a single plain ephemeral reply (DC-M9.2 fix: this used
+      // to arrive here wrapped in the ❌ catch below, with an extra defer-then-edit round
+      // trip; both were undeclared regressions since the pre-port top guard was a single
+      // plain reply), matching the bare /action arm's own guard-rejection shape.
+      if (response.error.code === 'no-character' || response.error.code === 'no-rolls') {
+        await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
+        return response.error.code === 'no-character' ? 'action_guard_no_character' : 'action_no_rolls';
+      }
+
+      // Everything else on this half (stale-session, a resume throw surfacing as 'internal')
+      // defers first, mirroring the pre-port mid-action block's own deferReply-then-editReply
+      // order.
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      if (response.error.code === 'stale-session') {
+        const narration = response.facts?.narration as string | undefined;
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('⏳ Stale Action')
+              .setDescription(withNarration(narration, response.error.message))
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+          components: [],
+        });
+        return 'action_resume_empty';
+      }
+      await interaction.editReply({ content: `❌ **Could not resume.**\n${response.error.message}` });
+      return 'action_error';
+    }
+
+    // Post-beat: the interstitial already deferred, so every arm here edits. Divine
+    // intervention is a system fault, not a real action outcome — the distinct grey
+    // ⚠️ System embed, no buttons, no broadcast/collapse (DC-M9.3).
     if (response.error.code === 'divine-intervention') {
       await interaction.editReply({
         embeds: [
@@ -222,20 +262,8 @@ export function makeActionCommand(router: GameRouter, engine: WorldEngine) {
       return 'action_divine';
     }
 
-    // Guard rejections that return before any beat fires — no-character (dead behind the
-    // character gate) and no-rolls (DC-M9.2 fix: this used to arrive here wrapped in the
-    // ❌ catch below, with an extra defer-then-edit round trip; both were undeclared
-    // regressions since the pre-port top guard was a single plain reply). A single plain
-    // ephemeral reply, no ❌ prefix, matching the bare /action arm's own guard-rejection
-    // shape and the pre-port single-reply guard path.
-    if (!beatPaint && (response.error.code === 'no-character' || response.error.code === 'no-rolls')) {
-      await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
-      return response.error.code === 'no-character' ? 'action_guard_no_character' : 'action_no_rolls';
-    }
-
-    // The new empty-action arm (DC-M9.2.4 class 4) and any other engine/router failure —
-    // both only reachable after the beat has fired (they come out of runCustomAction) —
-    // share the handler's own catch.
+    // The empty-action arm (DC-M9.2.4 class 4) and any other engine/router failure — both
+    // only reachable after the beat has fired (they come out of runCustomAction).
     await interaction.editReply({ content: `❌ **Could not act.**\n${response.error.message}` });
     return 'action_error';
   };

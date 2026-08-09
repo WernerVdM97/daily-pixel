@@ -335,6 +335,23 @@ export async function dispatchInteraction(
         await interaction.editReply(decisionViewToDiscord(begin.view));
         return;
       }
+      if (begin.kind === "resume-stale") {
+        // M9.2 review fix: this leaf's if-chain ignored the new arm and would fall through
+        // to the "start" path below on a stale pending action — the same defect
+        // `nav:action`'s stale embed (below, ~:809-822) already guards against. Copied
+        // rather than inventing new chrome; already deferred above, so this edits.
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("⏳ Stale Action")
+              .setDescription(begin.prompt)
+              .setColor(0x95a5a6)
+              .toJSON(),
+          ],
+          components: [],
+        });
+        return;
+      }
 
       // Thinking screen — matches the ⏳ envelope /action and the day-job button
       // path already show, so the player isn't staring at a blank spinner during

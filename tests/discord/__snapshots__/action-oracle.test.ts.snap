@@ -834,6 +834,105 @@ exports[`action oracle — slash /action <text> (new action) > 20 · /action <te
 ]
 `;
 
+exports[`action oracle — slash /action <text> (new action) > 21 · /action <text> while mid-action where resumeAction throws → deferReply then ❌ Could not resume., notifyAdmin NOT called (the un-acked editReply blocker: beginCustomAction throws before any router beat fires, so beatPaint stays undefined) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "content": "❌ **Could not resume.**
+MockWorldEngine.resumeAction: no canned result set",
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 22 · /action <text> while mid-action with an empty-options resume (narration present) → the ⏳ Stale Action embed, components: [], narration prefixed (the lost stale screen: beginCustomAction now shares openActionMenu's empty-options guard) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "You stand over scattered tracks, unsure which lead to trust.
+
+The trail has gone cold. Continue?",
+          "title": "⏳ Stale Action",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`action oracle — slash /action <text> (new action) > 23 · /action <text> while mid-action with a normal multi-option resume → the decision render (the empty-options guard above must not over-fire on a populated resume) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:1:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:choice:1:1",
+              "emoji": undefined,
+              "label": "B",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🧭 **Quest:** scout the northern ridge
+
+↪ **Advance carefully**
+
+> A shadow shifts ahead. Press on?
+
+**A.** Push forward ⬆️
+**B.** Fall back",
+          "footer": {
+            "icon_url": undefined,
+            "text": "Decision 2",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
 exports[`action oracle — slash /action guards + gate > 1 · charless slash /action → the character-gate reroute (join wizard step 1); the handler's own 'yet' copy never paints 1`] = `
 [
   {

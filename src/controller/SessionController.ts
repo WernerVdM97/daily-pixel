@@ -159,15 +159,22 @@ export type StartRenderResult =
   | { kind: 'divine'; text: string };
 
 /** Outcome of `beginCustomAction` — mirrors the pre-M3.5 `action:custom:modal` submit leaf's
- *  guard order exactly (char guard -> resume-in-progress -> rolls -> start). No stale-empty-options
- *  guard and no try around `resumeAction` (unlike `openActionMenu`) — a resume throw here
- *  propagates to the adapter's outer try, matching the leaf.
+ *  guard order exactly (char guard -> resume-in-progress -> rolls -> start). Still no try
+ *  around `resumeAction` (unlike `openActionMenu`'s combined stale-try) — a resume throw
+ *  here propagates to the adapter's outer try, matching the leaf.
  *  DC-M9.2 fix: the pre-port `commands/action.ts:67` top guard (`rollsRemaining <= 0 &&
  *  !lastActionState`) never crossed the seam — the resume arm above already claims every
- *  pending-action case, so `no-rolls` needs no `lastActionState` conjunct of its own. */
+ *  pending-action case, so `no-rolls` needs no `lastActionState` conjunct of its own.
+ *  M9.2 review fix: the resume arm now shares `openActionMenu`'s empty-options guard (see
+ *  `resume-stale` below) — `/action <text>` on a stale pending action used to render a
+ *  decision view with a synthetic Continue button instead of the dedicated stale notice. */
 export type BeginCustomActionResult =
   | { kind: 'no-character' }
   | { kind: 'resume'; view: DecisionViewState }
+  // M9.2 review fix: mirrors `openActionMenu`'s own empty-options guard (below) — a resume
+  // with zero options is the dedicated grey ⏳ Stale Action notice, not a decision render
+  // with a synthetic Continue button.
+  | { kind: 'resume-stale'; prompt: string; narration?: string }
   | { kind: 'no-rolls' }
   | { kind: 'start' };
 
@@ -556,6 +563,12 @@ export class SessionController {
     if (!char) return { kind: 'no-character' };
     if (char.lastActionState !== null) {
       const r = this.engine.resumeAction(char.id);
+      // M9.2 review fix: mirrors openActionMenu's empty-options guard — a resume with no
+      // options renders a decision view with nothing to click, so this arm short-circuits
+      // to the same stale-notice shape `openActionMenu` returns.
+      if (r.nextDecision.options.length === 0) {
+        return { kind: 'resume-stale', prompt: r.nextDecision.prompt || 'Could not recover.', narration: r.nextDecision.narration };
+      }
       return { kind: 'resume', view: buildDecisionView(r.nextDecision, r.state.decisions.length, r.state, char) };
     }
     if (char.rollsRemaining <= 0) return { kind: 'no-rolls' };

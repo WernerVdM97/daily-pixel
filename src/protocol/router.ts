@@ -355,6 +355,11 @@ export class GameRouter {
       // An in-flight action resumes straight to its decision view — no thinking beat.
       return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: begin.view, facts: this.addCharacterFacts(e.playerId) });
     }
+    if (begin.kind === 'resume-stale') {
+      // M9.2 review fix: mirrors dispatchMenuOpen's own resume-stale mapping exactly — the
+      // narration rides `facts` only when the controller returned one.
+      return this.error('stale-session', begin.prompt, begin.narration !== undefined ? { narration: begin.narration } : undefined);
+    }
     // DC-M9.2 fix: the guard the pre-port top-of-handler check performed (rollsRemaining
     // <= 0, no pending action) never crossed the seam — moved behind beginCustomAction.
     // Precedes the loading beat, exactly like the other guard arms above.

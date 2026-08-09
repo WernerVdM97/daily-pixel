@@ -238,6 +238,36 @@ function recorder() {
   return { acks, spy };
 }
 
+/**
+ * Wires `reply`/`deferReply`/`editReply` onto a fake interaction so they enforce
+ * discord.js's real ack invariants against its own `replied`/`deferred` flags, instead of
+ * recording blindly — the gap that let both M9.2 ack-ordering blockers (an un-acked
+ * `editReply`, a lost stale-embed guard) land in a commit with a green suite. `reply` and
+ * `deferReply` throw `InteractionAlreadyReplied` if the interaction was already replied or
+ * deferred; `editReply` throws `InteractionNotReplied` if neither has happened yet — the
+ * exact discord.js error names, so a handler bug surfaces as a thrown error rather than a
+ * silently-recorded ack. Shared by all three fake interaction shapes. `deferUpdate`/`update`
+ * (components only) flip the same flags at their own construction site — real discord.js
+ * semantics (`deferUpdate` behaves like `deferReply`, `update` like `reply`) — but carry no
+ * throwing invariant of their own; that's out of scope for this pass.
+ */
+function wireReplyAcks(intr: Record<string, unknown> & FakeBase, acks: Recorded[]): void {
+  intr.reply = vi.fn(async (arg?: unknown) => {
+    if (intr.replied || intr.deferred) throw new Error("InteractionAlreadyReplied");
+    acks.push({ method: "reply", arg: arg ?? null });
+    intr.replied = true;
+  });
+  intr.deferReply = vi.fn(async (arg?: unknown) => {
+    if (intr.replied || intr.deferred) throw new Error("InteractionAlreadyReplied");
+    acks.push({ method: "deferReply", arg: arg ?? null });
+    intr.deferred = true;
+  });
+  intr.editReply = vi.fn(async (arg?: unknown) => {
+    if (!intr.replied && !intr.deferred) throw new Error("InteractionNotReplied");
+    acks.push({ method: "editReply", arg: arg ?? null });
+  });
+}
+
 /** A ChatInputCommand (slash) interaction. `stringOpts` answers options.getString(name). */
 export function slashInteraction(
   userId: string,
@@ -262,16 +292,8 @@ export function slashInteraction(
     isButton: () => false,
     isModalSubmit: () => false,
   };
-  // reply/deferReply flip the replied/deferred flags the slash arm early-returns on.
-  intr.reply = vi.fn(async (arg?: unknown) => {
-    acks.push({ method: "reply", arg: arg ?? null });
-    intr.replied = true;
-  });
-  intr.deferReply = vi.fn(async (arg?: unknown) => {
-    acks.push({ method: "deferReply", arg: arg ?? null });
-    intr.deferred = true;
-  });
-  intr.editReply = spy("editReply");
+  // reply/deferReply/editReply enforce discord.js's real ack invariants (see wireReplyAcks).
+  wireReplyAcks(intr, acks);
   intr.followUp = spy("followUp");
   intr.deleteReply = spy("deleteReply");
   intr.fetchReply = spy("fetchReply", () => ({ id: "msg-1" }));
@@ -302,11 +324,6 @@ export function buttonInteraction(
     isChatInputCommand: () => false,
     isButton: () => true,
     isModalSubmit: () => false,
-    reply: spy("reply"),
-    update: spy("update"),
-    deferReply: spy("deferReply"),
-    deferUpdate: spy("deferUpdate"),
-    editReply: spy("editReply"),
     followUp: spy("followUp"),
     fetchReply: spy("fetchReply", () => ({ id: "msg-1" })),
     showModal: spy("showModal"),
@@ -317,6 +334,17 @@ export function buttonInteraction(
       }),
     },
   };
+  // reply/deferReply/editReply enforce discord.js's real ack invariants (see wireReplyAcks);
+  // update/deferUpdate flip the same replied/deferred flags (real discord.js semantics).
+  wireReplyAcks(intr, acks);
+  intr.deferUpdate = vi.fn(async (arg?: unknown) => {
+    acks.push({ method: "deferUpdate", arg: arg ?? null });
+    intr.deferred = true;
+  });
+  intr.update = vi.fn(async (arg?: unknown) => {
+    acks.push({ method: "update", arg: arg ?? null });
+    intr.replied = true;
+  });
   return { intr, _acks: acks };
 }
 
@@ -341,11 +369,6 @@ export function modalInteraction(
     isChatInputCommand: () => false,
     isButton: () => false,
     isModalSubmit: () => true,
-    reply: spy("reply"),
-    update: spy("update"),
-    deferReply: spy("deferReply"),
-    deferUpdate: spy("deferUpdate"),
-    editReply: spy("editReply"),
     followUp: spy("followUp"),
     fetchReply: spy("fetchReply", () => ({ id: "msg-1" })),
     webhook: {
@@ -354,6 +377,17 @@ export function modalInteraction(
       }),
     },
   };
+  // reply/deferReply/editReply enforce discord.js's real ack invariants (see wireReplyAcks);
+  // update/deferUpdate flip the same replied/deferred flags (real discord.js semantics).
+  wireReplyAcks(intr, acks);
+  intr.deferUpdate = vi.fn(async (arg?: unknown) => {
+    acks.push({ method: "deferUpdate", arg: arg ?? null });
+    intr.deferred = true;
+  });
+  intr.update = vi.fn(async (arg?: unknown) => {
+    acks.push({ method: "update", arg: arg ?? null });
+    intr.replied = true;
+  });
   return { intr, _acks: acks };
 }
 

@@ -350,8 +350,11 @@ describe("bookend oracle — join", () => {
     let releaseGate!: () => void;
     const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
     const a = buttonInteraction(userId, `join:choice:2:${CLASS}`);
+    // Must flip `deferred` before awaiting the gate: the harness's own deferUpdate now
+    // does the same, and join.ts's subsequent editReply asserts on that flag.
     (a.intr as any).deferUpdate = vi.fn(async () => {
       a._acks.push({ method: "deferUpdate", arg: null });
+      (a.intr as any).deferred = true;
       await gate;
     });
     const b = buttonInteraction(userId, `join:choice:2:${CLASS}`);

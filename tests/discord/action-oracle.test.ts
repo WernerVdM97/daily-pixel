@@ -517,6 +517,92 @@ describe("action oracle — slash /action <text> (new action)", () => {
     expect(rawIds((edit.arg as any).components)).toEqual(["action:choice:1:0", "action:choice:1:1"]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
+
+  // M9.2 review fix — the two blockers the judge reproduced both live on THIS surface
+  // (a supplied description crossed with mid-action state), and no transcript above pairs
+  // the two: 20's resume always had a populated `nextDecision.options`, so neither the
+  // un-acked-editReply path (resumeAction throws) nor the lost stale screen (empty options)
+  // was ever exercised through `/action <text>`.
+
+  it("21 · /action <text> while mid-action where resumeAction throws → deferReply then ❌ Could not resume., notifyAdmin NOT called (the un-acked editReply blocker: beginCustomAction throws before any router beat fires, so beatPaint stays undefined)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(
+      oracleChar({
+        lastActionState: { rawInput: "scout the northern ridge", decisions: [{}], accumulatedDc: 11 },
+      }),
+    );
+    // No setResumeResult → the mock's natural "no canned result set" throw, exactly
+    // transcript 13's bare-/action fixture, now crossed with a supplied description.
+    const { intr, _acks } = slashInteraction("action-21-resume-text-throws", "action", {
+      description: "keep scouting",
+    });
+    await dispatchInteraction(intr as never, h.deps);
+
+    const methods = _acks.map((a) => a.method);
+    expect(methods).toEqual(["deferReply", "editReply"]);
+    const edit = _acks.at(-1)!;
+    expect((edit.arg as any).content).toBe(
+      "❌ **Could not resume.**\nMockWorldEngine.resumeAction: no canned result set",
+    );
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(h.safeErrorReply).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("22 · /action <text> while mid-action with an empty-options resume (narration present) → the ⏳ Stale Action embed, components: [], narration prefixed (the lost stale screen: beginCustomAction now shares openActionMenu's empty-options guard)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(
+      oracleChar({ lastActionState: { rawInput: "hunt", decisions: [], accumulatedDc: 10 } }),
+    );
+    h.engine.setResumeResult({
+      state: { rawInput: "hunt", decisions: [], accumulatedDc: 10 },
+      nextDecision: {
+        prompt: "The trail has gone cold. Continue?",
+        options: [],
+        narration: "You stand over scattered tracks, unsure which lead to trust.",
+      },
+    });
+    const { intr, _acks } = slashInteraction("action-22-stale-text", "action", {
+      description: "keep hunting",
+    });
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    const methods = _acks.map((a) => a.method);
+    expect(methods).toEqual(["deferReply", "editReply"]);
+    const edit = _acks.at(-1)!;
+    expect((edit.arg as any).embeds[0].title).toBe("⏳ Stale Action");
+    expect((edit.arg as any).embeds[0].description).toBe(
+      "You stand over scattered tracks, unsure which lead to trust.\n\nThe trail has gone cold. Continue?",
+    );
+    expect((edit.arg as any).components).toEqual([]);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("23 · /action <text> while mid-action with a normal multi-option resume → the decision render (the empty-options guard above must not over-fire on a populated resume)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(
+      oracleChar({
+        lastActionState: { rawInput: "scout the northern ridge", decisions: [{}], accumulatedDc: 11 },
+      }),
+    );
+    h.engine.setResumeResult(RESUME_DECISION_RESULT);
+    const { intr, _acks } = slashInteraction("action-23-resume-text-ok", "action", {
+      description: "keep going",
+    });
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    const methods = _acks.map((a) => a.method);
+    expect(methods).toEqual(["deferReply", "editReply"]);
+    const edit = _acks.at(-1)!;
+    expect((edit.arg as any).embeds[0].description).toContain("A shadow shifts ahead. Press on?");
+    expect(rawIds((edit.arg as any).components)).toEqual(["action:choice:1:0", "action:choice:1:1"]);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
 });
 
 describe("action oracle — slash /action (mid-action resume)", () => {
