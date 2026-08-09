@@ -11,7 +11,8 @@
  */
 
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { writeFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import type { AgentEngine } from './engineHarness.js';
 import { SessionController } from '../controller/SessionController.js';
@@ -22,6 +23,14 @@ import { loadYamlFile } from '../assets/yaml-loader.js';
 import type { CharDefs } from '../controller/joinWizard.js';
 import type { PipelineScript } from '../sim/types.js';
 import type { CharCreateData } from '../engine/WorldEngine.js';
+import type { AgentMove } from './AgentPlayerGateway.js';
+import type { ProtocolEntry } from './transcript.js';
+import { buildAgentEngine } from './engineHarness.js';
+import { createAgentHarness } from './harness.js';
+import { ScriptedAgentPlayerGateway } from './ScriptedAgentPlayerGateway.js';
+import { PipelineScriptedGateway } from '../sim/PipelineScriptedGateway.js';
+import { pinClock } from './clock.js';
+import { establishBootParity } from './bootParity.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CC_DIR = path.join(__dirname, '..', '..', 'assets', 'char-creation');
@@ -91,4 +100,84 @@ export function buildDeterministicRouter(engine: AgentEngine): GameRouter {
     engine.resolveScene,
   );
   return new GameRouter(controller as RouterBackend, { idle: () => '' });
+}
+
+// ── Deterministic real-backend recorder (M10.1d / DC-M10.6) ──
+
+/** The canned day the real-backend corpus entry records: open the menu, take the first
+ *  option twice, then sleep through the nightly tick. Small on purpose — the entry exists to
+ *  prove the REAL backend replays byte-green, not to exercise breadth. */
+export const REAL_DAY_MOVES: AgentMove[] = [
+  { kind: 'menu-pick', index: 0 },
+  { kind: 'choice', index: 0 },
+  { kind: 'choice', index: 0 },
+  { kind: 'sleep' },
+];
+
+/** The corpus entry's session id and recording clock. Both fixed, for the same reason
+ *  `STUB_RECORDED_AT` is: the committed transcript is pinned by deep-equality against a
+ *  fresh run, so anything drawn from the wall clock or a counter would break it on run two.
+ *  A Wednesday, so the weekday branches the greeting and the tick read stay off the weekend
+ *  path — the Saturday arm is exercised by the tamper in `replay.test.ts`, not here. */
+export const REAL_USER_ID = 'agent:real-corpus';
+export const REAL_RECORDED_AT = '2026-07-15T09:00:00.000Z';
+
+/**
+ * Record a deterministic real-backend session and return its protocol log.
+ *
+ * "Real backend" means the real `SessionController` over a real `WorldEngineImpl` — the LLM
+ * is a scripted pipeline gateway and the d20 is fixed, so this costs no tokens and needs no
+ * API key. That is what makes a committed real-backend corpus entry possible at all.
+ *
+ * Both DC-M10.6 halves apply: the run executes on the same pinned clock it stamps into the
+ * header, so the greeting's `isWeekend()` and the tick's Saturday bonus see the day the
+ * replay will see.
+ */
+export async function recordDeterministicRealSession(
+  opts: { moves?: AgentMove[]; recordBeats?: boolean; recordedAt?: string; userId?: string } = {},
+): Promise<ProtocolEntry[]> {
+  const recordedAt = opts.recordedAt ?? REAL_RECORDED_AT;
+  const agentEngine = buildAgentEngine({
+    pipelineLlmGateway: new PipelineScriptedGateway(deterministicPipelineScript),
+    rollD20: () => 20,
+  });
+  establishBootParity(agentEngine.db);
+  const harness = createAgentHarness(
+    agentEngine.engine,
+    buildDeterministicRouter(agentEngine),
+    new ScriptedAgentPlayerGateway(opts.moves ?? REAL_DAY_MOVES),
+    opts.userId ?? REAL_USER_ID,
+    { recordedAt, backend: 'real', ...(opts.recordBeats ? { recordBeats: true } : {}) },
+  );
+  const restoreClock = pinClock(recordedAt);
+  try {
+    await harness.createCharacter(SEED);
+    await harness.playDays(1);
+  } finally {
+    restoreClock();
+  }
+  return JSON.parse(JSON.stringify(harness.transcript.protocol)) as ProtocolEntry[];
+}
+
+/** CLI: write the deterministic real-backend corpus entry (M10.1d). Deliberately writes to a
+ *  caller-named path rather than defaulting into the corpus, so regenerating the committed
+ *  fixture is always an explicit act. Runs only when executed directly — importing this
+ *  module (the corpus test, replay's real arm) must not trigger it. */
+async function main(): Promise<void> {
+  const out = process.argv[2];
+  if (!out) {
+    console.error('agent:record-real: usage: npm run agent:record-real -- <out.protocol.json>');
+    process.exitCode = 1;
+    return;
+  }
+  const protocol = await recordDeterministicRealSession();
+  writeFileSync(out, `${JSON.stringify(protocol, null, 2)}\n`);
+  console.log(`agent:record-real: ${protocol.length} entries → ${out}`);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
 }

@@ -5,6 +5,7 @@ Committed protocol-log transcripts (DC-S1) for M9's replay gate: the Discord reb
 ## Entries
 
 - `stub-1d.protocol.json` — a 1-day stub-backed scripted session (`npm run agent:stub -- 1`), header `{ brain: 'scripted', backend: 'stub' }`. Byte-deterministic across fresh runs (the stub-run dogfood pin), so the committed bytes are stable.
+- `real-1d.protocol.json` — a 1-day REAL-backend session (`npm run agent:record-real -- <out>`), header `{ brain: 'scripted', backend: 'real' }`. "Real backend" means the real `SessionController` over a real `WorldEngineImpl`; the pipeline gateway is scripted and the d20 is fixed, so it needs no API key and costs no tokens. This is the arm M9's replay gate always claimed and never had.
 
 ## Regenerating
 
@@ -28,8 +29,14 @@ Pinning only the replay half is not enough and the suite proves it: the recordin
 
 A header without a parseable `recordedAt` is rejected by `parseProtocolFile` rather than defaulted, because pinning to `Invalid Date` would turn every weekday comparison into a silent `NaN` rather than a loud failure.
 
-## Real-backend entries
+## Boot parity — why a recording and its replay must both establish it
 
-Still stub-only, but no longer for the SF3 reason above — that is discharged. What remains is a recorder: the deterministic real-backend session (scripted pipeline gateway, fixed d20, no live LLM and no tokens) currently lives as a helper inside `tests/agent/replay.test.ts` rather than anywhere a regen command can call. Promoting it is the remaining step.
+Neither the recorder nor the replayer is `index.ts`, so neither inherits the bot's boot, and the two environments they run in disagree **by design**: the vitest setup file seeds the emoji registry while the CLI does not, and `migrate()` seeds the world for real runs but deliberately skips it under `VITEST` so tests start from a clean world.
+
+Left implicit that produces a recording and a replay differing for reasons nothing to do with the transcript, and the failure is quiet — glyphs fall back to placeholders, locations resolve to null, nothing throws. `src/agent/bootParity.ts` is the single definition of "booted" that both ends call, rather than two that drift.
+
+One sharp edge worth knowing if you touch the seeding: `seedWorld` LAYERS geometry, edges and the map emoji onto location rows `schema.sql` has already inserted, so guarding it on an empty `locations` table skips it exactly when it is needed. `seedNpcs` is the opposite — it is not idempotent, and a second pass duplicates every NPC. `ensureWorldSeeded` treats them differently for those reasons.
+
+Each entry is pinned the same two ways by `tests/agent/protocol-transcript.test.ts`: it must replay byte-green AND deep-equal a fresh in-process run, so the committed bytes cannot rot.
 
 Note that the stub corpus replays on the stub backend only — forcing `--real` against it would mismatch the canned envelopes (the DC-S5 contract describe pins the one structural divergence).

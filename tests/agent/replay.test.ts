@@ -32,7 +32,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { replayLog, replayFile } from '../../src/agent/replay.js';
-import { pinClock } from '../../src/agent/clock.js';
+import { recordDeterministicRealSession } from '../../src/agent/deterministicSession.js';
 import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
 import { stubRun } from '../../src/agent/stub.js';
 
@@ -40,11 +40,6 @@ import { stubRun } from '../../src/agent/stub.js';
 // branching assertion no longer depends on the day the suite happens to run.
 const RECORDED_AT = '2026-07-15T09:00:00.000Z';
 
-import { buildAgentEngine } from '../../src/agent/engineHarness.js';
-import { createAgentHarness } from '../../src/agent/harness.js';
-import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
-import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
-import { deterministicPipelineScript, SEED, buildDeterministicRouter } from '../../src/agent/deterministicSession.js';
 import type { ProtocolDispatchEntry, ProtocolEntry } from '../../src/agent/transcript.js';
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
 
@@ -59,34 +54,17 @@ const REAL_DAY_MOVES: AgentMove[] = [
   { kind: 'sleep' },
 ];
 
-/** Record a deterministic real-backend session (mirroring harness.test.ts's buildHarness
- *  EXACTLY) and return its protocol log JSON round-tripped (the file's exact shape). */
+/** Record a deterministic real-backend session. Delegates to the promoted recorder in
+ *  `src/agent/deterministicSession.ts` (M10.1d) rather than keeping a second copy: this
+ *  helper WAS that copy, and once replay's real arm started seeding the world explicitly,
+ *  an unseeded local copy produced a stream replay could not match. One recorder, one
+ *  environment contract. */
 async function recordRealSession(
   moves: AgentMove[] = REAL_DAY_MOVES,
   recordBeats = false,
   recordedAt: string = RECORDED_AT,
 ): Promise<ProtocolEntry[]> {
-  const agentEngine = buildAgentEngine({
-    pipelineLlmGateway: new PipelineScriptedGateway(deterministicPipelineScript),
-    rollD20: () => 20,
-  });
-  const harness = createAgentHarness(
-    agentEngine.engine,
-    buildDeterministicRouter(agentEngine),
-    new ScriptedAgentPlayerGateway(moves),
-    USER_ID,
-    { recordedAt, ...(recordBeats ? { recordBeats: true } : {}) },
-  );
-  // DC-M10.6, the RECORD half: the recording runs on the clock it stamps, so the greeting's
-  // isWeekend() and the tick's Saturday bonus see the same day the replay will.
-  const restoreClock = pinClock(recordedAt);
-  try {
-    await harness.createCharacter(SEED);
-    await harness.playDays(1);
-  } finally {
-    restoreClock();
-  }
-  return JSON.parse(JSON.stringify(harness.transcript.protocol)) as ProtocolEntry[];
+  return recordDeterministicRealSession({ moves, recordBeats, recordedAt, userId: USER_ID });
 }
 
 /** Recursively reverse key order — a real deep comparison must be order-independent

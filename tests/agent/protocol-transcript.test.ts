@@ -13,16 +13,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { stubRun } from '../../src/agent/stub.js';
+import { recordDeterministicRealSession } from '../../src/agent/deterministicSession.js';
 import { replayLog, replayFile } from '../../src/agent/replay.js';
 import type { ProtocolEntry } from '../../src/agent/transcript.js';
 
-const CORPUS_FILE = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'fixtures',
-  'protocol-corpus',
-  'stub-1d.protocol.json',
-);
+const CORPUS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'protocol-corpus');
+const CORPUS_FILE = path.join(CORPUS_DIR, 'stub-1d.protocol.json');
+const REAL_CORPUS_FILE = path.join(CORPUS_DIR, 'real-1d.protocol.json');
 
 // Hermetic against an ambient AGENT_PROTOCOL_BEATS=1 (the DC-S1 beats knob): a beats-bearing
 // fresh log could not deep-equal the committed no-beats corpus — force the knob off.
@@ -59,6 +56,31 @@ describe("M8.5 corpus — committed transcripts for M9's replay gate", () => {
     const run = await stubRun(1);
     const fresh = JSON.parse(JSON.stringify(run.harness.transcript.protocol)) as ProtocolEntry[];
     const committed = JSON.parse(readFileSync(CORPUS_FILE, 'utf-8')) as ProtocolEntry[];
+
+    expect(fresh).toEqual(committed);
+  });
+
+  // M10.1d — the REAL-backend arm of M9's replay gate, which the gate has always claimed
+  // ("stub + deterministic real-backend transcripts byte-green") and never had. Deferred
+  // since M8.5 on the SF3 same-weekday-class caveat, which DC-M10.6's clock pin discharges:
+  // the entry stamps a fixed clock and both the recording and the replay run on it. No live
+  // LLM and no API key — the pipeline gateway is scripted and the d20 is fixed.
+  it('the committed real-backend transcript replays byte-green', async () => {
+    const result = await replayFile(REAL_CORPUS_FILE);
+
+    expect(result.fatal).toBeUndefined();
+    expect(result.backend).toBe('real');
+    expect(result.ok).toBe(true);
+    expect(result.entries.every((e) => e.ok)).toBe(true);
+    // Non-vacuity, mirroring the smoke assertion above: a dead recorder would otherwise
+    // replay exit-green over an empty stream.
+    const committed = JSON.parse(readFileSync(REAL_CORPUS_FILE, 'utf-8')) as ProtocolEntry[];
+    expect(result.entries.length).toBe(committed.length - 1);
+  });
+
+  it('the committed real-backend transcript is current with the tooling (deep-equals a fresh in-process run)', async () => {
+    const fresh = await recordDeterministicRealSession();
+    const committed = JSON.parse(readFileSync(REAL_CORPUS_FILE, 'utf-8')) as ProtocolEntry[];
 
     expect(fresh).toEqual(committed);
   });

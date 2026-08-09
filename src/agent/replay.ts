@@ -57,6 +57,7 @@ import { buildAgentEngine } from './engineHarness.js';
 import { PipelineScriptedGateway } from '../sim/PipelineScriptedGateway.js';
 import { GameRouter } from '../protocol/router.js';
 import { pinClock } from './clock.js';
+import { establishBootParity } from './bootParity.js';
 import { PROTOCOL_VERSION, validateGameResponse, type GameResponse } from '../protocol/envelope.js';
 import { validateGameEvent, type GameEvent } from '../protocol/events.js';
 import { decisionLegalMoves, isLegal, menuLegalMoves } from './agentMoves.js';
@@ -308,6 +309,7 @@ async function replayLogPinned(protocol: ProtocolEntry[], opts: ReplayOptions = 
       pipelineLlmGateway: new PipelineScriptedGateway(deterministicPipelineScript),
       rollD20: () => 20,
     });
+    establishBootParity(agentEngine.db);
     engine = agentEngine.engine;
     router = buildDeterministicRouter(agentEngine);
   } else {
