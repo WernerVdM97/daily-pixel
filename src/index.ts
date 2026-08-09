@@ -1361,8 +1361,8 @@ async function main() {
     // onNav must be forwarded here too — this wrapper is /map's only registration.
     return mapCommand({ user: { id: cmd.user.id }, focus }, onNav);
   });
-  registry.register("feedback", withTextOption(makeFeedbackCommand(router)));
-  registry.register("bug", withTextOption(makeBugCommand(router)));
+  registry.register("feedback", withTextOption(makeFeedbackCommand(router, notifyAdmin)));
+  registry.register("bug", withTextOption(makeBugCommand(router, notifyAdmin)));
   registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
   registry.register("hi", asHandler(makeHiCommand(router)));
   registry.register(

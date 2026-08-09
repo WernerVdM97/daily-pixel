@@ -123,6 +123,7 @@ export function buildRegistry(
   _joinWizards: WizardSession,
   _getCurrentScene: (userId: string) => string,
   router: GameRouter,
+  notifyAdmin: (label: string, err: unknown) => Promise<void>,
 ): CommandRegistry {
   const registry = new CommandRegistry();
 
@@ -149,8 +150,8 @@ export function buildRegistry(
         : undefined;
     return mapCommand({ user: { id: cmd.user.id }, focus }, onNav);
   });
-  registry.register("feedback", withTextOption(makeFeedbackCommand(router)));
-  registry.register("bug", withTextOption(makeBugCommand(router)));
+  registry.register("feedback", withTextOption(makeFeedbackCommand(router, notifyAdmin)));
+  registry.register("bug", withTextOption(makeBugCommand(router, notifyAdmin)));
   registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
   registry.register("hi", asHandler(makeHiCommand(router)));
   registry.register(
@@ -202,8 +203,9 @@ export function makeHarness(): Harness {
   // action-oracle.test.ts's IdleMessageSelector mock only lands on it if this calls the real
   // (mockable) function — the M7.0 transcripts stay unaffected (no idle-bearing beat there).
   const router = new GameRouter(controller, { idle: () => randomIdleMessage() });
-  const registry = buildRegistry(engine, joinWizards, getCurrentScene, router);
+  // notifyAdmin built before the registry so /feedback and /bug can wire it in too (DC-M9.3.10).
   const notifyAdmin = vi.fn(async () => {});
+  const registry = buildRegistry(engine, joinWizards, getCurrentScene, router, notifyAdmin);
   const safeErrorReply = vi.fn(async () => {});
 
   const deps: DispatchDeps = {

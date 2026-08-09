@@ -12,7 +12,10 @@ import type { GameRouter } from "../../protocol/router.js";
 import type { NoticeViewState } from "../../view/viewState.js";
 import type { NavFacts } from "../CommandRegistry.js";
 
-export function makeBugCommand(router: GameRouter) {
+export function makeBugCommand(
+  router: GameRouter,
+  notifyAdmin: (label: string, err: unknown) => Promise<void>,
+) {
   return async (
     interaction: { user: { id: string }; text: string },
     onNav?: (nav: NavFacts | undefined) => void,
@@ -28,6 +31,13 @@ export function makeBugCommand(router: GameRouter) {
     // Only the two slash surfaces carry `nav` (the router builds it off the character read
     // its own guard already performs); the two in-message surfaces never reach here.
     onNav?.(response.facts?.nav as NavFacts | undefined);
+
+    // DC-M9.3.10: the two in-message bug leaves page the admin on this fact already — before
+    // the seam crossing a throwing recordFeedback propagated out of this handler into the
+    // dispatcher's error net, which did page. Without this the slash path lost that signal.
+    if (response.facts?.persistFailed) {
+      void notifyAdmin("Slash bug report failed", new Error("recordFeedback failed"));
+    }
 
     if (!response.ok) {
       return response.error.message;
