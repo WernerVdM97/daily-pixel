@@ -472,6 +472,32 @@ describe("bookend oracle — hi", () => {
     expect(text).toContain("The trail forks. Continue?");
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
+
+  // D2 (carried since M7.2, settled here per M9.3's scope fence): a stale pending action
+  // makes hi.open's resume throw. composeHiScreen's `engine.resumeAction` read is untried
+  // (hiScreen.ts:109), so the throw crosses the router's never-throws boundary into
+  // ok:false 'internal', and commands/hi.ts's `!response.ok` branch returns the bare
+  // `error.message` — no ❌ wrap, no notifyAdmin (hi.ts never calls it). Pinned as today's
+  // actual behaviour, not fixed here.
+  it("12 · slash /hi with a pending action resumeAction can't recover → the raw internal-error message reaches the player, no friendly wrap, no notifyAdmin (D2)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(
+      oracleChar({ lastActionState: { rawInput: "scout the ridge", decisions: [], accumulatedDc: 10 } }),
+    );
+    // No setResumeResult → MockWorldEngine.resumeAction throws "no canned result set",
+    // standing in for a genuinely stale/corrupted pending action.
+    const { intr, _acks } = slashInteraction("bookend-hi-resume-throws", "hi");
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    expect(h.engine.calls.resumeAction).toContain(1);
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
+    const reply = _acks.find((a) => a.method === "reply")!;
+    const text = payloadText(reply.arg);
+    expect(text).toContain("no canned result set");
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

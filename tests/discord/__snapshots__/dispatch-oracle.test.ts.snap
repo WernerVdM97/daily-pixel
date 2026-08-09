@@ -795,6 +795,28 @@ _The warden tends the fire._",
 ]
 `;
 
+exports[`dispatch oracle — nav: sub-branches > nav:<generic> (nav:hi) with NO character → the container renders alone, no nav bar 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "You don't have a character. Type \`/join\` first.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
 exports[`dispatch oracle — nav: sub-branches > nav:<generic> (nav:hi) → renders the target screen with a nav bar 1`] = `
 [
   {
@@ -1331,6 +1353,82 @@ You crest the ridge and chart the valley below.
       ],
     },
     "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — slash arm > /ping renders 'pong' with a nav bar — the wiring-level nav supply, the one command that does not cross the seam 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "pong",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — slash arm > /ping with NO character → 'pong' alone, no nav bar (the \`if (char)\` fallback, unchanged) 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "pong",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
   },
 ]
 `;

@@ -68,6 +68,7 @@ import { TagResolver } from "./scenes/TagResolver.js";
 import {
   CommandRegistry,
   type CommandHandler,
+  type NavFacts,
 } from "./discord/CommandRegistry.js";
 import { WizardSession } from "./discord/WizardSession.js";
 import { makeStatsCommand } from "./discord/commands/stats.js";
@@ -193,12 +194,16 @@ function buildDayJobIncomeMap(dayJobs: DayJobDef[]): Record<string, number> {
 
 /** Adapt a `{ user: { id }, text }` handler to extract `text` from slash command options. */
 function withTextOption(
-  fn: (i: { user: { id: string }; text: string }) => Promise<string>,
+  fn: (
+    i: { user: { id: string }; text: string },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ) => Promise<string>,
 ): CommandHandler {
-  return async (interaction: unknown) => {
+  // onNav must be forwarded, or /feedback and /bug silently supply no nav facts (DC-M9.6).
+  return async (interaction: unknown, onNav) => {
     const cmd = interaction as ChatInputCommandInteraction;
     const text = cmd.options.getString("text", true);
-    return fn({ user: { id: cmd.user.id }, text });
+    return fn({ user: { id: cmd.user.id }, text }, onNav);
   };
 }
 
@@ -1303,9 +1308,29 @@ async function main() {
 
   const registry = new CommandRegistry();
 
+  // DC-M9.6: every other registered command hands the dispatcher its nav facts back from
+  // its own router response. `/ping` is a liveness check with no seam event to ride, so its
+  // nav bar — which it has shown since the nav bar existed — is supplied here at the
+  // composition root instead. The dispatcher itself stays free of engine reads.
+  const withEngineNav =
+    (fn: CommandHandler): CommandHandler =>
+    async (interaction, onNav) => {
+      const char = engine.getCharacter(
+        (interaction as { user: { id: string } }).user.id,
+      );
+      if (char) {
+        onNav?.({
+          rollsRemaining: char.rollsRemaining,
+          hasPendingAction: char.lastActionState !== null,
+          hasRestedToday: char.hasRestedToday ?? false,
+        });
+      }
+      return fn(interaction, onNav);
+    };
+
   registry.register(
     "ping",
-    asHandler(async () => "pong"),
+    withEngineNav(asHandler(async () => "pong")),
   );
   registry.register("help", asHandler(makeHelpCommand(router)));
   registry.register("stats", asHandler(makeStatsCommand(router)));
@@ -1314,7 +1339,7 @@ async function main() {
   registry.register("look", asHandler(makeLookCommand(router)));
   registry.register("journal", asHandler(makeJournalCommand(router)));
   const mapCommand = makeMapCommand(router);
-  registry.register("map", async (interaction: unknown) => {
+  registry.register("map", async (interaction: unknown, onNav) => {
     const cmd = interaction as ChatInputCommandInteraction;
     // Reads `place` from the slash command; a nav-button click has no options
     // (the dispatcher passes a bare `{ user }`), so default to the full map.
@@ -1322,7 +1347,8 @@ async function main() {
       typeof cmd.options?.getString === "function"
         ? cmd.options.getString("place") ?? undefined
         : undefined;
-    return mapCommand({ user: { id: cmd.user.id }, focus });
+    // onNav must be forwarded here too — this wrapper is /map's only registration.
+    return mapCommand({ user: { id: cmd.user.id }, focus }, onNav);
   });
   registry.register("feedback", withTextOption(makeFeedbackCommand(router)));
   registry.register("bug", withTextOption(makeBugCommand(router)));
@@ -1506,6 +1532,7 @@ ${headInfo}`);
     joinWizards,
     controller,
     router,
+    idle: () => randomIdleMessage(),
     notifyAdmin,
     safeErrorReply,
     VERBOSE,

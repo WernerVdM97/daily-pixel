@@ -19,14 +19,13 @@ import {
 import type { Interaction, RepliableInteraction } from "discord.js";
 
 import type { WorldEngine, PendingChoiceSelector } from "../engine/WorldEngine.js";
-import type { CommandRegistry } from "./CommandRegistry.js";
+import type { CommandRegistry, NavFacts } from "./CommandRegistry.js";
 import type { WizardSession } from "./WizardSession.js";
 import type { SessionController } from "../controller/SessionController.js";
 import type { GameRouter } from "../protocol/router.js";
-import type { NoticeViewState, DecisionViewState, OutcomeViewState } from "../view/viewState.js";
+import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState } from "../view/viewState.js";
 import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord, loadingViewToDiscord, commuteViewToDiscord } from "./viewToDiscord.js";
 import { c } from "../util/colors.js";
-import { randomIdleMessage } from "../engine/IdleMessageSelector.js";
 import {
   buildComponentPayload,
   getNavButtons,
@@ -64,6 +63,9 @@ export interface DispatchDeps {
   joinWizards: WizardSession;
   controller: SessionController;
   router: GameRouter;
+  // The nav:sleep loading beat's flavour line — mirrors `GameRouterDeps.idle` (DC-M9.6):
+  // injected the same way, so this file never imports the engine's selector directly.
+  idle: () => string;
   notifyAdmin: (label: string, err: unknown) => Promise<void>;
   safeErrorReply: (
     interaction: RepliableInteraction,
@@ -83,6 +85,7 @@ export async function dispatchInteraction(
     joinWizards,
     controller,
     router,
+    idle,
     notifyAdmin,
     safeErrorReply,
     VERBOSE,
@@ -124,7 +127,13 @@ export async function dispatchInteraction(
     }
 
     try {
-      const result = await activeHandler(interaction);
+      // DC-M9.6: the handler hands its `facts.nav` back through this closure — a local, so
+      // it cannot outlive the call or reach another user's command. A handler that never
+      // calls it leaves `nav` undefined, which is the pre-port `!char` no-nav-bar path.
+      let nav: NavFacts | undefined;
+      const result = await activeHandler(interaction, (n) => {
+        nav = n;
+      });
       // join/action manage their own flow — skip if already replied.
       if (interaction.replied || interaction.deferred) return;
 
@@ -154,10 +163,11 @@ export async function dispatchInteraction(
           interaction.user.id === ADMIN_USER_ID &&
           process.env.SLEEP_ADMIN_TICK === "true";
         if (!isAdminTick) {
-          // Goodnight message: nav buttons + a Feedback button row.
-          const char = engine.getCharacter(interaction.user.id);
-          if (char) {
-            navButtons = getNavButtons(char, "sleep");
+          // Goodnight message: nav buttons + a Feedback button row. DC-M9.6: the facts come
+          // from makeSleepCommand's own `rest.begin` dispatch (its guard arms carry `nav`
+          // too), not from a second engine read here.
+          if (nav) {
+            navButtons = getNavButtons(nav, "sleep");
             if (navButtons && navButtons.length > 0) {
               navButtons = [
                 ...navButtons,
@@ -178,8 +188,9 @@ export async function dispatchInteraction(
           }
         }
       } else {
-        const char = engine.getCharacter(interaction.user.id);
-        if (char) navButtons = getNavButtons(char, commandName);
+        // DC-M9.6: same closure, every other slash command. `/ping` is the one registered
+        // command with no seam event of its own, so index.ts wraps it to supply the fact.
+        if (nav) navButtons = getNavButtons(nav, commandName);
       }
 
       const bannerFiles = isAdminTick ? imageFiles(BANNER_IMAGE) : [];
@@ -231,11 +242,14 @@ export async function dispatchInteraction(
       // registry + payload builder live, then handed back.
       const renderHiScreen = async (userId: string) => {
         const hiHandler = registry.get("hi");
+        // DC-M9.6: the nav fact rides makeHiCommand's own `hi.open` dispatch.
+        let nav: NavFacts | undefined;
         const result = hiHandler
-          ? await hiHandler({ user: { id: userId } } as never)
+          ? await hiHandler({ user: { id: userId } } as never, (n) => {
+              nav = n;
+            })
           : "Welcome to the Oak. Type `/hi` to begin.";
-        const char = engine.getCharacter(userId);
-        const navButtons = char ? getNavButtons(char, "hi") : undefined;
+        const navButtons = nav ? getNavButtons(nav, "hi") : undefined;
         return buildComponentPayload(result, { ephemeral: true, navButtons });
       };
       await handleJoinInteraction(
@@ -955,88 +969,85 @@ export async function dispatchInteraction(
 
     const navTarget = customId.slice(4); // 'hi', 'look', etc.
 
-    // M2: stamp on nav clicks (before any handler logic).
-    controller.stampLastPlayed(interaction.user.id);
+    // M2: stamp on nav clicks (before any handler logic) — except nav:action, whose
+    // menu.open dispatch below stamps internally (router.ts's dispatchMenuOpen, matching
+    // this leaf's own pre-M9.3 order). Stamping here TOO would double-stamp that one
+    // target; every other nav target still gets exactly the stamp it had before
+    // (DC-M9.3.12 — stamping semantics do not change).
+    if (navTarget !== "action") controller.stampLastPlayed(interaction.user.id);
 
     // /action shows the day-job menu — can't route through the registry, whose
-    // handler expects a ChatInputCommandInteraction with options.
+    // handler expects a ChatInputCommandInteraction with options. Crosses as menu.open
+    // (DC-M9.6): the router owns the character/rolls/resume-in-progress guards.
     if (navTarget === "action") {
       try {
-        const result = controller.openActionMenu(interaction.user.id);
-        switch (result.kind) {
-          case "no-character":
-            await interaction.reply({
-              content:
-                "You don't have a character yet. Type `/join` to create one.",
-              flags: MessageFlags.Ephemeral,
-            });
-            break;
-          case "no-rolls":
-            await interaction.reply({
-              content:
-                "🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.",
-              flags: MessageFlags.Ephemeral,
-            });
-            break;
-          case "resume-stale":
+        const response = await router.dispatch({ type: "menu.open", playerId: interaction.user.id });
+        if (!response.ok) {
+          if (response.error.code === "stale-session") {
             // The nav:action stale embed does NOT prepend narration — description is
             // just the prompt, unlike the slash /action stale embed (withNarration).
             await interaction.reply({
               embeds: [
                 new EmbedBuilder()
                   .setTitle("⏳ Stale Action")
-                  .setDescription(result.prompt)
+                  .setDescription(response.error.message)
                   .setColor(0x95a5a6)
                   .toJSON(),
               ],
               components: [],
               flags: MessageFlags.Ephemeral,
             });
-            break;
-          case "resume-decision": {
-            const m = decisionViewToDiscord(result.view);
+          } else if (response.error.code === "internal") {
+            // resumeAction threw inside openActionMenu (or any other router-internal
+            // fault). The copy mirrors the pre-port 'resume-error' arm exactly, and
+            // notifyAdmin fires HERE rather than from the catch below: the router never
+            // throws, so a backend fault reaches this leaf as an envelope and the catch
+            // would page nobody (it now only covers the paint calls themselves).
+            void notifyAdmin("Nav (action) failed", new Error(response.error.message));
             await interaction.reply({
-              embeds: m.embeds,
-              components: m.components,
+              content: `❌ **Could not resume.**\n${response.error.message}`,
               flags: MessageFlags.Ephemeral,
             });
-            break;
+          } else {
+            // no-character / no-rolls — the router's copy is byte-identical to this
+            // leaf's own pre-port literals (NO_CHARACTER_MENU_COPY, NO_ROLLS_COPY).
+            await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
           }
-          case "resume-error":
-            await interaction.reply({
-              content: `❌ **Could not resume.**\n${result.message}`,
-              flags: MessageFlags.Ephemeral,
-            });
-            break;
-          case "menu": {
-            // New ephemeral message — the old menu used Components V2 flags, so
-            // editing it can't use embeds.
-            const m = menuViewToDiscord(result.view);
-            await interaction.reply({
-              embeds: m.embeds,
-              components: m.components,
-              flags: MessageFlags.Ephemeral,
-            });
-            // Stash this menu so the Custom… handler can delete it (as in the /action
-            // slash path); otherwise the stale menu hangs on screen.
-            const menuMsg = await interaction.fetchReply();
-            stashMenuMessage(interaction.user.id, {
-              applicationId: interaction.applicationId,
-              token: interaction.token,
-              messageId: menuMsg.id,
-            });
-            break;
-          }
-          case "menu-fallback":
-            // DC-M9.2.3: composeActionMenu threw — the byte-identical day-job fallback
-            // copy (consistent with the ported slash handler's noticeViewToDiscord paint
-            // of this same arm). Without this case the switch silently drops the reply.
-            await interaction.reply({
-              content: result.text,
-              flags: MessageFlags.Ephemeral,
-            });
-            break;
+          return;
         }
+
+        const view = response.view;
+        if (view?.screen === "decision") {
+          const m = decisionViewToDiscord(view as DecisionViewState);
+          await interaction.reply({
+            embeds: m.embeds,
+            components: m.components,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        if (view?.screen === "menu") {
+          // New ephemeral message — the old menu used Components V2 flags, so
+          // editing it can't use embeds.
+          const m = menuViewToDiscord(view as MenuViewState);
+          await interaction.reply({
+            embeds: m.embeds,
+            components: m.components,
+            flags: MessageFlags.Ephemeral,
+          });
+          // Stash this menu so the Custom… handler can delete it (as in the /action
+          // slash path); otherwise the stale menu hangs on screen.
+          const menuMsg = await interaction.fetchReply();
+          stashMenuMessage(interaction.user.id, {
+            applicationId: interaction.applicationId,
+            token: interaction.token,
+            messageId: menuMsg.id,
+          });
+          return;
+        }
+        // menu-fallback (DC-M9.2.3): composeActionMenu threw — the byte-identical day-job
+        // fallback copy crosses as an ok:true notice view rather than dropping the reply.
+        await interaction.reply(noticeViewToDiscord(view as NoticeViewState));
       } catch (err) {
         void notifyAdmin("Nav (action) failed", err);
       }
@@ -1053,8 +1064,11 @@ export async function dispatchInteraction(
           ephemeral: msgFlags?.has(MessageFlags.Ephemeral) ?? false,
           componentsV2: msgFlags?.has(MessageFlags.IsComponentsV2) ?? false,
         });
+        // DC-M9.6: the idle flavour line is an injected dep, mirroring `GameRouterDeps.idle`
+        // — this file no longer imports the engine's selector directly (its last runtime
+        // engine import).
         const loadingPayload = buildComponentPayload(
-          `🏕️ **Bedding down…**\n_${randomIdleMessage()}_`,
+          `🏕️ **Bedding down…**\n_${idle()}_`,
           { ephemeral: true },
         );
         if (mode === "update") {
@@ -1092,16 +1106,19 @@ export async function dispatchInteraction(
     if (!navHandler) return;
 
     try {
-      const char = engine.getCharacter(interaction.user.id);
-      const result = await navHandler({
-        user: { id: interaction.user.id },
-      } as never);
+      // DC-M9.6: the nav fact rides the handler's own router dispatch rather than a separate
+      // engine read — absent when the handler found no character, which reproduces today's
+      // `!char` no-nav-bar fallback (the charless `nav:hi` edge is reachable and pinned,
+      // settling the M9.0-recorded `resolvedChar === null` question).
+      let nav: NavFacts | undefined;
+      const result = await navHandler({ user: { id: interaction.user.id } } as never, (n) => {
+        nav = n;
+      });
 
       // No nav bar on /action (own buttons); /sleep has its own early-return branch
       // above and never reaches here. Otherwise exclude the current command's own button.
       const noNav = navTarget === "action";
-      const navButtons =
-        noNav || !char ? undefined : getNavButtons(char, navTarget);
+      const navButtons = noNav || !nav ? undefined : getNavButtons(nav, navTarget);
       const payload = buildComponentPayload(result, {
         ephemeral: true,
         navButtons,

@@ -9,13 +9,23 @@
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
 import type { NoticeViewState } from "../../view/viewState.js";
+import type { NavFacts } from "../CommandRegistry.js";
 
 export function makeHiCommand(router: GameRouter) {
-  return async (interaction: { user: { id: string } }): Promise<string> => {
+  return async (
+    interaction: { user: { id: string } },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ): Promise<string> => {
     const response = await router.dispatch({
       type: "hi.open",
       playerId: interaction.user.id,
     });
+
+    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
+    // Reported before the ok check because the read it replaces was outcome-independent;
+    // absent when there is no character, which is today's `if (char)` gate — and the
+    // charless `nav:hi` edge is reachable, so that fallback is pinned, not assumed.
+    onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {
       return response.error.message;

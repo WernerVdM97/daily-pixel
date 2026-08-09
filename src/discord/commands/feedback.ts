@@ -10,15 +10,24 @@
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
 import type { NoticeViewState } from "../../view/viewState.js";
+import type { NavFacts } from "../CommandRegistry.js";
 
 export function makeFeedbackCommand(router: GameRouter) {
-  return async (interaction: { user: { id: string }; text: string }): Promise<string> => {
+  return async (
+    interaction: { user: { id: string }; text: string },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ): Promise<string> => {
     const response = await router.dispatch({
       type: "feedback.submit",
       playerId: interaction.user.id,
       text: interaction.text,
       surface: "slash-feedback",
     });
+
+    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
+    // Only the two slash surfaces carry `nav` (the router builds it off the character read
+    // its own guard already performs); the four in-message surfaces never reach here.
+    onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {
       return response.error.message;

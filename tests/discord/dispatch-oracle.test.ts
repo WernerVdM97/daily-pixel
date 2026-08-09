@@ -238,6 +238,42 @@ describe("dispatch oracle — slash arm", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
+  // DC-M9.6: `/ping` is the one registered command with no seam event of its own, so it is
+  // the one place the nav weld cannot be fed by a router response. Unpinned before M9.3
+  // ("ping" appeared exactly once in the whole test tree, in the harness registry), which is
+  // how a nav-facts port could have deleted its bar in silence. Pinned here on both sides of
+  // the wiring wrapper: with a character the bar is welded, without one it is absent.
+  it("/ping renders 'pong' with a nav bar — the wiring-level nav supply, the one command that does not cross the seam", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(oracleChar());
+    const { intr, _acks } = slashInteraction("slash-ping", "ping");
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    const reply = _acks.find((a) => a.method === "reply")!;
+    const rows = (reply.arg as any).components as any[];
+    // Container + at least one nav row, and the rows really are nav buttons.
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows[1].components[0].custom_id).toMatch(/^nav:/);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("/ping with NO character → 'pong' alone, no nav bar (the `if (char)` fallback, unchanged)", async () => {
+    const h = makeHarness();
+    // characterExists true keeps the gate from rerouting: /ping is not character-gated, and
+    // this isolates the nav weld's own null-character fallback.
+    h.engine.setCharacterExists(true);
+    h.engine.setCharacter(null);
+    const { intr, _acks } = slashInteraction("slash-ping-charless", "ping");
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    const reply = _acks.find((a) => a.method === "reply")!;
+    expect((reply.arg as any).components.length).toBe(1);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
   it("gated /stats with no character reroutes to the join wizard", async () => {
     const h = makeHarness();
     h.engine.setCharacterExists(false); // no character → reroute
@@ -785,6 +821,26 @@ describe("dispatch oracle — nav: sub-branches", () => {
     expect(h.engine.calls.updateLastPlayed).toContain(1);
     const reply = _acks.find((a) => a.method === "reply")!;
     expect((reply.arg as any).components.length).toBeGreaterThan(1);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // M9.0 recorded this fallback as unpinned (`resolvedChar === null` → no nav bar);
+  // M9.2 deferred the wiring; M9.3.2c settles it (DC-M9.6's own scope-fence closing item).
+  // A charless nav click never reaches the character gate (that's slash-only), so this IS
+  // reachable — the router's `no-character` arm carries no `nav` fact, and the generic
+  // nav leaf's `consumeNavFacts` returns undefined, reproducing today's `!char` no-nav-bar
+  // fallback byte-for-byte (proved here rather than assumed).
+  it("nav:<generic> (nav:hi) with NO character → the container renders alone, no nav bar", async () => {
+    const h = makeHarness();
+    h.engine.setCharacterExists(false);
+    h.engine.setCharacter(null);
+    const { intr, _acks } = buttonInteraction("nav-hi-charless", "nav:hi");
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    const reply = _acks.find((a) => a.method === "reply")!;
+    // Just the V2 container — no nav row appended.
+    expect((reply.arg as any).components.length).toBe(1);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });

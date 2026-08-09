@@ -15,6 +15,7 @@ import { buildMorningAnnouncement } from "../announcements.js";
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
 import type { NoticeViewState } from "../../view/viewState.js";
+import type { NavFacts } from "../CommandRegistry.js";
 
 export function makeSleepCommand(engine: WorldEngine, router: GameRouter) {
   /** Warn once at first call if ADMIN_USER_ID is unset (deploy-time safety net). */
@@ -26,7 +27,10 @@ export function makeSleepCommand(engine: WorldEngine, router: GameRouter) {
     );
   }
 
-  return async (interaction: { user: { id: string } }): Promise<string> => {
+  return async (
+    interaction: { user: { id: string } },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ): Promise<string> => {
     const isAdmin = interaction.user.id === adminUserId;
     const adminTick = isAdmin && process.env.SLEEP_ADMIN_TICK === "true";
 
@@ -53,6 +57,12 @@ export function makeSleepCommand(engine: WorldEngine, router: GameRouter) {
       type: "rest.begin",
       playerId: interaction.user.id,
     });
+
+    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine. The
+    // admin-tick arm above returns before this, matching the dispatcher's own `!isAdminTick`
+    // gate on the nav weld; the guard rejections carry `nav` too, because the read this
+    // replaces ran regardless of outcome.
+    onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {
       return response.error.message;

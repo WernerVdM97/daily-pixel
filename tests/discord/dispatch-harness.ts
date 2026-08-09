@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { WizardSession } from "../../src/discord/WizardSession.js";
-import { CommandRegistry, type CommandHandler } from "../../src/discord/CommandRegistry.js";
+import { CommandRegistry, type CommandHandler, type NavFacts } from "../../src/discord/CommandRegistry.js";
 import { loadYamlFile } from "../../src/assets/yaml-loader.js";
 import type { DispatchDeps } from "../../src/discord/dispatchInteraction.js";
 import type { DayJobDef } from "../../src/controller/dayJob.js";
@@ -102,15 +102,18 @@ const asHandler = (fn: unknown): CommandHandler => fn as CommandHandler;
 
 /** Adapts a `{ user, text }` handler to a slash command (as index.ts's withTextOption). */
 function withTextOption(
-  fn: (i: { user: { id: string }; text: string }) => Promise<string>,
+  fn: (
+    i: { user: { id: string }; text: string },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ) => Promise<string>,
 ): CommandHandler {
-  return async (interaction: unknown) => {
+  return async (interaction: unknown, onNav) => {
     const cmd = interaction as {
       user: { id: string };
       options: { getString: (n: string, req?: boolean) => string };
     };
     const text = cmd.options.getString("text", true);
-    return fn({ user: { id: cmd.user.id }, text });
+    return fn({ user: { id: cmd.user.id }, text }, onNav);
   };
 }
 
@@ -122,9 +125,27 @@ export function buildRegistry(
 ): CommandRegistry {
   const registry = new CommandRegistry();
 
+  // Mirrors index.ts's own `/ping` wrapper exactly (DC-M9.6): the one registered command
+  // with no seam event, so its nav facts are supplied at the wiring level.
+  const withEngineNav =
+    (fn: CommandHandler): CommandHandler =>
+    async (interaction, onNav) => {
+      const char = engine.getCharacter(
+        (interaction as { user: { id: string } }).user.id,
+      );
+      if (char) {
+        onNav?.({
+          rollsRemaining: char.rollsRemaining,
+          hasPendingAction: char.lastActionState !== null,
+          hasRestedToday: char.hasRestedToday ?? false,
+        });
+      }
+      return fn(interaction, onNav);
+    };
+
   registry.register(
     "ping",
-    asHandler(async () => "pong"),
+    withEngineNav(asHandler(async () => "pong")),
   );
   registry.register("help", asHandler(makeHelpCommand(router)));
   registry.register("stats", asHandler(makeStatsCommand(router)));
@@ -132,7 +153,7 @@ export function buildRegistry(
   registry.register("look", asHandler(makeLookCommand(router)));
   registry.register("journal", asHandler(makeJournalCommand(router)));
   const mapCommand = makeMapCommand(router);
-  registry.register("map", async (interaction: unknown) => {
+  registry.register("map", async (interaction: unknown, onNav) => {
     const cmd = interaction as {
       user: { id: string };
       options?: { getString?: (n: string) => string | null };
@@ -141,7 +162,7 @@ export function buildRegistry(
       typeof cmd.options?.getString === "function"
         ? cmd.options.getString("place") ?? undefined
         : undefined;
-    return mapCommand({ user: { id: cmd.user.id }, focus });
+    return mapCommand({ user: { id: cmd.user.id }, focus }, onNav);
   });
   registry.register("feedback", withTextOption(makeFeedbackCommand(router)));
   registry.register("bug", withTextOption(makeBugCommand(router)));
@@ -208,6 +229,7 @@ export function makeHarness(): Harness {
     joinWizards,
     controller,
     router,
+    idle: () => randomIdleMessage(),
     notifyAdmin,
     safeErrorReply,
     VERBOSE: false,

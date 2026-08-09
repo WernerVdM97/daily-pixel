@@ -1781,6 +1781,89 @@ describe('collapse fact (DC-M9.2) — negative space', () => {
   });
 });
 
+// ── The nav fact (DC-M9.6) — the three arms M9.3.2c added it to. The adapter's nav-button
+// weld is its only consumer, and it reads exactly three fields, so these pin the fact's
+// shape as well as its presence: a `nav` short a field paints a wrong bar, not a crash. ──
+
+describe('nav facts (DC-M9.6) — the arms that owe the adapter a nav bar', () => {
+  const NAV_SHAPE = { rollsRemaining: expect.any(Number), hasPendingAction: expect.any(Boolean), hasRestedToday: expect.any(Boolean) };
+
+  it('rest.begin guard rejections carry a NARROW nav fact — the bar survives the ⛔ screens', async () => {
+    for (const kind of ['mid-action', 'rolls-remaining'] as const) {
+      const stub = new StubBackend();
+      stub.restResult = { kind };
+      stub.character = { ...stubChar, rollsRemaining: 2, hasRestedToday: false };
+      const o = await drive(new GameRouter(stub, { idle: () => IDLE }), REST_BEGIN);
+      if (o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.nav).toEqual({ rollsRemaining: 2, hasPendingAction: stubChar.lastActionState !== null, hasRestedToday: false });
+      // Narrow on purpose (the judge's M9.3.2c refinement): the weld is the only consumer,
+      // so these arms do NOT ship the rested arm's characterState/characterName.
+      expect(o.response.facts?.characterState).toBeUndefined();
+      expect(o.response.facts?.characterName).toBeUndefined();
+    }
+  });
+
+  it('rest.begin no-character carries no facts at all — which IS the adapter’s no-bar fallback', async () => {
+    const stub = new StubBackend();
+    stub.restResult = { kind: 'no-character' };
+    stub.character = null;
+    const o = await drive(new GameRouter(stub, { idle: () => IDLE }), REST_BEGIN);
+    if (o.response.ok) throw new Error('unreachable');
+    expect(o.response.facts).toBeUndefined();
+  });
+
+  it('the two SLASH feedback surfaces carry nav; the four in-message surfaces carry none', async () => {
+    for (const event of [FEEDBACK('slash-feedback'), BUG_SURFACE('slash-bug')]) {
+      const stub = new StubBackend();
+      stub.confirmationResult = noticeView;
+      const o = await drive(new GameRouter(stub, { idle: () => IDLE }), event);
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.nav).toMatchObject(NAV_SHAPE);
+    }
+    for (const event of [FEEDBACK('sleep'), FEEDBACK('release'), FEEDBACK('outcome-feedback', 42), BUG(7)]) {
+      const stub = new StubBackend();
+      stub.confirmationResult = noticeView;
+      const o = await drive(new GameRouter(stub, { idle: () => IDLE }), event);
+      if (!o.response.ok) throw new Error('unreachable');
+      expect(o.response.facts?.nav).toBeUndefined();
+    }
+  });
+
+  it('a slash surface whose persist throws carries BOTH nav and persistFailed', async () => {
+    const stub = new StubBackend();
+    stub.confirmationResult = noticeView;
+    stub.recordResult = 'throw';
+    const o = await drive(new GameRouter(stub, { idle: () => IDLE }), FEEDBACK('slash-feedback'));
+    if (!o.response.ok) throw new Error('unreachable');
+    expect(o.response.facts?.persistFailed).toBe(true);
+    expect(o.response.facts?.nav).toMatchObject(NAV_SHAPE);
+  });
+
+  it('an INTERNAL fault still carries nav — the fault screen keeps its bar, as it did before the port', async () => {
+    const stub = new StubBackend();
+    stub.statsResult = 'throw';
+    const o = await drive(new GameRouter(stub, { idle: () => IDLE }), SCREEN_STATS);
+    expectInternal(o.response);
+    expect(o.response.facts?.nav).toMatchObject(NAV_SHAPE);
+  });
+
+  it('an internal fault with no character carries no facts — and a THROWING character read is swallowed, not re-raised', async () => {
+    const charless = new StubBackend();
+    charless.statsResult = 'throw';
+    charless.character = null;
+    const o = await drive(new GameRouter(charless, { idle: () => IDLE }), SCREEN_STATS);
+    expectInternal(o.response);
+    expect(o.response.facts).toBeUndefined();
+
+    const broken = new StubBackend();
+    broken.statsResult = 'throw';
+    broken.getCharacter = () => { throw new Error('the character read itself is broken'); };
+    const o2 = await drive(new GameRouter(broken, { idle: () => IDLE }), SCREEN_STATS);
+    expectInternal(o2.response); // never a rejection, even when the fallback read faults too
+    expect(o2.response.facts).toBeUndefined();
+  });
+});
+
 // ── feedback.submit / bug.submit (reply-first best-effort) ──
 
 runCaseBlock('conformance — feedback.submit', [
@@ -2643,9 +2726,18 @@ describe('choice fidelity (agent stream) — DC-S5 (M8.5 stage 8)', () => {
     if (!restBegin) throw new Error('the stream must carry a rest.begin entry');
     expect(restBegin.ok).toBe(false);
     expect(restBegin.validationError).toBeUndefined();
+    // M9.3.2c (DC-M9.6), declared churn class 5: the live rejection now carries a narrow
+    // `nav` fact (the illegal-move guard arm feeds the dispatcher's `/sleep` nav weld), so
+    // the single 'response.facts: missing in live' line resolves into a field-by-field
+    // comparison against the recorded 'rested' arm's fuller facts. This array is a DERIVED
+    // diff: the structural claim under it — canned script rests, real engine rejects with
+    // rolls unspent — is unchanged, and the corpus fixture is untouched.
     expect([...(restBegin.diff ?? [])].sort()).toEqual([
       'response.error: missing in recorded',
-      'response.facts: missing in live',
+      'response.facts.characterClass: missing in live',
+      'response.facts.characterName: missing in live',
+      'response.facts.characterState: missing in live',
+      'response.facts.nav.rollsRemaining: 1 !== 3',
       'response.ok: false !== true',
       'response.view: missing in live',
     ]);

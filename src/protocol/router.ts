@@ -63,6 +63,18 @@ const UNSAFE_COPY = (location: string): string =>
 // src/protocol/profanity.ts); this is the adapter's exact pre-move string.
 const PROFANITY_COPY = "❌ That action contains language the warden won't tolerate. Try something else.";
 
+/** The `nav` fact, single-sourced (DC-M9.6): `addCharacterFacts` and the two narrow arms
+ *  that owe only a nav bar build it here, so the adapter's weld can never see two shapes. */
+function navFactsFrom(char: CharacterData): { nav: { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean } } {
+  return {
+    nav: {
+      rollsRemaining: char.rollsRemaining,
+      hasPendingAction: char.lastActionState !== null,
+      hasRestedToday: char.hasRestedToday ?? false,
+    },
+  };
+}
+
 // ── character.create flow copy (M7.3, DC-M7.3.6) — the four wizard copy constants. The
 // wizard error copies carry NO ❌ — the handler paints them via safeNotify (`❌ ${message}`,
 // M7.0 transcript 4's byte path); HAS_CHARACTER_COPY is painted via editReply (transcript
@@ -220,11 +232,15 @@ export class GameRouter {
       return idle;
     };
 
+    // Only for the internal-error catch below (DC-M9.6) — set once the event is known good.
+    let faultedPlayerId: string | undefined;
+
     try {
       const gate = this.validateEvent(event);
       if (!gate.ok) return this.error('invalid-event', gate.message);
 
       const e = gate.event;
+      faultedPlayerId = e.playerId;
       switch (e.type) {
         case 'menu.open':
           return await this.dispatchMenuOpen(e);
@@ -266,7 +282,7 @@ export class GameRouter {
           return this.dispatchScreenHelp(e);
       }
     } catch (err) {
-      return this.internalError(err);
+      return this.internalError(err, faultedPlayerId);
     }
   }
 
@@ -424,8 +440,14 @@ export class GameRouter {
     text: string,
     actionId: number | undefined,
   ): GameResponse {
-    if ((surface === 'slash-feedback' || surface === 'slash-bug') && this.backend.getCharacter(playerId) === null) {
-      return this.error('no-character', NO_CHARACTER_COPY);
+    // DC-M9.6: the two slash surfaces are also the dispatcher's generic slash-command
+    // nav-weld path, so their `nav` fact rides the SAME character read the guard already
+    // performs — no additional backend call, and the other four surfaces still get none.
+    let facts: Record<string, unknown> | undefined;
+    if (surface === 'slash-feedback' || surface === 'slash-bug') {
+      const char = this.backend.getCharacter(playerId);
+      if (char === null) return this.error('no-character', NO_CHARACTER_COPY);
+      facts = navFactsFrom(char);
     }
     const view = this.backend.feedbackConfirmation(surface);
     let persistFailed = false;
@@ -435,11 +457,12 @@ export class GameRouter {
       console.error(`[protocol] recordFeedback failed: ${safeStringify(err)}`);
       persistFailed = true;
     }
+    if (persistFailed) facts = { ...facts, persistFailed: true };
     return this.finalize({
       v: PROTOCOL_VERSION,
       ok: true,
       view,
-      ...(persistFailed ? { facts: { persistFailed: true } } : {}),
+      ...(facts ? { facts } : {}),
     });
   }
 
@@ -454,10 +477,14 @@ export class GameRouter {
     switch (result.kind) {
       case 'no-character':
         return this.error('no-character', NO_CHARACTER_COPY);
+      // DC-M9.6: both rejections have a character (beginRest's own guard passed it), and the
+      // dispatcher's `/sleep` nav weld used to read one regardless of the outcome — so carry
+      // `nav` here or the bar disappears from the two guard screens. Narrower than
+      // addCharacterFacts on purpose: the weld is the only consumer.
       case 'mid-action':
-        return this.error('illegal-move', MID_ACTION_COPY);
+        return this.error('illegal-move', MID_ACTION_COPY, this.navFacts(e.playerId));
       case 'rolls-remaining':
-        return this.error('illegal-move', ROLLS_REMAINING_COPY);
+        return this.error('illegal-move', ROLLS_REMAINING_COPY, this.navFacts(e.playerId));
       case 'rested': {
         let facts = this.addCharacterFacts(e.playerId) ?? {}; // the rested arm always has a char, but the type can't know
         if (result.wasUnsafe) {
@@ -751,17 +778,21 @@ export class GameRouter {
    *  produced nothing (no character AND no existing facts) — the M8.1 `screen.help`
    *  charless case, whose envelope then carries no facts key (the same no-facts
    *  convention as the wizard events). */
+  /** DC-M9.6: the nav-bar half of `addCharacterFacts`, for arms that owe the dispatcher its
+   *  nav weld and nothing else. Undefined without a character, which is the dispatcher's own
+   *  `if (char)` gate and therefore its no-nav-bar fallback. */
+  private navFacts(userId: string): Record<string, unknown> | undefined {
+    const char = this.backend.getCharacter(userId);
+    return char ? navFactsFrom(char) : undefined;
+  }
+
   private addCharacterFacts(userId: string, existingFacts?: Record<string, unknown>): Record<string, unknown> | undefined {
     const char = this.backend.getCharacter(userId);
     const facts: Record<string, unknown> = { ...existingFacts };
     if (char) {
       facts.characterName = char.name;
       if (char.class) facts.characterClass = char.class;
-      facts.nav = {
-        rollsRemaining: char.rollsRemaining,
-        hasPendingAction: char.lastActionState !== null,
-        hasRestedToday: char.hasRestedToday ?? false,
-      };
+      facts.nav = navFactsFrom(char).nav;
       facts.characterState = {
         health: char.health,
         maxHealth: char.maxHealth,
@@ -788,9 +819,22 @@ export class GameRouter {
   /** DC-M9.3.10 held that the log is where the original error's detail goes to survive
    *  once it can't cross the seam — this path was missing that log, so a controller throw
    *  vanished outright bar whatever notifyAdmin does with the envelope's message. */
-  private internalError(err: unknown): GameResponse {
+  /** DC-M9.6: an internal fault still paints inside the player's own screen, and the
+   *  dispatcher welded a nav bar over it before the port — its character read ran regardless
+   *  of the outcome. So carry `nav` here too, or every fault screen silently loses its
+   *  buttons (caught by replaying the D2 `/hi` transcript against the pre-slice baseline, not
+   *  by the suite). The read gets its own try: the fault may BE the character read. */
+  private internalError(err: unknown, playerId?: string): GameResponse {
     console.error(`[protocol] internal error: ${safeStringify(err)}`);
-    return this.error('internal', safeStringify(err));
+    let facts: Record<string, unknown> | undefined;
+    if (playerId !== undefined) {
+      try {
+        facts = this.navFacts(playerId);
+      } catch {
+        facts = undefined; // a broken backend read leaves the bar off, as `!char` did
+      }
+    }
+    return this.error('internal', safeStringify(err), facts);
   }
 
   /** Structural barrier: every final envelope crosses the seam only after its own validator
