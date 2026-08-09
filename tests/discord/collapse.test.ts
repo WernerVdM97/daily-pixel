@@ -4,7 +4,7 @@ import { GameRouter, type RouterBackend } from "../../src/protocol/router.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import type { ActionOutcome, ActionStartResult, CharacterData } from "../../src/engine/WorldEngine.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import type { CharDefs } from "../../src/controller/joinWizard.js";
 
 describe("collapseNotice", () => {

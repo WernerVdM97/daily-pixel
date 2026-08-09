@@ -12,7 +12,7 @@ import type { ActionOutcome, CharCreateData } from '../../src/engine/WorldEngine
 import { getDayJobActions, type DayJobDef } from '../../src/controller/dayJob.js';
 import type { DecisionViewState, MenuViewState, NoticeViewState, ViewState, WizardViewState } from '../../src/view/viewState.js';
 import { loadYamlFile } from '../../src/assets/yaml-loader.js';
-import { WizardSession } from '../../src/discord/WizardSession.js';
+import { WizardSession } from '../../src/controller/WizardSession.js';
 import type { CharDefs } from '../../src/controller/joinWizard.js';
 import {
   StubBackend,

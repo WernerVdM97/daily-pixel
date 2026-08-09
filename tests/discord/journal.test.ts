@@ -3,7 +3,7 @@ import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { makeJournalCommand } from "../../src/discord/commands/journal.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import type { CharDefs } from "../../src/controller/joinWizard.js";
 
 // M8.1 (DC-M8.4/5): the handler is translate + paint — every call goes through a GameRouter

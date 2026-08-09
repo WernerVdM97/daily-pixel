@@ -26,7 +26,7 @@ vi.mock("../../src/discord/collapse.js", async (importActual) => ({
 }));
 
 import { dispatchInteraction } from "../../src/discord/dispatchInteraction.js";
-import type { WizardSession } from "../../src/discord/WizardSession.js";
+import type { WizardSession } from "../../src/controller/WizardSession.js";
 import {
   makeHarness,
   oracleChar,

@@ -3,7 +3,7 @@ import { makeHiCommand } from "../../src/discord/commands/hi.js";
 import { formatCharacterHeader, isWeekend } from "../../src/controller/hiScreen.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import type { CharDefs } from "../../src/controller/joinWizard.js";
 import {
   getDayJobActions,

@@ -22,7 +22,7 @@ import { composeStatsScreen } from './statsScreen.js';
 import { composeBackpackScreen } from './backpackScreen.js';
 import { composeJournalScreen } from './journalScreen.js';
 import { composeHelpScreen } from './helpScreen.js';
-import type { WizardSession, WizardState } from '../discord/WizardSession.js';
+import type { WizardSession, WizardState } from './WizardSession.js';
 
 // M9.1 (DC-M9.5): 'slash-feedback'/'slash-bug' are the /feedback and /bug slash commands'
 // surfaces — same persist routing and confirmation copy as their outcome siblings, guarded

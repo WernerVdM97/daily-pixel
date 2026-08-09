@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { SessionController } from "../../src/controller/SessionController.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import { CommandRegistry, type CommandHandler, type NavFacts } from "../../src/discord/CommandRegistry.js";
 import { withEngineNav } from "../../src/discord/navSupply.js";
 import { loadYamlFile } from "../../src/assets/yaml-loader.js";
@@ -209,8 +209,6 @@ export function makeHarness(): Harness {
   const deps: DispatchDeps = {
     engine,
     registry,
-    getCurrentScene,
-    dayJobs: DAY_JOBS,
     joinWizards,
     controller,
     router,

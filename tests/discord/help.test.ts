@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { makeHelpCommand } from "../../src/discord/commands/help.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import type { CharDefs } from "../../src/controller/joinWizard.js";
 

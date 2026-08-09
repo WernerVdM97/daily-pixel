@@ -13,11 +13,11 @@ import {
 } from "discord.js";
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import type { CharCreateData } from "../../engine/WorldEngine.js";
-import type { WizardSession } from "../WizardSession.js";
+import type { WizardSession } from "../../controller/WizardSession.js";
 import { OAK_IMAGE, imageFiles, hasImage } from "../images.js";
 import { wizardViewToDiscord } from "../viewToDiscord.js";
 import type { WizardViewState } from "../../view/viewState.js";
-import { titleCase } from "../../controller/joinWizard.js";
+import { titleCase } from "../../util/titleCase.js";
 import type { GameRouter } from "../../protocol/router.js";
 
 // ── Custom IDs ──

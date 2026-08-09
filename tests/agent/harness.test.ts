@@ -8,7 +8,7 @@ import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.j
 import { GameRouter } from '../../src/protocol/router.js';
 import type { RouterBackend } from '../../src/protocol/router.js';
 import { SessionController } from '../../src/controller/SessionController.js';
-import { WizardSession } from '../../src/discord/WizardSession.js';
+import { WizardSession } from '../../src/controller/WizardSession.js';
 import { CID_DAYJOB, CID_DAYJOB_CUSTOM } from '../../src/controller/dayJob.js';
 import type { PipelineScript } from '../../src/sim/types.js';
 import type { CharCreateData, CharacterData } from '../../src/engine/WorldEngine.js';

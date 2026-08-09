@@ -4,7 +4,7 @@ import { makeStatsCommand } from "../../src/discord/commands/stats.js";
 import { makeBackpackCommand } from "../../src/discord/commands/backpack.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import type { CharDefs } from "../../src/controller/joinWizard.js";
 import type {
   CharacterData,

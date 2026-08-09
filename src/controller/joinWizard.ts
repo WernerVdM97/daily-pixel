@@ -12,9 +12,10 @@
  * illegal-move arm.
  */
 
-import type { WizardState } from '../discord/WizardSession.js';
+import type { WizardState } from './WizardSession.js';
 import { STAT_LABELS } from '../engine/stat-format.js';
 import type { WizardViewState } from '../view/viewState.js';
+import { titleCase } from '../util/titleCase.js';
 
 /** A YAML char-creation entry — only the fields the wizard renders. */
 export interface NamedDef {
@@ -106,11 +107,6 @@ export function buildStepOptions(step: number, defs: CharDefs, chosenClass?: str
  *  step-5 (alignment) persisted keys are lowercase, so this checks the persisted values. */
 export function isValidWizardChoice(step: number, value: string, defs: CharDefs, chosenClass?: string): boolean {
   return buildStepOptions(step, defs, chosenClass).some(o => o.value === value);
-}
-
-/** Title-case "lawful good" → "Lawful Good"; passthrough for undefined. */
-export function titleCase(s: string | undefined): string | undefined {
-  return s ? s.replace(/\b\w/g, c => c.toUpperCase()) : s;
 }
 
 // Per-step metadata: progress-ledger icon + section heading. Single source for both

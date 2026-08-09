@@ -3,7 +3,7 @@ import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { makeLookCommand } from "../../src/discord/commands/look.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import type { CharDefs } from "../../src/controller/joinWizard.js";
 import type { SceneFile } from "../../src/scenes/SceneLoader.js";
 import { TagResolver } from "../../src/scenes/TagResolver.js";

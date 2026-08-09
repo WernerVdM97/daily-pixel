@@ -70,7 +70,7 @@ import {
   type CommandHandler,
   type NavFacts,
 } from "./discord/CommandRegistry.js";
-import { WizardSession } from "./discord/WizardSession.js";
+import { WizardSession } from "./controller/WizardSession.js";
 import { withEngineNav } from "./discord/navSupply.js";
 import { makeStatsCommand } from "./discord/commands/stats.js";
 import { makeBackpackCommand } from "./discord/commands/backpack.js";
@@ -1510,8 +1510,6 @@ ${headInfo}`);
   const dispatchDeps: DispatchDeps = {
     engine,
     registry,
-    getCurrentScene,
-    dayJobs,
     joinWizards,
     controller,
     router,

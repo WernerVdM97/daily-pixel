@@ -17,7 +17,7 @@ import type { AgentEngine } from './engineHarness.js';
 import { SessionController } from '../controller/SessionController.js';
 import { GameRouter } from '../protocol/router.js';
 import type { RouterBackend } from '../protocol/router.js';
-import { WizardSession } from '../discord/WizardSession.js';
+import { WizardSession } from '../controller/WizardSession.js';
 import { loadYamlFile } from '../assets/yaml-loader.js';
 import type { CharDefs } from '../controller/joinWizard.js';
 import type { PipelineScript } from '../sim/types.js';

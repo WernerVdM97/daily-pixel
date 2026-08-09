@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import { SessionController } from "../../src/controller/SessionController.js";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import type { CharDefs } from "../../src/controller/joinWizard.js";
 import type { NoticeViewState } from "../../src/view/viewState.js";
 

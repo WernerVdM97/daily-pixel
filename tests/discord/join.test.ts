@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
 import { makeJoinCommand, handleInteraction } from "../../src/discord/commands/join.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { GameRouter } from "../../src/protocol/router.js";

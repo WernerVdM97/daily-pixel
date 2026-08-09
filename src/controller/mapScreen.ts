@@ -7,7 +7,7 @@
  *  stays adapter-side in index.ts until M9; this side only forwards it. */
 
 import type { WorldEngine, CharacterData } from "../engine/WorldEngine.js";
-import { renderMap } from "../discord/map-render.js";
+import { renderMap } from "../render/map-render.js";
 
 export function composeMapScreen(engine: WorldEngine, character: CharacterData, focus?: string): string {
   const graph = engine.getDiscoveredGraph(character.id);

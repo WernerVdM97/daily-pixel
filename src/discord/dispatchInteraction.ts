@@ -20,7 +20,7 @@ import type { Interaction, RepliableInteraction } from "discord.js";
 
 import type { WorldEngine, PendingChoiceSelector } from "../engine/WorldEngine.js";
 import type { CommandRegistry, NavFacts } from "./CommandRegistry.js";
-import type { WizardSession } from "./WizardSession.js";
+import type { WizardSession } from "../controller/WizardSession.js";
 import type { SessionController } from "../controller/SessionController.js";
 import type { GameRouter } from "../protocol/router.js";
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState } from "../view/viewState.js";
@@ -43,7 +43,6 @@ import {
   consumeMenuMessage,
   stashMenuMessage,
 } from "./commands/action.js";
-import type { DayJobDef } from "../controller/dayJob.js";
 import {
   broadcastOutcome,
   META_RECAP_THREAD_ID,
@@ -58,8 +57,6 @@ import {
 export interface DispatchDeps {
   engine: WorldEngine;
   registry: CommandRegistry;
-  getCurrentScene: (discordUserId: string) => string;
-  dayJobs: DayJobDef[];
   joinWizards: WizardSession;
   controller: SessionController;
   router: GameRouter;

@@ -46,7 +46,7 @@ import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
 import { GameRouter } from '../protocol/router.js';
 import type { RouterBackend } from '../protocol/router.js';
 import { SessionController } from '../controller/SessionController.js';
-import { WizardSession } from '../discord/WizardSession.js';
+import { WizardSession } from '../controller/WizardSession.js';
 import type { CharDefs } from '../controller/joinWizard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
