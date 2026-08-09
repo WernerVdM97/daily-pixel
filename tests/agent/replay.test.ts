@@ -32,8 +32,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { replayLog, replayFile } from '../../src/agent/replay.js';
+import { pinClock } from '../../src/agent/clock.js';
 import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
 import { stubRun } from '../../src/agent/stub.js';
+
+// A fixed recording clock (DC-M10.6): replay pins the process clock to it, so a weekday-
+// branching assertion no longer depends on the day the suite happens to run.
+const RECORDED_AT = '2026-07-15T09:00:00.000Z';
+
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { createAgentHarness } from '../../src/agent/harness.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
@@ -55,7 +61,11 @@ const REAL_DAY_MOVES: AgentMove[] = [
 
 /** Record a deterministic real-backend session (mirroring harness.test.ts's buildHarness
  *  EXACTLY) and return its protocol log JSON round-tripped (the file's exact shape). */
-async function recordRealSession(moves: AgentMove[] = REAL_DAY_MOVES, recordBeats = false): Promise<ProtocolEntry[]> {
+async function recordRealSession(
+  moves: AgentMove[] = REAL_DAY_MOVES,
+  recordBeats = false,
+  recordedAt: string = RECORDED_AT,
+): Promise<ProtocolEntry[]> {
   const agentEngine = buildAgentEngine({
     pipelineLlmGateway: new PipelineScriptedGateway(deterministicPipelineScript),
     rollD20: () => 20,
@@ -65,10 +75,17 @@ async function recordRealSession(moves: AgentMove[] = REAL_DAY_MOVES, recordBeat
     buildDeterministicRouter(agentEngine),
     new ScriptedAgentPlayerGateway(moves),
     USER_ID,
-    recordBeats ? { recordBeats: true } : undefined,
+    { recordedAt, ...(recordBeats ? { recordBeats: true } : {}) },
   );
-  await harness.createCharacter(SEED);
-  await harness.playDays(1);
+  // DC-M10.6, the RECORD half: the recording runs on the clock it stamps, so the greeting's
+  // isWeekend() and the tick's Saturday bonus see the same day the replay will.
+  const restoreClock = pinClock(recordedAt);
+  try {
+    await harness.createCharacter(SEED);
+    await harness.playDays(1);
+  } finally {
+    restoreClock();
+  }
   return JSON.parse(JSON.stringify(harness.transcript.protocol)) as ProtocolEntry[];
 }
 
@@ -276,7 +293,7 @@ describe('replay — validation failures (malformed/missing entries are failures
     const dir = mkdtempSync(path.join(os.tmpdir(), 'replay-test-'));
     const file = path.join(dir, 'tick-led.json');
     const tickLed: ProtocolEntry[] = [
-      { seq: 0, kind: 'header', v: PROTOCOL_VERSION, userId: USER_ID, brain: 'scripted', backend: 'stub' },
+      { seq: 0, kind: 'header', v: PROTOCOL_VERSION, userId: USER_ID, brain: 'scripted', backend: 'stub', recordedAt: RECORDED_AT },
       { seq: 1, kind: 'tick', dayNumber: 2 },
       { seq: 2, kind: 'dispatch', event: { type: 'action.custom', playerId: USER_ID, text: 'hi' }, response: { v: PROTOCOL_VERSION, ok: true } },
     ];
@@ -462,5 +479,28 @@ describe('replay — deterministic real-backend round trip (PROBE B made permane
     // reported per-entry rather than silently passing.
     expect(result.ok).toBe(false);
     expect(result.entries.some((e) => !e.ok)).toBe(true);
+  });
+
+  // DC-M10.6 — the clock pin, proven load-bearing rather than asserted. SF3 deferred
+  // real-backend corpus entries since M8.5 precisely because these streams read the wall
+  // clock: the day-start greeting branches on `isWeekend()` and the nightly tick grants the
+  // Saturday bonus roll on `getUTCDay() === 6`. Replay now pins the process clock to
+  // `header.recordedAt`, so the recording's own weekday is what the replay sees.
+  it('pins the process clock to header.recordedAt, so a weekday-branching recording replays green on any day (DC-M10.6)', async () => {
+    const SATURDAY = '2026-07-18T09:00:00.000Z';
+    const protocol = await recordRealSession(REAL_DAY_MOVES, false, SATURDAY);
+    expect(protocol[0].kind === 'header' && protocol[0].recordedAt).toBe(SATURDAY);
+
+    const green = await replayLog(protocol);
+    expect(green.fatal).toBeUndefined();
+    expect(green.ok).toBe(true);
+
+    // The tamper that makes the pin non-vacuous: the identical stream, restamped to a
+    // Wednesday. If the clock were NOT pinned, both runs would read the same wall clock and
+    // agree — so this going red is the whole proof that the stamp is what replay obeys.
+    const restamped = JSON.parse(JSON.stringify(protocol)) as ProtocolEntry[];
+    (restamped[0] as { recordedAt: string }).recordedAt = '2026-07-15T09:00:00.000Z';
+    const red = await replayLog(restamped);
+    expect(red.ok).toBe(false);
   });
 });

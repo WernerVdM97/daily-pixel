@@ -61,7 +61,13 @@ describe('AgentHarness — protocol log header (DC-S1)', () => {
       userId: USER_ID,
       brain: 'scripted',
       backend: 'real',
+      // DC-M10.6: the header carries the recording clock replay pins itself to. The harness
+      // defaults it to now, so this asserts the SHAPE (a parseable ISO stamp) rather than a
+      // value — a fixed expectation here would just re-pin the clock the field exists to free.
+      recordedAt: expect.any(String),
     });
+    const { recordedAt } = harness.transcript.protocol[0] as { recordedAt: string };
+    expect(Number.isNaN(new Date(recordedAt).getTime())).toBe(false);
   });
 
   it('options override the header brain/backend classes', async () => {
@@ -74,6 +80,7 @@ describe('AgentHarness — protocol log header (DC-S1)', () => {
       userId: USER_ID,
       brain: 'prod',
       backend: 'stub',
+      recordedAt: expect.any(String),
     });
   });
 });

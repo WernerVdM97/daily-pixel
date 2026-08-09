@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { stubRun } from '../../src/agent/stub.js';
+import { STUB_RECORDED_AT, stubRun } from '../../src/agent/stub.js';
 import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
 import type { ProtocolDispatchEntry, ProtocolEntry } from '../../src/agent/transcript.js';
 
@@ -72,6 +72,9 @@ describe('stubRun — fresh arm (DC-S2 canned full-lifecycle script)', () => {
       userId: 'agent:stub',
       brain: 'scripted',
       backend: 'stub',
+      // Fixed, not `now` (DC-M10.6) — the canned run's contract is byte-reproducibility, so
+      // its recording clock is part of the script rather than drawn from the wall clock.
+      recordedAt: STUB_RECORDED_AT,
     });
 
     // The wizard walk is the step-ordered creation walk (steps 2-7, the lowercase step-5

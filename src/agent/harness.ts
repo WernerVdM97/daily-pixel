@@ -93,6 +93,11 @@ export interface AgentHarnessOptions {
   /** The backend class the router was wired to, for the protocol-log header (replay's backend
    *  selector, DC-S2). */
   backend?: 'real' | 'stub';
+  /** ISO-8601 wall clock stamped into the protocol-log header (DC-M10.6); replay pins the
+   *  process clock to it. Defaults to now. A deterministic recording must pass a fixed value,
+   *  or the header alone makes the transcript differ byte-wise on every run — the corpus
+   *  regen command and the transcript smoke test both supply one. */
+  recordedAt?: string;
 }
 
 /** The disposition of a single game day — the QA/loop signal `playDays` reads. `slept`/`no-rolls`
@@ -119,7 +124,12 @@ export class AgentHarness {
     this.recordBeats = options.recordBeats ?? false;
     // The protocol-log header (DC-S1): written once at construction so every dispatch entry that
     // follows has the session identity (brain class + backend class) to interpret it against.
-    this.transcript.protocolHeader(userId, options.brain ?? 'scripted', options.backend ?? 'real');
+    this.transcript.protocolHeader(
+      userId,
+      options.brain ?? 'scripted',
+      options.backend ?? 'real',
+      options.recordedAt ?? new Date().toISOString(),
+    );
   }
 
   private readonly recordBeats: boolean;

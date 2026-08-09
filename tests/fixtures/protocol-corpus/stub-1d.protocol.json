@@ -5,7 +5,8 @@
     "v": 1,
     "userId": "agent:stub",
     "brain": "scripted",
-    "backend": "stub"
+    "backend": "stub",
+    "recordedAt": "2026-07-15T09:00:00.000Z"
   },
   {
     "seq": 1,

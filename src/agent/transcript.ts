@@ -62,6 +62,12 @@ export interface ProtocolHeaderEntry {
   userId: string;
   brain: 'scripted' | 'prod';
   backend: 'real' | 'stub';
+  /** The wall clock the session was recorded against, ISO-8601 (DC-M10.6). Replay pins the
+   *  process clock to it, which is what removes the SF3 same-weekday-class caveat: the
+   *  day-start greeting reads `isWeekend()` and the tick reads `getUTCDay() === 6`, so a
+   *  transcript recorded on a Thursday used to diverge when replayed on a Saturday. Supplied
+   *  by the caller rather than read here, so this module stays env- and clock-free (DC-S1). */
+  recordedAt: string;
 }
 
 /** One raw dispatch: the exact `GameEvent` sent and the final `GameResponse` envelope returned,
@@ -142,8 +148,13 @@ export class Transcript {
 
   // ── Protocol log (DC-S1) — recorded by the harness's single dispatch point, never here. ──
 
-  protocolHeader(userId: string, brain: 'scripted' | 'prod', backend: 'real' | 'stub'): void {
-    this.protocol.push({ seq: 0, kind: 'header', v: PROTOCOL_VERSION, userId, brain, backend });
+  protocolHeader(
+    userId: string,
+    brain: 'scripted' | 'prod',
+    backend: 'real' | 'stub',
+    recordedAt: string,
+  ): void {
+    this.protocol.push({ seq: 0, kind: 'header', v: PROTOCOL_VERSION, userId, brain, backend, recordedAt });
   }
 
   recordDispatch(event: GameEvent, response: GameResponse, beats?: GameResponse[]): void {

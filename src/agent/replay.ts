@@ -56,6 +56,7 @@ import { deterministicPipelineScript, buildDeterministicRouter } from './determi
 import { buildAgentEngine } from './engineHarness.js';
 import { PipelineScriptedGateway } from '../sim/PipelineScriptedGateway.js';
 import { GameRouter } from '../protocol/router.js';
+import { pinClock } from './clock.js';
 import { PROTOCOL_VERSION, validateGameResponse, type GameResponse } from '../protocol/envelope.js';
 import { validateGameEvent, type GameEvent } from '../protocol/events.js';
 import { decisionLegalMoves, isLegal, menuLegalMoves } from './agentMoves.js';
@@ -156,8 +157,14 @@ function validateProtocolFile(raw: unknown): { ok: true; entries: ProtocolEntry[
   if (head.backend !== 'real' && head.backend !== 'stub') {
     return { ok: false, message: "header.backend must be 'real' | 'stub'" };
   }
+  // DC-M10.6: required, and required to PARSE — a header carrying an unparseable stamp would
+  // otherwise pin the clock to Invalid Date and turn every weekday branch into a silent
+  // NaN comparison, which is a worse failure than refusing the transcript outright.
+  if (typeof head.recordedAt !== 'string' || Number.isNaN(new Date(head.recordedAt).getTime())) {
+    return { ok: false, message: 'header.recordedAt must be an ISO-8601 timestamp (DC-M10.6)' };
+  }
 
-  const header: ProtocolHeaderEntry = { seq: 0, kind: 'header', v: head.v, userId: head.userId, brain: head.brain, backend: head.backend };
+  const header: ProtocolHeaderEntry = { seq: 0, kind: 'header', v: head.v, userId: head.userId, brain: head.brain, backend: head.backend, recordedAt: head.recordedAt };
   const entries: ProtocolEntry[] = [header];
   let seq = 1;
   let sawDispatch = false;
@@ -237,7 +244,24 @@ export interface ReplayResult {
  *  consumed in its JSON form: in-process callers passing live transcript objects are normalized
  *  through a JSON round trip up front (undefined-valued optional view fields drop — exactly what
  *  a recorded file holds), so a live object and its recorded twin compare equal. */
+
 export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions = {}): Promise<ReplayResult> {
+  // DC-M10.6: pin before anything runs, restore unconditionally. A malformed or absent stamp
+  // replays unpinned rather than throwing — parseProtocolFile already rejects those, so this
+  // only forgives a hand-built in-process log, and the header is normalized below anyway.
+  const head = protocol[0];
+  const stamp = head?.kind === 'header' ? head.recordedAt : undefined;
+  const restore = typeof stamp === 'string' && !Number.isNaN(new Date(stamp).getTime())
+    ? pinClock(stamp)
+    : () => {};
+  try {
+    return await replayLogPinned(protocol, opts);
+  } finally {
+    restore();
+  }
+}
+
+async function replayLogPinned(protocol: ProtocolEntry[], opts: ReplayOptions = {}): Promise<ReplayResult> {
   const header = protocol[0];
   if (!header || header.kind !== 'header') {
     return {

@@ -29,6 +29,7 @@
 import { writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pinClock } from './clock.js';
 import { pathToFileURL } from 'node:url';
 
 import { createAgentHarness, type AgentHarness, type DaySummary } from './harness.js';
@@ -213,11 +214,19 @@ export function configureCannedScript(backend: StubBackend): void {
   backend.confirmResult = { kind: 'created', view: CREATED_VIEW, created: CHAR_DATA };
 }
 
+/** The canned run's recording clock (DC-M10.6) — a Wednesday, so the weekday branches the
+ *  greeting and the tick read stay on the weekday side. Fixed rather than `now` because the
+ *  stub run's contract is byte-reproducibility: the committed corpus is pinned by deep-equal
+ *  against a fresh run, and a live stamp would break that on the second run. */
+export const STUB_RECORDED_AT = '2026-07-15T09:00:00.000Z';
+
 export interface StubRunOptions {
   /** The DC-S7 inherit arm: no creation walk — the session starts at menu.open as the player. */
   inherit?: boolean;
   outPath?: string;
   protocolOut?: string;
+  /** Override the recording clock stamped into the protocol-log header (DC-M10.6). */
+  recordedAt?: string;
 }
 
 export interface StubRunResult {
@@ -232,6 +241,17 @@ export interface StubRunResult {
  *  files land in `finally` (the play.ts convention): a throwing run still leaves the repro
  *  up to the failure point. Deterministic — the protocol log deep-equals across fresh runs. */
 export async function stubRun(days: number, opts: StubRunOptions = {}): Promise<StubRunResult> {
+  // DC-M10.6, the RECORD half: the header stamps a fixed clock, so the run itself must
+  // execute on that clock or the recording and its replay disagree on every weekday branch.
+  const restoreClock = pinClock(opts.recordedAt ?? STUB_RECORDED_AT);
+  try {
+    return await stubRunPinned(days, opts);
+  } finally {
+    restoreClock();
+  }
+}
+
+async function stubRunPinned(days: number, opts: StubRunOptions = {}): Promise<StubRunResult> {
   const outPath = opts.outPath ?? process.env.AGENT_OUT ?? path.join(os.tmpdir(), `agent-stub-${Date.now()}.json`);
   const protocolOut = opts.protocolOut ?? process.env.AGENT_PROTOCOL_OUT ?? `${outPath}.protocol.json`;
 
@@ -244,6 +264,11 @@ export async function stubRun(days: number, opts: StubRunOptions = {}): Promise<
   const harness = createAgentHarness(new StubObserver(backend), router, brain, DEFAULT_USER_ID, {
     brain: 'scripted',
     backend: 'stub',
+    // Fixed by default, not `now` (DC-M10.6): the stub run is a canned deterministic script
+    // whose whole value is byte-reproducibility, and a wall-clock stamp in the header would
+    // make every fresh run differ from the committed corpus. Overridable so a caller can
+    // record a different weekday deliberately.
+    recordedAt: opts.recordedAt ?? STUB_RECORDED_AT,
     ...(process.env.AGENT_PROTOCOL_BEATS === '1' ? { recordBeats: true } : {}),
   });
 
