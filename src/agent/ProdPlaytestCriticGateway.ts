@@ -208,6 +208,8 @@ function renderEvent(e: TranscriptEvent): string {
       return `── NIGHT → day ${e.dayNumber}: ${e.note} ──`;
     case 'finding':
       return `⚠ FINDING [${e.severity}]: ${e.summary}${e.detail ? ` (${oneLine(e.detail)})` : ''}`;
+    case 'greeting':
+      return `👋 ${oneLine(e.text)}`;
   }
 }
 

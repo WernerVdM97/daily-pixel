@@ -4,12 +4,13 @@ import { fileURLToPath } from "node:url";
 
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { SessionController } from "../../src/controller/SessionController.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
-import { CommandRegistry, type CommandHandler } from "../../src/discord/CommandRegistry.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
+import { CommandRegistry, type CommandHandler, type NavFacts } from "../../src/discord/CommandRegistry.js";
+import { withEngineNav } from "../../src/discord/navSupply.js";
 import { loadYamlFile } from "../../src/assets/yaml-loader.js";
 import type { DispatchDeps } from "../../src/discord/dispatchInteraction.js";
 import type { DayJobDef } from "../../src/controller/dayJob.js";
-import type { CharDefs } from "../../src/discord/commands/join.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 
 import { makeHelpCommand } from "../../src/discord/commands/help.js";
 import { makeStatsCommand } from "../../src/discord/commands/stats.js";
@@ -23,6 +24,8 @@ import { makeSleepCommand } from "../../src/discord/commands/sleep.js";
 import { makeHiCommand } from "../../src/discord/commands/hi.js";
 import { makeJoinCommand } from "../../src/discord/commands/join.js";
 import { makeActionCommand } from "../../src/discord/commands/action.js";
+import { GameRouter } from "../../src/protocol/router.js";
+import { randomIdleMessage } from "../../src/engine/IdleMessageSelector.js";
 
 /**
  * Faithful `DispatchDeps` construction for the golden-transcript oracle — mirrors
@@ -81,9 +84,15 @@ export function oracleChar(overrides?: Record<string, unknown>) {
 }
 
 // ── Registry — mirrors main()'s registry.register(...) wiring, with two deliberate
-// test stubs where no transcript drives the real collaborator:
+// test stubs where a stable value beats the live collaborator:
 //   • the `look` scene-renderer (~below) is stubbed (`() => ({ sceneName, ascii })`)
-//     rather than resolving real tags→scene, because `/look` is driven by no transcript.
+//     rather than resolving real tags→scene — a DELIBERATE determinism choice for
+//     the screens oracle (M8.0): the golden transcripts pin the code-block wrapper
+//     and the surrounding scene, not real art, so the snapshots never depend on the
+//     tag→scene catalog. Not a coverage gap. Since M8.1 (DC-M8.5) the stub lives at
+//     the SessionController construction site in makeHarness (the controller's 7th
+//     param, `resolveScene`) — the registry's look handler is now makeLookCommand(router),
+//     and openLook feeds the same fixed stub to the composer.
 //   • `getCurrentScene` (passed into the action command) is a FIXED realistic scene
 //     string (see makeHarness) rather than main()'s live tag→scene resolution — the
 //     only path that reaches it is the outcome render, and a stable value is all the
@@ -94,41 +103,42 @@ const asHandler = (fn: unknown): CommandHandler => fn as CommandHandler;
 
 /** Adapts a `{ user, text }` handler to a slash command (as index.ts's withTextOption). */
 function withTextOption(
-  fn: (i: { user: { id: string }; text: string }) => Promise<string>,
+  fn: (
+    i: { user: { id: string }; text: string },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ) => Promise<string>,
 ): CommandHandler {
-  return async (interaction: unknown) => {
+  return async (interaction: unknown, onNav) => {
     const cmd = interaction as {
       user: { id: string };
       options: { getString: (n: string, req?: boolean) => string };
     };
     const text = cmd.options.getString("text", true);
-    return fn({ user: { id: cmd.user.id }, text });
+    return fn({ user: { id: cmd.user.id }, text }, onNav);
   };
 }
 
 export function buildRegistry(
   engine: MockWorldEngine,
-  joinWizards: WizardSession,
-  getCurrentScene: (userId: string) => string,
+  _joinWizards: WizardSession,
+  _getCurrentScene: (userId: string) => string,
+  router: GameRouter,
 ): CommandRegistry {
   const registry = new CommandRegistry();
 
+  // The SAME wrapper index.ts registers (DC-M9.6), imported rather than copied — so the
+  // /ping transcripts exercise production wiring, not a look-alike.
   registry.register(
     "ping",
-    asHandler(async () => "pong"),
+    withEngineNav(engine, asHandler(async () => "pong")),
   );
-  registry.register("help", asHandler(makeHelpCommand()));
-  registry.register("stats", asHandler(makeStatsCommand(engine)));
-  registry.register("backpack", asHandler(makeBackpackCommand(engine)));
-  registry.register(
-    "look",
-    asHandler(
-      makeLookCommand(engine, () => ({ sceneName: "test", ascii: "..." })),
-    ),
-  );
-  registry.register("journal", asHandler(makeJournalCommand(engine)));
-  const mapCommand = makeMapCommand(engine);
-  registry.register("map", async (interaction: unknown) => {
+  registry.register("help", asHandler(makeHelpCommand(router)));
+  registry.register("stats", asHandler(makeStatsCommand(router)));
+  registry.register("backpack", asHandler(makeBackpackCommand(router)));
+  registry.register("look", asHandler(makeLookCommand(router)));
+  registry.register("journal", asHandler(makeJournalCommand(router)));
+  const mapCommand = makeMapCommand(router);
+  registry.register("map", async (interaction: unknown, onNav) => {
     const cmd = interaction as {
       user: { id: string };
       options?: { getString?: (n: string) => string | null };
@@ -137,19 +147,19 @@ export function buildRegistry(
       typeof cmd.options?.getString === "function"
         ? cmd.options.getString("place") ?? undefined
         : undefined;
-    return mapCommand({ user: { id: cmd.user.id }, focus });
+    return mapCommand({ user: { id: cmd.user.id }, focus }, onNav);
   });
-  registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
-  registry.register("bug", withTextOption(makeBugCommand(engine)));
-  registry.register("sleep", asHandler(makeSleepCommand(engine, DAY_JOBS)));
-  registry.register("hi", asHandler(makeHiCommand(engine, DAY_JOBS)));
+  registry.register("feedback", withTextOption(makeFeedbackCommand(router)));
+  registry.register("bug", withTextOption(makeBugCommand(router)));
+  registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
+  registry.register("hi", asHandler(makeHiCommand(router)));
   registry.register(
     "join",
-    asHandler(makeJoinCommand(engine, joinWizards, CHAR_DEFS)),
+    asHandler(makeJoinCommand(router)),
   );
   registry.register(
     "action",
-    asHandler(makeActionCommand(engine, getCurrentScene, DAY_JOBS)),
+    asHandler(makeActionCommand(router, engine)),
   );
 
   return registry;
@@ -176,17 +186,33 @@ export function makeHarness(): Harness {
   // reaches it, so it must be a stable realistic value rather than "" for the golden
   // snapshots to be honest and deterministic.
   const getCurrentScene = (): string => "A quiet clearing under the oak.";
-  const registry = buildRegistry(engine, joinWizards, getCurrentScene);
+  // M8.1 (DC-M8.5 + the M8.0→M8.1 coordinator obligation): the controller's 7th constructor
+  // dep is the FIXED scene-renderer stub — NOT the real tag→scene resolver — so the screens
+  // oracle's look transcripts stay deterministic (the code-block wrapper + surrounding scene
+  // are what the golden transcripts pin, never real art). Survives M8.1 or transcripts 1/3
+  // churn beyond the planned five charless-nav snapshots.
+  const controller = new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS, joinWizards, CHAR_DEFS, () => ({ sceneName: "test", ascii: "..." }));
+  // M7.1 (DC-M7.1.7): a GameRouter over the real controller (the same wiring main() uses).
+  // M9.2: idle is wired to the REAL randomIdleMessage (matching index.ts's own
+  // `{ idle: () => randomIdleMessage() }` exactly) rather than a fixed empty string — until
+  // the slash /action port, no dispatchInteraction-driven flow ever reached a router-level
+  // beat (dayjob.start/action.custom/action.choose all still call the controller directly
+  // from dispatchInteraction.ts), so the fixed `() => ""` had no observable effect. The
+  // slash `/action <text>` arm is the first to fire a router beat through this harness, and
+  // action-oracle.test.ts's IdleMessageSelector mock only lands on it if this calls the real
+  // (mockable) function — the M7.0 transcripts stay unaffected (no idle-bearing beat there).
+  const router = new GameRouter(controller, { idle: () => randomIdleMessage() });
+  const registry = buildRegistry(engine, joinWizards, getCurrentScene, router);
   const notifyAdmin = vi.fn(async () => {});
   const safeErrorReply = vi.fn(async () => {});
 
   const deps: DispatchDeps = {
     engine,
     registry,
-    getCurrentScene,
-    dayJobs: DAY_JOBS,
     joinWizards,
-    controller: new SessionController(engine, getCurrentScene, DAY_JOBS, CHARACTER_GATED_COMMANDS),
+    controller,
+    router,
+    idle: () => randomIdleMessage(),
     notifyAdmin,
     safeErrorReply,
     VERBOSE: false,
@@ -218,6 +244,73 @@ function recorder() {
   return { acks, spy };
 }
 
+/**
+ * Wires `reply`/`deferReply`/`editReply` onto a fake interaction so they enforce
+ * discord.js's real ack invariants against its own `replied`/`deferred` flags, instead of
+ * recording blindly — the gap that let both M9.2 ack-ordering blockers (an un-acked
+ * `editReply`, a lost stale-embed guard) land in a commit with a green suite. `reply` and
+ * `deferReply` throw `InteractionAlreadyReplied` if the interaction was already replied or
+ * deferred; `editReply` throws `InteractionNotReplied` if neither has happened yet — the
+ * exact discord.js error names, so a handler bug surfaces as a thrown error rather than a
+ * silently-recorded ack. Shared by all three fake interaction shapes; the component shapes
+ * add `deferUpdate`/`update`/`webhook.editMessage` via `wireComponentAcks`.
+ */
+function wireReplyAcks(intr: Record<string, unknown> & FakeBase, acks: Recorded[]): void {
+  intr.reply = vi.fn(async (arg?: unknown) => {
+    if (intr.replied || intr.deferred) throw new Error("InteractionAlreadyReplied");
+    acks.push({ method: "reply", arg: arg ?? null });
+    intr.replied = true;
+  });
+  intr.deferReply = vi.fn(async (arg?: unknown) => {
+    if (intr.replied || intr.deferred) throw new Error("InteractionAlreadyReplied");
+    acks.push({ method: "deferReply", arg: arg ?? null });
+    intr.deferred = true;
+  });
+  intr.editReply = vi.fn(async (arg?: unknown) => {
+    if (!intr.replied && !intr.deferred) throw new Error("InteractionNotReplied");
+    acks.push({ method: "editReply", arg: arg ?? null });
+  });
+}
+
+/**
+ * The component-only ack surface (button + modal-submit), with the same enforce-don't-record
+ * discipline `wireReplyAcks` applies (M10.0). `deferUpdate`/`update` mirror discord.js
+ * exactly: they flip the same `replied`/`deferred` flags and reject an already-acked
+ * interaction, `deferUpdate` behaving like `deferReply` and `update` like `reply`.
+ *
+ * `webhook.editMessage` is the one that had no invariant at all, which is why the day-job
+ * leaf's un-acked catch reached a green suite and got PINNED as correct in the M9.3
+ * transcripts. Unlike the others this models a SERVER rejection rather than a discord.js
+ * client assertion: discord.js issues the PATCH without complaint, and Discord rejects it
+ * because an interaction that was never acked has no response for the followup-webhook token
+ * to edit. Two distinct player-visible harms hide behind that, and the fake has to make the
+ * first expressible: the edit may not land, and the un-acked interaction shows the player
+ * "This interaction failed" once the 3-second window lapses regardless of whether it does.
+ */
+function wireComponentAcks(intr: Record<string, unknown> & FakeBase, acks: Recorded[]): void {
+  intr.deferUpdate = vi.fn(async (arg?: unknown) => {
+    if (intr.replied || intr.deferred) throw new Error("InteractionAlreadyReplied");
+    acks.push({ method: "deferUpdate", arg: arg ?? null });
+    intr.deferred = true;
+  });
+  intr.update = vi.fn(async (arg?: unknown) => {
+    if (intr.replied || intr.deferred) throw new Error("InteractionAlreadyReplied");
+    acks.push({ method: "update", arg: arg ?? null });
+    intr.replied = true;
+  });
+  intr.webhook = {
+    editMessage: vi.fn(async (_id: string, payload: unknown) => {
+      if (!intr.replied && !intr.deferred) {
+        // Deliberately names the CONDITION rather than a numeric Discord error code: the
+        // rejection is the server's, this fake is not the place to pin which code it picks,
+        // and no assertion reads this string (M10.0 review, finding 4).
+        throw new Error("webhook.editMessage on an un-acked interaction");
+      }
+      acks.push({ method: "webhook.editMessage", arg: payload });
+    }),
+  };
+}
+
 /** A ChatInputCommand (slash) interaction. `stringOpts` answers options.getString(name). */
 export function slashInteraction(
   userId: string,
@@ -242,16 +335,8 @@ export function slashInteraction(
     isButton: () => false,
     isModalSubmit: () => false,
   };
-  // reply/deferReply flip the replied/deferred flags the slash arm early-returns on.
-  intr.reply = vi.fn(async (arg?: unknown) => {
-    acks.push({ method: "reply", arg: arg ?? null });
-    intr.replied = true;
-  });
-  intr.deferReply = vi.fn(async (arg?: unknown) => {
-    acks.push({ method: "deferReply", arg: arg ?? null });
-    intr.deferred = true;
-  });
-  intr.editReply = spy("editReply");
+  // reply/deferReply/editReply enforce discord.js's real ack invariants (see wireReplyAcks).
+  wireReplyAcks(intr, acks);
   intr.followUp = spy("followUp");
   intr.deleteReply = spy("deleteReply");
   intr.fetchReply = spy("fetchReply", () => ({ id: "msg-1" }));
@@ -282,20 +367,15 @@ export function buttonInteraction(
     isChatInputCommand: () => false,
     isButton: () => true,
     isModalSubmit: () => false,
-    reply: spy("reply"),
-    update: spy("update"),
-    deferReply: spy("deferReply"),
-    deferUpdate: spy("deferUpdate"),
-    editReply: spy("editReply"),
     followUp: spy("followUp"),
     fetchReply: spy("fetchReply", () => ({ id: "msg-1" })),
     showModal: spy("showModal"),
-    webhook: {
-      editMessage: vi.fn(async (_id: string, payload: unknown) => {
-        acks.push({ method: "webhook.editMessage", arg: payload });
-      }),
-    },
+    deleteReply: spy("deleteReply"),
   };
+  // Every ack method enforces discord.js's real invariants rather than recording blindly —
+  // see wireReplyAcks and wireComponentAcks.
+  wireReplyAcks(intr, acks);
+  wireComponentAcks(intr, acks);
   return { intr, _acks: acks };
 }
 
@@ -320,19 +400,13 @@ export function modalInteraction(
     isChatInputCommand: () => false,
     isButton: () => false,
     isModalSubmit: () => true,
-    reply: spy("reply"),
-    update: spy("update"),
-    deferReply: spy("deferReply"),
-    deferUpdate: spy("deferUpdate"),
-    editReply: spy("editReply"),
     followUp: spy("followUp"),
     fetchReply: spy("fetchReply", () => ({ id: "msg-1" })),
-    webhook: {
-      editMessage: vi.fn(async (_id: string, payload: unknown) => {
-        acks.push({ method: "webhook.editMessage", arg: payload });
-      }),
-    },
   };
+  // Every ack method enforces discord.js's real invariants rather than recording blindly —
+  // see wireReplyAcks and wireComponentAcks.
+  wireReplyAcks(intr, acks);
+  wireComponentAcks(intr, acks);
   return { intr, _acks: acks };
 }
 

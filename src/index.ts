@@ -68,8 +68,10 @@ import { TagResolver } from "./scenes/TagResolver.js";
 import {
   CommandRegistry,
   type CommandHandler,
+  type NavFacts,
 } from "./discord/CommandRegistry.js";
-import { WizardSession } from "./discord/WizardSession.js";
+import { WizardSession } from "./controller/WizardSession.js";
+import { withEngineNav } from "./discord/navSupply.js";
 import { makeStatsCommand } from "./discord/commands/stats.js";
 import { makeBackpackCommand } from "./discord/commands/backpack.js";
 import { makeHelpCommand } from "./discord/commands/help.js";
@@ -80,8 +82,8 @@ import { makeFeedbackCommand } from "./discord/commands/feedback.js";
 import { makeBugCommand } from "./discord/commands/bug.js";
 import { makeSleepCommand } from "./discord/commands/sleep.js";
 import { makeHiCommand } from "./discord/commands/hi.js";
-import { type DayJobDef } from "./controller/dayJob.js";
-import { registerEmoji } from "./discord/format.js";
+import type { DayJobDef } from "./controller/dayJob.js";
+import { registerEmoji } from "./render/format.js";
 import { setCollapseBroadcaster } from "./discord/collapse.js";
 import {
   pickWeeklyThreat,
@@ -114,13 +116,15 @@ import {
 } from "./discord/release-notes.js";
 import {
   makeJoinCommand,
-  type CharDefs,
 } from "./discord/commands/join.js";
+import type { CharDefs } from "./controller/joinWizard.js";
 import {
   makeActionCommand,
 } from "./discord/commands/action.js";
 import { dispatchInteraction, type DispatchDeps } from "./discord/dispatchInteraction.js";
 import { SessionController } from "./controller/SessionController.js";
+import { GameRouter } from "./protocol/router.js";
+import { randomIdleMessage } from "./engine/IdleMessageSelector.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
@@ -193,12 +197,16 @@ function buildDayJobIncomeMap(dayJobs: DayJobDef[]): Record<string, number> {
 
 /** Adapt a `{ user: { id }, text }` handler to extract `text` from slash command options. */
 function withTextOption(
-  fn: (i: { user: { id: string }; text: string }) => Promise<string>,
+  fn: (
+    i: { user: { id: string }; text: string },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ) => Promise<string>,
 ): CommandHandler {
-  return async (interaction: unknown) => {
+  // onNav must be forwarded, or /feedback and /bug silently supply no nav facts (DC-M9.6).
+  return async (interaction: unknown, onNav) => {
     const cmd = interaction as ChatInputCommandInteraction;
     const text = cmd.options.getString("text", true);
-    return fn({ user: { id: cmd.user.id }, text });
+    return fn({ user: { id: cmd.user.id }, text }, onNav);
   };
 }
 
@@ -1277,19 +1285,10 @@ async function main() {
 
   // 7. Command handlers
   const dayJobs = assets.dayJobs as DayJobDef[];
-  const registry = new CommandRegistry();
 
   // Cast through unknown — handlers take stricter param types than CommandHandler
   // ({ user: { id } } vs unknown); at runtime the interaction matches the shape.
   const asHandler = (fn: unknown): CommandHandler => fn as CommandHandler;
-
-  registry.register(
-    "ping",
-    asHandler(async () => "pong"),
-  );
-  registry.register("help", asHandler(makeHelpCommand()));
-  registry.register("stats", asHandler(makeStatsCommand(engine)));
-  registry.register("backpack", asHandler(makeBackpackCommand(engine)));
 
   // Scene helpers
   const getCurrentScene = (discordUserId: string): string => {
@@ -1301,19 +1300,57 @@ async function main() {
     return scenes.get(sceneName)?.body ?? "";
   };
 
-  registry.register(
-    "look",
-    asHandler(
-      makeLookCommand(engine, (tags) => {
-        const sceneName = tagResolver.resolve(tags);
-        const scene = scenes.get(sceneName);
-        return { sceneName, ascii: scene?.body ?? "..." };
-      }),
-    ),
+  // M8.1 (DC-M8.5): look's tag→scene resolver — now a SessionController constructor dep
+  // (the type moved with the composer into src/controller/lookScreen.ts). Previously passed
+  // per-call to makeLookCommand; the controller owns it and openLook feeds it to the composer.
+  const resolveScene = (tags: string[]): { sceneName: string; ascii: string } => {
+    const sceneName = tagResolver.resolve(tags);
+    const scene = scenes.get(sceneName);
+    return { sceneName, ascii: scene?.body ?? "..." };
+  };
+
+  // The JSON seam router (M5.1) — every game mechanic crosses it; the controller is its real
+  // backend. Created here (before the registry) because the /sleep handler needs the router
+  // (M7.1 DC-M7.1.7); the dispatcher's deps reuse the same instance below. rest.begin draws no
+  // idle today — the real source keeps production parity for future beats. The wizard store is
+  // ONE instance shared by the controller and the dispatcher's `joinWizards` dep (M7.3
+  // DC-M7.3.1/10 — docs/decisions/wizard-session-ownership.md), so the bookend oracle's
+  // direct store reads stay valid.
+  const joinWizards = new WizardSession();
+  const controller = new SessionController(
+    engine,
+    getCurrentScene,
+    dayJobs,
+    CHARACTER_GATED_COMMANDS,
+    joinWizards,
+    {
+      classes: assets.classes as CharDefs["classes"],
+      backgrounds: assets.backgrounds as CharDefs["backgrounds"],
+      races: assets.races as CharDefs["races"],
+      alignments: assets.alignments as CharDefs["alignments"],
+      dayJobs: assets.dayJobs as CharDefs["dayJobs"],
+      itemSets: assets.itemSets as CharDefs["itemSets"],
+    },
+    resolveScene,
   );
-  registry.register("journal", asHandler(makeJournalCommand(engine)));
-  const mapCommand = makeMapCommand(engine);
-  registry.register("map", async (interaction: unknown) => {
+  const router = new GameRouter(controller, { idle: () => randomIdleMessage() });
+
+  const registry = new CommandRegistry();
+
+  // DC-M9.6: `/ping` has no seam event to ride, so its nav facts come from the shared
+  // wiring wrapper the harness registers too (see navSupply.ts).
+  registry.register(
+    "ping",
+    withEngineNav(engine, asHandler(async () => "pong")),
+  );
+  registry.register("help", asHandler(makeHelpCommand(router)));
+  registry.register("stats", asHandler(makeStatsCommand(router)));
+  registry.register("backpack", asHandler(makeBackpackCommand(router)));
+
+  registry.register("look", asHandler(makeLookCommand(router)));
+  registry.register("journal", asHandler(makeJournalCommand(router)));
+  const mapCommand = makeMapCommand(router);
+  registry.register("map", async (interaction: unknown, onNav) => {
     const cmd = interaction as ChatInputCommandInteraction;
     // Reads `place` from the slash command; a nav-button click has no options
     // (the dispatcher passes a bare `{ user }`), so default to the full map.
@@ -1321,30 +1358,23 @@ async function main() {
       typeof cmd.options?.getString === "function"
         ? cmd.options.getString("place") ?? undefined
         : undefined;
-    return mapCommand({ user: { id: cmd.user.id }, focus });
+    // onNav must be forwarded here too — this wrapper is /map's only registration.
+    return mapCommand({ user: { id: cmd.user.id }, focus }, onNav);
   });
-  registry.register("feedback", withTextOption(makeFeedbackCommand(engine)));
-  registry.register("bug", withTextOption(makeBugCommand(engine)));
-  registry.register("sleep", asHandler(makeSleepCommand(engine, dayJobs)));
-  registry.register("hi", asHandler(makeHiCommand(engine, dayJobs)));
-  const joinWizards = new WizardSession();
+  registry.register("feedback", withTextOption(makeFeedbackCommand(router)));
+  registry.register("bug", withTextOption(makeBugCommand(router)));
+  registry.register("sleep", asHandler(makeSleepCommand(engine, router)));
+  registry.register("hi", asHandler(makeHiCommand(router)));
   registry.register(
     "join",
     asHandler(
-      makeJoinCommand(engine, joinWizards, {
-        classes: assets.classes as CharDefs["classes"],
-        backgrounds: assets.backgrounds as CharDefs["backgrounds"],
-        races: assets.races as CharDefs["races"],
-        alignments: assets.alignments as CharDefs["alignments"],
-        dayJobs: assets.dayJobs as CharDefs["dayJobs"],
-        itemSets: assets.itemSets as CharDefs["itemSets"],
-      }),
+      makeJoinCommand(router),
     ),
   );
 
   registry.register(
     "action",
-    asHandler(makeActionCommand(engine, getCurrentScene, dayJobs)),
+    asHandler(makeActionCommand(router, engine)),
   );
 
   // 8. Discord client
@@ -1502,15 +1532,16 @@ ${headInfo}`);
 
   // Handle all interactions — dispatch is hoisted to ./discord/dispatchInteraction.ts
   // (M1.1); wire the main()-scope bindings + the self-executing index.ts module
-  // state the closure used to capture into `deps`.
-  const controller = new SessionController(engine, getCurrentScene, dayJobs, CHARACTER_GATED_COMMANDS);
+  // state the closure used to capture into `deps`. The controller is the seam instance
+  // created above (M7.1 DC-M7.1.7 — moved up so the registry's /sleep handler could use
+  // the router).
   const dispatchDeps: DispatchDeps = {
     engine,
     registry,
-    getCurrentScene,
-    dayJobs,
     joinWizards,
     controller,
+    router,
+    idle: () => randomIdleMessage(),
     notifyAdmin,
     safeErrorReply,
     VERBOSE,

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
+import { SessionController } from "../../src/controller/SessionController.js";
+import { GameRouter } from "../../src/protocol/router.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 import { makeActionCommand } from "../../src/discord/commands/action.js";
 
 /**
@@ -11,6 +15,11 @@ import { makeActionCommand } from "../../src/discord/commands/action.js";
  * `makeActionCommand`, the exported, dependency-injected form of it, so the
  * routing the nav button relies on is guarded without standing up the whole
  * Discord client closure.
+ *
+ * M9.2 (DC-M9.4): the handler crosses the seam onto `menu.open` — rehomed onto the
+ * router-backed factory (the sleep.test.ts/hi.test.ts pattern): a GameRouter over a
+ * real SessionController wrapping the same MockWorldEngine, plus the real DAY_JOBS
+ * fixture so composeActionMenu resolves real actions.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -41,6 +50,15 @@ const DAY_JOBS = [
   },
 ];
 
+const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
+function makeHandler(engine: MockWorldEngine) {
+  const controller = new SessionController(engine, () => "", DAY_JOBS as never, undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+  const router = new GameRouter(controller, { idle: () => "" });
+  return makeActionCommand(router, engine);
+}
+
 function baseChar(overrides?: Record<string, unknown>) {
   return MockWorldEngine.defaultCharacter({
     id: 7,
@@ -60,7 +78,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
 
   it("guards when the clicker has no character", async () => {
     engine.setCharacter(null);
-    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const handler = makeHandler(engine);
     const intr = mockChatInteraction("nobody");
     const result = await handler(intr as never);
 
@@ -72,7 +90,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
 
   it("blocks with 'out of actions' when no rolls remain and not mid-action", async () => {
     engine.setCharacter(baseChar({ rollsRemaining: 0, lastActionState: null }));
-    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const handler = makeHandler(engine);
     const intr = mockChatInteraction("spent");
     const result = await handler(intr as never);
 
@@ -94,7 +112,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
         ],
       },
     });
-    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const handler = makeHandler(engine);
     const intr = mockChatInteraction("midway");
     const result = await handler(intr as never);
 
@@ -109,7 +127,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
       state: { rawInput: "x", decisions: [], accumulatedDc: 12 } as never,
       nextDecision: { prompt: "Could not recover.", options: [] },
     });
-    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const handler = makeHandler(engine);
     const intr = mockChatInteraction("stale");
     const result = await handler(intr as never);
 
@@ -119,7 +137,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
   it("shows the day-job menu when idle with rolls and no description", async () => {
     engine.setMeta("day_number", "1");
     engine.setCharacter(baseChar({ rollsRemaining: 3, lastActionState: null }));
-    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const handler = makeHandler(engine);
     const intr = mockChatInteraction("ready", null);
     const result = await handler(intr as never);
 
@@ -135,7 +153,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
     engine.setCharacter(
       baseChar({ rollsRemaining: 3, stamina: 10, maxStamina: 10, lastActionState: null }),
     );
-    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const handler = makeHandler(engine);
     const intr = mockChatInteraction("ready", null);
     await handler(intr as never);
 
@@ -162,7 +180,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
         lastActionState: null,
       }),
     );
-    const handler = makeActionCommand(engine, () => "", DAY_JOBS as never);
+    const handler = makeHandler(engine);
     const intr = mockChatInteraction("beleaguered", null);
     await handler(intr as never);
 

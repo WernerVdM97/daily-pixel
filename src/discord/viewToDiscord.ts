@@ -9,8 +9,9 @@
  */
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
-import type { CommuteViewState, DecisionViewState, LoadingViewState, MenuViewState, NoticeViewState, OutcomeViewState, ViewColorIntent } from '../view/viewState.js';
+import type { CommuteViewState, DecisionViewState, LoadingViewState, MenuViewState, NoticeViewState, OutcomeViewState, ViewColorIntent, WizardViewState } from '../view/viewState.js';
 import { clip, MAX_EMBED_DESC, outcomeColor } from '../render/embedText.js';
+import { OAK_IMAGE, imageFiles, hasImage } from './images.js';
 
 /** Opening-frame chrome — medium chrome, never a semantic choice (M2 design call), so it stays
  *  internal to this step rather than living in `ViewColorIntent`. */
@@ -182,5 +183,77 @@ export function commuteViewToDiscord(view: CommuteViewState): {
         .toJSON(),
     ],
     components: [],
+  };
+}
+
+/** Wizard-screen button chrome (M7.3, DC-M7.3.3): the customIds and styles the semantic
+ *  `WizardViewState.buttons` weld to — join:name Primary, join:choice:<step>:<value>
+ *  Secondary, join:confirm Success, join:restart Danger. */
+function wizardButton(b: WizardViewState['buttons'][number]): ButtonBuilder {
+  switch (b.kind) {
+    case 'name':
+      return new ButtonBuilder()
+        .setCustomId('join:name')
+        .setLabel(b.label)
+        .setEmoji(b.emoji)
+        .setStyle(ButtonStyle.Primary);
+    case 'choice': {
+      const btn = new ButtonBuilder()
+        .setCustomId(`join:choice:${b.step}:${b.value}`)
+        .setLabel(b.label)
+        .setStyle(ButtonStyle.Secondary);
+      if (b.emoji) btn.setEmoji(b.emoji);
+      return btn;
+    }
+    case 'confirm':
+      return new ButtonBuilder()
+        .setCustomId('join:confirm')
+        .setLabel(b.label)
+        .setEmoji(b.emoji)
+        .setStyle(ButtonStyle.Success);
+    case 'restart':
+      return new ButtonBuilder()
+        .setCustomId('join:restart')
+        .setLabel(b.label)
+        .setEmoji(b.emoji)
+        .setStyle(ButtonStyle.Danger);
+  }
+}
+
+/** Maps the wizard view to the exact embed+button-row JSON the pre-seam `buildStepMessage`
+ *  produced (M7.3, DC-M7.3.3) — title "⚔️  Forge Your Hero" with the DOUBLE SPACE pinned
+ *  verbatim (M7.0 transcript 1 asserts it), goldenrod 0xdaa520, Oak thumbnail + files. The
+ *  ledger + body rejoin with the same `\n\n` the old description used; choice buttons chunk
+ *  ≤5/row with the restart button in its OWN final row (transcripts 1-8 pin the layout
+ *  byte-for-byte — the walk steps' Start Over was always a separate row). */
+export function wizardViewToDiscord(view: WizardViewState): {
+  embeds: ReturnType<EmbedBuilder['toJSON']>[];
+  components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
+  files: ReturnType<typeof imageFiles>;
+} {
+  const embed = new EmbedBuilder()
+    .setTitle('⚔️  Forge Your Hero')
+    .setColor(0xdaa520); // goldenrod
+  if (hasImage(OAK_IMAGE)) embed.setThumbnail(`attachment://${OAK_IMAGE}`);
+  embed.setDescription([view.ledger, view.body].join('\n\n'));
+  embed.setFooter({ text: view.footer });
+
+  // Choice buttons chunked ≤5/row (Discord's cap); the non-choice buttons (name on step 1,
+  // confirm+restart on step 8, restart alone on steps 2-7) sit in ONE final row — exactly
+  // the old builder's layout (transcripts 1-8 pin it byte-for-byte).
+  const components: ActionRowBuilder<ButtonBuilder>[] = [];
+  const choices = view.buttons.filter(b => b.kind === 'choice');
+  const others = view.buttons.filter(b => b.kind !== 'choice');
+  for (let i = 0; i < choices.length; i += 5) {
+    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...choices.slice(i, i + 5).map(wizardButton)));
+  }
+  if (others.length > 0) {
+    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...others.map(wizardButton)));
+  }
+
+  return {
+    embeds: [embed.toJSON()],
+    components: components.map(r => r.toJSON()),
+    files: imageFiles(OAK_IMAGE),
   };
 }

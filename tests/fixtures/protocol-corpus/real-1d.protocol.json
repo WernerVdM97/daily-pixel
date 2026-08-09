@@ -1,0 +1,1283 @@
+[
+  {
+    "seq": 0,
+    "kind": "header",
+    "v": 1,
+    "userId": "agent:real-corpus",
+    "brain": "scripted",
+    "backend": "real",
+    "recordedAt": "2026-07-15T09:00:00.000Z"
+  },
+  {
+    "seq": 1,
+    "kind": "dispatch",
+    "event": {
+      "type": "join.open",
+      "playerId": "agent:real-corpus"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 1,
+        "totalSteps": 7,
+        "ledger": "📝 **Name** ◀\n🛡️ Class\n🌱 Upbringing\n🧬 Race\n⚖️ Alignment\n🔧 Day Job\n🎒 Starting Kit",
+        "body": "__**Name**__\nWhat shall the songs call you?",
+        "footer": "Step 1 of 7 — 2-30 characters, no @ or #",
+        "nameField": {
+          "label": "Character Name",
+          "placeholder": "Enter a name (2-30 characters)",
+          "minLength": 2,
+          "maxLength": 30
+        },
+        "buttons": [
+          {
+            "kind": "name",
+            "label": "Enter Name",
+            "emoji": "📝"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 2,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.answer",
+      "playerId": "agent:real-corpus",
+      "text": "Bram"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 2,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Bram**\n🛡️ **Class** ◀\n🌱 Upbringing\n🧬 Race\n⚖️ Alignment\n🔧 Day Job\n🎒 Starting Kit",
+        "body": "__**Class**__\n⚔️ **Warrior**\n> 💪+3 🧠-1\nBlade and shield. Front line. The first in and the last out.\n\n🏹 **Ranger**\n> 💪+1 🧠+2 💬-1\nBow and beast. The wilds are home. You read tracks like others read letters.\n\n🔮 **Wizard**\n> 💪-2 📖+3\nArcane and ancient. The old words still work — if you dare speak them.\n\n🎵 **Bard**\n> 💪-1 📖+1 💬+2\nSong and story. A well-told tale opens more doors than any key.\n\n✝️ **Priest**\n> 🧠+2 💬+1\nFaith and flame. The old gods are quiet — but not gone.",
+        "footer": "Step 2 of 7 — Class",
+        "options": [
+          {
+            "value": "Warrior",
+            "label": "Warrior",
+            "emoji": "⚔️"
+          },
+          {
+            "value": "Ranger",
+            "label": "Ranger",
+            "emoji": "🏹"
+          },
+          {
+            "value": "Wizard",
+            "label": "Wizard",
+            "emoji": "🔮"
+          },
+          {
+            "value": "Bard",
+            "label": "Bard",
+            "emoji": "🎵"
+          },
+          {
+            "value": "Priest",
+            "label": "Priest",
+            "emoji": "✝️"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 2,
+            "value": "Warrior",
+            "label": "Warrior",
+            "emoji": "⚔️"
+          },
+          {
+            "kind": "choice",
+            "step": 2,
+            "value": "Ranger",
+            "label": "Ranger",
+            "emoji": "🏹"
+          },
+          {
+            "kind": "choice",
+            "step": 2,
+            "value": "Wizard",
+            "label": "Wizard",
+            "emoji": "🔮"
+          },
+          {
+            "kind": "choice",
+            "step": 2,
+            "value": "Bard",
+            "label": "Bard",
+            "emoji": "🎵"
+          },
+          {
+            "kind": "choice",
+            "step": 2,
+            "value": "Priest",
+            "label": "Priest",
+            "emoji": "✝️"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 3,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:real-corpus",
+      "step": 2,
+      "value": "Warrior"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 3,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Bram**\n🛡️ ~~Class~~ → ⚔️ **Warrior**\n🌱 **Upbringing** ◀\n🧬 Race\n⚖️ Alignment\n🔧 Day Job\n🎒 Starting Kit",
+        "body": "__**Upbringing**__\n🎖️ **Soldier**\n> 💪+1 📖-1\nRaised in a military family. Discipline was your first language. The scars are your father's.\n\n⚖️ **Merchant**\n> 💪-1 📖+1 💬+1\nGrew up behind a counter. You could read a ledger before you could read a story.\n\n📚 **Scholar**\n> 💪-1 📖+2 💬-1\nBooks over breakfast. Your parents taught you the old tongues — some of them true.\n\n🌟 **Folk Hero**\n> 💬+1\nCommon blood, uncommon courage. Your village still tells stories about the fire you pulled them from.\n\n🏚️ **Outcast**\n> 🧠+1 💬-1\nYou grew up on the edge of things. The forest taught you what people wouldn't.\n\n👑 **Noble**\n> 💪-1 🧠-1 📖+1 💬+2\nManor-born. You learned poise, politics, and how to make a room listen.\n\n🪚 **Artisan**\n> 💪+1 🧠+1 📖-1 💬-1\nYour hands know wood, stone, or metal before your mind knows letters.\n\n🌾 **Farmstead**\n> 💪+1 🧠+1 💬-1\nYou read weather, soil, and seasons like others read books.\n\n⛪ **Temple-Raised**\n> 🧠+2 📖-1 💬-1\nGiven to the old faith as a child. The hymns are still in your bones.\n\n🗝️ **Urchin**\n> 💪+1 🧠+1 💬-2\nThe gutter taught you everything. Pockets, roofs, escape routes.\n\n🎭 **Entertainer**\n> 💪-1 📖-1 💬+2\nYou travelled with a troupe. You learned to read a room before you learned to read a page.\n\n🧭 **Scout**\n> 💪+1 🧠+2 💬-2\nRange-born. Your family kept the borders, watched the roads, knew when something changed.",
+        "footer": "Step 3 of 7 — Upbringing",
+        "options": [
+          {
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          },
+          {
+            "value": "Merchant",
+            "label": "Merchant",
+            "emoji": "⚖️"
+          },
+          {
+            "value": "Scholar",
+            "label": "Scholar",
+            "emoji": "📚"
+          },
+          {
+            "value": "Folk Hero",
+            "label": "Folk Hero",
+            "emoji": "🌟"
+          },
+          {
+            "value": "Outcast",
+            "label": "Outcast",
+            "emoji": "🏚️"
+          },
+          {
+            "value": "Noble",
+            "label": "Noble",
+            "emoji": "👑"
+          },
+          {
+            "value": "Artisan",
+            "label": "Artisan",
+            "emoji": "🪚"
+          },
+          {
+            "value": "Farmstead",
+            "label": "Farmstead",
+            "emoji": "🌾"
+          },
+          {
+            "value": "Temple-Raised",
+            "label": "Temple-Raised",
+            "emoji": "⛪"
+          },
+          {
+            "value": "Urchin",
+            "label": "Urchin",
+            "emoji": "🗝️"
+          },
+          {
+            "value": "Entertainer",
+            "label": "Entertainer",
+            "emoji": "🎭"
+          },
+          {
+            "value": "Scout",
+            "label": "Scout",
+            "emoji": "🧭"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Soldier",
+            "label": "Soldier",
+            "emoji": "🎖️"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Merchant",
+            "label": "Merchant",
+            "emoji": "⚖️"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Scholar",
+            "label": "Scholar",
+            "emoji": "📚"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Folk Hero",
+            "label": "Folk Hero",
+            "emoji": "🌟"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Outcast",
+            "label": "Outcast",
+            "emoji": "🏚️"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Noble",
+            "label": "Noble",
+            "emoji": "👑"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Artisan",
+            "label": "Artisan",
+            "emoji": "🪚"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Farmstead",
+            "label": "Farmstead",
+            "emoji": "🌾"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Temple-Raised",
+            "label": "Temple-Raised",
+            "emoji": "⛪"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Urchin",
+            "label": "Urchin",
+            "emoji": "🗝️"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Entertainer",
+            "label": "Entertainer",
+            "emoji": "🎭"
+          },
+          {
+            "kind": "choice",
+            "step": 3,
+            "value": "Scout",
+            "label": "Scout",
+            "emoji": "🧭"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 4,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:real-corpus",
+      "step": 3,
+      "value": "Soldier"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 4,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Bram**\n🛡️ ~~Class~~ → ⚔️ **Warrior**\n🌱 ~~Upbringing~~ → 🎖️ **Soldier**\n🧬 **Race** ◀\n⚖️ Alignment\n🔧 Day Job\n🎒 Starting Kit",
+        "body": "__**Race**__\n🧑 **Human**\n> 💬+1\nThe most common folk. Adaptable, ambitious, everywhere.\n\n🪓 **Dwarf**\n> 💪+1 🧠+1 💬-2\nStone and steel. Stocky, stubborn, unshakeable.\n\n🧝 **Elf**\n> 💪-1 🧠+1 📖+1\nGrace and age. You've seen centuries. The Oak was a sapling when you were young.\n\n🍀 **Halfling**\n> 💪-2 💬+2\nSmall and lucky. The world is big — you've learned to slip through the cracks.\n\n🌗 **Half-Elf**\n> 💪-1 🧠+1 📖+1\nTwo bloodlines, one heart. You walk between worlds — welcome in neither, at home in both.\n\n💪 **Half-Orc**\n> 💪+2 🧠-1 💬-1\nTwo bloods, one fist. You carry the strength of one world and the rejection of both.\n\n🏔️ **Dúnedain**\n> 💪+1 🧠+1 💬-1\nBlood of the West. Your people have guarded the borders for so long the villages forgot you exist.",
+        "footer": "Step 4 of 7 — Race",
+        "options": [
+          {
+            "value": "Human",
+            "label": "Human",
+            "emoji": "🧑"
+          },
+          {
+            "value": "Dwarf",
+            "label": "Dwarf",
+            "emoji": "🪓"
+          },
+          {
+            "value": "Elf",
+            "label": "Elf",
+            "emoji": "🧝"
+          },
+          {
+            "value": "Halfling",
+            "label": "Halfling",
+            "emoji": "🍀"
+          },
+          {
+            "value": "Half-Elf",
+            "label": "Half-Elf",
+            "emoji": "🌗"
+          },
+          {
+            "value": "Half-Orc",
+            "label": "Half-Orc",
+            "emoji": "💪"
+          },
+          {
+            "value": "Dúnedain",
+            "label": "Dúnedain",
+            "emoji": "🏔️"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 4,
+            "value": "Human",
+            "label": "Human",
+            "emoji": "🧑"
+          },
+          {
+            "kind": "choice",
+            "step": 4,
+            "value": "Dwarf",
+            "label": "Dwarf",
+            "emoji": "🪓"
+          },
+          {
+            "kind": "choice",
+            "step": 4,
+            "value": "Elf",
+            "label": "Elf",
+            "emoji": "🧝"
+          },
+          {
+            "kind": "choice",
+            "step": 4,
+            "value": "Halfling",
+            "label": "Halfling",
+            "emoji": "🍀"
+          },
+          {
+            "kind": "choice",
+            "step": 4,
+            "value": "Half-Elf",
+            "label": "Half-Elf",
+            "emoji": "🌗"
+          },
+          {
+            "kind": "choice",
+            "step": 4,
+            "value": "Half-Orc",
+            "label": "Half-Orc",
+            "emoji": "💪"
+          },
+          {
+            "kind": "choice",
+            "step": 4,
+            "value": "Dúnedain",
+            "label": "Dúnedain",
+            "emoji": "🏔️"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 5,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:real-corpus",
+      "step": 4,
+      "value": "Human"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 5,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Bram**\n🛡️ ~~Class~~ → ⚔️ **Warrior**\n🌱 ~~Upbringing~~ → 🎖️ **Soldier**\n🧬 ~~Race~~ → 🧑 **Human**\n⚖️ **Alignment** ◀\n🔧 Day Job\n🎒 Starting Kit",
+        "body": "__**Alignment**__\n😇 **Lawful Good**\nOrder and compassion. The code is the shield.\n\n🕊️ **Neutral Good**\nKindness above all. Rules are tools, not masters.\n\n🔥 **Chaotic Good**\nFreedom and mercy. Break the law to save the innocent.\n\n📏 **Lawful Neutral**\nOrder is its own virtue. The code, always.\n\n⚖️ **True Neutral**\nBalance. You walk the middle road.\n\n🎲 **Chaotic Neutral**\nImpulse and instinct. No master, no chain.\n\n🗡️ **Lawful Evil**\nCruelty within the rules. The system serves you.\n\n🐍 **Neutral Evil**\nSelfishness without restraint. You take what you want.\n\n💀 **Chaotic Evil**\nDestruction for its own sake. The world burns.",
+        "footer": "Step 5 of 7 — Alignment",
+        "options": [
+          {
+            "value": "lawful good",
+            "label": "Lawful Good",
+            "emoji": "😇"
+          },
+          {
+            "value": "neutral good",
+            "label": "Neutral Good",
+            "emoji": "🕊️"
+          },
+          {
+            "value": "chaotic good",
+            "label": "Chaotic Good",
+            "emoji": "🔥"
+          },
+          {
+            "value": "lawful neutral",
+            "label": "Lawful Neutral",
+            "emoji": "📏"
+          },
+          {
+            "value": "true neutral",
+            "label": "True Neutral",
+            "emoji": "⚖️"
+          },
+          {
+            "value": "chaotic neutral",
+            "label": "Chaotic Neutral",
+            "emoji": "🎲"
+          },
+          {
+            "value": "lawful evil",
+            "label": "Lawful Evil",
+            "emoji": "🗡️"
+          },
+          {
+            "value": "neutral evil",
+            "label": "Neutral Evil",
+            "emoji": "🐍"
+          },
+          {
+            "value": "chaotic evil",
+            "label": "Chaotic Evil",
+            "emoji": "💀"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "lawful good",
+            "label": "Lawful Good",
+            "emoji": "😇"
+          },
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "neutral good",
+            "label": "Neutral Good",
+            "emoji": "🕊️"
+          },
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "chaotic good",
+            "label": "Chaotic Good",
+            "emoji": "🔥"
+          },
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "lawful neutral",
+            "label": "Lawful Neutral",
+            "emoji": "📏"
+          },
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "true neutral",
+            "label": "True Neutral",
+            "emoji": "⚖️"
+          },
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "chaotic neutral",
+            "label": "Chaotic Neutral",
+            "emoji": "🎲"
+          },
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "lawful evil",
+            "label": "Lawful Evil",
+            "emoji": "🗡️"
+          },
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "neutral evil",
+            "label": "Neutral Evil",
+            "emoji": "🐍"
+          },
+          {
+            "kind": "choice",
+            "step": 5,
+            "value": "chaotic evil",
+            "label": "Chaotic Evil",
+            "emoji": "💀"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 6,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:real-corpus",
+      "step": 5,
+      "value": "lawful good"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 6,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Bram**\n🛡️ ~~Class~~ → ⚔️ **Warrior**\n🌱 ~~Upbringing~~ → 🎖️ **Soldier**\n🧬 ~~Race~~ → 🧑 **Human**\n⚖️ ~~Alignment~~ → 😇 **Lawful Good**\n🔧 **Day Job** ◀\n🎒 Starting Kit",
+        "body": "__**Day Job**__\n🛡️ **Town Guard**\nPatrol the walls. Break up tavern brawls. The town sleeps safer.\n\n🔨 **Blacksmith**\nHammer and anvil. Every town needs one. Every blade remembers your name.\n\n🏹 **Hunter**\nTrack game in the eastern woods. The Oak's larder depends on you.\n\n📜 **Scribe**\nCopy manuscripts. Translate old tongues. The warden's library is yours.\n\n🌿 **Herbalist**\nGather roots and remedies. The sick come to you before the priest.\n\n🎶 **Minstrel**\nPlay the taverns. Carry news between towns. Every song is a secret.\n\n💰 **Merchant**\nBuy low in Stonebridge, sell high at the Oak. Coin before creed.\n\n🕯️ **Acolyte**\nTend the shrine. Bless the harvest. The people need someone to believe in.\n\n🚶 **Wanderer**\nNo roof, no boss, no routine. You sleep under the Oak and eat what luck brings.",
+        "footer": "Step 6 of 7 — Day Job",
+        "options": [
+          {
+            "value": "Town Guard",
+            "label": "Town Guard",
+            "emoji": "🛡️"
+          },
+          {
+            "value": "Blacksmith",
+            "label": "Blacksmith",
+            "emoji": "🔨"
+          },
+          {
+            "value": "Hunter",
+            "label": "Hunter",
+            "emoji": "🏹"
+          },
+          {
+            "value": "Scribe",
+            "label": "Scribe",
+            "emoji": "📜"
+          },
+          {
+            "value": "Herbalist",
+            "label": "Herbalist",
+            "emoji": "🌿"
+          },
+          {
+            "value": "Minstrel",
+            "label": "Minstrel",
+            "emoji": "🎶"
+          },
+          {
+            "value": "Merchant",
+            "label": "Merchant",
+            "emoji": "💰"
+          },
+          {
+            "value": "Acolyte",
+            "label": "Acolyte",
+            "emoji": "🕯️"
+          },
+          {
+            "value": "Wanderer",
+            "label": "Wanderer",
+            "emoji": "🚶"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Town Guard",
+            "label": "Town Guard",
+            "emoji": "🛡️"
+          },
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Blacksmith",
+            "label": "Blacksmith",
+            "emoji": "🔨"
+          },
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Hunter",
+            "label": "Hunter",
+            "emoji": "🏹"
+          },
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Scribe",
+            "label": "Scribe",
+            "emoji": "📜"
+          },
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Herbalist",
+            "label": "Herbalist",
+            "emoji": "🌿"
+          },
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Minstrel",
+            "label": "Minstrel",
+            "emoji": "🎶"
+          },
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Merchant",
+            "label": "Merchant",
+            "emoji": "💰"
+          },
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Acolyte",
+            "label": "Acolyte",
+            "emoji": "🕯️"
+          },
+          {
+            "kind": "choice",
+            "step": 6,
+            "value": "Wanderer",
+            "label": "Wanderer",
+            "emoji": "🚶"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 7,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:real-corpus",
+      "step": 6,
+      "value": "Town Guard"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 7,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Bram**\n🛡️ ~~Class~~ → ⚔️ **Warrior**\n🌱 ~~Upbringing~~ → 🎖️ **Soldier**\n🧬 ~~Race~~ → 🧑 **Human**\n⚖️ ~~Alignment~~ → 😇 **Lawful Good**\n🔧 ~~Day Job~~ → 🛡️ **Town Guard**\n🎒 **Starting Kit** ◀",
+        "body": "__**Starting Kit**__\n🎒 **Soldier's Kit**\n> 💪+3\nStandard issue. Nothing fancy, nothing missing.\n\n🎒 **Berserker's Kit**\n> 💪+3\nHeavy blade, hot blood. No shield — you are the wall.",
+        "footer": "Step 7 of 7 — Starting Kit",
+        "options": [
+          {
+            "value": "Soldier's Kit",
+            "label": "Soldier's Kit",
+            "emoji": "🎒"
+          },
+          {
+            "value": "Berserker's Kit",
+            "label": "Berserker's Kit",
+            "emoji": "🎒"
+          }
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "step": 7,
+            "value": "Soldier's Kit",
+            "label": "Soldier's Kit",
+            "emoji": "🎒"
+          },
+          {
+            "kind": "choice",
+            "step": 7,
+            "value": "Berserker's Kit",
+            "label": "Berserker's Kit",
+            "emoji": "🎒"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 8,
+    "kind": "dispatch",
+    "event": {
+      "type": "wizard.choose",
+      "playerId": "agent:real-corpus",
+      "step": 7,
+      "value": "Soldier's Kit"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "wizard",
+        "step": 8,
+        "totalSteps": 7,
+        "ledger": "📝 ~~Name~~ → **Bram**\n🛡️ ~~Class~~ → ⚔️ **Warrior**\n🌱 ~~Upbringing~~ → 🎖️ **Soldier**\n🧬 ~~Race~~ → 🧑 **Human**\n⚖️ ~~Alignment~~ → 😇 **Lawful Good**\n🔧 ~~Day Job~~ → 🛡️ **Town Guard**\n🎒 ~~Starting Kit~~ → **Soldier's Kit**",
+        "body": "__**Ready**__\nYour hero stands ready. Confirm to step into the world — or start over.",
+        "footer": "Review your choices and confirm",
+        "buttons": [
+          {
+            "kind": "confirm",
+            "label": "Confirm",
+            "emoji": "✅"
+          },
+          {
+            "kind": "restart",
+            "label": "Start Over",
+            "emoji": "🔄"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 9,
+    "kind": "dispatch",
+    "event": {
+      "type": "character.create",
+      "playerId": "agent:real-corpus"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "🌳 🛡️ **The Warden's Oak** — Use `look` for the full scene.\n\n⚔️  **Bram** — Warrior\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n❤️ 10/10  ┃  ⚡ 10/10  ┃  🎲 3  ┃  💰 0\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🛡️ **Town Guard — Town Square — Daily Work**\n\n  🎯 **Drill with the watch** — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.\n  🔧 **Inspect the lockup** — You check the cells. One door's hinge has been worked loose — from the inside.\n  📋 **Stand the gate** — You hold the gate, marking who comes and goes. A few faces you don't know, and one you wish you didn't.\n\n📦 Press the **Action** button or type `action <what you do>` to start.",
+        "ephemeral": true
+      },
+      "facts": {
+        "createdCharacter": {
+          "name": "Bram",
+          "class": "Warrior",
+          "upbringing": "Soldier",
+          "race": "Human",
+          "alignment": "lawful good",
+          "dayJob": "Town Guard",
+          "itemSetName": "Soldier's Kit"
+        },
+        "characterName": "Bram",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 0,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 10,
+    "kind": "dispatch",
+    "event": {
+      "type": "hi.open",
+      "playerId": "agent:real-corpus"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "🌳 🛡️ **The Warden's Oak** — Use `look` for the full scene.\n\n⚔️  **Bram** — Warrior\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n❤️ 10/10  ┃  ⚡ 10/10  ┃  🎲 3  ┃  💰 0\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🛡️ **Town Guard — Town Square — Daily Work**\n\n  🎯 **Drill with the watch** — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.\n  🔧 **Inspect the lockup** — You check the cells. One door's hinge has been worked loose — from the inside.\n  📋 **Stand the gate** — You hold the gate, marking who comes and goes. A few faces you don't know, and one you wish you didn't.\n\n📦 Press the **Action** button or type `action <what you do>` to start.",
+        "ephemeral": true
+      },
+      "facts": {
+        "characterName": "Bram",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 0,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 11,
+    "kind": "dispatch",
+    "event": {
+      "type": "screen.stats",
+      "playerId": "agent:real-corpus"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "⚔️  **Bram** — Warrior\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**Upbringing:** Soldier  |  **Race:** Human\n**Alignment:** lawful good\n**Day Job:** Town Guard\n\n**Stats:**\n  💪 PHY  +7  (+4 base, +3 🎒)\n  🧠 WIS  -1\n  📖 INT  -1\n  💬 CHA  +1\n\n**Health:** 10/10  |  **Stamina:** 10/10\n**Location:** The Warden's Oak\n**Wealth:** 0 copper  |  **Rolls:** 3",
+        "ephemeral": true
+      },
+      "facts": {
+        "characterName": "Bram",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 0,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 12,
+    "kind": "dispatch",
+    "event": {
+      "type": "menu.open",
+      "playerId": "agent:real-corpus"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "menu",
+        "title": {
+          "emoji": "🛡️",
+          "text": "Town Guard — Daily Work"
+        },
+        "description": "Pick a task to start:",
+        "buttons": [
+          {
+            "label": "Drill with the watch",
+            "customId": "action:dayjob:0",
+            "style": "secondary"
+          },
+          {
+            "label": "Inspect the lockup",
+            "customId": "action:dayjob:1",
+            "style": "secondary"
+          },
+          {
+            "label": "Stand the gate",
+            "customId": "action:dayjob:2",
+            "style": "secondary"
+          },
+          {
+            "label": "Custom…",
+            "customId": "action:dayjob:custom",
+            "style": "primary"
+          }
+        ]
+      },
+      "facts": {
+        "characterName": "Bram",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 3,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 10,
+          "maxStamina": 10,
+          "wealth": 0,
+          "location": "The Warden's Oak"
+        }
+      }
+    }
+  },
+  {
+    "seq": 13,
+    "kind": "dispatch",
+    "event": {
+      "type": "dayjob.start",
+      "playerId": "agent:real-corpus",
+      "jobIndex": 0
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "decision",
+        "title": {
+          "emoji": "🤔",
+          "text": "Decision"
+        },
+        "colorIntent": "decision",
+        "storyThread": {
+          "full": "> 🛡️ **Work:** Drill with the watch — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.",
+          "collapsed": "> 🛡️ **Work:** Drill with the watch — You put your back into the training yard until your arms burn. Steady hands keep the watch alive."
+        },
+        "prompt": "> Combat — what do you do?",
+        "optionLines": [
+          "**A.** Press the attack",
+          "**B.** Feint and strike ⬆️"
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "letter": "A",
+            "customId": "action:choice:0:0",
+            "favoured": false
+          },
+          {
+            "kind": "choice",
+            "letter": "B",
+            "customId": "action:choice:0:1",
+            "favoured": false
+          },
+          {
+            "kind": "bail",
+            "label": "Step back",
+            "customId": "action:bail"
+          }
+        ],
+        "footer": "What do you do?",
+        "openingFrame": "```ansi\n\u001b[37m┌────────────────────────────┐\u001b[0m\n\u001b[37m│  \u001b[31mUnknown foe\u001b[0m               │\u001b[0m\n\u001b[37m│  HP [\u001b[37m░░░░░░░░░░░░░░\u001b[0m] ?/?   │\u001b[0m\n\u001b[37m│                            │\u001b[0m\n\u001b[37m│        /\\        /\\        │\u001b[0m\n\u001b[37m│       /  \\______/  \\       │\u001b[0m\n\u001b[37m│      |    o    o    |      │\u001b[0m\n\u001b[37m│      |      /\\      |      │\u001b[0m\n\u001b[37m│       \\    '--'    /       │\u001b[0m\n\u001b[37m│        '-.______.-'        │\u001b[0m\n\u001b[37m│                            │\u001b[0m\n\u001b[37m│   ,^.                      │\u001b[0m\n\u001b[37m│  ( _ )   \u001b[34mBram\u001b[0m              │\u001b[0m\n\u001b[37m│  /|_|\\   HP [\u001b[32m██████\u001b[0m] 10/10 │\u001b[0m\n\u001b[37m│  _/ \\_                     │\u001b[0m\n\u001b[37m└────────────────────────────┘\u001b[0m\n```"
+      },
+      "facts": {
+        "characterName": "Bram",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 2,
+          "hasPendingAction": true,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 9,
+          "maxStamina": 10,
+          "wealth": 0,
+          "location": "Town Square"
+        }
+      }
+    }
+  },
+  {
+    "seq": 14,
+    "kind": "dispatch",
+    "event": {
+      "type": "action.choose",
+      "playerId": "agent:real-corpus",
+      "selector": {
+        "kind": "option",
+        "index": 0
+      }
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "decision",
+        "title": {
+          "emoji": "🤔",
+          "text": "Decision"
+        },
+        "colorIntent": "decision",
+        "storyThread": {
+          "full": "> 🛡️ **Work:** Drill with the watch — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.\n\n↪ **Press the attack**",
+          "collapsed": "> 🛡️ **Work:** Drill with the watch — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.\n> ↳ *Press the attack*"
+        },
+        "prompt": "> Combat — what do you do?",
+        "optionLines": [
+          "**A.** Press the attack",
+          "**B.** Feint and strike ⬆️"
+        ],
+        "buttons": [
+          {
+            "kind": "choice",
+            "letter": "A",
+            "customId": "action:choice:1:0",
+            "favoured": false
+          },
+          {
+            "kind": "choice",
+            "letter": "B",
+            "customId": "action:choice:1:1",
+            "favoured": false
+          },
+          {
+            "kind": "bail",
+            "label": "Step back",
+            "customId": "action:bail"
+          }
+        ],
+        "footer": "Decision 2"
+      },
+      "facts": {
+        "characterName": "Bram",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 2,
+          "hasPendingAction": true,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 9,
+          "maxStamina": 10,
+          "wealth": 0,
+          "location": "Town Square"
+        }
+      }
+    }
+  },
+  {
+    "seq": 15,
+    "kind": "dispatch",
+    "event": {
+      "type": "action.choose",
+      "playerId": "agent:real-corpus",
+      "selector": {
+        "kind": "option",
+        "index": 0
+      }
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "outcome",
+        "title": {
+          "emoji": "⚔️",
+          "text": "Combat"
+        },
+        "colorIntent": "success",
+        "locationLine": "🏛️ Town Square",
+        "breadcrumb": "⚔️ → ⚔️",
+        "sceneBlock": "```\n       _   ___   _\n      / \\ |   | / \\\n     /   \\|   |/   \\\n    | [_] |___| [_] |\n    |_____|   |_____|\n        /       \\\n       /  o o o  \\\n      /  o  *  o  \\\n     /  o o o o o  \\\n    /_______________\\\n```",
+        "isCombat": false,
+        "storyThread": {
+          "full": "> 🛡️ **Work:** Drill with the watch — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.\n\n↪ **Press the attack**\n\n↪ **Press the attack**",
+          "collapsed": "> 🛡️ **Work:** Drill with the watch — You put your back into the training yard until your arms burn. Steady hands keep the watch alive.\n> ↳ *Press the attack*\n> ↳ *Press the attack*"
+        },
+        "outcomeBlock": "🌟 💪 🎲 **20 + 7 = 27**  vs  8  →  ✅ **SUCCESS**\n\nYour blade finds its mark; the goblin falls.\n\n`⚡ 9/10  ┃  🎲 2 (-1)  ┃  💰 7 (+7)`"
+      },
+      "facts": {
+        "distilledType": "combat",
+        "characterName": "Bram",
+        "actionId": 1,
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 2,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "collapse": {
+          "name": "Bram",
+          "prev": {
+            "health": 10,
+            "stamina": 9
+          },
+          "updated": {
+            "health": 10,
+            "stamina": 9
+          }
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 9,
+          "maxStamina": 10,
+          "wealth": 7,
+          "location": "Town Square"
+        }
+      }
+    }
+  },
+  {
+    "seq": 16,
+    "kind": "dispatch",
+    "event": {
+      "type": "screen.look",
+      "playerId": "agent:real-corpus"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "notice",
+        "text": "```\n       _   ___   _\n      / \\ |   | / \\\n     /   \\|   |/   \\\n    | [_] |___| [_] |\n    |_____|   |_____|\n        /       \\\n       /  o o o  \\\n      /  o  *  o  \\\n     /  o o o o o  \\\n    /_______________\\\n```\n\n🏛️ **Town Square**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nCobblestones gleaming with last night's rain. Market stalls crowd the edges — fish, cloth, old copper. A fountain gurgles in the centre.\n\n🛡️ This is a **safe** location. Rest and recover.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**🧭 Paths**\n  🚶 ⬆️ 📚🛡️ The Warden's Library\n  🚶 ➡️ 🔥🛡️ The Town Forge\n  🚶 ⬇️ 🌳🛡️ The Warden's Oak\n  🚶 ⬅️ 🍺🛡️ The Weary Lantern Inn\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**Other Figures**\n  🔨 **Marta** — _Arms like tree roots and a face set in permanent disapproval. Her steel is the best east of Stonebri…_\n  📦 **The Caravan Master** — _A woman with quick hands and quicker eyes. She's been trying to offload cargo all week — says she's …_",
+        "ephemeral": true
+      },
+      "facts": {
+        "characterName": "Bram",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 2,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 9,
+          "maxStamina": 10,
+          "wealth": 7,
+          "location": "Town Square"
+        }
+      }
+    }
+  },
+  {
+    "seq": 17,
+    "kind": "dispatch",
+    "event": {
+      "type": "menu.open",
+      "playerId": "agent:real-corpus"
+    },
+    "response": {
+      "v": 1,
+      "ok": true,
+      "view": {
+        "screen": "menu",
+        "title": {
+          "emoji": "🛡️",
+          "text": "Town Guard — Daily Work"
+        },
+        "description": "Pick a task to start:",
+        "buttons": [
+          {
+            "label": "Drill with the watch",
+            "customId": "action:dayjob:0",
+            "style": "secondary"
+          },
+          {
+            "label": "Inspect the lockup",
+            "customId": "action:dayjob:1",
+            "style": "secondary"
+          },
+          {
+            "label": "Stand the gate",
+            "customId": "action:dayjob:2",
+            "style": "secondary"
+          },
+          {
+            "label": "Custom…",
+            "customId": "action:dayjob:custom",
+            "style": "primary"
+          }
+        ]
+      },
+      "facts": {
+        "characterName": "Bram",
+        "characterClass": "Warrior",
+        "nav": {
+          "rollsRemaining": 2,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        },
+        "characterState": {
+          "health": 10,
+          "maxHealth": 10,
+          "stamina": 9,
+          "maxStamina": 10,
+          "wealth": 7,
+          "location": "Town Square"
+        }
+      }
+    }
+  },
+  {
+    "seq": 18,
+    "kind": "dispatch",
+    "event": {
+      "type": "rest.begin",
+      "playerId": "agent:real-corpus"
+    },
+    "response": {
+      "v": 1,
+      "ok": false,
+      "error": {
+        "code": "illegal-move",
+        "message": "⛔ **Cannot rest now**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nThe day is still young — you have actions left to take.\nSpend your remaining rolls before bedding down beneath the Oak."
+      },
+      "facts": {
+        "nav": {
+          "rollsRemaining": 2,
+          "hasPendingAction": false,
+          "hasRestedToday": false
+        }
+      }
+    }
+  },
+  {
+    "seq": 19,
+    "kind": "tick",
+    "dayNumber": 2
+  }
+]

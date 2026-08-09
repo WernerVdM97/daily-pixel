@@ -80,6 +80,11 @@ export interface AgentEngine {
   /** The `getCurrentScene` closure the controller needs — real scene text via the tag resolver,
    *  reproducing `index.ts`'s definition exactly. */
   getCurrentScene: (userId: string) => string;
+  /** M8.1 (DC-M8.5): the real tag→scene resolver — the 7th `SessionController` constructor
+   *  arg (openLook's scene renderer). Built from the same scenes + TagResolver as
+   *  `getCurrentScene`, the `index.ts` closure shape; `play.ts` passes it so a live run's
+   *  `screen.look` renders real art, unlike the test harnesses' fixed stub. */
+  resolveScene: (tags: string[]) => { sceneName: string; ascii: string };
   /** The engine's `:memory:` DB — exposed so a harness can inspect state for QA invariants. */
   db: Database.Database;
 }
@@ -166,8 +171,13 @@ export function buildAgentEngine(config: AgentEngineConfig): AgentEngine {
     const sceneName = tagResolver.resolve(loc?.tags ?? []);
     return scenes.get(sceneName)?.body ?? '';
   };
+  const resolveScene = (tags: string[]): { sceneName: string; ascii: string } => {
+    const sceneName = tagResolver.resolve(tags);
+    const scene = scenes.get(sceneName);
+    return { sceneName, ascii: scene?.body ?? '...' };
+  };
 
-  return { engine, dayJobs, getCurrentScene, db };
+  return { engine, dayJobs, getCurrentScene, resolveScene, db };
 }
 
 /** The `itemSets` shape `WorldEngineImpl` accepts — spelled out here (not `any`) to keep the cast

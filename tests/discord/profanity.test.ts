@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { checkProfanity, resetCache } from "../../src/discord/profanity.js";
+import { checkProfanity, resetCache } from "../../src/protocol/profanity.js";
 
 describe("checkProfanity", () => {
   beforeEach(() => {

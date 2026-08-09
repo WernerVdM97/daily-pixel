@@ -8,9 +8,12 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "sim": "tsx src/sim/run.ts",
     "agent:play": "tsx src/agent/play.ts",
+    "agent:replay": "tsx src/agent/replay.ts",
+    "agent:record-real": "tsx src/agent/deterministicSession.ts",
+    "agent:stub": "tsx src/agent/stub.ts",
     "send-dm": "tsx scripts/send-dm.ts",
     "calibrate": "tsx src/sim/calibrate-combat.ts"
   },

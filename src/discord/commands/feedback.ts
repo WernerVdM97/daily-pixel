@@ -1,15 +1,39 @@
-import type { WorldEngine } from "../../engine/WorldEngine.js";
+/**
+ * /feedback — crosses the JSON seam as `feedback.submit` with the `slash-feedback` surface
+ * (M9.2, DC-M9.2.1/DC-M9.5): the confirmation copy and the persist routing already live
+ * controller-side byte-identically (`feedbackConfirmation`/`recordFeedback`), and the
+ * no-character guard lives in the router (`dispatchFeedback`). This handler is translate +
+ * paint only, the `hi.ts`/`look.ts` shape — the router's error.message IS the string the
+ * dispatcher paints, and the view maps through `noticeViewToDiscord`. No `actionId`: the
+ * slash command registry never supplies one.
+ */
+import { noticeViewToDiscord } from "../viewToDiscord.js";
+import type { GameRouter } from "../../protocol/router.js";
+import type { NoticeViewState } from "../../view/viewState.js";
+import type { NavFacts } from "../CommandRegistry.js";
 
-export function makeFeedbackCommand(engine: WorldEngine) {
-  return async (interaction: {
-    user: { id: string };
-    text: string;
-  }): Promise<string> => {
-    const character = engine.getCharacter(interaction.user.id);
-    if (!character) {
-      return "You don't have a character yet. Type `/join` to create one.";
+export function makeFeedbackCommand(router: GameRouter) {
+  return async (
+    interaction: { user: { id: string }; text: string },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ): Promise<string> => {
+    const response = await router.dispatch({
+      type: "feedback.submit",
+      playerId: interaction.user.id,
+      text: interaction.text,
+      surface: "slash-feedback",
+    });
+
+    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
+    // Only the two slash surfaces carry `nav` (the router builds it off the character read
+    // its own guard already performs); the four in-message surfaces never reach here.
+    onNav?.(response.facts?.nav as NavFacts | undefined);
+
+    if (!response.ok) {
+      return response.error.message;
     }
-    engine.submitFeedback(character.id, interaction.text);
-    return "🙏 Thanks. The warden listens.";
+
+    const view = response.view as NoticeViewState | undefined;
+    return view ? noticeViewToDiscord(view).content : "Something went wrong.";
   };
 }

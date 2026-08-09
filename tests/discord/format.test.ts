@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildComponentPayload, getNavButtons, navResponseMode, getOutcomeServiceButtons, parseOutcomeActionId, classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
+import { buildComponentPayload, getNavButtons, navResponseMode, getOutcomeServiceButtons, parseOutcomeActionId, IS_COMPONENTS_V2 } from "../../src/discord/format.js";
+// The display-vocabulary half rehomed to src/render/format.js at M10.1 (DC-M10.7).
+import { classEmoji, CLASS_EMOJI_FALLBACK, SEPARATOR } from "../../src/render/format.js";
 
 const CONTAINER = 17;
 const TEXT_DISPLAY = 10;
@@ -156,6 +158,46 @@ describe("getNavButtons — view buttons (look/stats/backpack)", () => {
         for (const row of rows) expect(row.components.length).toBeLessThanOrEqual(5);
       }
     }
+  });
+});
+
+// ── DC-M9.6 — getNavButtons now accepts either the raw character shape
+// ({ lastActionState }, hasPendingAction derived) or the protocol's `facts.nav` shape
+// ({ hasPendingAction } already computed). Every existing call site passes the first
+// shape; a widened dispatcher (M9.3) will pass the second. Both must render identical
+// rows across every state the nav bar branches on. ──
+
+describe("getNavButtons — dual shape (DC-M9.6)", () => {
+  const STATES: Array<{ label: string; rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean }> = [
+    { label: "rolls remain, idle, not rested", rollsRemaining: 2, hasPendingAction: false, hasRestedToday: false },
+    { label: "out of rolls, idle, not rested", rollsRemaining: 0, hasPendingAction: false, hasRestedToday: false },
+    { label: "out of rolls, mid-action", rollsRemaining: 0, hasPendingAction: true, hasRestedToday: false },
+    { label: "out of rolls, idle, already rested", rollsRemaining: 0, hasPendingAction: false, hasRestedToday: true },
+    { label: "rolls remain, mid-action, already rested", rollsRemaining: 3, hasPendingAction: true, hasRestedToday: true },
+  ];
+
+  for (const { label, rollsRemaining, hasPendingAction, hasRestedToday } of STATES) {
+    for (const currentCommand of [undefined, "hi", "journal"]) {
+      it(`${label} (currentCommand=${currentCommand ?? "none"}): both shapes produce identical rows`, () => {
+        const viaLastActionState = getNavButtons(
+          { rollsRemaining, lastActionState: hasPendingAction ? { inFlight: true } : null, hasRestedToday },
+          currentCommand,
+        );
+        const viaHasPendingAction = getNavButtons(
+          { rollsRemaining, hasPendingAction, hasRestedToday },
+          currentCommand,
+        );
+        expect(viaHasPendingAction).toEqual(viaLastActionState);
+      });
+    }
+  }
+
+  it("the first shape's optional hasRestedToday behaves like an explicit false, matching the second shape's required field", () => {
+    const omitted = getNavButtons({ rollsRemaining: 0, lastActionState: null });
+    const explicitFalse = getNavButtons({ rollsRemaining: 0, lastActionState: null, hasRestedToday: false });
+    const viaSecondShape = getNavButtons({ rollsRemaining: 0, hasPendingAction: false, hasRestedToday: false });
+    expect(omitted).toEqual(explicitFalse);
+    expect(omitted).toEqual(viaSecondShape);
   });
 });
 

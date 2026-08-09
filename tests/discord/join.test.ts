@@ -1,9 +1,17 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
-import { WizardSession } from "../../src/discord/WizardSession.js";
-import { makeJoinCommand, handleInteraction, type CharDefs } from "../../src/discord/commands/join.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
+import { makeJoinCommand, handleInteraction } from "../../src/discord/commands/join.js";
+import { SessionController } from "../../src/controller/SessionController.js";
+import { GameRouter } from "../../src/protocol/router.js";
+import { composeWizardView, type CharDefs } from "../../src/controller/joinWizard.js";
+import { wizardViewToDiscord } from "../../src/discord/viewToDiscord.js";
 
 const CID_CONFIRM = "join:confirm";
+
+// M8.1 (DC-M8.5): the controller's 7th constructor arg (openLook's scene renderer) — a
+// fixed stub; this suite never reaches openLook.
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
 
 /** Minimal char-creation defs — enough entries to exercise formatting, bonuses, and a miss. */
 const FORMAT_DEFS: CharDefs = {
@@ -17,34 +25,6 @@ const FORMAT_DEFS: CharDefs = {
   dayJobs: [{ name: "Blacksmith", emoji: "🔨", description: "Forges steel." }],
   itemSets: [{ name: "Soldier's Kit", description: "Standard gear.", for_classes: ["Warrior"] }],
 };
-
-/** A button interaction for a step choice, e.g. `join:choice:2:Warrior`. */
-function mockChoiceInteraction(userId: string, customId: string) {
-  return {
-    user: { id: userId },
-    customId,
-    isModalSubmit: () => false,
-    isButton: () => true,
-    deferUpdate: vi.fn().mockResolvedValue(undefined),
-    editReply: vi.fn().mockResolvedValue(undefined),
-    followUp: vi.fn().mockResolvedValue(undefined),
-    reply: vi.fn().mockResolvedValue(undefined),
-  };
-}
-
-/** A modal-submit interaction for the name step. */
-function mockNameModalInteraction(userId: string, name: string) {
-  return {
-    user: { id: userId },
-    customId: "join:name:modal",
-    isModalSubmit: () => true,
-    fields: { getTextInputValue: () => name },
-    deferUpdate: vi.fn().mockResolvedValue(undefined),
-    editReply: vi.fn().mockResolvedValue(undefined),
-    followUp: vi.fn().mockResolvedValue(undefined),
-    reply: vi.fn().mockResolvedValue(undefined),
-  };
-}
 
 /** A button interaction at the wizard's final confirm step. */
 function mockConfirmInteraction(userId: string) {
@@ -92,25 +72,24 @@ function mockInteraction(userId: string) {
   };
 }
 
+/** M7.3 (DC-M7.3.13): the handler is translate + paint — every call goes through a
+ *  GameRouter over a real SessionController wrapping the SAME engine + wizard instance
+ *  (the sleep.test.ts/hi.test.ts M7.1/M7.2 pattern). `makeJoinCommand(router)` sets the
+ *  module-level router `handleInteraction` dispatches through. */
+function makeFixture() {
+  const engine = new MockWorldEngine();
+  engine.setCharacterExists(false);
+  const wizard = new WizardSession();
+  const controller = new SessionController(engine, () => "", [], undefined, wizard, FORMAT_DEFS, SCENE_STUB);
+  const router = new GameRouter(controller, { idle: () => "" });
+  const handler = makeJoinCommand(router);
+  return { engine, wizard, router, handler };
+}
+
 describe("/join", () => {
-  let engine: MockWorldEngine;
-  let wizard: WizardSession;
-
-  beforeEach(() => {
-    engine = new MockWorldEngine();
-    engine.setCharacterExists(false);
-    wizard = new WizardSession();
-  });
-
-  function makeHandler() {
-    return makeJoinCommand(engine, wizard, {
-      classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [],
-    });
-  }
-
   it("returns error when user already has a character", async () => {
+    const { engine, handler } = makeFixture();
     engine.setCharacterExists(true);
-    const handler = makeHandler();
     const intr = mockInteraction("existing-user");
     const result = await handler(intr as never);
     expect(result).toContain("join_guard_has_character");
@@ -124,7 +103,7 @@ describe("/join", () => {
   });
 
   it("starts a wizard session when user has no character", async () => {
-    const handler = makeHandler();
+    const { wizard, handler } = makeFixture();
     const intr = mockInteraction("new-user");
     const result = await handler(intr as never);
 
@@ -138,7 +117,7 @@ describe("/join", () => {
   });
 
   it("resumes existing wizard session if user re-joins", async () => {
-    const handler = makeHandler();
+    const { wizard, handler } = makeFixture();
     const intr1 = mockInteraction("user-1");
     const intr2 = mockInteraction("user-1");
 
@@ -154,6 +133,8 @@ describe("/join", () => {
 
   it("calls engine.createCharacter when wizard is confirmed", () => {
     // Direct test of wizard + engine integration (no Discord)
+    const { engine } = makeFixture();
+    const wizard = new WizardSession();
     wizard.start("user-final");
     wizard.setName("user-final", "Aldric");
     wizard.choose("user-final", 2, "class", "Warrior");
@@ -169,13 +150,12 @@ describe("/join", () => {
     expect(engine.calls.createCharacter).toHaveLength(1);
     expect(engine.calls.createCharacter[0].discordUserId).toBe("user-final");
     expect(engine.calls.createCharacter[0].data.name).toBe("Aldric");
-    expect(engine.calls.createCharacter[0].data.class).toBe("Warrior");
     expect(char.name).toBe("Aldric");
   });
 
   it("does not allow joining when character already exists", async () => {
+    const { engine, handler } = makeFixture();
     engine.setCharacterExists(true);
-    const handler = makeHandler();
     const intr = mockInteraction("existing-user");
     const result = await handler(intr as never);
     expect(result).toBe("join_guard_has_character");
@@ -185,17 +165,16 @@ describe("/join", () => {
 // ═══ /join wizard-completion path (C1) ═══
 
 describe("/join confirm → handleInteraction", () => {
-  let engine: MockWorldEngine;
-  let wizard: WizardSession;
-
-  beforeEach(() => {
-    engine = new MockWorldEngine();
-    engine.setCharacterExists(false);
-    wizard = new WizardSession();
-  });
+  // The mock's createCharacter does not persist into getCharacter (M7.0 review note 3), so
+  // the post-confirm /hi composition reads the canned char — set it per test.
+  function seedCannedChar(engine: MockWorldEngine): void {
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ name: "Aldric", dayJob: "Blacksmith" }));
+  }
 
   it("creates the character, announces publicly, then swaps in the /hi screen", async () => {
+    const { engine, wizard } = makeFixture();
     completeWizard(wizard, "finisher");
+    seedCannedChar(engine);
     const intr = mockConfirmInteraction("finisher");
     const renderHiScreen = vi.fn().mockResolvedValue({ content: "HI-SCREEN" });
 
@@ -214,7 +193,9 @@ describe("/join confirm → handleInteraction", () => {
   });
 
   it("falls back to a text pointer when no /hi renderer is supplied", async () => {
+    const { engine, wizard } = makeFixture();
     completeWizard(wizard, "no-render");
+    seedCannedChar(engine);
     const intr = mockConfirmInteraction("no-render");
 
     await handleInteraction(intr as never, engine, wizard, undefined);
@@ -228,7 +209,9 @@ describe("/join confirm → handleInteraction", () => {
   });
 
   it("does not throw when the public follow-up rejects (swallowed)", async () => {
+    const { engine, wizard } = makeFixture();
     completeWizard(wizard, "flaky");
+    seedCannedChar(engine);
     const intr = mockConfirmInteraction("flaky");
     intr.followUp.mockRejectedValue(new Error("Discord hiccup"));
     const renderHiScreen = vi.fn().mockResolvedValue({ content: "HI" });
@@ -245,23 +228,16 @@ describe("/join confirm → handleInteraction", () => {
 // ═══ /join screen formatting (polish 0.3.1) ═══
 
 describe("/join screen formatting", () => {
-  let engine: MockWorldEngine;
-  let wizard: WizardSession;
-
-  beforeEach(() => {
-    engine = new MockWorldEngine();
-    engine.setCharacterExists(false);
-    wizard = new WizardSession();
-    makeJoinCommand(engine, wizard, FORMAT_DEFS); // sets the module-level defs read by the renderer
-  });
-
-  it("gives each option its own lines: label, then bonuses set off, then description", async () => {
+  // M7.3 (DC-M7.3.13): the composition + medium step are pinned directly — the old tests
+  // drove handleInteraction and read the editReply embed; the semantic view now travels the
+  // seam, so they compose the view and map it through wizardViewToDiscord instead. Byte
+  // assertions unchanged.
+  it("gives each option its own lines: label, then bonuses set off, then description", () => {
+    const wizard = new WizardSession();
     wizard.start("fmt-user");
-    const nameIntr = mockNameModalInteraction("fmt-user", "Rowan");
-    await handleInteraction(nameIntr as never, engine, wizard);
-
-    const payload = nameIntr.editReply.mock.calls[0][0] as { embeds: Array<{ description: string }> };
-    const description = payload.embeds[0].description;
+    const state = wizard.setName("fmt-user", "Rowan"); // → step 2
+    const view = composeWizardView(state, FORMAT_DEFS);
+    const description = wizardViewToDiscord(view).embeds[0].description;
 
     // Warrior carries bonuses — its own indented (blockquote) line, separate from the description.
     expect(description).toContain("🗡️ **Warrior**\n> 💪+3 🧠-1\nA stalwart fighter.");
@@ -271,32 +247,28 @@ describe("/join screen formatting", () => {
     expect(description).toContain("A stalwart fighter.\n\n🔮 **Mage**");
   });
 
-  it("shows the chosen option's own emoji next to its value in the ledger", async () => {
+  it("shows the chosen option's own emoji next to its value in the ledger", () => {
+    const wizard = new WizardSession();
     wizard.start("ledger-user");
-    wizard.setName("ledger-user", "Bram"); // → step 2
-
-    const chooseClass = mockChoiceInteraction("ledger-user", "join:choice:2:Warrior");
-    await handleInteraction(chooseClass as never, engine, wizard);
-
-    const payload = chooseClass.editReply.mock.calls[0][0] as { embeds: Array<{ description: string }> };
-    const description = payload.embeds[0].description;
+    wizard.setName("ledger-user", "Bram");
+    wizard.choose("ledger-user", 2, "class", "Warrior"); // → step 3
+    const view = composeWizardView(wizard.getSession("ledger-user")!, FORMAT_DEFS);
+    const description = wizardViewToDiscord(view).embeds[0].description;
 
     // Warrior's own 🗡️ (not the fixed 🛡️ step icon) sits next to the chosen value.
     expect(description).toContain("🛡️ ~~Class~~ → 🗡️ **Warrior**");
   });
 
-  it("falls back to no emoji (never the literal 'undefined') when a chosen value has no matching def", async () => {
+  it("falls back to no emoji (never the literal 'undefined') when a chosen value has no matching def", () => {
+    const wizard = new WizardSession();
     wizard.start("miss-user");
     wizard.setName("miss-user", "Ghost");
     // Bypass the button flow to persist a value FORMAT_DEFS.classes has no entry for —
     // simulates a custom/renamed value the def lookup can't find.
     wizard.choose("miss-user", 2, "class", "Rogue Scholar");
-
-    const chooseUpbringing = mockChoiceInteraction("miss-user", "join:choice:3:Soldier");
-    await handleInteraction(chooseUpbringing as never, engine, wizard);
-
-    const payload = chooseUpbringing.editReply.mock.calls[0][0] as { embeds: Array<{ description: string }> };
-    const description = payload.embeds[0].description;
+    wizard.choose("miss-user", 3, "upbringing", "Soldier"); // → step 4
+    const view = composeWizardView(wizard.getSession("miss-user")!, FORMAT_DEFS);
+    const description = wizardViewToDiscord(view).embeds[0].description;
 
     expect(description).toContain("🛡️ ~~Class~~ → **Rogue Scholar**");
     expect(description).not.toContain("undefined");

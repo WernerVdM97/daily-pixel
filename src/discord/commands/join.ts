@@ -1,6 +1,5 @@
 import {
   ActionRowBuilder,
-  ButtonBuilder,
   ButtonStyle,
   ComponentType,
   EmbedBuilder,
@@ -13,9 +12,13 @@ import {
   type ModalSubmitInteraction,
 } from "discord.js";
 import type { WorldEngine } from "../../engine/WorldEngine.js";
-import type { WizardSession, WizardState } from "../WizardSession.js";
+import type { CharCreateData } from "../../engine/WorldEngine.js";
+import type { WizardSession } from "../../controller/WizardSession.js";
 import { OAK_IMAGE, imageFiles, hasImage } from "../images.js";
-import { STAT_LABELS } from "../../engine/stat-format.js";
+import { wizardViewToDiscord } from "../viewToDiscord.js";
+import type { WizardViewState } from "../../view/viewState.js";
+import { titleCase } from "../../util/titleCase.js";
+import type { GameRouter } from "../../protocol/router.js";
 
 // ── Custom IDs ──
 
@@ -26,41 +29,14 @@ const CID_PREFIX = "join:choice:";
 const CID_CONFIRM = "join:confirm";
 const CID_START_OVER = "join:restart";
 
-function choiceCid(step: number, value: string): string {
-  return `${CID_PREFIX}${step}:${value}`;
-}
-
-/** A YAML char-creation entry — only the fields the wizard renders. */
-export interface NamedDef {
-  name: string;
-  description?: string;
-  emoji: string;
-  /** Per-stat bonuses (classes/backgrounds/races); absent on entries that grant none. */
-  modifiers?: Record<string, number>;
-}
-/** A starting-kit entry from item-sets.yml. */
-export interface ItemSetDef {
-  name: string;
-  description: string;
-  for_classes: string[];
-  /** Items the kit grants, each carrying the stat + d20 modifier it boosts. */
-  items?: Array<{ stat: string; modifier: number; quantity?: number }>;
-}
-/** All char-creation option data from assets/char-creation/*.yml. */
-export interface CharDefs {
-  classes: NamedDef[];
-  backgrounds: NamedDef[];
-  races: NamedDef[];
-  alignments: NamedDef[];
-  dayJobs: NamedDef[];
-  itemSets: ItemSetDef[];
-}
-
-// Source of truth for which options exist; set by makeJoinCommand, read per step.
-let _defs: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
-
 /** Double-click guard — user ID locked while an interaction processes; concurrent ones return early. */
 const _userInFlight = new Set<string>();
+
+/** The seam router this adapter dispatches through (M7.3, DC-M7.3.8). Set by
+ *  `makeJoinCommand(router)`; read by `handleInteraction` for the button/modal walk. The
+ *  module-level setter is a documented M9 casualty — the dispatcher's join branch is frozen
+ *  (dispatchInteraction.ts:238) and passes the handler the dead compat params below. */
+let _router: GameRouter | null = null;
 
 function parseChoiceCid(
   customId: string,
@@ -77,38 +53,29 @@ function parseChoiceCid(
 
 // ── Factory ──
 
-export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, defs: CharDefs) {
-  _defs = defs;
+/** M7.3 (DC-M7.3.8): the defs and the wizard store drop — the controller owns both now.
+ *  The slash arm is translate + paint: defer (transcript 1), dispatch `join.open`, paint
+ *  the router's copy/`wizardViewToDiscord` payload. */
+export function makeJoinCommand(router: GameRouter) {
+  _router = router;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
     // Defer immediately: the first screen's Oak PNG can blow past Discord's 3s ack
     // window (→ 10062) on slow hosts. A payload-free defer acks fast; editReply then
     // has a 15-minute window for the heavy payload.
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    // Guard: already has a character?
-    if (engine.characterExists(interaction.user.id)) {
-      await interaction.editReply({
-        content: "You already have a character. Type `/stats` to see it.",
-      });
+    const response = await router.dispatch({
+      type: "join.open",
+      playerId: interaction.user.id,
+    });
+
+    if (!response.ok) {
+      // HAS_CHARACTER_COPY — painted via editReply without ❌ (transcript 2's byte path).
+      await interaction.editReply({ content: response.error.message });
       return "join_guard_has_character";
     }
 
-    // Start or resume wizard
-    let state: WizardState;
-    try {
-      state = wizards.start(interaction.user.id);
-    } catch {
-      // Already in a wizard — resume (or restart if expired)
-      const existing = wizards.getSession(interaction.user.id);
-      if (!existing || wizards.isExpired(interaction.user.id)) {
-        wizards.reset(interaction.user.id);
-        state = wizards.start(interaction.user.id);
-      } else {
-        state = existing;
-      }
-    }
-
-    await interaction.editReply(buildStepMessage(state));
+    await interaction.editReply(wizardViewToDiscord(response.view as WizardViewState));
     return "join_wizard_started";
   };
 }
@@ -122,10 +89,16 @@ export function makeJoinCommand(engine: WorldEngine, wizards: WizardSession, def
  */
 export type RenderHiScreen = (userId: string) => unknown | Promise<unknown>;
 
+/**
+ * M7.3 (DC-M7.3.8): the button/modal walk is translate + paint through the module-level
+ * `_router`. `engine` and `wizards` KEEP their signature slots — the frozen dispatcher's
+ * join branch (dispatchInteraction.ts:238) passes `engine` + `joinWizards` — and are now
+ * documented dead-until-M9 compat params; the handler never reads them.
+ */
 export async function handleInteraction(
   i: MessageComponentInteraction | ModalSubmitInteraction,
-  engine: WorldEngine,
-  wizards: WizardSession,
+  _engine: WorldEngine,
+  _wizards: WizardSession,
   renderHiScreen?: RenderHiScreen,
 ): Promise<void> {
   const userId = i.user.id;
@@ -138,12 +111,18 @@ export async function handleInteraction(
     // Modal submission for name
     if (i.isModalSubmit() && i.customId === CID_NAME_MODAL) {
       const name = i.fields.getTextInputValue(CID_NAME_INPUT);
-      try {
-        const state = wizards.setName(userId, name);
+      const response = await _router!.dispatch({
+        type: "wizard.answer",
+        playerId: userId,
+        text: name,
+      });
+      if (!response.ok) {
+        // The router's message IS the store's validation copy — safeNotify welds the ❌
+        // (transcript 4's byte path).
+        await safeNotify(i, `❌ ${response.error.message}`);
+      } else {
         await i.deferUpdate();
-        await i.editReply(buildStepMessage(state));
-      } catch (e) {
-        await safeNotify(i, `❌ ${(e as Error).message}`);
+        await i.editReply(wizardViewToDiscord(response.view as WizardViewState));
       }
       return;
     }
@@ -154,7 +133,15 @@ export async function handleInteraction(
     // Button: open name modal
     if (i.customId === CID_NAME_BUTTON) {
       try {
-        await i.showModal(buildNameModal());
+        // join.open is idempotent — a resumed session yields the same step-1 screen.
+        const response = await _router!.dispatch({ type: "join.open", playerId: userId });
+        if (response.ok) {
+          await i.showModal(buildNameModal(response.view as WizardViewState));
+        } else {
+          // has-character (or any other error arm) — the click must still be acked, else
+          // Discord shows "This interaction failed" after 3s (reviewer ACCEPT-2).
+          await safeNotify(i, response.error.message);
+        }
       } catch {
         /* stale (10062) or already acked (40060) — ignore */
       }
@@ -164,26 +151,17 @@ export async function handleInteraction(
     // Button: choice (steps 2-7)
     const parsed = parseChoiceCid(i.customId);
     if (parsed) {
-      const fieldMap: Record<
-        number,
-        "class" | "upbringing" | "race" | "alignment" | "dayJob" | "itemSet"
-      > = {
-        2: "class",
-        3: "upbringing",
-        4: "race",
-        5: "alignment",
-        6: "dayJob",
-        7: "itemSet",
-      };
-      const field = fieldMap[parsed.step];
-      if (field) {
-        try {
-          await i.deferUpdate();
-          const state = wizards.choose(userId, parsed.step, field, parsed.value);
-          await i.editReply(buildStepMessage(state));
-        } catch (e) {
-          await safeNotify(i, `❌ ${(e as Error).message}`);
-        }
+      const response = await _router!.dispatch({
+        type: "wizard.choose",
+        playerId: userId,
+        step: parsed.step,
+        value: parsed.value,
+      });
+      if (!response.ok) {
+        await safeNotify(i, `❌ ${response.error.message}`);
+      } else {
+        await i.deferUpdate();
+        await i.editReply(wizardViewToDiscord(response.view as WizardViewState));
       }
       return;
     }
@@ -194,22 +172,32 @@ export async function handleInteraction(
       const release = () => { _userInFlight.delete(userId); };
       try {
         await i.deferUpdate();
-      const data = wizards.confirm(userId);
-      engine.createCharacter(userId, data);
+        const response = await _router!.dispatch({
+          type: "character.create",
+          playerId: userId,
+        });
+        if (!response.ok) {
+          await safeNotify(i, `❌ ${response.error.message}`);
+          return;
+        }
+        const created = response.facts?.createdCharacter as CharCreateData | undefined;
+        // The created arm always carries the fact — its absence is an internal breach.
+        if (!created) throw new Error("character.create returned ok:true without createdCharacter");
 
-      // Public channel announcement (the wizard itself ran ephemeral).
-      const createdEmbed = new EmbedBuilder()
-        .setTitle("✨ A new hero joins the Oak")
-        .setDescription(
-          `**${data.name}** the ${data.race} ${data.class}\n` +
-            `${titleCase(data.alignment)} • ${data.upbringing} upbringing • ${data.dayJob}`,
-        )
-        .setColor(0x2ecc71);
-      if (hasImage(OAK_IMAGE)) createdEmbed.setImage(`attachment://${OAK_IMAGE}`);
+        // Public channel announcement (the wizard itself ran ephemeral). Welded from the
+        // `createdCharacter` fact (DC-M7.3.7) — the exact pre-seam embed.
+        const createdEmbed = new EmbedBuilder()
+          .setTitle("✨ A new hero joins the Oak")
+          .setDescription(
+            `**${created.name}** the ${created.race} ${created.class}\n` +
+              `${titleCase(created.alignment)} • ${created.upbringing} upbringing • ${created.dayJob}`,
+          )
+          .setColor(0x2ecc71);
+        if (hasImage(OAK_IMAGE)) createdEmbed.setImage(`attachment://${OAK_IMAGE}`);
 
-      release();
+        release();
 
-      await i.followUp({
+        await i.followUp({
   content: `<@${userId}>`,
   embeds: [createdEmbed.toJSON()],
   files: imageFiles(OAK_IMAGE),
@@ -217,36 +205,38 @@ export async function handleInteraction(
   components: [{ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, custom_id: 'nav:hi', label: 'Hi', emoji: { name: '🌅' }, style: ButtonStyle.Secondary }] }],
 }).catch(() => {});
 
-      // Replace the finished wizard with the player's ephemeral /hi screen.
-      const hiPayload = renderHiScreen ? await renderHiScreen(userId) : undefined;
-      if (hiPayload) {
-        // Wizard is a classic embed but /hi is Components V2, which can't be edited
-        // in — so drop the wizard and follow up instead.
-        await i.deleteReply().catch(() => {});
-        await i.followUp(hiPayload as Parameters<typeof i.followUp>[0]).catch(() => {});
-      } else {
-        // No /hi renderer — collapse the wizard to a short pointer.
-        await i.editReply({
-          content: `✨ **${data.name}** steps into the world. Type \`/hi\` to begin.`,
-          embeds: [],
-          components: [],
-        }).catch(() => {});
+        // Replace the finished wizard with the player's ephemeral /hi screen.
+        const hiPayload = renderHiScreen ? await renderHiScreen(userId) : undefined;
+        if (hiPayload) {
+          // Wizard is a classic embed but /hi is Components V2, which can't be edited
+          // in — so drop the wizard and follow up instead.
+          await i.deleteReply().catch(() => {});
+          await i.followUp(hiPayload as Parameters<typeof i.followUp>[0]).catch(() => {});
+        } else {
+          // No /hi renderer — collapse the wizard to a short pointer.
+          await i.editReply({
+            content: `✨ **${created.name}** steps into the world. Type \`/hi\` to begin.`,
+            embeds: [],
+            components: [],
+          }).catch(() => {});
+        }
+      } catch (e) {
+        await safeNotify(i, `❌ ${(e as Error).message}`);
       }
-    } catch (e) {
-      await safeNotify(i, `❌ ${(e as Error).message}`);
+      return;
     }
-    return;
-  }
 
     // Button: start over
     if (i.customId === CID_START_OVER) {
-      try {
+      const response = await _router!.dispatch({
+        type: "wizard.restart",
+        playerId: userId,
+      });
+      if (!response.ok) {
+        await safeNotify(i, `❌ ${response.error.message}`);
+      } else {
         await i.deferUpdate();
-        wizards.reset(userId);
-        const state = wizards.start(userId);
-        await i.editReply(buildStepMessage(state));
-      } catch (e) {
-        await safeNotify(i, `❌ ${(e as Error).message}`);
+        await i.editReply(wizardViewToDiscord(response.view as WizardViewState));
       }
       return;
     }
@@ -274,168 +264,17 @@ async function safeNotify(
   }
 }
 
-// ── Message builders ──
-
-// Per-step metadata: progress-ledger icon + section heading. Single source for both
-// the ledger lines and the option-block heading (steps 2-7; step 1 is the name modal).
-const STEPS: Record<number, { icon: string; heading: string }> = {
-  1: { icon: "📝", heading: "Name" },
-  2: { icon: "🛡️", heading: "Class" },
-  3: { icon: "🌱", heading: "Upbringing" },
-  4: { icon: "🧬", heading: "Race" },
-  5: { icon: "⚖️", heading: "Alignment" },
-  6: { icon: "🔧", heading: "Day Job" },
-  7: { icon: "🎒", heading: "Starting Kit" },
-};
-
-function buildStepMessage(state: WizardState): {
-  embeds: ReturnType<EmbedBuilder["toJSON"]>[];
-  components: ReturnType<ActionRowBuilder<ButtonBuilder>["toJSON"]>[];
-  files: ReturnType<typeof imageFiles>;
-} {
-  const embed = new EmbedBuilder()
-    .setTitle("⚔️  Forge Your Hero")
-    .setColor(0xdaa520); // goldenrod
-  if (hasImage(OAK_IMAGE)) embed.setThumbnail(`attachment://${OAK_IMAGE}`);
-
-  // ── Progress ledger: emoji per step, ◀ marks current, chosen values shown ──
-  const chosen: Record<number, string | undefined> = {
-    1: state.name, 2: state.class, 3: state.upbringing, 4: state.race,
-    5: titleCase(state.alignment), 6: state.dayJob, 7: state.itemSet,
-  };
-  // Raw (pre-titleCase) persisted values — these are what each option's `value` matches,
-  // so they're the lookup key for the chosen option's own emoji.
-  const rawChosen: Record<number, string | undefined> = {
-    2: state.class, 3: state.upbringing, 4: state.race,
-    5: state.alignment, 6: state.dayJob, 7: state.itemSet,
-  };
-  // Graceful miss: a custom/renamed value with no matching def yields "" — never "undefined".
-  // Skipped when the option's emoji just repeats the step icon (item kits all share 🎒),
-  // which would render the same glyph twice on one ledger line.
-  const chosenEmoji = (n: number): string => {
-    const raw = rawChosen[n];
-    if (!raw) return "";
-    const match = buildStepOptions(n, _defs, state.class).find(o => o.value === raw);
-    return match && match.emoji !== STEPS[n].icon ? `${match.emoji} ` : "";
-  };
-  const stepLine = (n: number) => {
-    const { icon, heading } = STEPS[n];
-    const value = chosen[n];
-    if (state.step === n) return `${icon} **${heading}** ◀`;
-    if (value) return `${icon} ~~${heading}~~ → ${chosenEmoji(n)}**${value}**`;
-    return `${icon} ${heading}`;
-  };
-
-  const ledger = [1, 2, 3, 4, 5, 6, 7].map(stepLine).join("\n");
-
-  const blocks: string[] = [ledger];
-  const components: ActionRowBuilder<ButtonBuilder>[] = [];
-  const totalSteps = 7;
-
-  if (state.step === 1) {
-    blocks.push("__**Name**__\nWhat shall the songs call you?");
-    embed.setFooter({ text: `Step 1 of ${totalSteps} — 2-30 characters, no @ or #` });
-    components.push(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(CID_NAME_BUTTON)
-          .setLabel("Enter Name")
-          .setEmoji("📝")
-          .setStyle(ButtonStyle.Primary),
-      ),
-    );
-  }
-
-  if (state.step >= 2 && state.step <= 7) {
-    const opts = buildStepOptions(state.step, _defs, state.class);
-    const heading = STEPS[state.step]?.heading ?? "";
-
-    // Options block: emoji + bold name on their own line, stat bonuses (if any) set off
-    // as a blockquote, description on its own line — crowds less than one long dashed line.
-    const list = opts
-      .map(o => {
-        const lines = [`${o.emoji} **${o.label}**`];
-        if (o.statBonuses) lines.push(`> ${o.statBonuses}`);
-        if (o.description) lines.push(o.description);
-        return lines.join("\n");
-      })
-      .join("\n\n");
-    blocks.push(`__**${heading}**__\n${list}`);
-    embed.setFooter({ text: `Step ${state.step} of ${totalSteps} — ${heading}` });
-
-    // Buttons carry emoji + label only (descriptions are in the body).
-    // Max 5 buttons per row — chunk into multiple rows.
-    for (let i = 0; i < opts.length; i += 5) {
-      const row = new ActionRowBuilder<ButtonBuilder>();
-      for (const opt of opts.slice(i, i + 5)) {
-        const btn = new ButtonBuilder()
-          .setCustomId(choiceCid(state.step, opt.value))
-          .setLabel(opt.label)
-          .setStyle(ButtonStyle.Secondary);
-        if (opt.emoji) btn.setEmoji(opt.emoji);
-        row.addComponents(btn);
-      }
-      components.push(row);
-    }
-  }
-
-  // Steps 2-7 get a Start Over button (step 1 has nothing to reset; step 8 pairs
-  // its own with Confirm). Option steps use ≤3 rows, so +1 stays within Discord's 5.
-  if (state.step >= 2 && state.step <= 7) {
-    components.push(buildStartOverRow());
-  }
-
-  if (state.step === 8) {
-    blocks.push("__**Ready**__\nYour hero stands ready. Confirm to step into the world — or start over.");
-    embed.setFooter({ text: "Review your choices and confirm" });
-    components.push(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(CID_CONFIRM)
-          .setLabel("Confirm")
-          .setEmoji("✅")
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(CID_START_OVER)
-          .setLabel("Start Over")
-          .setEmoji("🔄")
-          .setStyle(ButtonStyle.Danger),
-      ),
-    );
-  }
-
-  embed.setDescription(blocks.join("\n\n"));
-
-  return {
-    embeds: [embed.toJSON()],
-    components: components.map((r) => r.toJSON()),
-    files: imageFiles(OAK_IMAGE),
-  };
-}
-
-/** Red "Start Over" button row, shown on every step before the review. */
-function buildStartOverRow(): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(CID_START_OVER)
-      .setLabel("Start Over")
-      .setEmoji("🔄")
-      .setStyle(ButtonStyle.Danger),
-  );
-}
-
-/** Title-case "lawful good" → "Lawful Good"; passthrough for undefined. */
-function titleCase(s: string | undefined): string | undefined {
-  return s ? s.replace(/\b\w/g, c => c.toUpperCase()) : s;
-}
-
-function buildNameModal(): ModalBuilder {
+/** Weld the step-1 name modal from the view's `nameField` (DC-M7.3.3) — the customIds
+ *  (`join:name:modal`/`join:name:input`) and the title are medium chrome; the label,
+ *  placeholder and length bounds are the view's. */
+function buildNameModal(view: WizardViewState): ModalBuilder {
+  const field = view.nameField;
   const input = new TextInputBuilder()
     .setCustomId(CID_NAME_INPUT)
-    .setLabel("Character Name")
-    .setPlaceholder("Enter a name (2-30 characters)")
-    .setMinLength(2)
-    .setMaxLength(30)
+    .setLabel(field?.label ?? "Character Name")
+    .setPlaceholder(field?.placeholder ?? "Enter a name (2-30 characters)")
+    .setMinLength(field?.minLength ?? 2)
+    .setMaxLength(field?.maxLength ?? 30)
     .setStyle(TextInputStyle.Short)
     .setRequired(true);
 
@@ -445,67 +284,4 @@ function buildNameModal(): ModalBuilder {
     .addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(input),
     );
-}
-
-// ── Step option building (data-driven from YAML) ──
-// The wizard renders whatever assets/char-creation/*.yml contains, emoji and all.
-
-interface OptionDef {
-  /** Button label and bold body name. */
-  label: string;
-  /** Value persisted to the character. */
-  value: string;
-  emoji: string;
-  /** One-line flavour in the embed body (YAML `description`). */
-  description: string;
-  /** Pre-rendered stat-bonus run, e.g. `💪+3 🧠-1` — "" when the option grants none. */
-  statBonuses: string;
-}
-
-const FALLBACK_EMOJI = "🔹";
-
-/** Render nonzero per-stat bonuses as emoji + signed amount, in canonical stat order. */
-function formatStatBonuses(mods: Record<string, number> | undefined): string {
-  if (!mods) return "";
-  return Object.keys(STAT_LABELS)
-    .filter(stat => (mods[stat] ?? 0) !== 0)
-    .map(stat => {
-      const v = mods[stat];
-      return `${STAT_LABELS[stat].emoji}${v > 0 ? `+${v}` : `${v}`}`;
-    })
-    .join(" ");
-}
-
-/** Sum a kit's per-item modifiers into a per-stat total. */
-function sumItemModifiers(items: ItemSetDef["items"]): Record<string, number> {
-  const mods: Record<string, number> = {};
-  for (const it of items ?? []) mods[it.stat] = (mods[it.stat] ?? 0) + it.modifier;
-  return mods;
-}
-
-/** Options for a step, built from the YAML defs (emoji read straight off each entry). Exported for tests. */
-export function buildStepOptions(step: number, defs: CharDefs, chosenClass?: string): OptionDef[] {
-  const toOption = (d: NamedDef, value?: string): OptionDef => ({
-    label: d.name,
-    value: value ?? d.name,
-    emoji: d.emoji || FALLBACK_EMOJI,
-    description: d.description ?? "",
-    statBonuses: formatStatBonuses(d.modifiers),
-  });
-
-  switch (step) {
-    case 2: return defs.classes.map(d => toOption(d));
-    case 3: return defs.backgrounds.map(d => toOption(d));
-    case 4: return defs.races.map(d => toOption(d));
-    // Alignment value stays lowercase ("lawful good") — the format stored & sent to the LLM.
-    case 5: return defs.alignments.map(d => toOption(d, d.name.toLowerCase()));
-    case 6: return defs.dayJobs.map(d => toOption(d));
-    case 7: return defs.itemSets
-      .filter(kit => kit.for_classes.includes(chosenClass ?? ""))
-      .map(kit => ({
-        label: kit.name, value: kit.name, emoji: "🎒", description: kit.description,
-        statBonuses: formatStatBonuses(sumItemModifiers(kit.items)),
-      }));
-    default: return [];
-  }
 }

@@ -6,7 +6,7 @@ import { beforeAll } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadYamlFile } from "../src/assets/yaml-loader.js";
-import { registerEmoji } from "../src/discord/format.js";
+import { registerEmoji } from "../src/render/format.js";
 
 beforeAll(() => {
   const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "assets", "char-creation");

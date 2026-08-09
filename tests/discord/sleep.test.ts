@@ -3,10 +3,32 @@ import { makeSleepCommand } from "../../src/discord/commands/sleep.js";
 import { buildMorningAnnouncement } from "../../src/discord/announcements.js";
 
 import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
+import { SessionController } from "../../src/controller/SessionController.js";
+import { GameRouter } from "../../src/protocol/router.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
+import type { WorldEngine } from "../../src/engine/WorldEngine.js";
 
 // Set up admin user ID before importing the sleep command
 const ADMIN_ID = 'admin-123';
 process.env.ADMIN_USER_ID = ADMIN_ID;
+
+/** The controller's wizard deps — this suite never touches the wizard, so the store is
+ *  fresh and the defs empty (M7.3: the constructor requires both at every site). */
+const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
+
+// M8.1 (DC-M8.5): the controller's 7th constructor arg (openLook's scene renderer) — a
+// fixed stub; this suite never reaches openLook.
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
+/** M7.1 (DC-M7.1.5): the handler is translate + paint — every player-path call goes through a
+ *  GameRouter over a real SessionController wrapping the SAME engine (the admin-tick branch
+ *  never reaches the router, so a tick-only fake engine still works there). */
+function makeHandler(engine: WorldEngine) {
+  const controller = new SessionController(engine, () => "", [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+  const router = new GameRouter(controller, { idle: () => "" });
+  return makeSleepCommand(engine, router);
+}
 
 describe("/sleep", () => {
   describe("non-admin", () => {
@@ -15,7 +37,7 @@ describe("/sleep", () => {
     it("blocks sleep when rolls remain", async () => {
       const engine = new MockWorldEngine();
       engine.setCharacter(MockWorldEngine.defaultCharacter({ rollsRemaining: 1 }));
-      const handler = makeSleepCommand(engine);
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: 'user' } });
 
       expect(result).toContain("Cannot rest now");
@@ -29,7 +51,7 @@ describe("/sleep", () => {
         rollsRemaining: 0,
         lastActionState: { rawInput: "hunt", decisions: [], accumulatedDc: 10 },
       }));
-      const handler = makeSleepCommand(engine);
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: 'user' } });
 
       expect(result).toContain("Cannot rest now");
@@ -45,7 +67,7 @@ describe("/sleep", () => {
         rollsRemaining: 0,
         location: "Dark Forest",
       }));
-      const handler = makeSleepCommand(engine);
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: 'traveller' } });
 
       expect(result).toContain("The Warden's Oak");
@@ -64,8 +86,8 @@ describe("/sleep", () => {
         maxHealth: 10,
       }));
       // Resting here is unsafe (not the Oak, not a workplace).
-      engine.setLocation({ name: "The Broken Keep", description: "Ruins.", tags: ["ruins"], isSafe: false });
-      const handler = makeSleepCommand(engine);
+      engine.setLocation({ name: "The Broken Keep", description: "Ruins.", tags: ["ruins"], isSafe: false, emoji: "🏚️" });
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: 'wanderer' } });
 
       // The rule is surfaced, the cause is named, and the fix is stated.
@@ -83,7 +105,7 @@ describe("/sleep", () => {
         rollsRemaining: 0,
         location: "The Warden's Oak",
       }));
-      const handler = makeSleepCommand(engine);
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: 'local' } });
 
       expect(result).toContain("The Warden's Oak");
@@ -95,7 +117,7 @@ describe("/sleep", () => {
     it("returns character-needed message when no character exists", async () => {
       const engine = new MockWorldEngine();
       engine.setCharacter(null);
-      const handler = makeSleepCommand(engine);
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: 'nobody' } });
 
       expect(result).toContain("don't have a character");
@@ -110,8 +132,8 @@ describe("/sleep", () => {
 
     it("returns day transition message", async () => {
       const engine = new MockWorldEngine();
-      engine.setTickResult({ dayNumber: 2, playersAffected: 1, npcMovements: [{ npcId: 5, npcName: 'Merchant', fromLocation: 'Oak', toLocation: 'Town' }] });
-      const handler = makeSleepCommand(engine);
+      engine.setTickResult({ dayNumber: 2, playersAffected: 1, npcMovements: [{ npcId: 5, npcName: 'Merchant', fromLocation: 'Oak', toLocation: 'Town' }], absentWarnings: [], collapsedNames: [] });
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: ADMIN_ID } });
 
       expect(result).toContain("Day 2");
@@ -122,8 +144,8 @@ describe("/sleep", () => {
 
     it("shares the morning builder with the live cron announcement — same day, same prose", async () => {
       const engine = new MockWorldEngine();
-      engine.setTickResult({ dayNumber: 1, playersAffected: 1, npcMovements: [] });
-      const handler = makeSleepCommand(engine);
+      engine.setTickResult({ dayNumber: 1, playersAffected: 1, npcMovements: [], absentWarnings: [], collapsedNames: [] });
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: ADMIN_ID } });
 
       expect(result).toBe(
@@ -133,8 +155,8 @@ describe("/sleep", () => {
 
     it("includes player/NPC count when changes happened", async () => {
       const engine = new MockWorldEngine();
-      engine.setTickResult({ dayNumber: 3, playersAffected: 1, npcMovements: [{ npcId: 1, npcName: 'Hunter', fromLocation: 'Forest', toLocation: 'Glade' }] });
-      const handler = makeSleepCommand(engine);
+      engine.setTickResult({ dayNumber: 3, playersAffected: 1, npcMovements: [{ npcId: 1, npcName: 'Hunter', fromLocation: 'Forest', toLocation: 'Glade' }], absentWarnings: [], collapsedNames: [] });
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: ADMIN_ID } });
 
       expect(result).toContain("soul(s) stirred");
@@ -143,8 +165,8 @@ describe("/sleep", () => {
 
     it("rotates flavour prose deterministically by day, not a fixed early/late split", async () => {
       const engine = new MockWorldEngine();
-      engine.setTickResult({ dayNumber: 5, playersAffected: 1, npcMovements: [] });
-      const handler = makeSleepCommand(engine);
+      engine.setTickResult({ dayNumber: 5, playersAffected: 1, npcMovements: [], absentWarnings: [], collapsedNames: [] });
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: ADMIN_ID } });
 
       expect(result).toBe(
@@ -154,8 +176,8 @@ describe("/sleep", () => {
 
     it("omits count line when nothing changed", async () => {
       const engine = new MockWorldEngine();
-      engine.setTickResult({ dayNumber: 2, playersAffected: 0, npcMovements: [] });
-      const handler = makeSleepCommand(engine);
+      engine.setTickResult({ dayNumber: 2, playersAffected: 0, npcMovements: [], absentWarnings: [], collapsedNames: [] });
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: ADMIN_ID } });
 
       expect(result).not.toContain("soul(s) stirred");
@@ -166,7 +188,7 @@ describe("/sleep", () => {
       const engine = {
         tick: () => { throw new Error('Database not initialized'); },
       } as unknown as MockWorldEngine;
-      const handler = makeSleepCommand(engine);
+      const handler = makeHandler(engine);
       const result = await handler({ user: { id: ADMIN_ID } });
 
       expect(result).toContain('The warden has been notified');
@@ -182,7 +204,7 @@ describe("/sleep", () => {
     const prev = process.env.ADMIN_USER_ID;
     delete process.env.ADMIN_USER_ID;
 
-    makeSleepCommand(new MockWorldEngine());
+    makeHandler(new MockWorldEngine());
 
     expect(warn).toHaveBeenCalledWith(
       '[sleep] WARNING: ADMIN_USER_ID is not set. Admin `/sleep` will be unreachable —',

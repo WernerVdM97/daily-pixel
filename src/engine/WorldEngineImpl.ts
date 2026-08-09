@@ -72,6 +72,7 @@ import type {
   WeeklyActionSummary,
   PendingChoiceSelector,
   ActionOption,
+  RestAtOakResult,
 } from "./WorldEngine.js";
 import { sanitizeAuthored } from "./authored-text.js";
 
@@ -1598,11 +1599,11 @@ export class WorldEngineImpl implements WorldEngine {
 
   // ── Rest & recovery ──
 
-  restAtOak(discordUserId: string): CharacterData | null {
+  restAtOak(discordUserId: string, opts?: { workplace?: string | null }): RestAtOakResult {
     const user = this.userRepo.findByDiscordId(discordUserId);
-    if (!user) return null;
+    if (!user) return { character: null, wasUnsafe: false, unsafeFromName: "" };
     const row = this.charRepo.findByUserId(user.id);
-    if (!row) return null;
+    if (!row) return { character: null, wasUnsafe: false, unsafeFromName: "" };
 
     this.updateLastPlayed(row.id);
 
@@ -1610,22 +1611,45 @@ export class WorldEngineImpl implements WorldEngine {
     // next tick (day_number advances and resting is possible again).
     const currentDay = Number(this.metaRepo.get("day_number") ?? "1");
 
+    // The unsafe-rest rule (M7.1, moved from the Discord sleep command — value and
+    // conditions unchanged): resting away from the Oak's protection on unsafe ground
+    // costs 1 HP. H1: the passed workplace is exempt (doing your job is never the leak
+    // the penalty exists for); `opts.workplace` is always provided by the controller.
     const oakName = "The Warden's Oak";
-    if (row.location === oakName) {
+    const alreadyThere = row.location === oakName;
+    const atWorkplace = opts?.workplace != null && row.location === opts.workplace;
+    const currentLoc = this.locationRepo.findByName(row.location);
+    const wasUnsafe = currentLoc !== undefined && currentLoc.is_safe !== 1 && !alreadyThere && !atWorkplace;
+    const unsafeFromName = row.location;
+
+    if (alreadyThere) {
       // Already at the Oak — still record the rest and return the character.
       this.charRepo.update(row.id, { last_rested_day: currentDay });
-      return this.rowToCharacterData({ ...row, last_rested_day: currentDay });
+      return {
+        character: this.rowToCharacterData({ ...row, last_rested_day: currentDay }),
+        wasUnsafe,
+        unsafeFromName,
+      };
     }
 
     this.charRepo.update(row.id, {
       location: oakName,
       last_rested_day: currentDay,
     });
-    return this.rowToCharacterData({
+    let character = this.rowToCharacterData({
       ...row,
       location: oakName,
       last_rested_day: currentDay,
     });
+
+    // The −1 penalty, applied through modifyHealth so the clamp (0..max) is shared and the
+    // returned character reflects the HP movement the caller announces.
+    if (wasUnsafe) {
+      const updated = this.modifyHealth(discordUserId, -1);
+      if (updated) character = updated;
+    }
+
+    return { character, wasUnsafe, unsafeFromName };
   }
 
   spawnNpc(data: {
