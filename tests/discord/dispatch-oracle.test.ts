@@ -1161,12 +1161,13 @@ describe("dispatch oracle — M9.3.0 characterisation net", () => {
   });
 
   // DC-M9.3.3 (the general form of M9.2's blocker 1): a controller throw before any beat
-  // has fired, on both `beginDayJob` and `beginChoice`. Pin the resulting ack sequence
-  // (no reply/deferReply/deferUpdate precedes the day-job leaf's webhook.editMessage — the
-  // interaction itself is never formally acked even though a message gets edited) and
-  // confirm notifyAdmin fires while safeErrorReply (a top-level-slash-only helper) never
-  // does on either leaf.
-  it("action:dayjob:<n> where beginDayJob throws before any beat → notifyAdmin fires, the error paints via webhook.editMessage with NO prior reply/deferReply/deferUpdate (DC-M9.3.3)", async () => {
+  // has fired, on both `beginDayJob` and `beginChoice`. Both leaves now reply plainly on
+  // this path — M9.3 pinned the day-job one editing an un-acked interaction instead, which
+  // is the fault M10.0 repaired (DC-M10.1); the pin below is the repaired behaviour, and
+  // the harness's `webhook.editMessage` invariant is what makes the old shape unpinnable.
+  // Both still fire notifyAdmin (a begin* throw is a genuine defect, DC-M10.5) and neither
+  // touches safeErrorReply, a top-level-slash-only helper.
+  it("action:dayjob:<n> where beginDayJob throws before any beat → notifyAdmin fires, the error replies plainly and the interaction IS acked (DC-M10.1)", async () => {
     const h = makeHarness();
     h.engine.setCharacter(oracleChar());
     vi.spyOn(h.deps.controller, "beginDayJob").mockImplementation(() => {
@@ -1175,10 +1176,32 @@ describe("dispatch oracle — M9.3.0 characterisation net", () => {
     const { intr, _acks } = buttonInteraction("cid-dj-throws", "action:dayjob:0");
     await dispatchInteraction(intr as never, h.deps);
 
-    expect(_acks.map((a) => a.method)).toEqual(["webhook.editMessage"]);
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
     expect((_acks[0].arg as any).content).toContain("boom (dayjob)");
+    // The copy is unchanged from the pre-M10.0 webhook paint — this slice moved the channel,
+    // not the words (the M10 scope fence).
+    expect((_acks[0].arg as any).content).toContain("Could not act.");
+    expect((intr as { replied: boolean }).replied).toBe(true);
     expect(h.notifyAdmin).toHaveBeenCalledTimes(1);
     expect(h.safeErrorReply).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // The second un-acked pre-beat source M10's recon found, which the handover did not name:
+  // a malformed suffix parses to NaN and the validator rejects it as 'invalid-event', a code
+  // the leaf's !response.ok chain had no arm for, so it fell through to the same broken
+  // catch and paged an operator. DC-M10.4: guard at the parse instead of dispatching, so no
+  // fabricated `jobIndex: NaN` event crosses the seam into the M8.5 corpus.
+  it("action:dayjob:<malformed> → deferUpdate and nothing else: no protocol event, no paint, no notifyAdmin (DC-M10.4)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    const beginDayJob = vi.spyOn(h.deps.controller, "beginDayJob");
+    const { intr, _acks } = buttonInteraction("cid-dj-malformed", "action:dayjob:xyz");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["deferUpdate"]);
+    expect(beginDayJob).not.toHaveBeenCalled();
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 

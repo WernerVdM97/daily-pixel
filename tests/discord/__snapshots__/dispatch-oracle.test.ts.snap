@@ -123,6 +123,15 @@ exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal w
 ]
 `;
 
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<malformed> → deferUpdate and nothing else: no protocol event, no paint, no notifyAdmin (DC-M10.4) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+]
+`;
+
 exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> from unsafe ground (not the job's own workplace) → the interpolated unsafe-ground warning, plain ephemeral reply, no defer (DC-M9.3.3) 1`] = `
 [
   {
@@ -136,16 +145,15 @@ The Shadowfen Marsh is too dangerous — make for safer ground before you set to
 ]
 `;
 
-exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> where beginDayJob throws before any beat → notifyAdmin fires, the error paints via webhook.editMessage with NO prior reply/deferReply/deferUpdate (DC-M9.3.3) 1`] = `
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> where beginDayJob throws before any beat → notifyAdmin fires, the error replies plainly and the interaction IS acked (DC-M10.1) 1`] = `
 [
   {
     "arg": {
-      "components": [],
       "content": "❌ **Could not act.**
 boom (dayjob)",
-      "embeds": [],
+      "flags": 64,
     },
-    "method": "webhook.editMessage",
+    "method": "reply",
   },
 ]
 `;

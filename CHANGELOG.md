@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A day-job button that fails now tells you so, instead of leaving you with "This interaction failed" and a blank screen (M10.0)** — when a day-job quick action broke before it had started properly (a failed character read, say), the bot tried to rewrite the message without ever having answered the click. Discord rejects that, and the error swallowed itself, so the failure showed up as Discord's own generic red notice with nothing explaining it. The same failure now comes back as a plain private reply carrying the reason, exactly as the equivalent failure on action choices already did. A day-job button carrying a malformed id is also no longer treated as a server fault: it is quietly acknowledged and leaves your action message untouched, rather than painting an error and paging an operator.
+
 ### Internal
 
 - **JSON seam protocol types landed (M5.0)** — `src/protocol/` gains the versioned `GameResponse` envelope, the M5 `GameEvent` union, the 9-code error taxonomy, and hand-rolled validators (the `facts` key set is whitelisted so the escape hatch can't grow silently). Additive only; no production caller yet (commits pending).

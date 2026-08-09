@@ -660,19 +660,31 @@ export async function dispatchInteraction(
 
   // ── Day-job quick action buttons ──
   // Crosses as dayjob.start (M9.3.2b): the router owns the character/invalid-job/unsafe
-  // guards, the commute + loading beats and the LLM call. Latent defect deliberately
-  // preserved (DC-M9.3, hazard 8's punch-list item): the single catch below paints via
-  // `webhook.editMessage` even on a pre-beat throw, where the interaction itself was never
-  // formally acked — pre-existing, not repaired here.
+  // guards, the commute + loading beats and the LLM call. The catch below splits on
+  // `beatPaint` (M10.0/DC-M10.1) because a pre-beat throw leaves the interaction un-acked,
+  // where `webhook.editMessage` is rejected AND the player sees "This interaction failed" —
+  // the action-choices leaf's phase split (see its `!beatPaint` branch), one leaf over.
   if (customId && customId.startsWith("action:dayjob:")) {
     if (!interaction.isButton()) return;
+    // Hoisted out of the try so the catch can read it: it is the ack phase signal, and a
+    // throw can happen on either side of the beat.
+    let beatPaint: Promise<void> | undefined;
     try {
       const idx = parseInt(customId.slice("action:dayjob:".length), 10);
+      if (!Number.isInteger(idx) || idx < 0) {
+        // A malformed suffix parses to NaN, which the event validator rejects as
+        // 'invalid-event' — but dispatching it first would fabricate a protocol event
+        // claiming a jobIndex of NaN, which the M8.5 corpus would record (M9.3.2b's review
+        // blocker, on the choice leaf's identical parse failure). Ack and leave the message
+        // alone instead: bot-authored customIds only, so this is a defect to fix at the
+        // source, not an engine fault to page an operator about.
+        await interaction.deferUpdate();
+        return;
+      }
 
       // Defer + blank buttons to show loading, once the router's loading beat fires — the
       // three guard arms (no-character/invalid-job/unsafe) all return before it, so they
       // never pay for a defer they don't need (DC-M9.3.3).
-      let beatPaint: Promise<void> | undefined;
       const response = await router.dispatch(
         { type: "dayjob.start", playerId: interaction.user.id, jobIndex: idx },
         (beat) => {
@@ -775,12 +787,17 @@ export async function dispatchInteraction(
     } catch (err) {
       void notifyAdmin("Action (day-job) failed", err);
       const msg = err instanceof Error ? err.message : String(err);
+      const content = `❌ **Could not act.**\n${msg}`;
+      if (!beatPaint) {
+        // Pre-beat: nothing has acked this interaction, so the followup webhook has no
+        // response to edit and Discord rejects the PATCH — which the `.catch` below then
+        // swallows, leaving the player with an unpainted screen AND "This interaction
+        // failed". Reply plainly instead, the same ack the leaf's own guard rejections use.
+        await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
+        return;
+      }
       await interaction.webhook
-        .editMessage(interaction.message.id, {
-          content: `❌ **Could not act.**\n${msg}`,
-          components: [],
-          embeds: [],
-        })
+        .editMessage(interaction.message.id, { content, components: [], embeds: [] })
         .catch(() => {});
     }
     return;
