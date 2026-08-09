@@ -42,7 +42,7 @@ import {
   consumeMenuMessage,
   stashMenuMessage,
 } from "./commands/action.js";
-import { checkProfanity } from "./profanity.js";
+import { checkProfanity } from "../protocol/profanity.js";
 import type { DayJobDef } from "../controller/dayJob.js";
 import {
   broadcastOutcome,

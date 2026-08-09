@@ -29,7 +29,7 @@ vi.mock("../../src/discord/collapse.js", async (importActual) => ({
 }));
 
 import { dispatchInteraction } from "../../src/discord/dispatchInteraction.js";
-import { resetCache } from "../../src/discord/profanity.js";
+import { resetCache } from "../../src/protocol/profanity.js";
 import type {
   ActionOutcome,
   ActionStartResult,

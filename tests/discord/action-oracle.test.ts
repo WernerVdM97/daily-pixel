@@ -23,7 +23,7 @@ vi.mock("../../src/discord/collapse.js", async (importActual) => ({
 }));
 
 import { dispatchInteraction } from "../../src/discord/dispatchInteraction.js";
-import { resetCache } from "../../src/discord/profanity.js";
+import { resetCache } from "../../src/protocol/profanity.js";
 import type { ActionOutcome, ActionResumeResult } from "../../src/engine/WorldEngine.js";
 import {
   makeHarness,
@@ -607,17 +607,17 @@ describe("action oracle — slash /action <text> (new action)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// M9.3.0 — DC-M9.3.2's slash half of the profanity characterisation pair. The modal
-// transcript (dispatch-oracle.test.ts) pins today's rejection and must stay
-// byte-identical through the whole M9.3 slice; this one pins today's UNFILTERED
-// pass-through on the slash arm — the asymmetry DC-M9.7 (owner-signed) closes. The two
-// are only meaningful read together, so they use the SAME filter pattern and text.
-// This is the only transcript in this suite whose churn is INTENDED: it must churn
-// exactly once, at the DC-M9.7 commit, into a rejection matching the modal copy.
+// M9.3.0 pinned this as DC-M9.3.2's slash half of the profanity characterisation pair,
+// against the modal transcript in dispatch-oracle.test.ts (which stays byte-identical
+// through the whole M9.3 slice, as the control). This transcript is DC-M9.3.6 churn
+// class 2, and it churned at the DC-M9.3.1/DC-M9.7 commit: the guard now runs inside the
+// router's `action.custom` branch (DC-M9.3.8/9), ahead of `beginCustomAction`, so the
+// slash arm rejects the same way the modal arm always has — a single plain ephemeral
+// reply, the adapter's own copy, `engine.startAction` never reached.
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("action oracle — DC-M9.7 profanity guard on the slash arm (will churn exactly once, at the DC-M9.7 commit)", () => {
-  it("24 · /action <profane text> → today's pass-through: the guard is inert on this arm, so the text reaches startAction unfiltered (DC-M9.3.2 — pairs with dispatch-oracle's modal rejection transcript, same filter/pattern/text; EXPECTED TO CHURN once DC-M9.7 lands)", async () => {
+describe("action oracle — DC-M9.7 profanity guard on the slash arm (churned at the DC-M9.3.1 commit)", () => {
+  it("24 · /action <profane text> → the router's guard rejects it before startAction, a single plain ephemeral reply matching the modal leaf's copy (DC-M9.3.2/DC-M9.3.8/DC-M9.3.9)", async () => {
     const priorFilter = process.env.PROFANITY_FILTER;
     process.env.PROFANITY_FILTER = "\\bfrack\\b";
     resetCache();
@@ -632,11 +632,10 @@ describe("action oracle — DC-M9.7 profanity guard on the slash arm (will churn
       await dispatchInteraction(intr as never, h.deps);
 
       nonEmpty(_acks);
-      // Pass-through proof: the profane text reached the engine unfiltered.
-      expect(h.engine.calls.startAction).toHaveLength(1);
-      expect(h.engine.calls.startAction[0].rawInput).toBe("go frack around the ridge");
+      // Rejection proof: the profane text never reached the engine.
+      expect(h.engine.calls.startAction).toHaveLength(0);
       const methods = _acks.map((a) => a.method);
-      expect(methods).toEqual(["deferReply", "editReply", "editReply"]);
+      expect(methods).toEqual(["reply"]);
       expect(snapshotAcks(_acks)).toMatchSnapshot();
     } finally {
       if (priorFilter === undefined) delete process.env.PROFANITY_FILTER;

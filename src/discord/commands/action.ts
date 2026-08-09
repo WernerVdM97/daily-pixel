@@ -218,9 +218,14 @@ export function makeActionCommand(router: GameRouter, engine: WorldEngine) {
       // to arrive here wrapped in the ❌ catch below, with an extra defer-then-edit round
       // trip; both were undeclared regressions since the pre-port top guard was a single
       // plain reply), matching the bare /action arm's own guard-rejection shape.
-      if (response.error.code === 'no-character' || response.error.code === 'no-rolls') {
+      // `illegal-move` joins this group at M9.3 (DC-M9.3.8/9): the profanity guard moved
+      // into the router and now rejects on this same pre-beat path, so it paints identically
+      // to the modal leaf's rejection rather than as a "Could not resume" failure.
+      if (response.error.code === 'no-character' || response.error.code === 'no-rolls' || response.error.code === 'illegal-move') {
         await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
-        return response.error.code === 'no-character' ? 'action_guard_no_character' : 'action_no_rolls';
+        if (response.error.code === 'no-character') return 'action_guard_no_character';
+        if (response.error.code === 'no-rolls') return 'action_no_rolls';
+        return 'action_guard_profanity';
       }
 
       // Everything else on this half (stale-session, a resume throw surfacing as 'internal')

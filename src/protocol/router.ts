@@ -45,6 +45,7 @@ import type {
 } from '../controller/SessionController.js';
 import type { CharacterData, PendingChoiceSelector } from '../engine/WorldEngine.js';
 import type { NoticeViewState } from '../view/viewState.js';
+import { checkProfanity } from './profanity.js';
 
 // ── Player-facing copy (DC-P4). The router owns every string below; the byte-identity
 // recon (2026-08-02) split the two no-character copies by event because menu.open's
@@ -58,6 +59,9 @@ const INVALID_JOB_COPY = 'Invalid job action.';
 const SESSION_EXPIRED_COPY = "❌ Your action session expired. Try `/action` again.";
 const UNSAFE_COPY = (location: string): string =>
   `⚠️ **It's no place for honest work here.**\nThe ${location} is too dangerous — make for safer ground before you set to your trade.`;
+// DC-M9.3.8: the guard's own module moved here with it (src/discord/profanity.ts →
+// src/protocol/profanity.ts); this is the adapter's exact pre-move string.
+const PROFANITY_COPY = "❌ That action contains language the warden won't tolerate. Try something else.";
 
 // ── character.create flow copy (M7.3, DC-M7.3.6) — the four wizard copy constants. The
 // wizard error copies carry NO ❌ — the handler paints them via safeNotify (`❌ ${message}`,
@@ -349,6 +353,12 @@ export class GameRouter {
     onBeat: ((beat: GameResponse) => void) | undefined,
     idleOnce: () => string,
   ): Promise<GameResponse> {
+    // DC-M9.3.9: profanity runs ahead of the character guard, matching the modal leaf's
+    // pre-defer order today — a charless player submitting profane text gets rejected on
+    // the profanity, not on the missing character.
+    const blocked = checkProfanity(e.text);
+    if (blocked !== null) return this.error('illegal-move', PROFANITY_COPY);
+
     const begin = this.backend.beginCustomAction(e.playerId);
     if (begin.kind === 'no-character') return this.error('no-character', NO_CHARACTER_COPY);
     if (begin.kind === 'resume') {

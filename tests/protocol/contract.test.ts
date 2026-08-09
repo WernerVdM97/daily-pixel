@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { GameRouter, type RouterBackend } from '../../src/protocol/router.js';
+import { resetCache } from '../../src/protocol/profanity.js';
 import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse } from '../../src/protocol/envelope.js';
 import { SessionController } from '../../src/controller/SessionController.js';
 import type { HiOpenResult, RestBeginResult, WizardConfirmResult } from '../../src/controller/SessionController.js';
@@ -54,6 +55,8 @@ const INVALID_JOB_COPY = 'Invalid job action.';
 const SESSION_EXPIRED_COPY = "❌ Your action session expired. Try `/action` again.";
 const UNSAFE_COPY = (location: string): string =>
   `⚠️ **It's no place for honest work here.**\nThe ${location} is too dangerous — make for safer ground before you set to your trade.`;
+// DC-M9.3.8: the profanity guard's own copy, moved into the router with the guard.
+const PROFANITY_COPY = "❌ That action contains language the warden won't tolerate. Try something else.";
 
 // ── rest.begin copy (DC-M7.1.3) — the guard copies + the rest screen are byte-for-byte
 // lifts of the old sleep.ts reply assembly; M7.0 bookend-oracle transcripts 12/14 and the
@@ -1569,6 +1572,46 @@ runCaseBlock('conformance — action.custom', [
     assert: (o) => expectInternal(o.response),
   },
 ]);
+
+// DC-M9.3.1/DC-M9.3.8/DC-M9.3.9 — the profanity guard moved into the router's action.custom
+// branch, ahead of beginCustomAction. Wrapped in beforeEach/afterEach + resetCache (the
+// M9.3.0 net's own hermetic-env discipline) so process.env leaking here can't bleed into
+// other suites in the same run.
+describe('action.custom profanity guard (DC-M9.3.1 move)', () => {
+  const priorFilter = process.env.PROFANITY_FILTER;
+  const PROFANE_ACTION = { type: 'action.custom' as const, playerId: USER, text: 'go frack around the ridge' };
+
+  beforeEach(() => {
+    process.env.PROFANITY_FILTER = '\\bfrack\\b';
+    resetCache();
+  });
+
+  afterEach(() => {
+    if (priorFilter === undefined) delete process.env.PROFANITY_FILTER;
+    else process.env.PROFANITY_FILTER = priorFilter;
+    resetCache();
+  });
+
+  it('profane text rejects with illegal-move and the adapter\'s exact copy, no beat, the backend never touched (real backend)', async () => {
+    const engine = realChar();
+    const o = await drive(realRouter(engine), PROFANE_ACTION);
+    expectError(o.response, 'illegal-move', PROFANITY_COPY);
+    expect(o.beats).toEqual([]);
+    expect(engine.calls.startAction).toHaveLength(0);
+  });
+
+  it('profane text rejects with illegal-move and the adapter\'s exact copy, no beat (stub backend)', async () => {
+    const o = await drive(stubRouter(), PROFANE_ACTION);
+    expectError(o.response, 'illegal-move', PROFANITY_COPY);
+    expect(o.beats).toEqual([]);
+  });
+
+  it('DC-M9.3.9 ordering proof — profane text from a player with no character rejects on profanity, not on the missing character', async () => {
+    const o = await drive(realRouter(new MockWorldEngine()), PROFANE_ACTION);
+    expectError(o.response, 'illegal-move', PROFANITY_COPY);
+    expect(o.beats).toEqual([]);
+  });
+});
 
 // DC-M9.2.2 — the threading proof, real backend only (no stub arm: StubBackend never builds
 // a DecisionViewState through buildDecisionView, so it cannot exercise this loss). `actionType`,
