@@ -1795,7 +1795,9 @@ describe('nav facts (DC-M9.6) — the arms that owe the adapter a nav bar', () =
       stub.character = { ...stubChar, rollsRemaining: 2, hasRestedToday: false };
       const o = await drive(new GameRouter(stub, { idle: () => IDLE }), REST_BEGIN);
       if (o.response.ok) throw new Error('unreachable');
-      expect(o.response.facts?.nav).toEqual({ rollsRemaining: 2, hasPendingAction: stubChar.lastActionState !== null, hasRestedToday: false });
+      // Literal, not a mirror of the router's own expression: stubChar has no pending
+      // action, so the polarity is pinned rather than recomputed.
+      expect(o.response.facts?.nav).toEqual({ rollsRemaining: 2, hasPendingAction: false, hasRestedToday: false });
       // Narrow on purpose (the judge's M9.3.2c refinement): the weld is the only consumer,
       // so these arms do NOT ship the rested arm's characterState/characterName.
       expect(o.response.facts?.characterState).toBeUndefined();
@@ -1847,20 +1849,41 @@ describe('nav facts (DC-M9.6) — the arms that owe the adapter a nav bar', () =
     expect(o.response.facts?.nav).toMatchObject(NAV_SHAPE);
   });
 
-  it('an internal fault with no character carries no facts — and a THROWING character read is swallowed, not re-raised', async () => {
+  it('an internal fault with no character carries the fault marker but no nav — and a THROWING character read is swallowed, not re-raised', async () => {
     const charless = new StubBackend();
     charless.statsResult = 'throw';
     charless.character = null;
     const o = await drive(new GameRouter(charless, { idle: () => IDLE }), SCREEN_STATS);
     expectInternal(o.response);
-    expect(o.response.facts).toBeUndefined();
+    expect(o.response.facts?.nav).toBeUndefined();
+    expect(o.response.facts?.internalFault).toBe(true);
 
     const broken = new StubBackend();
     broken.statsResult = 'throw';
     broken.getCharacter = () => { throw new Error('the character read itself is broken'); };
     const o2 = await drive(new GameRouter(broken, { idle: () => IDLE }), SCREEN_STATS);
     expectInternal(o2.response); // never a rejection, even when the fallback read faults too
-    expect(o2.response.facts).toBeUndefined();
+    expect(o2.response.facts?.nav).toBeUndefined();
+  });
+
+  // The blocker the first fresh-context reviewer found: 'internal' has TWO sources and the
+  // pre-port adapter paged the admin for exactly one of them. `internalFault` is what tells
+  // them apart, so a player walking away from a decision screen for 30 minutes no longer
+  // wakes an operator (M9.2's blocker 1, one leaf over).
+  it('a THROWN internal carries internalFault; a MAPPED internal (menu.open resume-error) does not', async () => {
+    const thrown = new StubBackend();
+    thrown.menuResult = 'throw';
+    const o = await drive(new GameRouter(thrown, { idle: () => IDLE }), MENU_OPEN);
+    expectInternal(o.response);
+    expect(o.response.facts?.internalFault).toBe(true);
+
+    const mapped = new StubBackend();
+    mapped.menuResult = { kind: 'resume-error', message: '⏳ That action timed out. Start a new one.' };
+    const o2 = await drive(new GameRouter(mapped, { idle: () => IDLE }), MENU_OPEN);
+    expectInternal(o2.response);
+    if (o2.response.ok) throw new Error('unreachable');
+    expect(o2.response.error.message).toBe('⏳ That action timed out. Start a new one.');
+    expect(o2.response.facts?.internalFault).toBeUndefined();
   });
 });
 

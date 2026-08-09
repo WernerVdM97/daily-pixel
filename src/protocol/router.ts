@@ -834,7 +834,9 @@ export class GameRouter {
         facts = undefined; // a broken backend read leaves the bar off, as `!char` did
       }
     }
-    return this.error('internal', safeStringify(err), facts);
+    // Only THIS internal — the thrown kind — is a fault worth waking an operator for. The
+    // mapped 'internal' arms (openActionMenu's resume-error) are ordinary play.
+    return this.error('internal', safeStringify(err), { ...facts, internalFault: true });
   }
 
   /** Structural barrier: every final envelope crosses the seam only after its own validator

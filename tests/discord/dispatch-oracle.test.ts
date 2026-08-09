@@ -796,6 +796,65 @@ describe("dispatch oracle — nav: sub-branches", () => {
     expect(h.notifyAdmin).not.toHaveBeenCalled();
   });
 
+  // The first fresh-context M9.3 review's BLOCKER, pinned in both directions. `internal` has
+  // two sources: `resumeAction` throwing the player-facing text on the ordinary 30-minute
+  // timeout (a normal game event the pre-port leaf paged nobody for) and a genuine backend
+  // fault (which it did page for). The router collapses both onto 'internal', so
+  // `facts.internalFault` is what tells them apart — without it, a player walking away from
+  // a decision screen wakes an operator, which is M9.2's blocker 1 one leaf over.
+  it("nav:action where resumeAction throws the D2 timeout → 'Could not resume.' reaches the player and notifyAdmin does NOT fire", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(
+      oracleChar({ rollsRemaining: 2, lastActionState: { rawInput: "scout the ridge", decisions: [], accumulatedDc: 10 } }),
+    );
+    // No setResumeResult → MockWorldEngine.resumeAction throws, standing in for the D2
+    // timeout, which openActionMenu catches into its `resume-error` arm.
+    const { intr, _acks } = buttonInteraction("nav-action-resume-error", "nav:action");
+    await dispatchInteraction(intr as never, h.deps);
+
+    const reply = _acks.find((a) => a.method === "reply")!;
+    expect((reply.arg as any).content).toContain("❌ **Could not resume.**");
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("nav:action where openActionMenu itself throws → the SAME copy, but notifyAdmin DOES fire (the fault half)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar({ rollsRemaining: 3, lastActionState: null }));
+    vi.spyOn(h.deps.controller, "openActionMenu").mockImplementation(() => {
+      throw new Error("openActionMenu boom");
+    });
+    const { intr, _acks } = buttonInteraction("nav-action-fault", "nav:action");
+    await dispatchInteraction(intr as never, h.deps);
+
+    const reply = _acks.find((a) => a.method === "reply")!;
+    expect((reply.arg as any).content).toContain("❌ **Could not resume.**");
+    expect(h.notifyAdmin).toHaveBeenCalledTimes(1);
+    expect(h.notifyAdmin.mock.calls[0][0]).toBe("Nav (action) failed");
+  });
+
+  // DC-M9.3.12: nav:action now stamps inside the router's menu.open branch, so the leaf's
+  // own stamp is suppressed. Every other stamp assertion in the four oracles is
+  // `.toContain(1)`, which cannot see a double stamp — this one counts.
+  it("nav:action stamps last-played EXACTLY once (the router's stamp, not the leaf's as well)", async () => {
+    const h = makeHarness();
+    h.engine.setMeta("day_number", "1");
+    h.engine.setCharacter(oracleChar({ rollsRemaining: 3, lastActionState: null }));
+    const { intr } = buttonInteraction("nav-action-stamp", "nav:action");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
+  });
+
+  it("nav:<generic> stamps last-played exactly once too (the leaf's own stamp, no router stamp on screen events)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    const { intr } = buttonInteraction("nav-look-stamp", "nav:look");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(h.engine.calls.updateLastPlayed).toEqual([1]);
+  });
+
   it("nav:sleep → a loading beat then the sleep result", async () => {
     const h = makeHarness();
     h.engine.setCharacter(oracleChar({ rollsRemaining: 0, lastActionState: null }));
@@ -828,7 +887,7 @@ describe("dispatch oracle — nav: sub-branches", () => {
   // M9.2 deferred the wiring; M9.3.2c settles it (DC-M9.6's own scope-fence closing item).
   // A charless nav click never reaches the character gate (that's slash-only), so this IS
   // reachable — the router's `no-character` arm carries no `nav` fact, and the generic
-  // nav leaf's `consumeNavFacts` returns undefined, reproducing today's `!char` no-nav-bar
+  // nav leaf's `onNav` closure is never called, reproducing today's `!char` no-nav-bar
   // fallback byte-for-byte (proved here rather than assumed).
   it("nav:<generic> (nav:hi) with NO character → the container renders alone, no nav bar", async () => {
     const h = makeHarness();
@@ -908,6 +967,34 @@ describe("dispatch oracle — cascade order (specific before broad)", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("dispatch oracle — M9.3.0 characterisation net", () => {
+  // The two DECLARED behaviour changes on the custom-modal leaf, found by the first
+  // fresh-context M9.3 review and pinned here rather than left as silent diffs. M9.2 wired
+  // the daily-roll guard into the slash arm and recorded that "the day-job Custom… modal
+  // button doesn't wire to it yet, left for M9.3" — this is that wiring landing.
+  it("action:custom:modal with NO rolls left → the ⛔ out-of-actions rejection, no startAction (pre-M9.3 this leaf had no rolls arm and granted a FREE action)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar({ rollsRemaining: 0, lastActionState: null }));
+    const { intr, _acks } = modalInteraction("cid-modal-no-rolls", "action:custom:modal", "scout the ridge");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toContain("🛌 **Out of actions for today.**");
+    // The point of the change: the engine is never asked to start an unpaid action.
+    expect(h.engine.calls.startAction.length).toBe(0);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("action:custom:modal with NO character → one plain ephemeral reply (pre-M9.3 the same arm deferred first, then edited)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(null);
+    const { intr, _acks } = modalInteraction("cid-modal-charless", "action:custom:modal", "scout the ridge");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toBe("You don't have a character. Type `/join` first.");
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
   // DC-M9.3.2: two profanity transcripts that are EXPECTED to behave differently once
   // DC-M9.7 moves the guard behind the seam. This one — the modal leaf — must stay
   // byte-identical through the whole M9.3 slice. Its pair, the slash pass-through, lives

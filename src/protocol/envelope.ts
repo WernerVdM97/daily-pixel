@@ -29,7 +29,7 @@ export type GameResponse =
 /** The closed facts set (DC-P1). A key is added only when a consuming adapter justifies it —
  *  the validator rejects anything outside this set, which is what stops the "second
  *  protocol" escape hatch from growing silently. */
-const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter', 'collapse', 'persistFailed']);
+const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter', 'collapse', 'persistFailed', 'internalFault']);
 
 const GAME_ERROR_CODES = new Set<GameErrorCode>(['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal', 'divine-intervention']);
 
@@ -276,6 +276,15 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
     // only as the literal `true` — absent means the persist succeeded.
     if ('persistFailed' in raw.facts && raw.facts.persistFailed !== true) {
       return { ok: false, message: 'facts.persistFailed must be true when present' };
+    }
+    // `internalFault` (DC-M9.6) — the persistFailed pattern for the OTHER operator signal
+    // the port would otherwise delete. 'internal' has two sources that the pre-port adapter
+    // told apart and treated oppositely: a genuine backend throw (the leaf paged the admin)
+    // and a mapped controller arm like openActionMenu's `resume-error`, which is the
+    // ORDINARY 30-minute action timeout (the leaf paged nobody). Only the thrown kind
+    // carries this, so a leaf can page on faults without paging on normal play.
+    if ('internalFault' in raw.facts && raw.facts.internalFault !== true) {
+      return { ok: false, message: 'facts.internalFault must be true when present' };
     }
   }
 

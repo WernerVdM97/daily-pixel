@@ -71,6 +71,7 @@ import {
   type NavFacts,
 } from "./discord/CommandRegistry.js";
 import { WizardSession } from "./discord/WizardSession.js";
+import { withEngineNav } from "./discord/navSupply.js";
 import { makeStatsCommand } from "./discord/commands/stats.js";
 import { makeBackpackCommand } from "./discord/commands/backpack.js";
 import { makeHelpCommand } from "./discord/commands/help.js";
@@ -1308,29 +1309,11 @@ async function main() {
 
   const registry = new CommandRegistry();
 
-  // DC-M9.6: every other registered command hands the dispatcher its nav facts back from
-  // its own router response. `/ping` is a liveness check with no seam event to ride, so its
-  // nav bar — which it has shown since the nav bar existed — is supplied here at the
-  // composition root instead. The dispatcher itself stays free of engine reads.
-  const withEngineNav =
-    (fn: CommandHandler): CommandHandler =>
-    async (interaction, onNav) => {
-      const char = engine.getCharacter(
-        (interaction as { user: { id: string } }).user.id,
-      );
-      if (char) {
-        onNav?.({
-          rollsRemaining: char.rollsRemaining,
-          hasPendingAction: char.lastActionState !== null,
-          hasRestedToday: char.hasRestedToday ?? false,
-        });
-      }
-      return fn(interaction, onNav);
-    };
-
+  // DC-M9.6: `/ping` has no seam event to ride, so its nav facts come from the shared
+  // wiring wrapper the harness registers too (see navSupply.ts).
   registry.register(
     "ping",
-    withEngineNav(asHandler(async () => "pong")),
+    withEngineNav(engine, asHandler(async () => "pong")),
   );
   registry.register("help", asHandler(makeHelpCommand(router)));
   registry.register("stats", asHandler(makeStatsCommand(router)));

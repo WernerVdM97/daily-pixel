@@ -435,7 +435,7 @@ export async function dispatchInteraction(
       // Outcome — the RA-6 identical viewPrivate/viewPublic pair crosses as ONE view.
       const embed = outcomeViewToDiscord(view as OutcomeViewState);
       const facts = response.facts ?? {};
-      const nav = facts.nav as { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean } | undefined;
+      const nav = facts.nav as NavFacts | undefined;
       const actionId = facts.actionId as number | undefined;
       await interaction.editReply({
         embeds: [embed],
@@ -750,7 +750,7 @@ export async function dispatchInteraction(
       // Outcome — the RA-6 identical viewPrivate/viewPublic pair crosses as ONE view.
       const embed = outcomeViewToDiscord(view as OutcomeViewState);
       const facts = response.facts ?? {};
-      const nav = facts.nav as { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean } | undefined;
+      const nav = facts.nav as NavFacts | undefined;
       const actionId = facts.actionId as number | undefined;
       await interaction.webhook.editMessage(interaction.message.id, {
         embeds: [embed],
@@ -818,147 +818,167 @@ export async function dispatchInteraction(
         ),
       );
 
-    let selector: PendingChoiceSelector;
-    if (customId === CID_BAIL) {
-      selector = { kind: "bail" };
-    } else {
-      const parsed = parseActionCid(customId);
-      if (!parsed) {
-        await interaction.deferUpdate();
-        return;
+    // The OUTER try is the pre-port leaf's own (it spanned the whole body): the router no
+    // longer throws, but every ack and paint below still can — a dead interaction, a rate
+    // limit, a 10062 — and without this the rejection escapes dispatchInteraction, whose
+    // caller in index.ts has a `finally` and no `catch`, so it would surface as a generic
+    // unhandled-rejection DM and the player would lose the fallback reply.
+    try {
+      let selector: PendingChoiceSelector;
+      if (customId === CID_BAIL) {
+        selector = { kind: "bail" };
+      } else {
+        const parsed = parseActionCid(customId);
+        if (!parsed) {
+          await interaction.deferUpdate();
+          return;
+        }
+        selector = { kind: "option", index: parsed.optionIdx };
       }
-      selector = { kind: "option", index: parsed.optionIdx };
-    }
 
     // The router's only beat on this flow is the resolved-choice "thinking" screen, fired
     // after `resolveChoice` succeeds — there is no earlier beat matching today's
     // unconditional post-guard `deferUpdate`, so that ack is triggered off the response
     // itself below rather than off a beat (DC-M9.3.3/DC-M9.3.5).
-    let beatPaint: Promise<void> | undefined;
-    const response = await router.dispatch(
-      { type: "action.choose", playerId: interaction.user.id, selector },
-      (beat) => {
-        if (beat.ok && beat.view?.screen === "loading" && !beatPaint) {
-          const body = beat.view.body;
-          beatPaint = (async () => {
-            await interaction.deferUpdate();
-            await interaction.editReply({
-              embeds: [new EmbedBuilder().setDescription(body).setColor(0x95a5a6).toJSON()],
-              components: [],
-            });
-          })();
-        }
-      },
-    );
-    if (beatPaint) await beatPaint;
+      let beatPaint: Promise<void> | undefined;
+      const response = await router.dispatch(
+        { type: "action.choose", playerId: interaction.user.id, selector },
+        (beat) => {
+          if (beat.ok && beat.view?.screen === "loading" && !beatPaint) {
+            const body = beat.view.body;
+            beatPaint = (async () => {
+              await interaction.deferUpdate();
+              await interaction.editReply({
+                embeds: [new EmbedBuilder().setDescription(body).setColor(0x95a5a6).toJSON()],
+                components: [],
+              });
+            })();
+          }
+        },
+      );
+      if (beatPaint) await beatPaint;
 
-    if (!response.ok) {
-      if (response.error.code === "no-character") {
-        await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
-        return;
-      }
-      if (!beatPaint) {
-        if (response.error.code === "session-expired") {
-          // The guard has already passed but no beat has fired on this path — defer
-          // now, still inside the ack window since nothing slow ran before this point.
-          await interaction.deferUpdate();
-          await interaction.webhook.editMessage(interaction.message.id, {
-            content: response.error.message,
-            components: [],
-            embeds: [],
-          });
+      if (!response.ok) {
+        // Everything here is the PRE-beat half — the router returns no-character and
+        // session-expired only before the beat fires, and the post-beat half below is the
+        // one arm ('internal' from stepChoice) that can reach a deferred interaction.
+        if (!beatPaint) {
+          if (response.error.code === "no-character") {
+            await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
+            return;
+          }
+          if (response.error.code === "session-expired") {
+            // The guard has already passed but no beat has fired on this path — defer
+            // now, still inside the ack window since nothing slow ran before this point.
+            await interaction.deferUpdate();
+            await interaction.webhook.editMessage(interaction.message.id, {
+              content: response.error.message,
+              components: [],
+              embeds: [],
+            });
+            return;
+          }
+          // 'internal' — beginChoice/resolveChoice threw before any beat (DC-M9.3.3).
+          // Mirrors the pre-port OUTER catch exactly: notifyAdmin + a plain reply, its own
+          // failure swallowed (the interaction may already be in a state that rejects it).
+          void notifyAdmin("Action choice failed", new Error(response.error.message));
+          await interaction
+            .reply({
+              content: "Something went wrong with your action. Try `/action` again.",
+              flags: MessageFlags.Ephemeral,
+            })
+            .catch(() => {});
           return;
         }
-        // 'internal' — beginChoice/resolveChoice threw before any beat (DC-M9.3.3).
-        // Mirrors the pre-port OUTER catch exactly: notifyAdmin + a plain reply, its own
-        // failure swallowed (the interaction may already be in a state that rejects it).
-        void notifyAdmin("Action choice failed", new Error(response.error.message));
-        await interaction
-          .reply({
-            content: "Something went wrong with your action. Try `/action` again.",
-            flags: MessageFlags.Ephemeral,
-          })
-          .catch(() => {});
+        // Post-beat failure ('internal', from stepChoice) — mirrors the pre-port INNER
+        // catch: console.error only, no notifyAdmin, repaint Action Failed. The pinned
+        // broadcastOutcome-throws transcript below proves this must not reach the outer
+        // funnel, and a stepChoice throw gets the identical treatment by construction —
+        // both come back from the router as the same 'internal' code.
+        console.error("[action] stepAction error:", new Error(response.error.message));
+        await interaction.webhook.editMessage(interaction.message.id, {
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("⚔️ Action Failed")
+              .setDescription(`❌ ${response.error.message}\n\nTry \`/action\` again.`)
+              .setColor(0xe74c3c)
+              .toJSON(),
+          ],
+          components: [],
+        });
         return;
       }
-      // Post-beat failure ('internal', from stepChoice) — mirrors the pre-port INNER
-      // catch: console.error only, no notifyAdmin, repaint Action Failed. The pinned
-      // broadcastOutcome-throws transcript below proves this must not reach the outer
-      // funnel, and a stepChoice throw gets the identical treatment by construction —
-      // both come back from the router as the same 'internal' code.
-      console.error("[action] stepAction error:", new Error(response.error.message));
-      await interaction.webhook.editMessage(interaction.message.id, {
-        embeds: [
-          new EmbedBuilder()
-            .setTitle("⚔️ Action Failed")
-            .setDescription(`❌ ${response.error.message}\n\nTry \`/action\` again.`)
-            .setColor(0xe74c3c)
-            .toJSON(),
-        ],
-        components: [],
-      });
-      return;
-    }
 
-    // Resolved successfully — decision or outcome. Both stay inside one try, mirroring
-    // the pre-port leaf's single inner try spanning stepChoice AND its own render, so an
-    // adapter-side paint/broadcast/collapse failure repaints Action Failed too (pinned:
-    // "broadcastOutcome throwing repaints Action Failed, not the outer funnel").
-    try {
-      const view = response.view;
-      if (view?.screen === "decision") {
-        await interaction.webhook.editMessage(interaction.message.id, decisionViewToDiscord(view as DecisionViewState));
+      // Resolved successfully — decision or outcome. Both stay inside one INNER try,
+      // mirroring the pre-port leaf's inner try spanning stepChoice AND its own render, so
+      // an adapter-side paint/broadcast/collapse failure repaints Action Failed too
+      // (pinned: "broadcastOutcome throwing repaints Action Failed, not the outer funnel").
+      try {
+        const view = response.view;
+        if (view?.screen === "decision") {
+          await interaction.webhook.editMessage(interaction.message.id, decisionViewToDiscord(view as DecisionViewState));
+          if (VERBOSE) console.log(c.grey("[verbose] action: done"));
+          return;
+        }
+
+        // Resolved — reproduce the pre-M3.2 outcome-render branch verbatim.
+        const embed = outcomeViewToDiscord(view as OutcomeViewState);
+        const facts = response.facts ?? {};
+        const nav = facts.nav as NavFacts | undefined;
+        const actionId = facts.actionId as number | undefined;
+        const serviceButtons = getOutcomeServiceButtons(actionId);
+        await interaction.webhook.editMessage(interaction.message.id, {
+          embeds: [embed],
+          components: nav ? [...getNavButtons(nav), ...serviceButtons] : serviceButtons,
+        });
+
+        const characterClass = facts.characterClass as string | null | undefined;
+        const characterName = facts.characterName as string;
+        const distilledType = facts.distilledType as string;
+        const payload = {
+          content: `${classEmoji(characterClass)} **${characterName}** <@${interaction.user.id}> — ${distilledType}`,
+          embeds: [embed],
+          components: getPublicOutcomeButtons(actionId),
+          allowedMentions: { users: [] },
+        };
+        await broadcastOutcome({
+          client: interaction.client,
+          threadId: engine.getMeta(META_RECAP_THREAD_ID),
+          payload,
+          fallback: () => interaction.followUp(payload),
+          subscribeUserIds: [interaction.user.id],
+        });
+        // Omitted (rather than a null-char fallback name) when the character is gone — the
+        // router's own doc records this as lossless, since a null `next` makes
+        // collapseNotice a no-op (matches commands/action.ts's identical precedent).
+        const collapse = facts.collapse as
+          | { name: string; prev: { health: number; stamina: number }; updated: { health: number; stamina: number } }
+          | undefined;
+        if (collapse) await announceCollapse(collapse.name, collapse.prev, collapse.updated);
         if (VERBOSE) console.log(c.grey("[verbose] action: done"));
-        return;
+      } catch (err) {
+        console.error("[action] stepAction error:", err);
+        await interaction.webhook.editMessage(interaction.message.id, {
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("⚔️ Action Failed")
+              .setDescription(`❌ ${(err as Error).message}\n\nTry \`/action\` again.`)
+              .setColor(0xe74c3c)
+              .toJSON(),
+          ],
+          components: [],
+        });
       }
-
-      // Resolved — reproduce the pre-M3.2 outcome-render branch verbatim.
-      const embed = outcomeViewToDiscord(view as OutcomeViewState);
-      const facts = response.facts ?? {};
-      const nav = facts.nav as { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean } | undefined;
-      const actionId = facts.actionId as number | undefined;
-      const serviceButtons = getOutcomeServiceButtons(actionId);
-      await interaction.webhook.editMessage(interaction.message.id, {
-        embeds: [embed],
-        components: nav ? [...getNavButtons(nav), ...serviceButtons] : serviceButtons,
-      });
-
-      const characterClass = facts.characterClass as string | null | undefined;
-      const characterName = facts.characterName as string;
-      const distilledType = facts.distilledType as string;
-      const payload = {
-        content: `${classEmoji(characterClass)} **${characterName}** <@${interaction.user.id}> — ${distilledType}`,
-        embeds: [embed],
-        components: getPublicOutcomeButtons(actionId),
-        allowedMentions: { users: [] },
-      };
-      await broadcastOutcome({
-        client: interaction.client,
-        threadId: engine.getMeta(META_RECAP_THREAD_ID),
-        payload,
-        fallback: () => interaction.followUp(payload),
-        subscribeUserIds: [interaction.user.id],
-      });
-      // Omitted (rather than a null-char fallback name) when the character is gone — the
-      // router's own doc records this as lossless, since a null `next` makes
-      // collapseNotice a no-op (matches commands/action.ts's identical precedent).
-      const collapse = facts.collapse as
-        | { name: string; prev: { health: number; stamina: number }; updated: { health: number; stamina: number } }
-        | undefined;
-      if (collapse) await announceCollapse(collapse.name, collapse.prev, collapse.updated);
-      if (VERBOSE) console.log(c.grey("[verbose] action: done"));
     } catch (err) {
-      console.error("[action] stepAction error:", err);
-      await interaction.webhook.editMessage(interaction.message.id, {
-        embeds: [
-          new EmbedBuilder()
-            .setTitle("⚔️ Action Failed")
-            .setDescription(`❌ ${(err as Error).message}\n\nTry \`/action\` again.`)
-            .setColor(0xe74c3c)
-            .toJSON(),
-        ],
-        components: [],
-      });
+      // The pre-port outer catch, verbatim: an ack or paint that failed outright pages the
+      // admin and tries one plain ephemeral, its own failure swallowed.
+      void notifyAdmin("Action choice failed", err);
+      await interaction
+        .reply({
+          content: "Something went wrong with your action. Try `/action` again.",
+          flags: MessageFlags.Ephemeral,
+        })
+        .catch(() => {});
     }
     return;
   }
@@ -998,12 +1018,16 @@ export async function dispatchInteraction(
               flags: MessageFlags.Ephemeral,
             });
           } else if (response.error.code === "internal") {
-            // resumeAction threw inside openActionMenu (or any other router-internal
-            // fault). The copy mirrors the pre-port 'resume-error' arm exactly, and
-            // notifyAdmin fires HERE rather than from the catch below: the router never
-            // throws, so a backend fault reaches this leaf as an envelope and the catch
-            // would page nobody (it now only covers the paint calls themselves).
-            void notifyAdmin("Nav (action) failed", new Error(response.error.message));
+            // Two sources land here and the pre-port leaf treated them oppositely. The
+            // controller's `resume-error` arm is the ORDINARY 30-minute action timeout
+            // (resumeAction throws the player-facing text) and paged nobody; a genuine
+            // backend throw was caught below and paged. The router never throws now, so
+            // the catch cannot tell them apart — `facts.internalFault` does, and pages
+            // exactly where the pre-port catch did. Paging on both would reproduce M9.2's
+            // blocker 1: an operator woken by a player walking away from their screen.
+            if (response.facts?.internalFault === true) {
+              void notifyAdmin("Nav (action) failed", new Error(response.error.message));
+            }
             await interaction.reply({
               content: `❌ **Could not resume.**\n${response.error.message}`,
               flags: MessageFlags.Ephemeral,

@@ -74,6 +74,31 @@ exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal w
 ]
 `;
 
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with NO character → one plain ephemeral reply (pre-M9.3 the same arm deferred first, then edited) 1`] = `
+[
+  {
+    "arg": {
+      "content": "You don't have a character. Type \`/join\` first.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with NO rolls left → the ⛔ out-of-actions rejection, no startAction (pre-M9.3 this leaf had no rolls arm and granted a FREE action) 1`] = `
+[
+  {
+    "arg": {
+      "content": "🛌 **Out of actions for today.**
+Rest by the Oak (\`/sleep\`) and try again tomorrow.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
 exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with profane text AND no character → the profanity guard still wins; engine.getCharacter is never reached (DC-M9.3.9) 1`] = `
 [
   {
@@ -896,6 +921,19 @@ exports[`dispatch oracle — nav: sub-branches > nav:<generic> (nav:hi) → rend
         },
       ],
       "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — nav: sub-branches > nav:action where resumeAction throws the D2 timeout → 'Could not resume.' reaches the player and notifyAdmin does NOT fire 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ **Could not resume.**
+MockWorldEngine.resumeAction: no canned result set",
+      "flags": 64,
     },
     "method": "reply",
   },

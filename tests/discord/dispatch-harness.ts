@@ -6,6 +6,7 @@ import { MockWorldEngine } from "../../src/engine/MockWorldEngine.js";
 import { SessionController } from "../../src/controller/SessionController.js";
 import { WizardSession } from "../../src/discord/WizardSession.js";
 import { CommandRegistry, type CommandHandler, type NavFacts } from "../../src/discord/CommandRegistry.js";
+import { withEngineNav } from "../../src/discord/navSupply.js";
 import { loadYamlFile } from "../../src/assets/yaml-loader.js";
 import type { DispatchDeps } from "../../src/discord/dispatchInteraction.js";
 import type { DayJobDef } from "../../src/controller/dayJob.js";
@@ -125,27 +126,11 @@ export function buildRegistry(
 ): CommandRegistry {
   const registry = new CommandRegistry();
 
-  // Mirrors index.ts's own `/ping` wrapper exactly (DC-M9.6): the one registered command
-  // with no seam event, so its nav facts are supplied at the wiring level.
-  const withEngineNav =
-    (fn: CommandHandler): CommandHandler =>
-    async (interaction, onNav) => {
-      const char = engine.getCharacter(
-        (interaction as { user: { id: string } }).user.id,
-      );
-      if (char) {
-        onNav?.({
-          rollsRemaining: char.rollsRemaining,
-          hasPendingAction: char.lastActionState !== null,
-          hasRestedToday: char.hasRestedToday ?? false,
-        });
-      }
-      return fn(interaction, onNav);
-    };
-
+  // The SAME wrapper index.ts registers (DC-M9.6), imported rather than copied — so the
+  // /ping transcripts exercise production wiring, not a look-alike.
   registry.register(
     "ping",
-    withEngineNav(asHandler(async () => "pong")),
+    withEngineNav(engine, asHandler(async () => "pong")),
   );
   registry.register("help", asHandler(makeHelpCommand(router)));
   registry.register("stats", asHandler(makeStatsCommand(router)));
