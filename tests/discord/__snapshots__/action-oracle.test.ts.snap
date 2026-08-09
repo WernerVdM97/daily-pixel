@@ -152,6 +152,73 @@ exports[`action oracle — /feedback + /bug > 18 · slash /bug charless → the 
 ]
 `;
 
+exports[`action oracle — DC-M9.7 profanity guard on the slash arm (will churn exactly once, at the DC-M9.7 commit) > 24 · /action <profane text> → today's pass-through: the guard is inert on this arm, so the text reaches startAction unfiltered (DC-M9.3.2 — pairs with dispatch-oracle's modal rejection transcript, same filter/pattern/text; EXPECTED TO CHURN once DC-M9.7 lands) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** go frack around the ridge
+
+⏳ **Thinking…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "action:choice:0:0",
+              "emoji": undefined,
+              "label": "A",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "action:choice:0:1",
+              "emoji": undefined,
+              "label": "B",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "> 🧭 **Quest:** scout the northern ridge
+
+> The trail forks at a mossy stone. Which way?
+
+**A.** 💪 Take the left fork
+**B.** Take the right fork ⬆️",
+          "footer": {
+            "icon_url": undefined,
+            "text": "What do you do?",
+          },
+          "title": "🤔 Decision",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
 exports[`action oracle — bare slash /action (day-job menu) > 3 · bare /action with-char, rolls > 0 → the day-job menu (composeActionMenu embed + buttons), fetchReply stash, no stamp 1`] = `
 [
   {

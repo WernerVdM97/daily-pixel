@@ -23,6 +23,7 @@ vi.mock("../../src/discord/collapse.js", async (importActual) => ({
 }));
 
 import { dispatchInteraction } from "../../src/discord/dispatchInteraction.js";
+import { resetCache } from "../../src/discord/profanity.js";
 import type { ActionOutcome, ActionResumeResult } from "../../src/engine/WorldEngine.js";
 import {
   makeHarness,
@@ -602,6 +603,46 @@ describe("action oracle — slash /action <text> (new action)", () => {
     expect((edit.arg as any).embeds[0].description).toContain("A shadow shifts ahead. Press on?");
     expect(rawIds((edit.arg as any).components)).toEqual(["action:choice:1:0", "action:choice:1:1"]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M9.3.0 — DC-M9.3.2's slash half of the profanity characterisation pair. The modal
+// transcript (dispatch-oracle.test.ts) pins today's rejection and must stay
+// byte-identical through the whole M9.3 slice; this one pins today's UNFILTERED
+// pass-through on the slash arm — the asymmetry DC-M9.7 (owner-signed) closes. The two
+// are only meaningful read together, so they use the SAME filter pattern and text.
+// This is the only transcript in this suite whose churn is INTENDED: it must churn
+// exactly once, at the DC-M9.7 commit, into a rejection matching the modal copy.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("action oracle — DC-M9.7 profanity guard on the slash arm (will churn exactly once, at the DC-M9.7 commit)", () => {
+  it("24 · /action <profane text> → today's pass-through: the guard is inert on this arm, so the text reaches startAction unfiltered (DC-M9.3.2 — pairs with dispatch-oracle's modal rejection transcript, same filter/pattern/text; EXPECTED TO CHURN once DC-M9.7 lands)", async () => {
+    const priorFilter = process.env.PROFANITY_FILTER;
+    process.env.PROFANITY_FILTER = "\\bfrack\\b";
+    resetCache();
+    try {
+      const h = makeHarness();
+      h.engine.setCharacterExists(true);
+      h.engine.setCharacter(oracleChar());
+      h.engine.setStartActionResult(DECISION_RESULT as never);
+      const { intr, _acks } = slashInteraction("action-24-profane", "action", {
+        description: "go frack around the ridge",
+      });
+      await dispatchInteraction(intr as never, h.deps);
+
+      nonEmpty(_acks);
+      // Pass-through proof: the profane text reached the engine unfiltered.
+      expect(h.engine.calls.startAction).toHaveLength(1);
+      expect(h.engine.calls.startAction[0].rawInput).toBe("go frack around the ridge");
+      const methods = _acks.map((a) => a.method);
+      expect(methods).toEqual(["deferReply", "editReply", "editReply"]);
+      expect(snapshotAcks(_acks)).toMatchSnapshot();
+    } finally {
+      if (priorFilter === undefined) delete process.env.PROFANITY_FILTER;
+      else process.env.PROFANITY_FILTER = priorFilter;
+      resetCache();
+    }
   });
 });
 

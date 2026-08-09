@@ -1,5 +1,157 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`dispatch oracle — M9.3.0 characterisation net > a malformed action:-prefixed customId (parseActionCid → null) from a user with NO character → the plain no-character reply; the parse is never reached (DC-M9.3.4 — contrast with transcript 534's WITH-character cross: defer then silent drop) 1`] = `
+[
+  {
+    "arg": {
+      "content": "You don't have a character. Type \`/join\` first.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:<choice> from a user with no character → plain ephemeral reply BEFORE the unconditional deferUpdate (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "You don't have a character. Type \`/join\` first.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:<choice> where beginChoice throws before any beat → notifyAdmin fires, the generic error paints via a plain reply (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "Something went wrong with your action. Try \`/action\` again.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:<choice> where resolveChoice returns null (session expired) → deferUpdate already fired, expired copy paints via webhook.editMessage, NOT editReply (DC-M9.3.3, DC-M9.3.5) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "content": "❌ Your action session expired. Try \`/action\` again.",
+      "embeds": [],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal where the resume returns zero options hits the resume-stale arm → deferReply then the Stale Action embed, no narration prefix (DC-M9.3.7) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "The trail has gone cold.",
+          "title": "⏳ Stale Action",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with profane text AND no character → the profanity guard still wins; engine.getCharacter is never reached (DC-M9.3.9) 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ That action contains language the warden won't tolerate. Try something else.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with profane text → the profanity guard rejects it with a single plain ephemeral reply, no defer at all (DC-M9.3.2 — must stay byte-identical through the whole M9.3 slice; pairs with action-oracle's slash pass-through transcript, same filter/pattern/text) 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ That action contains language the warden won't tolerate. Try something else.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> from unsafe ground (not the job's own workplace) → the interpolated unsafe-ground warning, plain ephemeral reply, no defer (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "⚠️ **It's no place for honest work here.**
+The Shadowfen Marsh is too dangerous — make for safer ground before you set to your trade.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> where beginDayJob throws before any beat → notifyAdmin fires, the error paints via webhook.editMessage with NO prior reply/deferReply/deferUpdate (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "components": [],
+      "content": "❌ **Could not act.**
+boom (dayjob)",
+      "embeds": [],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> with an out-of-range job index → 'Invalid job action.' plain ephemeral reply, no defer (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "Invalid job action.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> with no character → plain ephemeral reply, no defer (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "You don't have a character. Type \`/join\` first.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
 exports[`dispatch oracle — customId branches > action:<choice> → handleActionChoice steps the action machine 1`] = `
 [
   {

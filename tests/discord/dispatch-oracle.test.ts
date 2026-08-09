@@ -29,6 +29,7 @@ vi.mock("../../src/discord/collapse.js", async (importActual) => ({
 }));
 
 import { dispatchInteraction } from "../../src/discord/dispatchInteraction.js";
+import { resetCache } from "../../src/discord/profanity.js";
 import type {
   ActionOutcome,
   ActionStartResult,
@@ -834,5 +835,272 @@ describe("dispatch oracle — cascade order (specific before broad)", () => {
     // Branch #12 proof: startAction with kind 'work'; the broad branch would step, not start.
     expect(h.engine.calls.startAction[0].opts).toMatchObject({ kind: "work" });
     expect(h.engine.calls.stepAction.length).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M9.3.0 — the characterisation net (DC-M9.3.2/.3/.4/.7/.9). Test-only, additive,
+// zero `src/` edits. Every transcript below pins CURRENT pre-port behaviour on an
+// ack-phase question the M9.3 dispatcher rewrite is about to ask on every converted
+// leaf: did a beat fire, and therefore is the interaction acked? M9.2's two review
+// blockers both lived on an arm no transcript exercised — this net closes that gap
+// before the mechanical port starts, not after.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("dispatch oracle — M9.3.0 characterisation net", () => {
+  // DC-M9.3.2: two profanity transcripts that are EXPECTED to behave differently once
+  // DC-M9.7 moves the guard behind the seam. This one — the modal leaf — must stay
+  // byte-identical through the whole M9.3 slice. Its pair, the slash pass-through, lives
+  // in action-oracle.test.ts and uses the SAME filter pattern and text on purpose: the
+  // two are only meaningful read together. checkProfanity memoises its compiled patterns
+  // module-globally, so the filter is armed/reset around the dispatch call and restored
+  // in a finally, mirroring profanity.test.ts's own beforeEach discipline.
+  it("action:custom:modal with profane text → the profanity guard rejects it with a single plain ephemeral reply, no defer at all (DC-M9.3.2 — must stay byte-identical through the whole M9.3 slice; pairs with action-oracle's slash pass-through transcript, same filter/pattern/text)", async () => {
+    const priorFilter = process.env.PROFANITY_FILTER;
+    process.env.PROFANITY_FILTER = "\\bfrack\\b";
+    resetCache();
+    try {
+      const h = makeHarness();
+      h.engine.setCharacter(oracleChar());
+      const { intr, _acks } = modalInteraction(
+        "cid-profane-modal",
+        "action:custom:modal",
+        "go frack around the ridge",
+      );
+      await dispatchInteraction(intr as never, h.deps);
+
+      expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+      expect((_acks[0].arg as any).content).toBe(
+        "❌ That action contains language the warden won't tolerate. Try something else.",
+      );
+      expect((_acks[0].arg as any).flags).toBe(64); // ephemeral
+      expect(h.engine.calls.startAction.length).toBe(0);
+      expect(snapshotAcks(_acks)).toMatchSnapshot();
+    } finally {
+      if (priorFilter === undefined) delete process.env.PROFANITY_FILTER;
+      else process.env.PROFANITY_FILTER = priorFilter;
+      resetCache();
+    }
+  });
+
+  // DC-M9.3.9 (a second ordering inversion, settled after DC-M9.3.4 was written): the
+  // profanity check at :302-311 runs before ANYTHING else on this leaf, including
+  // `beginCustomAction`'s own no-character guard. So a charless-plus-profane cross today
+  // produces the profanity rejection, not the no-character copy, and `engine.getCharacter`
+  // is never reached. After DC-M9.7 moves the guard into the router's `action.custom`
+  // branch, the two guards become neighbours in one function and their relative order is
+  // a free choice nothing else pins — exactly the malformed-id/no-character swap risk
+  // transcript G nets for the choice leaf.
+  it("action:custom:modal with profane text AND no character → the profanity guard still wins; engine.getCharacter is never reached (DC-M9.3.9)", async () => {
+    const priorFilter = process.env.PROFANITY_FILTER;
+    process.env.PROFANITY_FILTER = "\\bfrack\\b";
+    resetCache();
+    try {
+      const h = makeHarness();
+      // No setCharacter call — engine.getCharacter would return null if it were ever asked.
+      const { intr, _acks } = modalInteraction(
+        "cid-profane-modal-charless",
+        "action:custom:modal",
+        "go frack around the ridge",
+      );
+      await dispatchInteraction(intr as never, h.deps);
+
+      expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+      expect((_acks[0].arg as any).content).toBe(
+        "❌ That action contains language the warden won't tolerate. Try something else.",
+      );
+      expect(h.engine.calls.getCharacter.length).toBe(0);
+      expect(snapshotAcks(_acks)).toMatchSnapshot();
+    } finally {
+      if (priorFilter === undefined) delete process.env.PROFANITY_FILTER;
+      else process.env.PROFANITY_FILTER = priorFilter;
+      resetCache();
+    }
+  });
+
+  // DC-M9.3.3: the three `beginDayJob` guard arms (:576-596) — each a plain ephemeral
+  // reply today, with no defer ever fired. Any port that turns one of these into an
+  // `editReply` on an un-acked interaction reproduces M9.2's blocker 1.
+  it("action:dayjob:<n> with no character → plain ephemeral reply, no defer (DC-M9.3.3)", async () => {
+    const h = makeHarness();
+    // No setCharacter call — beginDayJob's char guard returns 'no-character'.
+    const { intr, _acks } = buttonInteraction("cid-dj-nochar", "action:dayjob:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toBe(
+      "You don't have a character. Type `/join` first.",
+    );
+    expect((_acks[0].arg as any).flags).toBe(64);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("action:dayjob:<n> with an out-of-range job index → 'Invalid job action.' plain ephemeral reply, no defer (DC-M9.3.3)", async () => {
+    const h = makeHarness();
+    h.engine.setMeta("day_number", "1");
+    h.engine.setCharacter(oracleChar());
+    // getDayJobActions only ever surfaces 3 actions — 99 is always out of range.
+    const { intr, _acks } = buttonInteraction("cid-dj-invalid", "action:dayjob:99");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toBe("Invalid job action.");
+    expect((_acks[0].arg as any).flags).toBe(64);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("action:dayjob:<n> from unsafe ground (not the job's own workplace) → the interpolated unsafe-ground warning, plain ephemeral reply, no defer (DC-M9.3.3)", async () => {
+    const h = makeHarness();
+    h.engine.setMeta("day_number", "1");
+    // Town Guard's workplace (day-jobs.yml) is Town Square — this location is neither
+    // the workplace nor safe, so both halves of the guard's condition are exercised.
+    h.engine.setCharacter(oracleChar({ location: "Shadowfen Marsh" }));
+    h.engine.setLocation({
+      name: "Shadowfen Marsh",
+      description: "A mock unsafe location.",
+      tags: ["mock"],
+      isSafe: false,
+      emoji: "📍",
+    });
+    const { intr, _acks } = buttonInteraction("cid-dj-unsafe", "action:dayjob:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toBe(
+      "⚠️ **It's no place for honest work here.**\nThe Shadowfen Marsh is too dangerous — make for safer ground before you set to your trade.",
+    );
+    expect((_acks[0].arg as any).flags).toBe(64);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // DC-M9.3.3: beginChoice's no-character arm (:694-700) — a plain ephemeral reply BEFORE
+  // the unconditional deferUpdate a few lines down.
+  it("action:<choice> from a user with no character → plain ephemeral reply BEFORE the unconditional deferUpdate (DC-M9.3.3)", async () => {
+    const h = makeHarness();
+    const { intr, _acks } = buttonInteraction("cid-choice-nochar", "action:choice:0:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toBe(
+      "You don't have a character. Type `/join` first.",
+    );
+    expect((_acks[0].arg as any).flags).toBe(64);
+    expect(h.engine.calls.resolvePendingChoice.length).toBe(0);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // DC-M9.3.3 + DC-M9.3.5: the `resolveChoice` null (session-expired) arm. `deferUpdate`
+  // has already fired by this point, and the expired copy paints through
+  // `interaction.webhook.editMessage`, NOT `editReply` — the split DC-M9.3.5 says the
+  // router cannot express and must not try to.
+  it("action:<choice> where resolveChoice returns null (session expired) → deferUpdate already fired, expired copy paints via webhook.editMessage, NOT editReply (DC-M9.3.3, DC-M9.3.5)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    // No setPendingChoiceOptions call → MockWorldEngine.resolvePendingChoice's
+    // empty-stash branch returns null for a non-bail selector (mirrors "no
+    // last_action_state").
+    const { intr, _acks } = buttonInteraction("cid-choice-expired", "action:choice:0:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["deferUpdate", "webhook.editMessage"]);
+    const paint = _acks[1];
+    expect((paint.arg as any).content).toBe(
+      "❌ Your action session expired. Try `/action` again.",
+    );
+    expect((paint.arg as any).components).toEqual([]);
+    expect((paint.arg as any).embeds).toEqual([]);
+    expect(h.engine.calls.stepAction.length).toBe(0);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // DC-M9.3.3 (the general form of M9.2's blocker 1): a controller throw before any beat
+  // has fired, on both `beginDayJob` and `beginChoice`. Pin the resulting ack sequence
+  // (no reply/deferReply/deferUpdate precedes the day-job leaf's webhook.editMessage — the
+  // interaction itself is never formally acked even though a message gets edited) and
+  // confirm notifyAdmin fires while safeErrorReply (a top-level-slash-only helper) never
+  // does on either leaf.
+  it("action:dayjob:<n> where beginDayJob throws before any beat → notifyAdmin fires, the error paints via webhook.editMessage with NO prior reply/deferReply/deferUpdate (DC-M9.3.3)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    vi.spyOn(h.deps.controller, "beginDayJob").mockImplementation(() => {
+      throw new Error("boom (dayjob)");
+    });
+    const { intr, _acks } = buttonInteraction("cid-dj-throws", "action:dayjob:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["webhook.editMessage"]);
+    expect((_acks[0].arg as any).content).toContain("boom (dayjob)");
+    expect(h.notifyAdmin).toHaveBeenCalledTimes(1);
+    expect(h.safeErrorReply).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("action:<choice> where beginChoice throws before any beat → notifyAdmin fires, the generic error paints via a plain reply (DC-M9.3.3)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    vi.spyOn(h.deps.controller, "beginChoice").mockImplementation(() => {
+      throw new Error("boom (choice)");
+    });
+    const { intr, _acks } = buttonInteraction("cid-choice-throws", "action:choice:0:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toBe(
+      "Something went wrong with your action. Try `/action` again.",
+    );
+    expect(h.notifyAdmin).toHaveBeenCalledTimes(1);
+    expect(h.safeErrorReply).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // DC-M9.3.4: today's leaf runs the character guard first, THEN defers unconditionally,
+  // and only THEN parses the customId — so a malformed `action:`-prefixed id from a
+  // CHARACTERED user is acked and silently dropped (transcript 534, above). Nothing pins
+  // the charless cross: with no character, the guard fires before the parse is even
+  // reached, so this produces the plain no-character reply instead — the two orders
+  // disagree exactly here. A naive port that builds the selector (parse included) before
+  // dispatching would give this cross zero acks instead.
+  it("a malformed action:-prefixed customId (parseActionCid → null) from a user with NO character → the plain no-character reply; the parse is never reached (DC-M9.3.4 — contrast with transcript 534's WITH-character cross: defer then silent drop)", async () => {
+    const h = makeHarness();
+    const { intr, _acks } = buttonInteraction("cid-malformed-nochar", "action:choice");
+    await expect(dispatchInteraction(intr as never, h.deps)).resolves.not.toThrow();
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toBe(
+      "You don't have a character. Type `/join` first.",
+    );
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // DC-M9.3.7: `resume-stale` (added in M9.2's review fix, :338-354) has controller-level
+  // and slash-level coverage but none at dispatch level. M9.3 deletes the if-chain hosting
+  // it, so losing this arm on the port would reproduce blocker 2's exact shape on code
+  // that is weeks old.
+  it("action:custom:modal where the resume returns zero options hits the resume-stale arm → deferReply then the Stale Action embed, no narration prefix (DC-M9.3.7)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(
+      oracleChar({ lastActionState: { rawInput: "scout", decisions: [], accumulatedDc: 10 } }),
+    );
+    h.engine.setResumeResult({
+      state: { rawInput: "scout", decisions: [], accumulatedDc: 10 },
+      nextDecision: { prompt: "The trail has gone cold.", options: [] },
+    });
+    const { intr, _acks } = modalInteraction(
+      "cid-resume-stale-modal",
+      "action:custom:modal",
+      "keep scouting",
+    );
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["deferReply", "editReply"]);
+    const edit = _acks[1];
+    expect((edit.arg as any).embeds[0].title).toBe("⏳ Stale Action");
+    // Unlike the slash arm's stale embed, this leaf's paint (:341-354) never prepends
+    // narration — it renders `begin.prompt` alone even when narration is present.
+    expect((edit.arg as any).embeds[0].description).toBe("The trail has gone cold.");
+    expect((edit.arg as any).components).toEqual([]);
+    expect(h.engine.calls.startAction.length).toBe(0);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
