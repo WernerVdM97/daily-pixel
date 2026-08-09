@@ -6,12 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.3.4] - 2026-08-05
-
-### Changed
-
-- **Daily announcement spam trimmed** — the morning greeting no longer posts on the days the weekend hunt or the weekly leaderboards already speak (Saturday, Wednesday, Sunday), and the evening goodnight only posts on days a soul actually stirred; a day nobody played now ends in quiet (commits `a380f0a`, `d575fd9`).
-
 ### Fixed
 
 - **A day-job button that fails now tells you so, instead of leaving you with "This interaction failed" and a blank screen (M10.0)** — when a day-job quick action broke before it had started properly (a failed character read, say), the bot tried to rewrite the message without ever having answered the click. Discord rejects that, and the error swallowed itself, so the failure showed up as Discord's own generic red notice with nothing explaining it. The same failure now comes back as a plain private reply carrying the reason, exactly as the equivalent failure on action choices already did. A day-job button carrying a malformed id is also no longer treated as a server fault: it is quietly acknowledged and leaves your action message untouched, rather than painting an error and paging an operator.
@@ -37,6 +31,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The layer boundary now holds in both directions, and the tests are typechecked (M10.1)** — the structural check gained its mirror image: nothing outside the Discord layer may import it either, which is the rule that would have caught the render→adapter dependency the previous milestone created. The display vocabulary the adapter had been lending to the rest of the codebase (the section separator, compass arrows, the class and day-job emoji) moved to the render layer, so the controller and view layers no longer reach up into an adapter at all. `npm run typecheck` now covers the test suite as well as `src/`, which turned up 58 real errors — among them a test whose assertions had never executed (its guard was the inverse of what it asserted) and a repository whose type demanded eight fields it fills in for you.
 - **Recorded QA sessions replay on any day of the week (M10.1)** — protocol transcripts now carry the clock they were recorded against, and both the recording and its replay run on it. The greeting and the nightly tick both branch on the real weekday, so a session captured on a Thursday used to diverge when replayed on a Saturday; that limitation had blocked committing a real-backend transcript since the tooling was built. One is now committed and verified on every test run, alongside the stub transcript it has always had.
 - **The Discord layer boundary becomes enforced rather than asserted (M9.4)** — a structural test fails the build if anything on the interaction path imports the engine or controller at runtime, and a second one fails if a registered command is wired up without its nav bar (the mistake that silently cost `/ping` its buttons). `WizardSession`, the map renderer and `titleCase` move to the layers that own them. Test and layout only, byte-identical transcripts; closes **M9**, so the Discord adapter is now translate + paint over the protocol end to end (`ad574f2`, `58542b6`, `f570d2d`, `7246d8c`).
+
+## [0.3.4] - 2026-08-05
+
+### Changed
+
+- **Daily announcement spam trimmed** — the morning greeting no longer posts on the days the weekend hunt or the weekly leaderboards already speak (Saturday, Wednesday, Sunday), and the evening goodnight only posts on days a soul actually stirred; a day nobody played now ends in quiet (commits `a380f0a`, `d575fd9`).
 
 ## [0.3.3] - 2026-08-02
 

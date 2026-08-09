@@ -1,6 +1,7 @@
 ---
 title: JSON Seam — Protocol & Full-Seam Refactor (M5–M10)
-status: decided
+status: shipped
+superseded_by: "implemented in code"
 domain: engine
 phase: mvp
 tags: [architecture, layering, engine, controller, json, seam, protocol, contract-tests, agent-player, discord, build-plan]

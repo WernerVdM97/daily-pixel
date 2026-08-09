@@ -1,6 +1,7 @@
 ---
 title: JSON Seam — M7/M8 Handover Briefing (lead prompt)
-status: decided
+status: shipped
+superseded_by: "implemented in code"
 domain: engine
 phase: mvp
 tags: [architecture, layering, engine, controller, json, seam, protocol, contract-tests, agent-player, discord, handover]

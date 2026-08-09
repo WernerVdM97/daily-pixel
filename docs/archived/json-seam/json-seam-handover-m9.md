@@ -1,6 +1,7 @@
 ---
 title: JSON Seam — M9 Handover Briefing (lead prompt)
-status: decided
+status: shipped
+superseded_by: "implemented in code"
 domain: engine
 phase: mvp
 tags: [architecture, layering, engine, controller, json, seam, protocol, discord, adapter, handover, orchestrated-delegation]
