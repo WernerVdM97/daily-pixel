@@ -1187,6 +1187,56 @@ describe("dispatch oracle — M9.3.0 characterisation net", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
+  // M10.0 review, finding 1 — the case that made the first fix's phase signal the wrong
+  // one. `beatPaint` is assigned the instant the loading beat fires, so it is truthy even
+  // when the `deferUpdate` inside it REJECTED and the interaction is therefore still
+  // un-acked. Branching on it there picked the webhook and reproduced this very slice's
+  // fault. This test fails against that first fix (acks come back empty, exactly as the
+  // original defect did) and passes once the branch reads the real ack state.
+  //
+  // Overriding `deferUpdate` here is the pattern M9.2 caught lying in bookend-oracle
+  // transcript 18, but inverted and faithful: a rejecting ack leaves `deferred` false in
+  // real discord.js too, because the flag is set only after the API call resolves.
+  it("action:dayjob:<n> where the loading beat's own deferUpdate rejects → still replies plainly, never through the webhook (M10.0 review)", async () => {
+    const h = makeHarness();
+    h.engine.setMeta("day_number", "1");
+    h.engine.setCharacter(oracleChar({ location: "The Warden's Oak" }));
+    const { intr, _acks } = buttonInteraction("cid-dj-defer-fails", "action:dayjob:0");
+    (intr as { deferUpdate: unknown }).deferUpdate = vi.fn(async () => {
+      throw new Error("Unknown interaction");
+    });
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toContain("Could not act.");
+    expect(_acks.some((a) => a.method === "webhook.editMessage")).toBe(false);
+    expect(h.notifyAdmin).toHaveBeenCalledTimes(1);
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  // M10.0 review, finding 2 — the day-job leaf's `empty-action` arm paints through the
+  // webhook and had no transcript at all, so DC-M10.3's probe never touched it and its
+  // clean result said nothing about this call site. Structurally it is post-beat (the
+  // router fires the loading beat unconditionally before `runWork`, the only source of the
+  // code), and this pins that rather than leaving it inferred.
+  it("action:dayjob:<n> resolving to empty-action → paints through the webhook on an acked interaction (M10.0 review)", async () => {
+    const h = makeHarness();
+    h.engine.setMeta("day_number", "1");
+    h.engine.setCharacter(oracleChar({ location: "The Warden's Oak" }));
+    h.engine.setStartActionResult({
+      state: { rawInput: "Keep the gate", decisions: [], accumulatedDc: 11, kind: "work", wage: 5 },
+      firstDecision: { prompt: "Nothing to decide.", options: [] },
+      actionType: "other",
+    } as never);
+    const { intr, _acks } = buttonInteraction("cid-dj-empty", "action:dayjob:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    expect(_acks.map((a) => a.method)).toEqual(["deferUpdate", "editReply", "webhook.editMessage"]);
+    expect((_acks[2].arg as any).embeds[0].description).toBe("Nothing to decide.");
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
   // The second un-acked pre-beat source M10's recon found, which the handover did not name:
   // a malformed suffix parses to NaN and the validator rejects it as 'invalid-event', a code
   // the leaf's !response.ok chain had no arm for, so it fell through to the same broken
@@ -1195,12 +1245,16 @@ describe("dispatch oracle — M9.3.0 characterisation net", () => {
   it("action:dayjob:<malformed> → deferUpdate and nothing else: no protocol event, no paint, no notifyAdmin (DC-M10.4)", async () => {
     const h = makeHarness();
     h.engine.setCharacter(oracleChar());
-    const beginDayJob = vi.spyOn(h.deps.controller, "beginDayJob");
+    // Spied on the ROUTER, not on `beginDayJob` (M10.0 review, finding 3): the validator
+    // rejects a NaN jobIndex before any backend call, so a `beginDayJob` assertion holds
+    // with or without the guard and proves nothing about "no protocol event". `dispatch` is
+    // the seam boundary, so this is the only spy that discriminates.
+    const dispatch = vi.spyOn(h.deps.router, "dispatch");
     const { intr, _acks } = buttonInteraction("cid-dj-malformed", "action:dayjob:xyz");
     await dispatchInteraction(intr as never, h.deps);
 
     expect(_acks.map((a) => a.method)).toEqual(["deferUpdate"]);
-    expect(beginDayJob).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
     expect(h.notifyAdmin).not.toHaveBeenCalled();
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });

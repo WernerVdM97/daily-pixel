@@ -660,16 +660,14 @@ export async function dispatchInteraction(
 
   // ── Day-job quick action buttons ──
   // Crosses as dayjob.start (M9.3.2b): the router owns the character/invalid-job/unsafe
-  // guards, the commute + loading beats and the LLM call. The catch below splits on
-  // `beatPaint` (M10.0/DC-M10.1) because a pre-beat throw leaves the interaction un-acked,
-  // where `webhook.editMessage` is rejected AND the player sees "This interaction failed" —
-  // the action-choices leaf's phase split (see its `!beatPaint` branch), one leaf over.
+  // guards, the commute + loading beats and the LLM call. The catch below picks its paint
+  // channel on the interaction's ack state (M10.0/DC-M10.1), because a throw that lands
+  // before anything acked leaves `webhook.editMessage` rejected AND shows the player "This
+  // interaction failed" — the action-choices leaf's phase split, one leaf over.
   if (customId && customId.startsWith("action:dayjob:")) {
     if (!interaction.isButton()) return;
-    // Hoisted out of the try so the catch can read it: it is the ack phase signal, and a
-    // throw can happen on either side of the beat.
-    let beatPaint: Promise<void> | undefined;
     try {
+      let beatPaint: Promise<void> | undefined;
       const idx = parseInt(customId.slice("action:dayjob:".length), 10);
       if (!Number.isInteger(idx) || idx < 0) {
         // A malformed suffix parses to NaN, which the event validator rejects as
@@ -788,11 +786,19 @@ export async function dispatchInteraction(
       void notifyAdmin("Action (day-job) failed", err);
       const msg = err instanceof Error ? err.message : String(err);
       const content = `❌ **Could not act.**\n${msg}`;
-      if (!beatPaint) {
-        // Pre-beat: nothing has acked this interaction, so the followup webhook has no
-        // response to edit and Discord rejects the PATCH — which the `.catch` below then
-        // swallows, leaving the player with an unpainted screen AND "This interaction
-        // failed". Reply plainly instead, the same ack the leaf's own guard rejections use.
+      // The channel is chosen on the interaction's REAL ack state, not on whether a beat
+      // fired (M10.0 review, finding 1). `beatPaint` is assigned synchronously the moment
+      // the loading beat fires, so it is truthy even when the `deferUpdate` inside it
+      // rejected — a live case, since a slow pre-beat guard can push that call past the
+      // 3-second window into a 10062. Branching on `beatPaint` there would pick the webhook
+      // and reproduce this slice's own fault. discord.js sets `deferred`/`replied` only
+      // after the ack call resolves, which makes them the honest signal, and it is the same
+      // predicate the followup webhook itself requires.
+      if (!interaction.deferred && !interaction.replied) {
+        // Un-acked: the followup webhook has no response to edit, so Discord rejects the
+        // PATCH — which the `.catch` below then swallows, leaving the player with an
+        // unpainted screen AND "This interaction failed". Reply plainly instead, the same
+        // ack the leaf's own guard rejections use.
         await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
         return;
       }

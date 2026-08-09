@@ -145,12 +145,60 @@ The Shadowfen Marsh is too dangerous — make for safer ground before you set to
 ]
 `;
 
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> resolving to empty-action → paints through the webhook on an acked interaction (M10.0 review) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "Nothing to decide.",
+          "title": "⚔️ Action",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
 exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> where beginDayJob throws before any beat → notifyAdmin fires, the error replies plainly and the interaction IS acked (DC-M10.1) 1`] = `
 [
   {
     "arg": {
       "content": "❌ **Could not act.**
 boom (dayjob)",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> where the loading beat's own deferUpdate rejects → still replies plainly, never through the webhook (M10.0 review) 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ **Could not act.**
+Unknown interaction",
       "flags": 64,
     },
     "method": "reply",

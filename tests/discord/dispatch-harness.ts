@@ -301,7 +301,10 @@ function wireComponentAcks(intr: Record<string, unknown> & FakeBase, acks: Recor
   intr.webhook = {
     editMessage: vi.fn(async (_id: string, payload: unknown) => {
       if (!intr.replied && !intr.deferred) {
-        throw new Error("Unknown Message (webhook.editMessage on an un-acked interaction)");
+        // Deliberately names the CONDITION rather than a numeric Discord error code: the
+        // rejection is the server's, this fake is not the place to pin which code it picks,
+        // and no assertion reads this string (M10.0 review, finding 4).
+        throw new Error("webhook.editMessage on an un-acked interaction");
       }
       acks.push({ method: "webhook.editMessage", arg: payload });
     }),
