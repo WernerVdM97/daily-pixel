@@ -5,20 +5,32 @@ import { fileURLToPath } from 'node:url';
 
 // DC-M9.1 / DC-M9.4.4 — the structural check is a source-regex test over the interaction
 // path, not a new dependency (no madge/dependency-cruiser). It bans RUNTIME imports only
-// from '../engine/', '../controller/', '../../engine/', '../../controller/'; `import type`
-// is inert at runtime and stays legal (DC-M9.1's reasoning: banning it would force pointless
-// DTO duplication). This copies the M8.5 DC-S4 observer pin's shape (tests/agent/observer.test.ts),
-// which already proved the "read the file as source, assert on it" pattern for this repo.
+// from a banned path (`engine/` or `controller/`, at any `../` depth — see isBannedModule
+// below); `import type` is inert at runtime and stays legal (DC-M9.1's reasoning: banning it
+// would force pointless DTO duplication). This copies the M8.5 DC-S4 observer pin's shape
+// (tests/agent/observer.test.ts), which already proved the "read the file as source, assert
+// on it" pattern for this repo.
 //
-// Three forms of runtime cross-layer dependency are matched, all from a banned prefix:
+// The check scans every `.ts` file under src/discord/ recursively, not an allow-list — a
+// fresh-context review by tamper found that a hardcoded `[dispatchInteraction.ts,
+// viewToDiscord.ts, ...commandFiles]` array left most of the directory (format.ts,
+// navSupply.ts, CommandRegistry.ts, images.ts, ...) unscanned, which made the DC-M9.1
+// exemption list decorative: files that are never scanned don't need naming as exempt.
+// DC-M9.1's own wording ("named as out of scope in the test itself with the reason") only
+// makes sense against a directory scan.
+//
+// Four forms of runtime cross-layer dependency are matched, all from a banned path:
 //   1. A static import — `import <clause> from '<module>'`.
 //   2. A re-export — `export <clause> from '<module>'`. This is the DC-M9.4.3 compat
 //      re-export hazard: a re-export still resolves the banned path at runtime, so it
 //      is caught by the same clause/type-only rules as a static import (`export type { Foo }
 //      from '...'` and `export { type Foo } from '...'` are both inert and stay legal).
-//   3. A dynamic import — `import('<module>')`. There is no type-only form of a dynamic
-//      import (it always evaluates at runtime), so any hit against a banned prefix is an
-//      unconditional match, exemptions aside.
+//   3. A side-effect-only import — `import '<module>'`, no clause and no `from`. There is
+//      no type-only form of this (nothing is bound, but the module still executes at
+//      runtime), so any hit is unconditional, exemptions aside.
+//   4. A dynamic import — `import('<module>')`, delimited by `'`, `"` or a backtick. There
+//      is no type-only form of a dynamic import either (it always evaluates at runtime), so
+//      any hit against a banned path is an unconditional match, exemptions aside.
 //
 // Two parsing hazards, both from DC-M9.4.4, handled below rather than accidentally passed:
 //   1. Multi-line import/re-export statements — the check parses STATEMENTS, not lines, by
@@ -36,7 +48,14 @@ function readSrc(relPath: string): string {
   return readFileSync(path.join(DISCORD_DIR, relPath), 'utf8');
 }
 
-const BANNED_PREFIXES = ['../engine/', '../controller/', '../../engine/', '../../controller/'];
+// Depth-independent on purpose: a fixed prefix list (`../engine/`, `../../engine/`, ...)
+// misses a command file added later in a subdirectory (`commands/foo/bar.ts` would need
+// `../../../engine/`). Stripping the leading `../` run and checking what remains makes the
+// check blind to depth rather than needing a new prefix every time the tree grows.
+function isBannedModule(module: string): boolean {
+  const stripped = module.replace(/^(?:\.\.\/)+/, '');
+  return stripped.startsWith('engine/') || stripped.startsWith('controller/');
+}
 
 interface ImportHit {
   file: string;
@@ -51,12 +70,25 @@ interface ImportHit {
 // boundary: no legal import/re-export clause contains a semicolon, so excluding `;` from
 // the clause class stops a bare `export function`/`export const`/... (which has no `from`
 // of its own) from lazily absorbing everything up to some unrelated later `from '...'`.
-const IMPORT_RE = /\b(?:import|export)\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g;
+// Anchored to the start of a line (`^[ \t]*`, `m` flag): every real import/export
+// declaration in this codebase sits at column 0, and without the anchor the word "import"
+// used as ordinary prose inside a preceding doc comment (found live in navSupply.ts —
+// "The engine import is type-only...") gets picked up as the clause start, with nothing
+// but that comment's own text between it and the real statement's `from` clause below —
+// a false positive the widened directory scan surfaced, not a real cross-layer import.
+const IMPORT_RE = /^[ \t]*(?:import|export)\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/gm;
+
+// Matches a side-effect-only import — `import '<module>'` — which has no `from` clause at
+// all, so IMPORT_RE never sees it. Requires the quote to sit directly after `import` plus
+// whitespace, which is exactly what keeps this from also matching `import { x } from '...'`
+// (next non-whitespace char there is `{`, not a quote) or a dynamic `import(...)` (next
+// char there is `(`). Anchored to line start for the same comment-prose reason as IMPORT_RE.
+const SIDE_EFFECT_IMPORT_RE = /^[ \t]*import\s+['"]([^'"]+)['"]/gm;
 
 // Matches a dynamic `import('<module>')` call (optional whitespace before the paren,
-// e.g. `await import ('<module>')`). No `from` clause exists for this form, so it is a
-// separate regex rather than a variant of IMPORT_RE above.
-const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*['"]([^'"]+)['"]/g;
+// e.g. `await import ('<module>')`), delimited by `'`, `"` or a backtick. No `from` clause
+// exists for this form, so it is a separate regex rather than a variant of IMPORT_RE above.
+const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*['"`]([^'"`]+)['"`]/g;
 
 // Splits a clause into its brace-list part (if any) and whatever sits outside the braces
 // (a default or namespace binding). Shared by isTypeOnlyClause and the key normalizer below
@@ -100,17 +132,40 @@ function findRuntimeCrossLayerImports(file: string, src: string): ImportHit[] {
   const hits: ImportHit[] = [];
   for (const match of src.matchAll(IMPORT_RE)) {
     const [, clause, module] = match;
-    if (!BANNED_PREFIXES.some((p) => module.startsWith(p))) continue;
+    if (!isBannedModule(module)) continue;
     if (isTypeOnlyClause(clause)) continue;
     hits.push({ file, module, clause: normalizeClause(clause) });
   }
+  for (const match of src.matchAll(SIDE_EFFECT_IMPORT_RE)) {
+    const [, module] = match;
+    if (!isBannedModule(module)) continue;
+    // No type-only form exists for a side-effect import — always a runtime hit.
+    hits.push({ file, module, clause: '<side-effect import>' });
+  }
   for (const match of src.matchAll(DYNAMIC_IMPORT_RE)) {
     const [, module] = match;
-    if (!BANNED_PREFIXES.some((p) => module.startsWith(p))) continue;
+    if (!isBannedModule(module)) continue;
     // No type-only form exists for a dynamic import — always a runtime hit.
     hits.push({ file, module, clause: '<dynamic import>' });
   }
   return hits;
+}
+
+// Recursive on purpose (DC-M9.1's fix): a hardcoded array of the three "obvious" adapter
+// files left everything else in src/discord/ (format.ts, navSupply.ts, CommandRegistry.ts,
+// images.ts, ...) unscanned, so the DC-M9.1 exemption list below was never exercised against
+// most of the directory. Returns paths relative to `dir`, `/`-joined regardless of platform.
+function listAllTsFiles(dir: string, relBase = ''): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      out.push(...listAllTsFiles(path.join(dir, entry.name), rel));
+    } else if (entry.name.endsWith('.ts')) {
+      out.push(rel);
+    }
+  }
+  return out;
 }
 
 describe('DC-M9.1 / DC-M9.4.4 structural check — zero runtime engine/controller imports on the interaction path', () => {
@@ -119,8 +174,17 @@ describe('DC-M9.1 / DC-M9.4.4 structural check — zero runtime engine/controlle
   //     an operator affordance, not a game mechanic, so it does not cross the seam.
   //   - Scheduled/broadcast modules are out of scope entirely because they are not on the
   //     interaction path: weekly-recap, afternoon, announcements, pin, release-notes, collapse.
-  //     (map-render is NOT exempted here — it moved to src/render/ in M9.4.1 and is no longer
-  //     under src/discord/ at all, so it does not appear in the glob below.)
+  //     (map-render is NOT named here — it moved to src/render/ in M9.4.1 and is no longer
+  //     under src/discord/ at all, so it never appears in the walk below; naming a file that
+  //     has moved is the exact mistake DC-M9.4.4 calls out.)
+  const OUT_OF_SCOPE_MODULES = new Set([
+    'weekly-recap.ts',
+    'afternoon.ts',
+    'announcements.ts',
+    'pin.ts',
+    'release-notes.ts',
+    'collapse.ts',
+  ]);
   const SLEEP_EXEMPTION_KEY = 'commands/sleep.ts:../../engine/ErrorMapper.js:mapError';
   const EXEMPT_HITS = new Set([SLEEP_EXEMPTION_KEY]);
 
@@ -128,17 +192,13 @@ describe('DC-M9.1 / DC-M9.4.4 structural check — zero runtime engine/controlle
     return `${hit.file}:${hit.module}:${hit.clause}`;
   }
 
-  it('dispatchInteraction.ts, viewToDiscord.ts and every commands/*.ts file (globbed, not hardcoded) import zero runtime engine/controller symbols beyond the named DC-M9.8 exemption', () => {
-    // Directory listing rather than a hardcoded array so a command file added later is
-    // picked up automatically, per DC-M9.4.4.
-    const commandFiles = readdirSync(path.join(DISCORD_DIR, 'commands'))
-      .filter((f) => f.endsWith('.ts'))
-      .map((f) => `commands/${f}`)
+  it('every .ts file under src/discord/ (scanned recursively, not an allow-list) imports zero runtime engine/controller symbols beyond the named DC-M9.8 exemption', () => {
+    const files = listAllTsFiles(DISCORD_DIR)
+      .filter((f) => !OUT_OF_SCOPE_MODULES.has(f))
       .sort();
-    const files = ['dispatchInteraction.ts', 'viewToDiscord.ts', ...commandFiles];
-    // Guard against the directory listing silently matching nothing (e.g. a path typo)
-    // and passing vacuously.
-    expect(commandFiles.length).toBeGreaterThanOrEqual(13);
+    // Guard against the walk silently matching nothing (e.g. a path typo) and passing
+    // vacuously — DC-M9.4.4's non-vacuity requirement applied to the walk itself.
+    expect(files.length).toBeGreaterThanOrEqual(19);
 
     const allHits = files.flatMap((f) => findRuntimeCrossLayerImports(f, readSrc(f)));
     const unexempted = allHits.filter((h) => !EXEMPT_HITS.has(keyOf(h)));
@@ -167,7 +227,38 @@ describe('DC-M9.4.5 — the six DC-M9.3.12 call sites in dispatchInteraction.ts,
     return src.split(needle).length - 1;
   }
 
-  it('has exactly the six named call sites — no more, no fewer', () => {
+  // Review fix: the count/name pin above matches literal `controller.`/`engine.` text, so a
+  // one-line alias or destructure rename defeats it silently — `const ctrl = controller;
+  // ctrl.stampLastPlayed(...)` never contains the string `controller.stampLastPlayed`. These
+  // two patterns catch that class of indirection: a bare alias assignment (`= controller`,
+  // `= engine`, `= deps.controller`, `= deps.engine`) and a destructuring rename (`const
+  // { controller: ctrl }`, `const { engine: x }`). The file legitimately destructures both
+  // under their OWN names (`const { engine, controller, ... } = deps;`), which has no colon
+  // and so is not a rename — that must and does keep passing.
+  //
+  // Residual limit, stated plainly rather than implied away: this is a source-regex check,
+  // not dataflow analysis. It cannot see `controller` passed as a plain argument into a
+  // helper function and re-bound there under a different local name — that indirection is
+  // real and this pin does not close it. It raises the bar against the ordinary-refactor
+  // shape a reviewer actually reproduced; it is not an airtight barrier.
+  const ALIAS_ASSIGNMENT_RE = /(?<![=!<>])=(?!=)\s*(?:deps\.)?(controller|engine)\b/g;
+  const DESTRUCTURE_RE = /\b(?:const|let)\s*\{([^}]*)\}/g;
+  const DESTRUCTURE_RENAME_RE = /\b(?:controller|engine)\s*:\s*\w+/g;
+
+  function findAliasHits(src: string): string[] {
+    const hits: string[] = [];
+    for (const match of src.matchAll(ALIAS_ASSIGNMENT_RE)) {
+      hits.push(`alias-assignment: = ${match[1]}`);
+    }
+    for (const match of src.matchAll(DESTRUCTURE_RE)) {
+      for (const rename of match[1].matchAll(DESTRUCTURE_RENAME_RE)) {
+        hits.push(`destructure-rename: ${rename[0].trim()}`);
+      }
+    }
+    return hits;
+  }
+
+  it('has exactly the six named call sites — no more, no fewer, and no alias/destructure dodge', () => {
     expect(countOccurrences(DISPATCH_SRC, 'controller.needsCharacterGate')).toBe(1);
     expect(countOccurrences(DISPATCH_SRC, 'controller.stampLastPlayed')).toBe(2);
     expect(countOccurrences(DISPATCH_SRC, 'engine.getMeta(META_RECAP_THREAD_ID)')).toBe(3);
@@ -179,5 +270,9 @@ describe('DC-M9.4.5 — the six DC-M9.3.12 call sites in dispatchInteraction.ts,
     const allowed = new Set(['controller.needsCharacterGate', 'controller.stampLastPlayed', 'engine.getMeta']);
     const unexpected = [...controllerCalls, ...engineCalls].filter((c) => !allowed.has(c));
     expect(unexpected).toEqual([]);
+
+    // The alias/destructure dodge: a rename must trip this test even though it leaves
+    // zero occurrences of the literal strings the three counts above look for.
+    expect(findAliasHits(DISPATCH_SRC)).toEqual([]);
   });
 });
