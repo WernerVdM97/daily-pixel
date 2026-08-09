@@ -152,6 +152,18 @@ exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> wit
 ]
 `;
 
+exports[`dispatch oracle — M9.3.0 characterisation net > sleep:feedback:modal where the persist throws → the player still gets the normal confirmation reply, and notifyAdmin fires with the sleep-specific label (DC-M9.3.10) 1`] = `
+[
+  {
+    "arg": {
+      "content": "🙏 Thanks. The warden listens.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
 exports[`dispatch oracle — customId branches > action:<choice> → handleActionChoice steps the action machine 1`] = `
 [
   {

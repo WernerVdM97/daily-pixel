@@ -29,7 +29,7 @@ export type GameResponse =
 /** The closed facts set (DC-P1). A key is added only when a consuming adapter justifies it —
  *  the validator rejects anything outside this set, which is what stops the "second
  *  protocol" escape hatch from growing silently. */
-const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter', 'collapse']);
+const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter', 'collapse', 'persistFailed']);
 
 const GAME_ERROR_CODES = new Set<GameErrorCode>(['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal', 'divine-intervention']);
 
@@ -269,6 +269,13 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
       if (cc.itemSetName !== undefined && !isString(cc.itemSetName)) {
         return { ok: false, message: 'facts.createdCharacter.itemSetName must be a string when present' };
       }
+    }
+    // `persistFailed` (DC-M9.3.10) — rides feedback.submit/bug.submit confirmation
+    // envelopes when the best-effort recordFeedback persist threw, so the four dispatcher
+    // leaves can still notifyAdmin (the router keeps its own console.error too). Present
+    // only as the literal `true` — absent means the persist succeeded.
+    if ('persistFailed' in raw.facts && raw.facts.persistFailed !== true) {
+      return { ok: false, message: 'facts.persistFailed must be true when present' };
     }
   }
 

@@ -207,6 +207,7 @@ export function makeHarness(): Harness {
     dayJobs: DAY_JOBS,
     joinWizards,
     controller,
+    router,
     notifyAdmin,
     safeErrorReply,
     VERBOSE: false,

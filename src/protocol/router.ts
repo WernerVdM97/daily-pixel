@@ -410,11 +410,14 @@ export class GameRouter {
 
   /** feedback.submit/bug.submit: reply-first best-effort (today's resilience) — the
    *  confirmation envelope is returned regardless of the persist's fate; a throwing
-   *  recordFeedback is console.error-logged, never surfaced. bug.submit defaults to the
-   *  controller's 'outcome-bug' surface when absent (DC-P2). The two slash surfaces are the
-   *  one exception to reply-first (DC-M9.5, M9.1): `/feedback` and `/bug` guard on a
-   *  character today, so this guard preserves that — the other four surfaces are untouched,
-   *  no extra `getCharacter` read on their path. */
+   *  recordFeedback is console.error-logged AND rides the envelope as the `persistFailed`
+   *  fact (DC-M9.3.10), so the four dispatcher leaves that used to notifyAdmin on this
+   *  throw directly can still do so from the fact rather than losing the signal to this
+   *  method's own swallow. bug.submit defaults to the controller's 'outcome-bug' surface
+   *  when absent (DC-P2). The two slash surfaces are the one exception to reply-first
+   *  (DC-M9.5, M9.1): `/feedback` and `/bug` guard on a character today, so this guard
+   *  preserves that — the other four surfaces are untouched, no extra `getCharacter` read
+   *  on their path. */
   private dispatchFeedback(
     surface: FeedbackSurface,
     playerId: string,
@@ -425,12 +428,19 @@ export class GameRouter {
       return this.error('no-character', NO_CHARACTER_COPY);
     }
     const view = this.backend.feedbackConfirmation(surface);
+    let persistFailed = false;
     try {
       this.backend.recordFeedback(surface, playerId, text, actionId);
     } catch (err) {
       console.error(`[protocol] recordFeedback failed: ${safeStringify(err)}`);
+      persistFailed = true;
     }
-    return this.finalize({ v: PROTOCOL_VERSION, ok: true, view });
+    return this.finalize({
+      v: PROTOCOL_VERSION,
+      ok: true,
+      view,
+      ...(persistFailed ? { facts: { persistFailed: true } } : {}),
+    });
   }
 
   /** `rest.begin` — the player's `/sleep` goodnight (M7.1, DC-M7.1.3). No beats (single-reply

@@ -2340,7 +2340,7 @@ describe('error path (e)', () => {
     expectInternal(await promise);
   });
 
-  it('a throwing recordFeedback still returns the confirmation envelope (best-effort persist)', async () => {
+  it('a throwing recordFeedback still returns the confirmation envelope (best-effort persist), and carries the persistFailed fact (DC-M9.3.10 — the four dispatcher leaves read it to keep notifyAdmin firing)', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const stub = new StubBackend();
@@ -2352,10 +2352,21 @@ describe('error path (e)', () => {
 
       expect(response.ok).toBe(true);
       if (response.ok) expect(response.view).toMatchObject({ screen: 'notice' });
-      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(response.ok && response.facts?.persistFailed).toBe(true);
+      expect(errorSpy).toHaveBeenCalledTimes(1); // the router's own console.error survives alongside the fact
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  it('a successful recordFeedback carries NO persistFailed fact (DC-M9.3.10 — absent matters as much as present)', async () => {
+    const stub = new StubBackend();
+    stub.recordResult = 'ok';
+    const router = new GameRouter(stub, { idle: () => IDLE });
+    const response = await router.dispatch(FEEDBACK('sleep'));
+
+    expect(response.ok).toBe(true);
+    expect(response.ok && response.facts?.persistFailed).toBeUndefined();
   });
 
   it('a throwing feedbackConfirmation → internal (stub-only: the real backend cannot throw here)', async () => {

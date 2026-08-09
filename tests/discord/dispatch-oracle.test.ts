@@ -1103,4 +1103,32 @@ describe("dispatch oracle — M9.3.0 characterisation net", () => {
     expect(h.engine.calls.startAction.length).toBe(0);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
+
+  // DC-M9.3.10: no transcript anywhere made recordFeedback throw before this slice, which is
+  // exactly why the admin-notification regression was invisible. The router swallows the
+  // throw into a `persistFailed` fact rather than surfacing it, so the player still gets the
+  // ordinary confirmation reply — this pins that the leaf reads the fact back off and still
+  // fires notifyAdmin with its own (per-surface) label, matching pre-port behaviour.
+  it("sleep:feedback:modal where the persist throws → the player still gets the normal confirmation reply, and notifyAdmin fires with the sleep-specific label (DC-M9.3.10)", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    vi.spyOn(h.engine, "submitFeedback").mockImplementation(() => {
+      throw new Error("boom (submitFeedback)");
+    });
+    const { intr, _acks } = modalInteraction(
+      "cid-sleepfb-modal-throws",
+      "sleep:feedback:modal",
+      "loving the atmosphere",
+    );
+    await dispatchInteraction(intr as never, h.deps);
+
+    // Same player-visible reply as the happy-path sleep:feedback:modal transcript above —
+    // the throw is invisible to the player, only the fact riding the envelope tells the
+    // adapter to notify.
+    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
+    expect((_acks[0].arg as any).content).toBe("🙏 Thanks. The warden listens.");
+    expect(h.notifyAdmin).toHaveBeenCalledTimes(1);
+    expect(h.notifyAdmin.mock.calls[0][0]).toBe("Sleep feedback submission failed");
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
 });

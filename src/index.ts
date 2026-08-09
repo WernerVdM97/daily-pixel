@@ -1505,6 +1505,7 @@ ${headInfo}`);
     dayJobs,
     joinWizards,
     controller,
+    router,
     notifyAdmin,
     safeErrorReply,
     VERBOSE,

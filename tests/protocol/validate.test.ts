@@ -332,6 +332,14 @@ describe('validateGameResponse — valid envelopes', () => {
     expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
   });
 
+  it('accepts a well-formed persistFailed fact (DC-M9.3.10)', () => {
+    const envelope = {
+      v: PROTOCOL_VERSION, ok: true,
+      facts: { persistFailed: true },
+    };
+    expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
+  });
+
   it('accepts ok:false with facts (the stale-session narration case)', () => {
     const envelope = {
       v: PROTOCOL_VERSION, ok: false,
@@ -605,6 +613,13 @@ describe('validateGameResponse — invalid envelopes', () => {
       { name: 'Werner', class: 'Warrior', upbringing: 'Soldier', race: 'Human', alignment: 'lawful good', dayJob: 'Town Guard', itemSetName: 42 }, // wrong-typed itemSetName
     ]) {
       const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts: { createdCharacter } });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
+  it('rejects a persistFailed fact that is not the literal true (DC-M9.3.10 — absent or true, nothing else)', () => {
+    for (const persistFailed of ['nope', 1, 0, null, false, []]) {
+      const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts: { persistFailed } });
       expect(result).toEqual({ ok: false, message: expect.any(String) });
     }
   });

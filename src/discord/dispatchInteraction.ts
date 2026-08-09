@@ -22,6 +22,8 @@ import type { WorldEngine, PendingChoiceSelector } from "../engine/WorldEngine.j
 import type { CommandRegistry } from "./CommandRegistry.js";
 import type { WizardSession } from "./WizardSession.js";
 import type { SessionController } from "../controller/SessionController.js";
+import type { GameRouter } from "../protocol/router.js";
+import type { NoticeViewState } from "../view/viewState.js";
 import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord, loadingViewToDiscord, commuteViewToDiscord } from "./viewToDiscord.js";
 import { c } from "../util/colors.js";
 import { randomIdleMessage } from "../engine/IdleMessageSelector.js";
@@ -62,6 +64,7 @@ export interface DispatchDeps {
   dayJobs: DayJobDef[];
   joinWizards: WizardSession;
   controller: SessionController;
+  router: GameRouter;
   notifyAdmin: (label: string, err: unknown) => Promise<void>;
   safeErrorReply: (
     interaction: RepliableInteraction,
@@ -80,6 +83,7 @@ export async function dispatchInteraction(
     registry,
     joinWizards,
     controller,
+    router,
     notifyAdmin,
     safeErrorReply,
     VERBOSE,
@@ -452,15 +456,28 @@ export async function dispatchInteraction(
     return;
   }
 
-  // ── Sleep feedback modal submission ──
+  // ── Sleep feedback modal submission ── crosses as feedback.submit (M9.3.2a). A throwing
+  // persist no longer reaches this leaf directly: the router swallows it into a
+  // `persistFailed` fact (DC-M9.3.10) so notifyAdmin still fires from here.
   if (customId && customId === "sleep:feedback:modal") {
     if (!interaction.isModalSubmit()) return;
     const text = interaction.fields.getTextInputValue("sleep:feedback:input");
-    await interaction.reply(noticeViewToDiscord(controller.feedbackConfirmation("sleep")));
-    try {
-      controller.recordFeedback("sleep", interaction.user.id, text);
-    } catch (err) {
-      void notifyAdmin("Sleep feedback submission failed", err);
+    const response = await router.dispatch({
+      type: "feedback.submit",
+      playerId: interaction.user.id,
+      surface: "sleep",
+      text,
+    });
+    if (!response.ok) {
+      await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const view = response.view;
+    if (view?.screen === "notice") {
+      await interaction.reply(noticeViewToDiscord(view as NoticeViewState));
+    }
+    if (response.facts?.persistFailed) {
+      void notifyAdmin("Sleep feedback submission failed", new Error("recordFeedback failed"));
     }
     return;
   }
@@ -485,15 +502,27 @@ export async function dispatchInteraction(
     return;
   }
 
-  // ── Release-notes feedback modal submission ──
+  // ── Release-notes feedback modal submission ── crosses as feedback.submit (M9.3.2a),
+  // same persistFailed handling as the sleep leaf above (DC-M9.3.10).
   if (customId && customId === "release:feedback:modal") {
     if (!interaction.isModalSubmit()) return;
     const text = interaction.fields.getTextInputValue("release:feedback:input");
-    await interaction.reply(noticeViewToDiscord(controller.feedbackConfirmation("release")));
-    try {
-      controller.recordFeedback("release", interaction.user.id, text);
-    } catch (err) {
-      void notifyAdmin("Release feedback submission failed", err);
+    const response = await router.dispatch({
+      type: "feedback.submit",
+      playerId: interaction.user.id,
+      surface: "release",
+      text,
+    });
+    if (!response.ok) {
+      await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const view = response.view;
+    if (view?.screen === "notice") {
+      await interaction.reply(noticeViewToDiscord(view as NoticeViewState));
+    }
+    if (response.facts?.persistFailed) {
+      void notifyAdmin("Release feedback submission failed", new Error("recordFeedback failed"));
     }
     return;
   }
@@ -519,17 +548,30 @@ export async function dispatchInteraction(
     return;
   }
 
-  // ── Outcome feedback modal submission ──
+  // ── Outcome feedback modal submission ── crosses as feedback.submit (M9.3.2a), same
+  // persistFailed handling as the sleep leaf above (DC-M9.3.10).
   if (customId && interaction.isModalSubmit() && (customId === "outcome:feedback:modal" || customId.startsWith("outcome:feedback:modal:"))) {
     const text = interaction.fields.getTextInputValue(
       "outcome:feedback:input",
     );
     const actionId = parseOutcomeActionId(customId);
-    await interaction.reply(noticeViewToDiscord(controller.feedbackConfirmation("outcome-feedback")));
-    try {
-      controller.recordFeedback("outcome-feedback", interaction.user.id, text, actionId);
-    } catch (err) {
-      void notifyAdmin("Outcome feedback failed", err);
+    const response = await router.dispatch({
+      type: "feedback.submit",
+      playerId: interaction.user.id,
+      surface: "outcome-feedback",
+      text,
+      actionId,
+    });
+    if (!response.ok) {
+      await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const view = response.view;
+    if (view?.screen === "notice") {
+      await interaction.reply(noticeViewToDiscord(view as NoticeViewState));
+    }
+    if (response.facts?.persistFailed) {
+      void notifyAdmin("Outcome feedback failed", new Error("recordFeedback failed"));
     }
     return;
   }
@@ -554,15 +596,29 @@ export async function dispatchInteraction(
     return;
   }
 
-  // ── Outcome bug-report modal submission ──
+  // ── Outcome bug-report modal submission ── crosses as bug.submit (M9.3.2a), surface
+  // passed explicitly to keep today's attribution rather than relying on the controller's
+  // default; same persistFailed handling as the sleep leaf above (DC-M9.3.10).
   if (customId && interaction.isModalSubmit() && (customId === "outcome:bug:modal" || customId.startsWith("outcome:bug:modal:"))) {
     const text = interaction.fields.getTextInputValue("outcome:bug:input");
     const actionId = parseOutcomeActionId(customId);
-    await interaction.reply(noticeViewToDiscord(controller.feedbackConfirmation("outcome-bug")));
-    try {
-      controller.recordFeedback("outcome-bug", interaction.user.id, text, actionId);
-    } catch (err) {
-      void notifyAdmin("Outcome bug report failed", err);
+    const response = await router.dispatch({
+      type: "bug.submit",
+      playerId: interaction.user.id,
+      surface: "outcome-bug",
+      text,
+      actionId,
+    });
+    if (!response.ok) {
+      await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const view = response.view;
+    if (view?.screen === "notice") {
+      await interaction.reply(noticeViewToDiscord(view as NoticeViewState));
+    }
+    if (response.facts?.persistFailed) {
+      void notifyAdmin("Outcome bug report failed", new Error("recordFeedback failed"));
     }
     return;
   }
