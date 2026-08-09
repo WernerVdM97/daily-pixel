@@ -785,7 +785,11 @@ export class GameRouter {
     });
   }
 
+  /** DC-M9.3.10 held that the log is where the original error's detail goes to survive
+   *  once it can't cross the seam — this path was missing that log, so a controller throw
+   *  vanished outright bar whatever notifyAdmin does with the envelope's message. */
   private internalError(err: unknown): GameResponse {
+    console.error(`[protocol] internal error: ${safeStringify(err)}`);
     return this.error('internal', safeStringify(err));
   }
 

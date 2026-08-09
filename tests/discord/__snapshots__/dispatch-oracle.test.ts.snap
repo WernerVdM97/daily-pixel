@@ -1,13 +1,10 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`dispatch oracle — M9.3.0 characterisation net > a malformed action:-prefixed customId (parseActionCid → null) from a user with NO character → the plain no-character reply; the parse is never reached (DC-M9.3.4 — contrast with transcript 534's WITH-character cross: defer then silent drop) 1`] = `
+exports[`dispatch oracle — M9.3.0 characterisation net > a malformed action:-prefixed customId (parseActionCid → null) from a user with NO character → deferUpdate then silence, same as the WITH-character cross above — the parse now runs ahead of the router entirely (Finding 1, M9.3.2b review) 1`] = `
 [
   {
-    "arg": {
-      "content": "You don't have a character. Type \`/join\` first.",
-      "flags": 64,
-    },
-    "method": "reply",
+    "arg": null,
+    "method": "deferUpdate",
   },
 ]
 `;
@@ -160,6 +157,15 @@ exports[`dispatch oracle — M9.3.0 characterisation net > sleep:feedback:modal 
       "flags": 64,
     },
     "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > action: with a malformed customId (parseActionCid → null) still acks via deferUpdate 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
   },
 ]
 `;

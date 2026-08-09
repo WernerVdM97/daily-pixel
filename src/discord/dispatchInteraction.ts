@@ -23,7 +23,7 @@ import type { CommandRegistry } from "./CommandRegistry.js";
 import type { WizardSession } from "./WizardSession.js";
 import type { SessionController } from "../controller/SessionController.js";
 import type { GameRouter } from "../protocol/router.js";
-import type { NoticeViewState } from "../view/viewState.js";
+import type { NoticeViewState, DecisionViewState, OutcomeViewState } from "../view/viewState.js";
 import { noticeViewToDiscord, decisionViewToDiscord, outcomeViewToDiscord, menuViewToDiscord, loadingViewToDiscord, commuteViewToDiscord } from "./viewToDiscord.js";
 import { c } from "../util/colors.js";
 import { randomIdleMessage } from "../engine/IdleMessageSelector.js";
@@ -44,7 +44,6 @@ import {
   consumeMenuMessage,
   stashMenuMessage,
 } from "./commands/action.js";
-import { checkProfanity } from "../protocol/profanity.js";
 import type { DayJobDef } from "../controller/dayJob.js";
 import {
   broadcastOutcome,
@@ -297,133 +296,158 @@ export async function dispatchInteraction(
   }
 
   // ── Custom action modal submission — starts the action with typed text ──
+  // Crosses as action.custom (M9.3.2b): the router owns the profanity guard (DC-M9.7/8/9,
+  // ahead of the character guard, dropping this leaf's own now-redundant checkProfanity
+  // call), the character/resume/resume-stale/no-rolls guards and the LLM call. Beat-phase
+  // signal (DC-M9.3.3, mirrors commands/action.ts): `beatPaint` is set only once the
+  // router's thinking beat fires, so a guard rejection that returns before it never pays
+  // for a defer it doesn't need.
   if (customId && customId === "action:custom:modal") {
     if (!interaction.isModalSubmit()) return;
     const description = interaction.fields.getTextInputValue(
       "action:custom:input",
     );
 
-    // Block profane custom actions before they reach the engine.
-    const blocked = checkProfanity(description);
-    if (blocked !== null) {
-      await interaction.reply({
-        content:
-          "❌ That action contains language the warden won't tolerate. Try something else.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
+    let beatPaint: Promise<void> | undefined;
+    const response = await router.dispatch(
+      { type: "action.custom", playerId: interaction.user.id, text: description },
+      (beat) => {
+        if (beat.ok && beat.view?.screen === "loading" && !beatPaint) {
+          const body = beat.view.body;
+          beatPaint = (async () => {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.editReply({
+              embeds: [new EmbedBuilder().setDescription(body).setColor(0x95a5a6).toJSON()],
+            });
+          })();
+        }
+      },
+    );
+    if (beatPaint) await beatPaint;
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    // Delete the stale day-job menu so only the action scene shows.
-    const menuInfo = consumeMenuMessage(interaction.user.id);
-    if (menuInfo) {
-      const { WebhookClient } = await import("discord.js");
-      const wh = new WebhookClient({
-        id: menuInfo.applicationId,
-        token: menuInfo.token,
-      });
-      await wh.deleteMessage(menuInfo.messageId).catch(() => {});
+    // Delete the stale day-job menu — skipped only on the profanity rejection (illegal-move,
+    // which always precedes any beat), matching today's pre-defer guard which never
+    // reaches this line either.
+    if (response.ok || response.error.code !== "illegal-move") {
+      const menuInfo = consumeMenuMessage(interaction.user.id);
+      if (menuInfo) {
+        const { WebhookClient } = await import("discord.js");
+        const wh = new WebhookClient({
+          id: menuInfo.applicationId,
+          token: menuInfo.token,
+        });
+        await wh.deleteMessage(menuInfo.messageId).catch(() => {});
+      }
     }
 
     try {
-      const begin = controller.beginCustomAction(interaction.user.id);
-      if (begin.kind === "no-character") {
-        await interaction.editReply({
-          content: "You don't have a character. Type `/join` first.",
-        });
-        return;
+      if (!response.ok) {
+        if (!beatPaint) {
+          // Pre-beat guard rejections — no-character/no-rolls/illegal-move (profanity,
+          // DC-M9.3.8/9) all paint as a single plain ephemeral reply, matching the
+          // pre-port top guard's shape.
+          if (
+            response.error.code === "no-character" ||
+            response.error.code === "no-rolls" ||
+            response.error.code === "illegal-move"
+          ) {
+            await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
+            return;
+          }
+          // resume-stale (DC-M9.3.7) — deferReply then the Stale Action embed. Latent
+          // defect #2 preserved (recorded against nav:action in M9.2, pinned here too):
+          // unlike the slash arm, this never prepends narration even when supplied.
+          if (response.error.code === "stale-session") {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.editReply({
+              embeds: [
+                new EmbedBuilder()
+                  .setTitle("⏳ Stale Action")
+                  .setDescription(response.error.message)
+                  .setColor(0x95a5a6)
+                  .toJSON(),
+              ],
+              components: [],
+            });
+            return;
+          }
+          // Anything else pre-beat — beginCustomAction itself threw, surfacing as
+          // 'internal'. Defer now (nothing has acked yet) then fall into the shared catch
+          // below, exactly as the pre-port single outer try/catch would.
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+          throw new Error(response.error.message);
+        }
+        // Post-beat: the interstitial already deferred, so every arm here edits.
+        if (response.error.code === "divine-intervention") {
+          // DC-M9.3: a refunded roll is a system fault, not a real outcome — paint the
+          // distinct grey ⚠️ System embed and stop, no broadcast/collapse.
+          await interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("⚠️ System")
+                .setDescription(response.error.message)
+                .setColor(0x95a5a6)
+                .toJSON(),
+            ],
+            components: [],
+          });
+          return;
+        }
+        if (response.error.code === "empty-action") {
+          await interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("⚔️ Action")
+                .setDescription(response.error.message)
+                .setColor(0x95a5a6)
+                .toJSON(),
+            ],
+            components: [],
+          });
+          return;
+        }
+        // Any other post-beat failure ('internal', from runCustomAction) — shared catch.
+        throw new Error(response.error.message);
       }
-      if (begin.kind === "resume") {
-        await interaction.editReply(decisionViewToDiscord(begin.view));
-        return;
-      }
-      if (begin.kind === "resume-stale") {
-        // M9.2 review fix: this leaf's if-chain ignored the new arm and would fall through
-        // to the "start" path below on a stale pending action — the same defect
-        // `nav:action`'s stale embed (below, ~:809-822) already guards against. Copied
-        // rather than inventing new chrome; already deferred above, so this edits.
-        await interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("⏳ Stale Action")
-              .setDescription(begin.prompt)
-              .setColor(0x95a5a6)
-              .toJSON(),
-          ],
-          components: [],
-        });
+
+      const view = response.view;
+      if (view?.screen === "decision") {
+        // The resume arm (mid-action, any text) lands here too — ok:true, no beat.
+        if (!beatPaint) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.editReply(decisionViewToDiscord(view as DecisionViewState));
         return;
       }
 
-      // Thinking screen — matches the ⏳ envelope /action and the day-job button
-      // path already show, so the player isn't staring at a blank spinner during
-      // the LLM call that runCustomAction below makes.
-      const clippedDescription =
-        description.length > 280
-          ? description.slice(0, 279).trimEnd() + "…"
-          : description;
+      // Outcome — the RA-6 identical viewPrivate/viewPublic pair crosses as ONE view.
+      const embed = outcomeViewToDiscord(view as OutcomeViewState);
+      const facts = response.facts ?? {};
+      const nav = facts.nav as { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean } | undefined;
+      const actionId = facts.actionId as number | undefined;
       await interaction.editReply({
-        embeds: [
-          new EmbedBuilder()
-            .setDescription(
-              `**You:** ${clippedDescription}\n\n⏳ **Thinking…**\n_${randomIdleMessage()}_`,
-            )
-            .setColor(0x95a5a6)
-            .toJSON(),
-        ],
+        embeds: [embed],
+        components: [...(nav ? getNavButtons(nav) : []), ...getOutcomeServiceButtons(actionId)],
       });
-
-      const run = await controller.runCustomAction(interaction.user.id, description);
-      if (run.kind === "outcome") {
-        const priv = outcomeViewToDiscord(run.viewPrivate);
-        await interaction.editReply({
-          embeds: [priv],
-          components: [...getNavButtons(run.char), ...getOutcomeServiceButtons(run.actionId)],
-        });
-        const payload = {
-          content: `**${run.characterName}** <@${interaction.user.id}> — ${run.distilledType}`,
-          embeds: [outcomeViewToDiscord(run.viewPublic)],
-          components: getPublicOutcomeButtons(run.actionId),
-          allowedMentions: { users: [] },
-        };
-        await broadcastOutcome({
-          client: interaction.client,
-          threadId: engine.getMeta(META_RECAP_THREAD_ID),
-          payload,
-          fallback: () => interaction.followUp(payload),
-          subscribeUserIds: [interaction.user.id],
-        });
-        await announceCollapse(run.char.name, run.prevChar, run.char);
-      } else if (run.kind === "empty-action") {
-        await interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("⚔️ Action")
-              .setDescription(run.prompt)
-              .setColor(0x95a5a6)
-              .toJSON(),
-          ],
-          components: [],
-        });
-      } else if (run.kind === "divine") {
-        // DC-M9.3: a refunded roll is a system fault, not a real outcome — paint the
-        // distinct grey ⚠️ System embed (modelled on commands/action.ts:158-170) and stop,
-        // without broadcasting or announcing a collapse.
-        await interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("⚠️ System")
-              .setDescription(run.text)
-              .setColor(0x95a5a6)
-              .toJSON(),
-          ],
-          components: [],
-        });
-      } else {
-        await interaction.editReply(decisionViewToDiscord(run.view));
-      }
+      const characterName = facts.characterName as string;
+      const distilledType = facts.distilledType as string;
+      const payload = {
+        content: `**${characterName}** <@${interaction.user.id}> — ${distilledType}`,
+        embeds: [embed],
+        components: getPublicOutcomeButtons(actionId),
+        allowedMentions: { users: [] },
+      };
+      await broadcastOutcome({
+        client: interaction.client,
+        threadId: engine.getMeta(META_RECAP_THREAD_ID),
+        payload,
+        fallback: () => interaction.followUp(payload),
+        subscribeUserIds: [interaction.user.id],
+      });
+      const collapse = facts.collapse as
+        | { name: string; prev: { health: number; stamina: number }; updated: { health: number; stamina: number } }
+        | undefined;
+      // Omitted (rather than null-char args) when the character is gone — the router's
+      // own doc records this as lossless, since a null `next` makes collapseNotice a no-op.
+      if (collapse) await announceCollapse(collapse.name, collapse.prev, collapse.updated);
     } catch (err) {
       void notifyAdmin("Action (custom modal) failed", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -624,100 +648,119 @@ export async function dispatchInteraction(
   }
 
   // ── Day-job quick action buttons ──
+  // Crosses as dayjob.start (M9.3.2b): the router owns the character/invalid-job/unsafe
+  // guards, the commute + loading beats and the LLM call. Latent defect deliberately
+  // preserved (DC-M9.3, hazard 8's punch-list item): the single catch below paints via
+  // `webhook.editMessage` even on a pre-beat throw, where the interaction itself was never
+  // formally acked — pre-existing, not repaired here.
   if (customId && customId.startsWith("action:dayjob:")) {
     if (!interaction.isButton()) return;
     try {
       const idx = parseInt(customId.slice("action:dayjob:".length), 10);
-      const begin = controller.beginDayJob(interaction.user.id, idx);
-      if (begin.kind === "no-character") {
-        await interaction.reply({
-          content: "You don't have a character. Type `/join` first.",
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      if (begin.kind === "invalid-job") {
-        await interaction.reply({
-          content: "Invalid job action.",
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      if (begin.kind === "unsafe") {
-        await interaction.reply({
-          content: `⚠️ **It's no place for honest work here.**\nThe ${begin.location} is too dangerous — make for safer ground before you set to your trade.`,
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
 
-      // Defer + blank buttons to show loading.
-      const idle = randomIdleMessage();
-      await interaction.deferUpdate();
-      await interaction.editReply(
-        loadingViewToDiscord({ screen: "loading", body: `⏳ **Starting…**\n_${idle}_` }),
+      // Defer + blank buttons to show loading, once the router's loading beat fires — the
+      // three guard arms (no-character/invalid-job/unsafe) all return before it, so they
+      // never pay for a defer they don't need (DC-M9.3.3).
+      let beatPaint: Promise<void> | undefined;
+      const response = await router.dispatch(
+        { type: "dayjob.start", playerId: interaction.user.id, jobIndex: idx },
+        (beat) => {
+          if (!beat.ok) return;
+          if (beat.view?.screen === "loading" && !beatPaint) {
+            const body = beat.view.body;
+            beatPaint = (async () => {
+              await interaction.deferUpdate();
+              await interaction.editReply(loadingViewToDiscord({ screen: "loading", body }));
+            })();
+          } else if (beat.view?.screen === "commute") {
+            // Merge the commute INTO the loading page (don't replace it): chained onto the
+            // loading beat's own promise, since it can only paint once that ack has landed.
+            const { destination, idle } = beat.view;
+            beatPaint = (beatPaint ?? Promise.resolve()).then(async () => {
+              await interaction.editReply(commuteViewToDiscord({ screen: "commute", destination, idle }));
+            });
+          }
+        },
       );
+      if (beatPaint) await beatPaint;
 
-      const commute = controller.commuteForWork(interaction.user.id, begin.workplace);
-      if (commute.kind === "commuted") {
-        // Merge the commute INTO the loading page (don't replace it): the LLM call
-        // below takes seconds, so keep the "thinking" indicator visible — the bot
-        // hasn't stalled, work is being generated.
-        await interaction.editReply(
-          commuteViewToDiscord({ screen: "commute", destination: commute.destination, idle }),
-        );
+      if (!response.ok) {
+        if (
+          response.error.code === "no-character" ||
+          response.error.code === "illegal-move" ||
+          response.error.code === "unsafe"
+        ) {
+          // Guard rejections — no defer, plain ephemeral reply (DC-M9.3.3).
+          await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
+          return;
+        }
+        if (response.error.code === "divine-intervention") {
+          // DC-M9.3: a refunded roll is a system fault, not a real outcome.
+          await interaction.webhook.editMessage(interaction.message.id, {
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("⚠️ System")
+                .setDescription(response.error.message)
+                .setColor(0x95a5a6)
+                .toJSON(),
+            ],
+            components: [],
+          });
+          return;
+        }
+        if (response.error.code === "empty-action") {
+          await interaction.webhook.editMessage(interaction.message.id, {
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("⚔️ Action")
+                .setDescription(response.error.message)
+                .setColor(0x95a5a6)
+                .toJSON(),
+            ],
+            components: [],
+          });
+          return;
+        }
+        // Any other failure ('internal') — beginDayJob itself threw, or anything deeper
+        // did. Throwing here reuses the shared catch below verbatim (same message shape,
+        // same notifyAdmin call) regardless of whether a beat ever fired.
+        throw new Error(response.error.message);
       }
 
-      const run = await controller.runWork(interaction.user.id, begin.workPrompt, begin.wage);
-
-      if (run.kind === "outcome") {
-        const priv = outcomeViewToDiscord(run.viewPrivate);
-        await interaction.webhook.editMessage(interaction.message.id, {
-          embeds: [priv],
-          components: [...getNavButtons(run.char), ...getOutcomeServiceButtons(run.actionId)],
-        });
-        const payload = {
-          content: `**${run.characterName}** <@${interaction.user.id}> — ${run.distilledType}`,
-          embeds: [outcomeViewToDiscord(run.viewPublic)],
-          components: getPublicOutcomeButtons(run.actionId),
-          allowedMentions: { users: [] },
-        };
-        await broadcastOutcome({
-          client: interaction.client,
-          threadId: engine.getMeta(META_RECAP_THREAD_ID),
-          payload,
-          fallback: () => interaction.followUp(payload),
-          subscribeUserIds: [interaction.user.id],
-        });
-        await announceCollapse(run.char.name, run.prevChar, run.char);
-      } else if (run.kind === "empty-action") {
-        await interaction.webhook.editMessage(interaction.message.id, {
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("⚔️ Action")
-              .setDescription(run.prompt)
-              .setColor(0x95a5a6)
-              .toJSON(),
-          ],
-          components: [],
-        });
-      } else if (run.kind === "divine") {
-        // DC-M9.3: a refunded roll is a system fault, not a real outcome — paint the
-        // distinct grey ⚠️ System embed (modelled on commands/action.ts:158-170) and stop,
-        // without broadcasting or announcing a collapse.
-        await interaction.webhook.editMessage(interaction.message.id, {
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("⚠️ System")
-              .setDescription(run.text)
-              .setColor(0x95a5a6)
-              .toJSON(),
-          ],
-          components: [],
-        });
-      } else {
-        await interaction.webhook.editMessage(interaction.message.id, decisionViewToDiscord(run.view));
+      const view = response.view;
+      if (view?.screen === "decision") {
+        await interaction.webhook.editMessage(interaction.message.id, decisionViewToDiscord(view as DecisionViewState));
+        return;
       }
+
+      // Outcome — the RA-6 identical viewPrivate/viewPublic pair crosses as ONE view.
+      const embed = outcomeViewToDiscord(view as OutcomeViewState);
+      const facts = response.facts ?? {};
+      const nav = facts.nav as { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean } | undefined;
+      const actionId = facts.actionId as number | undefined;
+      await interaction.webhook.editMessage(interaction.message.id, {
+        embeds: [embed],
+        components: [...(nav ? getNavButtons(nav) : []), ...getOutcomeServiceButtons(actionId)],
+      });
+      const characterName = facts.characterName as string;
+      const distilledType = facts.distilledType as string;
+      const payload = {
+        content: `**${characterName}** <@${interaction.user.id}> — ${distilledType}`,
+        embeds: [embed],
+        components: getPublicOutcomeButtons(actionId),
+        allowedMentions: { users: [] },
+      };
+      await broadcastOutcome({
+        client: interaction.client,
+        threadId: engine.getMeta(META_RECAP_THREAD_ID),
+        payload,
+        fallback: () => interaction.followUp(payload),
+        subscribeUserIds: [interaction.user.id],
+      });
+      const collapse = facts.collapse as
+        | { name: string; prev: { health: number; stamina: number }; updated: { health: number; stamina: number } }
+        | undefined;
+      if (collapse) await announceCollapse(collapse.name, collapse.prev, collapse.updated);
     } catch (err) {
       void notifyAdmin("Action (day-job) failed", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -733,6 +776,25 @@ export async function dispatchInteraction(
   }
 
   // ── Action choices ──
+  // Crosses as action.choose (M9.3.2b). DC-M9.3.4 revisited: the selector must be built
+  // before `router.dispatch` can be called at all, which moves parsing ahead of the
+  // character guard — the opposite of today's order (guard, then deferUpdate
+  // unconditionally, then parse). The prior fix dispatched unconditionally with a
+  // guaranteed-out-of-range sentinel selector when the customId didn't parse — dropped
+  // (M9.3.2b review, blocker): that sentinel crosses the seam as a real `action.choose`
+  // claiming the player picked option Number.MAX_SAFE_INTEGER, a fabricated protocol
+  // event the M8.5 replay corpus would record and DC-S5's sequence sanity would then
+  // reject on replay; it also changes the player-visible outcome, resolving to
+  // `session-expired` (destructive edit, false copy) where today a with-character
+  // malformed click leaves the action message untouched. Fix: parse first, and when the
+  // customId doesn't parse (and isn't CID_BAIL), ack with `deferUpdate` and return WITHOUT
+  // dispatching anything — no protocol event, message left alone, matching today's
+  // with-character behaviour exactly. Declared consequence: the charless-plus-malformed
+  // cross (M9.3.0 transcript G) now hits the parse failure before the router's own
+  // character guard ever runs, so it flips from the plain no-character reply to
+  // deferUpdate-then-silence. That cross is unreachable in practice — a charless player
+  // has no action message to click, and the character gate reroutes slash commands first
+  // — so protocol honesty wins over preserving an unreachable order.
   if (customId && customId.startsWith("action:")) {
     if (!interaction.isButton()) return;
     if (VERBOSE)
@@ -741,111 +803,148 @@ export async function dispatchInteraction(
           `[verbose] action:button from ${interaction.user.tag} cid=${customId}`,
         ),
       );
-    try {
-      // Old ordering (pre-M3.2 `handleActionChoice`): getCharacter guard (reply, no
-      // defer) → deferUpdate UNCONDITIONALLY → THEN parse the customId. A malformed
-      // `action:`-prefixed id still gets acked even though it resolves to nothing.
-      const begin = controller.beginChoice(interaction.user.id);
 
-      if (begin.kind === "no-character") {
-        await interaction.reply({
-          content: "You don't have a character. Type `/join` first.",
-          flags: MessageFlags.Ephemeral,
-        });
+    let selector: PendingChoiceSelector;
+    if (customId === CID_BAIL) {
+      selector = { kind: "bail" };
+    } else {
+      const parsed = parseActionCid(customId);
+      if (!parsed) {
+        await interaction.deferUpdate();
         return;
       }
+      selector = { kind: "option", index: parsed.optionIdx };
+    }
 
-      await interaction.deferUpdate();
+    // The router's only beat on this flow is the resolved-choice "thinking" screen, fired
+    // after `resolveChoice` succeeds — there is no earlier beat matching today's
+    // unconditional post-guard `deferUpdate`, so that ack is triggered off the response
+    // itself below rather than off a beat (DC-M9.3.3/DC-M9.3.5).
+    let beatPaint: Promise<void> | undefined;
+    const response = await router.dispatch(
+      { type: "action.choose", playerId: interaction.user.id, selector },
+      (beat) => {
+        if (beat.ok && beat.view?.screen === "loading" && !beatPaint) {
+          const body = beat.view.body;
+          beatPaint = (async () => {
+            await interaction.deferUpdate();
+            await interaction.editReply({
+              embeds: [new EmbedBuilder().setDescription(body).setColor(0x95a5a6).toJSON()],
+              components: [],
+            });
+          })();
+        }
+      },
+    );
+    if (beatPaint) await beatPaint;
 
-      let selector: PendingChoiceSelector;
-      if (customId === CID_BAIL) {
-        selector = { kind: "bail" };
-      } else {
-        const parsed = parseActionCid(customId);
-        if (!parsed) return;
-        selector = { kind: "option", index: parsed.optionIdx };
-      }
-
-      const label = controller.resolveChoice(begin.character, selector);
-
-      if (!label) {
-        await interaction.webhook.editMessage(interaction.message.id, {
-          content: "❌ Your action session expired. Try `/action` again.",
-          components: [],
-          embeds: [],
-        });
+    if (!response.ok) {
+      if (response.error.code === "no-character") {
+        await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
         return;
       }
-
-      // Blank the buttons; echo the choice with a "Thinking…" line below.
-      await interaction.editReply({
+      if (!beatPaint) {
+        if (response.error.code === "session-expired") {
+          // The guard has already passed but no beat has fired on this path — defer
+          // now, still inside the ack window since nothing slow ran before this point.
+          await interaction.deferUpdate();
+          await interaction.webhook.editMessage(interaction.message.id, {
+            content: response.error.message,
+            components: [],
+            embeds: [],
+          });
+          return;
+        }
+        // 'internal' — beginChoice/resolveChoice threw before any beat (DC-M9.3.3).
+        // Mirrors the pre-port OUTER catch exactly: notifyAdmin + a plain reply, its own
+        // failure swallowed (the interaction may already be in a state that rejects it).
+        void notifyAdmin("Action choice failed", new Error(response.error.message));
+        await interaction
+          .reply({
+            content: "Something went wrong with your action. Try `/action` again.",
+            flags: MessageFlags.Ephemeral,
+          })
+          .catch(() => {});
+        return;
+      }
+      // Post-beat failure ('internal', from stepChoice) — mirrors the pre-port INNER
+      // catch: console.error only, no notifyAdmin, repaint Action Failed. The pinned
+      // broadcastOutcome-throws transcript below proves this must not reach the outer
+      // funnel, and a stepChoice throw gets the identical treatment by construction —
+      // both come back from the router as the same 'internal' code.
+      console.error("[action] stepAction error:", new Error(response.error.message));
+      await interaction.webhook.editMessage(interaction.message.id, {
         embeds: [
           new EmbedBuilder()
-            .setDescription(`**You:** ${label}\n\n⏳ **Thinking…**\n_${randomIdleMessage()}_`)
-            .setColor(0x95a5a6)
+            .setTitle("⚔️ Action Failed")
+            .setDescription(`❌ ${response.error.message}\n\nTry \`/action\` again.`)
+            .setColor(0xe74c3c)
             .toJSON(),
         ],
         components: [],
       });
+      return;
+    }
 
-      try {
-        const step = await controller.stepChoice(interaction.user.id, label, begin.character);
-
-        if (step.kind === "decision") {
-          await interaction.webhook.editMessage(interaction.message.id, decisionViewToDiscord(step.view));
-          if (VERBOSE) console.log(c.grey("[verbose] action: done"));
-          return;
-        }
-
-        // Resolved — reproduce the pre-M3.2 outcome-render branch verbatim.
-        const embed = outcomeViewToDiscord(step.view);
-        const serviceButtons = getOutcomeServiceButtons(step.actionId);
-        await interaction.webhook.editMessage(interaction.message.id, {
-          embeds: [embed],
-          components: step.char ? [...getNavButtons(step.char), ...serviceButtons] : serviceButtons,
-        });
-
-        const payload = {
-          content: `${classEmoji(step.characterClass)} **${step.characterName}** <@${interaction.user.id}> — ${step.distilledType}`,
-          embeds: [embed],
-          components: getPublicOutcomeButtons(step.actionId),
-          allowedMentions: { users: [] },
-        };
-        await broadcastOutcome({
-          client: interaction.client,
-          threadId: engine.getMeta(META_RECAP_THREAD_ID),
-          payload,
-          fallback: () => interaction.followUp(payload),
-          subscribeUserIds: [interaction.user.id],
-        });
-        // Faithful old fallback chain (`character?.name ?? prevChar?.name ?? "A soul"`) —
-        // `step.characterName` is pre-defaulted to 'Unknown', which would hide it.
-        await announceCollapse(step.char?.name ?? step.prevChar?.name ?? "A soul", step.prevChar, step.char);
+    // Resolved successfully — decision or outcome. Both stay inside one try, mirroring
+    // the pre-port leaf's single inner try spanning stepChoice AND its own render, so an
+    // adapter-side paint/broadcast/collapse failure repaints Action Failed too (pinned:
+    // "broadcastOutcome throwing repaints Action Failed, not the outer funnel").
+    try {
+      const view = response.view;
+      if (view?.screen === "decision") {
+        await interaction.webhook.editMessage(interaction.message.id, decisionViewToDiscord(view as DecisionViewState));
         if (VERBOSE) console.log(c.grey("[verbose] action: done"));
-      } catch (err) {
-        console.error("[action] stepAction error:", err);
-        await interaction.webhook.editMessage(interaction.message.id, {
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("⚔️ Action Failed")
-              .setDescription(`❌ ${(err as Error).message}\n\nTry \`/action\` again.`)
-              .setColor(0xe74c3c)
-              .toJSON(),
-          ],
-          components: [],
-        });
+        return;
       }
+
+      // Resolved — reproduce the pre-M3.2 outcome-render branch verbatim.
+      const embed = outcomeViewToDiscord(view as OutcomeViewState);
+      const facts = response.facts ?? {};
+      const nav = facts.nav as { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean } | undefined;
+      const actionId = facts.actionId as number | undefined;
+      const serviceButtons = getOutcomeServiceButtons(actionId);
+      await interaction.webhook.editMessage(interaction.message.id, {
+        embeds: [embed],
+        components: nav ? [...getNavButtons(nav), ...serviceButtons] : serviceButtons,
+      });
+
+      const characterClass = facts.characterClass as string | null | undefined;
+      const characterName = facts.characterName as string;
+      const distilledType = facts.distilledType as string;
+      const payload = {
+        content: `${classEmoji(characterClass)} **${characterName}** <@${interaction.user.id}> — ${distilledType}`,
+        embeds: [embed],
+        components: getPublicOutcomeButtons(actionId),
+        allowedMentions: { users: [] },
+      };
+      await broadcastOutcome({
+        client: interaction.client,
+        threadId: engine.getMeta(META_RECAP_THREAD_ID),
+        payload,
+        fallback: () => interaction.followUp(payload),
+        subscribeUserIds: [interaction.user.id],
+      });
+      // Omitted (rather than a null-char fallback name) when the character is gone — the
+      // router's own doc records this as lossless, since a null `next` makes
+      // collapseNotice a no-op (matches commands/action.ts's identical precedent).
+      const collapse = facts.collapse as
+        | { name: string; prev: { health: number; stamina: number }; updated: { health: number; stamina: number } }
+        | undefined;
+      if (collapse) await announceCollapse(collapse.name, collapse.prev, collapse.updated);
+      if (VERBOSE) console.log(c.grey("[verbose] action: done"));
     } catch (err) {
-      void notifyAdmin("Action choice failed", err);
-      if ("reply" in interaction) {
-        await (interaction as { reply: Function })
-          .reply({
-            content:
-              "Something went wrong with your action. Try `/action` again.",
-            flags: MessageFlags.Ephemeral,
-          })
-          .catch(() => {});
-      }
+      console.error("[action] stepAction error:", err);
+      await interaction.webhook.editMessage(interaction.message.id, {
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("⚔️ Action Failed")
+            .setDescription(`❌ ${(err as Error).message}\n\nTry \`/action\` again.`)
+            .setColor(0xe74c3c)
+            .toJSON(),
+        ],
+        components: [],
+      });
     }
     return;
   }

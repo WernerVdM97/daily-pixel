@@ -538,10 +538,14 @@ describe("dispatch oracle — customId branches", () => {
     const { intr, _acks } = buttonInteraction("cid-action-malformed", "action:choice");
     await expect(dispatchInteraction(intr as never, h.deps)).resolves.not.toThrow();
 
-    expect(_acks.some((a) => a.method === "deferUpdate")).toBe(true);
+    // Exact sequence, not `.some()` (Finding 3, M9.3.2b review): the loose assertion is
+    // why a genuine change to this leaf's ack sequence produced zero snapshot churn and
+    // slipped past the byte gate.
+    expect(_acks.map((a) => a.method)).toEqual(["deferUpdate"]);
     // Nothing to resolve past the malformed id — no step, no outer-funnel reply.
     expect(h.engine.calls.stepAction.length).toBe(0);
     expect(h.notifyAdmin).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 });
 
@@ -1053,22 +1057,24 @@ describe("dispatch oracle — M9.3.0 characterisation net", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
-  // DC-M9.3.4: today's leaf runs the character guard first, THEN defers unconditionally,
-  // and only THEN parses the customId — so a malformed `action:`-prefixed id from a
-  // CHARACTERED user is acked and silently dropped (transcript 534, above). Nothing pins
-  // the charless cross: with no character, the guard fires before the parse is even
-  // reached, so this produces the plain no-character reply instead — the two orders
-  // disagree exactly here. A naive port that builds the selector (parse included) before
-  // dispatching would give this cross zero acks instead.
-  it("a malformed action:-prefixed customId (parseActionCid → null) from a user with NO character → the plain no-character reply; the parse is never reached (DC-M9.3.4 — contrast with transcript 534's WITH-character cross: defer then silent drop)", async () => {
+  // Transcript G (M9.3.0's net). M9.3.2b review fix (Finding 1, blocker) changed this
+  // cross: the sentinel-selector approach that dispatched a malformed customId to the
+  // router — hitting its character guard before the parse failure ever mattered — is
+  // gone. Parsing now happens ahead of any dispatch, so a malformed customId
+  // short-circuits on `deferUpdate` + return regardless of character state, matching the
+  // WITH-character sibling transcript above byte-for-byte instead of diverging from it.
+  // Declared churn, not a regression: today's leaf ran the character guard first and gave
+  // this cross the plain no-character reply, but that order is unreachable in practice — a
+  // charless player has no action message to click, and the character gate reroutes slash
+  // commands before the handler — so protocol honesty (no fabricated `action.choose`
+  // selector crossing the seam) wins over preserving it.
+  it("a malformed action:-prefixed customId (parseActionCid → null) from a user with NO character → deferUpdate then silence, same as the WITH-character cross above — the parse now runs ahead of the router entirely (Finding 1, M9.3.2b review)", async () => {
     const h = makeHarness();
     const { intr, _acks } = buttonInteraction("cid-malformed-nochar", "action:choice");
     await expect(dispatchInteraction(intr as never, h.deps)).resolves.not.toThrow();
 
-    expect(_acks.map((a) => a.method)).toEqual(["reply"]);
-    expect((_acks[0].arg as any).content).toBe(
-      "You don't have a character. Type `/join` first.",
-    );
+    expect(_acks.map((a) => a.method)).toEqual(["deferUpdate"]);
+    expect(h.engine.calls.stepAction.length).toBe(0);
     expect(h.notifyAdmin).not.toHaveBeenCalled();
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
