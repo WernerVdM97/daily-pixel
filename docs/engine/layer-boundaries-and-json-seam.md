@@ -127,8 +127,8 @@ The shape in one sentence: **Discord and the agent-player become peer adapters o
 | Persistence | Behind repos mostly; engine inline SQL + 1 Discord direct write | Every write via repos, engine-only | **Small–med** |
 | Presentation | `render/*` already pure ✓; view-assembly welded to `discord.js` | Semantic view-state DTO + shared pure renderers | **Medium** |
 | Application / controller | Does not exist; flow spread across `index.ts` dispatcher + command files | Dedicated transport-neutral controller (flow + session state) | **Large — the bulk** |
-| Protocol seam | Does not exist | JSON input-events + view-state DTOs | **Medium (design-led, foundational)** |
-| Frontend adapters | Discord only, fat | Thin adapters; + agent-player, + web later | **Medium** |
+| Protocol seam | **Built and load-bearing** (`src/protocol/`: versioned envelope, event union, closed `facts` whitelist, error taxonomy, contract suite against two backends) | JSON input-events + view-state DTOs | **Closed** — see [[json-seam-protocol]] M5–M10. Transport stays in-process per decision 3, so the wire-format claim is by design rather than demonstrated |
+| Frontend adapters | **Two thin adapters over one seam**: the Discord layer is translate + paint (zero runtime engine/controller imports, structurally enforced) and the agent-player is a protocol client | Thin adapters; + agent-player, + web later | **Closed for the two that exist**; a web adapter is a later arc, unblocked rather than built |
 | Test harnesses | `sim/` at engine level only | `sim/` (engine) + agent-player (controller, all features) | **Agent-player is net-new** |
 
 Already banked (the reason this is a refactor, not a rewrite): the engine seam, the pure renderers, the repository layer, the `sim/engine-factory` wiring, and the JSON-serialisable action state that already round-trips through the DB.
@@ -172,3 +172,5 @@ Milestones, not tasks — the implementing lead breaks each into its own build p
 Next step: hand to an orchestrated-delegation lead; first slice is M0. Inventorying the `index.ts` dispatcher branches into `pure-Discord` vs `game-flow` buckets is the lead's first sizing task for M3. Related: [[discord-interaction-layer]] (adapter plumbing, sequenced after), [[mvp-architecture]] (system target), [[mvp-llm-prompt-architecture]] (sim harness lineage).
 
 **Continuation (2026-08-02):** M0–M4 are done. The deferred "protocol seam" gap-table row and the M4-deferred Discord-adapter rebuild are now specced as **M5–M10 in [[json-seam-protocol]]** — the formal JSON event/envelope protocol, the contract-test barrier, the bookends (character creation, rest+tick, `/hi`) pulled through the seam, and the Discord adapter rebuilt onto it. That doc is the running spec for the continuation; its settled direction does not overturn the Decisions above (in-process transport per decision 3 stands — the protocol *shape* is the asset).
+
+**Closed 2026-08-09.** M5–M10 all landed on `feat/json-seam-protocol`. The two gap-table rows above are settled: the seam exists and both frontends ride it. The interchangeability proof, and an explicit statement of what it does *not* cover, is recorded in [[json-seam-protocol]] § M10.2.
