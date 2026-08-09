@@ -43,6 +43,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Recorded QA sessions replay on any day of the week (M10.1)** — protocol transcripts now carry the clock they were recorded against, and both the recording and its replay run on it. The greeting and the nightly tick both branch on the real weekday, so a session captured on a Thursday used to diverge when replayed on a Saturday; that limitation had blocked committing a real-backend transcript since the tooling was built. One is now committed and verified on every test run, alongside the stub transcript it has always had.
 - **The Discord layer boundary becomes enforced rather than asserted (M9.4)** — a structural test fails the build if anything on the interaction path imports the engine or controller at runtime, and a second one fails if a registered command is wired up without its nav bar (the mistake that silently cost `/ping` its buttons). `WizardSession`, the map renderer and `titleCase` move to the layers that own them. Test and layout only, byte-identical transcripts; closes **M9**, so the Discord adapter is now translate + paint over the protocol end to end (`ad574f2`, `58542b6`, `f570d2d`, `7246d8c`).
 
+## [0.3.4] - 2026-08-05
+
+### Changed
+
+- **Daily announcement spam trimmed** — the morning greeting no longer posts on the days the weekend hunt or the weekly leaderboards already speak (Saturday, Wednesday, Sunday), and the evening goodnight only posts on days a soul actually stirred; a day nobody played now ends in quiet (commits `a380f0a`, `d575fd9`).
+
 ## [0.3.3] - 2026-08-02
 
 ### Added
