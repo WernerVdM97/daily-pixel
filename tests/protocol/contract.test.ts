@@ -6,7 +6,7 @@ import { GameRouter, type RouterBackend } from '../../src/protocol/router.js';
 import { resetCache } from '../../src/protocol/profanity.js';
 import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse } from '../../src/protocol/envelope.js';
 import { SessionController } from '../../src/controller/SessionController.js';
-import type { HiOpenResult, RestBeginResult, WizardConfirmResult } from '../../src/controller/SessionController.js';
+import type { HiOpenResult, RestBeginResult, StartRenderResult, StepChoiceResult, WizardConfirmResult } from '../../src/controller/SessionController.js';
 import { MockWorldEngine } from '../../src/engine/MockWorldEngine.js';
 import type { ActionOutcome, CharCreateData } from '../../src/engine/WorldEngine.js';
 import { getDayJobActions, type DayJobDef } from '../../src/controller/dayJob.js';
@@ -1287,7 +1287,7 @@ runCaseBlock('conformance — dayjob.start', [
       // Observably equivalent to the real backend's commute-then-work re-read (DC-P7): the
       // commute above costs 1 stamina, so both prevChar and char reflect it — STUB_OUTCOME's
       // plain stubChar wouldn't (it never models the commute mutation).
-      s.workResult = { ...STUB_OUTCOME, prevChar: { ...stubChar, stamina: 9 }, char: { ...stubChar, stamina: 9 } };
+      s.workResult = { ...STUB_OUTCOME, prevChar: { ...stubChar, stamina: 9 }, char: { ...stubChar, stamina: 9 } } as Extract<StartRenderResult, { kind: 'outcome' }>;
     }),
     assert: (o) => {
       expectOkView(o.response, 'outcome');
@@ -1771,7 +1771,7 @@ describe('collapse fact (DC-M9.2) — negative space', () => {
     const stub = new StubBackend();
     stub.choiceResult = { kind: 'ok', character: stubChar };
     stub.resolveResult = 'Advance carefully';
-    stub.stepResult = { ...STUB_STEP_OUTCOME, char: null };
+    stub.stepResult = { ...STUB_STEP_OUTCOME, char: null } as Extract<StepChoiceResult, { kind: 'outcome' }>;
     stub.character = null;
     const o = await drive(new GameRouter(stub, { idle: () => IDLE }), ACTION_CHOOSE);
     expectOkView(o.response, 'outcome');

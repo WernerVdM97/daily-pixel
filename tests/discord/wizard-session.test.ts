@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import {
   WizardSession,
-  type WizardState,
 } from "../../src/controller/WizardSession.js";
 
 describe("WizardSession", () => {

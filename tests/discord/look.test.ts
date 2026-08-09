@@ -130,6 +130,7 @@ describe("/look", () => {
 			description: "Nothingness.",
 			tags: ["void", "nothing"],
 			isSafe: false,
+			emoji: null,
 		});
 
 		const handler = makeHandler(engine, lookupSceneFn(scenes));
@@ -160,6 +161,7 @@ describe("/look", () => {
 			description: "Safe haven.",
 			tags: ["oak", "sanctuary"],
 			isSafe: true,
+			emoji: null,
 		});
 
 		const handler = makeHandler(engine, lookupSceneFn(scenes));
@@ -177,6 +179,7 @@ describe("/look", () => {
 			description: "Dark and dangerous.",
 			tags: ["forest", "dark", "dangerous"],
 			isSafe: false,
+			emoji: null,
 		});
 
 		const handler = makeHandler(engine, lookupSceneFn(scenes));
@@ -197,6 +200,7 @@ describe("/look", () => {
 				description: "Safe haven.",
 				tags: ["oak", "sanctuary"],
 				isSafe: true,
+				emoji: null,
 			});
 			engine.setNearbyEntities([
 				{ name: "Petrus", classOrType: "Priest", description: null, isPlayer: true },
@@ -227,6 +231,7 @@ describe("/look", () => {
 				description: "Nothingness.",
 				tags: ["void"],
 				isSafe: false,
+				emoji: null,
 			});
 			engine.setNearbyEntities([]);
 

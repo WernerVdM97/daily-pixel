@@ -9,9 +9,12 @@ vi.mock("../../src/engine/IdleMessageSelector.js", () => ({
 }));
 
 // ── Determinism: neutralise the public broadcast + collapse notice (the M1 pattern) ──
+// Rest params rather than `async () => {}`: a zero-arg mock types `.mock.calls[n]` as an
+// empty tuple, so the argument assertions below could not index it once tests started
+// being typechecked (M10.1b / DC-M10.8). The bodies still ignore their arguments.
 const { broadcastOutcomeSpy, announceCollapseSpy } = vi.hoisted(() => ({
-  broadcastOutcomeSpy: vi.fn(async () => {}),
-  announceCollapseSpy: vi.fn(async () => {}),
+  broadcastOutcomeSpy: vi.fn(async (..._args: unknown[]) => {}),
+  announceCollapseSpy: vi.fn(async (..._args: unknown[]) => {}),
 }));
 vi.mock("../../src/discord/weekly-recap.js", async (importActual) => ({
   ...(await importActual<typeof import("../../src/discord/weekly-recap.js")>()),

@@ -417,7 +417,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
   function round(overrides: Partial<CombatBeatLog> = {}): CombatBeatLog {
     const beat = {
       round: 1,
-      band: 'trade',
+      band: 'trade' as const,
       enemyHpBefore: 10,
       enemyHpAfter: 8,
       playerHpDelta: -2,
@@ -428,7 +428,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
       enemyBonus: 2,
       materialMutationFired: true,
       ops: ['modify_health'],
-      marker: 'combat_round',
+      marker: 'combat_round' as const,
       ...overrides,
     };
     // Derive margin from this beat's own dice rather than trusting a caller-supplied value —

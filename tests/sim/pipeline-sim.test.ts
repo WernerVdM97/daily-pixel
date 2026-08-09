@@ -6,14 +6,13 @@
  * silently corrupting a curve. See docs/engine/stage-1-thread-d-backbone-plan.md, Task 4.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { runScenario, runComparison } from '../../src/sim/driver.js';
-import { summarize, renderTable } from '../../src/sim/metrics.js';
+import { runScenario } from '../../src/sim/driver.js';
+import { summarize } from '../../src/sim/metrics.js';
 import { buildSimEngine } from '../../src/sim/engine-factory.js';
-import { exampleComparisonScenario } from '../../src/sim/example-comparison-scenario.js';
 import { combatWinScenario, combatFloorScenario, combatCapScenario } from '../../src/sim/combat-scenario.js';
 import { ENEMY_HP_MIN } from '../../src/engine/action/combat-dc.js';
 import type { PipelineSimEngine } from '../../src/sim/PipelineSimEngine.js';
-import type { CharacterSeed, DecisionScript, PipelineScript, Scenario } from '../../src/sim/types.js';
+import type { CharacterSeed, PipelineScript, Scenario } from '../../src/sim/types.js';
 import type { ActionType } from '../../src/llm/pipeline/types.js';
 
 const BASE_CHARACTER: CharacterSeed = {

@@ -76,6 +76,7 @@ describe("action start — divine intervention routing (F#21)", () => {
     engine.setStartActionResult({
       state: { rawInput: "poke the void", decisions: [], accumulatedDc: 0, kind: "quest" } as never,
       firstDecision: { prompt: '⚙️ system fault text', options: [] },
+      actionType: 'other',
       outcome: {
         isDivineIntervention: true,
         outcome: 'done',

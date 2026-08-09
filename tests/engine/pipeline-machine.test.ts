@@ -129,30 +129,50 @@ function combatDecideResult(overrides?: Partial<PipelineDecideResult>): Pipeline
 describe('PipelineActionStateMachine — happy path', () => {
   it('drives start -> step -> resolution end-to-end with needs_roll:true and a success verdict', async () => {
     const llm = new MockPipelineLlmGateway();
-    llm.decideResult = combatDecideResult();
+    // Deliberately NOT a combat input. The heuristic classify reads the raw input, so
+    // 'attack the goblin' sets actionType 'combat', and a combat step opens a ROUND rather
+    // than resolving — this test's whole point is the single-step resolution path. It was
+    // written before combat existed and its guard was inverted (fixed below), so it never
+    // ran to notice. The multi-round path has its own coverage further down this file.
+    llm.decideResult = combatDecideResult({
+      distilledType: 'search',
+      decision: [
+        { label: 'Search carefully', dcModifier: 2 },
+        { label: 'Dig quickly', dcModifier: -1 },
+      ],
+    });
     llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -2 }] };
-    llm.resolveNarrateResult = { outcomeText: 'You land a clean hit.' };
+    llm.resolveNarrateResult = { outcomeText: 'You turn up something useful.' };
 
     // rollD20 fixed high so success is guaranteed given the fixed bonus/DC below.
     const machine = new PipelineActionStateMachine(llm, () => 20);
 
-    const startResult = await machine.start(testChar(), 'attack the goblin', testItems);
+    const startResult = await machine.start(testChar(), 'search the old ruins', testItems);
     expect(startResult.resolved).toBe(false);
-    if (startResult.resolved) {
+    // Inverted guard fixed at M10.1b: this read `if (startResult.resolved)`, so nothing
+    // below it ever ran. The assertions are original; only the condition changed.
+    if (!startResult.resolved) {
       expect(startResult.firstDecision.options.length).toBeGreaterThan(0);
 
-      const stepResult = await machine.step(startResult.state, 'Strike hard', testChar(), testItems);
+      // `PipelineDecideResult` carries no `done` flag by design, so a step resolves only at
+      // the beat cap or when the NEXT decide comes back with zero real options. Arm that
+      // terminator, which is the actual mechanism this end-to-end path runs on.
+      llm.decideResult = combatDecideResult({
+        distilledType: 'search',
+        decision: [{ label: 'Step back', dcModifier: null }],
+      });
+      const stepResult = await machine.step(startResult.state, 'Search carefully', testChar(), testItems);
       expect(stepResult.resolved).toBe(true);
       if (stepResult.resolved) {
         expect(stepResult.outcome.outcome).toBe('success');
-        expect(stepResult.outcome.outcomeText).toBe('You land a clean hit.');
+        expect(stepResult.outcome.outcomeText).toBe('You turn up something useful.');
         expect(stepResult.outcome.mutations).toEqual([{ type: 'modify_health', amount: -2 }]);
         expect(stepResult.outcome.playerRolled).toBe(20);
         expect(stepResult.outcome.isDivineIntervention).toBeUndefined();
       }
     }
 
-    // Heuristic classify hits on "attack the goblin" — the LLM classify fallback is never called.
+    // Heuristic classify hits on the raw input — the LLM classify fallback is never called.
     expect(llm.classifyCalls).toHaveLength(0);
   });
 
@@ -289,8 +309,9 @@ describe('PipelineActionStateMachine — required (reactive) actions', () => {
     const machine = new PipelineActionStateMachine(llm, () => 20);
     const started = await machine.start(testChar(), 'attack the goblin', testItems);
     expect(started.resolved).toBe(false);
-    if (started.resolved) {
-      expect(started.firstDecision.options.some(o => o.dcModifier === null)).toBe(false);
+    // Same inverted guard as above, same fix.
+    if (!started.resolved) {
+      expect(started.firstDecision.options.some((o) => o.dcModifier === null)).toBe(false);
     }
   });
 });
@@ -2782,8 +2803,11 @@ describe('PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)', 
     const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
     if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
 
-    expect(interstitial.nextDecision.combatStatus?.woundWord).not.toBe('Slain');
-    expect(interstitial.nextDecision.combatStatus?.woundWord).toBe('Battered');
+    // combatStatus is `CombatStatusData | string` on the seam; the structured arm is what
+    // the combat path emits, narrowed here the same way as the sibling assertions above.
+    const fatalCs = interstitial.nextDecision.combatStatus as CombatStatusData;
+    expect(fatalCs.woundWord).not.toBe('Slain');
+    expect(fatalCs.woundWord).toBe('Battered');
   });
 
   it("'Finish it' resolves success with the foe at 0 HP, banding Slain, and consumes no extra roll", async () => {
