@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **The Dark Factory lands in git** — the backlog's control plane is now the GitHub Projects "Dark Factory" board, driven by three paused agent loops (triage / executor / sweeper) behind a human approval gate (spec: `docs/engine/dark-factory.md`); the board label taxonomy is `.github/labels.yml`, and `TODO.md` keeps only narrative handover, its actionable items living on the board. The executor's schedule pins `baseRef: 'dev'` so worktrees always fork off `dev`, matching the spec.
+
 ### Fixed
 
 - **A feedback or bug report that fails to save pages the operator again** — the seam crossing routed the two slash commands' persist failure into a `persistFailed` fact that neither handler read, so `/feedback` and `/bug` went silent on a failed save while the four in-message report buttons still paged. Player-visible copy is unchanged.
@@ -14,6 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Internal
 
 - **Docs vault purged of shipped records** — the JSON-seam closure block, the POC+ arc's shipped items (0–2, Release A) and the v13 roadmap's shipped thread left TODO.md and the two roadmap docs; the v12 Thread C combat spec and the action-features/art tracker moved to `docs/archived/`, and the docs index now lists only live docs with one-line archive pointers. Open work untouched.
+- **Factory memory skeleton + `factory-memory` skill** — a tracked topic skeleton under `.pi/factory/memory/` (agent-written contents gitignored) so the fresh-context loops keep durable facts between runs; the `AGENTS.md` skill table gains the `factory-memory` row.
 
 ## [0.3.4] - 2026-08-05
 
