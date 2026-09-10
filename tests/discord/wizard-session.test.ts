@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import {
   WizardSession,
-  type WizardState,
-} from "../../src/discord/WizardSession.js";
+} from "../../src/controller/WizardSession.js";
 
 describe("WizardSession", () => {
   let session: WizardSession;

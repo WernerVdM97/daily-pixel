@@ -5,7 +5,7 @@
  * to the same file, then checking that data written before the restart
  * is still readable after.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,7 +16,6 @@ import { UserRepository } from '../../src/db/repositories/user.js';
 import { CharacterRepository } from '../../src/db/repositories/character.js';
 import { ItemRepository } from '../../src/db/repositories/item.js';
 import { ActionRepository } from '../../src/db/repositories/action.js';
-import { NpcRepository } from '../../src/db/repositories/npc.js';
 import { MetaRepository } from '../../src/db/repositories/meta.js';
 
 describe('Restart persistence', () => {
@@ -40,7 +39,7 @@ describe('Restart persistence', () => {
     const metaRepo = new MetaRepository(getDb());
 
     const user = userRepo.create('discord-user-1');
-    const char = charRepo.create(user.id, {
+    charRepo.create(user.id, {
       name: 'Aldric',
       class: 'Warrior',
       upbringing: 'Village',

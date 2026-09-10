@@ -183,7 +183,26 @@ export function seedWorld(db: Database.Database, nodes: LocationSeed[], edges: E
   seed();
 }
 
-function seedLocations(db: Database.Database): void {
+/** Seed the home world only when it is absent (M10.1d). `migrate()` seeds it for real runs
+ *  but deliberately SKIPS that under VITEST, so anything that must behave identically in
+ *  both environments — the deterministic recorder, replay's real arm — has to seed for
+ *  itself. It cannot seed unconditionally either: `seedWorld` is idempotent but `seedNpcs`
+ *  is not, so a second pass on an already-seeded CLI database duplicates every NPC and
+ *  quietly changes what a look screen renders. Guarding on emptiness gives one world in
+ *  both environments, which is the property the corpus pin actually needs. */
+export function ensureWorldSeeded(db: Database.Database): void {
+  // `seedLocations` runs unconditionally: `seedWorld` is idempotent, and it LAYERS geometry,
+  // edges and the map emoji onto rows `schema.sql` has already inserted. Guarding it on an
+  // empty `locations` table therefore skips it exactly when it is needed — the rows exist,
+  // so the guard passes, and every location renders the 📍 fallback instead of its glyph.
+  seedLocations(db);
+  // `seedNpcs` is the one that is NOT idempotent: a second pass on an already-seeded
+  // database duplicates every NPC and quietly changes what a look screen renders.
+  const npcs = db.prepare('SELECT COUNT(*) AS n FROM npcs').get() as { n: number };
+  if (npcs.n === 0) seedNpcs(db);
+}
+
+export function seedLocations(db: Database.Database): void {
   seedWorld(db, SEEDED_LOCATIONS, SEEDED_EDGES);
 }
 
@@ -278,7 +297,7 @@ export function backfillLegacyWorld(db: Database.Database, seedNames: string[]):
   run();
 }
 
-function seedNpcs(db: Database.Database): void {
+export function seedNpcs(db: Database.Database): void {
   // `health` is the NPC's combat max-HP, seeded from character rather than the encounter
   // DC (0.3.2 C3). Kept in sync with the backfill map in
   // migrations/202607112100_npc_combat_health.ts, which populates DBs seeded before health

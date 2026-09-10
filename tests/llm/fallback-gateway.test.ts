@@ -15,7 +15,7 @@ const testContext: LlmContext = {
     dayJob: 'Blacksmith',
   },
   location: { name: 'The Warden\'s Oak' },
-  nearbyNpcs: [{ name: 'Greta', description: 'A stern blacksmith' }],
+  nearbyNpcs: [{ id: 1, name: 'Greta', description: 'A stern blacksmith' }],
   nearbyPcs: [],
   recentActions: [{ type: 'hunt', outcome: 'failure' }],
   rawInput: 'go hunt a wolf',
@@ -80,7 +80,7 @@ describe('FallbackLlmGateway — tier 1 (simpler retry)', () => {
     // First call throws
     const decision1 = makeDecision();
     let callCount = 0;
-    vi.spyOn(inner, 'decide').mockImplementation(async (ctx) => {
+    vi.spyOn(inner, 'decide').mockImplementation(async () => {
       callCount++;
       if (callCount === 1) throw new Error('API error');
       return decision1;
@@ -130,7 +130,7 @@ describe('FallbackLlmGateway — tier 1 (simpler retry)', () => {
   it('does not call tier-2 fallback counter on tier-1 success', async () => {
     const inner = new MockLlmGateway();
     let callCount = 0;
-    vi.spyOn(inner, 'decide').mockImplementation(async (ctx) => {
+    vi.spyOn(inner, 'decide').mockImplementation(async () => {
       callCount++;
       if (callCount === 1) throw new Error('API error');
       return makeDecision();
@@ -247,7 +247,7 @@ describe('FallbackLlmGateway — edge cases', () => {
     const inner = new MockLlmGateway();
     const decision = makeDecision();
     let callCount = 0;
-    vi.spyOn(inner, 'decide').mockImplementation(async (ctx) => {
+    vi.spyOn(inner, 'decide').mockImplementation(async () => {
       callCount++;
       if (callCount === 1) throw new Error('fail');
       return decision;

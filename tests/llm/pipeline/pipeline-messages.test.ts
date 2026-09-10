@@ -17,6 +17,7 @@ const minimalContext: LlmContext = {
   nearbyPcs: [],
   recentActions: [],
   rawInput: 'attack the goblin',
+  scalingHint: 'Day 1 — standard difficulty',
 };
 
 const decision: PipelineDecideResult = {

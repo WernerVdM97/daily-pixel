@@ -7,7 +7,7 @@
  * positional), so a bail option sitting mid-list still maps to the right selector.
  */
 
-import type { MenuViewState, DecisionViewState } from '../view/viewState.js';
+import type { MenuViewState, DecisionViewState, WizardViewState } from '../view/viewState.js';
 import type { CharacterData } from '../engine/WorldEngine.js';
 import { viewMoves } from './viewToText.js';
 import { parseActionCid, CID_BAIL } from '../view/actionViewState.js';
@@ -47,6 +47,21 @@ export function menuLegalMoves(view: MenuViewState): LegalMove[] {
   }
   moves.push(SLEEP_MOVE);
   return moves;
+}
+
+/** Legal moves on the character-creation wizard (M8.5, DC-S3): step 1 offers the free-text name
+ *  slot only — the Discord modal is NOT a protocol action, so the brain fills the custom text;
+ *  steps 2-8 enumerate the view's semantic buttons POSITIONALLY (the brain's index IS the view
+ *  button position, the play-loop convention — restart included: a restart pick just loops the
+ *  walk, bounded by the wizard step guard). Aligned with `view.buttons`, never filtered. */
+export function wizardLegalMoves(view: WizardViewState): LegalMove[] {
+  if (view.step === 1) {
+    return [{ move: { kind: 'custom', text: '' }, label: '✏️ Name your character' }];
+  }
+  return view.buttons.map((b, i) => ({
+    move: { kind: 'menu-pick', index: i },
+    label: `${b.emoji ?? ''} ${b.label}`.trim(),
+  }));
 }
 
 /** Legal moves on a decision screen: each choice button → `choice` (index = the OPTION index its

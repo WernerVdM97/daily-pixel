@@ -16,14 +16,12 @@ related:
   - "[[mvp+ansi-art]]"
   - "[[improved-item-features]]"
   - "[[pitch-and-pillars]]"
-  - "[[stage-5-live-cutover-plan]]"
-  - "[[poc-plus-stage-1-plan]]"
 ---
-_The player-facing engagement arc for the `0.3.x` line, the final POC round before MVP. Where [[prompt-v13-roadmap]] makes the game coherent (prompt/engine plumbing), this arc makes it sticky. Five small-code, high-delight items plus the v12 closeout tail, ordered as a dependency chain so each one makes the next cheaper, all pulling toward one north star: a world whose state is genuinely shared. Decided 2026-07-09; this is the parent tracking doc for an orchestrated-delegation lead, with per-stage build plans below it (first: [[poc-plus-stage-1-plan]])._
+_The player-facing engagement arc for the `0.3.x` line, the final POC round before MVP. Where [[prompt-v13-roadmap]] makes the game coherent (prompt/engine plumbing), this arc makes it sticky. Decided 2026-07-09. Items 0–2 (v12 closeout tail, welcome tag, combat maths reveal) and the inserted Release A shipped as `0.3.1`–`0.3.3` — their build plans and the per-item specs are archived under `archived/poc-plus/`. What remains live is the shared-world half: stages 2–4 below._
 
 ---
 
-# POC+ Roadmap — the Shared World arc
+# POC+ Roadmap — the Shared World arc (remaining stages)
 
 ## North star
 
@@ -31,94 +29,33 @@ _The player-facing engagement arc for the `0.3.x` line, the final POC round befo
 
 ## How the arc runs (for the lead)
 
-This doc is the durable memory across sessions; the stage plans are the executor-grade contracts. Run per the `orchestrated-delegation` skill: the lead owns scouting, the final handoff, triage, verification, and commits; executors, reviewers, and fixers do the mechanical work. Branching, release cuts, and the changelog go through the `releasing` and `changelog` skills.
+This doc is the durable memory across sessions; one build plan per stage, authored by the lead when the stage is reached, grounded in the per-item sections below. Run per the `orchestrated-delegation` skill; branching, release cuts, and the changelog go through the `releasing` and `changelog` skills. Stage numbering here is the arc's own; it is unrelated to the v12/v13 prompt-stage numbering (v13's "Stage 4" is world scaling, not this arc's stage 4).
 
-- One build plan per stage. Stage 1's plan exists ([[poc-plus-stage-1-plan]]); the lead authors each later plan when its stage is reached, same template, grounded in the per-item sections below.
-- Stage numbering here is the arc's own; it is unrelated to the v12/v13 prompt-stage numbering (v13's "Stage 4" is world scaling, not this arc's stage 4).
-- Each verified task is an atomic commit; recommend `/clear` at stage boundaries and resume with the one-liner in the active plan (this doc + the plan + branch/last commit + reconcile-first).
-- Doc loop before a stage is declared done: tick the plan's boxes, update the tracking list below, settle any `[?]` in the doc that asked it, keep the map of content current.
+Remaining:
 
-Tracking:
-
-- [x] **Stage 1** — v12 tail + welcome tag + combat maths reveal ([[poc-plus-stage-1-plan]]) _Done 2026-07-09; branch `poc-plus/stage-1-t2`, commit `94ecbee`. T2 live check ran 2026-07-10: passed on content (colour on desktop, clean monochrome on mobile) but surfaced renderer styling/architecture debt, spun into the `0.3.1` polish release below. Build plan archived → `archived/poc-plus/`._
-- [x] **`0.3.1` polish & hardening** — interstitial release before stage 2 ([[poc-plus-0.3.1-polish-plan]]) _Done 2026-07-11; released (VERSION 0.3.1, tag `v0.3.1`, merged `poc-plus/0.3.1-polish` → dev). Not an arc stage; finished the combat-readability arc by paying down the T2 live-check debt (the `ANSI frame polish` block: renderer standardised, combat-frame redesign, opening frames for all seven types), plus the 2026-07-08 prod bug batch (B#1-B#4) and small UX wins. Build plan archived → `archived/poc-plus/`._
-- [x] **`0.3.2` combat-correctness & prod bugs** — second interstitial release before stage 2 ([[poc-plus-0.3.2-polish-plan]]) _Shipped 2026-07-11; released (VERSION 0.3.2, tag `v0.3.2`, squash-merged `poc-plus/0.3.2-polish` → `dev`). All 14 deliverables (C1–C6, P1–P2, N1–N5) landed; 1451 tests green. Two residuals deferred to v13 (LLM-authored NPC health, classify accuracy). Live-check batch ran post-release. Build plan archived → `archived/poc-plus/`._
-- [x] **Release A — worth-returning-to** (polish / coherence / cost) — inserted 2026-07-23; precedes all remaining shared-world stages (see the re-sequencing amendment below). _Landed as `0.3.3` (cut 2026-08-02): RA-1 through RA-6 all done, per [[poc-plus-release-a-plan]] § Task log. Two residuals carry forward unverified rather than dropped: RA-1's daunting band is fixed in prose (P1) but needs isolated DECIDE probes, not an agent-player run; RA-2's frequency dial needs human play, since the agent-player structurally cannot measure it. Tag `v0.3.3` and the `dev` → `main` merge are still pending (owner). Build plan archived → `archived/poc-plus/`._
 - [ ] **Stage 2 (re-scoped solo-first)** — nat 1/20 as a solo crit reward, public broadcast as the bonus layer (plan authored by the lead at stage start)
 - [ ] **Stage 3** — cross-player buffs (build + agent-QA; fun-payoff parked to later user testing)
 - [ ] **Stage 4** — Saturday shared-boss hunt (build + agent-QA; fun-payoff parked to later user testing)
 
-## Re-sequencing — prod-data review (2026-07-23)
+## Why this order — prod-data review (2026-07-23)
 
-_This section governs the order of the remaining work; the per-item specs below stay as the build reference. Added after a read-only review of the full POC+ period; supersedes the flat Stage 2 → 5 order above._
+A read-only snapshot of the whole POC+ period (`warden-20260723-201953`; 07-07 → 07-23, game day 17, builds `0.3.0`–`0.3.2`: 98 actions, 796 LLM calls, 4 characters, 1 external tester) forced the re-sequencing: the live Oak peaked at 2–3 concurrent players and every feedback/bug row came from a single tester, so cross-player buffs and the shared boss cannot be _fun_-validated at that size. The remaining stages therefore front-load solo fundamentals (stage 2's nat 1/20 reward), and the two genuinely-multiplayer stages are built-and-QA'd by agents with their fun-payoff explicitly deferred to a later human user-testing round. Reproduce the numbers with the `db-backups/` tooling against that snapshot.
 
-A read-only snapshot of the whole POC+ period (`warden-20260723-201953`; 07-07 → 07-23, game day 17, builds `0.3.0`–`0.3.2`: 98 actions, 796 LLM calls, 4 characters, 1 external tester) validated the arc's foundation and forced one change to its ordering. Reproduce the numbers with the `db-backups/` tooling against that snapshot; the deep-dive was presented as an artifact.
+**Release B — Stage 2, re-scoped solo-first.** The nat 1/20 work leads with the _solo reward_ — a natural 20 grants extra loot or rolls (answers F#9), a natural 1 gets a story beat — and the public broadcast becomes the bonus layer that switches on once there is an audience. It lands at N=1 and still builds the broadcast plumbing stages 3–4 reuse. Frame authorship stays deterministic as settled below.
 
-**Held up — keep and do not regress.** Auto-resolve is eliminated (`done` = 0/98, was 28% of turns on `v0.2.3`, the loudest old complaint); mean LLM latency is down ~45% to 7.0s; transport is near-perfect (795/796 parsed, 0 fallbacks). The v12 combat spine is the most-engaged content, and freeform expressiveness (50 distinct action types across 98 actions at 99.9% parse) is the game's genuine draw.
+**Stages 3–4 — build + agent-QA, fun-payoff deferred.** Validated against the agent-player harness (extend it to co-located multi-agent runs first) rather than live players. Agent QA proves they _work_ (buffs land, boss HP persists across turns and days); whether they _feel_ shared stays unproven until the human round — do not close the acceptance checks below on agent QA alone.
 
-**Why the order changed.** The flat Stage 2 → 5 order assumed an audience the data does not show: the live Oak peaked at 2–3 concurrent players and every feedback/bug row came from a single tester. Cross-player buffs and the shared boss cannot be _fun_-validated at that size. We are not opening the doors yet — the rest of POC+ playtesting runs through the agent-player harness ([[layer-boundaries-and-json-seam]] M4), and a human user-testing round is scheduled later. So the remaining stages are re-ordered to front-load the fundamentals that make the game worth returning to solo, and the two genuinely-multiplayer stages are built-and-QA'd by agents with their fun-payoff explicitly deferred.
-
-### Release A — worth-returning-to (polish / coherence / cost)
-
-The fun fundamentals the telemetry exposed, landed before any more shared-world code. Tasked in `TODO.md`.
-
-- [ ] **Stakes.** 83% success, no `final_dc` above 17, 11 fair failures in 98 actions — nothing is ever really at risk. Add meaningful cost and higher DCs on ambitious actions; no lethality (the death track stays POC-deferred per [[the-poc]]). Folds into the MVP "make stamina/wealth/HP spendable/meaningful" item.
-- [ ] **Inspiration dial.** `modify_rolls_remaining:+1` fires on 29% of actions, inflating cadence to ~4.8 turns per active day and reading as "fun but perhaps too broken" (F#4). Dial the frequency or surface it as a named reward so it reads as a gift, not a leak.
-- [ ] **NPC mint-on-first-sight.** `add_npc` fired twice in the whole period; the world narrates people it never persists (the vanishing-caravan incoherence, F#1) — the oldest open complaint and the highest-value coherence fix.
-- [ ] **Critic cost A/B.** The `critic-v1` pass is 35% of all LLM calls and 15% of tokens for a QA step players never see; run it conditionally (or drop it from classify) and measure. Also trims the reasoning tail behind the few remaining timeouts.
-- [ ] **Combat terminal polish.** The enemy reads "critical" not "dead" on a win, with no fatal-blow prompt (F#11); the combat frame names a generic "Minion" instead of the known foe (B#15). Small, high-delight, post-`0.3.2` residue.
-
-### Release B — Stage 2, re-scoped solo-first
-
-The nat 1/20 work leads with the _solo reward_ — a natural 20 grants extra loot or rolls (answers F#9), a natural 1 gets a story beat — and the public broadcast becomes the bonus layer that switches on once there is an audience. It lands at N=1, keeps arc momentum, and still builds the broadcast plumbing Stages 3–4 reuse. Frame authorship stays deterministic as already settled below.
-
-### Stages 3–4 — build + agent-QA, fun-payoff deferred
-
-Cross-player buffs and the Saturday shared boss are still built in the settled order below, but validated against the agent-player harness (extend it to co-located multi-agent runs first) rather than live players. Agent QA proves they _work_ (buffs land, boss HP persists across turns and days); whether they _feel_ shared stays unproven until the later human user-testing round — do not close the acceptance checks below on agent QA alone.
-
-## Shared enabler — a small `AnsiRenderer`
-
-Two of the five items want coloured frames, and [[mvp+ansi-art]] already mocked and live-tested them (2026-07-08). Build the small `AnsiRenderer` it recommends (§5) once: keep `.ascii` fragments colour-free, apply colour by role (chrome / bar / sprite / floater) at render time so mobile falls back to clean monochrome and the 30-char width validation still runs on the source. Item 2 builds it; item 3 reuses it. Scope stays at combat + broadcast frames; the splash showpiece stays deferred in [[mvp+ansi-art]].
-
-## The arc, ordered by efficiency × reward
+## The remaining arc, ordered
 
 | # | Item | Code | Reward | Release cut |
 | --- | --- | --- | --- | --- |
-| 0 | v12 closeout tail (F#21 + dead-code sweep) | S | Clean baseline; system failures stop costing rolls | with item 1 |
-| 1 | Welcome tag | XS | Warm social onboarding | next `0.3.x` (with #0) |
-| 2 | Combat maths reveal | S–M | Dopamine + highest info payoff; builds the renderer | own `0.3.x` |
 | 3 | Nat 1/20 global broadcast | S | Viral show-off; builds the broadcast plumbing | own `0.3.x` |
 | 4 | Cross-player buffs | S–M | First mutation that lands on _another_ player | own `0.3.x` |
 | 5 | Saturday shared-boss hunt | M | Flagship of the north star; a weekly ritual | own `0.3.x` |
 
-Version numbers are deliberately unpinned (settles this doc's old cadence question): each cut takes the next `0.3.x` at the time it lands, per the `releasing` skill. The tail rides item 1's release because F#21 is player-facing and the sweep is invisible.
-
-The ordering is a dependency chain: #2 builds the renderer #3 reuses; #3 builds the public-broadcast plumbing #4 and #5 reuse; #4 builds the "nearby players" + player-targeting-mutation plumbing #5 reuses. Each item is shippable alone, but built in this order almost nothing is thrown away.
+(Items 0–2 shipped in `0.3.1`–`0.3.3`, including the shared `AnsiRenderer` the remaining items reuse.) Version numbers are deliberately unpinned: each cut takes the next `0.3.x` at the time it lands, per the `releasing` skill. The ordering is a dependency chain: #3 builds the public-broadcast plumbing #4 and #5 reuse; #4 builds the "nearby players" + player-targeting-mutation plumbing #5 reuses. Each item is shippable alone, but built in this order almost nothing is thrown away.
 
 ---
-
-## 0 · v12 closeout tail
-
-Spec by reference, not restated here: the F#21 divine-intervention rework is [[prompt-v13-roadmap]] §4; the dead-code sweep is [[stage-5-live-cutover-plan]] T7 (code sweep only; the DB wipe and `0.3.0` cut already happened). Both are tasked in [[poc-plus-stage-1-plan]].
-
-## 1 · Welcome tag
-
-Tag the new hero on the public "A new hero joins the Oak" broadcast and carry the 🌅 `Hi` re-entry button onto it, so the arrival reads as a person joining a shared place and the tagged player can jump straight into play.
-
-- [>] Extends the `TODO.md` item "add /hi to 'A new hero joins the Oak' message"; tasked in [[poc-plus-stage-1-plan]] T1.
-- [p] Trivial: `src/discord/commands/join.ts` already owns the broadcast; the `nav:hi` handler already spawns a fresh per-clicker ephemeral on public messages (the `0.2.8` `Hi`-on-outcomes work proved the pattern).
-- [!] Suppress pings on the mention (match the owner-identity treatment shipped in `0.2.8`, F#3/F#8) so it reads as identity, not notification spam.
-- [>] The `/join` wizard's inline-skills formatting polish stays a separate `TODO.md` item, out of this arc.
-
-## 2 · Combat maths reveal
-
-Show the fight's actual numbers in the combat outcome: the dice, the contested margin, HP bars, and damage floaters, rendered through the new `AnsiRenderer`. Drop the ASCII scene art from combat outcomes to make room.
-
-- [>] Closes F#7 ("show the maths") and the combat half of the `TODO.md` "drop ascii from action outcomes" item; feeds [[mvp-combat]]. Tasked in [[poc-plus-stage-1-plan]] T2.
-- [p] The data already exists: `combat-dc.ts` computes `playerRolled`, the signed margin, severity bands, and `enemyHpBefore/After` + signed HP deltas; `OutcomeRenderer.ts:153` already flags crits. This is a **rendering** job, not a maths job.
-- [p] Directly fixes the B#5/B#6 combat-HP formatting bugs (`0 HP` cram, mid-resolution `-5 HP` reads weirdly): the frame gives each combatant its own HP-bar line with clamped values. Both bugs are acceptance criteria in the stage plan.
-- [I] Per [[mvp+ansi-art]] §5's open question, combat frames are the "highest information payoff" landing spot for colour, which is why the renderer starts here.
-- [c] Colour roughly doubles a frame's char cost; stay well under the 2 000-char limit (combat frames measured 820–1 250 chars incl. fences).
 
 ## 3 · Nat 1/20 global broadcast
 
@@ -126,7 +63,7 @@ On any natural 1 or 20, post a short public shout-out to the shared channel, ren
 
 - [>] Extends the `TODO.md` "global broadcast on a natural 1 or 20" item and the deferred "richer community feedback — let players show off" MVP item.
 - [p] Crit/fumble detection already exists (`dc.ts:71`, `combat-dc.ts:134`, `OutcomeRenderer.ts:153`); this hooks that signal to a public post. The 0.2.8 public-outcome path (thread posts, `Hi` button) is the posting precedent; what is new is the trigger and the frame.
-- [p] Reuses the `AnsiRenderer` from item 2 for the re-enactment frame; the sprite/floater slots ([[mvp+ansi-art]] §3) are exactly the "one dramatic beat" shape.
+- [p] Reuses the `AnsiRenderer` (built in `0.3.1`) for the re-enactment frame; the sprite/floater slots ([[mvp+ansi-art]] §3) are exactly the "one dramatic beat" shape.
 - [!] **Frame authorship (settled 2026-07-09): deterministic.** The frame is composed from fragment slots plus the action's real data (enemy name, roll, damage), and the flavour line is lifted from the already-generated resolve narration. Zero extra LLM calls, so the broadcast is instant and free.
 - [!] **No opt-out at POC scale (settled 2026-07-09).** Fumbles are framed as legend-worthy, never humiliating; a per-player broadcast preference is MVP scope (see fences).
 - [!] Rate/spam guard: cap broadcasts (per-player cooldown or a daily ceiling) so a grinding player does not flood the channel. Colour must not carry the meaning alone (mobile strips it) — the prose says crit vs fumble.
@@ -161,7 +98,7 @@ The arc graduates when each is demonstrably true live:
 - [ ] A public event fired by one player's action is seen by everyone (item 3 live).
 - [ ] A buff cast by one player lands on another PC and visibly affects the recipient's next action (item 4 live).
 - [ ] Boss HP persists across at least two players and two days, and the kill fires the broadcast with hybrid credit (item 5 live).
-- [ ] B#5/B#6 irreproducible; F#7, F#21, and B#11 closed.
+- [ ] B#11 closed.
 
 What we watch, from data that already lands in SQLite or the channel (no new telemetry build):
 
@@ -189,4 +126,4 @@ Each has a default; decide at that stage's plan time, against live data, and rec
 
 ## Sequencing against v13
 
-Independent of the v13 prompt threads, so it can run in parallel or interleaved. Stages 1–2 (tail + items 1–3) change no prompt templates, so they can run while the D3/D4 conversation/puzzle spec is being written. Items 4 and 5 **do** touch templates (the buff action must be recognised; the boss injects a `## Threat presence`-shaped block into decide context), so their stages must go through the `prompt-versioning` skill and land as, or alongside, the v13 prompt-set bump — natural pairing with the v13 carried cleanups (enforced `allowedMutations`).
+Independent of the v13 prompt threads, so it can run in parallel or interleaved. Stage 2 changes no prompt templates; stages 3 and 4 **do** (the buff action must be recognised; the boss injects a `## Threat presence`-shaped block into decide context), so they must go through the `prompt-versioning` skill and land as, or alongside, the next prompt-set bump — natural pairing with the v13 carried cleanups (enforced `allowedMutations`).

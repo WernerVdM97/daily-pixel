@@ -1,0 +1,13 @@
+{
+  // DC-M10.8 — `npm run typecheck` covered `src/**` only, so test-side drift stayed
+  // invisible: the M8.1 stub drift survived to M8.5 that way, and M9.4 shipped a slice
+  // where a missed *test* import path could only ever have been caught by the suite.
+  // Separate project rather than widening tsconfig.json's `include`, because that config
+  // carries the build's `rootDir`/`outDir`/`declaration` settings and tests are not built.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

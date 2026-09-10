@@ -3,52 +3,38 @@ import { describe, it, expect } from 'vitest';
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { AgentHarness, createAgentHarness } from '../../src/agent/harness.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
+import { deterministicPipelineScript as pipelineScript, SEED, loadRealDefs, buildDeterministicRouter } from '../../src/agent/deterministicSession.js';
 import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
+import { GameRouter } from '../../src/protocol/router.js';
+import type { RouterBackend } from '../../src/protocol/router.js';
 import { SessionController } from '../../src/controller/SessionController.js';
-import { viewToText } from '../../src/agent/viewToText.js';
+import { WizardSession } from '../../src/controller/WizardSession.js';
 import { CID_DAYJOB, CID_DAYJOB_CUSTOM } from '../../src/controller/dayJob.js';
 import type { PipelineScript } from '../../src/sim/types.js';
-import type { CharCreateData, CharacterData, WorldEngine } from '../../src/engine/WorldEngine.js';
-import type { ActionMenuResult, DayJobStart, StartRenderResult } from '../../src/controller/SessionController.js';
+import type { CharCreateData, CharacterData } from '../../src/engine/WorldEngine.js';
+import type { AgentObserver } from '../../src/agent/observer.js';
+import type { ActionMenuResult, DayJobStart, RestBeginResult, StartRenderResult } from '../../src/controller/SessionController.js';
 import type { MenuViewState, OutcomeViewState } from '../../src/view/viewState.js';
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
+import type { ProtocolDispatchEntry } from '../../src/agent/transcript.js';
 import type { CriticGateway, CriticInput, CriticVerdict } from '../../src/llm/LlmGateway.js';
+import { viewToText } from '../../src/agent/viewToText.js';
 
-// ── M4.2 — harness bring-up + one action end-to-end. Proves the seam (parent decision 3): the
-// agent enters at the SAME SessionController methods the Discord adapter calls, driving menu →
-// custom action → decision beat → outcome with a scripted brain over a real WorldEngineImpl. Fully
-// deterministic: scripted pipeline gateway + fixed d20, no network. ──
+// M8.5 stage 7 (DC-S2): the deterministic session wiring (pipeline script, SEED profile, the
+// real defs, the SessionController→router construction) moved out of this file into
+// src/agent/deterministicSession.ts — the replay runner needs a src-side source (tests are
+// not importable from src), and both this suite and the runner import the same module so
+// what the tests drive and what byte-replay proves cannot drift. The pipelineScript/SEED/
+// REAL_DEFS aliases keep the test bodies unchanged.
+const REAL_DEFS = loadRealDefs();
 
-// The proven goblin-skirmish shape (src/sim/example-comparison-scenario.ts): "attack the goblin"
-// is a clean heuristic-classify combat hit; decide offers two real options + a bail; a fixed 20
-// beats the low DC, so resolve narrates a success. `classify` is a safety net — ignored on the
-// heuristic hit, it keeps the run deterministic if the heuristic ever changes.
-const pipelineScript: PipelineScript = {
-  classify: () => ({
-    kind: 'hit',
-    actionType: 'combat',
-    flags: { unsafe_location: false, needs_roll: true, target_present: true },
-  }),
-  decide: () => ({
-    distilledType: 'combat',
-    stat: 'physical',
-    baseDc: 8,
-    required: false,
-    decision: [
-      { label: 'Press the attack', dcModifier: 0 },
-      { label: 'Feint and strike', dcModifier: 1 },
-      { label: 'Step back', dcModifier: null },
-    ],
-  }),
-  resolveMutate: () => ({ mutations: [{ type: 'modify_wealth', amount: 5 }] }),
-  resolveNarrate: () => ({ outcomeText: 'Your blade finds its mark; the goblin falls.' }),
-};
+// ── M6 — harness tests ported to the protocol surface. `buildHarness` wires a `GameRouter`
+// over a real `SessionController` + scripted pipeline (same deterministic engine as M4),
+// so the harness is a true protocol client and the engine is still available for post-action
+// assertions. The deterministic `idle: () => ''` matches the contract suite. ──
 
-// A non-combat action whose DECIDE returns zero options auto-resolves inside `startAction`
-// (PipelineActionStateMachine: empty decision on a non-combat action resolves in start()), so
-// `runCustomAction` returns `StartRenderResult.kind === 'outcome'` directly — the immediate-outcome
-// path that fans out to a private and a public view (identical since RA-6; it was a compact/full
-// split before), and the path Finding 1 was hiding in.
+const IDLE = '';
+
 const immediateScript: PipelineScript = {
   classify: () => ({
     kind: 'hit',
@@ -60,43 +46,50 @@ const immediateScript: PipelineScript = {
   resolveNarrate: () => ({ outcomeText: 'You finish the chore and pocket the coin.' }),
 };
 
-const SEED: CharCreateData = {
-  name: 'Bram',
-  class: 'Warrior',
-  upbringing: 'Soldier',
-  race: 'Human',
-  alignment: 'Lawful Good',
-  dayJob: 'Town Guard',
-};
-
 const USER_ID = 'agent:test';
 
 function buildHarness(brainMoves: AgentMove[], script: PipelineScript = pipelineScript) {
   const agentEngine = buildAgentEngine({
     pipelineLlmGateway: new PipelineScriptedGateway(script),
-    rollD20: () => 20, // fixed success against the low DC
+    rollD20: () => 20,
   });
   const brain = new ScriptedAgentPlayerGateway(brainMoves);
-  return { harness: createAgentHarness(agentEngine, brain, USER_ID), brain, agentEngine };
+  // Wire a GameRouter over a real SessionController — the harness is a true protocol client.
+  // M8.5 stage 7 (DC-S2): the construction moved to src/agent/deterministicSession.ts (the
+  // shared src-side source both this suite and the replay runner import).
+  const router = buildDeterministicRouter(agentEngine);
+  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID);
+  return {
+    harness,
+    brain,
+    agentEngine,
+    router,
+    // M8.5 (DC-S7): the character is created THROUGH the harness's recorded dispatch — the
+    // wizard walk lands in the protocol log (the recording-gap fix; replay re-seeding depends
+    // on it). Returns the created char (read from the engine — the real engine persists
+    // createCharacter).
+    seed: async (data: CharCreateData = SEED): Promise<CharacterData> => {
+      await harness.createCharacter(data);
+      return agentEngine.engine.getCharacter(USER_ID)!;
+    },
+  };
 }
 
-describe('AgentHarness — one action end-to-end', () => {
-  it('drives menu → custom action → decision beat → outcome through the controller', async () => {
-    const { harness, brain, agentEngine } = buildHarness([
+describe('AgentHarness — one action end-to-end (M6 protocol)', () => {
+  it('drives menu → custom action → decision beat → outcome through the protocol', async () => {
+    const { harness, brain, agentEngine, seed } = buildHarness([
       { kind: 'custom', text: 'attack the goblin' }, // pick the free-text slot from the menu
-      // The pipeline runs up to two decision beats before resolving; pick the first option at each.
       { kind: 'choice', index: 0 },
       { kind: 'choice', index: 0 },
     ]);
-    const char = harness.seedCharacter(SEED);
+    const char = await seed();
     expect(char.name).toBe('Bram');
-    expect(char.stats.physical).toBeGreaterThan(0); // real stat derivation (Warrior + real assets)
+    expect(char.stats.physical).toBeGreaterThan(0);
 
     const result = await harness.playOneAction();
     expect(result).toEqual({ kind: 'outcome' });
 
     const events = harness.transcript.events;
-    // The brain answered one turn per screen it was shown; the run ends on an outcome.
     const turns = events.filter((e) => e.type === 'turn');
     expect(brain.calls).toHaveLength(turns.length);
     expect(events[events.length - 1].type).toBe('outcome');
@@ -108,58 +101,50 @@ describe('AgentHarness — one action end-to-end', () => {
     expect(menuTurn.type === 'turn' && menuTurn.offered).toContain('Type your own action');
     expect(menuTurn.type === 'turn' && menuTurn.offered).toContain('Go to sleep — end the day');
 
-    // The action authored at least one decision the brain answered, offering the scripted options.
+    // The action authored at least one decision the brain answered.
     const decisionTurn = events.find((e) => e.type === 'turn' && e.screen === 'decision');
     expect(decisionTurn?.type === 'turn' && decisionTurn.offered.some((l) => l.includes('Press the attack'))).toBe(true);
 
-    // The outcome the brain would read carries the narrated success.
     const outcome = events[events.length - 1];
     expect(outcome.type === 'outcome' && outcome.text).toContain('the goblin falls');
 
-    // The engine actually resolved the action: wealth mutation applied, a roll spent.
     const after = agentEngine.engine.getCharacter(USER_ID)!;
     expect(after.wealth).toBe(char.wealth + 5);
     expect(after.rollsRemaining).toBe(char.rollsRemaining - 1);
   });
 
-  it('picking a day-job menu button runs the work flow to an outcome', async () => {
-    const { harness, agentEngine } = buildHarness([
-      { kind: 'menu-pick', index: 0 }, // first day-job task on the menu
+  it('picking a day-job menu button runs the work flow to an outcome through the protocol', async () => {
+    const { harness, agentEngine, seed } = buildHarness([
+      { kind: 'menu-pick', index: 0 },
       { kind: 'choice', index: 0 },
       { kind: 'choice', index: 0 },
     ]);
-    const char = harness.seedCharacter(SEED);
+    const char = await seed();
     const result = await harness.playOneAction();
 
     expect(result).toEqual({ kind: 'outcome' });
-    // Day-job work commutes the guard to their workplace (they start at the Oak).
     const after = agentEngine.engine.getCharacter(USER_ID)!;
     expect(after.location).not.toBe(char.location);
+
+    // The commute beat fires through the onBeat callback — should appear on the transcript.
+    expect(harness.transcript.events.some((e) => e.type === 'commute')).toBe(true);
   });
 
   it('an action that resolves immediately transcripts the private (acting-player) view', async () => {
-    // run 1: drive the immediate-resolve action through the harness.
-    const { harness, brain } = buildHarness([{ kind: 'custom', text: 'polish my boots' }], immediateScript);
-    harness.seedCharacter(SEED);
+    const { harness, brain, seed } = buildHarness([{ kind: 'custom', text: 'polish my boots' }], immediateScript);
+    await seed();
     const result = await harness.playOneAction();
     expect(result).toEqual({ kind: 'outcome' });
-    // Only the menu turn — no decision beat — confirms the immediate-outcome branch of
-    // handleStartResult ran (the previously-untested path that hid Finding 1).
     expect(brain.calls).toHaveLength(1);
     const outcomeEvent = harness.transcript.events.at(-1);
     expect(outcomeEvent?.type).toBe('outcome');
 
-    // run 2: reproduce the controller result deterministically (fresh engine, same script + fixed
-    // roll) to get both views, and confirm the transcript carries the acting player's own view
-    // (Finding 1 / decision 2). RA-6 made the two arms byte-identical on this auto-resolve path,
-    // so the old `viewPrivate !== viewPublic` discriminator is gone; what is asserted instead is
-    // the property RA-6 bought — the private arm carries the full gamebook trail, not the compact
-    // variant that dropped the story thread on a path where no decision embed preceded it.
+    // run 2: reproduce the controller result deterministically for the viewToText assertion.
     const ae2 = buildAgentEngine({
       pipelineLlmGateway: new PipelineScriptedGateway(immediateScript),
       rollD20: () => 20,
     });
-    const c2 = new SessionController(ae2.engine, ae2.getCurrentScene, ae2.dayJobs);
+    const c2 = new SessionController(ae2.engine, ae2.getCurrentScene, ae2.dayJobs, undefined, new WizardSession(), REAL_DEFS, ae2.resolveScene);
     ae2.engine.createCharacter(USER_ID, SEED);
     const r2 = await c2.runCustomAction(USER_ID, 'polish my boots');
     expect(r2.kind).toBe('outcome');
@@ -171,17 +156,100 @@ describe('AgentHarness — one action end-to-end', () => {
   });
 
   it('the sleep move ends the day without acting', async () => {
-    const { harness } = buildHarness([{ kind: 'sleep' }]);
-    harness.seedCharacter(SEED);
+    const { harness, seed } = buildHarness([{ kind: 'sleep' }]);
+    await seed();
     const result = await harness.playOneAction();
     expect(result).toEqual({ kind: 'slept' });
     expect(harness.transcript.events).toHaveLength(1); // just the menu turn
   });
+
+  it('the brain receives the characterState fact on every turn', async () => {
+    const { harness, brain, seed } = buildHarness([
+      { kind: 'custom', text: 'attack the goblin' },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+    ]);
+    await seed();
+    await harness.playOneAction();
+
+    // Every brain.chooseMove call received a character snapshot with all required fields.
+    for (const call of brain.calls) {
+      expect(call.character).toBeDefined();
+      expect(typeof call.character.name).toBe('string');
+      expect(typeof call.character.class).toBe('string');
+      expect(typeof call.character.health).toBe('number');
+      expect(typeof call.character.maxHealth).toBe('number');
+      expect(typeof call.character.stamina).toBe('number');
+      expect(typeof call.character.maxStamina).toBe('number');
+      expect(typeof call.character.rollsRemaining).toBe('number');
+      expect(typeof call.character.wealth).toBe('number');
+      expect(typeof call.character.location).toBe('string');
+    }
+  });
+
+  it('the brain receives the character snapshot from facts, not engine-direct', async () => {
+    const { harness, brain, seed } = buildHarness([
+      { kind: 'custom', text: 'attack the goblin' },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+    ]);
+
+    await seed();
+
+    await harness.playOneAction();
+
+    // Every brain.chooseMove call received a non-empty character snapshot.
+    for (const call of brain.calls) {
+      expect(call.character.name).toBeTruthy();
+      expect(call.character.location).toBeTruthy();
+    }
+  });
 });
 
-/** Scriptable critic double (mirrors `tests/engine/pipeline-machine.test.ts`'s MockCriticGateway) —
- *  a bare call-recorder is enough here since these tests assert WIRING (was `critique` ever
- *  invoked), not verdict handling. */
+// ── M8.5 (DC-S7) — inherit-mode session bootstrap: a second harness on the same
+// engine+router with the same userId plays as the existing character with NO creation walk ──
+
+describe('AgentHarness — inherit-mode session bootstrap (DC-S7)', () => {
+  it('a no-walk harness plays an action as the existing character', async () => {
+    // Wiring inline (same shape as buildHarness) so a SECOND harness can share the same
+    // engine + router + userId — the inherit arm's construction.
+    const agentEngine = buildAgentEngine({
+      pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
+      rollD20: () => 20,
+    });
+    // M8.5 stage 7 (DC-S2): the SessionController wiring lives in deterministicSession.ts.
+    const router = buildDeterministicRouter(agentEngine);
+
+    // Fresh spawn: the walk through the harness's recorded dispatch creates the player.
+    const creator = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway([]), USER_ID);
+    await creator.createCharacter(SEED);
+    expect(agentEngine.engine.getCharacter(USER_ID)!.name).toBe('Bram');
+
+    // Inherit spawn: same engine/router/userId, NO createCharacter call — the session starts
+    // as that existing player at menu.open.
+    const inheritor = createAgentHarness(
+      agentEngine.engine,
+      router,
+      new ScriptedAgentPlayerGateway([
+        { kind: 'menu-pick', index: 0 },
+        { kind: 'choice', index: 0 },
+        { kind: 'choice', index: 0 },
+      ]),
+      USER_ID,
+    );
+    const result = await inheritor.playOneAction();
+    expect(result).toEqual({ kind: 'outcome' });
+
+    // menu.open did NOT return no-character: the inherit session's first dispatch is a plain
+    // menu.open — no join.open/wizard walk in its own protocol log (the walk belongs to the
+    // fresh session that created the player).
+    const first = inheritor.transcript.protocol.find((e) => e.kind === 'dispatch');
+    expect(first?.kind === 'dispatch' && first.event.type).toBe('menu.open');
+  });
+});
+
+// ── RA-4 Finding 1 — `criticEnabled` opt-out (unchanged: engine-level, not protocol). ──
+
 class MockCriticGateway implements CriticGateway {
   calls: CriticInput[] = [];
 
@@ -191,9 +259,6 @@ class MockCriticGateway implements CriticGateway {
   }
 }
 
-// ── RA-4 Finding 1 — `criticEnabled` opt-out. `criticGateMode` defaults to 'always' (unset here),
-// so the goblin script's decide+narrate beats fire the critic on every call when one is wired —
-// proving "wired" or "not wired" only needs to count `critic.calls`, not gate on anomaly shape. ──
 describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
   const goblinMoves: AgentMove[] = [
     { kind: 'custom', text: 'attack the goblin' },
@@ -201,22 +266,24 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
     { kind: 'choice', index: 0 },
   ];
 
-  it('wires the injected criticGateway by default (criticEnabled omitted, matching prod default-on)', async () => {
+  it('wires the injected criticGateway by default', async () => {
     const critic = new MockCriticGateway();
     const agentEngine = buildAgentEngine({
       pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
       rollD20: () => 20,
       criticGateway: critic,
     });
-    const harness = createAgentHarness(agentEngine, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
-    harness.seedCharacter(SEED);
+    // M8.5 stage 7 (DC-S2): the SessionController wiring lives in deterministicSession.ts.
+    const router = buildDeterministicRouter(agentEngine);
+    const harness = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
+    await harness.createCharacter(SEED);
 
     await harness.playOneAction();
 
     expect(critic.calls.length).toBeGreaterThan(0);
   });
 
-  it('wires NO critic at all when criticEnabled is false, even over an injected criticGateway', async () => {
+  it('wires NO critic when criticEnabled is false', async () => {
     const critic = new MockCriticGateway();
     const agentEngine = buildAgentEngine({
       pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
@@ -224,8 +291,10 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
       criticGateway: critic,
       criticEnabled: false,
     });
-    const harness = createAgentHarness(agentEngine, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
-    harness.seedCharacter(SEED);
+    // M8.5 stage 7 (DC-S2): the SessionController wiring lives in deterministicSession.ts.
+    const router = buildDeterministicRouter(agentEngine);
+    const harness = createAgentHarness(agentEngine.engine, router, new ScriptedAgentPlayerGateway(goblinMoves), USER_ID);
+    await harness.createCharacter(SEED);
 
     await harness.playOneAction();
 
@@ -233,12 +302,9 @@ describe('buildAgentEngine — RA-4 Finding 1: criticEnabled opt-out', () => {
   });
 });
 
-// ── M4.3 — full-day + multi-day loop. `playDay` runs actions until the day ends; `playDays`
-// bookends each day with the engine-direct rest+nightly-tick (DA-4) and advances. Still fully
-// deterministic (scripted brain + scripted pipeline + fixed d20, no network). ──
-describe('AgentHarness — full-day + multi-day loop', () => {
-  // One goblin action = 3 brain calls (menu pick + two decision beats to the outcome). The starting
-  // roll allowance is 3, so three actions deplete the day; the fourth menu open returns no-rolls.
+// ── M4.3 — full-day + multi-day loop (protocol surface) ──
+
+describe('AgentHarness — full-day + multi-day loop (M6 protocol)', () => {
   const goblinAction: AgentMove[] = [
     { kind: 'custom', text: 'attack the goblin' },
     { kind: 'choice', index: 0 },
@@ -246,23 +312,19 @@ describe('AgentHarness — full-day + multi-day loop', () => {
   ];
 
   it('plays down to no-rolls without asking the brain past the last roll', async () => {
-    const { harness, brain, agentEngine } = buildHarness([...goblinAction, ...goblinAction, ...goblinAction]);
-    harness.seedCharacter(SEED);
+    const { harness, brain, agentEngine, seed } = buildHarness([...goblinAction, ...goblinAction, ...goblinAction]);
+    await seed();
 
     const summary = await harness.playDay();
 
     expect(summary).toEqual({ dayNumber: 1, outcomes: 3, ended: 'no-rolls' });
-    // Three actions × three calls — the fourth (no-rolls) menu short-circuits before the brain,
-    // so the script is consumed exactly, not over-run.
-    expect(brain.calls).toHaveLength(9);
+    expect(brain.calls).toHaveLength(9); // 3 actions × 3 calls
     expect(agentEngine.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(0);
   });
 
   it('runs multiple days, advancing the day and refilling rolls each night', async () => {
-    // Day 1: one goblin action (spends a roll), then sleep. Day 2: sleep straight away. The night
-    // between them must rest the guard back at the Oak, advance the day, and refill the spent roll.
-    const { harness, agentEngine } = buildHarness([...goblinAction, { kind: 'sleep' }, { kind: 'sleep' }]);
-    const seeded = harness.seedCharacter(SEED);
+    const { harness, agentEngine, seed } = buildHarness([...goblinAction, { kind: 'sleep' }, { kind: 'sleep' }]);
+    const seeded = await seed();
 
     const summaries = await harness.playDays(2);
 
@@ -272,46 +334,30 @@ describe('AgentHarness — full-day + multi-day loop', () => {
     ]);
 
     const after = agentEngine.engine.getCharacter(USER_ID)!;
-    // Day 1 spent a roll (3→2); the nightly tick refilled it — proof the DA-4 bookend ran. Assert
-    // `>=` not `===` the seeded allowance: tick's roll grant carries a +1 Saturday-UTC bonus off the
-    // real clock (not injectable here), so a hard `=== 3` would flake ~1/7 of the time. `>= 3` still
-    // fails if no refill happened (rolls would sit at the depleted 2).
     expect(after.rollsRemaining).toBeGreaterThanOrEqual(seeded.rollsRemaining);
-    // Two nights ticked past day 1, so the world sits on day 3. The guard is still at the Oak — not
-    // because it was rested there (faithful endDay skips restAtOak while rolls remain, M4.4), but
-    // because the goblin custom action never relocates it in the first place.
     expect(Number(agentEngine.engine.getMeta('day_number'))).toBe(3);
     expect(after.location).toBe("The Warden's Oak");
 
-    // Each night left a day-boundary marker on the transcript (two ticks → two boundaries).
     const boundaries = harness.transcript.events.filter((e) => e.type === 'day');
     expect(boundaries.map((b) => b.type === 'day' && b.dayNumber)).toEqual([2, 3]);
   });
 
-  it('stops the multi-day run when a day stalls instead of replaying the wedge', async () => {
-    // A `choice` move is illegal on the MENU screen, so every action stumbles without resolving.
-    // Five consecutive stumbles stall the day; a stalled day must END the run — pressing on would
-    // just replay the same frozen state each remaining day (Finding 1). Script six illegals: only
-    // five are consumed (day 1 stalls at the fifth), proving day 2 never runs.
+  it('stops the multi-day run when a day stalls', async () => {
     const illegal: AgentMove = { kind: 'choice', index: 0 };
-    const { harness, brain, agentEngine } = buildHarness([illegal, illegal, illegal, illegal, illegal, illegal]);
-    harness.seedCharacter(SEED);
+    const { harness, brain, agentEngine, seed } = buildHarness([illegal, illegal, illegal, illegal, illegal, illegal]);
+    await seed();
 
     const summaries = await harness.playDays(3);
 
     expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'stalled' }]);
-    expect(brain.calls).toHaveLength(5); // exactly STUCK_LIMIT — the sixth move is never asked for
-    // No night ticked (the run stopped before `endDay`), so the world is still on day 1.
+    expect(brain.calls).toHaveLength(5);
     expect(Number(agentEngine.engine.getMeta('day_number'))).toBe(1);
     expect(harness.transcript.events.some((e) => e.type === 'day')).toBe(false);
   });
 });
 
-// ── M4.4 — QA capture. Exception → error finding + a graceful `crashed` disposition; a cheap
-// invariant sweep after every outcome and tick; the commute beat; the faithful endDay; the run
-// scoreboard. Arms that can't be reached deterministically through the real engine (a crash, an
-// out-of-band character, the resume-*/day-job guards) run against a stub SessionController +
-// WorldEngine that returns the arm directly — the harness takes both as constructor deps. ──
+// ── M4.4 — QA capture, ported to the protocol surface. Arms that can't be reached
+// deterministically through the real engine run against a stub RouterBackend + GameRouter. ──
 
 const stubChar = (over: Partial<CharacterData> = {}): CharacterData =>
   ({
@@ -331,6 +377,7 @@ const stubChar = (over: Partial<CharacterData> = {}): CharacterData =>
 const OUTCOME_VIEW = {
   screen: 'outcome',
   title: { emoji: '✅', text: 'Done' },
+  colorIntent: 'success',
   isCombat: false,
   outcomeBlock: 'It is done.',
 } as unknown as OutcomeViewState;
@@ -349,7 +396,6 @@ const DAYJOB_MENU: MenuViewState = {
   buttons: [{ label: 'Guard the gate', customId: CID_DAYJOB + '0', style: 'secondary' }],
 };
 
-// A menu with no day-job buttons — `menuLegalMoves` still offers the contextual sleep move.
 const SLEEP_ONLY_MENU: MenuViewState = {
   screen: 'menu',
   title: { emoji: '🌙', text: 'Rest?' },
@@ -357,26 +403,20 @@ const SLEEP_ONLY_MENU: MenuViewState = {
   buttons: [],
 };
 
-interface StubOpts {
+interface StubBackendConfig {
   menu?: ActionMenuResult;
   dayJob?: DayJobStart;
   start?: StartRenderResult;
+  customResume?: import('../../src/controller/SessionController.js').BeginCustomActionResult;
+  rest?: RestBeginResult;
   throwOn?: 'openActionMenu' | 'runCustomAction' | 'tick';
   char?: Partial<CharacterData>;
-  moves?: AgentMove[];
 }
 
-function stubHarness(opts: StubOpts): AgentHarness {
-  const character = stubChar(opts.char);
-  const engine = {
-    getCharacter: () => character,
-    getMeta: () => '1',
-    restAtOak: () => character,
-    tick: () => {
-      if (opts.throwOn === 'tick') throw new Error('tick blew up');
-      return { dayNumber: 2, playersAffected: 0, npcMovements: [], absentWarnings: [], collapsedNames: [] };
-    },
-  } as unknown as WorldEngine;
+/** The stub RouterBackend — the minimal surface the six flows need. Extracted from
+ *  stubHarness so the DC-S4 minimal-observer test can wire a bare three-method observer
+ *  over the same backend shape. */
+function stubBackend(character: CharacterData, opts: StubBackendConfig): RouterBackend {
   const outcome: StartRenderResult = {
     kind: 'outcome',
     viewPrivate: OUTCOME_VIEW,
@@ -386,7 +426,8 @@ function stubHarness(opts: StubOpts): AgentHarness {
     char: character,
     prevChar: character,
   };
-  const controller = {
+  return {
+    getCharacter: () => character,
     stampLastPlayed: () => {},
     openActionMenu: () => {
       if (opts.throwOn === 'openActionMenu') throw new Error('kaboom');
@@ -394,22 +435,72 @@ function stubHarness(opts: StubOpts): AgentHarness {
     },
     beginDayJob: () => opts.dayJob ?? { kind: 'invalid-job' },
     commuteForWork: () => ({ kind: 'none' }),
-    beginCustomAction: () => ({ kind: 'start' }),
+    beginCustomAction: () => opts.customResume ?? { kind: 'start' },
+    runWork: async () => opts.start ?? outcome,
     runCustomAction: async () => {
       if (opts.throwOn === 'runCustomAction') throw new Error('kaboom');
       return opts.start ?? outcome;
     },
-  } as unknown as SessionController;
-  const brain = new ScriptedAgentPlayerGateway(opts.moves ?? []);
-  return new AgentHarness(engine, controller, brain, USER_ID);
+    beginChoice: () => ({ kind: 'ok', character }),
+    resolveChoice: () => 'Press on',
+    stepChoice: async () => ({ kind: 'outcome' as const, view: OUTCOME_VIEW, distilledType: 'chore', characterName: 'Stub', characterClass: 'Warrior', char: character, prevChar: character }),
+    beginRest: () => opts.rest ?? {
+      kind: 'rested' as const,
+      alreadyThere: true,
+      prev: { health: 10, stamina: 10 },
+      updated: character,
+      wasUnsafe: false,
+      unsafeFromName: "The Warden's Oak",
+    },
+    openHi: () => ({ kind: 'no-character' }),
+    // M8.1 screen surface — the harness never dispatches `screen.*` events, so minimal
+    // canned defaults are all this stub needs to satisfy RouterBackend structurally.
+    openLook: () => ({ kind: 'no-character' }),
+    openMap: () => ({ kind: 'no-character' }),
+    openStats: () => ({ kind: 'no-character' }),
+    openBackpack: () => ({ kind: 'no-character' }),
+    openJournal: () => ({ kind: 'no-character' }),
+    openHelp: () => ({ kind: 'view', view: { screen: 'notice', text: '', ephemeral: true } }),
+    // M7.3 wizard surface — these QA tests never spawn a character (createCharacter is only
+    // exercised by the protocol-log suite), so the minimal no-session defaults are all the
+    // stub needs.
+    openJoin: () => ({ kind: 'has-character' }),
+    answerWizardName: () => ({ kind: 'no-session' }),
+    chooseWizardOption: () => ({ kind: 'no-session' }),
+    restartWizard: () => ({ kind: 'view', view: { screen: 'wizard' as const, step: 1, totalSteps: 7, ledger: '', body: '', footer: '', buttons: [] } }),
+    confirmWizard: () => ({ kind: 'no-session' }),
+    feedbackConfirmation: () => ({ screen: 'notice' as const, text: 'Thanks', ephemeral: true }),
+    recordFeedback: () => {},
+  };
 }
 
-describe('AgentHarness — QA capture (M4.4)', () => {
+function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHarness {
+  const character = stubChar(opts.char);
+  // DC-S4: the stub observer is the QA-OBSERVER surface — getCharacter/getMeta/tick, the
+  // harness's only engine touch. restAtOak is extra (structural typing tolerates it) and
+  // dead — the rest half dispatches rest.begin through the router (M7.1).
+  const observer = {
+    getCharacter: () => character,
+    getMeta: () => '1',
+    restAtOak: () => character,
+    tick: () => {
+      if (opts.throwOn === 'tick') throw new Error('tick blew up');
+      return { dayNumber: 2, playersAffected: 0, npcMovements: [], absentWarnings: [], collapsedNames: [] };
+    },
+  } as unknown as AgentObserver;
+
+  const router = new GameRouter(stubBackend(character, opts), { idle: () => IDLE });
+  const brain = new ScriptedAgentPlayerGateway(opts.moves ?? []);
+  // The stub-router backend class is 'stub' — the protocol-log header must be honest (DC-S2).
+  return new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' });
+}
+
+describe('AgentHarness — QA capture (M6 protocol)', () => {
   it('records the dead-end arms of openActionMenu', async () => {
     const arms: Array<[ActionMenuResult, string]> = [
       [{ kind: 'no-character' }, 'no-character'],
       [{ kind: 'resume-stale', prompt: 'a stale prompt' }, 'resume-stale'],
-      [{ kind: 'resume-error', message: 'boom' }, 'resume-error'],
+      [{ kind: 'resume-error', message: 'boom' }, 'internal'],
     ];
     for (const [menu, reason] of arms) {
       const h = stubHarness({ menu });
@@ -424,12 +515,12 @@ describe('AgentHarness — QA capture (M4.4)', () => {
       dayJob: { kind: 'invalid-job' },
       moves: [{ kind: 'menu-pick', index: 0 }],
     });
-    expect(await invalid.playOneAction()).toEqual({ kind: 'dead-end', reason: 'invalid-job' });
+    expect(await invalid.playOneAction()).toEqual({ kind: 'dead-end', reason: 'illegal-move' });
     expect(
       invalid.transcript.events.some(
-        (e) => e.type === 'finding' && e.severity === 'error' && e.summary.includes('invalid-job'),
+        (e) => e.type === 'finding' && e.severity === 'error' && e.summary.includes('internal error'),
       ),
-    ).toBe(true);
+    ).toBe(false); // invalid-job maps to illegal-move, not internal error
 
     const unsafe = stubHarness({
       menu: { kind: 'menu', view: DAYJOB_MENU },
@@ -440,24 +531,35 @@ describe('AgentHarness — QA capture (M4.4)', () => {
     expect(unsafe.transcript.events.some((e) => e.type === 'dead-end' && e.reason === 'unsafe-ground')).toBe(true);
   });
 
-  it('captures an uncaught exception as an error finding + a crashed disposition, keeping the repro', async () => {
+  it('maps a divine-intervention refund to a dead-end, not a completed action (M9.1, DC-M9.3)', async () => {
+    const divineText = 'The warden intervenes — your roll is refunded.';
+    const h = stubHarness({
+      menu: { kind: 'menu', view: CUSTOM_MENU },
+      moves: [{ kind: 'custom', text: 'do a thing' }],
+      start: { kind: 'divine', text: divineText },
+    });
+    expect(await h.playOneAction()).toEqual({ kind: 'dead-end', reason: 'divine-intervention' });
+    expect(
+      h.transcript.events.some(
+        (e) => e.type === 'dead-end' && e.reason === 'divine-intervention' && e.detail === divineText,
+      ),
+    ).toBe(true);
+  });
+
+  it('captures a backend throw as an internal error dead-end (router never throws)', async () => {
     const h = stubHarness({ throwOn: 'openActionMenu' });
     const result = await h.playOneAction();
 
-    expect(result.kind).toBe('crashed');
-    // The crashed disposition names the failing seam call (the breadcrumb), so a QA reader knows
-    // exactly where it died without digging through the stack.
-    if (result.kind === 'crashed') expect(result.phase).toBe('openActionMenu');
-    const finding = h.transcript.events.find((e) => e.type === 'finding');
-    expect(finding?.type === 'finding' && finding.severity).toBe('error');
-    expect(finding?.type === 'finding' && finding.summary).toContain('openActionMenu');
-    // The transcript survived rather than the exception tearing the run down — it IS the repro.
+    // The router catches the backend throw and returns ok:false 'internal' — the harness
+    // maps it to a dead-end, not a crash (the router never throws by design).
+    expect(result).toEqual({ kind: 'dead-end', reason: 'internal' });
+    expect(h.transcript.events.some((e) => e.type === 'dead-end' && e.reason === 'internal')).toBe(true);
     expect(h.transcript.events.length).toBeGreaterThan(0);
   });
 
   it('flags an out-of-band character as an invariant breach after an outcome', async () => {
-    // A negative wealth the engine's own mutation guards should have blocked — the post-outcome
-    // sweep must catch it. Action 1 resolves an outcome (triggering the sweep); action 2 sleeps.
+    // Use an outcome (not decision loop) so the harness returns immediately without
+    // dispatching action.choose. The stub returns the outcome directly from runCustomAction.
     const h = stubHarness({
       menu: { kind: 'menu', view: CUSTOM_MENU },
       char: { wealth: -5 },
@@ -465,10 +567,20 @@ describe('AgentHarness — QA capture (M4.4)', () => {
         { kind: 'custom', text: 'do a thing' },
         { kind: 'sleep' },
       ],
+      start: {
+        kind: 'outcome',
+        viewPrivate: OUTCOME_VIEW,
+        viewPublic: OUTCOME_VIEW,
+        distilledType: 'chore',
+        characterName: 'Stub',
+        char: stubChar({ wealth: -5 }),
+        prevChar: stubChar({ wealth: -5 }),
+      } as StartRenderResult,
     });
     const day = await h.playDay();
 
-    expect(day).toEqual({ dayNumber: 1, outcomes: 1, ended: 'slept' });
+    expect(day.ended).toBe('slept');
+    expect(day.outcomes).toBe(1);
     expect(
       h.transcript.events.some(
         (e) => e.type === 'finding' && e.severity === 'error' && e.summary.includes('wealth -5 < 0'),
@@ -484,7 +596,6 @@ describe('AgentHarness — QA capture (M4.4)', () => {
     });
     const summaries = await h.playDays(3);
 
-    // Day 1 slept cleanly; endDay's tick then threw, so the run stops with just the one day.
     expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'slept' }]);
     expect(
       h.transcript.events.some(
@@ -494,31 +605,31 @@ describe('AgentHarness — QA capture (M4.4)', () => {
   });
 
   it('rolls the transcript up into a run summary', async () => {
-    const { harness } = buildHarness([
+    const { harness, seed } = buildHarness([
       { kind: 'custom', text: 'attack the goblin' },
       { kind: 'choice', index: 0 },
       { kind: 'choice', index: 0 },
       { kind: 'sleep' },
     ]);
-    harness.seedCharacter(SEED);
+    await seed();
     await harness.playDay();
 
     const s = harness.transcript.summary();
-    // One goblin action = 1 menu turn + 2 decision turns; the sleep adds a 4th menu turn. No commute
-    // (a custom action doesn't relocate), no night (single playDay), no findings.
     expect(s).toEqual({
       turns: 4,
       outcomes: 1,
       deadEnds: 0,
       commutes: 0,
       dayBoundaries: 0,
+      // DC-S3: this is the REAL backend with a seeded character, so the scripted day-start
+      // greeting beat recorded one greeting (the stubHarness tests keep greetings: 0 — the
+      // stub's openHi returns no-character and the beats are silent on no-character).
+      greetings: 1,
       findings: { error: 0, warning: 0 },
     });
   });
 
   it('a crash mid-action ends the day as crashed and stops the multi-day run', async () => {
-    // runCustomAction throws mid-action — the crash must propagate to a `crashed` DaySummary and
-    // stop `playDays` (day 2 never runs), proving the in-day crash path, not just the standalone one.
     const h = stubHarness({
       menu: { kind: 'menu', view: CUSTOM_MENU },
       throwOn: 'runCustomAction',
@@ -526,46 +637,240 @@ describe('AgentHarness — QA capture (M4.4)', () => {
     });
     const summaries = await h.playDays(2);
 
-    expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'crashed' }]);
+    // The backend throws → router catches it → returns ok:false 'internal' with message
+    // 'kaboom' → the harness maps it to a dead-end. Then the harness loops back to the
+    // menu, but the brain script is exhausted → ScriptedAgentPlayerGateway throws → the
+    // harness catches that as a crashed disposition (transcript.finding). The run stops.
+    expect(summaries.length).toBe(1);
+    // The backend throw message was recorded as a dead-end, not a finding (the router
+    // returns it as an error envelope, not an exception).
+    expect(h.transcript.events.some((e) => e.type === 'dead-end' && e.reason === 'internal')).toBe(true);
+    // The brain-exhaustion crash is logged as a finding.
     expect(
       h.transcript.events.some(
-        (e) => e.type === 'finding' && e.severity === 'error' && e.summary.includes('runCustomAction'),
+        (e) => e.type === 'finding' && e.severity === 'error' && e.summary.includes('uncaught exception'),
       ),
     ).toBe(true);
   });
 });
 
-describe('AgentHarness — faithful endDay (M4.4)', () => {
-  // Day-job work commutes the guard away from the Oak (they start there); whether endDay rests them
-  // back turns on rolls spent.
+// ── M4.4 — faithful endDay (M7.1: the rest half crosses the seam as rest.begin; the world
+// tick stays engine-direct) ──
+
+describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', () => {
   const dayJobAction: AgentMove[] = [
     { kind: 'menu-pick', index: 0 },
     { kind: 'choice', index: 0 },
     { kind: 'choice', index: 0 },
   ];
 
-  it('idles without resting while rolls remain — the guard stays where it worked', async () => {
-    const { harness, agentEngine } = buildHarness([...dayJobAction, { kind: 'sleep' }]);
-    harness.seedCharacter(SEED);
+  it('idles without resting while rolls remain', async () => {
+    const { harness, agentEngine, seed } = buildHarness([...dayJobAction, { kind: 'sleep' }]);
+    await seed();
 
     await harness.playDays(1);
 
     const after = agentEngine.engine.getCharacter(USER_ID)!;
-    // Rolls left (spent 1 of 3), so a real player couldn't /sleep-rest — endDay skips restAtOak and
-    // the guard is NOT teleported home; it's still at the workplace it commuted to.
     expect(after.location).not.toBe("The Warden's Oak");
-    // The commute was a real beat the player saw — it's on the transcript now (M4.2 deferral).
     expect(harness.transcript.events.some((e) => e.type === 'commute')).toBe(true);
   });
 
   it('rests to the Oak once every roll is spent', async () => {
-    const { harness, agentEngine } = buildHarness([...dayJobAction, ...dayJobAction, ...dayJobAction]);
-    harness.seedCharacter(SEED);
+    const { harness, agentEngine, seed } = buildHarness([...dayJobAction, ...dayJobAction, ...dayJobAction]);
+    await seed();
 
     const summaries = await harness.playDays(1);
 
     expect(summaries[0].ended).toBe('no-rolls');
-    // Rolls hit 0, so endDay CAN rest — the guard returns home from the workplace.
     expect(agentEngine.engine.getCharacter(USER_ID)!.location).toBe("The Warden's Oak");
+  });
+
+  it('surfaces the unsafe-rest −1 HP as a warning finding (restUnsafe fact → transcript)', async () => {
+    const h = stubHarness({
+      menu: { kind: 'menu', view: SLEEP_ONLY_MENU },
+      moves: [{ kind: 'sleep' }],
+      rest: {
+        kind: 'rested',
+        alreadyThere: false,
+        prev: { health: 10, stamina: 10 },
+        updated: { ...stubChar(), health: 9, location: "The Warden's Oak" },
+        wasUnsafe: true,
+        unsafeFromName: 'The Broken Keep',
+      },
+    });
+
+    const summaries = await h.playDays(1);
+
+    expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'slept' }]);
+    const finding = h.transcript.events.find((e) => e.type === 'finding' && e.severity === 'warning');
+    expect(finding?.type === 'finding' && finding.summary).toContain('lost 1 HP');
+    // The tick still advanced the world — an unsafe rest never aborts the nightly cron.
+    expect(h.transcript.events.some((e) => e.type === 'day')).toBe(true);
+  });
+});
+
+// ── M8.5 (DC-S3) — the AGENT_BRAIN_CHOOSES_CHAR realism arm: the brain authors the
+// character through the wizard (name + step choices) instead of the scripted walk. All picks
+// below are REAL def values from assets/char-creation/*.yml — the first option of each step
+// (the wizard's step-5 alignment values are persisted LOWERCASE, step-7 kits are
+// class-filtered, and each step's buttons carry a trailing restart button the script never
+// picks — index 0 is always the first real option). ──
+
+describe('AgentHarness — brain-driven character creation (DC-S3)', () => {
+  it('the brain authors the character through the wizard, landing real def values', async () => {
+    const { harness, brain, agentEngine } = buildHarness([
+      { kind: 'custom', text: 'Birch' }, // step 1: the free-text name slot
+      { kind: 'menu-pick', index: 0 }, // step 2: first class (Warrior)
+      { kind: 'menu-pick', index: 0 }, // step 3: first upbringing (Soldier)
+      { kind: 'menu-pick', index: 0 }, // step 4: first race (Human)
+      { kind: 'menu-pick', index: 0 }, // step 5: first alignment, lowercase (lawful good)
+      { kind: 'menu-pick', index: 0 }, // step 6: first day job (Town Guard)
+      { kind: 'menu-pick', index: 0 }, // step 7: first kit for a Warrior (Soldier's Kit)
+      { kind: 'menu-pick', index: 0 }, // step 8: confirm
+    ]);
+    await harness.createCharacterWithBrain();
+
+    // The created character exists with the picked values — every one a real def value
+    // (first option of its step), the alignment lowercased per the wizard's persistence.
+    const char = agentEngine.engine.getCharacter(USER_ID)!;
+    expect(char.name).toBe('Birch');
+    expect(char.class).toBe('Warrior');
+    expect(char.upbringing).toBe('Soldier');
+    expect(char.race).toBe('Human');
+    expect(char.alignment).toBe('lawful good');
+    expect(char.dayJob).toBe('Town Guard');
+    // The step-7 kit pick lands in the inventory: the Soldier's Kit's starting item is on
+    // the character (getItems is the engine's read — the walk itself only knows def values).
+    expect(agentEngine.engine.getItems(char.id).some((i) => i.name === 'Iron Sword')).toBe(true);
+
+    // The protocol log records the full brain-authored walk, in order — the same shape as the
+    // scripted walk's, proving the realism arm crosses the seam identically.
+    const walk = harness.transcript.protocol
+      .filter((e) => e.kind === 'dispatch')
+      .map((d) => d.event.type);
+    expect(walk).toEqual([
+      'join.open',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'character.create',
+    ]);
+    const chooses = harness.transcript.protocol.filter(
+      (e): e is ProtocolDispatchEntry & { event: { type: 'wizard.choose'; step: number; value: string } } =>
+        e.kind === 'dispatch' && e.event.type === 'wizard.choose',
+    );
+    expect(chooses.map((d) => d.event.value)).toEqual([
+      'Warrior',
+      'Soldier',
+      'Human',
+      'lawful good',
+      'Town Guard',
+      "Soldier's Kit",
+    ]);
+
+    // The brain saw the wizard screen with the all-zeros placeholder char (the wizard
+    // envelope carries NO character facts — DC-M6.1's null-char rule).
+    expect(brain.calls).toHaveLength(8);
+    expect(brain.calls[0].screenText.length).toBeGreaterThan(0);
+    expect(brain.calls[0].character).toEqual({
+      name: '',
+      class: '',
+      health: 0,
+      maxHealth: 0,
+      stamina: 0,
+      maxStamina: 0,
+      rollsRemaining: 0,
+      wealth: 0,
+      location: '',
+    });
+  });
+
+  it('loops a mid-walk restart pick (step 3 → step 1 → done) and completes the walk', async () => {
+    // The brain is OFFERED the trailing restart button on every option step (wizardLegalMoves
+    // maps view.buttons positionally, and joinWizard.ts:208 appends restart AFTER the choices)
+    // — the SF1 pin: a mid-walk restart must dispatch wizard.restart and loop, not throw.
+    const restartIdx = REAL_DEFS.backgrounds.length; // step 3 = backgrounds; restart is always last
+    const { harness, brain, agentEngine } = buildHarness([
+      { kind: 'custom', text: 'Temporary' }, // step 1: first name — discarded by the restart
+      { kind: 'menu-pick', index: 0 }, // step 2: first class (Warrior)
+      { kind: 'menu-pick', index: restartIdx }, // step 3: restart button → back to step 1
+      { kind: 'custom', text: 'Birch' }, // step 1 again: the name that survives
+      { kind: 'menu-pick', index: 0 }, // step 2: first class (Warrior)
+      { kind: 'menu-pick', index: 0 }, // step 3: first upbringing (Soldier)
+      { kind: 'menu-pick', index: 0 }, // step 4: first race (Human)
+      { kind: 'menu-pick', index: 0 }, // step 5: first alignment, lowercase (lawful good)
+      { kind: 'menu-pick', index: 0 }, // step 6: first day job (Town Guard)
+      { kind: 'menu-pick', index: 0 }, // step 7: first kit for a Warrior (Soldier's Kit)
+      { kind: 'menu-pick', index: 0 }, // step 8: confirm
+    ]);
+    await harness.createCharacterWithBrain();
+
+    // The walk completed with the SECOND name — the restart discarded the first.
+    const char = agentEngine.engine.getCharacter(USER_ID)!;
+    expect(char.name).toBe('Birch');
+    expect(char.upbringing).toBe('Soldier');
+
+    // The restart was dispatched mid-walk (looped, not ignored): the protocol log shows
+    // wizard.restart between the two wizard.answer entries, and the walk still ends in
+    // character.create.
+    const walk = harness.transcript.protocol
+      .filter((e) => e.kind === 'dispatch')
+      .map((d) => d.event.type);
+    expect(walk).toEqual([
+      'join.open',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.restart',
+      'wizard.answer',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'wizard.choose',
+      'character.create',
+    ]);
+
+    // The brain saw the wizard 11 times (join.open + name + pick + restart + name + 6 picks).
+    expect(brain.calls).toHaveLength(11);
+  });
+});
+
+// ── M8.5 (DC-S4) — the observer boundary's behavioural half: the harness runs a full day
+// against an observer with EXACTLY the three methods (getCharacter/getMeta/tick) over the
+// stub RouterBackend shape — proof the harness needs nothing beyond the three-method
+// observer surface (the pin's structural half lives in tests/agent/observer.test.ts). ──
+
+describe('AgentHarness — minimal observer (DC-S4: the observer is exactly three methods)', () => {
+  it('plays a full day against a bare three-method observer', async () => {
+    // The "exactly three" surface: no restAtOak, no createCharacter, no setMeta — just the
+    // QA-OBSERVER reads + the nightly cron. Typed straight as AgentObserver (no cast); the
+    // excess-property check is typecheck-only (tests are NOT under tsc — the tsconfig
+    // src-only gate, the M9 watch-item class), so the REAL enforcement here is runtime: if
+    // the harness called any fourth engine method on the day flow, the run below would
+    // throw and the summaries would mismatch.
+    const observer: AgentObserver = {
+      getCharacter: () => stubChar(),
+      getMeta: () => '1',
+      tick: () => ({ dayNumber: 2 }),
+    };
+
+    const router = new GameRouter(
+      stubBackend(stubChar(), { menu: { kind: 'menu', view: SLEEP_ONLY_MENU } }),
+      { idle: () => IDLE },
+    );
+    const brain = new ScriptedAgentPlayerGateway([{ kind: 'sleep' }]);
+    const harness = new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' });
+
+    const summaries = await harness.playDays(1);
+
+    // The full day ran: menu.open → sleep → rest.begin → the nightly tick through the
+    // observer (its { dayNumber: 2 } advanced the world — the day-boundary event records 2).
+    expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'slept' }]);
+    expect(harness.transcript.events.some((e) => e.type === 'day' && e.dayNumber === 2)).toBe(true);
   });
 });

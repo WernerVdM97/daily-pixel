@@ -89,4 +89,37 @@ export interface CommuteViewState {
   idle: string;
 }
 
-export type ViewState = DecisionViewState | OutcomeViewState | NoticeViewState | MenuViewState | LoadingViewState | CommuteViewState;
+/** The character-creation wizard screen (M7.3, DC-M7.3.3) — the join walk's step screen
+ *  carried semantically across the seam. Pure strings pre-rendered (byte-identity with the
+ *  pre-seam buildStepMessage assembly), interactive/data parts semantic. The embed chrome
+ *  (title ⚔️  Forge Your Hero, goldenrod, Oak thumbnail/files) and the button customIds +
+ *  styles stay in the medium step. The wizard envelope carries NO character facts — the
+ *  walk's user has no character (DC-M6.1's null-char rule). */
+export interface WizardViewState {
+  screen: 'wizard';
+  /** 1-8; 8 = the confirm review screen. */
+  step: number;
+  /** The walk has 7 option steps (step 8 is the review). */
+  totalSteps: number;
+  /** Pre-rendered progress ledger (one line per step; ◀ marker; struck-through chosen
+   *  values with the option's own emoji). */
+  ledger: string;
+  /** Pre-rendered body block: step prompt + option list (steps 2-7), the name prompt
+   *  (step 1), the ready prose (step 8). */
+  body: string;
+  footer: string;
+  /** Step 1 only — the modal the adapter welds (customIds are medium chrome). */
+  nameField?: { label: string; placeholder: string; minLength: number; maxLength: number };
+  /** Steps 2-7 only — value is the persisted key, label the display, emoji from the defs
+   *  (FALLBACK_EMOJI "🔹" when absent). */
+  options?: Array<{ value: string; label: string; emoji?: string }>;
+  /** Semantic buttons the adapter welds (customIds + styles + chunking are medium chrome). */
+  buttons: Array<
+    | { kind: 'name'; label: string; emoji: string }
+    | { kind: 'choice'; step: number; value: string; label: string; emoji?: string }
+    | { kind: 'confirm'; label: string; emoji: string }
+    | { kind: 'restart'; label: string; emoji: string }
+  >;
+}
+
+export type ViewState = DecisionViewState | OutcomeViewState | NoticeViewState | MenuViewState | LoadingViewState | CommuteViewState | WizardViewState;

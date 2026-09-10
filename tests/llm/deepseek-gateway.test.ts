@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { MockedFunction } from 'vitest';
 import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
 import { ACTION_CATEGORIES } from '../../src/llm/LlmGateway.js';
-import type { LlmContext, LlmDecision } from '../../src/llm/LlmGateway.js';
-import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
+import type { LlmContext } from '../../src/llm/LlmGateway.js';
+import type { LlmCallRecord, LlmCallRecorder } from '../../src/llm/LlmCallRecorder.js';
 import { DeepCapturePolicy } from '../../src/llm/capture-policy.js';
 
 
@@ -49,13 +50,13 @@ describe('DeepseekLlmGateway', () => {
     }],
   };
 
-  function mockFetch(responseBody: unknown, status = 200): typeof fetch {
+  function mockFetch(responseBody: unknown, status = 200): MockedFunction<typeof fetch> {
     return vi.fn().mockResolvedValue({
       ok: status >= 200 && status < 300,
       status,
       json: () => Promise.resolve(responseBody),
       text: () => Promise.resolve(JSON.stringify(responseBody)),
-    }) as unknown as typeof fetch;
+    }) as unknown as MockedFunction<typeof fetch>;
   }
 
   it('parses a valid API response into an LlmDecision', async () => {
@@ -259,8 +260,21 @@ describe('DeepseekLlmGateway', () => {
 /** Shared test helper: return a recorder that collects records in an array. */
 function capture() {
   const records: LlmCallRecord[] = [];
-  const recorder = { record: (r: LlmCallRecord) => { records.push(r); return records.length; } };
-  return { records, recorder };
+  const promoted: Array<{ callId: number; fields: { rawPrompt?: string | null; reasoning?: string | null } }> = [];
+  const recorder: LlmCallRecorder = {
+    record: (r: LlmCallRecord) => { records.push(r); return records.length; },
+    // The gateway really calls this on the deep-capture path, so the stub applies the
+    // promotion to the recorded row rather than swallowing it — otherwise the assertions
+    // below would be reading a record the production code had already moved past.
+    promoteDeepCapture: (callId, fields) => {
+      promoted.push({ callId, fields });
+      const row = records[callId - 1];
+      if (!row) return;
+      if (fields.rawPrompt !== undefined) row.rawPrompt = fields.rawPrompt;
+      if (fields.reasoning !== undefined) row.reasoning = fields.reasoning;
+    },
+  };
+  return { records, recorder, promoted };
 }
 
 describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
@@ -318,7 +332,7 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
   it('always keeps reasoning + raw prompt for an over-threshold "spiral" call, toggle off', async () => {
     const { records, recorder } = capture();
     const spiral = 'x'.repeat(50);
-    const fetch = vi.fn().mockResolvedValue({
+    const fetchFn = vi.fn().mockResolvedValue({
       ok: true, status: 200,
       json: () => Promise.resolve({
         choices: [{ message: { content: JSON.stringify(goodDecision), reasoning_content: spiral }, finish_reason: 'stop' }],
@@ -327,7 +341,7 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
       text: () => Promise.resolve(''),
     }) as unknown as typeof fetch;
     // mode defaults to 'spiral'; threshold lowered so the 50-char chain counts as a spiral.
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch, recorder, capturePolicy: new DeepCapturePolicy('spiral', 10) });
+    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder, capturePolicy: new DeepCapturePolicy('spiral', 10) });
     await gw.decide(minimalContext);
     expect(records[0].reasoning).toBe(spiral);
     expect(records[0].rawPrompt).toContain('## You');

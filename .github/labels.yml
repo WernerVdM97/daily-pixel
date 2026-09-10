@@ -1,0 +1,68 @@
+# Dark Factory label taxonomy — single source of truth.
+# Applied by scripts/factory/sync-labels.sh (or manually via gh label create).
+
+# --- Area: which subsystem the work touches ---
+- name: area:engine
+  color: "1d76db"
+  description: World engine, rules, mutations, combat
+- name: area:prompts
+  color: "0e8a16"
+  description: LLM prompt sets, classify/decide/narrate pipelines
+- name: area:ux-ui
+  color: "fbca04"
+  description: Discord interaction layer, menus, messages, footers
+- name: area:ansi-art
+  color: "d93f0b"
+  description: ANSI/ASCII rendering, frames, sprites, art pipeline
+- name: area:agent-harness
+  color: "5319e7"
+  description: Agent-player, smoke runs, QA harness
+- name: area:multiplayer
+  color: "c2e0c6"
+  description: Shared world, co-op, cross-player mechanics
+- name: area:world
+  color: "006b75"
+  description: Map, locations, travel, world-state, exploration
+- name: area:schema
+  color: "bfd4f2"
+  description: DB schema, migrations, data model
+- name: area:docs-meta
+  color: "ededed"
+  description: Docs, changelog, process, factory machinery
+
+# --- Type ---
+- name: type:bug
+  color: "d73a4a"
+  description: Something is broken
+- name: type:feature
+  color: "a2eeef"
+  description: New capability
+- name: type:polish
+  color: "fef2c0"
+  description: Small UX/UI win, no new capability
+- name: type:decision
+  color: "e99695"
+  description: Needs a human call before any work
+- name: type:epic
+  color: "0b02f5"
+  description: Tracking issue with sub-issues; an arc-level parent, not executable work itself
+
+# --- Factory gate / automation ---
+- name: auto:docs
+  color: "0e8a16"
+  description: "Standing approval: docs/ and comment-only changes"
+- name: auto:changelog
+  color: "0e8a16"
+  description: "Standing approval: CHANGELOG.md upkeep"
+- name: auto:tests
+  color: "0e8a16"
+  description: "Standing approval: test-only additions, no src/ changes"
+- name: needs-human-decision
+  color: "b60205"
+  description: Blocked on owner input; agents must not execute
+- name: factory:seeded
+  color: "cccccc"
+  description: Migrated from TODO.md during factory bootstrap
+- name: dependencies
+  color: "0366d6"
+  description: Dependency bump or migration, raised by automation

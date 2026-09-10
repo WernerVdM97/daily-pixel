@@ -1,53 +1,35 @@
 /**
- * /help — command list, action types, roll economy.
- * Pure text. No engine dependency.
+ * /help — the command list + Economy block crosses the JSON seam as `screen.help` (M8.1,
+ * DC-M8.3/4): the copy moved into the controller layer (src/controller/helpScreen.ts) and
+ * the event has NO no-character arm (help works charless today — gating it would be a
+ * behaviour change). This handler is translate + paint only; the view maps through
+ * `noticeViewToDiscord`.
  */
-import { SEPARATOR } from "../format.js";
+import { noticeViewToDiscord } from "../viewToDiscord.js";
+import type { GameRouter } from "../../protocol/router.js";
+import type { NoticeViewState } from "../../view/viewState.js";
+import type { NavFacts } from "../CommandRegistry.js";
 
-export function makeHelpCommand() {
-  return async (): Promise<string> => {
-    return [
-      "📜 **The Warden's Oak — Command List**",
-      SEPARATOR,
-      '',
-      '**Getting Started**',
-      '`/join` — Create your character (6-step wizard)',
-      '`/hi`   — Begin your day. The Oak awaits.',
-      '',
-      '**Your Character**',
-      '`/stats`    — Full character sheet',
-      '`/backpack` — Inventory emoji grid',
-      '',
-      '**The World**',
-      '`/look`    — Survey your surroundings',
-      '`/journal` — Browse your journal (locations, NPCs, actions)',
-      '',
-      '**Actions**',
-      '`/action` — Take an action. Describe what you want to do.',
-      '',
-      'The warden presents decisions, each one modifying the',
-      'difficulty check (DC). Choose wisely — bail if the odds',
-      'turn against you.',
-      '',
-      '**Action types:** hunt, travel, talk, craft, scout, trade,',
-      'investigate, pray, perform, heal, train, sneak, and more.',
-      SEPARATOR,
-      '',
-      '**Economy**',
-      'You have **2 rolls per day**. Each `/action` consumes 1 roll.',
-      'Rolls reset at nightfall (admin `/sleep` or nightly cron).',
-      'Optional actions can be skipped (Bail or Skip button).',
-      'Required actions (attacked, cornered) cannot be skipped.',
-      '',
-      '**Rest**',
-      '`/sleep` — Make camp by the Oak and rest. The world turns at',
-      'nightfall — only the warden can turn the hourglass.',
-      SEPARATOR,
-      '',
-      '**Report**',
-      '`/feedback` — Share your thoughts',
-      '`/bug`      — Report a bug',
-      '`/help`     — This list',
-    ].join('\n');
+export function makeHelpCommand(router: GameRouter) {
+  return async (
+    interaction: { user: { id: string } },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ): Promise<string> => {
+    const response = await router.dispatch({
+      type: "screen.help",
+      playerId: interaction.user.id,
+    });
+
+    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
+    // Reported before the ok check because the read it replaces was outcome-independent;
+    // absent when there is no character, which is today's `if (char)` gate.
+    onNav?.(response.facts?.nav as NavFacts | undefined);
+
+    if (!response.ok) {
+      return response.error.message;
+    }
+
+    const view = response.view as NoticeViewState | undefined;
+    return view ? noticeViewToDiscord(view).content : "Something went wrong.";
   };
 }

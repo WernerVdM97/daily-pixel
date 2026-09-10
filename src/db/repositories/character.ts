@@ -3,9 +3,19 @@ import type { CharacterRow } from './types.js';
 
 export type { CharacterRow };
 
-type CreateInput = Omit<CharacterRow, 'id' | 'user_id' | 'created_at' | 'last_played_at' | 'last_rested_day'> & {
+/** The eight columns `create` fills with `?? <default>` are optional at the call boundary.
+ *  The type used to demand them anyway — a mismatch with the runtime that only surfaced
+ *  when tests started being typechecked (M10.1b / DC-M10.8). */
+type DefaultedColumns =
+  | 'health' | 'max_health' | 'stamina' | 'max_stamina'
+  | 'rolls_remaining' | 'location' | 'wealth' | 'last_action_state';
+
+type CreateInput = Omit<
+  CharacterRow,
+  'id' | 'user_id' | 'created_at' | 'last_played_at' | 'last_rested_day' | DefaultedColumns
+> & {
   created_at?: string;
-};
+} & Partial<Pick<CharacterRow, DefaultedColumns>>;
 
 type UpdateInput = Partial<Omit<CharacterRow, 'id' | 'user_id' | 'created_at'>>;
 

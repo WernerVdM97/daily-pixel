@@ -1,6 +1,7 @@
 ---
 title: JSON Seam — Milestone Build Plans (M0–M4)
-status: decided
+status: shipped
+superseded_by: "implemented in code"
 domain: engine
 phase: mvp
 tags: [architecture, layering, engine, controller, json, seam, build-plan]

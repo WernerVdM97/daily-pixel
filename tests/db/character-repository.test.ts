@@ -20,7 +20,7 @@ beforeEach(() => {
 });
 
 describe('CharacterRepository', () => {
-  const charData: Omit<CharacterRow, 'id' | 'user_id' | 'created_at'> = {
+  const charData: Omit<CharacterRow, 'id' | 'user_id' | 'created_at' | 'last_played_at' | 'last_rested_day'> = {
     name: 'Aldric',
     class: 'Warrior',
     upbringing: 'Village',
@@ -30,6 +30,7 @@ describe('CharacterRepository', () => {
     stats: JSON.stringify({ physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }),
     health: 12,
     max_health: 12,
+    max_stamina: 10,
     stamina: 10,
     rolls_remaining: 2,
     location: "The Warden's Oak",

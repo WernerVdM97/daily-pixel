@@ -1,17 +1,23 @@
 /**
  * /sleep — rest or advance the world.
  *
- * Admin (ADMIN_USER_ID env var): triggers the daily tick.
- * Non-admin: returns to the Oak — location is moved, no tick.
+ * Admin (ADMIN_USER_ID env var): triggers the daily tick. Stays adapter-direct until M9
+ * (flagged M7.1 watch item — the engine-direct `tick(true)` cron call is engine-owned).
+ * Non-admin: the player goodnight crosses the JSON seam as `rest.begin` (M7.1, DC-M7.1.5) —
+ * this handler is translate + paint only. The unsafe-rest −1 HP rule moved into
+ * `engine.restAtOak` (DC-M7.1.1); the reply copy moved to the router (DC-P4); the collapse
+ * announcement crosses back as the `restUnsafe` fact (DC-M7.1.4).
  */
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { mapError } from "../../engine/ErrorMapper.js";
-import { SEPARATOR } from "../format.js";
 import { announceCollapse } from "../collapse.js";
 import { buildMorningAnnouncement } from "../announcements.js";
-import { getWorkplaceLocation, type DayJobDef } from "../../controller/dayJob.js";
+import { noticeViewToDiscord } from "../viewToDiscord.js";
+import type { GameRouter } from "../../protocol/router.js";
+import type { NoticeViewState } from "../../view/viewState.js";
+import type { NavFacts } from "../CommandRegistry.js";
 
-export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
+export function makeSleepCommand(engine: WorldEngine, router: GameRouter) {
   /** Warn once at first call if ADMIN_USER_ID is unset (deploy-time safety net). */
   const adminUserId = process.env.ADMIN_USER_ID ?? "";
   if (!adminUserId) {
@@ -21,7 +27,10 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
     );
   }
 
-  return async (interaction: { user: { id: string } }): Promise<string> => {
+  return async (
+    interaction: { user: { id: string } },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ): Promise<string> => {
     const isAdmin = interaction.user.id === adminUserId;
     const adminTick = isAdmin && process.env.SLEEP_ADMIN_TICK === "true";
 
@@ -42,107 +51,33 @@ export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
       }
     }
 
-    // Rest at the Oak (admin without tick, or non-admin)
-    const character = engine.getCharacter(interaction.user.id);
-    if (!character) {
-      return "You don't have a character yet. Type `/join` to create one.";
+    // Player path — translate + paint. The router owns the guards, the rest screen, and
+    // the penalty copy; its error.message IS the string the dispatcher paints.
+    const response = await router.dispatch({
+      type: "rest.begin",
+      playerId: interaction.user.id,
+    });
+
+    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine. The
+    // admin-tick arm above returns before this, matching the dispatcher's own `!isAdminTick`
+    // gate on the nav weld; the guard rejections carry `nav` too, because the read this
+    // replaces ran regardless of outcome.
+    onNav?.(response.facts?.nav as NavFacts | undefined);
+
+    if (!response.ok) {
+      return response.error.message;
     }
 
-    // Guard: can't sleep mid-action
-    if (character.lastActionState !== null) {
-      return [
-        "⛔ **Cannot rest now**",
-        SEPARATOR,
-        "",
-        "You are mid-action — finish what you started before bedding down.",
-        "",
-        "Use `/action continue` to resume, or let it time out after 30 minutes.",
-      ].join("\n");
+    // The collapse announcement crosses as the `restUnsafe` fact (DC-M7.1.4) — announce it
+    // publicly before painting the actor's own goodnight. announceCollapse is best-effort.
+    const restUnsafe = response.facts?.restUnsafe as
+      | { name: string; prev: { health: number; stamina: number }; updated: { health: number; stamina: number } }
+      | undefined;
+    if (restUnsafe) {
+      await announceCollapse(restUnsafe.name, restUnsafe.prev, restUnsafe.updated);
     }
 
-    // Guard: must spend all actions before resting
-    if (character.rollsRemaining > 0) {
-      return [
-        "⛔ **Cannot rest now**",
-        SEPARATOR,
-        "",
-        "The day is still young — you have actions left to take.",
-        "Spend your remaining rolls before bedding down beneath the Oak.",
-      ].join("\n");
-    }
-
-    const alreadyThere = character.location === "The Warden's Oak";
-    const currentLoc = engine.getLocation(character.location);
-    // H1: treat sleeping at your own workplace as safe (no HP penalty for doing your job)
-    const dayNumber = Number(engine.getMeta("day_number") ?? "1");
-    const workplace = dayJobs
-      ? getWorkplaceLocation(character.dayJob, dayJobs, {
-          characterId: character.id,
-          dayNumber,
-        })
-      : null;
-    const atWorkplace = workplace !== null && character.location === workplace;
-    const wasUnsafe =
-      currentLoc !== null &&
-      !currentLoc.isSafe &&
-      !alreadyThere &&
-      !atWorkplace;
-
-    // G2: the player models rest as a stamina thing and is surprised to take HP
-    // damage from an unsafe rest. Name the risk and its cause plainly (no mechanic
-    // change) — the unsafe location they bedded down at, and why it cost them.
-    const unsafeFromName = character.location;
-
-    engine.restAtOak(interaction.user.id);
-
-    let penaltyLine = "";
-    if (wasUnsafe) {
-      const updated = engine.modifyHealth(interaction.user.id, -1);
-      // Own section, own line per clause — the crammed single-sentence version read as an
-      // aside rather than a real penalty (player report: rest formatting feels "off").
-      penaltyLine = [
-        `⚠️ **Resting on unsafe ground costs 1 HP.**`,
-        `You bedded down at **${unsafeFromName}**, far from the Oak's protection — no safe fire, no walls, one eye open all night.`,
-        "",
-        `The night was rough — you lost **1 HP**.${updated ? ` (${updated.health}/${updated.maxHealth} ❤️)` : ""}`,
-        "",
-        `_Return to the Oak (or your workplace) **before** resting to avoid this._`,
-      ].join("\n");
-      // A collapse from the penalty is announced publicly (not just to the actor).
-      if (updated) {
-        await announceCollapse(
-          character.name,
-          { health: character.health, stamina: character.stamina },
-          { health: updated.health, stamina: updated.stamina },
-        );
-      }
-    }
-
-    const locationLine = alreadyThere
-      ? "The Oak's familiar boughs cradle you once more."
-      : "You bank the fire and bed down beneath the Oak.";
-
-    // Each SEPARATOR marks a real section break (header/arrival, unsafe penalty, closing
-    // prose) so buildComponentPayload renders distinct Container blocks instead of one
-    // undifferentiated wall of text.
-    const lines: string[] = [
-      "🏕️ **The Warden's Oak**",
-      SEPARATOR,
-      "",
-      locationLine,
-    ];
-    if (penaltyLine) {
-      lines.push(SEPARATOR);
-      lines.push("");
-      lines.push(penaltyLine);
-    }
-
-    lines.push(SEPARATOR);
-    lines.push("");
-    lines.push("The day turns when the world wills it — not when you do.");
-    lines.push("");
-    lines.push("*The ember glows. The Oak stands watch. Rest, for now.*");
-
-    return lines.join("\n");
+    const view = response.view as NoticeViewState | undefined;
+    return view ? noticeViewToDiscord(view).content : "Something went wrong.";
   };
 }

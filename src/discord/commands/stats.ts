@@ -1,67 +1,35 @@
-import type {
-  WorldEngine,
-  CharacterData,
-  ItemData,
-} from "../../engine/WorldEngine.js";
-import { formatStatLabel } from "../../engine/stat-format.js";
-import { itemStatModifier } from "../../engine/action/dc.js";
-import { SEPARATOR, classEmoji } from "../format.js";
-
-export function makeStatsCommand(engine: WorldEngine) {
-  return async (interaction: { user: { id: string } }) => {
-    const character = engine.getCharacter(interaction.user.id);
-    if (!character) {
-      return "You don't have a character yet. Type `/join` to create one.";
-    }
-    return formatStats(character, engine.getItems(character.id));
-  };
-}
-
-export function formatStats(char: CharacterData, items: ItemData[] = []): string {
-  const lines: string[] = [];
-
-  // Header
-  lines.push(`${classEmoji(char.class)}  **${char.name}** — ${char.class}`);
-  lines.push(SEPARATOR);
-  lines.push(`**Upbringing:** ${char.upbringing}  |  **Race:** ${char.race}`);
-  lines.push(`**Alignment:** ${char.alignment}`);
-  lines.push(`**Day Job:** ${char.dayJob}`);
-  lines.push("");
-
-  // Stats — show the effective score (base + gear); break out the gear bonus
-  // when items contribute, since that's the number that actually drives rolls.
-  // Labels (formatStatLabel) are all equal width, so a single separator aligns them —
-  // and Discord renders this as proportional text anyway, so space-padding is moot.
-  lines.push("**Stats:**");
-  for (const stat of ['physical', 'wisdom', 'intelligence', 'charisma'] as const) {
-    lines.push(`  ${formatStatLabel(stat)}  ${formatStatWithGear(char.stats[stat], itemStatModifier(items, stat))}`);
-  }
-  lines.push("");
-
-  // Vitals
-  lines.push(
-    `**Health:** ${char.health}/${char.maxHealth}  |  **Stamina:** ${char.stamina}/${char.maxStamina}`,
-  );
-  lines.push(`**Location:** ${char.location}`);
-  lines.push(
-    `**Wealth:** ${char.wealth} copper  |  **Rolls:** ${char.rollsRemaining}`,
-  );
-
-  return lines.join("\n");
-}
-
-function formatStat(value: number): string {
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${value}`;
-}
-
 /**
- * Render a stat as its effective score (base + gear). When gear contributes a
- * nonzero modifier, append a breakdown so the player can see the bonus their
- * items grant, e.g. `+3  (+2 base, +1 🎒)`.
+ * /stats — the character sheet crosses the JSON seam as `screen.stats` (M8.1, DC-M8.4): the
+ * composition (`formatStats` + the gear breakdown) moved into the controller layer
+ * (src/controller/statsScreen.ts). This handler is translate + paint only — the router's
+ * error.message IS the string the dispatcher paints, and the view maps through
+ * `noticeViewToDiscord`.
  */
-function formatStatWithGear(base: number, gear: number): string {
-  const effective = formatStat(base + gear);
-  if (gear === 0) return effective;
-  return `${effective}  (${formatStat(base)} base, ${formatStat(gear)} 🎒)`;
+import { noticeViewToDiscord } from "../viewToDiscord.js";
+import type { GameRouter } from "../../protocol/router.js";
+import type { NoticeViewState } from "../../view/viewState.js";
+import type { NavFacts } from "../CommandRegistry.js";
+
+export function makeStatsCommand(router: GameRouter) {
+  return async (
+    interaction: { user: { id: string } },
+    onNav?: (nav: NavFacts | undefined) => void,
+  ): Promise<string> => {
+    const response = await router.dispatch({
+      type: "screen.stats",
+      playerId: interaction.user.id,
+    });
+
+    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
+    // Reported before the ok check because the read it replaces was outcome-independent;
+    // absent when there is no character, which is today's `if (char)` gate.
+    onNav?.(response.facts?.nav as NavFacts | undefined);
+
+    if (!response.ok) {
+      return response.error.message;
+    }
+
+    const view = response.view as NoticeViewState | undefined;
+    return view ? noticeViewToDiscord(view).content : "Something went wrong.";
+  };
 }

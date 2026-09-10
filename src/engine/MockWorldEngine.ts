@@ -2,6 +2,7 @@ import type {
   WorldEngine,
   CharCreateData,
   CharacterData,
+  RestAtOakResult,
   ActionStartResult,
   ActionKind,
   ActionStepResult,
@@ -63,6 +64,11 @@ export class MockWorldEngine implements WorldEngine {
     getItems: number[];
     getNearbyEntities: number[];
     getJournal: number[];
+    // M8.1 (obligation O3): `getExits`/`getDiscoveredGraph` log like every other read — the
+    // M8.0 residual that left the screens-oracle zero-read assertions byte-proven instead of
+    // log-proven. The oracle transcripts 1/3/6/7 now assert these logs.
+    getExits: string[];
+    getDiscoveredGraph: number[];
     submitFeedback: { characterId: number; text: string; actionId?: number }[];
     submitBug: { characterId: number; text: string; actionId?: number }[];
     updateLastPlayed: number[];
@@ -87,6 +93,8 @@ export class MockWorldEngine implements WorldEngine {
     getItems: [],
     getNearbyEntities: [],
     getJournal: [],
+    getExits: [],
+    getDiscoveredGraph: [],
     submitFeedback: [],
     submitBug: [],
     updateLastPlayed: [],
@@ -212,13 +220,29 @@ export class MockWorldEngine implements WorldEngine {
 
   // ── Interface methods ──
 
-  restAtOak(discordUserId: string): CharacterData | null {
+  /** Replicates the real engine's M7.1 restAtOak: records the FIRST ARG ONLY (so the call
+   *  log stays `[userId]`, the shape the M7.0 transcripts assert) and applies the unsafe-rest
+   *  −1 penalty through its own `modifyHealth` (so `calls.modifyHealth` records the same
+   *  `{ discordUserId, amount: -1 }`), mirroring the real engine's internal call. */
+  restAtOak(discordUserId: string, opts?: { workplace?: string | null }): RestAtOakResult {
     this.calls.restAtOak.push(discordUserId);
-    if (!this._character) return null;
-    return {
-      ...this._character,
-      location: "The Warden's Oak",
-    };
+    if (!this._character) return { character: null, wasUnsafe: false, unsafeFromName: "" };
+
+    const oakName = "The Warden's Oak";
+    const alreadyThere = this._character.location === oakName;
+    const atWorkplace = opts?.workplace != null && this._character.location === opts.workplace;
+    const here = this._locationSet
+      ? this._location
+      : { name: this._character.location, description: "A mock location.", tags: ["mock"], isSafe: true, emoji: "📍" };
+    const wasUnsafe = here !== null && !here.isSafe && !alreadyThere && !atWorkplace;
+    const unsafeFromName = this._character.location;
+
+    let updated: CharacterData = { ...this._character, location: oakName };
+    if (wasUnsafe) {
+      const penalised = this.modifyHealth(discordUserId, -1);
+      if (penalised) updated = { ...penalised, location: oakName };
+    }
+    return { character: updated, wasUnsafe, unsafeFromName };
   }
 
   createCharacter(discordUserId: string, data: CharCreateData): CharacterData {
@@ -289,7 +313,8 @@ export class MockWorldEngine implements WorldEngine {
     return this._location;
   }
 
-  getExits(_location: string): LocationExits {
+  getExits(location: string): LocationExits {
+    this.calls.getExits.push(location);
     return this._exits ?? { neighbours: [], frontiers: [] };
   }
 
@@ -310,7 +335,8 @@ export class MockWorldEngine implements WorldEngine {
     );
   }
 
-  getDiscoveredGraph(_characterId: number): DiscoveredGraph {
+  getDiscoveredGraph(characterId: number): DiscoveredGraph {
+    this.calls.getDiscoveredGraph.push(characterId);
     return this._discoveredGraph ?? { current: "The Warden's Oak", nodes: [], edges: [], frontiers: [] };
   }
 

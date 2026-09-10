@@ -1,7 +1,8 @@
 ---
 title: Action Features & Art Integration Tracker
-status: exploring
-domain: engine
+status: superseded
+superseded_by: "the code — a 0.3.1-era coverage snapshot; the live gap (fragment catalogue) is tracked in TODO.md"
+domain: archived
 phase: mvp
 tags:
   - tracker
@@ -28,7 +29,7 @@ _Compact tracker of every feature built in the action space (action types, mutat
 All live and in use. Pipeline classify DMA routes every action to one of these.
 
 | # | ActionType | ResolutionMode | Live since | ANSI register | Art status |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | 1 | `combat` | buttonsRoll (multi-round) | 0.3.0 | COMBAT_FRAME, COMBAT_CRIT, COMBAT_DIAGONAL `[mvp+]`, BOSS_INTRO `[mvp+]` | ✅ combat continue + terminal cards (0.3.1) and opening frame (0.3.1) — enemy sprite fragments deferred, placeholder scene |
 | 2 | `travel` | buttonsRoll | 0.2.6 | — (map / look views use embeds, not frames) | ✅ opening frame (0.3.1, origin-location scene) — but auto-resolved travel shows none yet (known gap) |
 | 3 | `social` | freetextJudged | POC | DIALOGUE_MODAL | ✅ opening frame (0.3.1, NPC bust placeholder) — DIALOGUE_MODAL not built |
@@ -46,7 +47,7 @@ Grouped by target entity per the [[action-engine-framework]] Diagram 3. Every op
 ### Location / world graph (4)
 
 | # | Op | Live since | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | `move_to` | 0.3.0 | Charted-node travel; supersedes `set_location` for known destinations |
 | 2 | `set_location` | POC | Legacy alias; kept for backward compat, replaced by `move_to` |
 | 3 | `cross_frontier` | 0.2.6 | Frontier crossing; the exploration verb. Mints + charts new ground |
@@ -55,7 +56,7 @@ Grouped by target entity per the [[action-engine-framework]] Diagram 3. Every op
 ### Character scalars (5)
 
 | # | Op | Live since | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 5 | `modify_health` | POC | Clamped 0..max |
 | 6 | `modify_stamina` | POC | Clamped 0..max |
 | 7 | `modify_max_stamina` | 0.2.6 | Ceiling gains; `CharacterRepository.update` allow-list gap fixed (0.3.1, B#2) |
@@ -65,14 +66,14 @@ Grouped by target entity per the [[action-engine-framework]] Diagram 3. Every op
 ### Inventory (2)
 
 | # | Op | Live since | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 10 | `add_item` | POC | Item gained; stat bonus surfaces on `/stats` |
 | 11 | `remove_item` | POC | Item lost/consumed; loss now renders as a subtraction with a real minus glyph (0.3.1, B#4) |
 
 ### NPCs (4)
 
 | # | Op | Live since | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 12 | `add_npc` | POC | NPC created + placed |
 | 13 | `spawn_npc` | 0.2.3 | Alias for `add_npc`; used by Saturday threat spawn |
 | 14 | `update_npc` | POC | NPC state change |
@@ -81,7 +82,7 @@ Grouped by target entity per the [[action-engine-framework]] Diagram 3. Every op
 ### Scene-state relations (2)
 
 | # | Op | Live since | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 16 | `set_relation` | 0.3.0 | Edge-shaped mutation; creates `(from, to, relType, props)` edge |
 | 17 | `update_relation` | 0.3.0 | Updates props on existing edge; dropped-with-warn if edge missing |
 
@@ -90,7 +91,7 @@ Grouped by target entity per the [[action-engine-framework]] Diagram 3. Every op
 Live since 0.3.0. The classify → decide → dice → resolve spine from [[prompt-separation-of-concerns]].
 
 | # | DMA | Role | Owns |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | CLASSIFY | Route action to ActionType + extract routing flags | ActionType, combat detection, scene-location extraction |
 | 2 | DECIDE | Author options (per-option stat, DC, mutation intent) | Option shape, narration (CONTINUE beats), difficulty hints |
 | 3 | RESOLVE-MUTATE | Propose mutations against roll verdict | Mutation set, outcome_text (pre-adjustment) |
@@ -103,7 +104,7 @@ Live since 0.3.0. The classify → decide → dice → resolve spine from [[prom
 Live since 0.3.0. Edge-shaped state carried across beats per [[prompt-v12-scene-state]].
 
 | # | relType | Writes | Use |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | `in_combat` | `combat` | Enemy HP, round, posture; anchors combat scene |
 | 2 | `combat_save` | `combat` | Once-per-day no-one-shot floor; per PC→PC edge |
 | 3 | `trust` | `social` | NPC trust level (0–100) |
@@ -118,7 +119,7 @@ Live since 0.3.0. Edge-shaped state carried across beats per [[prompt-v12-scene-
 Live since 0.3.0 per [[prompt-v12-combat]] + [[prompt-v12-scene-state]] Thread C.
 
 | Feature | Status | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Contested d20 (player vs enemy) | ✅ live | Engine-rolled both dice |
 | Severity bands (clean / glanced / trade / heavy) | ✅ live | Determines HP delta per round |
 | CombatBeatLog telemetry | ✅ live | Round, band, HP deltas, ops per beat, plus full per-round maths (`playerD20`/`playerBonus`/`dc`/`enemyD20`/`enemyBonus`/`margin`, added 0.3.1); still parked for the prose-critic trigger decision |
@@ -137,7 +138,7 @@ Two layers coexist. The legacy monochrome ASCII: 23 `.ascii` scene files in `ass
 ### What the ANSI classification framework calls for
 
 | Layer | Component | Status |
-|---|---|---|
+| --- | --- | --- |
 | Renderer | `AnsiRenderer` (`src/render/AnsiRenderer.ts`) | ✅ built (0.3.0/0.3.1) — palette-driven, border ladder |
 | Registers | Chrome templates (`assets/ansi/templates/registers/`) | ◐ partial — combat cards + opening frames render as code, not yet a template directory |
 | UI templates | Bar templates, pip meters, ground strips (`assets/ansi/templates/ui/`) | ◐ partial — HP bars + enemy pips live in code, not extracted as templates |
@@ -149,7 +150,7 @@ Two layers coexist. The legacy monochrome ASCII: 23 `.ascii` scene files in `ass
 ### Art coverage by POC+ item
 
 | POC+ item | Registers needed | Renderer built? | Fragment art needed? |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 2 · Combat maths reveal | COMBAT_FRAME, COMBAT_CRIT, DATA_CARD | ✅ built (0.3.1) | Enemy sprites (combat), d20 centrepiece (crit), no fragments for DATA_CARD |
 | 3 · Nat 1/20 broadcast | BROADCAST_CARD | Reuses #2 renderer (BROADCAST_CARD itself not yet built) | d20 centrepiece (crit-lite); re-enactment lifted from resolve narration (no fragment needed) |
 | 4 · Cross-player buffs | DIALOGUE_MODAL | Reuses #2 renderer | NPC busts (future); no fragment art in first pass — chrome + text slots only |
@@ -160,7 +161,7 @@ Two layers coexist. The legacy monochrome ASCII: 23 `.ascii` scene files in `ass
 Cross-reference of every POC+ item against action features and art status.
 
 | # | Item | Action types touched | Mutations needed | Scene-state needed | Art registers | Art status |
-|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- |
 | 0 | v12 closeout tail | — | — | — | — | n/a — code sweep only |
 | 1 | Welcome tag | — (join command) | — | — | WELCOME_CARD `[mvp+]` | ❌ deferred; embed-based in T1 |
 | 2 | Combat maths reveal | `combat` | `modify_health`, `set_relation`, `update_relation` | `in_combat` | COMBAT_FRAME, COMBAT_CRIT, DATA_CARD | ❌ T2 builds renderer |
@@ -173,7 +174,7 @@ Cross-reference of every POC+ item against action features and art status.
 What's missing to complete POC+ art coverage (the `AnsiRenderer` chokepoint is now resolved — shipped 0.3.1):
 
 | Gap | Blocking | Est. effort |
-|---|---|---|
+| --- | --- | --- |
 | BROADCAST_CARD frame (reuses the renderer) | Item 3 (nat 1/20 broadcast) | Stage 2 |
 | Fragment DB table + seed enemy sprites | Item 2 combat frames (sprite slots) | Not yet tasked (mvp+) |
 | Enemy fragment art (at least 2-3 common foes) | Item 2 (combat frames) | Not yet tasked (mvp+) |

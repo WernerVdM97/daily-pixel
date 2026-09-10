@@ -1,5 +1,256 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`dispatch oracle — M9.3.0 characterisation net > a malformed action:-prefixed customId (parseActionCid → null) from a user with NO character → deferUpdate then silence, same as the WITH-character cross above — the parse now runs ahead of the router entirely (Finding 1, M9.3.2b review) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:<choice> from a user with no character → plain ephemeral reply BEFORE the unconditional deferUpdate (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "You don't have a character. Type \`/join\` first.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:<choice> where beginChoice throws before any beat → notifyAdmin fires, the generic error paints via a plain reply (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "Something went wrong with your action. Try \`/action\` again.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:<choice> where resolveChoice returns null (session expired) → deferUpdate already fired, expired copy paints via webhook.editMessage, NOT editReply (DC-M9.3.3, DC-M9.3.5) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "content": "❌ Your action session expired. Try \`/action\` again.",
+      "embeds": [],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal where the resume returns zero options hits the resume-stale arm → deferReply then the Stale Action embed, no narration prefix (DC-M9.3.7) 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "The trail has gone cold.",
+          "title": "⏳ Stale Action",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with NO character → one plain ephemeral reply (pre-M9.3 the same arm deferred first, then edited) 1`] = `
+[
+  {
+    "arg": {
+      "content": "You don't have a character. Type \`/join\` first.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with NO rolls left → the ⛔ out-of-actions rejection, no startAction (pre-M9.3 this leaf had no rolls arm and granted a FREE action) 1`] = `
+[
+  {
+    "arg": {
+      "content": "🛌 **Out of actions for today.**
+Rest by the Oak (\`/sleep\`) and try again tomorrow.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with profane text AND no character → the profanity guard still wins; engine.getCharacter is never reached (DC-M9.3.9) 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ That action contains language the warden won't tolerate. Try something else.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:custom:modal with profane text → the profanity guard rejects it with a single plain ephemeral reply, no defer at all (DC-M9.3.2 — must stay byte-identical through the whole M9.3 slice; pairs with action-oracle's slash pass-through transcript, same filter/pattern/text) 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ That action contains language the warden won't tolerate. Try something else.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<malformed> → deferUpdate and nothing else: no protocol event, no paint, no notifyAdmin (DC-M10.4) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> from unsafe ground (not the job's own workplace) → the interpolated unsafe-ground warning, plain ephemeral reply, no defer (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "⚠️ **It's no place for honest work here.**
+The Shadowfen Marsh is too dangerous — make for safer ground before you set to your trade.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> resolving to empty-action → paints through the webhook on an acked interaction (M10.0 review) 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "Nothing to decide.",
+          "title": "⚔️ Action",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> where beginDayJob throws before any beat → notifyAdmin fires, the error replies plainly and the interaction IS acked (DC-M10.1) 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ **Could not act.**
+boom (dayjob)",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> where the loading beat's own deferUpdate rejects → still replies plainly, never through the webhook (M10.0 review) 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ **Could not act.**
+Unknown interaction",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> with an out-of-range job index → 'Invalid job action.' plain ephemeral reply, no defer (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "Invalid job action.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > action:dayjob:<n> with no character → plain ephemeral reply, no defer (DC-M9.3.3) 1`] = `
+[
+  {
+    "arg": {
+      "content": "You don't have a character. Type \`/join\` first.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — M9.3.0 characterisation net > sleep:feedback:modal where the persist throws → the player still gets the normal confirmation reply, and notifyAdmin fires with the sleep-specific label (DC-M9.3.10) 1`] = `
+[
+  {
+    "arg": {
+      "content": "🙏 Thanks. The warden listens.",
+      "flags": 64,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — customId branches > action: with a malformed customId (parseActionCid → null) still acks via deferUpdate 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+]
+`;
+
 exports[`dispatch oracle — customId branches > action:<choice> → handleActionChoice steps the action machine 1`] = `
 [
   {
@@ -535,6 +786,118 @@ exports[`dispatch oracle — customId branches > sleep:feedback:modal → thanks
 ]
 `;
 
+exports[`dispatch oracle — divine intervention (M9.1, DC-M9.3) > action:custom:modal → divine intervention paints the grey System embed, no broadcast 1`] = `
+[
+  {
+    "arg": {
+      "flags": 64,
+    },
+    "method": "deferReply",
+  },
+  {
+    "arg": {
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** scout the northern ridge
+
+⏳ **Thinking…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "The warden intervenes — your roll is refunded.",
+          "title": "⚠️ System",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+]
+`;
+
+exports[`dispatch oracle — divine intervention (M9.1, DC-M9.3) > action:dayjob:<n> → divine intervention paints the grey System embed, no broadcast 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "⏳ **Starting…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You head to the Town Square.**  
+⚡ -1 stamina
+
+⏳ **Setting to work…**
+_The warden tends the fire._",
+          "title": "🚶 Daily Commute",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "The warden intervenes — your roll is refunded.",
+          "title": "⚠️ System",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — nav: sub-branches > nav:<generic> (nav:hi) with NO character → the container renders alone, no nav bar 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "You don't have a character. Type \`/join\` first.",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
 exports[`dispatch oracle — nav: sub-branches > nav:<generic> (nav:hi) → renders the target screen with a nav bar 1`] = `
 [
   {
@@ -614,6 +977,19 @@ exports[`dispatch oracle — nav: sub-branches > nav:<generic> (nav:hi) → rend
         },
       ],
       "flags": 32832,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — nav: sub-branches > nav:action where resumeAction throws the D2 timeout → 'Could not resume.' reaches the player and notifyAdmin does NOT fire 1`] = `
+[
+  {
+    "arg": {
+      "content": "❌ **Could not resume.**
+MockWorldEngine.resumeAction: no canned result set",
+      "flags": 64,
     },
     "method": "reply",
   },
@@ -1071,6 +1447,82 @@ You crest the ridge and chart the valley below.
       ],
     },
     "method": "webhook.editMessage",
+  },
+]
+`;
+
+exports[`dispatch oracle — slash arm > /ping renders 'pong' with a nav bar — the wiring-level nav supply, the one command that does not cross the seam 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "pong",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:hi",
+              "emoji": {
+                "name": "🌅",
+              },
+              "label": "Hi",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": {
+                "name": "📖",
+              },
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:action",
+              "emoji": {
+                "name": "⚔️",
+              },
+              "label": "Action",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
+  },
+]
+`;
+
+exports[`dispatch oracle — slash arm > /ping with NO character → 'pong' alone, no nav bar (the \`if (char)\` fallback, unchanged) 1`] = `
+[
+  {
+    "arg": {
+      "components": [
+        {
+          "components": [
+            {
+              "content": "pong",
+              "type": 10,
+            },
+          ],
+          "type": 17,
+        },
+      ],
+      "flags": 32768,
+    },
+    "method": "reply",
   },
 ]
 `;

@@ -1,5 +1,23 @@
 # agents
 .pi-subagents/
+# `.pi/` is local agent state, so ignore its contents rather than the directory itself:
+# the factory agent definitions are the loops' contract and are tracked; `.pi/subagents/`
+# (schedules, run history) stays runtime-only.
+.pi/*
+!.pi/agents/
+!.pi/factory/
+# Of `.pi/factory/`, only the board field/option ids are tracked: the agents read them at
+# runtime and they must outlive this machine. The seeding payloads, the runbook and the
+# sub-issue linking script are one-shot local artifacts.
+.pi/factory/*
+!.pi/factory/project.json
+!.pi/factory/memory/
+# Factory memory tree: the topic skeleton (a `.gitkeep` per leaf topic) and its README are
+# tracked; agent-written content is not. See .claude/skills/factory-memory/SKILL.md.
+.pi/factory/memory/**/*
+!.pi/factory/memory/**/
+!.pi/factory/memory/**/.gitkeep
+!.pi/factory/memory/README.md
 .claude/worktrees
 
 # Obsidian — personal config

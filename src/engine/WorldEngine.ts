@@ -381,6 +381,16 @@ export interface WeeklyActionSummary {
   narrative: string;
 }
 
+/** Result of a nightly rest at the Oak (M7.1, DC-M7.1.1) — the unsafe-rest −1 HP rule now
+ *  lives inside `restAtOak`, so the caller learns whether the rest was unsafe and from where. */
+export interface RestAtOakResult {
+  /** Post-rest, post-penalty character — null when the user/character is missing. */
+  character: CharacterData | null;
+  wasUnsafe: boolean;
+  /** The pre-rest location — the place the penalty prose names. */
+  unsafeFromName: string;
+}
+
 // ── The one cohesive interface ──
 
 export interface WorldEngine {
@@ -449,7 +459,12 @@ export interface WorldEngine {
   submitBug(characterId: number, text: string, actionId?: number): void;
 
   // Rest & recovery
-  restAtOak(discordUserId: string): CharacterData | null;
+  /** Nightly rest at the Oak (M7.1, DC-M7.1.1). The unsafe-rest −1 HP rule lives HERE —
+   *  condition (current location unsafe, not already at the Oak, not the passed workplace)
+   *  and the −1 penalty, applied via this.modifyHealth so the clamp is shared — moved from
+   *  the Discord sleep command (M0-style leak fix). `opts.workplace` is the H1 exemption the
+   *  controller computes from its dayJobs roster; `unsafeFromName` is the pre-rest location. */
+  restAtOak(discordUserId: string, opts?: { workplace?: string | null }): RestAtOakResult;
 
   /** Apply a flat health delta (signed, clamped 0..max). Returns updated char or null. */
   modifyHealth(discordUserId: string, amount: number): CharacterData | null;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderMap, resolveMapFocus } from '../../src/discord/map-render.js';
+import { renderMap, resolveMapFocus } from '../../src/render/map-render.js';
 import type { DiscoveredGraph, DiscoveredNode } from '../../src/engine/WorldEngine.js';
 
 function node(name: string, over: Partial<DiscoveredNode> = {}): DiscoveredNode {

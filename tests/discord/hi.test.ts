@@ -1,13 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
-import {
-  formatCharacterHeader,
-  isWeekend,
-  makeHiCommand,
-} from "../../src/discord/commands/hi.js";
+import { makeHiCommand } from "../../src/discord/commands/hi.js";
+import { formatCharacterHeader, isWeekend } from "../../src/controller/hiScreen.js";
+import { SessionController } from "../../src/controller/SessionController.js";
+import { GameRouter } from "../../src/protocol/router.js";
+import { WizardSession } from "../../src/controller/WizardSession.js";
+import type { CharDefs } from "../../src/controller/joinWizard.js";
 import {
   getDayJobActions,
   getWorkplaceLocation,
   COMMON_ACTIONS,
+  type DayJobDef,
 } from "../../src/controller/dayJob.js";
 import type { CharacterData, StatBlock, WorldEngine } from "../../src/engine/WorldEngine.js";
 
@@ -43,7 +45,7 @@ function makeChar(overrides?: Partial<CharacterData>): CharacterData {
   };
 }
 
-const mockDayJobs = [
+const mockDayJobs: DayJobDef[] = [
   {
     name: "Blacksmith",
     depends_on: ["physical"] as string[],
@@ -81,6 +83,23 @@ const mockDayJobs = [
     ],
   },
 ];
+
+/** M7.2 (DC-M7.2.4): the handler is translate + paint — every call goes through a
+ *  GameRouter over a real SessionController wrapping the SAME engine (the sleep.test.ts
+ *  M7.1 pattern). */
+// M7.3: the controller requires the wizard deps at every construction site — this suite
+// never touches the wizard, so the store is fresh and the defs empty.
+const EMPTY_DEFS: CharDefs = { classes: [], backgrounds: [], races: [], alignments: [], dayJobs: [], itemSets: [] };
+
+// M8.1 (DC-M8.5): the controller's 7th constructor arg (openLook's scene renderer) — a
+// fixed stub; this suite never reaches openLook.
+const SCENE_STUB = () => ({ sceneName: "test", ascii: "..." });
+
+function makeHandler(engine: WorldEngine, dayJobs: DayJobDef[]) {
+  const controller = new SessionController(engine, () => "", dayJobs, undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+  const router = new GameRouter(controller, { idle: () => "" });
+  return makeHiCommand(router);
+}
 
 describe("formatCharacterHeader", () => {
   it("shows status: name, class, HP, stamina, rolls, and wealth (emoji-only, no labels)", () => {
@@ -212,15 +231,51 @@ describe("unfinished-action screen", () => {
       getLocation: () => ({ name: "The Warden's Oak", emoji: "🌳", isSafe: true }),
       resumeAction: () => ({ nextDecision: { prompt: "What do you do?", narration: "The path forks." } }),
       getMeta: () => "1",
+      updateLastPlayed: vi.fn(),
     } as unknown as WorldEngine;
   }
 
   it("does not offer the impossible free-text continue instruction", async () => {
-    const hi = makeHiCommand(makeEngineWithPending(), mockDayJobs);
+    const engine = makeEngineWithPending();
+    const hi = makeHandler(engine, mockDayJobs);
     const out = await hi({ user: { id: "u1" } });
     expect(out).toContain("Unfinished Action");
     expect(out).toContain("Press the **Action** button to continue.");
     expect(out).not.toContain("action <what you do>");
+    expect((engine as unknown as { updateLastPlayed: ReturnType<typeof vi.fn> }).updateLastPlayed).not.toHaveBeenCalled();
+  });
+});
+
+describe("greeting screen through the router", () => {
+  // The fixture char is a Blacksmith at the Oak, so the weekday day-job block must carry
+  // the workplace suffix and the action hint, with no weekend hooks.
+  function makeEngineWithCharacter(): WorldEngine {
+    return {
+      getCharacter: () => makeChar(),
+      getLocation: () => null,
+      getMeta: () => "1",
+      updateLastPlayed: vi.fn(),
+    } as unknown as WorldEngine;
+  }
+
+  it("weekday greeting shows the workplace suffix, the daily-work block, and the action hint", async () => {
+    // Pin the weekday branch (isWeekend reads new Date().getDay()) — otherwise this
+    // test fails on a weekend run. 2026-07-15 is a Wednesday (the M7.0 oracle's date).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-15T12:00:00Z"));
+    try {
+      const engine = makeEngineWithCharacter();
+      const hi = makeHandler(engine, mockDayJobs);
+      const out = await hi({ user: { id: "u1" } });
+
+      expect(out).toContain("The Town Forge");
+      expect(out).toContain("Daily Work");
+      expect(out).toContain("Press the **Action** button or type `action <what you do>` to start.");
+      expect(out).not.toContain("Weekend");
+      expect((engine as unknown as { updateLastPlayed: ReturnType<typeof vi.fn> }).updateLastPlayed).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -18,6 +18,7 @@ import type {
   DecisionViewState,
   OutcomeViewState,
   MenuViewState,
+  WizardViewState,
 } from '../view/viewState.js';
 
 /** A discrete actionable button on a view — the machine-readable companion to the prose
@@ -76,7 +77,17 @@ export function viewToText(view: ViewState): string {
       return view.body;
     case 'commute':
       return `You head to the ${view.destination}. (-1 stamina)\nSetting to work… ${view.idle}`;
+    case 'wizard':
+      return wizardToText(view);
   }
+}
+
+/** The character-creation wizard screen (M7.3, DC-M7.3.13) — the ledger + body blocks
+ *  rejoin with the same `\n\n` the Discord medium step uses. Never reached at M7.3 (the
+ *  agent's creation crosses the seam as events, not as a rendered screen) — it exists for
+ *  exhaustiveness and the M8.5 parity beats. */
+function wizardToText(view: WizardViewState): string {
+  return [view.ledger, view.body].join('\n\n');
 }
 
 function movesBlock(view: ViewState): string | null {
