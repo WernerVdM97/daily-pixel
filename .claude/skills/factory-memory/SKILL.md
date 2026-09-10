@@ -1,6 +1,6 @@
 ---
 name: factory-memory
-description: Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator) reads or writes .pi/factory/memory/.
+description: Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil) reads or writes .pi/factory/memory/.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 paths:
   - .pi/factory/memory/**
@@ -25,6 +25,7 @@ One folder per subject, so an agent can aim a search at a branch of the tree ins
 | `delivery/` | `discord`, `pr-and-review`, `ci` |
 | `models/` | `tiers`, `escalations` |
 | `owner/` | `preferences` |
+| `meta/` | the factory's own improvement record: `proposals`, `metrics`, `sessions` |
 | `incidents/` | one dated bullet per incident; split into `incidents/YYYY-MM/` once it outgrows a page |
 
 Nest deeper only when a topic genuinely splits. Depth is cheap for grepping, but a folder holding one line is a worse index than a line in the parent.
@@ -40,6 +41,7 @@ Read anything; write only inside your own scope. One writer per topic, except th
 | sweeper | `loops/sweeper/`, `gate/violations/`, `delivery/ci/`, `incidents/` |
 | scrumo | `loops/scrumo/`, `board/milestones/`, `owner/preferences/`, `incidents/` |
 | escalator | `loops/escalator/`, `models/escalations/`, `incidents/` |
+| meta-oil | `meta/proposals/`, `meta/metrics/`, `meta/sessions/`, `loops/meta-oil/`, `incidents/` |
 
 Which model ran, what a gate rule means, and which command verifies a change all belong to the topics above, not to the loop folders. `loops/<name>/` is only for that loop's own habits and mistakes.
 

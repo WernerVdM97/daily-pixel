@@ -42,11 +42,15 @@ export type DmPayload = string | MessageCreateOptions;
 /**
  * Log in, DM one or more payloads to the admin (or `toUserId`), then tear down.
  * Import this from a one-off script to send real rendered `src/` output for a manual look.
+ *
+ * Returns the sent message ids in order, so a caller that needs the owner to *answer*
+ * (the factory's inbox watcher polls reactions on the digest it sent) has something to
+ * watch. Callers that only want the side effect can ignore the return value.
  */
 export async function sendToAdmin(
   payloads: DmPayload | DmPayload[],
   toUserId?: string,
-): Promise<void> {
+): Promise<string[]> {
   loadEnv();
   const token = process.env.DISCORD_TOKEN;
   const recipient = toUserId ?? process.env.ADMIN_USER_ID;
@@ -54,21 +58,23 @@ export async function sendToAdmin(
   if (!recipient) throw new Error("No recipient: set ADMIN_USER_ID or pass toUserId.");
 
   const list = Array.isArray(payloads) ? payloads : [payloads];
+  const sentIds: string[] = [];
   const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
   });
 
-  await new Promise<void>((resolvePromise, reject) => {
+  return await new Promise<string[]>((resolvePromise, reject) => {
     client.once(Events.ClientReady, async () => {
       try {
         console.log(`Logged in as ${client.user?.tag}`);
         const user = await client.users.fetch(recipient);
         const dm = await user.createDM();
         for (const [i, payload] of list.entries()) {
-          await dm.send(payload as MessageCreateOptions | string);
+          const sent = await dm.send(payload as MessageCreateOptions | string);
+          sentIds.push(sent.id);
           console.log(`Sent message ${i + 1}/${list.length}`);
         }
-        resolvePromise();
+        resolvePromise(sentIds);
       } catch (err) {
         reject(err);
       } finally {
@@ -151,7 +157,10 @@ async function runCli(): Promise<void> {
   let content = args.fence ? `\`\`\`${args.fence}\n${body}\n\`\`\`` : body;
   if (args.title) content = `**${args.title}**\n${content}`;
 
-  await sendToAdmin(content, args.to);
+  const ids = await sendToAdmin(content, args.to);
+  // Printed, not just logged: the factory's inbox watcher records this id and polls
+  // reactions on it, which is how the owner answers a digest without a button handler.
+  for (const id of ids) console.log(`message-id: ${id}`);
   console.log("Done.");
   process.exit(0);
 }
