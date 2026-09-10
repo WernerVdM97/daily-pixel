@@ -63,10 +63,10 @@ Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`s
 
 | Loop | Agent | Cadence (when resumed) | Writes code? |
 | --- | --- | --- | --- |
-| Triage | `factory-triage` | 6h | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
-| Executor | `factory-executor` | 6h | Yes — the only one, and only behind the gate |
-| Sweeper | `factory-sweeper` | 1d | No — gate audit, CI re-check, board hygiene, digest |
-| Scrumo | `factory-scrumo` | 1d | No — DM digest, three recommended actions, blocker comments |
+| Triage | `factory-triage` | 12h | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
+| Executor | `factory-executor` | 1d | Yes — the only one, and only behind the gate |
+| Sweeper | `factory-sweeper` | 2d | No — gate audit, CI re-check, board hygiene, digest |
+| Scrumo | `factory-scrumo` | 3d | No — DM digest, three recommended actions, blocker comments |
 | Meta-oil | `meta-oil` | Fri + Sat 18:00Z | No — friction analysis and numbered proposals; edits a factory file only once that exact proposal is approved |
 
 **Triage** reads Inbox items, dedupes, resolves `[[doc-links]]`, drafts acceptance criteria, asks clarifying questions as comments, and moves items to Triaged — or to Blocked with `needs-human-decision` when it cannot proceed.
