@@ -25,6 +25,7 @@ Task- and tool-specific conventions live as auto-discovered skills in [`.claude/
 | `game-development`  | building game systems: orchestrator routing to `game-design`, `multiplayer`, `game-art-static`, `game-art-dynamic`, `game-audio` |
 | `ansi-frames`       | authoring ANSI/ASCII art frames for Discord (combat frames, event moments, splashes) from a prompt                               |
 | `agent-smoke`       | spawning live AI-player smoke runs (`npm run agent:play`) via Sonnet subagents for QA + playtest feedback                         |
+| `factory-memory`    | reading/writing the Dark Factory's topic-scoped memory under `.pi/factory/memory/` (triage, executor, sweeper, scrumo, escalator)  |
 
 ## Other Key files
 

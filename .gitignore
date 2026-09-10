@@ -1,5 +1,17 @@
 # agents
 .pi-subagents/
+# `.pi/` is local agent state, so ignore its contents rather than the directory itself:
+# the factory memory skeleton is the one part of it that is tracked.
+.pi/*
+!.pi/factory/
+.pi/factory/*
+!.pi/factory/memory/
+# Factory memory tree: the topic skeleton (a `.gitkeep` per leaf topic) and its README are
+# tracked; agent-written content is not. See .claude/skills/factory-memory/SKILL.md.
+.pi/factory/memory/**/*
+!.pi/factory/memory/**/
+!.pi/factory/memory/**/.gitkeep
+!.pi/factory/memory/README.md
 .claude/worktrees
 
 # Obsidian — personal config
