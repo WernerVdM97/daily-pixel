@@ -43,31 +43,34 @@ Blocked (needs-human-decision) is reachable from any stage except Done; triage o
 
 | Path | What it is |
 | --- | --- |
-| `.pi/agents/factory-{triage,executor,sweeper}.md` | Loop role definitions: authority, gate, memory scope, report shape |
-| `.pi/subagents/schedules/` | The three durable schedules; paused runtime state, not tracked |
+| `.pi/agents/factory-{triage,executor,sweeper,scrumo,escalator}.md` | Loop role definitions: authority, gate, memory scope, report shape |
+| `.pi/subagents/schedules/` | The four durable schedules; paused runtime state, not tracked |
 | `.pi/factory/project.json` | The board's field and option ids, so agents don't hardcode them |
-| `.pi/factory/REQUIREMENTS.md` | The pending scrumo + model-tiering work |
+| [[dark-factory-requirements]] (in `docs/`) | The decisions behind scrumo, the escalator and the model tiering; implemented 2026-09-10 |
 | `.pi/factory/memory/` | The loops' topic-scoped memory |
 
 The loops run with `context: "fresh"`, so `.pi/factory/memory/` is the only thing they remember between runs: a tracked skeleton of topic folders (taxonomy reviewable in a PR) with gitignored `memory.md` contents, per the `factory-memory` skill. One dated fact per line; a stale line is deleted, never contradicted.
 
-A fourth loop is planned, not built: `factory-scrumo` (daily DM digest with three recommended actions) plus a `factory-escalator` child the executor spawns for hard slices, per `.pi/factory/REQUIREMENTS.md`. The "three loops" above holds until that lands and this doc is updated with it.
+## The four loops
 
-## The three loops
-
-Each is a project-scoped agent in `.pi/agents/` plus a durable schedule (`schedule.list`). All schedules are currently **paused** — nothing runs until the owner fires it manually with `schedule.run` or resumes the schedule.
+Each of the four is a project-scoped agent in `.pi/agents/` plus a durable schedule (`schedule.list`); the escalator is the exception, a child the executor spawns rather than a scheduled loop. All schedules are currently **paused** — nothing runs until the owner fires it manually with `schedule.run` or resumes the schedule.
 
 | Loop | Agent | Cadence (when resumed) | Writes code? |
 | --- | --- | --- | --- |
 | Triage | `factory-triage` | 6h | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
 | Executor | `factory-executor` | 6h | Yes — the only one, and only behind the gate |
 | Sweeper | `factory-sweeper` | 1d | No — gate audit, CI re-check, board hygiene, digest |
+| Scrumo | `factory-scrumo` | 1d | No — DM digest, three recommended actions, blocker comments |
 
 **Triage** reads Inbox items, dedupes, resolves `[[doc-links]]`, drafts acceptance criteria, asks clarifying questions as comments, and moves items to Triaged — or to Blocked with `needs-human-decision` when it cannot proceed.
 
 **Executor** picks at most one item: highest-priority-then-oldest among Status=`Approved`, plus any `auto:*`-class item in Inbox/Triaged. It claims the item, builds it in an isolated worktree off `dev` via the repo's orchestrated-delegation loop, runs the full suite + typecheck, gets a fresh-context review, opens a PR to `dev` with `Closes #n`, and moves the item to `In Review`. It never merges.
 
 **Sweeper** is the gate's backstop: it flags any PR whose issue was never Approved and has no `auto:*` label, re-checks CI on idle PRs, lists stale branches, resets stalled `In Progress` items back to `Approved`, marks merged items `Done`, and posts a digest.
+
+**Scrumo** is the unblocker: it reads the board, milestones, PRs and checks, the roadmap, `CHANGELOG.md` and `VERSION`, and DMs the owner a digest of what changed, what is blocked or at risk, and exactly three recommended actions phrased as decisions. It never changes Status, Priority or labels; its only board writes are comments on items it flags as blocked or at risk, and it needs `DISCORD_TOKEN` + `ADMIN_USER_ID` in the repo `.env` for the DM.
+
+**Escalator** is not scheduled: the executor spawns it as a one-shot child (`z-ai/glm-5.3` at `max` thinking) when a slice needs real reasoning: a schema change, an unexplained verification failure, a risky live path. It reads the spec and the exact commit, reproduces the problem, and returns a binding verdict with a concrete plan; the executor lands the work itself and re-verifies.
 
 ## The gate
 
@@ -84,6 +87,7 @@ Schedules live under `.pi/subagents/schedules/` and are paused by default. From 
 
 - Fire one triage pass: `subagent({ action: "schedule.run", id: "factory-triage" })`
 - Fire one executor pass: `subagent({ action: "schedule.run", id: "factory-executor" })`
+- Fire a scrumo digest: `subagent({ action: "schedule.run", id: "factory-scrumo" })`
 - Fire a sweep: `subagent({ action: "schedule.run", id: "factory-sweeper" })`
 
 Inspect runs with `schedule.history` and the usual `status`/`fleet` views.
@@ -103,4 +107,4 @@ End state: triage nightly, executor 1–2 runs around 04:00–06:00. To get ther
 
 ---
 
-_Board seeded 2026-08-03 from `TODO.md` (71 items); the loop machinery (agents, schedules, memory) was built 2026-09-07 to 09-10. `TODO.md`'s actionable items live on the board; its narrative layer stays in the repo._
+_Board seeded 2026-08-03 from `TODO.md` (71 items); the loop machinery (agents, schedules, memory) was built 2026-09-07 to 09-10, with scrumo, the escalator and the model tiering landing 09-10 per [[dark-factory-requirements]]. Only `.pi/agents/` and `.pi/factory/project.json` are tracked: the seeding payloads, the runbook and the memory contents stay local. `TODO.md`'s actionable items live on the board; its narrative layer stays in the repo._

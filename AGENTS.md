@@ -26,6 +26,7 @@ Task- and tool-specific conventions live as auto-discovered skills in [`.claude/
 | `ansi-frames`       | authoring ANSI/ASCII art frames for Discord (combat frames, event moments, splashes) from a prompt                               |
 | `agent-smoke`       | spawning live AI-player smoke runs (`npm run agent:play`) via Sonnet subagents for QA + playtest feedback                         |
 | `factory-memory`    | reading/writing the Dark Factory's topic-scoped memory under `.pi/factory/memory/` (triage, executor, sweeper, scrumo, escalator)  |
+| `orchestrated-delegation` | the executor's build loop: tier table pinning repo-local `delegate-*` agents behind the Dark Factory gate, worktrees off `dev` |
 
 ## Other Key files
 
