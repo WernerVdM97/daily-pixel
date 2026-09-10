@@ -83,6 +83,17 @@ export class CharacterRepository {
       .get(id) as CharacterRow | undefined;
   }
 
+  /** Count player characters whose `last_played_at` is on/after `startIso`. Lexical
+   *  compare of 'YYYY-MM-DD HH:MM:SS' >= 'YYYY-MM-DD', so a 'YYYY-MM-DD' boundary
+   *  includes exactly that day's engagements (a '2026-08-05 00:00:00' stamp counts,
+   *  a '2026-08-04 23:59:59' one does not). NULL `last_played_at` never matches. */
+  countActiveSince(startIso: string): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS n FROM player_characters WHERE last_played_at >= ?')
+      .get(startIso) as { n: number };
+    return Number(row.n);
+  }
+
   update(id: number, fields: UpdateInput): void {
     const allowed = [
       'name', 'class', 'upbringing', 'race', 'alignment', 'day_job',

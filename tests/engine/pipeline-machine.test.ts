@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { deriveEnemyMaxHp } from '../../src/engine/action/combat-dc.js';
 import Database from 'better-sqlite3';
-import { PipelineActionStateMachine } from '../../src/engine/action/PipelineActionStateMachine.js';
+import { PipelineActionStateMachine, enemyConditionBand } from '../../src/engine/action/PipelineActionStateMachine.js';
+import { PipelineStageError } from '../../src/llm/pipeline/PipelineStageError.js';
 import { createGeographyFinalize } from '../../src/engine/geography-finalize.js';
 import { runMigrations, seedWorld, SEEDED_LOCATIONS, SEEDED_EDGES } from '../../src/db/migrate.js';
 import { LocationRepository } from '../../src/db/repositories/location.js';
@@ -387,6 +388,170 @@ describe('PipelineActionStateMachine — needs_roll: false', () => {
   });
 });
 
+describe('PipelineActionStateMachine — RESOLVE difficulty signal (P3)', () => {
+  it('a reactive combat resolution carries "foeDanger" (the fight\'s own baseDc, not the accumulated DC) and no "finalDc"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Mirrors the C6 fixture above: CLASSIFY hits combat/required, DECIDE authors a weak foe
+    // (baseDc 6 -> dangerTier 'easy'), a player nat-20 kills it in round 1 via the fatal-blow
+    // interstitial -> 'Finish it' resumes straight into resolveCombat — the cheapest reachable
+    // route to the two combat call sites (resolveCombat's resolveMutate/resolveNarrate).
+    llm.classifyResult = { kind: 'hit', actionType: 'combat', flags: { unsafe_location: false, needs_roll: true, target_present: true } };
+    llm.decideResult = {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+    };
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'The goblin falls.' };
+
+    const rolls = [20, 1]; // player nat-20, enemy nat-1 -> clean crit kill, round 1
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const mutateInput = llm.resolveMutateCalls[0];
+    // `in`, not `toBeUndefined()` — a spread of `{ finalDc: undefined }` would satisfy the latter
+    // just as happily as a genuinely absent key (the exact regression this fixture guards).
+    expect('foeDanger' in mutateInput).toBe(true);
+    expect(mutateInput.foeDanger).toBe('easy');
+    expect('finalDc' in mutateInput).toBe(false);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    const narrateInput = llm.resolveNarrateCalls[0];
+    expect('foeDanger' in narrateInput).toBe(true);
+    expect(narrateInput.foeDanger).toBe('easy');
+    expect('finalDc' in narrateInput).toBe(false);
+  });
+
+  it('a DC-checked non-combat resolution carries "finalDc" (the accumulated DC the roll actually faced) and no "foeDanger"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // A non-reactive, needs_roll:true action (skill, not combat) — the generic resolve() path
+    // (PipelineActionStateMachine.ts's private `resolve`, not `resolveCombat`).
+    llm.classifyResult = { kind: 'hit', actionType: 'skill', flags: { unsafe_location: false, needs_roll: true, target_present: true } };
+    llm.decideResult = {
+      distilledType: 'tinker',
+      stat: 'physical',
+      baseDc: 12,
+      required: false,
+      decision: [{ label: 'Force the lock', dcModifier: 3 }],
+    };
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'The lock gives.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // "ponder the void" matches zero heuristic tables -> the scripted LLM classify fallback runs.
+    const started = await machine.start(testChar(), 'ponder the void', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Force straight to resolve: script the follow-up decide (called inside step()) with zero
+    // real options, same technique as the "typed handoff" describe block above.
+    llm.decideResult = { ...llm.decideResult, decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, 'Force the lock', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const mutateInput = llm.resolveMutateCalls[0];
+    expect('finalDc' in mutateInput).toBe(true);
+    expect(mutateInput.finalDc).toBe(15); // accumulateDc(baseDc 12, [+3])
+    expect('foeDanger' in mutateInput).toBe(false);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    const narrateInput = llm.resolveNarrateCalls[0];
+    expect('finalDc' in narrateInput).toBe(true);
+    expect(narrateInput.finalDc).toBe(15);
+    expect('foeDanger' in narrateInput).toBe(false);
+  });
+
+  it('an auto-resolved (no-roll) rest action carries neither "finalDc" nor "foeDanger"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'rest',
+      stat: 'physical',
+      baseDc: 0,
+      required: false,
+      decision: [{ label: 'Settle in', dcModifier: 0 }],
+    };
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_stamina', amount: 3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You rest by the fire.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // classifier hits "rest" -> flags.needs_roll === false (same fixture as the describe block above).
+    const started = await machine.start(testChar(), 'rest at the camp', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = { ...llm.decideResult, decision: [{ label: 'Step back', dcModifier: null }] };
+    const chosen = started.firstDecision.options.find(o => o.dcModifier !== null);
+    expect(chosen).toBeDefined();
+
+    const step = await machine.step(started.state, chosen!.label, testChar(), testItems);
+    expect(step.resolved).toBe(true);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const mutateInput = llm.resolveMutateCalls[0];
+    expect('finalDc' in mutateInput).toBe(false);
+    expect('foeDanger' in mutateInput).toBe(false);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    const narrateInput = llm.resolveNarrateCalls[0];
+    expect('finalDc' in narrateInput).toBe(false);
+    expect('foeDanger' in narrateInput).toBe(false);
+  });
+
+  it('a combat-classified action with required:false resolves through the generic (non-combat) path and carries "finalDc", not "foeDanger"', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // The COMBAT SUB-MODE GATE (PipelineActionStateMachine.ts:366) only routes to
+    // handleCombatStep on `state.actionType === 'combat' && state.required`: `required` comes
+    // straight off DECIDE's JSON with no engine override. `combat` is still in
+    // ROLL_ACTION_TYPES (classifier.ts), so this decide result (required:false, the
+    // combatDecideResult() helper's default) falls through to the generic resolve() and gets a
+    // real DC check instead of a contested round.
+    llm.decideResult = combatDecideResult(); // baseDc: 12, required: false, 'Strike hard' dcModifier +2
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'The bout ends.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+    // Heuristic classify hits "attack the goblin" as combat (same fixture as the happy-path
+    // describe block above).
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // Force straight to resolve: script the follow-up decide (called inside step()) with zero
+    // real options, same technique as the "typed handoff" describe block above.
+    llm.decideResult = { ...combatDecideResult(), decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    expect(step.resolved).toBe(true);
+
+    expect(llm.resolveMutateCalls).toHaveLength(1);
+    const mutateInput = llm.resolveMutateCalls[0];
+    // Proof this is genuinely the generic resolve() path and not handleCombatStep: actionType
+    // reaching resolveMutate is still 'combat', yet the handoff carries finalDc, a token only
+    // the generic resolve() path ever emits.
+    expect(mutateInput.actionType).toBe('combat');
+    expect('finalDc' in mutateInput).toBe(true);
+    expect(mutateInput.finalDc).toBe(14); // accumulateDc(baseDc 12, [+2]) for 'Strike hard'
+    expect('foeDanger' in mutateInput).toBe(false);
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    const narrateInput = llm.resolveNarrateCalls[0];
+    expect(narrateInput.actionType).toBe('combat');
+    expect('finalDc' in narrateInput).toBe(true);
+    expect(narrateInput.finalDc).toBe(14);
+    expect('foeDanger' in narrateInput).toBe(false);
+  });
+});
+
 describe('PipelineActionStateMachine — D5b mutation-finalization inversion (Task 3)', () => {
   it('narrates and reports the FINAL mutations when an injected finalize drops a proposed one', async () => {
     const llm = new MockPipelineLlmGateway();
@@ -461,6 +626,222 @@ describe('PipelineActionStateMachine — D5b mutation-finalization inversion (Ta
     if (stepResult.resolved) {
       expect(stepResult.outcome.mutations).toEqual(proposed);
     }
+  });
+});
+
+describe('PipelineActionStateMachine — F#12: day-job work strips positive inspiration', () => {
+  it('strips a positive modify_rolls_remaining from a kind:"work" action before it reaches RESOLVE-NARRATE or the outcome (non-combat resolve)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // decision:[] auto-resolves through resolve() directly (§2 v12 QA path).
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = {
+      mutations: [
+        { type: 'modify_rolls_remaining', amount: 1 },
+        { type: 'modify_wealth', amount: 2 },
+      ],
+    };
+    llm.resolveNarrateResult = { outcomeText: 'A day well worked.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 15);
+    const result = await machine.start(testChar(), 'work the forge', testItems, 'work', 5);
+
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) throw new Error('expected resolved start');
+
+    // The narrate handoff is the half that matters for coherence: the model must never be
+    // handed an inspiration the player never received.
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    expect(llm.resolveNarrateCalls[0].finalMutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+    expect(result.outcome.mutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+    // The rest of the proposed mutation set is untouched — only the positive roll grant is gated.
+    expect(result.outcome.mutations).toContainEqual({ type: 'modify_wealth', amount: 2 });
+  });
+
+  it('a kind:"quest" action keeps a positive modify_rolls_remaining (F#12 gates on kind, not on the presence of a wage)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Explicit classify hit — the heuristic path is not the point of this test, and a miss with
+    // no scripted fallback would resolve as divine intervention instead of reaching resolve().
+    llm.classifyResult = {
+      kind: 'hit',
+      actionType: 'search',
+      flags: { unsafe_location: false, needs_roll: true, target_present: false },
+    };
+    llm.decideResult = {
+      distilledType: 'exploration',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_rolls_remaining', amount: 1 }] };
+    llm.resolveNarrateResult = { outcomeText: 'Fortune favours you.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 15);
+    const result = await machine.start(testChar(), 'explore the ruins', testItems, 'quest');
+
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) throw new Error('expected resolved start');
+    expect(llm.resolveNarrateCalls[0].finalMutations).toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+    expect(result.outcome.mutations).toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+  });
+
+  it('a negative modify_rolls_remaining on a kind:"work" action is not stripped — only the positive direction is gated', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    // A zero-income job action is still work — wage omitted here deliberately (keyed on `kind`).
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_rolls_remaining', amount: -1 }] };
+    llm.resolveNarrateResult = { outcomeText: 'A gruelling shift.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 15);
+    const result = await machine.start(testChar(), 'work the forge', testItems, 'work');
+
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) throw new Error('expected resolved start');
+    expect(result.outcome.mutations).toContainEqual({ type: 'modify_rolls_remaining', amount: -1 });
+  });
+
+  it('strips a positive modify_rolls_remaining from a kind:"work" combat resolution before RESOLVE-NARRATE or the outcome (resolveCombat)', async () => {
+    // Reuses the T2b "terminal combat LOSS" fixture shape (below) — cheapest reachable route
+    // into resolveCombat() without an extra fatal-blow interstitial round-trip.
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [{
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+    }];
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_rolls_remaining', amount: 1 }] };
+    llm.resolveNarrateResult = { outcomeText: 'The goblin overwhelms you.' };
+
+    // Seed a combat_save edge so the save-day check passes (second-lethal-blow today).
+    const resolver: PipelineContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+      getCurrentDay: () => 1,
+      getSceneRelations: () => [{
+        id: 0,
+        from_type: 'pc',
+        from_ref: '1',
+        to_type: 'pc',
+        to_ref: '1',
+        rel_type: 'combat_save',
+        props: JSON.stringify({ savedDay: 1 }),
+        created_by_action_id: null,
+        updated_day: null,
+      }] as RelationRow[],
+    };
+    // player nat-1 -> heavy amplified damage; health=3 -> hpZero; savedDay=1 === currentDay=1 -> LOSS.
+    const rolls = [1, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++], resolver);
+    const lowChar = testChar({ health: 3 });
+
+    const started = await machine.start(lowChar, 'attack the goblin', testItems, 'work');
+    expect(started.resolved).toBe(false);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', lowChar, testItems);
+    expect(step.resolved).toBe(true);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(llm.resolveNarrateCalls).toHaveLength(1);
+    expect(llm.resolveNarrateCalls[0].finalMutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+    expect(step.outcome.mutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+  });
+});
+
+describe('PipelineActionStateMachine — F#12 against the REAL finalize (collapse coerces and nets)', () => {
+  let db: Database.Database;
+  afterEach(() => db?.close());
+
+  /** Both cases below need the genuine `collapseStackedDeltas` + `validateMutations` pipeline, so
+   *  they wire the real geography finalize rather than the machine's identity-pass-through default:
+   *  the two defects they pin exist only because collapse rewrites amounts, and an identity finalize
+   *  would make either test pass vacuously. */
+  function realFinalize() {
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    seedWorld(db, SEEDED_LOCATIONS, SEEDED_EDGES);
+    return createGeographyFinalize({
+      locationRepo: new LocationRepository(db),
+      edgeRepo: new LocationEdgeRepository(db),
+    });
+  }
+
+  function workMachine(llm: MockPipelineLlmGateway) {
+    return new PipelineActionStateMachine(llm, () => 15, undefined, realFinalize());
+  }
+
+  function rollsMutations(muts: unknown[]): unknown[] {
+    return muts.filter(m => (m as WorldMutation).type === 'modify_rolls_remaining');
+  }
+
+  it('strips a QUOTED positive amount, which collapse would otherwise coerce back into a real grant', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    // `ProdPipelineGateway.resolveMutate` applies no coercion or schema to `amount`, so a model
+    // emitting a quoted number reaches the machine as a string. A `typeof` guard would let it past
+    // the strip, and `collapseStackedDeltas` (inside finalize) then sums it via `Number(...)` and
+    // re-emits a genuine `{ amount: 1 }` that validates and lands — the F#12 leak, restored.
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_rolls_remaining', amount: '1' }] };
+    llm.resolveNarrateResult = { outcomeText: 'A day well worked.' };
+
+    const result = await workMachine(llm).start(testChar(), 'work the forge', testItems, 'work', 5);
+    if (!result.resolved) throw new Error('expected resolved start');
+
+    expect(rollsMutations(llm.resolveNarrateCalls[0].finalMutations)).toEqual([]);
+    expect(rollsMutations(result.outcome.mutations)).toEqual([]);
+  });
+
+  it('nets a competing +2/-1 pair to nothing rather than leaving behind a roll cost the model never intended', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 8,
+      required: false,
+      decision: [],
+    };
+    // Stripping per-mutation ahead of collapse would remove the +2 and keep the -1, turning "no
+    // gain" into a loss. Post-collapse the axis is one net +1 entry, so it goes entirely.
+    llm.resolveMutateResult = {
+      mutations: [
+        { type: 'modify_rolls_remaining', amount: 2 },
+        { type: 'modify_rolls_remaining', amount: -1 },
+      ],
+    };
+    llm.resolveNarrateResult = { outcomeText: 'A day well worked.' };
+
+    const result = await workMachine(llm).start(testChar(), 'work the forge', testItems, 'work', 5);
+    if (!result.resolved) throw new Error('expected resolved start');
+
+    expect(rollsMutations(result.outcome.mutations)).toEqual([]);
+    expect(rollsMutations(llm.resolveNarrateCalls[0].finalMutations)).toEqual([]);
   });
 });
 
@@ -826,9 +1207,22 @@ describe('PipelineActionStateMachine — ANSI-D combatRounds', () => {
     const started = await machine.start(testChar(), 'attack the goblin', testItems);
     if (started.resolved) throw new Error('expected unresolved start');
 
-    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    // SL-6: the WIN round now surfaces the fatal-blow interstitial instead of resolving
+    // straight through — an extra step() is needed to actually terminate the fight, and it
+    // must consume no further roll (rolls has only 2 entries, both already spent above).
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(interstitial.resolved).toBe(false);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+    expect(interstitial.nextDecision.options).toEqual([
+      { label: 'Finish it', dcModifier: 0 },
+      { label: 'Show mercy', dcModifier: 0 },
+    ]);
+    expect(interstitial.combatBeat).toBeUndefined();
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
     expect(step.resolved).toBe(true);
     if (!step.resolved) throw new Error('expected resolved step');
+    expect(i).toBe(2); // the resume consumed no additional roll
 
     expect(step.outcome.combatRounds).toHaveLength(1);
     expect(step.outcome.combatRounds?.[0]).toEqual({
@@ -846,6 +1240,7 @@ describe('PipelineActionStateMachine — ANSI-D combatRounds', () => {
       materialMutationFired: true,
       ops: ['set_relation'],
       marker: 'combat_round',
+      fatalBlow: 'finish',
     });
     // Nothing derived twice: the sole round-log entry IS the terminal combatBeat, not a
     // second computation of the same round's maths.
@@ -1218,11 +1613,14 @@ describe('PipelineActionStateMachine — T4 critic', () => {
     const baselineStep = await baselineMachine.step(baselineStarted.state, 'Strike hard', testChar(), testItems);
     if (!baselineStep.resolved) throw new Error('expected resolved step');
 
-    // Critic run: a minor prose defect patches outcomeText only.
+    // Critic run: a minor prose defect patches outcomeText only. Pinned to 'always' because this
+    // test owns the prose critic's PATCHING contract, not the gating policy — the SL-3 default
+    // ('narrate-gated') deliberately skips the narrate critic on a clean beat like this one, so
+    // leaving the mode implicit would test the gate instead of the patch.
     const llm = buildLlm();
     const critic = new MockCriticGateway();
     critic.verdict = { ok: false, severity: 'minor', issues: ['prose drifted from the final mutations'], patch: { outcomeText: 'patched' } };
-    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'always');
     const started = await machine.start(testChar(), 'attack the goblin', testItems);
     if (started.resolved) throw new Error('expected unresolved start');
     forceResolve(llm);
@@ -1346,6 +1744,162 @@ describe('PipelineActionStateMachine — T4 critic', () => {
       expect(step.outcome.mutations).toEqual([{ type: 'modify_health', amount: -2 }]);
       expect(step.outcome.llmCallIds).toEqual([]);
     }
+  });
+});
+
+/**
+ * RA-4c — the anomaly gate (SL-3 measure-first). `criticGateMode` is an OPTIONAL 7th constructor
+ * param defaulted to 'always', so every describe block above (which never passes it) stays on
+ * today's unconditional-fire path — these tests are additive, not a regression risk to those.
+ * "barter with the merchant" is a deliberate non-combat, heuristic-hit rawInput (classifier.ts's
+ * social table) so `actionType` is never 'combat' here — the combat exemption is covered by its
+ * own case in `tests/engine/critic-gate.test.ts` (the pure predicate) rather than re-derived via
+ * a full combat establish flow here.
+ */
+describe('PipelineActionStateMachine — RA-4c anomaly gate', () => {
+  function cleanDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'haggle',
+      stat: 'charisma',
+      baseDc: 12, // inside the anomaly band — see critic-gate.ts's BASE_DC_ANOMALY_MIN/MAX
+      required: false,
+      decision: [
+        { label: 'Offer a fair price', dcModifier: 0 },
+        { label: 'Lowball them', dcModifier: 2 },
+      ],
+      ...overrides,
+    };
+  }
+
+  // SL-3's shipped default, settled on the RA-4 A/B: the decide critic earned real catches so it
+  // keeps firing unconditionally, while the narrate critic is near-inert by construction (a narrate
+  // `major` is discarded outright, so only a patched `minor` can act) and is gated. These two cases
+  // pin the asymmetry — the whole point of the default is that the two beats behave DIFFERENTLY, so
+  // a regression collapsing them back into one policy has to fail here.
+  it('narrate-gated (the default): a clean DECIDE beat still critiques', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    const critic = new MockCriticGateway();
+    // Mode left implicit — this asserts the SHIPPED default, not an opt-in arm.
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+
+    expect(critic.calls).toHaveLength(1);
+    expect(critic.calls[0].beat).toBe('decision');
+    if (started.resolved) throw new Error('expected unresolved start');
+  });
+
+  it('narrate-gated (the default): a clean NARRATE beat is skipped, so only the decide beat is paid for', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You strike a fair deal.' };
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic);
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step1 = await machine.step(started.state, 'Offer a fair price', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step 1');
+    const step2 = await machine.step(step1.state, 'Offer a fair price', testChar(), testItems);
+    if (!step2.resolved) throw new Error('expected resolved step 2');
+
+    // Every critic call was a decide beat; the narrate beat never spent one.
+    expect(critic.calls.length).toBeGreaterThan(0);
+    expect(critic.calls.every((c) => c.beat === 'decision')).toBe(true);
+    // The unpatched narration proves the narrate critic genuinely never ran.
+    expect(step2.outcome.outcomeText).toBe('You strike a fair deal.');
+  });
+
+  it('anomaly mode: a clean decide beat skips the critic entirely (no call at all)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'anomaly');
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+
+    expect(critic.calls).toHaveLength(0);
+    if (started.resolved) throw new Error('expected unresolved start');
+    // Pass-through proves the gate skip didn't also skip returning the original result.
+    expect(started.state.lastDecideResult).toEqual(cleanDecideResult());
+  });
+
+  it('anomaly mode: a clean narrate beat skips the critic entirely', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You strike a fair deal.' };
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'anomaly');
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    // Step 1: still under the beat cap, so this calls decide() again — same clean shape.
+    const step1 = await machine.step(started.state, 'Offer a fair price', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step 1');
+    // Step 2: beat cap reached (MAX_DECISIONS_PER_ACTION=2) — resolves WITHOUT another decide()
+    // call, narrating against the same clean `lastDecideResult` carried from step 1.
+    const step2 = await machine.step(step1.state, 'Offer a fair price', testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+
+    expect(critic.calls).toHaveLength(0);
+    if (step2.resolved) expect(step2.outcome.outcomeText).toBe('You strike a fair deal.');
+  });
+
+  it('anomaly mode: a baseDc outside the authored band invokes the critic', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult({ baseDc: 30 }); // above BASE_DC_ANOMALY_MAX
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'anomaly');
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+
+    expect(critic.calls).toHaveLength(1);
+    expect(critic.calls[0].beat).toBe('decision');
+    // Fails-open shape (MockCriticGateway's default verdict, `ok: true`) still passes the
+    // decide result through unchanged — the gate firing doesn't disturb that contract.
+    if (started.resolved) throw new Error('expected unresolved start');
+    expect(started.state.lastDecideResult).toEqual(cleanDecideResult({ baseDc: 30 }));
+  });
+
+  it('anomaly mode: an empty decision[] on a non-combat beat invokes the critic', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult({ decision: [] });
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You strike a fair deal.' };
+    const critic = new MockCriticGateway();
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'anomaly');
+
+    // §2 v12 QA auto-resolve: an empty decision[] on beat 1 jumps straight to resolve within
+    // start() — so this ONE call exercises both gate sites: critiqueDecide (the empty decide
+    // result itself) AND critiqueNarration (resolving against that same anomalous decide result).
+    await machine.start(testChar(), 'barter with the merchant', testItems);
+
+    expect(critic.calls).toHaveLength(2);
+    expect(critic.calls[0].beat).toBe('decision');
+    expect(critic.calls[1].beat).toBe('resolution');
+  });
+
+  it("'always' mode (the default) invokes the critic on every beat, exactly as today", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = cleanDecideResult();
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You strike a fair deal.' };
+    const critic = new MockCriticGateway();
+    // Explicit 'always' here; the default-omitted case is already covered by every T4 test above.
+    const machine = new PipelineActionStateMachine(llm, () => 20, undefined, undefined, critic, 'always');
+
+    const started = await machine.start(testChar(), 'barter with the merchant', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step1 = await machine.step(started.state, 'Offer a fair price', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step 1');
+    const step2 = await machine.step(step1.state, 'Offer a fair price', testChar(), testItems);
+    expect(step2.resolved).toBe(true);
+
+    // start()'s decide + step1's decide + step2's narrate = 3 critic calls, none skipped.
+    expect(critic.calls).toHaveLength(3);
   });
 });
 
@@ -1616,7 +2170,12 @@ describe('PipelineActionStateMachine — T2b combatFrame on terminal combat outc
     expect(started.resolved).toBe(false);
     if (started.resolved) throw new Error('expected unresolved start');
 
-    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    // SL-6: WIN now surfaces the fatal-blow interstitial first; resolve via 'Finish it'.
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(interstitial.resolved).toBe(false);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
     expect(step.resolved).toBe(true);
     if (!step.resolved) throw new Error('expected resolved step');
 
@@ -1916,6 +2475,22 @@ describe('PipelineActionStateMachine — C3: npc-anchored combat seeds real HP/n
     expect(deriveEnemyMaxHp(14)).toBe(14); // sanity: the DC-derived guess this must NOT use
   });
 
+  it('no combatEnemy signal (the post-gateway-fix state for an empty LLM name) establishes \'Minion\'', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = combatEnemyDecideResult({ baseDc: 10, combatEnemy: undefined });
+
+    const machine = new PipelineActionStateMachine(llm, () => 10);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(step.resolved).toBe(false);
+    if (step.resolved) throw new Error('expected unresolved step');
+
+    expect(setRelationEdge(step.mutations).props.enemyName).toBe('Minion');
+  });
+
   it('a location-anchored (ambient) fight still derives enemyMaxHp from baseDc — fallback untouched', async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decideResult = combatEnemyDecideResult({ baseDc: 10 }); // anchor: 'location' (default)
@@ -2093,9 +2668,16 @@ describe('PipelineActionStateMachine — C6 combat empty-decision guard (0.3.2)'
     expect(realOptions[0].label).toBe('Press the attack');
     expect(started.firstDecision.options.some(o => o.dcModifier === null)).toBe(true); // flee present
 
-    // step() must route through handleCombatStep, producing a combatBeat.
-    const step = await machine.step(started.state, 'Press the attack', testChar(), testItems);
-    expect(step.resolved).toBe(true); // round-1 kill resolves
+    // step() must route through handleCombatStep, running the contested round. SL-6 now
+    // surfaces the fatal-blow interstitial on a WIN rather than resolving straight through —
+    // still proof the termination ladder fired (a one-shot resolve() would never reach it).
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(interstitial.resolved).toBe(false); // round-1 kill → fatal-blow interstitial, not a terminal outcome
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+    expect(interstitial.nextDecision.options.map(o => o.label)).toEqual(['Finish it', 'Show mercy']);
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    expect(step.resolved).toBe(true);
     if (!step.resolved) throw new Error('expected resolved step');
 
     // A combatBeat proves a contested roll ran inside handleCombatStep.
@@ -2104,5 +2686,374 @@ describe('PipelineActionStateMachine — C6 combat empty-decision guard (0.3.2)'
     expect(step.outcome.combatBeat!.round).toBe(1);
     expect(step.outcome.combatBeat!.band).toBe('clean');
     expect(step.outcome.combatBeat!.marker).toBe('combat_round');
+  });
+});
+
+describe('enemyConditionBand — pure banding function (direct unit coverage)', () => {
+  it('bands the five tiers by hpFraction', () => {
+    expect(enemyConditionBand(0)).toEqual({ filled: 0, woundWord: 'Slain' });
+    expect(enemyConditionBand(0.1)).toEqual({ filled: 1, woundWord: 'Critical' });
+    expect(enemyConditionBand(0.15)).toEqual({ filled: 1, woundWord: 'Battered' });
+    expect(enemyConditionBand(0.4)).toEqual({ filled: 2, woundWord: 'Bloodied' });
+    expect(enemyConditionBand(0.8)).toEqual({ filled: 4, woundWord: 'Healthy' });
+    expect(enemyConditionBand(1)).toEqual({ filled: 5, woundWord: 'Healthy' });
+  });
+
+  it('clamps a negative fraction to the Slain floor, never a negative pip count', () => {
+    // Genuinely negative is over-kill, not unknown — it still reads 'Slain', unlike non-finite
+    // input below.
+    expect(enemyConditionBand(-1)).toEqual({ filled: 0, woundWord: 'Slain' });
+  });
+
+  // RA-5a review nit, folded into RA-5c since this task adds a new caller (the fatal-blow
+  // interstitial's combatStatus): `NaN <= 0` is `false`, so an unguarded NaN falls through
+  // every tier to 'Critical' and returns `filled: NaN` — a broken pip bar. No live path feeds
+  // NaN today, but the function is exported, so this pins the guard directly rather than
+  // relying on indirect coverage.
+  //
+  // Fix (RA-5c review): non-finite input means *unknown*, not *dead* — defaulting it to 'Slain'
+  // is a false claim in the wrong direction, and a regression from the pre-guard behaviour
+  // (which read 'Critical' for NaN, just with a broken `filled: NaN`). Only the pip count is
+  // fixed here; the wound word for non-finite input stays 'Critical'. `Infinity` is likewise
+  // non-finite, so it takes the same 'Critical' path — pinned deliberately, not left to fall
+  // out of the `>= 0.8` tier.
+  it('is total: NaN/Infinity read Critical with a real (non-NaN) pip count, never a false Slain claim', () => {
+    expect(enemyConditionBand(NaN)).toEqual({ filled: 0, woundWord: 'Critical' });
+    expect(enemyConditionBand(Infinity)).toEqual({ filled: 0, woundWord: 'Critical' });
+    expect(enemyConditionBand(-Infinity)).toEqual({ filled: 0, woundWord: 'Critical' });
+  });
+});
+
+describe('PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('a won round returns an unresolved two-option decision — no LLM call, no roll, no mutation, combatRounds unchanged', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    // baseDc=6 -> enemyMaxHp=6; nat-20 crit (amplified -8) kills outright in round 1.
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const decideCallsBeforeStep = llm.decideCalls.length;
+
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    expect(interstitial.resolved).toBe(false);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    expect(interstitial.nextDecision.options).toEqual([
+      { label: 'Finish it', dcModifier: 0 },
+      { label: 'Show mercy', dcModifier: 0 },
+    ]);
+    // No beat fought at the interstitial itself — the log carries forward unchanged (empty here,
+    // a first-round kill), and there is no `combatBeat`/`mutations` on this non-terminal arm.
+    expect(interstitial.nextDecision.combatRounds).toEqual([]);
+    expect(interstitial.combatBeat).toBeUndefined();
+    expect(interstitial.mutations).toBeUndefined();
+    expect(llm.decideCalls.length).toBe(decideCallsBeforeStep); // no decide() call for the interstitial
+    expect(i).toBe(2); // only the round's own contested roll consumed, nothing extra
+  });
+
+  // Fix (RA-5c review): the interstitial's own combatStatus must not band the foe 'Slain' — the
+  // player hasn't chosen finish/spare yet, so a 'Slain' readout beside "Finish it, or let it
+  // live?" would contradict the very choice on offer. baseDc=6 -> enemyMaxHp=6 (ENEMY_HP_MIN),
+  // so the nominal display HP of 1 gives fraction 1/6 ≈ 0.167 -> 'Battered', not 'Critical'.
+  it("the interstitial's own combatStatus bands the foe as a last-gasp survivor, never Slain, for a kill from full HP", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    expect(interstitial.nextDecision.combatStatus?.woundWord).not.toBe('Slain');
+    expect(interstitial.nextDecision.combatStatus?.woundWord).toBe('Battered');
+  });
+
+  it("'Finish it' resolves success with the foe at 0 HP, banding Slain, and consumes no extra roll", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    expect(i).toBe(2); // the resume rolled nothing further
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcome).toBe('success');
+    expect(step.outcome.combatBeat?.enemyHpAfter).toBe(0);
+    expect(step.outcome.combatBeat?.fatalBlow).toBe('finish');
+    const enemyMaxHp = step.outcome.combatFrame!.enemyMaxHp;
+    expect(enemyConditionBand(step.outcome.combatBeat!.enemyHpAfter / enemyMaxHp).woundWord).toBe('Slain');
+
+    const edgeMutation = step.outcome.mutations.find(
+      (m) => m.type === 'set_relation' && (m as unknown as { relType: string }).relType === 'in_combat',
+    ) as { props: { enemyHp: number; round: number } } | undefined;
+    expect(edgeMutation?.props.enemyHp).toBe(0);
+  });
+
+  it("'Show mercy' resolves success with the terminal BEAT reporting the foe alive at 1 HP and a non-Slain band, while the persisted EDGE closes (SL-7)", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Show mercy', testChar(), testItems);
+    expect(i).toBe(2); // no extra roll on the resume
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcome).toBe('success');
+    // The BEAT is the narrative record of the round: still 1 HP, still a wounded (non-Slain)
+    // band — the outcome frame must read a survivor, not a kill.
+    expect(step.outcome.combatBeat?.enemyHpAfter).toBe(1);
+    expect(step.outcome.combatBeat?.fatalBlow).toBe('spare');
+    const enemyMaxHp = step.outcome.combatFrame!.enemyMaxHp;
+    expect(enemyConditionBand(1 / enemyMaxHp).woundWord).not.toBe('Slain');
+
+    // SL-7 supersedes RA-5c's `enemyHp: 1, round: 1` edge invariant: sparing was found to be a
+    // guaranteed-win farm (every band deals net-negative enemy HP, so a re-engaged 1-HP edge
+    // dies for free). The EDGE is combat bookkeeping and must instead read CLOSED (enemyHp: 0)
+    // so the next combat action re-establishes a fresh fight rather than continuing this one —
+    // deliberately diverging from the beat's 1 HP above.
+    const edgeMutation = step.outcome.mutations.find(
+      (m) => m.type === 'set_relation' && (m as unknown as { relType: string }).relType === 'in_combat',
+    ) as { props: { enemyHp: number; round: number } } | undefined;
+    expect(edgeMutation?.props.enemyHp).toBe(0);
+  });
+
+  it('the lethal option is listed first, matching combatWinScenario\'s first-real choice policy', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const real = interstitial.nextDecision.options.filter(o => o.dcModifier !== null);
+    expect(real[0].label).toBe('Finish it');
+    expect(interstitial.nextDecision.options.every(o => o.dcModifier !== null)).toBe(true);
+  });
+});
+
+describe('PipelineActionStateMachine — Stage 2: fatalBlow/decisionPrompt resolve handoff (RA-1/RA-2, Release gate)', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it("'Show mercy' hands both resolveMutate and resolveNarrate fatalBlow: 'spare' and the interstitial's real decisionPrompt", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Show mercy', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
+    const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
+    expect(mutateCall.fatalBlow).toBe('spare');
+    expect(narrateCall.fatalBlow).toBe('spare');
+    // Pinning "contains" rather than the whole string: a later wording tweak to the interstitial
+    // prompt shouldn't spuriously break this test.
+    expect(mutateCall.decisionPrompt).toContain('Finish it, or let it live?');
+    expect(narrateCall.decisionPrompt).toContain('Finish it, or let it live?');
+  });
+
+  it("'Finish it' hands both resolveMutate and resolveNarrate fatalBlow: 'finish' and the same decisionPrompt", async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [combatEnemyDecideResult()];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
+    const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
+    expect(mutateCall.fatalBlow).toBe('finish');
+    expect(narrateCall.fatalBlow).toBe('finish');
+    expect(mutateCall.decisionPrompt).toContain('Finish it, or let it live?');
+    expect(narrateCall.decisionPrompt).toContain('Finish it, or let it live?');
+  });
+
+  it('a combat LOSS (second lethal blow today, no fatal-blow interstitial) carries neither fatalBlow nor decisionPrompt in either handoff', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 10 }),
+    ];
+    // Seed a combat_save edge so the save-day check fails through (second-lethal-blow today) —
+    // the same reachable LOSS path as the T2b combatFrame suite, not a fabricated state.
+    const resolver: PipelineContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+      getCurrentDay: () => 1,
+      getSceneRelations: () => [{
+        id: 0,
+        from_type: 'pc',
+        from_ref: '1',
+        to_type: 'pc',
+        to_ref: '1',
+        rel_type: 'combat_save',
+        props: JSON.stringify({ savedDay: 1 }),
+        created_by_action_id: null,
+        updated_day: null,
+      }] as RelationRow[],
+    };
+    const rolls = [1, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++], resolver);
+    const lowChar = testChar({ health: 3 });
+
+    const started = await machine.start(lowChar, 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step = await machine.step(started.state, 'Press the attack', lowChar, testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+    expect(step.outcome.outcome).toBe('failure');
+
+    const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
+    const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
+    // Key ABSENCE, not a falsy value: `toBeUndefined()` alone passes for a key that is present
+    // and set to `undefined`, so it would not catch the conditional spread being replaced by an
+    // unconditional one. Nothing downstream reads the difference today, but "absent on every
+    // non-fatal-blow resolution" is the contract the field's doc comment states.
+    expect('fatalBlow' in mutateCall).toBe(false);
+    expect('fatalBlow' in narrateCall).toBe(false);
+    expect('decisionPrompt' in mutateCall).toBe(false);
+    expect('decisionPrompt' in narrateCall).toBe(false);
+  });
+
+  it('a non-combat resolution carries neither fatalBlow nor decisionPrompt in either handoff', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.classifyResult = {
+      kind: 'hit',
+      actionType: 'search',
+      flags: { needs_roll: true, unsafe_location: false, target_present: false },
+    };
+    llm.decideResult = {
+      distilledType: 'search',
+      stat: 'wisdom',
+      baseDc: 10,
+      required: false,
+      decision: [{ label: 'Strike hard', dcModifier: 0 }],
+    };
+    llm.resolveMutateResult = { mutations: [] };
+    llm.resolveNarrateResult = { outcomeText: 'You find nothing of interest.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 10);
+
+    const started = await machine.start(testChar(), 'search the area', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step1 = await machine.step(started.state, 'Strike hard', testChar(), testItems);
+    if (step1.resolved) throw new Error('expected unresolved step');
+    const step2 = await machine.step(step1.state, 'Strike hard', testChar(), testItems);
+    if (!step2.resolved) throw new Error('expected resolved step');
+
+    const mutateCall = llm.resolveMutateCalls[llm.resolveMutateCalls.length - 1];
+    const narrateCall = llm.resolveNarrateCalls[llm.resolveNarrateCalls.length - 1];
+    expect('fatalBlow' in mutateCall).toBe(false);
+    expect('fatalBlow' in narrateCall).toBe(false);
+    expect('decisionPrompt' in mutateCall).toBe(false);
+    expect('decisionPrompt' in narrateCall).toBe(false);
+  });
+});
+
+// ── 0.3.4: beat-1 LLM faults fail open, engine faults do not ──
+
+describe('PipelineActionStateMachine — beat-1 stage failures (0.3.4)', () => {
+  it('turns a decide stage failure into divine intervention instead of throwing', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decide = async () => {
+      throw new PipelineStageError('decide', 'timeout', 'ProdPipelineLlmGateway.decide: DeepSeek request aborted (timeout)');
+    };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    const result = await machine.start(testChar(), 'attack the goblin', testItems);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.isDivineIntervention).toBe(true);
+      expect(result.outcome.mutations).toEqual([]);
+    }
+  });
+
+  it('turns an auto-resolve narrate failure into divine intervention (the resolve runs inside start)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // Empty decision on beat 1 → start() runs the whole resolve pipeline inline.
+    llm.decideResult = { distilledType: 'rest', stat: 'physical', baseDc: 10, required: false, decision: [] };
+    llm.resolveNarrate = async () => {
+      throw new PipelineStageError('resolveNarrate', 'parse', 'ProdPipelineLlmGateway.resolveNarrate: failed to parse DeepSeek response: {');
+    };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    const result = await machine.start(testChar(), 'rest by the fire', testItems);
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) expect(result.outcome.isDivineIntervention).toBe(true);
+  });
+
+  it('still throws when the failure is NOT an LLM fault — an engine bug must not read as divine intervention', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decide = async () => { throw new Error('Cannot read properties of undefined'); };
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    await expect(machine.start(testChar(), 'attack the goblin', testItems)).rejects.toThrow(
+      /Cannot read properties of undefined/,
+    );
   });
 });

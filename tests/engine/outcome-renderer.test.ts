@@ -482,21 +482,23 @@ describe('OutcomeRenderer — rolls delta', () => {
       mutations: [{ type: 'modify_rolls_remaining', amount: 1 }],
     };
     // mutation +1 minus the one roll spent = net 0 → no delta on the 🎲 counter,
-    // but an explicit inspired line so the grant is never silently swallowed.
+    // but an explicit named-reward line so the grant is never silently swallowed.
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 1 }));
     expect(result).toContain('🎲 1');
     expect(result).not.toContain('🎲 1 (');
-    expect(result).toContain('✨ inspired (+1 roll)');
+    expect(result).toContain('✨ Inspired: +1 roll');
   });
 
-  it('does not show inspired line when the roll grant is already visible in the footer', () => {
+  it('shows the inspired line when the roll grant nets positive against the footer (RA-2)', () => {
+    // RA-2: the old gate only fired the line when the grant nets to zero. A grant that nets
+    // positive (+2 grant − 1 spent = +1, still visible in the 🎲 counter) is the SAME reward and
+    // must read as one too, not just as a bare "+1" beside the dice glyph.
     const outcome: ActionOutcome = {
       ...base,
       mutations: [{ type: 'modify_rolls_remaining', amount: 2 }],
     };
-    // net: +2 grant − 1 spent = +1 visible in footer; no redundant inspired line needed
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
-    expect(result).not.toContain('✨ inspired');
+    expect(result).toContain('✨ Inspired: +2 rolls');
     expect(result).toContain('🎲 2 (+1)');
   });
 
@@ -510,7 +512,7 @@ describe('OutcomeRenderer — rolls delta', () => {
       mutations: [],
     };
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
-    expect(result).not.toContain('✨ inspired');
+    expect(result).not.toContain('✨ Inspired');
     expect(result).toContain('🎲 2 (refunded)');
   });
 
@@ -523,7 +525,7 @@ describe('OutcomeRenderer — rolls delta', () => {
       rollsDelta: 0,
     };
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 1 }));
-    expect(result).toContain('✨ inspired (+1 roll)');
+    expect(result).toContain('✨ Inspired: +1 roll');
     expect(result).toContain('🎲 1');
     expect(result).not.toContain('🎲 1 (');
   });
@@ -567,7 +569,7 @@ describe('OutcomeRenderer — rolls delta', () => {
     };
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
     expect(result).toContain('🎲 2 (refunded)');
-    expect(result).toContain('✨ inspired (+1 roll)');
+    expect(result).toContain('✨ Inspired: +1 roll');
   });
 
   it('shows the real delta (not "refunded") when a mutation also moved rolls', () => {

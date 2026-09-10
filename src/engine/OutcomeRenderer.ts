@@ -195,8 +195,16 @@ function buildCombatTerminalCard(outcome: ActionOutcome, _ctx: OutcomeRenderCont
   // beat only, distinct from the per-round band-led readout on the continue card.
   const verdict = success ? 'WON' : outcome.outcome === 'failure' ? 'LOST' : outcome.outcome.toUpperCase();
 
+  // SL-6: the fatal-blow interstitial's terminal beat carries `fatalBlow` so the two
+  // identical-verdict endings (both `outcome === 'success'`) read differently — a plain
+  // win/loss/cap-derive beat never sets it, so those keep the generic label unchanged.
+  const label =
+    beat.fatalBlow === 'finish' ? 'FOE SLAIN'
+    : beat.fatalBlow === 'spare' ? 'FOE SPARED'
+    : 'COMBAT RESOLVED';
+
   return {
-    label: 'COMBAT RESOLVED',
+    label,
     playerD20: beat.playerD20,
     bonus: beat.playerBonus,
     total,
@@ -307,8 +315,14 @@ export function formatOutcome(
   // (the footer's "(refunded)" suffix below has its own `rollRefunded` gate), so an
   // auto-resolved action whose roll was refunded must still show the grant it also carried
   // (B#3 follow-up — the reported "auto-resolved rest showed refunded but no inspiration text").
-  if (d.rollsDelta > 0 && rollsDelta === 0) {
-    changes.push(`✨ inspired (+${d.rollsDelta} roll)`);
+  // RA-2: a net-positive grant (any auto-resolved or refunded action that also granted) is the
+  // SAME fact and was previously invisible too — it showed only as a bare `+N` beside the 🎲
+  // counter, which does not read as a reward. Gate on the grant alone (`d.rollsDelta > 0`), not
+  // on how it nets, so the line always names the reward regardless of what else happened to the
+  // roll count this action.
+  if (d.rollsDelta > 0) {
+    const rollWord = d.rollsDelta === 1 ? 'roll' : 'rolls';
+    changes.push(`✨ Inspired: +${d.rollsDelta} ${rollWord}`);
   }
 
   // ── Stat footer — standardised emoji glyphs ──

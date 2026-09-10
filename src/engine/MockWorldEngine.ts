@@ -17,6 +17,8 @@ import type {
   StatBlock,
   Leaderboards,
   WeeklyActionSummary,
+  ActionOption,
+  PendingChoiceSelector,
 } from "./WorldEngine.js";
 
 /**
@@ -41,9 +43,12 @@ export class MockWorldEngine implements WorldEngine {
   private _exits: LocationExits | null = null;
   private _tickResult: TickResult | null = null;
   private _soulsInUnsafe = 0;
+  private _activePlayersSince = 0;
   private _leaderboards: Leaderboards = { wealth: [], might: [] };
   private _weeklyActions: WeeklyActionSummary[] = [];
   private _meta: Map<string, string> = new Map();
+  private _commuteResult: { to: string; stamina: number } | null = null;
+  private _pendingChoiceOptions: ActionOption[] = [];
 
   // ── Call tracking ──
 
@@ -63,12 +68,14 @@ export class MockWorldEngine implements WorldEngine {
     updateLastPlayed: number[];
     modifyHealth: { discordUserId: string; amount: number }[];
     countSoulsInUnsafe: void[];
+    countActivePlayersSince: string[];
     tick: boolean[];
     restAtOak: string[];
     spawnNpc: { name: string; location: string }[];
     getLeaderboards: number[];
     getMeta: string[];
-    recordVisit: { characterId: number; locationName: string }[];
+    commuteToWorkplace: { characterId: number; workplace: string | null }[];
+    resolvePendingChoice: { characterId: number; selector: PendingChoiceSelector }[];
   } = {
     createCharacter: [],
     getCharacter: [],
@@ -85,12 +92,14 @@ export class MockWorldEngine implements WorldEngine {
     updateLastPlayed: [],
     modifyHealth: [],
     countSoulsInUnsafe: [],
+    countActivePlayersSince: [],
     restAtOak: [],
     tick: [],
     spawnNpc: [],
     getLeaderboards: [],
     getMeta: [],
-    recordVisit: [],
+    commuteToWorkplace: [],
+    resolvePendingChoice: [],
   };
 
   // ── Setters for canned responses ──
@@ -137,6 +146,20 @@ export class MockWorldEngine implements WorldEngine {
   }
   setSoulsInUnsafe(count: number): void {
     this._soulsInUnsafe = count;
+  }
+
+  setActivePlayersSince(count: number): void {
+    this._activePlayersSince = count;
+  }
+
+  setCommuteResult(result: { to: string; stamina: number } | null): void {
+    this._commuteResult = result;
+  }
+
+  /** Stashes the option list `resolvePendingChoice` resolves against, standing in for the
+   *  real engine's `last_action_state.pendingDecision.options` (M3.2 DC-F). */
+  setPendingChoiceOptions(options: ActionOption[]): void {
+    this._pendingChoiceOptions = options;
   }
 
   setTickResult(result: TickResult): void {
@@ -295,8 +318,28 @@ export class MockWorldEngine implements WorldEngine {
     return this._route ?? null;
   }
 
-  recordVisit(characterId: number, locationName: string): void {
-    this.calls.recordVisit.push({ characterId, locationName });
+  commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null {
+    this.calls.commuteToWorkplace.push({ characterId, workplace });
+    // Mirror WorldEngineImpl's persist-then-reread semantics (M3.4): the real engine writes
+    // the commute onto the character row, so a later `getCharacter` re-read reflects it —
+    // callers no longer patch a locally-held snapshot themselves.
+    if (this._commuteResult && this._character) {
+      this._character = { ...this._character, stamina: this._commuteResult.stamina, location: this._commuteResult.to };
+    }
+    return this._commuteResult;
+  }
+
+  resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null {
+    this.calls.resolvePendingChoice.push({ characterId, selector });
+    // An empty/unset stash mirrors "no last_action_state" — the mock has no separate
+    // flag for "state exists but options is empty", so it collapses the two (M3.2 DC-F).
+    if (this._pendingChoiceOptions.length === 0) {
+      return selector.kind === 'bail' ? 'Bail' : null;
+    }
+    if (selector.kind === 'bail') {
+      return this._pendingChoiceOptions.find((o) => o.dcModifier === null)?.label ?? 'Bail';
+    }
+    return this._pendingChoiceOptions[selector.index]?.label ?? null;
   }
 
   submitFeedback(characterId: number, text: string, actionId?: number): void {
@@ -358,5 +401,10 @@ export class MockWorldEngine implements WorldEngine {
   countSoulsInUnsafe(): number {
     this.calls.countSoulsInUnsafe.push();
     return this._soulsInUnsafe;
+  }
+
+  countActivePlayersSince(startIso: string): number {
+    this.calls.countActivePlayersSince.push(startIso);
+    return this._activePlayersSince;
   }
 }

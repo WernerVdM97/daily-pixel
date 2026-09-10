@@ -76,8 +76,14 @@ export interface ValidationResult {
 export interface AppliedState extends MutationContext {
   itemsToAdd: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity: number }>;
   itemsToRemove: Array<{ name: string; quantity: number }>;
-  /** v11: add_npc (create-only). Legacy spawn_npc maps here. */
-  npcsToAdd: Array<{ name: string; class?: string; description?: string; race?: string; homeLocation?: string }>;
+  /** v11: add_npc (create-only). Legacy spawn_npc maps here. `health` added by RA-3 bounded —
+   *  `npcRepo.create` always accepted it, the gap was only ever in this applier. An explicit
+   *  `location` lets a caller (the combat mint) pin the row to the FIGHT's location instead of
+   *  the applier's `applied.location` fallback, which is POST-mutation and can diverge from it
+   *  when the same resolution also relocates the player — see the create-loop comment in
+   *  `WorldEngineImpl.ts`. Omitting it keeps the pre-existing behaviour every LLM-authored
+   *  `add_npc` relies on. */
+  npcsToAdd: Array<{ name: string; class?: string; description?: string; race?: string; homeLocation?: string; health?: number; location?: string }>;
   /** v11: update_npc — handle already resolved to npcId by the gateway. */
   npcsToUpdate: Array<{ npcId: number; description?: string; location?: string; class?: string; race?: string }>;
   /** v11: remove_npc — handle already resolved to npcId by the gateway. */
@@ -114,6 +120,15 @@ export const RELOCATE_MUTATION_TYPES = new Set<string>(['set_location', 'move_to
 const STAMINA_DELTA_CAP = -5;
 const HEALTH_DELTA_CAP = -4;
 
+/** RA-1 Stage 1 — ceiling on the generic LLM-authored `add_item` channel. Base stats are set once
+ *  at character creation and never change (no `modify_stat` mutation exists anywhere), so items
+ *  are the only growth channel for `abilityCheckBonus` (`dc.ts`); item count is uncapped and the
+ *  sum is monotonic, so an unbounded per-item modifier would decay RA-1's DC retune within a week
+ *  of play. This is a TIER ceiling, not a design limit: a future named/legendary item tier is
+ *  expected to exceed it through its own channel, and must not be read as a permanent cap on item
+ *  power. See `clampAuthoredItemModifiers` below for where it's enforced. */
+export const LLM_ITEM_MODIFIER_MAX = 2;
+
 /**
  * Collapse same-axis scalar deltas into a single mutation (§5a stacked-delta guard).
  * Multiple modify_stamina mutations in one resolution are summed and capped so a bad
@@ -146,6 +161,45 @@ export function collapseStackedDeltas(mutations: WorldMutation[]): WorldMutation
   }
 
   return pass;
+}
+
+/**
+ * RA-1 Stage 1 — bounds `add_item.modifier` at `LLM_ITEM_MODIFIER_MAX`, upper-bound only. Clamps
+ * rather than rejects: `finalizeMutations` (`geography-finalize.ts`) drops every mutation the
+ * validator reports, so rejecting an over-limit `add_item` would delete the reward outright and
+ * leave a SUCCESS carrying only a stamina cost — `resolve/BASE.md` names that in bold as "a
+ * failure reward - never do this". A negative modifier passes through untouched: no prompt
+ * mentions one today, but a cursed or burdensome item is a legitimate future authoring, and
+ * flooring it at 0 would silently strip a deliberate drawback. Tests with `Number.isFinite`
+ * rather than a bare `<=` comparison so a non-finite `modifier` is handled by decision, not by
+ * accident of comparison semantics: `NaN <= LLM_ITEM_MODIFIER_MAX` is false (a bare comparison
+ * would clamp `NaN` to the ceiling — the maximum bonus for garbage input), and
+ * `-Infinity <= LLM_ITEM_MODIFIER_MAX` is true (it would reach the `items.modifier` SQLite column
+ * untouched). A non-finite numeric `modifier` (`NaN`, `Infinity`, `-Infinity`) coerces to `0`
+ * instead: still a sanctioned value ("Can be 0 for purely narrative items" in the prompt
+ * contract), so the item is still granted and the SUCCESS still carries a reward, but no bonus is
+ * invented from a malformed number — and dropping the mutation instead would hit the same
+ * "SUCCESS with only a stamina cost" problem noted above. Non-numeric/absent `modifier` also
+ * passes through untouched — that shape is the validator's job (`validateOne`'s `add_item` case),
+ * not this normaliser's.
+ *
+ * Call this from `finalizeMutations`, immediately before `collapseStackedDeltas` — the seam where
+ * every `add_item` arrives via resolve → finalize (see `applyMutations`'s `add_item` case for why
+ * this is the single home of the ceiling, not a second clamp there).
+ */
+export function clampAuthoredItemModifiers(mutations: WorldMutation[]): WorldMutation[] {
+  return mutations.map((m) => {
+    if (m.type !== 'add_item' || typeof m.modifier !== 'number') {
+      return m;
+    }
+    if (!Number.isFinite(m.modifier)) {
+      return { ...m, modifier: 0 };
+    }
+    if (m.modifier <= LLM_ITEM_MODIFIER_MAX) {
+      return m;
+    }
+    return { ...m, modifier: LLM_ITEM_MODIFIER_MAX };
+  });
 }
 
 /** Shape-only check for a `RelationEndpoint` — no DB lookup, no name resolution (T2 scope fence;
@@ -198,11 +252,12 @@ function validateTypedRelationProps(
     // in_combat delta (round would double-sum through updateProps, see combatRoundUpdate),
     // and the LLM never authors in_combat ops (engine-owned, decision 3). A future partial
     // in_combat delta writer would need to relax this by opType.
-    const { enemyName, enemyHp, enemyMaxHp, round } = props as {
+    const { enemyName, enemyHp, enemyMaxHp, round, mintName } = props as {
       enemyName?: unknown;
       enemyHp?: unknown;
       enemyMaxHp?: unknown;
       round?: unknown;
+      mintName?: unknown;
     };
     if (typeof enemyName !== 'string' || enemyName.trim() === '') {
       return `${opType} "in_combat" requires a non-empty "enemyName" string`;
@@ -224,6 +279,12 @@ function validateTypedRelationProps(
     }
     if (round < 1) {
       return `${opType} "in_combat" prop "round" (${round}) must be >= 1`;
+    }
+    // `mintName` (RA-3 bounded, see `CombatState.mintName`) is the one optional prop here:
+    // absent is legal, so edges already persisted in a live DB keep validating. When present it
+    // must be a non-empty string, same shape as `enemyName`.
+    if (mintName !== undefined && (typeof mintName !== 'string' || mintName.trim() === '')) {
+      return `${opType} "in_combat" prop "mintName" must be a non-empty string when present`;
     }
     return null;
   }
@@ -468,6 +529,11 @@ export function applyMutations(
         state.rollsRemaining = Math.max(0, state.rollsRemaining + Number(m.amount ?? 0));
         break;
       case 'add_item':
+        // RA-1 Stage 1: the ceiling is enforced in `finalizeMutations` (`clampAuthoredItemModifiers`),
+        // not here. The terminal resolve path is the only route that currently produces `add_item`,
+        // and it does go through finalize; the non-terminal beat branch calls this applier directly,
+        // with no finalize in between. Anything that adds `add_item` to a non-terminal beat must
+        // route it through the clamp first. Do not add a second clamp here.
         state.itemsToAdd.push({
           name: String(m.name ?? ''),
           emoji: String(m.emoji ?? ''),
@@ -490,6 +556,12 @@ export function applyMutations(
           ...(m.description !== undefined ? { description: String(m.description) } : {}),
           ...(m.race !== undefined ? { race: String(m.race) } : {}),
           ...(m.homeLocation !== undefined ? { homeLocation: String(m.homeLocation) } : {}),
+          // RA-3 bounded: carries the surviving foe's HP for the engine-authored mint.
+          // `npcRepo.create` already accepted `health`; only this copy was missing.
+          ...(m.health !== undefined ? { health: Number(m.health) } : {}),
+          // Honoured by the applier ahead of its `applied.location` fallback — see the
+          // `npcsToAdd` shape comment above.
+          ...(m.location !== undefined ? { location: String(m.location) } : {}),
         });
         break;
       case 'update_npc':

@@ -65,6 +65,11 @@ export interface CombatBeatLog {
    *  spec): the fresh continue-decide returned zero real options and the engine injected the two
    *  deterministic fallback options, so a flee-only screen never reaches the player. Telemetry. */
   emptyDecisionFallback?: boolean;
+  /** Set only on the terminal beat that followed a WIN's fatal-blow interstitial (SL-6): which
+   *  way the player resolved it. Smallest signal the render layer needs to vary the terminal
+   *  card's label between the two identical-verdict endings — a plain win/loss/cap-derive beat
+   *  never carries this. */
+  fatalBlow?: 'finish' | 'spare';
 }
 
 /** Enemy `d20` bonus ceiling: `clamp(baseDc - 10, 0, ENEMY_BONUS_MAX)`. */

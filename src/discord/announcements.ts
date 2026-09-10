@@ -102,3 +102,45 @@ export function buildEveningAnnouncement(data: EveningAnnouncementData): string 
     closing,
   ].join("\n");
 }
+
+/**
+ * True when the morning (05:30) slot is suppressed because the midday (12:00) beat
+ * already owns the day: Sat (wilderness threat) and Wed/Sun (leaderboards). Must stay
+ * in lockstep with `runAfternoonBeat`'s weekday checks in src/index.ts — that function's
+ * comment cross-references this one so the two can't drift.
+ */
+export function isMorningSuppressedDay(now: Date): boolean {
+  const weekday = now.getUTCDay(); // 0 = Sunday … 6 = Saturday
+  return weekday === 0 || weekday === 3 || weekday === 6;
+}
+
+/**
+ * Why the morning announcement should be skipped, in priority order:
+ * already-posted → tick-incomplete → suppressed-weekday. Null = post normally.
+ * The 0/3/6 weekday set must stay in lockstep with `isMorningSuppressedDay` (same set).
+ */
+export function morningSkipReason(input: {
+  alreadyPosted: boolean;
+  tickCompleted: boolean;
+  weekday: number;
+}): 'already-posted' | 'tick-incomplete' | 'suppressed-weekday' | null {
+  if (input.alreadyPosted) return 'already-posted';
+  if (!input.tickCompleted) return 'tick-incomplete';
+  if (input.weekday === 0 || input.weekday === 3 || input.weekday === 6) {
+    return 'suppressed-weekday';
+  }
+  return null;
+}
+
+/**
+ * Why the goodnight announcement should be skipped: already-posted first, then
+ * no player-character activity today. Null = post normally.
+ */
+export function goodnightSkipReason(input: {
+  alreadyPosted: boolean;
+  activePlayersToday: number;
+}): 'already-posted' | 'no-activity' | null {
+  if (input.alreadyPosted) return 'already-posted';
+  if (input.activePlayersToday === 0) return 'no-activity';
+  return null;
+}

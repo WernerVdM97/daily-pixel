@@ -1,12 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   formatCharacterHeader,
-  getDayJobActions,
-  getWorkplaceLocation,
   isWeekend,
   makeHiCommand,
-  COMMON_ACTIONS,
 } from "../../src/discord/commands/hi.js";
+import {
+  getDayJobActions,
+  getWorkplaceLocation,
+  COMMON_ACTIONS,
+} from "../../src/controller/dayJob.js";
 import type { CharacterData, StatBlock, WorldEngine } from "../../src/engine/WorldEngine.js";
 
 function makeChar(overrides?: Partial<CharacterData>): CharacterData {

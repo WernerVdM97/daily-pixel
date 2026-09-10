@@ -118,4 +118,15 @@ describe('createGeographyFinalize', () => {
     );
     warnSpy.mockRestore();
   });
+
+  it('RA-1 Stage 1 — clamps an over-limit add_item.modifier rather than dropping it', () => {
+    const proposed: WorldMutation[] = [
+      { type: 'add_item', name: 'Warlord\'s Blade', emoji: '⚔️', stat: 'physical', modifier: 5 },
+    ];
+    const result = finalize(proposed, baseCtx("The Warden's Oak"));
+
+    expect(result.mutations).toEqual([
+      { type: 'add_item', name: 'Warlord\'s Blade', emoji: '⚔️', stat: 'physical', modifier: 2 },
+    ]);
+  });
 });

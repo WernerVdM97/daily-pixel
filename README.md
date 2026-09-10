@@ -60,7 +60,7 @@ daily-pixel/
 │   │   ├── connection.ts           # SQLite init
 │   │   ├── migrate.ts              # Idempotent migrations
 │   │   ├── migrations/             # Dated migration files (+ index, types)
-│   │   └── repositories/           # Row-level data access (action, character, item, location, edge, NPC, relation, llm-call, meta, …)
+│   │   └── repositories/           # Row-level data access (action, character, item, location, edge, NPC, relation, user, llm-call, meta, …)
 │   ├── engine/
 │   │   ├── WorldEngineImpl.ts      # Core engine - characters, tick, items, NPCs
 │   │   ├── WorldEngine.ts          # Public interfaces
@@ -83,6 +83,12 @@ daily-pixel/
 │   │       ├── relation-wiring.ts  # Authored relation endpoints -> id resolution
 │   │       ├── pipeline-context.ts # Per-call context for the v12 pipeline
 │   │       └── travel-gate.ts      # Travel coherence backstop
+│   ├── controller/                 # Transport-neutral session layer (JSON-seam) - holds the engine, emits ViewState
+│   │   ├── SessionController.ts     # First controller slice - imports no discord.js
+│   │   └── dayJob.ts               # Day-job types (day-jobs.yml shape)
+│   ├── view/                       # Semantic, discord.js-free view-state DTOs (JSON-seam)
+│   │   ├── viewState.ts            # ViewState DTOs for the decision + outcome screens
+│   │   └── actionViewState.ts      # Builders that assemble ViewState from engine output
 │   ├── llm/
 │   │   ├── LlmGateway.ts           # Gateway interface & types
 │   │   ├── DeepseekLlmGateway.ts   # v11 monolithic DeepSeek gateway
@@ -97,6 +103,8 @@ daily-pixel/
 │   ├── discord/
 │   │   ├── CommandRegistry.ts
 │   │   ├── WizardSession.ts        # Multi-step join wizard
+│   │   ├── dispatchInteraction.ts  # Interaction dispatcher (hoisted out of main())
+│   │   ├── viewToDiscord.ts        # Medium step - the sole place turning ViewState into Discord components
 │   │   ├── format.ts               # Components V2 helpers, nav buttons
 │   │   ├── images.ts               # Cached asset image loader
 │   │   ├── profanity.ts            # Configurable profanity filter
@@ -109,7 +117,14 @@ daily-pixel/
 │   │   ├── AnsiRenderer.ts         # Coloured ANSI frame rendering for Discord
 │   │   ├── CombatCardRenderer.ts   # Combat-card composers (continue / terminal)
 │   │   ├── OpeningFrameRenderer.ts # Per-action opening scene-setter frame
+│   │   ├── embedText.ts            # Pure text helpers for the embed medium step
 │   │   └── palette.ts              # Colour roles -> Discord ANSI SGR mapping
+│   ├── agent/                      # AI-player harness (npm run agent:play) - drives SessionController with an LLM brain
+│   │   ├── harness.ts / play.ts    # Discord-free driver + real-LLM entry point
+│   │   ├── engineHarness.ts        # Stands a headless WorldEngineImpl up for the agent
+│   │   ├── AgentPlayerGateway.ts / PlaytestCriticGateway.ts   # Brain + critic interfaces (+ Prod/Scripted impls)
+│   │   ├── agentPrompt.ts / criticPrompt.ts / agentMoves.ts   # Prompt building + move parsing
+│   │   └── viewToText.ts / transcript.ts   # ViewState -> plain text, run transcript
 │   ├── sim/                        # Offline simulation harness (Thread B/C tuning) + scenarios
 │   ├── scenes/
 │   │   ├── SceneLoader.ts          # Loads ASCII art from assets/scenes/
@@ -122,19 +137,21 @@ daily-pixel/
 │       └── colors.ts               # ANSI colour helpers
 ├── assets/
 │   ├── char-creation/              # YAML: classes, races, backgrounds, alignments, day-jobs, item-sets
+│   ├── world/                      # Authored map: locations.yml, edges.yml
 │   ├── prompts/
-│   │   ├── decision-prompts/       # v11 (monolithic) + v12 (phase-split set)
-│   │   │   ├── decision-v11.md
-│   │   │   └── v12/
-│   │   │       ├── classify.md
-│   │   │       ├── decide/         # BASE + phases/ + per-type (combat, travel, …)
-│   │   │       └── resolve/        # BASE + per-type-per-verdict success/failure
-│   │   └── critic/                 # Coherence critic prompts
+│   │   ├── decision-prompts/       # Versioned decision prompts (…, v11 monolith) + current_source/ + v12/ phase-split set
+│   │   │   ├── current_source/     # Live working set (classify.md, decide/, resolve/)
+│   │   │   └── v12/                # Frozen v12 set - classify.md, decide/ (BASE + phases/ + per-type), resolve/ (per-type-per-verdict)
+│   │   ├── critic/                 # Coherence critic prompts
+│   │   ├── agent-player/           # AI-player brain prompts
+│   │   ├── agent-critic/           # AI-player playtest critic prompts
+│   │   └── archived/               # Retired prompt sets
 │   ├── scenes/                     # ASCII scene files
+│   ├── ansi/                       # ANSI art (+ wireframes/)
 │   ├── ui/                         # Banner images
 │   └── release-notes/              # Per-version player release notes YAML
 ├── docs/                           # Design vault — see docs/README.md for the map of content
-├── tests/                          # e2e, engine, discord, db, llm, scenes, sim
+├── tests/                          # engine, controller, discord, render, db, llm, agent, scenes, sim, …
 ├── scripts/                        # query.mjs, systemd units, deploy helpers
 └── data/                           # SQLite database (gitignored, auto-created)
 ```

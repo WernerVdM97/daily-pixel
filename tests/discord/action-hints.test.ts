@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildActionHints } from "../../src/discord/commands/action.js";
+import { buildActionHints } from "../../src/controller/dayJob.js";
 
 /**
  * `/action` hints — pure hint-builder shared by the slash path (action.ts)

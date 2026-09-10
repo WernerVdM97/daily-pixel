@@ -1,29 +1,72 @@
-
 # TODO
+
+## ⏭️ RESUME HERE - Release A cut as 0.3.3, owner to tag + merge (last touched 2026-08-02)
+
+**Read first:** [`docs/archived/poc-plus/poc-plus-release-a-plan.md`](./docs/archived/poc-plus/poc-plus-release-a-plan.md), the executor-grade build plan, archived post-cut. § Execution state and § Task log carry the per-task handover and the owner locks (SL-1…SL-7, all settled); § Stage 4 measurement and § P1 carry the v12-vs-v13 numbers and, more importantly, what the agent-player harness can and cannot measure. Parent tracking is [[poc-plus-roadmap]] § Re-sequencing.
+
+**State.** Release A is fully built, P1 (the daunting-band restatement) included, and the release is cut: `VERSION`/`package.json` at `0.3.3`, `CHANGELOG.md` `[0.3.3]` promoted and dated 2026-08-02, `assets/release-notes/v0.3.3.yml` written. P3 (the RESOLVE difficulty signal, [[resolve-difficulty-signal]]) was folded into the cut afterwards, because editing v13 in place is only available until 0.3.3 deploys and starts stamping rows. Baseline **89 files / 1675 tests**, typecheck clean. **v13 is live in every path**, `PROMPT_SET_VERSION = 'v13'` and `ProdPipelineGateway` defaults to `loadPromptSet()`, so production loads the new prose and the balance change is real.
+
+**Two things left, both the owner's, per the `releasing` skill:**
+
+1. **Merge the work through to `main`**: `poc-plus/release-a-polish` → `dev`, then `dev` → `main` (`--no-ff`). No agent commits, pushes, or checks out `dev`/`main` directly; this is the owner's step end to end.
+2. **Tag `v0.3.3`** and push it.
+
+**Two standing cautions for whoever picks this up next.**
+
+- **Do not use the agent-player to validate balance.** It cannot measure RA-2 at all: the brain overwhelmingly picks the day-job menu over free actions, and `stripWorkInspiration` (stage 3, F#12) strips inspiration from work actions by design, so both v12 and v13 returned a **structural** 0% grant rate. A future 0% is equally meaningless. RA-2's ~10% target and 3.2-3.7 band stay **unverified** pending human play or a harness switch that forces free actions. The harness remains a good QA/crash instrument. Same caveat retroactively limits the plan's § RA-4 A/B results.
+- **If a dial has to be relaxed, relax RA-2's frequency rather than RA-1's ladder** — stakes are the release's stated purpose, cadence is a comfort setting. RA-1 and RA-2 push the same direction at once, so the combined feel may read "stingy" rather than "tense"; the RA-4 playtest critic already called failure costs harsh on the *pre-change* tuning. Before touching numbers, check the model is honouring the anti-crush *rule* (every option set keeps one routine-band option) — it measured 21/21, so it is not the problem today.
+
+**Discipline (unchanged, and not release-specific):** one orchestrated-delegation loop per task: lead scouts and finalises the handoff, executor builds, lead verifies (typecheck + suite + the task's acceptance boxes), commit, fresh-context reviewer critiques, lead triages, fixer lands accepted findings, verify, commit. Atomic commit per task; changelog current per task. **A green suite is not evidence that a prompt rule is reachable.** Stage 4's review caught an inspiration grant gated on a natural 20 in a category that never rolls; P1's review caught a reward instruction keyed to a DC that RESOLVE is never sent. Prose that keys off an engine signal (`D20:`, `PHASE:`, `needs_roll`, a category flag, any numeric the prompt names) must be checked against the message the engine actually builds, not merely read for sense. Live runs need `set -a; . ./.env; set +a` first (there is no `dotenv`). Prod host `192.168.0.242` was unreachable as of 2026-07-29, so re-pulling a snapshot may not be possible. Scope fences hold: no lethality, no shared-world plumbing, no classify-accuracy work, no item-economy depth.
 
 ## scratchpad (humans start here)
 
-### 0.3.2 residuals → v13 (prompt-versioning + [[prompt-v13-roadmap]])
+### POC+ re-sequencing — prod-data review (2026-07-23)
+
+Full-period prod snapshot (`warden-20260723-201953`, 07-07 → 07-23, day 17, `0.3.0`–`0.3.2`; 98 actions / 796 LLM calls / 4 chars / 1 external tester) drove a re-order of the remaining POC+ arc, recorded in [[poc-plus-roadmap]] (§ Re-sequencing). No controlled invite — the rest of POC+ playtesting is agent-driven; human testing is scheduled later. **Release A lands before any more shared-world code.**
+
+**Release A — worth-returning-to (polish / coherence / cost)**
+
+- [x] **Stakes / difficulty pass** *(RA-1)*: item-bonus ceiling, the DC ladder and the reward/failure menus all landed (stage 4), and P1 restated the ladder on the final per-option DC, closing the last open v13 prompt defect. The failure-cost rule measured 21/21 compliant, up from 0/12 on v12. **Residual, re-homed here (not dropped):** the daunting band is now fixed in prose and the arithmetic checks out, but no re-probe was run, so it stays unverified behaviourally, needing isolated DECIDE probes (the kind stage 4 used), not an agent-player run. No lethality (death track stays deferred). Overlaps the MVP "make wealth (and stamina, health) spendable/meaningful" item below.
+- [x] **Inspiration dial** *(RA-2)*: all four prompt/engine halves landed (F#12 strip, named-reward line, the v13 frequency dial, the rest-channel fix). **Residual, re-homed here (not dropped):** the ~10% target and 3.2-3.7 band remain unverified, since the agent-player structurally cannot check them (day-job work strips inspiration by design, and the brain overwhelmingly picks day-job work over free actions). Needs human play, or a harness switch that forces free actions, before anyone concludes it worked.
+- [x] **NPC mint-on-first-sight** — both halves landed: RA-3's combat half (`anchor: 'npc'` minted on a surviving foe) and stage 4 step 4's `add_npc` `health` vocab plus the mint-on-first-sight instruction for narrated newcomers.
+
+**Release A closeout — three decisions left open** (full write-ups in the plan's § Follow-up logged)
+
+- [?] **`opts.compact` has had no production caller since RA-6** — still plumbed through `buildOutcomeView`/`viewState.ts`/`commands/action.ts` with a unit test. Delete it, or keep it as a deliberate capability.
+- [ ] **Give the agent-player a way to exercise the quest loop** — an `AGENT_FORCE_FREE_ACTIONS`-style switch, or a brain prompt that rations day-job picks. Without it the harness can't answer any balance question about free actions (§ RESUME HERE, standing cautions).
+- [x] **RESOLVE is told to scale the reward by the DC attempted, and is never sent a DC** *(found by P1's review; fixed as P3 rather than deferred, see [[resolve-difficulty-signal]])* — a DC-checked attempt now carries `final dc`, a fight carries the `foe danger` tier the combat card already renders, and an auto-resolve carries neither. **Two residuals logged in that doc, both balance decisions rather than wiring:** `dangerTier`'s thresholds predate v13's ladder, so an ordinary 16-17 fight reads `hard` (re-tuning them also moves the combat card, so it needs measurement); and the card/narration match is per round, not per fight, because each CONTINUE round re-authors `baseDc`.
+
+**Stage 2 re-scope + later stages**
+
+- [ ] **Stage 2 solo-first** — nat 20 grants extra loot/rolls (F#9), nat 1 a story beat; public broadcast is the bonus layer. Lands at N=1.
+- [ ] **Stages 3–4 (buffs, shared boss)** — build + agent-QA only for now; extend the agent-player harness to co-located multi-agent runs; fun-payoff deferred to later user testing.
+
+### M4 agent-player live smoke-run findings (2026-07-21)
+
+Three live DeepSeek smoke runs (1d, 1d, 2d) all completed clean (exit 0, 0 formal findings, coherent gameplay, critic reports). Multi-day path confirmed (day advances, rolls refill, overnight regen + income, rest-to-Oak). These observations are NOT harness bugs (all self-recovered, no state corruption) — logged for maintainer/backlog:
+
+- [ ] **[engine/prompt] LLM authored an out-of-graph `scene_location`** — twice in one run the model named a location outside the geography graph ("The Vale", then "Town Square · The Vale") with no relocate mutation; the travel-gate + graph validator correctly no-op'd both (no player-visible corruption). The `place · region` format matches the display convention (`src/discord/map-render.ts:117`, `src/llm/prompt-builder.ts:243`) — the model is likely echoing a compound display string back into the raw `scene_location` field. Sanity-check whether the prompt/context renders location as `place · region` somewhere the model could mistake it for the field value.
+- [ ] **[UX] bail-refund grace has no in-game signal** — the once-per-day free step-back (`last_bail_refund_day`, `src/engine/WorldEngineImpl.ts`) reads as inconsistent to a player (first bail refunds a roll, second same-day doesn't) with nothing explaining it; a small UI note ("first step-back today is free") would remove the ambiguity the critic flagged. Not a bug.
+- [ ] **[M4 enhancement] promote engine anomaly logs to transcript findings** — engine-emitted anomaly recoveries (`category-telemetry`, `travel-gate` injections/drops) print to stderr but the agent-player harness doesn't capture them as `finding`s, so they're invisible in the run scoreboard. Surfacing anomalies as findings is the harness's whole job; a future QA-capture slice could hook these engine emissions into transcript warnings. (The `play.ts` stdout-contamination defect the same runs caught is already FIXED — transcript now writes to a file, `AGENT_OUT`.)
+
+### 0.3.2 residuals (prompt-versioning + [[prompt-v13-roadmap]])
+
+*v13 has shipped, so the two items still open here carry to whatever prompt set comes next — route via the `prompt-versioning` skill and remember a published set is copied, never edited in place.*
 
 - [ ] **C6 symptom-A — mis-classification accuracy** *(deferred 0.3.2)*: actions the player intends as combat are sometimes classified as `skill`/`rest`, routing to the wrong spine. The auto-resolve guard (C6) prevents a combat-classified action from resolving without a fight, but the upstream classify decision is a prompt-template concern → route via `prompt-versioning` skill, [[prompt-v13-roadmap]].
-- [ ] **C3 residual — LLM-authored/spawn_npc NPCs have NULL health** *(deferred 0.3.2)*: `seedNpcs` now writes `health` (migration `202607112100_npc_combat_health.ts`), but LLM-authored and `spawn_npc` NPCs still get NULL health. `deriveEnemyMaxHp(DC)` is the fallback. Giving `add_npc` a `health` field means the decision prompt needs a `health` vocab slot → v13 prompt-versioning.
+- [ ] **`ItemData` has no `kind`/`slot`/`consumable` column** *(RA-1 Stage 1 follow-up)*: the engine can't distinguish a consumable from a weapon and can't hold consumables to +1, so the v13 "consumable reads +1" guidance is prompt-only and unenforced until such a column exists.
 
-[ ] In-app: start a real combat against a named NPC (e.g. Shadow Stag). Verify the continue card shows the NPC's real name (C3).,
-[ ] In-app: bail out of a fight mid-way, then re-engage. The opening frame must show banded condition, not ?/? (C4).,
-  does not work. bail -> /action resume figth -> still Unknown foe ?/?
-  is combat state persisted correctly? no duplicated? see combat-system-v12.md
-  but now when I initiated combat, it showed the name..?
-[y] In-app: fight to last-stand. The desperate-choice screen must show the contested-roll readout + banded condition (C5).,
-[y?] In-app: land the killing blow. The outcome must show the combat opening frame + terminal card (P2), not a bare location scene.,
-[y] In-app: verify the /action 'last action' hint fires only on the genuine last roll (Saturday = 4th, weekday = 3rd). (N3 verified by tests; sanity-check.),
-[y] In-app: cross a frontier to a new location. Verify the description resolves (not perpetual placeholder) within ~15s. (N2),
-[ ] In-app: on a Saturday, verify the threat NPC is at its announced location on /look and stays there (doesn't wander off). (N1),
-[y] In-app: on the unfinished-action screen (/hi), verify the free-text 'or type action <what you do>' line is gone. (N5)
+**C4 follow-ups left out of that fix:**
+
+- [ ] **C4 follow-up — abandoned (not bailed) mid-round combat shows no opening frame on resume**: a genuinely unfinished multi-round fight leaves last_action_state set; `/action` then hits the resume branch (`action.ts:162`), which calls `buildDecisionMessage` without `actionType`, so no opening frame renders at all (and `decisionIdx > 0` would gate it out anyway). Latent, not the reported symptom. Needs `resumeAction`/`ActionResumeResult` to carry actionType + remembered foe and the render gate to allow a combat opener on resume.
+- [ ] **C4 follow-up — in_combat edge duplication on anchor change**: `set_relation`'s UNIQUE key includes the anchor (`to_type,to_ref`), so a re-engage that resolves to a *different* anchor than the bailed edge creates a second `in_combat` edge; `readCombatState` then picks whichever the DB returns first. Harmless for same-anchor re-engage (the common path). Needs an edge-lifecycle sweep, not part of the C4 symptom fix.
 
 ### TBD — POC polish (small UI wins, no spark warranted)
 
-- many frame has two spaces for padding left. refactor to 1
-- map seems formatted weird:
+- [/] combat or social actions HAVE to mint NPC. no thing can be referenced without existing or spawning to persist? *(largely addressed: RA-3 mints a surviving named foe, and v13's `add_npc` tells the model to mint a narrated newcomer on first sight. What's left is making it a hard guarantee rather than prompt guidance.)*
+- [ ] remove critic from classify. conditionally. latency seems high. mine prod for investigation *(note: RA-4 already gated the narrate critic — `CRITIC_GATE_MODE`, default `narrate-gated`; this item is the classify stage specifically.)*
+- [ ] many frame has two spaces for padding left. refactor to 1
+- [ ] map seems formatted weird:
 ```
 The Vale (home)
 🌳🛡️ The Warden's Oak
@@ -77,8 +120,6 @@ one would look at the "you are here" first , then aroud you, and having the fore
 
 ### ANSI — outstanding work (consolidated 2026-07-11)
 
-> The `ANSI frame polish — T2 live-check follow-up` block (SGR/palette/glyph facts, renderer standardisation off black `chrome` + palette module, decouple render from engine, per-round combat maths visibility, the combat-frame redesign, and opening frames for all seven types + art-post/reply delivery) is **done — shipped in `0.3.1`**. Build plan archived → `docs/archived/poc-plus/poc-plus-0.3.1-polish-plan.md`; state cross-referenced in [[action-features-tracker]]. What remains:
-
 **Opening-frame runtime gaps** (from the ANSI-F review — the frame ships but misses these paths):
 
 - [ ] Opening frame on auto-resolved actions: travel/rest often resolve at start with no decision beat, so they show no opening frame today (3 auto-finish call sites + the public-broadcast embed question). Extend the frame to the outcome path.
@@ -95,12 +136,11 @@ one would look at the "you are here" first , then aroud you, and having the fore
 
 ### action pipeline framework refactor closeout
 
-1. ~~Finish Stage 5~~ **Done** (`72fb32d`, POC+ stage 1 T0a) — the T7 dead-code sweep landed: legacy machine, PROMPT_VERSION + stamp sites, critic dual-injection, and the current_source.md test are gone; the 2026-07-08 prod QA session stood in as the smoke gate.
-2. Then the v13 roadmap (docs/engine/prompt-v13-roadmap.md), which gives an explicit suggested order:
-    1. ~~F#21 — divine intervention rework~~ **Done** (`4c51334`, POC+ stage 1 T0b) — the fallback refunds the roll, authors no mutations, and reads as ⚠️ System.
-    2. D3/D4 — conversation & puzzle shapes + the free-text security stack: the biggest unspecced chunk; can be specced immediately since the relationship edges are already live. Needs a stage-N-style build plan before implementation.
-    3. (after a few live weeks of telemetry) Prose-critic trigger decision from the CombatBeatLog data, recorded as a decisions/ doc.
-    4. Stage 4 — Thread B world scaling: also wants live curves before tuning; the scale seam sits at 1.
+Remaining from the v13 roadmap (`docs/engine/prompt-v13-roadmap.md`), in its suggested order:
+
+1. D3/D4 — conversation & puzzle shapes + the free-text security stack: the biggest unspecced chunk; can be specced immediately since the relationship edges are already live. Needs a stage-N-style build plan before implementation.
+2. (after a few live weeks of telemetry) Prose-critic trigger decision from the CombatBeatLog data, recorded as a decisions/ doc.
+3. Roadmap stage 4 — Thread B world scaling: also wants live curves before tuning; the scale seam sits at 1.
 
 ### Player requests — prod data review (2026-07-08)
 
@@ -108,7 +148,6 @@ Fresh reports from a single QA session (snapshot `warden-20260708-201456`, chara
 
 **Feedback / feature asks**
 
-- [ ] **NPC coherency — mint on first sight** — narrative said the player sees a caravan, then said they don't; the NPC wasn't persisted to state on first mention (F#1). Mint NPCs immediately so they persist. See [[mvp+npc-economy]], [[mvp-data-model]] (world-state tracking).
 - [ ] **Richer `/hi` opening prose** — pressing Hi should generate a prose opener that scales with time since last interaction (referencing days or a few actions) and reminds the player of their work, quests, and loose ends (F#2). Extends the existing "morning/evening custom prose" and "add /hi to the new-hero message" TBD items.
 - [ ] **Buttons going missing is annoying — do the menu rework soon** (F#5). Fresh datapoint bumping the "menu framework coupled to views" MVP item / [[discord-interaction-layer]].
 
@@ -139,13 +178,11 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
   - track or show quests or hints?
   - add clue system? also grants +1 roll
 - [>] travelling to existing or already explored areas should be deterministic based on the distance and/or difficulty. → now designed in [[per-player-map-exploration]] (engine-owned routing + `stamina = Σ edge difficulty`; `distance` reserved for the time mechanic).
-- [x] ~~**`CharacterRepository.update` allow-list omits `max_stamina`**~~ → **Fixed** (`7513181`, 0.3.1 branch, B#2): added to the allow-list, schema audit found no other gap, the `src/sim/driver.ts` raw-SQL workaround dropped.
 - [ ] **schema: normalise location references to FK ids** — locations are keyed by `name` (TEXT) everywhere (`player_characters.location`, `npcs.location`, `location_edges`, `actions.location_name`). `actions.location_name` is a deliberate point-in-time *snapshot* (keep it), but a future polish pass should decide whether the live-reference tables move to `location_id` FKs consistently — a holistic refactor, not a lone divergence. See [[per-player-map-exploration]] §6.
 - [ ] use reactions as a way of buffering input before a button is pressed (expend items or use certain abilities to amplify actions, also works for trades)
   `this is cool!!!`
   (but does it work with ephemeral..?)
 - [ ] stealth or following mechanics?
-- [ ] mechanic — bonus rolls: an LLM `modify_rolls_remaining: +N` reward is a deliberate mechanic, not a bug (the "extra throw" report traces to this; no deterministic double-decrement exists — a roll is spent exactly once per action in startAction). Design it properly: when/why the world grants an extra roll, and surface it to the player so it reads as a reward. Belongs to the roll-economy work in [[mvp-llm-prompt-architecture]]. **Re-verified for 0.3.2 (N4):** the "why am I getting inspiration multiple times a day?" report against 0.3.1 (after the B#3 clobber fix) is the same working-as-designed mechanic — each `modify_rolls_remaining: +N` grant nets against exactly one drain per action (`startActionPipeline` drains once at `WorldEngineImpl.ts:961/1012`; the grant applies to the drained row so it stacks, never clobbers). Proven by `tests/engine/world-engine-impl.test.ts:326` (grant path nets to delta 0, rolls unchanged) and `:358` (no-grant path drains exactly −1). Closes as WAD; the open UX work above (surface the grant as a named reward) remains the only follow-up. No code change.
 - [>] `[[mvp-llm-prompt-architecture]]` — prompt refactor:
   - optimise prompt to llm as markdown (more friendly) not json. Response can remain json
   - options should still be produced by the llm, but there should be some rolls before to influence it
@@ -166,14 +203,6 @@ Open *feature* asks mined from the `feedback`/`bug_reports` tables (snapshot `wa
   - related to world state tracking too: finishing your day in an unsafe location should have conesquences
     (you dont sleep well or you get put in jail and must escape)
 - [>] `[[mvp-ascii-render-pipeline]]` — scrape prettier ascii art or images for converting with ascii image converter
-
----
-
-## Triaged out of TBD (for provenance — 2026-06-26)
-
-- **Done / shipped (struck):** preset work labelled `Work:` not `🧭 Quest:` and commute `−1 stamina` shown on the thinking page; the no-op refund scope question (stamina-/roll-only "shrug" is again a refundable no-op — D1 follow-up). All in `[Unreleased]`.
-- **Working as designed (struck):** post-`/join` welcome shows no "Hi" button because that screen *is* the Hi screen (`getNavButtons` filters the current command — `format.ts:137`).
-- **Routed to sparks:** Warden NPC duplicates (hooded figure vs The Warden) → [[mutation-vocabulary-refinement]] §2 (NPC name-resolution); world evolves with time / rising DC / new threats → [[prompt-separation-of-concerns]] Thread B (World Tier); global rumours pulling players toward dangerous unexplored locations → [[prompt-separation-of-concerns]] Thread B + [[per-player-map-exploration]] (`reveal_location` leaf); end-to-end flow tests with mocked LLM + scripted button presses → [[mvp-llm-prompt-architecture]].
 
 # MVP(+)?
 

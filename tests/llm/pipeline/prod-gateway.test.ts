@@ -1,16 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ProdPipelineLlmGateway } from '../../../src/llm/pipeline/ProdPipelineGateway.js';
 import { callDeepseek } from '../../../src/llm/deepseek-transport.js';
-import { buildUserMessage } from '../../../src/llm/prompt-builder.js';
+import { buildUserMessage, PROMPT_SET_VERSION } from '../../../src/llm/prompt-builder.js';
 import type { PromptSet } from '../../../src/llm/prompt-builder.js';
 import { ACTION_CATEGORIES } from '../../../src/llm/LlmGateway.js';
 import type { LlmContext } from '../../../src/llm/LlmGateway.js';
 import type { LlmCallRecord } from '../../../src/llm/LlmCallRecorder.js';
 import type { PipelineDecideResult } from '../../../src/llm/pipeline/types.js';
+import { isPipelineStageError, type PipelineStageError } from '../../../src/llm/pipeline/PipelineStageError.js';
 import { DeepCapturePolicy } from '../../../src/llm/capture-policy.js';
 
-// A stable, minimal prompt set — real assembled v12 templates are content-tested elsewhere
-// (prompt-set-loader.test.ts); here only stage-routing (which system prompt got sent) matters.
+// A stable, minimal prompt set — real assembled templates for the active set are content-tested
+// elsewhere (prompt-set-loader.test.ts); here only stage-routing (which system prompt got sent)
+// matters.
 function fixturePromptSet(): PromptSet {
   const decide = {} as PromptSet['decide'];
   const resolve = {} as PromptSet['resolve'];
@@ -18,7 +20,7 @@ function fixturePromptSet(): PromptSet {
     decide[cat] = { newAction: `${cat.toUpperCase()} NEW_ACTION SYSTEM`, continue: `${cat.toUpperCase()} CONTINUE SYSTEM` };
     resolve[cat] = { success: `${cat.toUpperCase()} SUCCESS SYSTEM`, failure: `${cat.toUpperCase()} FAILURE SYSTEM` };
   }
-  return { version: 'v12', classify: 'CLASSIFY SYSTEM', decide, resolve };
+  return { version: PROMPT_SET_VERSION, classify: 'CLASSIFY SYSTEM', decide, resolve };
 }
 
 const minimalContext: LlmContext = {
@@ -87,7 +89,7 @@ describe('ProdPipelineLlmGateway — classify', () => {
       actionType: 'combat',
       flags: { unsafe_location: true, needs_roll: true, target_present: true },
     });
-    expect(records[0].promptVersion).toBe('v12/classify');
+    expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/classify`);
     expect(records[0].callKind).toBe('pipeline-classify');
   });
 
@@ -161,7 +163,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT NEW_ACTION SYSTEM');
     expect(body.thinking).toEqual({ type: 'enabled' });
-    expect(records[0].promptVersion).toBe('v12/decide/combat');
+    expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/decide/combat`);
     expect(records[0].callKind).toBe('pipeline-decide');
 
     expect(result.distilledType).toBe('hunt');
@@ -221,6 +223,28 @@ describe('ProdPipelineLlmGateway — decide', () => {
     });
     expect(bare.sceneLocation).toBeUndefined();
     expect(bare.combatEnemy).toBeUndefined();
+  });
+
+  it('drops combatEnemy entirely when name is empty/whitespace (RA-5a)', async () => {
+    const withEmptyName = { ...decideResponse, combatEnemy: { name: '', anchor: 'location' } };
+    const fetchFn = mockFetch(apiResponse(withEmptyName));
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
+    const { result } = await gw.decide({
+      actionType: 'combat',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+      context: minimalContext,
+    });
+    expect(result.combatEnemy).toBeUndefined();
+
+    const withWhitespaceName = { ...decideResponse, combatEnemy: { name: '   ', anchor: 'npc' } };
+    const fetchFnWs = mockFetch(apiResponse(withWhitespaceName));
+    const gwWs = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFnWs, promptSet: fixturePromptSet() });
+    const { result: wsResult } = await gwWs.decide({
+      actionType: 'combat',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+      context: minimalContext,
+    });
+    expect(wsResult.combatEnemy).toBeUndefined();
   });
 
   it('parses narration when present, and omits it when absent (decide-scene-narration T2 spec §1)', async () => {
@@ -336,7 +360,7 @@ describe('ProdPipelineLlmGateway — resolveMutate', () => {
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT SUCCESS SYSTEM');
     expect(body.thinking).toBeUndefined();
-    expect(records[0].promptVersion).toBe('v12/resolve/combat/success');
+    expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/resolve/combat/success`);
     expect(records[0].callKind).toBe('pipeline-resolve-mutate');
     expect(result.mutations).toEqual([{ type: 'modify_stamina', amount: -2 }]);
   });
@@ -458,7 +482,7 @@ describe('ProdPipelineLlmGateway — resolveNarrate', () => {
     expect(userMessage).toContain('### Final mutations');
     expect(userMessage).toContain(JSON.stringify(finalMutations, null, 2));
 
-    expect(records[0].promptVersion).toBe('v12/resolve/combat/success');
+    expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/resolve/combat/success`);
     expect(records[0].callKind).toBe('pipeline-resolve-narrate');
     expect(result.outcomeText).toBe('You bring down the wolf.');
   });
@@ -494,19 +518,63 @@ describe('ProdPipelineLlmGateway — errors propagate (no retry, no fallback wra
 
   it('throws on missing content (transport reports content: null)', async () => {
     // No `content` key at all — `callDeepseek` reports `content: null` (strict, per T2 spec
-    // §2's "On `!ok` or `content===null`"); an empty STRING is a distinct case (falls through
-    // to the JSON.parse failure below), matching the transport's documented `?? null` contract.
+    // §2's "On `!ok` or `content===null`").
     const fetchFn = mockFetch({ choices: [{ message: {} }] });
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
     await expect(gw.classify('x', minimalContext)).rejects.toThrow(/empty response/i);
   });
 
-  it('an empty-string content is not null — falls through to a parse failure, not "empty response"', async () => {
+  it('an empty-string content reads as an empty response, not a parse failure (0.3.3 smoke run)', async () => {
+    // Was the reverse until 0.3.4: `content: ''` is not `null`, so it fell through to
+    // `JSON.parse('')` and threw `failed to parse DeepSeek response:` with nothing after the
+    // colon — the live run that hit it left no way to tell an empty body from a malformed one.
     const fetchFn = mockFetch({ choices: [{ message: { content: '' } }] });
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    await expect(gw.classify('x', minimalContext)).rejects.toThrow(/failed to parse/i);
+    await expect(gw.classify('x', minimalContext)).rejects.toThrow(/empty response/i);
+  });
+
+  it('whitespace-only content reads as an empty response too', async () => {
+    const fetchFn = mockFetch({ choices: [{ message: { content: '   \n' } }] });
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
+
+    await expect(gw.classify('x', minimalContext)).rejects.toThrow(/empty response/i);
+  });
+
+  it('every stage failure is a typed PipelineStageError, so the call sites can tell an LLM fault from an engine fault', async () => {
+    const gw = (body: unknown, status = 200) =>
+      new ProdPipelineLlmGateway({ apiKey: 'x', fetch: mockFetch(body, status), promptSet: fixturePromptSet() });
+
+    const cases: { body: unknown; status?: number; kind: string }[] = [
+      { body: { error: 'boom' }, status: 500, kind: 'transport' },
+      { body: { choices: [{ message: { content: '' } }] }, kind: 'empty' },
+      { body: { choices: [{ message: { content: 'not json {' } }] }, kind: 'parse' },
+      // Valid JSON the classify parser rejects — `actionType` is not in ACTION_CATEGORIES.
+      { body: apiResponse({ actionType: 'yodelling' }), kind: 'validation' },
+    ];
+
+    for (const { body, status, kind } of cases) {
+      const err = await gw(body, status).classify('x', minimalContext).catch((e: unknown) => e);
+      expect(isPipelineStageError(err)).toBe(true);
+      expect((err as PipelineStageError).kind).toBe(kind);
+      expect((err as PipelineStageError).stage).toBe('classify');
+    }
+  });
+
+  it('an abort below the envelope is typed as a timeout, not left as a bare AbortError', async () => {
+    const fetchFn = vi.fn(async () => {
+      const err = new Error('This operation was aborted') as Error & { name: string };
+      err.name = 'AbortError';
+      throw err;
+    }) as unknown as typeof fetch;
+    const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
+
+    const err = await gw.classify('x', minimalContext).catch((e: unknown) => e);
+    expect(isPipelineStageError(err)).toBe(true);
+    expect((err as PipelineStageError).kind).toBe('timeout');
+    // The original abort is preserved for anyone reading the chain.
+    expect((err as PipelineStageError).cause).toMatchObject({ name: 'AbortError' });
   });
 
   it('throws on malformed JSON', async () => {

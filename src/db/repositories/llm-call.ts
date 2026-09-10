@@ -15,12 +15,12 @@ export class LlmCallRepository implements LlmCallRecorder {
     const result = this.db
       .prepare(`
         INSERT INTO llm_calls (
-          app_version, prompt_version, call_kind, critic_severity, model, temperature, tier, player_input, context_digest,
+          app_version, prompt_version, call_kind, critic_severity, beat, model, temperature, tier, player_input, context_digest,
           raw_prompt, reasoning, response_json, parse_ok, validation_warnings,
           error, http_status, prompt_tokens, completion_tokens, total_tokens,
           reasoning_chars, latency_ms, finish_reason
         ) VALUES (
-          @app_version, @prompt_version, @call_kind, @critic_severity, @model, @temperature, @tier, @player_input, @context_digest,
+          @app_version, @prompt_version, @call_kind, @critic_severity, @beat, @model, @temperature, @tier, @player_input, @context_digest,
           @raw_prompt, @reasoning, @response_json, @parse_ok, @validation_warnings,
           @error, @http_status, @prompt_tokens, @completion_tokens, @total_tokens,
           @reasoning_chars, @latency_ms, @finish_reason
@@ -31,6 +31,7 @@ export class LlmCallRepository implements LlmCallRecorder {
         prompt_version: rec.promptVersion,
         call_kind: rec.callKind ?? 'decision',
         critic_severity: rec.criticSeverity ?? null,
+        beat: rec.beat ?? null,
         model: rec.model,
         temperature: rec.temperature,
         tier: rec.tier,

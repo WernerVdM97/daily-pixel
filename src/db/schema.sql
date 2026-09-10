@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
   prompt_version       TEXT    NOT NULL,
   call_kind            TEXT    NOT NULL DEFAULT 'decision', -- 'decision' | 'critic' — for mining the critic separately
   critic_severity      TEXT,                             -- critic verdict: 'ok'|'minor'|'major' (NULL on decision calls)
+  beat                 TEXT,                             -- critic calls only: 'decision'|'resolution' (NULL elsewhere/pre-migration)
   model                TEXT    NOT NULL,
   temperature          REAL,
   tier                 INTEGER NOT NULL DEFAULT 0,       -- 0 = primary, 1 = stripped retry

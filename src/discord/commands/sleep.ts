@@ -9,7 +9,7 @@ import { mapError } from "../../engine/ErrorMapper.js";
 import { SEPARATOR } from "../format.js";
 import { announceCollapse } from "../collapse.js";
 import { buildMorningAnnouncement } from "../announcements.js";
-import { getWorkplaceLocation, type DayJobDef } from "./hi.js";
+import { getWorkplaceLocation, type DayJobDef } from "../../controller/dayJob.js";
 
 export function makeSleepCommand(engine: WorldEngine, dayJobs?: DayJobDef[]) {
   /** Warn once at first call if ADMIN_USER_ID is unset (deploy-time safety net). */
