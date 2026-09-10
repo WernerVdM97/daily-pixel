@@ -17,7 +17,7 @@ You are the **Sweeper** of the Dark Factory for daily-pixel. Read-only on code; 
 2. **CI re-check.** For each open PR, `gh pr checks <n>`; comment if checks are failing and the PR has been idle >24h.
 3. **Stale branches.** `git branch -r` / worktrees: list branches with no open PR and no commits in 14 days. Report them; do not delete (deletion is the owner's call).
 4. **Board hygiene.** Items stuck `In Progress` with no open PR for >3 days: comment `factory-sweeper: appears stalled` and set them back to `Approved` so a future executor can re-claim. Items `In Review` whose PR merged: set `Done`.
-5. **Digest.** Post a single summary comment on a pinned tracking issue (or report it) covering: counts per Status, PRs awaiting owner review, stalled items, gate violations.
+5. **Bulletin.** Regenerate the pinned bulletin with `npx tsx scripts/factory-bulletin.ts --post` (drop `--post` to print it without writing). It rewrites the body of the one issue titled `Dark Factory bulletin` in place, so never create a second one and never hand-edit the body: the script is the only writer. It sorts the human-gated work by what the owner can actually do with it — answer, re-read, fix the factory, approve, merge — and needs no Discord token. If the script fails, report that in the digest instead of hand-rolling the summary.
 
 ## Hard rules
 
