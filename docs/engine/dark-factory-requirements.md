@@ -1,10 +1,23 @@
-# Dark Factory: scrumo + model tiering (requirements)
+---
+title: Dark Factory requirements (scrumo + model tiering)
+status: shipped
+domain: engine
+phase: poc
+tags: [process, automation, agents, models]
+related:
+  - "[[dark-factory]]"
+---
+_The decisions behind the factory's fourth loop, its escalator child and the per-loop model tiering. Implemented 2026-09-10: the agents, schedules and memory under `.pi/` are the living artifact._
 
 Status: owner go-ahead given and implemented 2026-09-10. Gathered 2026-09-10.
 
 Scope: pin models on the three existing factory loops, add `factory-scrumo` (the unblocker) and a heavy escalation child, copy the orchestrated-delegation skill into the repo, and bring the factory definitions into git.
 
 ---
+
+## A note on this being a requirements record
+
+The "Decisions locked" table below is what shipped. Where the body below still reads as a plan ("Today none of the three agents pins a model…", the "Files in scope" list), it is the state of the world at drafting time, kept for the reasoning; the shipped form is the agents themselves plus `[[dark-factory]]`.
 
 ## Decisions locked
 

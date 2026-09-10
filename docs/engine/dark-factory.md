@@ -46,7 +46,7 @@ Blocked (needs-human-decision) is reachable from any stage except Done; triage o
 | `.pi/agents/factory-{triage,executor,sweeper,scrumo,escalator}.md` | Loop role definitions: authority, gate, memory scope, report shape |
 | `.pi/subagents/schedules/` | The four durable schedules; paused runtime state, not tracked |
 | `.pi/factory/project.json` | The board's field and option ids, so agents don't hardcode them |
-| `.pi/factory/REQUIREMENTS.md` | The decisions behind scrumo, the escalator and model tiering; implemented 2026-09-10 |
+| [[dark-factory-requirements]] (in `docs/`) | The decisions behind scrumo, the escalator and the model tiering; implemented 2026-09-10 |
 | `.pi/factory/memory/` | The loops' topic-scoped memory |
 
 The loops run with `context: "fresh"`, so `.pi/factory/memory/` is the only thing they remember between runs: a tracked skeleton of topic folders (taxonomy reviewable in a PR) with gitignored `memory.md` contents, per the `factory-memory` skill. One dated fact per line; a stale line is deleted, never contradicted.
@@ -107,4 +107,4 @@ End state: triage nightly, executor 1–2 runs around 04:00–06:00. To get ther
 
 ---
 
-_Board seeded 2026-08-03 from `TODO.md` (71 items); the loop machinery (agents, schedules, memory) was built 2026-09-07 to 09-10, with scrumo, the escalator and the model tiering landing 09-10 per `.pi/factory/REQUIREMENTS.md`. `TODO.md`'s actionable items live on the board; its narrative layer stays in the repo._
+_Board seeded 2026-08-03 from `TODO.md` (71 items); the loop machinery (agents, schedules, memory) was built 2026-09-07 to 09-10, with scrumo, the escalator and the model tiering landing 09-10 per [[dark-factory-requirements]]. Only `.pi/agents/` and `.pi/factory/project.json` are tracked: the seeding payloads, the runbook and the memory contents stay local. `TODO.md`'s actionable items live on the board; its narrative layer stays in the repo._
