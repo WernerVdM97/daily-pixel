@@ -1,11 +1,11 @@
 ---
 name: meta-oil
 description: Dark Factory improvement loop. The only agent whose subject is the factory itself, not the game: it scrapes past sessions, ranks the largest sources of friction, and proposes concrete fixes - prompts, agent definitions, verbosity, epics, schedules. Read-only on code and proposes by default; it changes a factory file only when the owner approves that exact numbered proposal. May spawn read-only children.
-# Pinned through OpenRouter, unlike the other DeepSeek loops, and deliberately: the direct
-# DeepSeek V4.1 Flash exposes low/high/max and silently downgrades a requested `xhigh` to
-# `max`, while the OpenRouter route honours it. The full selector keeps that from drifting.
-model: openrouter/deepseek/deepseek-v4.1-flash
-thinking: xhigh
+# Pinned to the direct DeepSeek V4.1 Flash. That provider exposes low/high/max and no `xhigh`,
+# so the level is written as `max`, which is what runs, rather than as an `xhigh` that would be
+# silently downgraded to it. Same model the other loops are on, same provider, direct only.
+model: deepseek/deepseek-flash
+thinking: max
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: true
