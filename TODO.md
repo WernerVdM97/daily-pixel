@@ -4,6 +4,31 @@
 
 This file now keeps only the **narrative layer** — the handover context that is documentation, not cards.
 
+## ⏭️ RESUME HERE (newest) — Dark Factory: bulletin live, headless launcher proven, loops fired (2026-09-10)
+
+**Why the previous session stopped:** two OOM kills, `journalctl` → `tmux-spawn-*.scope: Failed with result 'oom-kill'` at 23:09:06 and 23:15:03, on a box with 1973 MB RAM, ~240 MB available, an interactive `pi` at 715 MB and the pi-lens TypeScript stack at ~690 MB. The 23:09 kill took triage run `d80169f9` (29 turns / 53 tool calls, then "process exited or disappeared before writing a result", nothing written); the 23:15 kill took the session that fired it. RAM is now 6 GB, and every loop below ran headless, outside any session, one at a time. Full record in `.pi/factory/memory/incidents/`.
+
+**Done and verified.** Four commits on `dev`, none pushed: `2bf4a08` bulletin, `d4c6d5c` headless launcher, `7a6d02c` priority policy into the tracked triage definition, `014605a` cadence table. Whole suite green (106 files / 2196 tests) and typecheck clean on `src` and the test project.
+
+- **The bulletin works and is live.** `scripts/factory-bulletin.ts` is verified (19 of the new file's 21 cases landed with the fix) and posted as pinned issue **#103**. Pointing it at the live board found a real defect the unit tests could not: triage writes `**Triage 2026-09-10.** <the ask>` with the substance on the header's own line, and `toExcerpt` only matched `**Triage:`, so the header leaked into the owner-facing question column. Both forms now parse, and a `**Question:**` line beats the preamble above it. Sweeper job 5 runs the script instead of hand-rolling a digest.
+- **The headless launcher is installed and proven.** `factory-run-due.timer` is enabled and active. Two fixes were needed to make a tick succeed: systemd's default `PATH` omits `~/.local/bin` where `pi` lives (the first tick exited 1), and `schedule.run-due` only fires schedules that are both unpaused and already overdue, so `FACTORY_FIRE=<id>` was added to fire one named schedule by hand through the same memory preflight and `flock`. The owner lowered the floor from 1500 MB to 1000 MB. Fire a loop with `sudo systemd-run --unit=factory-fire-<id> --collect --property=User=werner --property=WorkingDirectory=$PWD --property="Environment=HOME=/home/werner FACTORY_FIRE=<id>" /usr/local/bin/factory-run-due`.
+- **Triage ran headless and produced real work** (47 turns / 68 tool calls, ~5 min, no OOM): triaged 27, 31, 33, 39, 40, 50, 93; newly Blocked with a written question 37, 38; overlaps flagged on 37→#51, 33→#48, 39→#76/#59, 40→#43/#61/#98, none merged by the agent.
+- **Scrumo ran headless and sent its digest** (`message-id 1547725509180268544`, 23 lines, three decisions). Its findings: 7 open dependabot PRs, #21 CI red, the rest green. The digest is now armed with `--record`, so reactions on it will be tallied.
+- **Priority policy is out of gitignored memory.** The milestone rule (`MVP`/`MVP+` = `P3 - low`, `v0.3.x polish` = `P2 - normal`) now lives in the tracked `.pi/agents/factory-triage.md`, together with the explicit statement that triage does not write `Priority`.
+- **Cadences retuned** to triage 12h, executor 1d, sweeper 2d, scrumo 3d, anchors preserved. Applied by editing each record in `.pi/subagents/schedules/` directly; no tool action retunes a cadence. **All six schedules remain paused**, so nothing fires on its own until they are resumed.
+
+**Still open.**
+
+1. **The executor has never been fired headless.** It is the only loop that writes code and opens PRs, and it is the one to try next. One item is `Approved` (#34).
+2. **Four `Blocked` items still have no question written**: #65, #82, #96, #97 (`needs-human-decision`, zero comments). Nothing can unblock them until triage states the ask. #95 was answered by the owner, so the count is 4, not the 5 the previous handover recorded.
+3. **Four owner answers are still unread by triage**: #92, #95, #28, #32. Triage's own note says #28 and #32 need a human close rather than more triage.
+4. **A launcher anomaly worth understanding.** After scrumo completed, the launcher's own headless `pi` spawned a stray second child (`2228b2fe`), stopped it after one turn, and its final report narrated a self-invented test failure instead of reporting scrumo's digest. Nothing was written to the repo and scrumo's own run was unaffected (`96705f1e`, complete). The launcher prompt now asks for a bare report, but a report-shape guard would be the real fix.
+5. **Scrumo does not arm its own digest**; `factory-inbox.ts --record <id>` has to be run afterwards. Un-armed digests cannot be answered by reaction. Worth folding into scrumo.
+6. **`gh` identity.** The active account is `agent97eth`; the machine-local override names `vault97eth`, which is not logged in at all. All board and issue writes succeed as `agent97eth`. Owner decision, not an agent one.
+7. **`docs/engine/dark-factory-requirements.md` still says scrumo is a "daily digest"** (the 2026-09-10 decision record). The live spec `docs/engine/dark-factory.md` carries the retuned table. Per `docs/CONVENTIONS.md` a `decided` doc is not silently rewritten, so formalising the retune needs a `decisions/` record.
+
+**Disk, for the swap work.** `vgs` shows `2c0e-dev-vg` with **VFree 0**, and `/` holds 1.3 GB free of 8.5 GB (85% used), so the requested 6 GB swap cannot be created on the current disk. Grow the virtual disk in Proxmox first, then `sudo apt install -y cloud-guest-utils` (growpart is absent), `sudo growpart /dev/sda 5`, `sudo pvresize /dev/sda5`, `sudo lvcreate -L 6G -n swap_2 2c0e-dev-vg`, `mkswap` and `swapon` `/dev/mapper/2c0e--dev--vg-swap_2`, and add `/dev/mapper/2c0e--dev--vg-swap_2 none swap sw 0 0` to `/etc/fstab`.
+
 ## ⏭️ RESUME HERE - Release A cut as 0.3.3, owner to tag + merge (last touched 2026-08-02)
 
 **Read first:** [`docs/archived/poc-plus/poc-plus-release-a-plan.md`](./docs/archived/poc-plus/poc-plus-release-a-plan.md), the executor-grade build plan, archived post-cut. § Execution state and § Task log carry the per-task handover and the owner locks (SL-1…SL-7, all settled); § Stage 4 measurement and § P1 carry the v12-vs-v13 numbers and, more importantly, what the agent-player harness can and cannot measure. Parent tracking is [[poc-plus-roadmap]] § Re-sequencing.
