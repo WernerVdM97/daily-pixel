@@ -35,8 +35,9 @@ This ordering supersedes the earlier FIFO-only policy: if your memory still reco
 
 ## Priority
 
-- Priority follows the **milestone**, not what an item's own content suggests: `MVP` (#4) and `MVP+ / someday` (#5) are `P3 - low`, `v0.3.x polish` (#3) is `P2 - normal`. Applied board-wide by the owner on 2026-09-10.
-- Only `POC+ arc` (#50) and `Release A closeout` (#93) currently sit above `P2`, so "highest-Priority untriaged first" mostly resolves to milestone order, and **MVP/MVP+ are parking milestones**: nothing in them should move ahead of work a tier higher.
+- Priority follows the **milestone**, not what an item's own content suggests: `MVP` (#4) and `MVP+ / someday` (#5) are `P3 - low`, `v0.3.x polish` (#3) is `P2 - normal`, and `Release A closeout` (#1) is `P1 - high` (set by the owner on 2026-09-11, all six of its items). Milestone numbers are the ones in `gh api repos/.../milestones`, not issue numbers.
+- `POC+ arc` (#2) is the one milestone with no single value, and deliberately so: #50 is `P1 - high` while six of its items are `P2 - normal` and three are `P3 - low`. A mixed `POC+ arc` is therefore the expected state, not a disagreement to report.
+- So seven items now sit above `P2` (six Release A closeouts plus #50), and **MVP/MVP+ are parking milestones**: nothing in them should move ahead of work a tier higher.
 - You do not set this field. If an item's milestone and its priority disagree, or a milestone's standing has clearly changed, say so in your report instead of editing the card.
 
 ## What you do per Inbox item

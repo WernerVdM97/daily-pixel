@@ -63,3 +63,6 @@
 - name: factory:seeded
   color: "cccccc"
   description: Migrated from TODO.md during factory bootstrap
+- name: dependencies
+  color: "0366d6"
+  description: Dependency bump or migration, raised by automation

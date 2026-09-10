@@ -63,11 +63,13 @@ Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`s
 
 | Loop | Agent | Cadence (when resumed) | Writes code? |
 | --- | --- | --- | --- |
-| Triage | `factory-triage` | 12h | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
-| Executor | `factory-executor` | 1d | Yes — the only one, and only behind the gate |
-| Sweeper | `factory-sweeper` | 2d | No — gate audit, CI re-check, board hygiene, digest |
-| Scrumo | `factory-scrumo` | 3d | No — DM digest, three recommended actions, blocker comments |
-| Meta-oil | `meta-oil` | Fri + Sat 18:00Z | No — friction analysis and numbered proposals; edits a factory file only once that exact proposal is approved |
+| Triage | `factory-triage` | 12h, phase-anchored to 06:00 local (so 06:00 and 18:00) | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
+| Executor | `factory-executor` | 24h, anchored 04:00 local | Yes — the only one, and only behind the gate |
+| Sweeper | `factory-sweeper` | 48h, anchored 21:00 local (so 21:00 on alternating days) | No — gate audit, CI re-check, board hygiene, digest |
+| Scrumo | `factory-scrumo` | 7d × 2, 19:00 local on Tuesday and Thursday | No — DM digest, three recommended actions, blocker comments |
+| Meta-oil | `meta-oil` | Fri + Sat 18:00Z (20:00 local) | No — friction analysis and numbered proposals; edits a factory file only once that exact proposal is approved |
+
+**Clock times are approximate, and pi has no calendar trigger.** The scheduler knows one-shot `at` triggers and fixed intervals only (`on` and `timezone` are refused outright), so "06:00" is not a slot: it is a phase. A 12h interval anchored at 06:00 does fire at 06:00 and 18:00 forever, because the next run is plain arithmetic off the anchor and catch-up preserves that phase rather than resetting it, but the _actual_ start is quantised by the systemd tick (5 min, plus up to 30s of jitter), so a pass lands in the 06:00 to 06:05 window rather than on the minute. Tuesday plus Thursday is not expressible as one interval at all, since the gap alternates between 2d and 5d, which is why scrumo is a pair of weekly schedules (`factory-scrumo` on Tuesday, `factory-scrumo-thu` on Thursday) exactly as meta-oil is (`meta-oil-fri`, `meta-oil-sat`). Changing a cadence means editing `schedule.json` directly: the API exposes create/list/show/history/pause/resume/run/delete, and deliberately no update.
 
 **Triage** reads Inbox items, dedupes, resolves `[[doc-links]]`, drafts acceptance criteria, asks clarifying questions as comments, and moves items to Triaged — or to Blocked with `needs-human-decision` when it cannot proceed.
 
@@ -104,7 +106,7 @@ Schedules live under `.pi/subagents/schedules/` and are paused by default. From 
 
 - Fire one triage pass: `subagent({ action: "schedule.run", id: "factory-triage" })`
 - Fire one executor pass: `subagent({ action: "schedule.run", id: "factory-executor" })`
-- Fire a scrumo digest: `subagent({ action: "schedule.run", id: "factory-scrumo" })`
+- Fire a scrumo digest: `subagent({ action: "schedule.run", id: "factory-scrumo" })` (Tuesday) or `id: "factory-scrumo-thu"` (Thursday)
 - Fire a sweep: `subagent({ action: "schedule.run", id: "factory-sweeper" })`
 - Fire a meta-oil survey: `subagent({ action: "schedule.run", id: "meta-oil-fri" })`
 - Fire a meta-oil confirm: `subagent({ action: "schedule.run", id: "meta-oil-sat" })`
@@ -113,12 +115,12 @@ To answer a meta-oil digest, react on the DM it sent. If the run could not recor
 
 Inspect runs with `schedule.history` and the usual `status`/`fleet` views.
 
-## Promoting to unattended (nightly)
+## Promoting to unattended
 
-End state: triage nightly, executor 1–2 runs around 04:00–06:00. To get there:
+The cadences are already tuned to clock times and the launcher already exists, so what is left here is the trust decision rather than the wiring:
 
-1. Resume the schedules: `schedule.resume` per loop, and tune `every:` to the target cadence.
-2. For true lights-out (laptop closed), add an external launcher on the `schedule.run-due` seam — a cron/systemd entry that fires due schedules headlessly. Defer this until the loops have earned trust manually.
+1. Resume the schedules: `schedule.resume` per loop. Nothing fires on its own while a loop is paused, because `run-due` only ever picks unpaused and overdue schedules; `FACTORY_FIRE=<schedule-id>` is the way to run a paused one on demand.
+2. The launcher (`scripts/factory-run-due.{sh,service,timer}`, installed as a system timer that ticks every 5 min) is the lights-out path for a closed laptop. It owns the memory preflight, refusing to start below `FACTORY_MIN_AVAIL_MB` (default 1000MB) because a second pi stacked on a live session twice ended in an `oom-kill`, and a non-blocking lock, so ticks cannot stack. A tick with nothing due exits without spawning pi at all; a record it cannot parse counts as due, so a schedule-format change costs extra ticks rather than parking the factory silently.
 3. The watchdog (opt-in adversarial diff review at `agent_end`) is a natural extra review layer once running unattended; see `/subagents-watchdog`.
 
 ## Non-goals
