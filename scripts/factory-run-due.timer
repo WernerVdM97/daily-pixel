@@ -1,0 +1,14 @@
+[Unit]
+Description=Check for due Dark Factory schedules
+After=network-online.target
+Wants=network-online.target
+
+[Timer]
+# 15 min ticks against 6h/1d cadences: responsive without being chatty. oneshot means the
+# next tick only counts from the end of the previous run, so runs cannot stack.
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

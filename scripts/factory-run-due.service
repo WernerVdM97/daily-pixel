@@ -1,0 +1,17 @@
+[Unit]
+Description=Fire due Dark Factory agent schedules
+Documentation=file:/home/werner/projects/daily-pixel/.pi/factory/memory/incidents/memory.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=werner
+Environment=HOME=/home/werner
+# systemd's default PATH omits ~/.local/bin, where pi is installed on this box.
+Environment=PATH=/home/werner/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=FACTORY_PROJECT_DIR=/home/werner/projects/daily-pixel
+Environment=FACTORY_MIN_AVAIL_MB=1000
+# A wedged run must not block every later tick for ever.
+TimeoutStartSec=1800
+ExecStart=/usr/local/bin/factory-run-due
