@@ -4,11 +4,15 @@ After=network-online.target
 Wants=network-online.target
 
 [Timer]
-# 15 min ticks against 6h/1d cadences: responsive without being chatty. oneshot means the
+# 5 min ticks: tight enough that a schedule anchored to a clock time (triage 06:00/18:00,
+# executor 04:00, sweeper 21:00, scrumo and meta-oil 19:00/20:00) starts near its slot, though
+# never exactly on it. The launcher gates itself on the stored nextRunAt, so the extra ticks
+# cost nothing: a tick with nothing due exits without spawning pi. That gate is what makes a
+# 5 min cadence affordable at all, since each spawned pi peaks near 700MB. oneshot means the
 # next tick only counts from the end of the previous run, so runs cannot stack.
 OnBootSec=5min
-OnUnitActiveSec=15min
-RandomizedDelaySec=60
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
 
 [Install]
 WantedBy=timers.target

@@ -49,6 +49,33 @@ read_avail_mb() {
   echo ""
 }
 
+# The ticks are 5 min against 12h/24h/48h/7d cadences, so nearly every tick has nothing to do.
+# Without this gate each one would spawn a pi (~700MB peak, one model call) just to be told
+# "nothing due". Read the stored nextRunAt instead: same-width UTC ISO stamps compare fine as
+# strings. A record this cannot make sense of counts as due, so a schedule-format change costs
+# extra ticks rather than parking the factory silently, which is the one failure that would
+# not be noticed. Streams rather than grep -P or sed with alternation, because this runs on
+# BSD and GNU userlands alike.
+any_schedule_due() {
+  local file paused next now
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  for file in "$PROJECT_DIR"/.pi/subagents/schedules/*/schedule.json; do
+    [ -e "$file" ] || continue
+    paused="$(sed -n 's/.*"paused": *\([a-z]*\).*/\1/p' "$file")"
+    case "$paused" in
+      true) continue ;;
+      false) ;;
+      *) return 0 ;;
+    esac
+    next="$(sed -n 's/.*"nextRunAt": *"\([^"]*\)".*/\1/p' "$file")"
+    [ -n "$next" ] || return 0
+    next="${next%%.*}Z"
+    if [[ "$next" > "$now" ]]; then continue; fi
+    return 0
+  done
+  return 1
+}
+
 # systemd and cron both hand us a bare PATH that excludes ~/.local/bin, so fall back to
 # the conventional install location rather than failing the tick.
 PI_BIN="${PI_BIN:-}"
@@ -86,6 +113,10 @@ if [ -n "$FIRE_ID" ]; then
   log "${avail_mb}MB available; firing schedule ${FIRE_ID}"
   ACTION="Call subagent({action:'schedule.run', id:'${FIRE_ID}'}) exactly once. Report what it returned, in under 10 lines."
 else
+  if ! any_schedule_due; then
+    log "${avail_mb}MB available; nothing due at $(date -u +%H:%MZ), skipping this tick"
+    exit 0
+  fi
   log "${avail_mb}MB available; firing due schedules"
   ACTION="Call subagent({action:'schedule.run-due'}) exactly once. Report which schedules were due and what each returned, in under 10 lines."
 fi
