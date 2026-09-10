@@ -4,10 +4,41 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # One bump per dependency used to arrive as its own PR, and with a limit of 5 the whole
+    # npm queue could be filled by five single bumps, which is what stopped anything new
+    # arriving between July and September. Grouped minor and patch bumps arrive as one PR per
+    # dependency type instead: production and development are kept apart so a runtime bump can
+    # be merged and reverted without dragging dev tooling along with it. Majors stay ungrouped
+    # on purpose, since a major is a migration rather than a merge.
+    # Cooldown: do not even propose a version published this week. Most supply-chain damage is
+    # found within days of a release, and the rebase here showed how fast a target moves
+    # (js-yaml went 5.2.1 -> 5.4.1, better-sqlite3 12.11.1 -> 13.0.3) when nothing holds it back.
+    # Majors wait a month, because nobody should adopt a two-major TypeScript jump on day one.
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      npm-production:
+        patterns: ["*"]
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+      npm-development:
+        patterns: ["*"]
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    # Actions bumps are near-always minor or patch, so they group cleanly. A major (v6 -> v7)
+    # still arrives alone, because that is the one worth reading before merging.
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
