@@ -1,0 +1,230 @@
+{
+  "items": [
+    {
+      "title": "Stage 2 solo-first: nat 20 grants extra loot/rolls, nat 1 a story beat",
+      "body": "From POC+ re-sequencing scratchpad.\n\nNat 20 grants extra loot/rolls (F#9), nat 1 a story beat. Public broadcast is the bonus layer. Lands at N=1.\n\nSee [[poc-plus-roadmap]] and the archived release plan `docs/archived/poc-plus/poc-plus-release-a-plan.md`.",
+      "labels": [
+        "type:feature",
+        "area:engine",
+        "factory:seeded"
+      ],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Stages 3-4: buffs + shared boss, extend harness to co-located multi-agent runs",
+      "body": "Build + agent-QA only for now; extend the agent-player harness to co-located multi-agent runs; fun-payoff deferred to later user testing.\n\nSee [[poc-plus-roadmap]].",
+      "labels": [
+        "type:feature",
+        "area:multiplayer",
+        "area:agent-harness",
+        "factory:seeded"
+      ],
+      "milestone": "POC+ arc",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Sanity-check out-of-graph scene_location authored by LLM",
+      "body": "M4 smoke-run finding (2026-07-21).\n\nTwice in one run the model named a location outside the geography graph (\"The Vale\", then \"Town Square - The Vale\") with no relocate mutation; the travel-gate + graph validator correctly no-op'd both (no player-visible corruption).\n\nThe `place - region` format matches the display convention (`src/discord/map-render.ts:117`, `src/llm/prompt-builder.ts:243`) - the model is likely echoing a compound display string back into the raw `scene_location` field.\n\n**Acceptance:** determine whether prompt/context renders location as `place - region` somewhere the model could mistake it for the field value; fix or document.",
+      "labels": [
+        "type:bug",
+        "area:prompts",
+        "area:world",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Surface bail-refund grace to the player (first step-back today is free)",
+      "body": "M4 smoke-run finding.\n\nThe once-per-day free step-back (`last_bail_refund_day`, `src/engine/WorldEngineImpl.ts`) reads as inconsistent: first bail refunds a roll, second same-day does not, with nothing explaining it. Add a small UI note. Not a bug.",
+      "labels": [
+        "type:polish",
+        "area:ux-ui",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Promote engine anomaly logs to transcript findings in agent harness",
+      "body": "M4 enhancement.\n\nEngine-emitted anomaly recoveries (`category-telemetry`, `travel-gate` injections/drops) print to stderr but the agent-player harness does not capture them as findings, so they are invisible in the run scoreboard. Hook these engine emissions into transcript warnings.",
+      "labels": [
+        "type:feature",
+        "area:agent-harness",
+        "factory:seeded"
+      ],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "C6 symptom-A: combat-intended actions mis-classified as skill/rest",
+      "body": "0.3.2 residual, deferred. Route via the `prompt-versioning` skill; a published prompt set is copied, never edited in place. See [[prompt-v13-roadmap]].\n\nActions the player intends as combat are sometimes classified as `skill`/`rest`, routing to the wrong spine. The auto-resolve guard (C6) prevents a combat-classified action resolving without a fight, but the upstream classify decision is a prompt-template concern.",
+      "labels": [
+        "type:bug",
+        "area:prompts",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Add kind/slot/consumable column to ItemData",
+      "body": "RA-1 Stage 1 follow-up.\n\nThe engine cannot distinguish a consumable from a weapon and cannot hold consumables to +1, so the v13 \"consumable reads +1\" guidance is prompt-only and unenforced until such a column exists.",
+      "labels": [
+        "type:feature",
+        "area:schema",
+        "area:engine",
+        "factory:seeded"
+      ],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "C4 follow-up: abandoned mid-round combat shows no opening frame on resume",
+      "body": "A genuinely unfinished multi-round fight leaves `last_action_state` set; `/action` then hits the resume branch (`action.ts:162`), which calls `buildDecisionMessage` without `actionType`, so no opening frame renders (and `decisionIdx > 0` would gate it out anyway). Latent, not the reported symptom.\n\nNeeds `resumeAction`/`ActionResumeResult` to carry actionType + remembered foe and the render gate to allow a combat opener on resume.",
+      "labels": [
+        "type:bug",
+        "area:ansi-art",
+        "area:engine",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "C4 follow-up: in_combat edge duplication on anchor change",
+      "body": "`set_relation`'s UNIQUE key includes the anchor (`to_type,to_ref`), so a re-engage that resolves to a *different* anchor than the bailed edge creates a second `in_combat` edge; `readCombatState` then picks whichever the DB returns first. Harmless for same-anchor re-engage (the common path). Needs an edge-lifecycle sweep, not part of the C4 symptom fix.",
+      "labels": [
+        "type:bug",
+        "area:engine",
+        "area:schema",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Make NPC minting a hard guarantee for combat/social actions",
+      "body": "Originally [/] - largely addressed: RA-3 mints a surviving named foe, and v13's `add_npc` tells the model to mint a narrated newcomer on first sight. What is left is making it a hard guarantee (engine-enforced) rather than prompt guidance.",
+      "labels": [
+        "type:feature",
+        "area:engine",
+        "area:world",
+        "factory:seeded"
+      ],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Investigate removing the classify-stage critic (latency)",
+      "body": "Latency seems high; mine prod for investigation. Note: RA-4 already gated the narrate critic (`CRITIC_GATE_MODE`, default `narrate-gated`); this item is the classify stage specifically. Conditionally remove.",
+      "labels": [
+        "type:polish",
+        "area:prompts",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Refactor frame left padding from two spaces to one",
+      "body": "Many frames have two spaces of left padding; refactor to one.",
+      "labels": [
+        "type:polish",
+        "area:ansi-art",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Rework map render: show unexplored adjacent edges greyed out in the main tree",
+      "body": "Current behaviour: an unexplored path (e.g. The Stag's Den off The Forest Edge) renders only in the bottom \"Unexplored paths\" block, not in the main tree. A player looks at \"you are here\" first, then around them; the Forest Edge not showing its onward edge there is bad UX.\n\nDesired: render unexplored adjacent edges in the top tree, greyed out / marked unexplored, instead of only in a detached bottom list.\n\nOriginal map dump preserved in TODO.md history.",
+      "labels": [
+        "type:polish",
+        "area:ux-ui",
+        "area:world",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Improve art blocks on messages (art as main viewport)",
+      "body": "Spike/proposal item.\n\n- Drop the old ugly scene ascii (kept only for /look)\n- Redisplay the classified-outcome art on the thinking page and maintain it on decision outcomes\n- Treat art as the main viewport; Discord messaging becomes a sub-menu / interaction layer with inline art blocks\n- Maybe drop the location ascii image from actions",
+      "labels": [
+        "type:feature",
+        "area:ansi-art",
+        "area:ux-ui",
+        "factory:seeded"
+      ],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Thinking block shows full decision history + main frame + rotating hints",
+      "body": "- Show the full decision history exactly like action outcome, and the main frame block\n- Same for the ephemeral version of action responses\n- Add a hints block the player can read while waiting; periodically scrape docs/features for lesser-known interactions (regex resolving, ...)",
+      "labels": [
+        "type:feature",
+        "area:ux-ui",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Footer emoji for location changes should show the location emoji",
+      "body": "Small UX win from the POC polish list.",
+      "labels": [
+        "type:polish",
+        "area:ux-ui",
+        "factory:seeded"
+      ],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Travel prompt should inject current location, edge, destination state and routes",
+      "body": "The travel prompt should inject the current location, the edge being traversed, the final location state, and the routes to get there.",
+      "labels": [
+        "type:feature",
+        "area:prompts",
+        "area:world",
+        "factory:seeded"
+      ],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Deterministic movement on low-difficulty terrain (effort budget)",
+      "body": "Movement on low-difficulty terrain can be deterministic up to a total of 3 effort (3x difficulty-1 edges, or a 1+2). Traversing a >=3 difficulty edge in one action must trigger the travel prompt.\n\nActions that involve movement indirectly (e.g. \"search the library\" from the Warden's Oak) should first evaluate the travel beat (auto-travel, or demand travel as a separate action).",
+      "labels": [
+        "type:feature",
+        "area:engine",
+        "area:world",
+        "factory:seeded"
+      ],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "projectId": "PVT_kwHOAxg9QM4BiwcY",
+  "projectNumber": 6,
+  "owner": "WernerVdm97",
+  "repo": "WernerVdM97/daily-pixel",
+  "fields": {
+    "Status": {
+      "id": "PVTSSF_lAHOAxg9QM4BiwcYzhhnQZg",
+      "options": {
+        "Inbox": "0c482516",
+        "Triaged": "4dd67bb2",
+        "Approved": "00eb335e",
+        "In Progress": "bfbe5d7d",
+        "In Review": "99e46ddf",
+        "Blocked": "ccdc4b1a",
+        "Done": "8ae148b8"
+      }
+    },
+    "Priority": {
+      "id": "PVTSSF_lAHOAxg9QM4BiwcYzhhnQgw",
+      "options": {
+        "P0 - urgent": "852f8b56",
+        "P1 - high": "944667df",
+        "P2 - normal": "a25e6095",
+        "P3 - low": "4af8e245"
+      }
+    }
+  }
+}

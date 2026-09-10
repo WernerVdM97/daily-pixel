@@ -9,6 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **The Dark Factory lands in git** — the backlog's control plane is now the GitHub Projects "Dark Factory" board, driven by three paused agent loops (triage / executor / sweeper) behind a human approval gate (spec: `docs/engine/dark-factory.md`); the board label taxonomy is `.github/labels.yml`, and `TODO.md` keeps only narrative handover, its actionable items living on the board. The executor's schedule pins `baseRef: 'dev'` so worktrees always fork off `dev`, matching the spec.
+- **The factory grows scrumo + escalator and gets model tiering** — a fourth loop `factory-scrumo` (daily paused digest schedule, DMs the owner three recommended actions, may comment on blocked items) and the `factory-escalator` heavy child (spawned by the executor for hard slices, `z-ai/glm-5.3` at `max` thinking); models are pinned on all loop agents (triage `deepseek-v4-flash-vision-exp` — direct only, never OpenRouter; executor/sweeper `glm-5.3-flash`; escalator `glm-5.3` at `max` thinking) per `.pi/factory/REQUIREMENTS.md`, and the factory agent definitions, `project.json`, runbook and seeds are now tracked in git (`.gitignore` opens `.pi/agents/` and `.pi/factory/`, `.pi/subagents/` stays ignored).
+- **`orchestrated-delegation` copied into the repo** — the executor's build loop no longer depends on this machine's user scope: the skill and its five `delegate-*` agents live under `.claude/skills/orchestrated-delegation/` and `.pi/agents/`, pinned to repo agents, the Dark Factory gate and worktrees off `dev`, with the judge repriced to `z-ai/glm-5.3` at `max` thinking and the mechanical roles on `deepseek-v4-flash` at `high`.
 
 ### Fixed
 

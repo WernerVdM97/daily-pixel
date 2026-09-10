@@ -1,0 +1,216 @@
+{
+  "items": [
+    {
+      "title": "Deterministic travel to explored areas (engine-owned routing)",
+      "body": "Now designed in [[per-player-map-exploration]]: engine-owned routing + `stamina = sum edge difficulty`; `distance` reserved for the time mechanic.",
+      "labels": [
+        "type:feature",
+        "area:world",
+        "area:engine",
+        "factory:seeded"
+      ],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Schema: normalise location references to FK ids",
+      "body": "Locations are keyed by `name` (TEXT) everywhere (`player_characters.location`, `npcs.location`, `location_edges`, `actions.location_name`). `actions.location_name` is a deliberate point-in-time snapshot (keep it); decide whether the live-reference tables move to `location_id` FKs consistently - a holistic refactor, not a lone divergence. See [[per-player-map-exploration]] sec.6.",
+      "labels": [
+        "type:decision",
+        "area:schema",
+        "factory:seeded",
+        "needs-human-decision"
+      ],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Blocked"
+    },
+    {
+      "title": "Reactions as input buffering before button press",
+      "body": "Use reactions to buffer input before a button is pressed (expend items, use abilities to amplify actions; also works for trades). Open question: does it work with ephemeral?",
+      "labels": [
+        "type:feature",
+        "area:ux-ui",
+        "factory:seeded"
+      ],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Stealth / following mechanics",
+      "body": "MVP-deferred idea.",
+      "labels": [
+        "type:feature",
+        "area:engine",
+        "factory:seeded"
+      ],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "LLM prompt architecture refactor (tracking issue)",
+      "body": "Tracking issue for [[mvp-llm-prompt-architecture]]. Sub-ideas:\n\n- [ ] prompts to LLM as markdown (friendlier), response stays JSON\n- [ ] LLM still produces options, but rolls happen before to influence them (hunt -> succeed -> roll rarity -> LLM generates item)\n- [ ] outcomes rolled before response flavour is generated; determine outcome sentiment before prompting\n- [ ] multiple agents in short bursts / chained agents instead of one big chat\n- [ ] try disabling thinking again, or A/B thinking on/off\n- [ ] optimise prompts with simulations to see when the LLM digresses\n- [ ] use testing data as LLM mocks (dev / unit testing)\n\nThis idea needs a lot of refinement or better system prompts.",
+      "labels": [
+        "type:feature",
+        "area:prompts",
+        "factory:seeded"
+      ],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Combat as a core mechanic (tracking issue)",
+      "body": "Tracking issue for [[mvp-combat]] - there is no combat; this should be a core mechanic.",
+      "labels": [
+        "type:feature",
+        "area:engine",
+        "factory:seeded"
+      ],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Graph DB for backend coherency (tracking issue)",
+      "body": "Tracking issue for [[mvp-data-model]]: graph DB for relationships, items, distances, groups. Better world-state tracking: which areas are hostile, how hostile, what faction/encounters to expect.",
+      "labels": [
+        "type:feature",
+        "area:schema",
+        "area:world",
+        "factory:seeded"
+      ],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Introduce and reuse NPCs more often (tracking issue)",
+      "body": "Tracking issue for [[mvp+npc-economy]]: introduce NPCs more often in interactions, save them, reuse them more often.",
+      "labels": [
+        "type:feature",
+        "area:world",
+        "factory:seeded"
+      ],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Rethink sleep mechanic / world-state projection (tracking issue)",
+      "body": "Tracking issue for [[mvp+world-state-projection]]. People should sleep at the Warden's Oak but not be able to TP out of unsafe/far locations. Finishing the day in an unsafe location should have consequences (bad sleep, jail escape). Related to world-state tracking.",
+      "labels": [
+        "type:feature",
+        "area:engine",
+        "area:world",
+        "factory:seeded"
+      ],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Scrape prettier ascii art / image-to-ascii conversion (tracking issue)",
+      "body": "Tracking issue for [[mvp-ascii-render-pipeline]]: scrape prettier ascii art or images for converting with an ascii image converter.",
+      "labels": [
+        "type:feature",
+        "area:ansi-art",
+        "factory:seeded"
+      ],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "ANSI engine rewrite: compiled pixel-art images in a custom font",
+      "body": "MVP(+). The ANSI art engine should be rewritten in custom font characters compiled into an actual image and sent as pixelated art.",
+      "labels": [
+        "type:feature",
+        "area:ansi-art",
+        "factory:seeded"
+      ],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "DECISION: delete or keep opts.compact",
+      "body": "Release A closeout decision. `opts.compact` has had no production caller since RA-6 - still plumbed through `buildOutcomeView`/`viewState.ts`/`commands/action.ts` with a unit test. Delete it, or keep it as a deliberate capability.",
+      "labels": [
+        "type:decision",
+        "area:engine",
+        "factory:seeded",
+        "needs-human-decision"
+      ],
+      "milestone": "Release A closeout",
+      "priority": "P2 - normal",
+      "status": "Blocked"
+    },
+    {
+      "title": "Give the agent-player a way to exercise the quest/free-action loop",
+      "body": "Release A closeout open item. An `AGENT_FORCE_FREE_ACTIONS`-style switch, or a brain prompt that rations day-job picks. Without it the harness cannot answer any balance question about free actions (see the RESUME HERE standing caution: the brain overwhelmingly picks the day-job menu, and `stripWorkInspiration` strips inspiration from work actions, so RA-2's grant rate is unmeasurable today).",
+      "labels": [
+        "type:feature",
+        "area:agent-harness",
+        "factory:seeded"
+      ],
+      "milestone": "Release A closeout",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Re-probe the daunting band (isolated DECIDE probes)",
+      "body": "RA-1 residual. The daunting band is fixed in prose and the arithmetic checks out, but no re-probe was run, so it stays unverified behaviourally. Needs isolated DECIDE probes (the kind stage 4 used), NOT an agent-player run.",
+      "labels": [
+        "type:bug",
+        "area:prompts",
+        "factory:seeded"
+      ],
+      "milestone": "Release A closeout",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Verify RA-2 inspiration dial (~10% target, 3.2-3.7 band) via human play or harness switch",
+      "body": "RA-2 residual. The ~10% target and 3.2-3.7 band remain unverified: the agent-player structurally cannot check them (day-job work strips inspiration by design; the brain overwhelmingly picks day-job over free actions). Needs human play, or a harness switch that forces free actions, before anyone concludes it worked.\n\nDepends on: 'Give the agent-player a way to exercise the quest/free-action loop'.",
+      "labels": [
+        "type:bug",
+        "area:agent-harness",
+        "factory:seeded",
+        "needs-human-decision"
+      ],
+      "milestone": "Release A closeout",
+      "priority": "P2 - normal",
+      "status": "Blocked"
+    },
+    {
+      "title": "Re-tune dangerTier thresholds for v13 DC ladder",
+      "body": "P3 residual (balance decision). `dangerTier`'s thresholds predate v13's ladder, so an ordinary 16-17 fight reads `hard`. Re-tuning them also moves the combat card, so it needs measurement.",
+      "labels": [
+        "type:decision",
+        "area:engine",
+        "factory:seeded",
+        "needs-human-decision"
+      ],
+      "milestone": "Release A closeout",
+      "priority": "P3 - low",
+      "status": "Blocked"
+    },
+    {
+      "title": "Combat card/narration match is per-round, not per-fight",
+      "body": "P3 residual (balance decision). Each CONTINUE round re-authors `baseDc`, so the card/narration match holds per round, not per fight.",
+      "labels": [
+        "type:decision",
+        "area:engine",
+        "factory:seeded",
+        "needs-human-decision"
+      ],
+      "milestone": "Release A closeout",
+      "priority": "P3 - low",
+      "status": "Blocked"
+    }
+  ]
+}

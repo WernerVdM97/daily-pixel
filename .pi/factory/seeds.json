@@ -1,0 +1,575 @@
+{
+  "generated": "2026-08-03",
+  "source": "TODO.md",
+  "notes": "status: Inbox default; Triaged for items already scoped; Blocked+needs-human-decision for [?] decisions; priority default P2 unless noted. milestone by name. labels list must exist in .github/labels.yml.",
+  "items": [
+    {
+      "title": "Stage 2 solo-first: nat 20 grants extra loot/rolls, nat 1 a story beat",
+      "body": "From POC+ re-sequencing scratchpad.\n\nNat 20 grants extra loot/rolls (F#9), nat 1 a story beat. Public broadcast is the bonus layer. Lands at N=1.\n\nSee [[poc-plus-roadmap]] and the archived release plan `docs/archived/poc-plus/poc-plus-release-a-plan.md`.",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Stages 3-4: buffs + shared boss, extend harness to co-located multi-agent runs",
+      "body": "Build + agent-QA only for now; extend the agent-player harness to co-located multi-agent runs; fun-payoff deferred to later user testing.\n\nSee [[poc-plus-roadmap]].",
+      "labels": ["type:feature", "area:multiplayer", "area:agent-harness", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Sanity-check out-of-graph scene_location authored by LLM",
+      "body": "M4 smoke-run finding (2026-07-21).\n\nTwice in one run the model named a location outside the geography graph (\"The Vale\", then \"Town Square - The Vale\") with no relocate mutation; the travel-gate + graph validator correctly no-op'd both (no player-visible corruption).\n\nThe `place - region` format matches the display convention (`src/discord/map-render.ts:117`, `src/llm/prompt-builder.ts:243`) - the model is likely echoing a compound display string back into the raw `scene_location` field.\n\n**Acceptance:** determine whether prompt/context renders location as `place - region` somewhere the model could mistake it for the field value; fix or document.",
+      "labels": ["type:bug", "area:prompts", "area:world", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Surface bail-refund grace to the player (first step-back today is free)",
+      "body": "M4 smoke-run finding.\n\nThe once-per-day free step-back (`last_bail_refund_day`, `src/engine/WorldEngineImpl.ts`) reads as inconsistent: first bail refunds a roll, second same-day does not, with nothing explaining it. Add a small UI note. Not a bug.",
+      "labels": ["type:polish", "area:ux-ui", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Promote engine anomaly logs to transcript findings in agent harness",
+      "body": "M4 enhancement.\n\nEngine-emitted anomaly recoveries (`category-telemetry`, `travel-gate` injections/drops) print to stderr but the agent-player harness does not capture them as findings, so they are invisible in the run scoreboard. Hook these engine emissions into transcript warnings.",
+      "labels": ["type:feature", "area:agent-harness", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "C6 symptom-A: combat-intended actions mis-classified as skill/rest",
+      "body": "0.3.2 residual, deferred. Route via the `prompt-versioning` skill; a published prompt set is copied, never edited in place. See [[prompt-v13-roadmap]].\n\nActions the player intends as combat are sometimes classified as `skill`/`rest`, routing to the wrong spine. The auto-resolve guard (C6) prevents a combat-classified action resolving without a fight, but the upstream classify decision is a prompt-template concern.",
+      "labels": ["type:bug", "area:prompts", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Add kind/slot/consumable column to ItemData",
+      "body": "RA-1 Stage 1 follow-up.\n\nThe engine cannot distinguish a consumable from a weapon and cannot hold consumables to +1, so the v13 \"consumable reads +1\" guidance is prompt-only and unenforced until such a column exists.",
+      "labels": ["type:feature", "area:schema", "area:engine", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "C4 follow-up: abandoned mid-round combat shows no opening frame on resume",
+      "body": "A genuinely unfinished multi-round fight leaves `last_action_state` set; `/action` then hits the resume branch (`action.ts:162`), which calls `buildDecisionMessage` without `actionType`, so no opening frame renders (and `decisionIdx > 0` would gate it out anyway). Latent, not the reported symptom.\n\nNeeds `resumeAction`/`ActionResumeResult` to carry actionType + remembered foe and the render gate to allow a combat opener on resume.",
+      "labels": ["type:bug", "area:ansi-art", "area:engine", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "C4 follow-up: in_combat edge duplication on anchor change",
+      "body": "`set_relation`'s UNIQUE key includes the anchor (`to_type,to_ref`), so a re-engage that resolves to a *different* anchor than the bailed edge creates a second `in_combat` edge; `readCombatState` then picks whichever the DB returns first. Harmless for same-anchor re-engage (the common path). Needs an edge-lifecycle sweep, not part of the C4 symptom fix.",
+      "labels": ["type:bug", "area:engine", "area:schema", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Make NPC minting a hard guarantee for combat/social actions",
+      "body": "Originally [/] - largely addressed: RA-3 mints a surviving named foe, and v13's `add_npc` tells the model to mint a narrated newcomer on first sight. What is left is making it a hard guarantee (engine-enforced) rather than prompt guidance.",
+      "labels": ["type:feature", "area:engine", "area:world", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Investigate removing the classify-stage critic (latency)",
+      "body": "Latency seems high; mine prod for investigation. Note: RA-4 already gated the narrate critic (`CRITIC_GATE_MODE`, default `narrate-gated`); this item is the classify stage specifically. Conditionally remove.",
+      "labels": ["type:polish", "area:prompts", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Refactor frame left padding from two spaces to one",
+      "body": "Many frames have two spaces of left padding; refactor to one.",
+      "labels": ["type:polish", "area:ansi-art", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Rework map render: show unexplored adjacent edges greyed out in the main tree",
+      "body": "Current behaviour: an unexplored path (e.g. The Stag's Den off The Forest Edge) renders only in the bottom \"Unexplored paths\" block, not in the main tree. A player looks at \"you are here\" first, then around them; the Forest Edge not showing its onward edge there is bad UX.\n\nDesired: render unexplored adjacent edges in the top tree, greyed out / marked unexplored, instead of only in a detached bottom list.\n\nOriginal map dump preserved in TODO.md history.",
+      "labels": ["type:polish", "area:ux-ui", "area:world", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Improve art blocks on messages (art as main viewport)",
+      "body": "Spike/proposal item.\n\n- Drop the old ugly scene ascii (kept only for /look)\n- Redisplay the classified-outcome art on the thinking page and maintain it on decision outcomes\n- Treat art as the main viewport; Discord messaging becomes a sub-menu / interaction layer with inline art blocks\n- Maybe drop the location ascii image from actions",
+      "labels": ["type:feature", "area:ansi-art", "area:ux-ui", "factory:seeded"],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Thinking block shows full decision history + main frame + rotating hints",
+      "body": "- Show the full decision history exactly like action outcome, and the main frame block\n- Same for the ephemeral version of action responses\n- Add a hints block the player can read while waiting; periodically scrape docs/features for lesser-known interactions (regex resolving, ...)",
+      "labels": ["type:feature", "area:ux-ui", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Footer emoji for location changes should show the location emoji",
+      "body": "Small UX win from the POC polish list.",
+      "labels": ["type:polish", "area:ux-ui", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Travel prompt should inject current location, edge, destination state and routes",
+      "body": "The travel prompt should inject the current location, the edge being traversed, the final location state, and the routes to get there.",
+      "labels": ["type:feature", "area:prompts", "area:world", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Deterministic movement on low-difficulty terrain (effort budget)",
+      "body": "Movement on low-difficulty terrain can be deterministic up to a total of 3 effort (3x difficulty-1 edges, or a 1+2). Traversing a >=3 difficulty edge in one action must trigger the travel prompt.\n\nActions that involve movement indirectly (e.g. \"search the library\" from the Warden's Oak) should first evaluate the travel beat (auto-travel, or demand travel as a separate action).",
+      "labels": ["type:feature", "area:engine", "area:world", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Dynamic context loading: NPC-like interaction layer instead of full-context prompts",
+      "body": "Instead of sending the LLM all possible context, give it an interaction layer: scripts/commands that perform lookups from world state, provided to the decision and mutation DMAs.",
+      "labels": ["type:feature", "area:prompts", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Populate more location edges in seeds",
+      "body": "World content: more location edges in the seed data.",
+      "labels": ["type:feature", "area:world", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Improve daily work options",
+      "body": "Broaden / improve the daily work option set.",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "0 stamina blocks more actions; 0 HP triggers a death save",
+      "body": "Hitting 0 stamina should block more actions that day. 0 HP should do this but also roll the dice - a death save. Note: death track is deferred from POC by design ([[the-poc]], [[mvp-progression]]).",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Last stand buttons/captions: emojis + combat scene frame",
+      "body": "Last stand buttons and captions need to look cooler: emojis or a combat scene frame.",
+      "labels": ["type:polish", "area:ux-ui", "area:ansi-art", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Short rest granted after clearing hostiles as last action of the day",
+      "body": "Clearing bad people in an unsafe space should grant a short rest if it is your last action of the day (helps reach the Oak at night; slightly risky).\n\nAlso: add a short-rest variant usable once per day before or between actions. Drop blocker.",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Evolving art block across consecutive decision screens",
+      "body": "On consecutive action decision screens the art block should evolve/update (zoom or change the scene). The inline art block no longer has to display HP if the main frame does.",
+      "labels": ["type:feature", "area:ansi-art", "factory:seeded"],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Opening frame on auto-resolved actions (travel/rest)",
+      "body": "ANSI-F review gap. Travel/rest often resolve at start with no decision beat, so they show no opening frame today (3 auto-finish call sites + the public-broadcast embed question). Extend the frame to the outcome path.",
+      "labels": ["type:bug", "area:ansi-art", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Combat opening frame renders 'Unknown foe' pre-first-step",
+      "body": "`PipelineDecideResult.combatEnemy` exists but is not exposed publicly. Enrich when worth it.",
+      "labels": ["type:bug", "area:ansi-art", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Cartographer enrichment: bounded retry sweep for failed enrich()",
+      "body": "N2 residual. Mint-to-fire wiring is fixed (`mintedSince` diff fires the async cartographer for freshly-crossed frontiers), but an `enrich()` that throws is only `console.warn`-logged and leaves the row `enrichment_pending = 1` forever - nothing re-attempts it.\n\nAdd a bounded retry/reconciler (sweep pending rows on tick, capped by a retry counter) so a transient LLM failure self-heals.",
+      "labels": ["type:bug", "area:world", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Fragment catalogue: enemy sprites, NPC busts, campfire, PC poses",
+      "body": "Gates real art in opening/combat frames; until it lands, sprite/scene slots render as deliberate placeholder scenes. See [[ansi-art-classification-framework]] sec.9, [[mvp+ansi-art]]. The single next bottleneck for POC+ art coverage.",
+      "labels": ["type:feature", "area:ansi-art", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Migrate ascii to ansi in semantics, source files, and references",
+      "body": "The 23 `assets/scenes/*.ascii` still coexist with the new `src/render/` ANSI system.",
+      "labels": ["type:polish", "area:ansi-art", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Render ANSI as images for mobile",
+      "body": "Colour degrades to monochrome on mobile today. Longer-term, MVP+ wants the ANSI engine rewritten into compiled pixel-art images.",
+      "labels": ["type:feature", "area:ansi-art", "factory:seeded"],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Stage-2 BROADCAST_CARD frame",
+      "body": "Reuses the renderer; built when stage 2 (nat 1/20 broadcast) lands.",
+      "labels": ["type:feature", "area:ansi-art", "factory:seeded"],
+      "milestone": "POC+ arc",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "D3/D4: conversation & puzzle shapes + free-text security stack",
+      "body": "Action pipeline framework refactor closeout, item 1 (from `docs/engine/prompt-v13-roadmap.md`). The biggest unspecced chunk; can be specced immediately since relationship edges are live. Needs a stage-N-style build plan before implementation.",
+      "labels": ["type:feature", "area:prompts", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Prose-critic trigger decision from CombatBeatLog data",
+      "body": "After a few live weeks of telemetry: prose-critic trigger decision from the CombatBeatLog data, recorded as a decisions/ doc.",
+      "labels": ["type:decision", "area:prompts", "factory:seeded", "needs-human-decision"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Blocked"
+    },
+    {
+      "title": "Roadmap stage 4: Thread B world scaling",
+      "body": "Wants live curves before tuning; the scale seam sits at 1. See `docs/engine/prompt-v13-roadmap.md`.",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Richer /hi opening prose scaled by time since last interaction",
+      "body": "Player request F#2 (2026-07-08, BendiusOver). Pressing Hi should generate a prose opener that scales with time since last interaction (referencing days or a few actions) and reminds the player of their work, quests, loose ends. Extends the morning/evening custom prose and add-/hi-to-new-hero items.",
+      "labels": ["type:feature", "area:ux-ui", "factory:seeded"],
+      "milestone": "v0.3.x polish",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Menu rework: buttons going missing",
+      "body": "Player request F#5 (2026-07-08). Buttons going missing is annoying - do the menu rework soon. Bumps the menu-framework-coupled-to-views MVP item / [[discord-interaction-layer]].",
+      "labels": ["type:feature", "area:ux-ui", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Player-founded structures become real locations",
+      "body": "Player request F#4, B#8 (Ulrich's temple). A player who starts building a temple expects it to exist as its own explorable/buildable place, not resolve to an existing/adjacent location. Relates to lazy world growth + world-state tracking [[mvp-data-model]].",
+      "labels": ["type:feature", "area:world", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Cross-player buff actions",
+      "body": "Player request B#11. Praying/blessing \"for everyone\" should apply a buff mutation to the other players present, not no-op. Needs a multiplayer-aware mutation.",
+      "labels": ["type:feature", "area:multiplayer", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Items should be usable, not stat-bonus clutter",
+      "body": "Player request F#11. Players accumulate notes/keys/etc. that only grant a passive stat bonus and never get used; make items actually do something. Tracked in [[improved-item-features]].",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Communal / offering currency separate from personal gold",
+      "body": "Player request F#9. A player wanted to spend offering-basket funds (not their own coin) on temple supplies; distinguish a shared/temple purse from personal wealth. Nuance under the MVP \"make wealth spendable/meaningful\" item.",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Re-evaluate periodic channel messages",
+      "body": "Any periodic channel message should be re-evaluated.",
+      "labels": ["type:polish", "area:ux-ui", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "DnD statblock scraper",
+      "body": "MVP-deferred tooling item.",
+      "labels": ["type:feature", "area:docs-meta", "factory:seeded"],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Menu framework coupled to views",
+      "body": "Standardise the views/command/message terminology and a tab/subtab layout per message. See [[discord-interaction-layer]] (subtabs are explicitly MVP there).",
+      "labels": ["type:feature", "area:ux-ui", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Make wealth/stamina/health spendable and meaningful; define death / 0 HP",
+      "body": "Death track deferred from POC by design ([[the-poc]]); see [[mvp-progression]] (lifecycle/death), [[mvp-combat]] (HP stakes), [[mvp+npc-economy]] (wealth sink).",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Cap rolls per action type + short-rest option; reward slow build-up",
+      "body": "Reward slow build-up / daily-work play on subsequent actions instead of jumping straight in. Check for hard-coded roll caps. Extends [[roll-economy-timeouts-and-world-growth]].",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Character progression depth",
+      "body": "Levels, upskilling, traits; the char creator shows which stats matter per race/class and how each modifies them. See [[mvp-progression]], [[mvp-character-drivers]].",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Richer community feedback in chat",
+      "body": "Tag people (not too spammy), let players show off to each other. See [[mvp-social-model]], [[mvp-discord-ux]].",
+      "labels": ["type:feature", "area:multiplayer", "area:ux-ui", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Use flash for quick responses/daily work, pro for decision trees",
+      "body": "Use both models differently.",
+      "labels": ["type:feature", "area:prompts", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "LLM latency: rein in reasoning length, tighten timeout+fallback",
+      "body": "Deferred from polish-v0.2.8 (2026-07-04). Snapshot shows mean ~12.8s, 94 calls >20s, 26 >30s (max 47.5s); surfaces to players as timed_out/bailed outcomes. Overlaps the model-split item and thinking on/off experiments in [[mvp-llm-prompt-architecture]].",
+      "labels": ["type:bug", "area:prompts", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Auto-resolve roll refund: verify done path hands roll back on true no-op",
+      "body": "Deferred from polish-v0.2.8. Bug reports say a `done` auto-resolve can consume a roll while doing nothing / not refund it (B#1, B#10). No-op/timeout/bail refund graces already exist and there is no deterministic double-decrement in `startAction`; verify the `done` path specifically. Part of the broader auto-resolve wound owned by the prompt refactor.",
+      "labels": ["type:bug", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Saturday special: weekly scripted boss event + NPC death mutation",
+      "body": "Minimal slice (one scripted weekly boss, shared HP) is now [[poc-plus-roadmap]] item 5; NPC death mutation and the wider event pool stay MVP.",
+      "labels": ["type:feature", "area:multiplayer", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Choose age in character creator",
+      "body": "MVP-deferred.",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Improved journal/story: quests, hints, clue system (+1 roll)",
+      "body": "Track or show quests or hints; add a clue system that also grants +1 roll.",
+      "labels": ["type:feature", "area:engine", "area:ux-ui", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Deterministic travel to explored areas (engine-owned routing)",
+      "body": "Now designed in [[per-player-map-exploration]]: engine-owned routing + `stamina = sum edge difficulty`; `distance` reserved for the time mechanic.",
+      "labels": ["type:feature", "area:world", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Schema: normalise location references to FK ids",
+      "body": "Locations are keyed by `name` (TEXT) everywhere (`player_characters.location`, `npcs.location`, `location_edges`, `actions.location_name`). `actions.location_name` is a deliberate point-in-time snapshot (keep it); decide whether the live-reference tables move to `location_id` FKs consistently - a holistic refactor, not a lone divergence. See [[per-player-map-exploration]] sec.6.",
+      "labels": ["type:decision", "area:schema", "factory:seeded", "needs-human-decision"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Blocked"
+    },
+    {
+      "title": "Reactions as input buffering before button press",
+      "body": "Use reactions to buffer input before a button is pressed (expend items, use abilities to amplify actions; also works for trades). Open question: does it work with ephemeral?",
+      "labels": ["type:feature", "area:ux-ui", "factory:seeded"],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Stealth / following mechanics",
+      "body": "MVP-deferred idea.",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "LLM prompt architecture refactor (tracking issue)",
+      "body": "Tracking issue for [[mvp-llm-prompt-architecture]]. Sub-ideas:\n\n- [ ] prompts to LLM as markdown (friendlier), response stays JSON\n- [ ] LLM still produces options, but rolls happen before to influence them (hunt -> succeed -> roll rarity -> LLM generates item)\n- [ ] outcomes rolled before response flavour is generated; determine outcome sentiment before prompting\n- [ ] multiple agents in short bursts / chained agents instead of one big chat\n- [ ] try disabling thinking again, or A/B thinking on/off\n- [ ] optimise prompts with simulations to see when the LLM digresses\n- [ ] use testing data as LLM mocks (dev / unit testing)\n\nThis idea needs a lot of refinement or better system prompts.",
+      "labels": ["type:feature", "area:prompts", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Combat as a core mechanic (tracking issue)",
+      "body": "Tracking issue for [[mvp-combat]] - there is no combat; this should be a core mechanic.",
+      "labels": ["type:feature", "area:engine", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Graph DB for backend coherency (tracking issue)",
+      "body": "Tracking issue for [[mvp-data-model]]: graph DB for relationships, items, distances, groups. Better world-state tracking: which areas are hostile, how hostile, what faction/encounters to expect.",
+      "labels": ["type:feature", "area:schema", "area:world", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Introduce and reuse NPCs more often (tracking issue)",
+      "body": "Tracking issue for [[mvp+npc-economy]]: introduce NPCs more often in interactions, save them, reuse them more often.",
+      "labels": ["type:feature", "area:world", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Rethink sleep mechanic / world-state projection (tracking issue)",
+      "body": "Tracking issue for [[mvp+world-state-projection]]. People should sleep at the Warden's Oak but not be able to TP out of unsafe/far locations. Finishing the day in an unsafe location should have consequences (bad sleep, jail escape). Related to world-state tracking.",
+      "labels": ["type:feature", "area:engine", "area:world", "factory:seeded"],
+      "milestone": "MVP",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "Scrape prettier ascii art / image-to-ascii conversion (tracking issue)",
+      "body": "Tracking issue for [[mvp-ascii-render-pipeline]]: scrape prettier ascii art or images for converting with an ascii image converter.",
+      "labels": ["type:feature", "area:ansi-art", "factory:seeded"],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "ANSI engine rewrite: compiled pixel-art images in a custom font",
+      "body": "MVP(+). The ANSI art engine should be rewritten in custom font characters compiled into an actual image and sent as pixelated art.",
+      "labels": ["type:feature", "area:ansi-art", "factory:seeded"],
+      "milestone": "MVP+ / someday",
+      "priority": "P3 - low",
+      "status": "Inbox"
+    },
+    {
+      "title": "DECISION: delete or keep opts.compact",
+      "body": "Release A closeout decision. `opts.compact` has had no production caller since RA-6 - still plumbed through `buildOutcomeView`/`viewState.ts`/`commands/action.ts` with a unit test. Delete it, or keep it as a deliberate capability.",
+      "labels": ["type:decision", "area:engine", "factory:seeded", "needs-human-decision"],
+      "milestone": "Release A closeout",
+      "priority": "P2 - normal",
+      "status": "Blocked"
+    },
+    {
+      "title": "Give the agent-player a way to exercise the quest/free-action loop",
+      "body": "Release A closeout open item. An `AGENT_FORCE_FREE_ACTIONS`-style switch, or a brain prompt that rations day-job picks. Without it the harness cannot answer any balance question about free actions (see the RESUME HERE standing caution: the brain overwhelmingly picks the day-job menu, and `stripWorkInspiration` strips inspiration from work actions, so RA-2's grant rate is unmeasurable today).",
+      "labels": ["type:feature", "area:agent-harness", "factory:seeded"],
+      "milestone": "Release A closeout",
+      "priority": "P1 - high",
+      "status": "Inbox"
+    },
+    {
+      "title": "Re-probe the daunting band (isolated DECIDE probes)",
+      "body": "RA-1 residual. The daunting band is fixed in prose and the arithmetic checks out, but no re-probe was run, so it stays unverified behaviourally. Needs isolated DECIDE probes (the kind stage 4 used), NOT an agent-player run.",
+      "labels": ["type:bug", "area:prompts", "factory:seeded"],
+      "milestone": "Release A closeout",
+      "priority": "P2 - normal",
+      "status": "Inbox"
+    },
+    {
+      "title": "Verify RA-2 inspiration dial (~10% target, 3.2-3.7 band) via human play or harness switch",
+      "body": "RA-2 residual. The ~10% target and 3.2-3.7 band remain unverified: the agent-player structurally cannot check them (day-job work strips inspiration by design; the brain overwhelmingly picks day-job over free actions). Needs human play, or a harness switch that forces free actions, before anyone concludes it worked.\n\nDepends on: 'Give the agent-player a way to exercise the quest/free-action loop'.",
+      "labels": ["type:bug", "area:agent-harness", "factory:seeded", "needs-human-decision"],
+      "milestone": "Release A closeout",
+      "priority": "P2 - normal",
+      "status": "Blocked"
+    },
+    {
+      "title": "Re-tune dangerTier thresholds for v13 DC ladder",
+      "body": "P3 residual (balance decision). `dangerTier`'s thresholds predate v13's ladder, so an ordinary 16-17 fight reads `hard`. Re-tuning them also moves the combat card, so it needs measurement.",
+      "labels": ["type:decision", "area:engine", "factory:seeded", "needs-human-decision"],
+      "milestone": "Release A closeout",
+      "priority": "P3 - low",
+      "status": "Blocked"
+    },
+    {
+      "title": "Combat card/narration match is per-round, not per-fight",
+      "body": "P3 residual (balance decision). Each CONTINUE round re-authors `baseDc`, so the card/narration match holds per round, not per fight.",
+      "labels": ["type:decision", "area:engine", "factory:seeded", "needs-human-decision"],
+      "milestone": "Release A closeout",
+      "priority": "P3 - low",
+      "status": "Blocked"
+    }
+  ]
+}
