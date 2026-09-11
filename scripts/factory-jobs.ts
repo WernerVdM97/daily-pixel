@@ -1417,12 +1417,42 @@ function ensureWorktree(ctx: Ctx, path: string, addArgs: string[]): boolean {
     if (existsSync(path)) gitOrThrow(ctx, ["worktree", "remove", "--force", path]);
     else git(ctx, ["worktree", "prune"]);
     gitOrThrow(ctx, ["worktree", "add", ...addArgs]);
+    provisionDeps(ctx, path);
     return true;
   } catch (err) {
     ctx.deps.log(
       `[factory-jobs] could not add a worktree at ${path}: ${err instanceof Error ? err.message : String(err)}`,
     );
     return false;
+  }
+}
+
+/**
+ * A worktree is a fresh checkout, so it arrives without `node_modules` — and every model
+ * stage's contract is to run the suite and typecheck before it commits. Without an install
+ * the stage either fails, or runs the suite in the *main* checkout and reports a green that
+ * belongs to a different tree, which is the wrong-verification failure the ledger exists to
+ * prevent. Hardlink the main tree's install rather than installing: measured at 39 ms and no
+ * extra bytes for this repo's 152 MB, and still isolated, because `npm ci` in the worktree
+ * replaces that directory while npm writes new files rather than editing in place, so the
+ * main checkout keeps its own. A symlink is the tempting one-liner and is wrong: `npm ci`
+ * would `rm -rf` through it and gut the install the tick itself runs on.
+ */
+function provisionDeps(ctx: Ctx, worktree: string): void {
+  const source = resolve(ctx.root, "node_modules");
+  const target = resolve(worktree, "node_modules");
+  if (!existsSync(source) || existsSync(target)) return;
+  if (ctx.dryRun) {
+    ctx.deps.log(`[dry-run] cp -al ${source} ${target}`);
+    return;
+  }
+  const res = ctx.deps.exec("cp", ["-al", source, target], { cwd: ctx.root, timeoutMs: 2 * MIN });
+  if (res.code !== 0) {
+    // Not fatal: the worktree is usable, but a stage that runs the suite will fail on it.
+    ctx.deps.log(
+      `[factory-jobs] could not provision node_modules into ${worktree}: ${res.stderr.trim()}. ` +
+        "Stages that run the suite or typecheck will fail until it is installed there.",
+    );
   }
 }
 
