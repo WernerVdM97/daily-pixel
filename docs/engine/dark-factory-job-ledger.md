@@ -162,7 +162,7 @@ Waiting is visible rather than silent. `factory-jobs.ts stale` lists jobs whose 
 
 New:
 
-- `scripts/factory-jobs.ts`: the ledger library and CLI. `start` picks or adopts and creates the record; `drain` takes the drain lock and does the oldest job's one action; `retry <item>` is the owner's unblock; `housekeeping` fetches, fast-forwards local `dev` when that is safe, and deletes local branches whose PR is merged (it is what the tick runs after the drain, and what the sweeper reports); `list`, `show`, `stale` are read-only (`stale` prints jobs whose records say `running` but whose pid is gone, and jobs waiting on a merge for more than a week, for humans).
+- `scripts/factory-jobs.ts`: the ledger library and CLI. `start` picks or adopts and creates the record; `drain` takes the drain lock and does the oldest job's one action; `retry <item>` is the owner's unblock; `housekeeping` fetches, fast-forwards local `dev` when that is safe, and deletes local branches whose work is provably in `dev` — wholly contained, or a merged PR whose head was exactly that branch's tip (it is what the tick runs after the drain, and what the sweeper reports); `list`, `show`, `stale` are read-only (`stale` prints jobs whose records say `running` but whose pid is gone, and jobs waiting on a merge for more than a week, for humans).
 - A test file beside the existing factory-script tests.
 - `.pi/agents/factory-builder.md`, `factory-reviewer.md`, `factory-fixer.md`. **Not as written:** the stages reuse the repo's existing `delegate-executor`, `delegate-reviewer` and `delegate-fixer`, which gained a ledger-stage mode, so the build loop keeps one set of role definitions instead of two near-identical ones (see the closing note).
 

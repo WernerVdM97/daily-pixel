@@ -1665,13 +1665,20 @@ export function staleReport(ctx: Ctx): string {
 
 // ── Housekeeping: a fresh base, no stale branches ─────────────────────────
 
+export interface BranchesReport {
+  branch: string;
+  /** The tip it was deleted (or kept) at, so the operation can be audited or undone. */
+  commit: string;
+  reason: string;
+}
+
 export interface HousekeepingOutcome {
   fetched: boolean;
   /** What happened to the local `dev` ref: the worktree fork point must not rot. */
   devRef: "already-current" | "advanced" | "behind-but-unsafe" | "unknown";
   devRefBehind: number;
-  deleted: string[];
-  kept: { branch: string; reason: string }[];
+  deleted: BranchesReport[];
+  kept: BranchesReport[];
 }
 
 /**
@@ -1760,35 +1767,104 @@ function currentBranch(ctx: Ctx): string {
 }
 
 /** Head branches of merged PRs, or null when gh could not answer (so: prune nothing). */
-function mergedPrHeads(ctx: Ctx): Set<string> | null {
+/** A merged PR, identified by the commit its head was at when it merged. */
+interface MergedPrRef {
+  number: number;
+  headOid: string;
+}
+
+/** How many merged PRs one bulk query asks for. See `mergedPrsByHead`. */
+const MERGED_PR_PAGE = 1000;
+
+interface MergedPrIndex {
+  byHead: Map<string, MergedPrRef[]>;
+  /**
+   * False when the bulk query returned exactly the page size, i.e. it may have been cut off.
+   * A complete index is authoritative: a branch missing from it has no merged PR at all. A
+   * possibly-truncated one falls back to a per-branch query, so the page size can only ever
+   * cost an extra call, never a wrong decision.
+   */
+  complete: boolean;
+}
+
+function mergedPrsByHead(ctx: Ctx, repo: string): MergedPrIndex | null {
+  let raw: string;
+  try {
+    raw = gh(ctx, [
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "merged",
+      "--limit",
+      String(MERGED_PR_PAGE),
+      "--json",
+      "number,headRefName,headRefOid",
+    ]);
+  } catch (err) {
+    ctx.deps.log(`[factory-jobs] cannot list merged PRs: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+  let prs: { number?: number; headRefName?: string; headRefOid?: string }[];
+  try {
+    prs = JSON.parse(raw || "[]") as { number?: number; headRefName?: string; headRefOid?: string }[];
+  } catch {
+    ctx.deps.log("[factory-jobs] gh returned unparseable JSON for the merged PR list; pruning nothing");
+    return null;
+  }
+  const byHead = new Map<string, MergedPrRef[]>();
+  for (const pr of prs) {
+    if (!pr.headRefName || !pr.headRefOid) continue;
+    const list = byHead.get(pr.headRefName) ?? [];
+    list.push({ number: pr.number ?? 0, headOid: pr.headRefOid });
+    byHead.set(pr.headRefName, list);
+  }
+  return { byHead, complete: prs.length < MERGED_PR_PAGE };
+}
+
+/** Merged PRs for one head, asked directly. Only needed when the bulk page may be truncated. */
+function mergedPrsForHead(ctx: Ctx, repo: string, branch: string): MergedPrRef[] {
+  try {
+    const raw = gh(ctx, [
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--head",
+      branch,
+      "--state",
+      "merged",
+      "--limit",
+      "10",
+      "--json",
+      "number,headRefOid",
+    ]);
+    const prs = JSON.parse(raw || "[]") as { number?: number; headRefOid?: string }[];
+    const refs: MergedPrRef[] = [];
+    for (const pr of prs) {
+      if (pr.headRefOid) refs.push({ number: pr.number ?? 0, headOid: pr.headRefOid });
+    }
+    return refs;
+  } catch (err) {
+    ctx.deps.log(
+      `[factory-jobs] cannot list merged PRs for ${branch}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return [];
+  }
+}
+
+function pruneMergedBranches(ctx: Ctx, outcome: HousekeepingOutcome): void {
   let repo: string;
   try {
     repo = readProjectConfig(ctx.root).repo;
   } catch (err) {
     ctx.deps.log(`[factory-jobs] cannot read the board config: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
+    return;
   }
-  let raw: string;
-  try {
-    raw = gh(ctx, ["pr", "list", "--repo", repo, "--state", "merged", "--limit", "300", "--json", "headRefName"]);
-  } catch (err) {
-    ctx.deps.log(`[factory-jobs] cannot list merged PRs: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
-  }
-  try {
-    const prs = JSON.parse(raw || "[]") as { headRefName?: string }[];
-    const heads = new Set<string>();
-    for (const pr of prs) if (pr.headRefName) heads.add(pr.headRefName);
-    return heads;
-  } catch {
-    ctx.deps.log("[factory-jobs] gh returned unparseable JSON for the merged PR list; pruning nothing");
-    return null;
-  }
-}
+  const index = mergedPrsByHead(ctx, repo);
+  if (!index) return;
 
-function pruneMergedBranches(ctx: Ctx, outcome: HousekeepingOutcome): void {
-  const merged = mergedPrHeads(ctx);
-  if (!merged) return;
   const locals: string[] = [];
   for (const line of git(ctx, ["for-each-ref", "refs/heads", "--format=%(refname:short)"]).stdout.split("\n")) {
     const name = line.trim();
@@ -1804,43 +1880,86 @@ function pruneMergedBranches(ctx: Ctx, outcome: HousekeepingOutcome): void {
   const liveJobBranches = new Set(loadJobs(ctx.jobsDir).map((job) => job.branch));
 
   for (const branch of locals) {
-    const keep = (reason: string): void => {
-      outcome.kept.push({ branch, reason });
+    const keep = (commit: string, reason: string): void => {
+      outcome.kept.push({ branch, commit, reason });
     };
-    if (PROTECTED_BRANCHES.has(branch)) {
-      keep("protected");
+    const excluded = untouchableReason(branch, { head, checkedOut, live: liveJobBranches });
+    if (excluded) {
+      keep("", excluded);
       continue;
     }
-    if (branch === head) {
-      keep("checked out here");
+
+    const tip = git(ctx, ["rev-parse", "--verify", `${branch}^{commit}`]).stdout.trim();
+    if (!tip) {
+      keep("", "could not resolve its tip");
       continue;
     }
-    if (checkedOut.has(branch)) {
-      keep("checked out in a worktree");
+
+    // Safe on its own: every commit on the branch is already in the tracked ref.
+    if (git(ctx, ["merge-base", "--is-ancestor", branch, UPSTREAM_REF]).code === 0) {
+      removeBranch(ctx, outcome, branch, tip, "-d", `contained in ${UPSTREAM_REF}`);
       continue;
     }
-    if (liveJobBranches.has(branch)) {
-      keep("a live job owns it");
+
+    // Otherwise its work can only have landed as a squash, and that is proven by a merged PR
+    // whose head was *exactly this tip*. A branch name is not proof: `feat/<item>-<slug>` is
+    // deterministic, so a redone item recreates a name an older merged PR already owns, and
+    // a branch that advanced after its own merge carries commits no PR ever saw.
+    const prs = index.byHead.get(branch) ?? (index.complete ? [] : mergedPrsForHead(ctx, repo, branch));
+    const merged = prs.find((pr) => pr.headOid === tip);
+    if (!merged) {
+      const other = prs[0];
+      keep(
+        tip,
+        other
+          ? `its tip differs from merged PR #${other.number}'s head ${other.headOid.slice(0, 7)}`
+          : "not merged",
+      );
       continue;
     }
-    const contained =
-      merged.has(branch) || git(ctx, ["merge-base", "--is-ancestor", branch, UPSTREAM_REF]).code === 0;
-    if (!contained) {
-      keep("not merged");
-      continue;
-    }
-    if (ctx.dryRun) {
-      ctx.deps.log(`[dry-run] git branch -D ${branch} (merged)`);
-      outcome.deleted.push(branch);
-      continue;
-    }
-    const res = git(ctx, ["branch", "-D", branch]);
-    if (res.code === 0) {
-      outcome.deleted.push(branch);
-      ctx.deps.log(`[factory-jobs] deleted merged branch ${branch}`);
-    } else {
-      keep(`delete failed: ${res.stderr.trim()}`);
-    }
+    removeBranch(ctx, outcome, branch, tip, "-D", `PR #${merged.number} merged at this exact commit`);
+  }
+}
+
+/** Why a branch is never a pruning candidate, whatever git says about its commits. */
+function untouchableReason(
+  branch: string,
+  seen: { head: string; checkedOut: Set<string>; live: Set<string> },
+): string | null {
+  if (PROTECTED_BRANCHES.has(branch)) return "protected";
+  if (branch === seen.head) return "checked out here";
+  if (seen.checkedOut.has(branch)) return "checked out in a worktree";
+  if (seen.live.has(branch)) return "a live job owns it";
+  return null;
+}
+
+/**
+ * `-d` where ancestry already proved containment; `-D` only when the tip-equality proof was
+ * logged first, so a forced delete always has its evidence in the journal beside it.
+ */
+function removeBranch(
+  ctx: Ctx,
+  outcome: HousekeepingOutcome,
+  branch: string,
+  tip: string,
+  flag: "-d" | "-D",
+  proof: string,
+): void {
+  if (ctx.dryRun) {
+    ctx.deps.log(`[dry-run] git branch ${flag} ${branch} at ${tip.slice(0, 7)} (${proof})`);
+    outcome.deleted.push({ branch, commit: tip, reason: proof });
+    return;
+  }
+  let res = git(ctx, ["branch", "-d", branch]);
+  if (res.code !== 0 && flag === "-D") {
+    ctx.deps.log(`[factory-jobs] ${branch} is not an ancestor of ${UPSTREAM_REF}; forcing: ${proof}`);
+    res = git(ctx, ["branch", "-D", branch]);
+  }
+  if (res.code === 0) {
+    outcome.deleted.push({ branch, commit: tip, reason: proof });
+    ctx.deps.log(`[factory-jobs] deleted merged branch ${branch} at ${tip.slice(0, 7)} (${proof})`);
+  } else {
+    outcome.kept.push({ branch, commit: tip, reason: `delete failed: ${res.stderr.trim()}` });
   }
 }
 
