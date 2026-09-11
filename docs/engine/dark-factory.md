@@ -147,6 +147,8 @@ Off means the tick does nothing at all: no schedules fire, the job drain does no
 - **`factory-jobs.ts start|drain|retry` still work** when you run them yourself; they are your tools, not the schedule's.
 - **An in-flight stage finishes.** A tick already inside a 50-minute `build` cannot be interrupted safely, and killing it mid-write is exactly what loses work; the next tick is the one that sees the switch. Nothing new starts meanwhile.
 
+**Defaults, stated plainly:** an _unset_ switch means on, so a box already running keeps running across this change, and a box with no `.env` at all is on. The shipped `.env.example` sets it off, so a box provisioned from scratch is opt-in — and if you want absence itself to mean off, that is one line in the launcher plus `FACTORY_ENABLED=1` where you do want it.
+
 Per-loop control stays separate: a schedule's own `paused` flag (see § Running it) turns one loop off while the rest keep ticking, which is what the individual switches are for.
 
 ## Non-goals

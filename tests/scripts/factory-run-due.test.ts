@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 // CI. What is under test is the switch, not the factory: a tick that runs schedules here would
 // mean the switch failed to stop it.
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../../scripts/factory-run-due.sh');
+const REPO_ROOT = resolve(dirname(SCRIPT), '..');
 
 function tick(env: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), 'factory-tick-'));
@@ -71,6 +72,10 @@ describe('the factory switch', () => {
     const out = tick({ FACTORY_PAUSE_FILE: file });
     expect(out).toContain(`factory is off (${file}: owner away until the 20th)`);
     expect(tick({ FACTORY_PAUSE_FILE: join(dir, 'absent') })).toContain('nothing due');
+  });
+
+  it('ships off in the example, so a box provisioned from it is opt-in', () => {
+    expect(readFileSync(resolve(REPO_ROOT, '.env.example'), 'utf8')).toMatch(/^FACTORY_ENABLED=0$/m);
   });
 
   it('still fires a schedule named by hand, and stops before the drain', () => {
