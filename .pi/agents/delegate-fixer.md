@@ -1,7 +1,7 @@
 ---
 name: delegate-fixer
 description: Fixer role for the orchestrated-delegation workflow. The lead spawns this to implement only the review findings it has already accepted — stated as concrete instructions — and return a report. Does not re-litigate triage or commit. Invoked explicitly by the lead via subagent(), not for general auto-delegation.
-model: deepseek/deepseek-v4-flash
+model: deepseek/deepseek-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true

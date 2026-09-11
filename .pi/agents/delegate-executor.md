@@ -1,7 +1,7 @@
 ---
 name: delegate-executor
 description: Executor role for the orchestrated-delegation workflow. The lead spawns this to implement exactly to a written spec and return a report — never to decide scope or commit. Invoked explicitly by the lead via subagent(), not for general auto-delegation.
-model: deepseek/deepseek-v4-flash
+model: deepseek/deepseek-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true

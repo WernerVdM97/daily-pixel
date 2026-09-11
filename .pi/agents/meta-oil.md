@@ -81,7 +81,7 @@ The schedule fires twice, Friday then Saturday evening:
 - **survey** (Friday): the full run above.
 - **confirm** (Saturday): re-measure, drain answers, and deepen the top offender only. Send a DM only if a decision is pending or a ranking moved materially. Two identical digests in two days is exactly the verbosity you exist to delete.
 
-A model pin is the one proposal you must verify rather than reason about. The short `provider/model` form does not do what it reads like: `deepseek/deepseek-v4-flash` lands on the direct DeepSeek provider while `deepseek/deepseek-v4.1-flash` silently lands on OpenRouter, and a provider that does not offer the requested thinking tier downgrades it without complaining (`xhigh` becomes `max` on the direct DeepSeek models). Before you propose a tier change, confirm the pin on a throwaway session and quote the result:
+A model pin is the one proposal you must verify rather than reason about. The short `provider/model` form does not do what it reads like: `deepseek/deepseek-flash` lands on the direct DeepSeek provider while a name that provider does not carry (`deepseek/deepseek-v4.1-flash`) silently lands on OpenRouter, and a provider that does not offer the requested thinking tier downgrades it without complaining (the direct DeepSeek models have no `xhigh`, so `xhigh` clamps up to `max`). Before you propose a tier change, confirm the pin on a throwaway session and quote the result:
 
 ```bash
 pi -p --session-dir /tmp/pincheck --no-tools --model <pin> --thinking <tier> "ok" \

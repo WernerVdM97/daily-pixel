@@ -1,7 +1,7 @@
 ---
 name: delegate-reviewer
 description: Reviewer role for the orchestrated-delegation workflow. The lead spawns this as a fresh-context, read-only adversary to critique the executor's change against the spec. Reports findings; makes no edits. Invoked explicitly by the lead via subagent(), not for general auto-delegation.
-model: deepseek/deepseek-v4-flash
+model: deepseek/deepseek-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: false

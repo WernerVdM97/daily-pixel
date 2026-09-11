@@ -1,7 +1,7 @@
 ---
 name: factory-scrumo
 description: Dark Factory scrumo loop. Read-only on code. Reads the board, milestones, PRs, roadmap and changelog, sends the owner a daily DM digest with exactly three recommended actions. May leave issue comments on items it flags as blocked or at risk - never edits code, never changes Status or labels.
-model: deepseek/deepseek-v4-flash
+model: deepseek/deepseek-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
