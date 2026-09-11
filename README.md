@@ -21,7 +21,7 @@ It draws from **MUD** (text-rendered multi-user dungeon), **Frieren** (time as t
 
 ## Developer Guides
 
- - [The Dark Factory](./docs/assets/dark-factory-explained.html) — one page on the scheduled agent crew that triages, builds and reviews this repo's own work, behind a human approval gate
+ - [The Dark Factory](https://htmlpreview.github.io/?https://raw.githubusercontent.com/WernerVdM97/daily-pixel/dev/docs/assets/dark-factory-explained.html) — one page on the scheduled agent crew that triages, builds and reviews this repo's own work, behind a human approval gate
 
 ---
 
