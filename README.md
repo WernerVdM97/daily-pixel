@@ -16,8 +16,8 @@ It draws from **MUD** (text-rendered multi-user dungeon), **Frieren** (time as t
 
 ## Visual Guides
 
- - [gameplay loop](./docs/assets/core-loop.png)
- - [character creation](./docs/assets/character-creation.png)
+- [gameplay loop](./docs/assets/core-loop.png)
+- [character creation](./docs/assets/character-creation.png)
 
 ---
 
@@ -34,7 +34,8 @@ It draws from **MUD** (text-rendered multi-user dungeon), **Frieren** (time as t
 
 The full design vault lives in `docs/` — every idea, mechanic, and decision.
 
-Start with 
+Start with
+
 - [`docs/README.md`](./docs/README.md) (the map of content), and
 - [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) (how docs are organised).
 
