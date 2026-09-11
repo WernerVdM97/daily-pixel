@@ -68,7 +68,7 @@ One stage per process. The three model stages are each a spawned `pi -p` wrapper
 | `fix` | model | `factory-fixer` | 30 min | committed fixes, or a recorded skip when the review reports none |
 | `deliver` | code | none | seconds | pushed branch, PR to `dev`, Status `In Review`, PR-link comment, PR number recorded |
 | `reconcile` | code | none | seconds | merged: Status `Done` and the issue closed. Still open: stays waiting, costing nothing |
-| `done` | code | none | seconds | worktree removed, record moved to `.pi/factory/jobs/archive/<item>.json`, branch kept |
+| `done` | code | none | seconds | worktree removed, record moved to `.pi/factory/jobs/archive/<item>.json` |
 
 The reviewer is the one stage that must not be able to write to the worktree: it runs with a read-only toolset (no edit, write or bash), returns its findings as its final output, and the drainer persists that output as the job's `findings` artifact. The fixer then reads the artifact, so findings cross a stage boundary as a file written by code, not by an agent.
 
@@ -154,7 +154,7 @@ Merging is the owner's step, so the stage that opened the PR cannot know the out
 
 This is why the sweeper has to stand down on ledger items: two writers on one transition would race, and the sweeper would move the card to `Done` without closing the issue, leaving the ledger holding a job it still believes is awaiting a merge. The sweeper keeps the rule for items with no job record, which is every item that predates the ledger.
 
-`done` follows immediately in the same code path: worktree removed, record archived, branch kept. The branch outlives the job on purpose, because `done` means merged and those commits are the record of what was merged.
+`done` follows immediately in the same code path: worktree removed, record archived, branch kept. The branch outlives the job on purpose, because `done` means merged and those commits are the record of what was merged. It then survives only until the pruner runs: `factory-jobs.ts housekeeping` deletes local branches whose PR is merged, which a job's branch always is by the time `done` has run. The archived record keeps the branch name, and `origin`'s copy is left alone — deleting it is the owner's button on the PR page, and no `git fetch` can bring it back.
 
 Waiting is visible rather than silent. `factory-jobs.ts stale` lists jobs whose PR has been open for more than a week, beside the orphaned records it already prints for humans, and the sweeper's own idle-PR check keeps nagging at 24 hours in the digest.
 
@@ -162,7 +162,7 @@ Waiting is visible rather than silent. `factory-jobs.ts stale` lists jobs whose 
 
 New:
 
-- `scripts/factory-jobs.ts`: the ledger library and CLI. `start` picks or adopts and creates the record; `drain` takes the drain lock and does the oldest job's one action; `retry <item>` is the owner's unblock; `list`, `show`, `stale` are read-only (`stale` prints jobs whose records say `running` but whose pid is gone, and jobs waiting on a merge for more than a week, for humans).
+- `scripts/factory-jobs.ts`: the ledger library and CLI. `start` picks or adopts and creates the record; `drain` takes the drain lock and does the oldest job's one action; `retry <item>` is the owner's unblock; `housekeeping` fetches, fast-forwards local `dev` when that is safe, and deletes local branches whose PR is merged (it is what the tick runs after the drain, and what the sweeper reports); `list`, `show`, `stale` are read-only (`stale` prints jobs whose records say `running` but whose pid is gone, and jobs waiting on a merge for more than a week, for humans).
 - A test file beside the existing factory-script tests.
 - `.pi/agents/factory-builder.md`, `factory-reviewer.md`, `factory-fixer.md`. **Not as written:** the stages reuse the repo's existing `delegate-executor`, `delegate-reviewer` and `delegate-fixer`, which gained a ledger-stage mode, so the build loop keeps one set of role definitions instead of two near-identical ones (see the closing note).
 

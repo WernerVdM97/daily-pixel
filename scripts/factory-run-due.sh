@@ -141,6 +141,11 @@ fi
 if [ -f "$PROJECT_DIR/scripts/factory-jobs.ts" ]; then
   log "draining job stages"
   npx --no-install tsx scripts/factory-jobs.ts drain || status=$?
+  # Repo hygiene, after the drain so a merge that `reconcile` just completed is included:
+  # fetch (nothing should fork from a stale base), fast-forward local dev when that is safe,
+  # and delete local branches whose PR is merged. It never touches origin's branches.
+  log "housekeeping"
+  npx --no-install tsx scripts/factory-jobs.ts housekeeping || status=$?
 else
   log "no scripts/factory-jobs.ts in this checkout; skipping the drain step"
 fi
