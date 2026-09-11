@@ -16,6 +16,12 @@
 # Run one tick by hand:  scripts/factory-run-due.sh
 # Fire one named schedule now, even though it is paused and not yet due:
 #   FACTORY_FIRE=factory-triage scripts/factory-run-due.sh
+#
+# A tick has two steps: the due schedules, then the job drain. The schedules step no longer
+# `exec`s, because the shell has to survive to the drain: a job's stage runs one per process
+# (see docs/engine/dark-factory-job-ledger.md), so its progress comes from the drain running
+# every tick, not from a long-lived agent. Schedules fire first, so a job started at 06:00
+# can have its build running by 06:01.
 set -euo pipefail
 
 PROJECT_DIR="${FACTORY_PROJECT_DIR:-/home/werner/projects/daily-pixel}"
@@ -112,13 +118,31 @@ fi
 if [ -n "$FIRE_ID" ]; then
   log "${avail_mb}MB available; firing schedule ${FIRE_ID}"
   ACTION="Call subagent({action:'schedule.run', id:'${FIRE_ID}'}) exactly once. Report what it returned, in under 10 lines."
-else
-  if ! any_schedule_due; then
-    log "${avail_mb}MB available; nothing due at $(date -u +%H:%MZ), skipping this tick"
-    exit 0
-  fi
+elif any_schedule_due; then
   log "${avail_mb}MB available; firing due schedules"
   ACTION="Call subagent({action:'schedule.run-due'}) exactly once. Report which schedules were due and what each returned, in under 10 lines."
+else
+  # Nothing due is the ordinary tick now, not a reason to exit: a ready job stage does not
+  # care whether a schedule fired, and the drain below is the only thing that advances it.
+  log "${avail_mb}MB available; nothing due at $(date -u +%H:%MZ)"
+  ACTION=""
 fi
+
 cd "$PROJECT_DIR"
-exec "$PI_BIN" -p --approve --tools subagent "$ACTION"
+status=0
+if [ -n "$ACTION" ]; then
+  "$PI_BIN" -p --approve --tools subagent "$ACTION" || status=$?
+fi
+
+# One action per tick: reap an orphan, block a spent or twice-failed job, or run one ready
+# stage. It holds its own drain lock for the whole run, stage included, so a stage in flight
+# is never started twice; a failure here is logged and retried on the next tick, and the exit
+# code still reaches systemd so `systemctl --failed` sees a broken factory.
+if [ -f "$PROJECT_DIR/scripts/factory-jobs.ts" ]; then
+  log "draining job stages"
+  npx --no-install tsx scripts/factory-jobs.ts drain || status=$?
+else
+  log "no scripts/factory-jobs.ts in this checkout; skipping the drain step"
+fi
+
+exit "$status"
