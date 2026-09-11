@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -93,6 +93,7 @@ class Harness {
   readonly dir = mkdtempSync(join(tmpdir(), 'factory-jobs-'));
   readonly root: string;
   readonly jobsDir: string;
+  readonly worktreeRoot: string;
   readonly calls: Call[] = [];
   readonly logs: string[] = [];
   readonly spawns: StageRun[] = [];
@@ -133,7 +134,10 @@ class Harness {
   constructor() {
     this.root = join(this.dir, 'repo');
     this.jobsDir = join(this.dir, 'jobs');
+    this.worktreeRoot = join(this.dir, 'worktrees');
     mkdirSync(this.jobsDir, { recursive: true });
+    // The install a job worktree is provisioned from (the factory links it, never installs).
+    mkdirSync(join(this.root, 'node_modules'), { recursive: true });
     mkdirSync(join(this.root, '.pi/factory'), { recursive: true });
     writeFileSync(
       join(this.root, '.pi/factory/project.json'),
@@ -234,7 +238,7 @@ class Harness {
     return {
       root: this.root,
       jobsDir: this.jobsDir,
-      worktreeRoot: join(this.dir, 'worktrees'),
+      worktreeRoot: this.worktreeRoot,
       dryRun: false,
       deps: this.deps(),
       ...over,
@@ -934,6 +938,29 @@ describe('start', () => {
       attempts: {},
       pr: null,
     });
+    // A fresh worktree has no node_modules, and every stage's contract needs one.
+    expect(h.called('cp', '-al')).toBe(true);
+  });
+
+  it('leaves an install alone when the worktree already has one', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'Approved', title: 'Last stand buttons' })];
+    h.when('git', ['branch', '-a'], ok('dev\nmain\n'));
+    mkdirSync(join(h.worktreeRoot, 'feat-34-last-stand-buttons', 'node_modules'), { recursive: true });
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    await startPass(h.ctx());
+    expect(h.called('cp', '-al')).toBe(false);
+  });
+
+  it('starts anyway when there is no install to link, and says so', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'Approved', title: 'Last stand buttons' })];
+    h.when('git', ['branch', '-a'], ok('dev\nmain\n'));
+    rmSync(join(h.root, 'node_modules'), { recursive: true, force: true });
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({ action: 'started', item: 34 });
+    expect(h.called('cp', '-al')).toBe(false);
+    expect(existsSync(join(h.worktreeRoot, 'feat-34-last-stand-buttons', 'node_modules'))).toBe(false);
   });
 
   it('adopts an orphan at review, merges the base ref in, and charges it nothing', async () => {
