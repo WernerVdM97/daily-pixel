@@ -57,10 +57,13 @@ is_off() {
 }
 
 factory_off_reason() {
-  local from_env reason
-  if [ -n "${FACTORY_ENABLED:-}" ] && is_off "$FACTORY_ENABLED"; then
-    echo "FACTORY_ENABLED=$FACTORY_ENABLED"
-    return 0
+  local from_env reason enabled=0
+  if [ -n "${FACTORY_ENABLED:-}" ]; then
+    if is_off "$FACTORY_ENABLED"; then
+      echo "FACTORY_ENABLED=$FACTORY_ENABLED"
+      return 0
+    fi
+    enabled=1
   fi
   if [ -r "$PROJECT_DIR/.env" ]; then
     # Line-oriented config, not a shell script: read the one key rather than sourcing it.
@@ -72,9 +75,12 @@ factory_off_reason() {
       *) from_env="${from_env%%#*}" ;;
     esac
     from_env="$(printf '%s' "$from_env" | tr -d '[:space:]')"
-    if [ -n "$from_env" ] && is_off "$from_env"; then
-      echo "FACTORY_ENABLED=$from_env in .env"
-      return 0
+    if [ -n "$from_env" ]; then
+      if is_off "$from_env"; then
+        echo "FACTORY_ENABLED=$from_env in .env"
+        return 0
+      fi
+      enabled=1
     fi
   fi
   if [ -e "$PAUSE_FILE" ]; then
@@ -86,7 +92,14 @@ factory_off_reason() {
     fi
     return 0
   fi
-  return 1
+  # Nothing switched it on, so it is off: absence means off, which is the point of a switch
+  # that spends tokens and writes to GitHub. Enabling is a deliberate act (FACTORY_ENABLED=1
+  # in the environment, in `.env`, or in the unit), and FACTORY_FIRE still runs by name.
+  if [ "$enabled" = "1" ]; then
+    return 1
+  fi
+  echo "not enabled (no FACTORY_ENABLED=1 in the environment, .env or the unit)"
+  return 0
 }
 
 FACTORY_PAUSED=""

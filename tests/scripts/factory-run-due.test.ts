@@ -36,8 +36,14 @@ function tick(env: Record<string, string>): string {
 }
 
 describe('the factory switch', () => {
-  it('runs normally when nothing switches it off', () => {
+  it('is off when nothing switches it on', () => {
     const out = tick({});
+    expect(out).toContain('factory is off (not enabled');
+    expect(out).not.toContain('nothing due');
+  });
+
+  it('runs when FACTORY_ENABLED=1 says so', () => {
+    const out = tick({ FACTORY_ENABLED: '1' });
     expect(out).toContain('nothing due');
     expect(out).not.toContain('factory is off');
   });
@@ -58,20 +64,32 @@ describe('the factory switch', () => {
     }
   });
 
+  it('lets any explicit off beat an explicit on', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-envon-'));
+    writeFileSync(join(dir, '.env'), 'FACTORY_ENABLED=0\n');
+    const out = tick({ FACTORY_PROJECT_DIR: dir, FACTORY_ENABLED: '1' });
+    expect(out).toContain('factory is off (FACTORY_ENABLED=0 in .env)');
+  });
+
   it('reads the flag out of the repo .env rather than sourcing it', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-env-'));
     writeFileSync(join(dir, '.env'), '# factory\nFACTORY_ENABLED="off"   # why: holidays\nDISCORD_TOKEN=x\n');
-    const out = tick({ FACTORY_PROJECT_DIR: dir });
-    expect(out).toContain('factory is off (FACTORY_ENABLED=off in .env)');
+    expect(tick({ FACTORY_PROJECT_DIR: dir })).toContain('factory is off (FACTORY_ENABLED=off in .env)');
+
+    const on = mkdtempSync(join(tmpdir(), 'factory-envon-'));
+    writeFileSync(join(on, '.env'), "FACTORY_ENABLED='1'  # the box opted in\n");
+    expect(tick({ FACTORY_PROJECT_DIR: on })).toContain('nothing due');
   });
 
   it('stops on the pause file, and repeats its reason in the journal', () => {
     const dir = mkdtempSync(join(tmpdir(), 'factory-pause-'));
     const file = join(dir, 'PAUSED');
     writeFileSync(file, 'owner away until the 20th\n');
-    const out = tick({ FACTORY_PAUSE_FILE: file });
+    const out = tick({ FACTORY_PAUSE_FILE: file, FACTORY_ENABLED: '1' });
     expect(out).toContain(`factory is off (${file}: owner away until the 20th)`);
-    expect(tick({ FACTORY_PAUSE_FILE: join(dir, 'absent') })).toContain('nothing due');
+    // The pause file is the reason, not the switch: removing it while nothing enables the
+    // factory leaves it off, because absence means off.
+    expect(tick({ FACTORY_PAUSE_FILE: join(dir, 'absent'), FACTORY_ENABLED: '1' })).toContain('nothing due');
   });
 
   it('ships off in the example, so a box provisioned from it is opt-in', () => {
