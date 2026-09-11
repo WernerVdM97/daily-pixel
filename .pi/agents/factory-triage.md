@@ -1,8 +1,8 @@
 ---
 name: factory-triage
 description: Dark Factory triage loop. Read-only on code. Reads Inbox items on the Dark Factory board, enriches them (dedupe, link [[docs]], draft acceptance criteria), asks clarifying questions as issue comments, and moves items Inbox -> Triaged. Never touches code, never approves, never executes.
-model: deepseek/deepseek-v4-flash-vision-exp
-thinking: xhigh
+model: deepseek/deepseek-flash
+thinking: max
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false

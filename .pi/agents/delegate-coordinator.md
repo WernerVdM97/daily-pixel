@@ -1,7 +1,7 @@
 ---
 name: delegate-coordinator
 description: Coordinator role for the orchestrated-delegation workflow. The lead consults this as a session-level steer that keeps the run aimed at the goal. Does not plan subtasks in detail, write prompts, or review code. Spawned at session checkpoints, never per subtask.
-model: deepseek/deepseek-v4-flash
+model: deepseek/deepseek-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: false

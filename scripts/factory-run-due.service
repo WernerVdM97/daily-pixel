@@ -12,6 +12,9 @@ Environment=HOME=/home/werner
 Environment=PATH=/home/werner/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=FACTORY_PROJECT_DIR=/home/werner/projects/daily-pixel
 Environment=FACTORY_MIN_AVAIL_MB=1000
-# A wedged run must not block every later tick for ever.
-TimeoutStartSec=1800
+# A wedged run must not block every later tick for ever. The ceiling bounds the schedule step
+# plus the longest job stage: the schedule step was already bounded by the old 1800 and runs
+# minutes in practice, the longest stage is 50, so 5400 covers a worst case of 30 + 50 with
+# margin rather than headroom to grow into.
+TimeoutStartSec=5400
 ExecStart=/usr/local/bin/factory-run-due

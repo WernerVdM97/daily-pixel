@@ -34,10 +34,10 @@ Blocked (needs-human-decision) is reachable from any stage except Done; triage o
 | `Inbox` | seeding / triage | Raw item, not yet enriched |
 | `Triaged` | factory-triage | Scoped, has acceptance criteria, awaiting human approval |
 | `Approved` | **human only** | Signed off; agents may execute |
-| `In Progress` | factory-executor | An executor has claimed it |
-| `In Review` | factory-executor | PR open, awaiting owner review/merge |
+| `In Progress` | job ledger | A job has claimed it: a stage is ready, running or blocked |
+| `In Review` | job ledger (`deliver`) | PR open, awaiting owner review/merge |
 | `Blocked` | triage / human | Needs a human decision (`needs-human-decision` label) |
-| `Done` | sweeper / human | PR merged |
+| `Done` | job ledger (`reconcile`) / sweeper / human | PR merged, linked issue closed |
 
 `Priority` (P0–P3) ranks within a column. Labels carry two axes: `area:*` (subsystem) and the gate labels `auto:*`, `needs-human-decision`, `factory:seeded`. The declarative source of truth for labels is `.github/labels.yml`. Milestones map to planning horizons: Release A closeout, POC+ arc, v0.3.x polish, MVP, MVP+ / someday.
 
@@ -52,6 +52,8 @@ Blocked (needs-human-decision) is reachable from any stage except Done; triage o
 | [[dark-factory-requirements]] (in `docs/`) | The decisions behind scrumo, the escalator and the model tiering; implemented 2026-09-10 |
 | `.pi/factory/memory/` | The loops' topic-scoped memory |
 | `.pi/factory/inbox/` | The owner's answers to a digest (files + drain state); runtime only, gitignored |
+| `scripts/factory-jobs.ts` | The job ledger: claims or adopts an item, and drains one stage per tick ([spec](./dark-factory-job-ledger.md)) |
+| `.pi/factory/jobs/` | Runtime job records, artifacts and the drain lock; gitignored |
 | `scripts/factory-friction.ts` | Ranks friction signals out of the session transcripts |
 | `scripts/factory-inbox.ts` | Drains the owner's answers: inbox files, DM reactions, DM text |
 
@@ -59,23 +61,23 @@ The loops run with `context: "fresh"`, so `.pi/factory/memory/` is the only thin
 
 ## The loops
 
-Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`schedule.list`); the escalator is the exception, a child the executor spawns rather than a scheduled loop. All schedules are currently **paused** — nothing runs until the owner fires it manually with `schedule.run` or resumes the schedule.
+Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`schedule.list`); the escalator is the exception, a child the executor spawns rather than a scheduled loop. All seven schedules are **enabled**, so they fire themselves through the headless launcher; a schedule flipped back to `paused` runs only when the owner fires it by hand with `schedule.run`.
 
-| Loop | Agent | Cadence (when resumed) | Writes code? |
+| Loop | Agent | Cadence | Writes code? |
 | --- | --- | --- | --- |
-| Triage | `factory-triage` | 12h, phase-anchored to 06:00 local (so 06:00 and 18:00) | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
-| Executor | `factory-executor` | 24h, anchored 04:00 local | Yes — the only one, and only behind the gate |
+| Triage | `factory-triage` | 12h, phase-anchored to 07:30 local (so 07:30 and 19:30) | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
+| Executor | `factory-executor` (starter only) | 24h, anchored 06:00 local | Yes — via the ledger's `build` stage, and only behind the gate |
 | Sweeper | `factory-sweeper` | 48h, anchored 21:00 local (so 21:00 on alternating days) | No — gate audit, CI re-check, board hygiene, digest |
 | Scrumo | `factory-scrumo` | 7d × 2, 19:00 local on Tuesday and Thursday | No — DM digest, three recommended actions, blocker comments |
 | Meta-oil | `meta-oil` | Fri + Sat 18:00Z (20:00 local) | No — friction analysis and numbered proposals; edits a factory file only once that exact proposal is approved |
 
-**Clock times are approximate, and pi has no calendar trigger.** The scheduler knows one-shot `at` triggers and fixed intervals only (`on` and `timezone` are refused outright), so "06:00" is not a slot: it is a phase. A 12h interval anchored at 06:00 does fire at 06:00 and 18:00 forever, because the next run is plain arithmetic off the anchor and catch-up preserves that phase rather than resetting it, but the _actual_ start is quantised by the systemd tick (5 min, plus up to 30s of jitter), so a pass lands in the 06:00 to 06:05 window rather than on the minute. Tuesday plus Thursday is not expressible as one interval at all, since the gap alternates between 2d and 5d, which is why scrumo is a pair of weekly schedules (`factory-scrumo` on Tuesday, `factory-scrumo-thu` on Thursday) exactly as meta-oil is (`meta-oil-fri`, `meta-oil-sat`). Changing a cadence means editing `schedule.json` directly: the API exposes create/list/show/history/pause/resume/run/delete, and deliberately no update.
+**Clock times are approximate, and pi has no calendar trigger.** The scheduler knows one-shot `at` triggers and fixed intervals only (`on` and `timezone` are refused outright), so "07:30" is not a slot: it is a phase. A 12h interval anchored at 07:30 does fire at 07:30 and 19:30 forever, because the next run is plain arithmetic off the anchor and catch-up preserves that phase rather than resetting it, but the _actual_ start is quantised by the systemd tick (5 min, plus up to 30s of jitter), so a pass lands in the 07:30 to 07:35 window rather than on the minute. Tuesday plus Thursday is not expressible as one interval at all, since the gap alternates between 2d and 5d, which is why scrumo is a pair of weekly schedules (`factory-scrumo` on Tuesday, `factory-scrumo-thu` on Thursday) exactly as meta-oil is (`meta-oil-fri`, `meta-oil-sat`). Changing a cadence means editing `schedule.json` directly: the API exposes create/list/show/history/pause/resume/run/delete, and deliberately no update.
 
 **Triage** reads Inbox items, dedupes, resolves `[[doc-links]]`, drafts acceptance criteria, asks clarifying questions as comments, and moves items to Triaged — or to Blocked with `needs-human-decision` when it cannot proceed.
 
-**Executor** picks at most one item: highest-priority-then-oldest among Status=`Approved`, plus any `auto:*`-class item in Inbox/Triaged. It claims the item, builds it in an isolated worktree off `dev` via the repo's orchestrated-delegation loop, runs the full suite + typecheck, gets a fresh-context review, opens a PR to `dev` with `Closes #n`, and moves the item to `In Review`. It never merges.
+**Executor** is now a starter, not a builder. At its slot the schedule runs `npx tsx scripts/factory-jobs.ts start`, which claims the highest-priority-then-oldest `Approved` (or `auto:*`-class) item or adopts an orphaned branch, cuts a worktree off `dev`, and opens a _job_ in `.pi/factory/jobs/<item>.json`; the agent itself builds nothing and exits in seconds. The stages then run one per process, advanced by the tick's drainer and enforced by the ledger: `build` (agent, 50 min) → `review` (fresh read-only agent, 20 min) → `fix` (agent, 30 min, skipped when the review is clean) → `deliver` (code: push, PR to `dev` with `Closes #n`, Status `In Review`) → `reconcile` (code: on merge, Status `Done` + closes the issue) → `done` (code: worktree removed, record archived, branch kept). 100 minutes cumulative per job; a second failure at one stage, or a spent budget, blocks the item and pages the owner. Full rationale in [[dark-factory-job-ledger]]. It never merges.
 
-**Sweeper** is the gate's backstop: it flags any PR whose issue was never Approved and has no `auto:*` label, re-checks CI on idle PRs, lists stale branches, resets stalled `In Progress` items back to `Approved`, marks merged items `Done`, and posts a digest.
+**Sweeper** is the gate's backstop: it flags any PR whose issue was never Approved and has no `auto:*` label, re-checks CI on idle PRs, lists stale branches, resets stalled `In Progress` items back to `Approved`, marks merged items `Done`, and posts a digest. Its two board-hygiene rules stand down for items that carry a job record: `In Progress` with a job is a run in flight rather than a stalled card, and `In Review` with a job is the ledger's transition to make, because the ledger also closes the linked issue. It keeps both rules for items with no job, which is every item that predates the ledger.
 
 **Scrumo** is the unblocker: it reads the board, milestones, PRs and checks, the roadmap, `CHANGELOG.md` and `VERSION`, and DMs the owner a digest of what changed, what is blocked or at risk, and exactly three recommended actions phrased as decisions. It never changes Status, Priority or labels; its only board writes are comments on items it flags as blocked or at risk, and it needs `DISCORD_TOKEN` + `ADMIN_USER_ID` in the repo `.env` for the DM.
 
@@ -102,7 +104,7 @@ Standing-approval classes (the only work that can run without per-item approval)
 
 ## Running it (manual, while trust builds)
 
-Schedules live under `.pi/subagents/schedules/` and are paused by default. From a pi session in this repo:
+Schedules live under `.pi/subagents/schedules/` and are enabled; a schedule flipped back to `paused` runs only when fired by hand. From a pi session in this repo:
 
 - Fire one triage pass: `subagent({ action: "schedule.run", id: "factory-triage" })`
 - Fire one executor pass: `subagent({ action: "schedule.run", id: "factory-executor" })`
@@ -113,14 +115,22 @@ Schedules live under `.pi/subagents/schedules/` and are paused by default. From 
 
 To answer a meta-oil digest, react on the DM it sent. If the run could not record its own message id (see `scripts/factory-inbox.ts --record <id>`), the watcher says so instead of quietly reporting no decisions.
 
-Inspect runs with `schedule.history` and the usual `status`/`fleet` views.
+A job is driven by its own CLI, not by a schedule:
+
+- Start a job now: `npx tsx scripts/factory-jobs.ts start` (the executor's daily schedule runs exactly this)
+- Advance one stage: `npx tsx scripts/factory-jobs.ts drain`
+- Unblock what triage or the ledger blocked: `npx tsx scripts/factory-jobs.ts retry <item>`
+- Read the ledger: `list`, `show <item>`, `stale`
+- Dry-run any of the above: `FACTORY_DRY_RUN=1`, against a scratch ledger with `FACTORY_JOBS_DIR=DIR`
+
+Inspect runs with `schedule.history` and the usual `status`/`fleet` views, and stages with `scripts/factory-jobs.ts show <item>` plus the session transcripts the stage children leave under `~/.pi/agent/sessions/`.
 
 ## Promoting to unattended
 
 The cadences are already tuned to clock times and the launcher already exists, so what is left here is the trust decision rather than the wiring:
 
 1. Resume the schedules: `schedule.resume` per loop. Nothing fires on its own while a loop is paused, because `run-due` only ever picks unpaused and overdue schedules; `FACTORY_FIRE=<schedule-id>` is the way to run a paused one on demand.
-2. The launcher (`scripts/factory-run-due.{sh,service,timer}`, installed as a system timer that ticks every 5 min) is the lights-out path for a closed laptop. It owns the memory preflight, refusing to start below `FACTORY_MIN_AVAIL_MB` (default 1000MB) because a second pi stacked on a live session twice ended in an `oom-kill`, and a non-blocking lock, so ticks cannot stack. A tick with nothing due exits without spawning pi at all; a record it cannot parse counts as due, so a schedule-format change costs extra ticks rather than parking the factory silently.
+2. The launcher (`scripts/factory-run-due.{sh,service,timer}`, installed as a system timer that ticks every 5 min) is the lights-out path for a closed laptop. It owns the memory preflight, refusing to start below `FACTORY_MIN_AVAIL_MB` (default 1000MB) because a second pi stacked on a live session twice ended in an `oom-kill`, and a non-blocking lock, so ticks cannot stack. Every tick then drains the job ledger (`factory-jobs.ts drain`) after any due schedules, which is what advances a job's stages; a tick with nothing due still drains, and `TimeoutStartSec` is 5400 so a 50-minute `build` cannot be cut off by the launcher. A record it cannot parse counts as due, so a schedule-format change costs extra ticks rather than parking the factory silently.
 3. The watchdog (opt-in adversarial diff review at `agent_end`) is a natural extra review layer once running unattended; see `/subagents-watchdog`.
 
 ## Non-goals
@@ -130,4 +140,4 @@ The cadences are already tuned to clock times and the launcher already exists, s
 
 ---
 
-_Board seeded 2026-08-03 from `TODO.md` (71 items); the loop machinery (agents, schedules, memory) was built 2026-09-07 to 09-10, with scrumo, the escalator and the model tiering landing 09-10 per [[dark-factory-requirements]]. The meta-oil improvement loop, its friction and cache metrics and its owner intake landed the same day. Only `.pi/agents/` and `.pi/factory/project.json` are tracked: the seeding payloads, the runbook and the memory contents stay local. `TODO.md`'s actionable items live on the board; its narrative layer stays in the repo._
+_Board seeded 2026-08-03 from `TODO.md` (71 items); the loop machinery (agents, schedules, memory) was built 2026-09-07 to 09-10, with scrumo, the escalator and the model tiering landing 09-10 per [[dark-factory-requirements]]. The meta-oil improvement loop, its friction and cache metrics and its owner intake landed the same day. The job ledger landed 2026-09-11 ([[dark-factory-job-ledger]]), after the executor's first headless run was killed at 30:00 and left #34 `In Progress` with no PR. Only `.pi/agents/`, `.pi/factory/project.json` and `scripts/factory-jobs.ts` are tracked: the seeding payloads, the runbook, the job records and the memory contents stay local. `TODO.md`'s actionable items live on the board; its narrative layer stays in the repo._
