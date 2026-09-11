@@ -36,6 +36,22 @@ function loadEnv(): void {
   }
 }
 
+/** Discord rejects message content past this, and its API error does not say which message. */
+export const DM_CONTENT_LIMIT = 2000;
+
+/**
+ * Why this content cannot be sent, or null. A digest that grew past the limit used to fail at
+ * the API with a form error that named neither the message nor the length, which reads as a
+ * broken DM path rather than an over-long one.
+ */
+export function contentLengthError(content: string): string | null {
+  if (content.length <= DM_CONTENT_LIMIT) return null;
+  return (
+    `message is ${content.length} characters; Discord's limit is ${DM_CONTENT_LIMIT}. ` +
+    'Shorten it (drop a bullet, keep every link) and send again.'
+  );
+}
+
 /** A DM message: either raw content or full discord.js message options (embeds, files, …). */
 export type DmPayload = string | MessageCreateOptions;
 
@@ -156,6 +172,12 @@ async function runCli(): Promise<void> {
 
   let content = args.fence ? `\`\`\`${args.fence}\n${body}\n\`\`\`` : body;
   if (args.title) content = `**${args.title}**\n${content}`;
+
+  const tooLong = contentLengthError(content);
+  if (tooLong) {
+    console.error(tooLong);
+    process.exit(1);
+  }
 
   const ids = await sendToAdmin(content, args.to);
   // Printed, not just logged: the factory's inbox watcher records this id and polls
