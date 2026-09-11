@@ -105,8 +105,12 @@ class Harness {
   stageOutcome: { code: number | null; timedOut: boolean } = { code: 0, timedOut: false };
   /** How long the fake stage appears to take, so the clock charges a real slice. */
   stageDurationMs = 12 * MIN;
-  /** Successive `git rev-parse HEAD` answers, so a stage can be seen committing. */
-  headQueue: string[] = ['aaaaaaa', 'bbbbbbb'];
+  /** Runs inside the fake stage, for effects the drainer must notice after it returns. */
+  afterSpawn?: (run: StageRun) => void;
+  /** The branch the job is on, and its tip: a committing stage moves the tip. */
+  jobBranch = 'feat/34-last-stand';
+  branchSha = 'aaaaaaa';
+  stageCommits = true;
 
   dirtyWorktree = '';
   private handlers: Handler[] = [];
@@ -136,6 +140,8 @@ class Harness {
     spawnStage: async (run) => {
       this.spawns.push(run);
       this.nowMs += this.stageDurationMs;
+      if ((run.stage === 'build' || run.stage === 'fix') && this.stageCommits) this.branchSha = 'bbbbbbb';
+      this.afterSpawn?.(run);
       const report = this.reports[run.stage];
       if (report !== undefined) {
         const path = join(this.jobsDir, 'artifacts', String(run.item), `${run.stage}.md`);
@@ -160,7 +166,7 @@ class Harness {
     if (cmd === 'gh' && args.join(' ').startsWith('project item-list')) {
       return ok(JSON.stringify({ items: this.board.map(toRawItem) }));
     }
-    if (cmd === 'git' && args.join(' ') === 'rev-parse HEAD') return ok(`${this.headQueue.shift() ?? 'zzzzzzz'}\n`);
+    if (cmd === 'git' && args.join(' ') === `rev-parse ${this.jobBranch}`) return ok(`${this.branchSha}\n`);
     if (cmd === 'git' && args.join(' ').startsWith('status --porcelain')) return ok(this.dirtyWorktree);
     for (const handler of this.handlers) {
       const hit = handler(cmd, args);
@@ -335,7 +341,11 @@ describe('the attempt budget', () => {
   it('runs a ready stage, skips a blocked one and a waiting one', () => {
     const live: Liveness = { startTime: () => null };
     expect(decide(job(), live)).toMatchObject({ kind: 'run', timeoutMs: 50 * MIN });
-    expect(decide(job({ stageState: 'blocked' }), live)).toMatchObject({ kind: 'skip' });
+    expect(decide(job({ stageState: 'blocked', pagedAt: '2026-09-11T11:00:00.000Z' }), live)).toMatchObject({
+      kind: 'skip',
+    });
+    // Blocked with no page on record: the tick that blocked it died first, so page it again.
+    expect(decide(job({ stageState: 'blocked' }), live)).toMatchObject({ kind: 'page' });
     expect(decide(job({ stage: 'reconcile', stageState: 'waiting' }), live)).toMatchObject({ kind: 'skip' });
   });
 });
@@ -451,6 +461,7 @@ describe('the model stages', () => {
     expect(after.attempts.build).toBeUndefined();
     expect(after.stageStartedAt).toBeUndefined();
     expect(h.spawns[0]).toMatchObject({ agent: 'delegate-executor', cwd: job().worktree });
+    expect(h.branchSha).toBe('bbbbbbb');
     expect(h.spawns[0]?.timeoutMs).toBe(50 * MIN);
   });
 
@@ -479,6 +490,21 @@ describe('the model stages', () => {
     expect(after.history.at(-1)).toMatchObject({ result: 'timeout', exit: null });
   });
 
+  it('fails a review that commits, not just one that edits', async () => {
+    const h = new Harness();
+    h.write(job({ stage: 'review' }));
+    h.reports = { review: 'VERDICT: clean' };
+    // The fake stage only moves the branch for build/fix, so move it by hand mid-review.
+    h.afterSpawn = () => {
+      h.branchSha = 'ccccccc';
+    };
+    await drainOnce(h.ctx());
+    const after = h.read(34);
+    expect(after.stage).toBe('review');
+    expect(after.attempts.review).toBe(1);
+    expect(h.logs.join('\n')).toContain('not read-only');
+  });
+
   it('fails a stage whose child reported nothing', async () => {
     const h = new Harness();
     h.write(job());
@@ -489,7 +515,7 @@ describe('the model stages', () => {
 
   it('fails a build that committed nothing', async () => {
     const h = new Harness();
-    h.headQueue = ['aaaaaaa', 'aaaaaaa'];
+    h.stageCommits = false;
     h.write(job());
     await drainOnce(h.ctx());
     expect(h.read(34).attempts.build).toBe(1);
@@ -505,7 +531,7 @@ describe('the model stages', () => {
     const after = h.read(34);
     expect(after.stage).toBe('review');
     expect(after.attempts.review).toBe(1);
-    expect(h.logs.join('\n')).toContain('left the worktree dirty');
+    expect(h.logs.join('\n')).toContain('not read-only');
   });
 
   it('skips the fix stage when the review reports no findings', async () => {
@@ -531,7 +557,7 @@ describe('the model stages', () => {
 
   it('accepts a fixer that reports nothing to change, without a commit', async () => {
     const h = new Harness();
-    h.headQueue = ['aaaaaaa', 'aaaaaaa'];
+    h.stageCommits = false;
     h.write(job({ stage: 'fix' }));
     h.reports = { fix: 'VERDICT: nochange\n\nAlready correct.' };
     await drainOnce(h.ctx());
@@ -583,6 +609,43 @@ describe('the failure policy', () => {
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
     expect(h.spawns).toEqual([]);
     expect(h.read(34).stageState).toBe('blocked');
+  });
+
+  it('pages again when the block tick dies before the page goes out', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'In Progress' })];
+    h.write(job({ stageState: 'blocked' }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+    expect(h.pages).toHaveLength(1);
+    expect(h.read(34).pagedAt).toBeDefined();
+    // Paged: a later tick leaves it alone.
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.pages).toHaveLength(1);
+  });
+
+  it('keeps the page even when the board comment fails, and never claims it paged twice', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'In Progress' })];
+    h.when('gh', ['issue comment'], { code: 1, stdout: '', stderr: 'HTTP 502' });
+    h.write(job({ attempts: { build: 2 } }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+    expect(h.pages).toHaveLength(1);
+    expect(h.read(34).pagedAt).toBeDefined();
+    expect(h.logs.join('\n')).toContain('block comment failed');
+  });
+
+  it('retries a failed `done` instead of blocking an item that is already merged', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"MERGED","mergedAt":"2026-09-11T13:00:00Z"}'));
+    h.when('git', ['worktree remove'], { code: 1, stdout: '', stderr: 'locked' });
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(job({ stage: 'reconcile', pr: 117 }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'done failed' });
+    expect(h.read(34)).toMatchObject({ stage: 'done', stageState: 'ready', attempts: { done: 1 } });
+    // Two failures are a pattern, but blocking is for stages that still have work in them.
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran' });
+    expect(h.read(34).stageState).toBe('ready');
+    expect(h.pages).toEqual([]);
   });
 
   it('lets retry clear the block, zero the attempts and refresh the budget', () => {
@@ -640,6 +703,27 @@ describe('deliver is code', () => {
     expect(after.stage).toBe('reconcile');
     expect(h.called('gh', 'project item-edit')).toBe(true);
     expect(h.logs.join('\n')).toContain('PR opened for review');
+  });
+
+  it('reuses the branch\'s open PR instead of creating a second one', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'list'], ok('[{"number":117,"url":"https://example.test/pull/117"}]'));
+    h.board = [item({ number: 34, status: 'In Progress' })];
+    h.write(job({ stage: 'deliver' }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
+    expect(h.called('gh', 'pr create')).toBe(false);
+    expect(h.read(34)).toMatchObject({ pr: 117, stage: 'reconcile' });
+  });
+
+  it('delivers even when the board write after the PR fails', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'create'], ok('https://github.com/WernerVdM97/daily-pixel/pull/117\n'));
+    h.when('gh', ['issue comment'], { code: 1, stdout: '', stderr: 'HTTP 502' });
+    h.board = [item({ number: 34, status: 'In Progress' })];
+    h.write(job({ stage: 'deliver' }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
+    expect(h.read(34)).toMatchObject({ pr: 117, stage: 'reconcile' });
+    expect(h.logs.join('\n')).toContain('PR-link comment failed');
   });
 
   it('never composes the PR body from an agent report', () => {
@@ -708,6 +792,19 @@ describe('reconcile', () => {
     expect(h.called('gh', 'issue close 34')).toBe(true);
     expect(h.called('git', 'worktree remove --force')).toBe(true);
     expect(h.logs.join('\n')).toContain('branch feat/34-last-stand kept');
+  });
+
+  it('finishes a merged job in one tick on the waiting path too', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"MERGED","mergedAt":"2026-09-11T13:00:00Z"}'));
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(
+      job({ stage: 'reconcile', stageState: 'waiting', waitingSince: '2026-09-09T00:00:00.000Z', pr: 117 }),
+    );
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'finished' });
+    expect(h.has(34)).toBe(false);
+    expect(h.archived(34).stage).toBe('done');
+    expect(h.called('git', 'worktree remove --force')).toBe(true);
   });
 
   it('blocks a PR that was closed without merging', async () => {

@@ -13,7 +13,7 @@ You are the **Reviewer** in an orchestrated-delegation loop. Your entire value i
 
 ## Which mode you are in
 
-Your task decides it: a task naming the `review` stage, a job item and a report path is the Dark Factory's `review` stage — follow **§ Ledger stage mode**. Anything else is the lead-driven review, where the rules below apply as written.
+Your task decides it: a task whose first line is `FACTORY LEDGER STAGE: review` is the Dark Factory's `review` stage — follow **§ Ledger stage mode**. Anything else, marker absent, is the lead-driven review, where the rules below apply as written.
 
 ## Hard rules
 

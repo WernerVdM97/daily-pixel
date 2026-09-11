@@ -57,7 +57,7 @@ The board stays the human surface: Status, priority, comments and the bulletin a
 
 ## Stages
 
-One stage per process. The three model stages are each a spawned `pi -p --agent <stage>` child owned by the drainer, with its own timeout, its own session dir (so meta-oil and `scripts/factory-friction.ts` can still read the transcripts) and its own budget; `deliver`, `reconcile` and `done` are plain code the drainer runs itself, no child at all.
+One stage per process. The three model stages are each a spawned `pi -p` wrapper whose child agent is named in the prompt, owned by the drainer, with its own timeout and its own budget; they write to the default session root (one session file per spawn, which is what keeps `scripts/factory-friction.ts` and meta-oil able to read the transcripts). `deliver`, `reconcile` and `done` are plain code the drainer runs itself, no child at all.
 
 `start` is a command, not a stage. The daily schedule's agent runs `npx tsx scripts/factory-jobs.ts start`, which does its work inline in seconds (worktree, branch, ledger record, Status `In Progress`, claim comment) and leaves the job at `build`/`ready`; the drainer's stages begin at `build`.
 

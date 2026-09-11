@@ -133,6 +133,8 @@ export interface JobRecord {
   stageStartedAt?: string;
   artifacts: Partial<Record<StageName, string>>;
   pr: number | null;
+  /** Set only when the block's DM actually went out, so a failed page is retried. */
+  pagedAt?: string;
   adoptedFrom?: { branch: string; commit: string | null; mergedDev?: string };
   waitingSince?: string;
   startedAt: string;
@@ -149,10 +151,13 @@ export function remainingMs(job: JobRecord): number {
   return Math.max(0, JOB_CAP_MS - job.spentMs);
 }
 
-/** The adaptive attempt timeout: a retry of one stage never spends more than what is left. */
+/**
+ * The adaptive attempt timeout: a retry of one stage never spends more than what is left, so
+ * the job total cannot cross the cap. No floor here — a floor would let the last attempt
+ * overshoot it by that floor, which the spec's "never crosses 100 minutes" forbids.
+ */
 export function attemptTimeoutMs(job: JobRecord): number {
-  const budget = STAGES[job.stage].budgetMs;
-  return Math.max(MIN, Math.min(budget, remainingMs(job)));
+  return Math.max(0, Math.min(STAGES[job.stage].budgetMs, remainingMs(job)));
 }
 
 // ── The decision the drainer makes each tick ───────────────────────────────
@@ -182,11 +187,19 @@ export type Action =
   | { kind: "reap"; reason: string }
   | { kind: "requeue"; reason: string }
   | { kind: "block"; reason: string }
+  | { kind: "page"; reason: string }
   | { kind: "run"; timeoutMs: number }
   | { kind: "skip"; reason: string };
 
+/** Local cleanup after a merge: cheap, idempotent, and never worth blocking a merged item. */
+const NEVER_BLOCKS: StageName[] = ["done"];
+
 export function decide(job: JobRecord, live: Liveness): Action {
-  if (job.stageState === "blocked") return { kind: "skip", reason: "already blocked and paged" };
+  if (job.stageState === "blocked") {
+    return job.pagedAt
+      ? { kind: "skip", reason: "already blocked and paged" }
+      : { kind: "page", reason: "blocked, but the page never went out" };
+  }
   // Waiting jobs are checked directly by the drain, so they never starve the others.
   if (job.stageState === "waiting") return { kind: "skip", reason: "waiting on the merge" };
   if (job.stageState === "running") {
@@ -199,7 +212,7 @@ export function decide(job: JobRecord, live: Liveness): Action {
       reason: probe === "recycled" ? "claim pid was recycled; the stage is gone" : "stage died with its drainer",
     };
   }
-  if ((job.attempts[job.stage] ?? 0) >= MAX_ATTEMPTS) {
+  if ((job.attempts[job.stage] ?? 0) >= MAX_ATTEMPTS && !NEVER_BLOCKS.includes(job.stage)) {
     return { kind: "block", reason: `${job.stage} failed twice` };
   }
   if (job.spentMs >= JOB_CAP_MS) {
@@ -835,6 +848,8 @@ function runCommand(ctx: Ctx, command: Command, cwd = ctx.root): string {
 
 export function stageTask(ctx: Ctx, job: JobRecord, stage: StageName, artifact: string): string {
   const head = [
+    `FACTORY LEDGER STAGE: ${stage}`,
+    "",
     `You are running the **${stage}** stage of a Dark Factory job, not an interactive task.`,
     "",
     `- Board item: #${job.item} — ${job.title}`,
@@ -918,8 +933,22 @@ function succeed(job: JobRecord, stage: StageName, startedAt: number, endedAt: n
 function blockJob(ctx: Ctx, config: ProjectConfig, job: JobRecord, item: BoardItem | undefined, reason: string): void {
   job.stageState = "blocked";
   job.claim = null;
+  const body = blockBody(job, reason);
+  ctx.deps.log(`[factory-jobs] blocked #${job.item}: ${reason}`);
+  // The page goes first and is the only thing that may fail the block: the DM is the single
+  // channel that reaches the owner off-board, and a gh hiccup is exactly the weather in which
+  // a block happens. Board writes are best effort, and `pagedAt` records that the page went
+  // out, so a tick that dies before it pages is retried instead of skipped for ever.
+  if (!ctx.dryRun) page(ctx, job, reason, body);
   saveJob(ctx, job);
-  const body = [
+  bestEffort(ctx, () => {
+    if (item) setStatus(ctx, config, item, "Blocked");
+  }, "board status to Blocked");
+  bestEffort(ctx, () => commentOn(ctx, config, job.item, body), "block comment");
+}
+
+function blockBody(job: JobRecord, reason: string): string {
+  return [
     `**factory: blocked at \`${job.stage}\`.** ${reason}.`,
     "",
     `- item: #${job.item} — ${job.title}`,
@@ -930,15 +959,23 @@ function blockJob(ctx: Ctx, config: ProjectConfig, job: JobRecord, item: BoardIt
     "",
     `Unblock with \`npx tsx scripts/factory-jobs.ts retry ${job.item}\`, which refreshes the budget and clears the attempts.`,
   ].join("\n");
-  if (item) setStatus(ctx, config, item, "Blocked");
-  commentOn(ctx, config, job.item, body);
-  ctx.deps.log(`[factory-jobs] blocked #${job.item}: ${reason}`);
-  if (!ctx.dryRun) {
-    try {
-      ctx.deps.page(`Dark Factory: job #${job.item} blocked`, `${reason}.\n\n${job.title}\n\n${body}`);
-    } catch (err) {
-      ctx.deps.log(`[factory-jobs] page failed (logged, not fatal): ${err instanceof Error ? err.message : String(err)}`);
-    }
+}
+
+/** A board write that must never lose the page or the record. */
+function bestEffort(ctx: Ctx, run: () => void, what: string): void {
+  try {
+    run();
+  } catch (err) {
+    ctx.deps.log(`[factory-jobs] ${what} failed (logged, not fatal): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function page(ctx: Ctx, job: JobRecord, reason: string, body: string): void {
+  try {
+    ctx.deps.page(`Dark Factory: job #${job.item} blocked`, `${reason}.\n\n${job.title}\n\n${body}`);
+    job.pagedAt = new Date(ctx.deps.now()).toISOString();
+  } catch (err) {
+    ctx.deps.log(`[factory-jobs] page failed (logged, still retried next tick): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -961,7 +998,7 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
   saveJob(ctx, job);
 
   if (!ctx.dryRun) mkdirSync(dirname(artifact), { recursive: true });
-  const headBefore = git(ctx, ["rev-parse", "HEAD"], job.worktree).stdout.trim();
+  const branchBefore = git(ctx, ["rev-parse", job.branch], job.worktree).stdout.trim();
   const outcome = await ctx.deps.spawnStage({
     item: job.item,
     stage,
@@ -983,21 +1020,27 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
     ctx.deps.log(`[factory-jobs] ${stage} stage wrote no report to ${artifact}`);
     return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
   }
-  const headAfter = git(ctx, ["rev-parse", "HEAD"], job.worktree).stdout.trim();
+  // The branch, not bare HEAD: a stage that commits somewhere else has not moved the job on,
+  // and the failure belongs at this stage rather than at an empty PR later.
+  const branchAfter = git(ctx, ["rev-parse", job.branch], job.worktree).stdout.trim();
   job.artifacts[stage] = artifact;
 
   if (stage === "build" || stage === "fix") {
     if (parseVerdict(text) === "nochange") return { ok: true, result: "nochange", exit: outcome.code, startedAt, endedAt };
-    if (headAfter === headBefore) {
+    if (branchAfter === branchBefore) {
       ctx.deps.log(`[factory-jobs] ${stage} stage committed nothing on ${job.branch}`);
       return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
     }
   }
   if (stage === "review") {
-    // Read-only is code-enforced: the reviewer may write its report, nothing in the worktree.
+    // Read-only is code-enforced: the reviewer may write its report, nothing in the worktree,
+    // and it may not commit either — a commit would otherwise be delivered as reviewed work.
     const dirty = git(ctx, ["status", "--porcelain"], job.worktree).stdout.trim();
-    if (dirty) {
-      ctx.deps.log(`[factory-jobs] review stage left the worktree dirty:\n${dirty}`);
+    if (dirty || branchAfter !== branchBefore) {
+      ctx.deps.log(
+        `[factory-jobs] review stage is not read-only: ${dirty ? `worktree dirty:\n${dirty}` : ""}` +
+          `${branchAfter !== branchBefore ? ` ${job.branch} moved from ${branchBefore.slice(0, 7)} to ${branchAfter.slice(0, 7)}` : ""}`,
+      );
       return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
     }
   }
@@ -1006,23 +1049,74 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
 
 async function runDeliver(ctx: Ctx, config: ProjectConfig, job: JobRecord): Promise<void> {
   const startedAt = ctx.deps.now();
-  const [push, pr] = deliverCommands(ctx, job);
-  runCommand(ctx, push, job.worktree);
-  const created = runCommand(ctx, pr);
-  const url = created.trim().split("\n").pop() ?? "";
-  const number = Number.parseInt(url.split("/").pop() ?? "", 10);
-  if (!ctx.dryRun && !Number.isFinite(number)) throw new Error(`could not read a PR number from gh output: ${created.trim()}`);
-  job.pr = Number.isFinite(number) ? number : null;
-  const item = boardItem(ctx, config, job);
-  if (item) setStatus(ctx, config, item, "In Review");
-  commentOn(
+  // A retry after a partial success must not create a second PR for the branch: a `gh` failure
+  // between `pr create` and the record write is a seconds-wide window, and "a pull request for
+  // branch ... already exists" would wedge the job for ever on a branch that is already fine.
+  const existing = existingPr(ctx, config, job);
+  let url = existing?.url ?? "";
+  if (existing) {
+    ctx.deps.log(`[factory-jobs] #${job.item}: reusing the open PR #${existing.number} for ${job.branch}`);
+  } else {
+    const [push, pr] = deliverCommands(ctx, job);
+    runCommand(ctx, push, job.worktree);
+    const created = runCommand(ctx, pr);
+    url = created.trim().split("\n").pop() ?? "";
+    const number = Number.parseInt(url.split("/").pop() ?? "", 10);
+    if (!ctx.dryRun && !Number.isFinite(number)) {
+      throw new Error(`could not read a PR number from gh output: ${created.trim()}`);
+    }
+    job.pr = Number.isFinite(number) ? number : null;
+  }
+  // Past this point the PR exists, so nothing here may fail the stage: the board and the
+  // comment are best effort, exactly like the block's.
+  bestEffort(
     ctx,
-    config,
-    job.item,
-    `factory: PR opened for review — ${url || "(dry run)"}\n\nNo agent merged it; merging is the owner's step. The ledger will move this item to \`Done\` and close the issue once it is merged.`,
+    () => {
+      const item = boardItem(ctx, config, job);
+      if (item) setStatus(ctx, config, item, "In Review");
+    },
+    "board status to In Review",
+  );
+  bestEffort(
+    ctx,
+    () =>
+      commentOn(
+        ctx,
+        config,
+        job.item,
+        `factory: PR opened for review — ${url || "(dry run)"}\n\nNo agent merged it; merging is the owner's step. The ledger will move this item to \`Done\` and close the issue once it is merged.`,
+      ),
+    "PR-link comment",
   );
   succeed(job, "deliver", startedAt, ctx.deps.now(), "ok", null);
   ctx.deps.log(`[factory-jobs] #${job.item}: PR opened for review — ${url || "(dry run)"}`);
+}
+
+/** The open PR for this job's branch, if a previous attempt already opened one. */
+function existingPr(ctx: Ctx, config: ProjectConfig, job: JobRecord): { number: number; url: string } | null {
+  if (ctx.dryRun) return null;
+  const raw = gh(ctx, [
+    "pr",
+    "list",
+    "--repo",
+    config.repo,
+    "--head",
+    job.branch,
+    "--state",
+    "open",
+    "--json",
+    "number,url",
+  ]);
+  let prs: { number: number; url: string }[];
+  try {
+    prs = JSON.parse(raw || "[]") as { number: number; url: string }[];
+  } catch {
+    throw new Error(`gh pr list returned unparseable JSON for ${job.branch}`);
+  }
+  const pr = prs[0];
+  if (!pr) return null;
+  job.pr = pr.number;
+  return pr;
 }
 
 async function runReconcile(ctx: Ctx, config: ProjectConfig, job: JobRecord): Promise<void> {
@@ -1099,7 +1193,15 @@ export async function drainOnce(ctx: Ctx): Promise<DrainOutcome> {
   const lock = acquireLock(ctx);
   if (!lock) return { action: "locked" };
   try {
-    const jobs = loadJobs(ctx.jobsDir).filter((job) => job.schemaVersion === SCHEMA_VERSION);
+    const all = loadJobs(ctx.jobsDir);
+    const jobs = all.filter((job) => job.schemaVersion === SCHEMA_VERSION);
+    for (const job of all) {
+      if (job.schemaVersion !== SCHEMA_VERSION) {
+        ctx.deps.log(
+          `[factory-jobs] ignoring #${job.item}: schemaVersion ${job.schemaVersion}, this build reads ${SCHEMA_VERSION}`,
+        );
+      }
+    }
     if (!jobs.length) return { action: "idle" };
     const config = readProjectConfig(ctx.root);
     // A job waiting on the owner costs nothing, so its one PR check per tick is not the
@@ -1113,6 +1215,12 @@ export async function drainOnce(ctx: Ctx): Promise<DrainOutcome> {
       const action = decide(job, ctx.deps.live);
       if (action.kind === "skip") continue;
       const attemptStart = Date.parse(job.stageStartedAt ?? job.updatedAt);
+      if (action.kind === "page") {
+        // A block whose own tick died before paging: retry the page, never the stage.
+        page(ctx, job, action.reason, blockBody(job, action.reason));
+        saveJob(ctx, job);
+        return { action: "blocked", item: job.item, detail: action.reason };
+      }
       if (action.kind === "reap") {
         const pid = job.claim?.pid;
         // A live pid with a matching start time is provably ours; a recycled number never
@@ -1161,8 +1269,17 @@ async function checkWaiting(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pr
     saveJob(ctx, job);
     return null;
   }
+  // Merged: `done` follows in the same code path, exactly as it does on the fresh path. The
+  // waiting path is the normal one (a human merges days later), so a tick that stopped here
+  // would park the worktree and the record for ever.
   saveJob(ctx, job);
+  finishJob(ctx, job);
   return { action: "finished", item: job.item, detail: `PR #${job.pr} merged` };
+}
+
+/** Worktree removed, record archived, branch kept — the last thing a job ever does. */
+function finishJob(ctx: Ctx, job: JobRecord): void {
+  runDone(ctx, job);
 }
 
 async function runOneStage(ctx: Ctx, config: ProjectConfig, job: JobRecord): Promise<DrainOutcome> {
@@ -1184,22 +1301,24 @@ async function runOneStage(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pro
         }
         saveJob(ctx, job);
         // `done` follows a merge immediately: worktree removed, record archived.
-        runDone(ctx, job);
+        finishJob(ctx, job);
         return { action: "finished", item: job.item, detail: "merged" };
       }
-      runDone(ctx, job);
+      finishJob(ctx, job);
       return { action: "finished", item: job.item, detail: "done" };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      fail(job, stage, startedAt, ctx.deps.now(), "failed", null);
-      if (stage === "reconcile" && /closed without merging/.test(reason)) {
+      // `job.stage`, not the cached local: `runReconcile` advances to `done` before this
+      // throws, and a cleanup failure must not be booked against the stage that succeeded.
+      fail(job, job.stage, startedAt, ctx.deps.now(), "failed", null);
+      if (job.stage === "reconcile" && /closed without merging/.test(reason)) {
         job.stageState = "ready";
         blockJob(ctx, config, job, boardItem(ctx, config, job), reason);
         return { action: "blocked", item: job.item, detail: reason };
       }
       saveJob(ctx, job);
-      ctx.deps.log(`[factory-jobs] ${stage} failed on #${job.item}: ${reason}`);
-      return { action: "ran", item: job.item, detail: `${stage} failed` };
+      ctx.deps.log(`[factory-jobs] ${job.stage} failed on #${job.item}: ${reason}`);
+      return { action: "ran", item: job.item, detail: `${job.stage} failed` };
     }
   }
 
