@@ -194,6 +194,15 @@ export type Action =
 /** Local cleanup after a merge: cheap, idempotent, and never worth blocking a merged item. */
 const NEVER_BLOCKS: StageName[] = ["done"];
 
+/**
+ * The cap bounds *model* spend. A code stage is seconds, and `deliver` is the step whose
+ * absence lost #34, so the cap never blocks one: a job that spent its whole budget getting
+ * build/review/fix right still gets its PR. Code stages keep the attempts guard.
+ */
+function capExempt(stage: StageName): boolean {
+  return STAGES[stage].kind === "code";
+}
+
 export function decide(job: JobRecord, live: Liveness): Action {
   if (job.stageState === "blocked") {
     return job.pagedAt
@@ -215,18 +224,19 @@ export function decide(job: JobRecord, live: Liveness): Action {
   if ((job.attempts[job.stage] ?? 0) >= MAX_ATTEMPTS && !NEVER_BLOCKS.includes(job.stage)) {
     return { kind: "block", reason: `${job.stage} failed twice` };
   }
-  if (job.spentMs >= JOB_CAP_MS) {
+  if (job.spentMs >= JOB_CAP_MS && !capExempt(job.stage)) {
     return { kind: "block", reason: `spent the ${Math.round(JOB_CAP_MS / MIN)} minute cap` };
   }
   return { kind: "run", timeoutMs: attemptTimeoutMs(job) };
 }
 
 /** The verdict line a review stage must start its findings file with. */
-export function parseVerdict(text: string): "clean" | "findings" | "nochange" {
+export function parseVerdict(text: string): "clean" | "findings" | "ok" | "nochange" {
   const first = text.trimStart().split("\n", 1)[0] ?? "";
-  const match = /VERDICT:\s*(clean|findings|nochange)\b/i.exec(first);
+  const match = /VERDICT:\s*(clean|findings|ok|nochange)\b/i.exec(first);
+  // Unparseable reads as `findings`: the safe default is to assume there is work to do.
   if (!match) return "findings";
-  return match[1]!.toLowerCase() as "clean" | "findings" | "nochange";
+  return match[1]!.toLowerCase() as "clean" | "findings" | "ok" | "nochange";
 }
 
 // ── Paths and root resolution ──────────────────────────────────────────────
@@ -886,6 +896,10 @@ export function stageTask(ctx: Ctx, job: JobRecord, stage: StageName, artifact: 
   return head.join("\n");
 }
 
+function porcelain(ctx: Ctx, worktree: string): string {
+  return git(ctx, ["status", "--porcelain"], worktree).stdout.trim();
+}
+
 function readArtifact(path: string): string {
   try {
     return readFileSync(path, "utf8");
@@ -999,6 +1013,9 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
 
   if (!ctx.dryRun) mkdirSync(dirname(artifact), { recursive: true });
   const branchBefore = git(ctx, ["rev-parse", job.branch], job.worktree).stdout.trim();
+  // Snapshot the dirt before the child runs: a build that drops ungitignored artifacts must
+  // not doom a review that changed nothing, and the review must still be held to its own edits.
+  const dirtyBefore = porcelain(ctx, job.worktree);
   const outcome = await ctx.deps.spawnStage({
     item: job.item,
     stage,
@@ -1026,23 +1043,34 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
   job.artifacts[stage] = artifact;
 
   if (stage === "build" || stage === "fix") {
-    if (parseVerdict(text) === "nochange") return { ok: true, result: "nochange", exit: outcome.code, startedAt, endedAt };
+    // Only the fixer may accept a finding without a commit: a build that claims `nochange`
+    // has implemented nothing, and its stage fails on the branch check below.
+    if (stage === "fix" && parseVerdict(text) === "nochange") {
+      return { ok: true, result: "nochange", exit: outcome.code, startedAt, endedAt };
+    }
     if (branchAfter === branchBefore) {
       ctx.deps.log(`[factory-jobs] ${stage} stage committed nothing on ${job.branch}`);
       return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
     }
   }
+  const dirtyAfter = porcelain(ctx, job.worktree);
   if (stage === "review") {
     // Read-only is code-enforced: the reviewer may write its report, nothing in the worktree,
     // and it may not commit either — a commit would otherwise be delivered as reviewed work.
-    const dirty = git(ctx, ["status", "--porcelain"], job.worktree).stdout.trim();
-    if (dirty || branchAfter !== branchBefore) {
+    if (dirtyBefore) {
+      ctx.deps.log(`[factory-jobs] the worktree was already dirty before the review ran (not the reviewer's doing):\n${dirtyBefore}`);
+    }
+    if (dirtyAfter !== dirtyBefore || branchAfter !== branchBefore) {
       ctx.deps.log(
-        `[factory-jobs] review stage is not read-only: ${dirty ? `worktree dirty:\n${dirty}` : ""}` +
+        `[factory-jobs] review stage is not read-only: ${dirtyAfter !== dirtyBefore ? "it changed the worktree" : ""}` +
           `${branchAfter !== branchBefore ? ` ${job.branch} moved from ${branchBefore.slice(0, 7)} to ${branchAfter.slice(0, 7)}` : ""}`,
       );
       return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
     }
+  } else if (dirtyAfter) {
+    // Not fatal — the leftovers are uncommitted, so they never reach the PR — but the next
+    // stage and a human reading the worktree both want to know.
+    ctx.deps.log(`[factory-jobs] ${stage} stage left uncommitted files behind:\n${dirtyAfter}`);
   }
   return { ok: true, result: "ok", exit: outcome.code, startedAt, endedAt };
 }
@@ -1364,13 +1392,32 @@ async function runOneStage(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pro
 // ── start ─────────────────────────────────────────────────────────────────
 
 export interface StartOutcome {
-  action: "adopted" | "started" | "nothing" | "locked" | "conflict";
+  action: "adopted" | "started" | "nothing" | "locked" | "conflict" | "stuck";
   item?: number;
   branch?: string;
   detail?: string;
 }
 
-/** The base ref's tip after merging it into an adopted worktree, or null on conflict. */
+/**
+ * `git worktree add` refuses a branch that is still checked out in another worktree, and a
+ * crash leaves exactly that behind. Prune the registrations whose directory is gone, and
+ * report failure rather than throwing, so a `start` degrades instead of wedging every tick.
+ */
+function ensureWorktree(ctx: Ctx, path: string, addArgs: string[]): boolean {
+  try {
+    if (existsSync(path)) gitOrThrow(ctx, ["worktree", "remove", "--force", path]);
+    else git(ctx, ["worktree", "prune"]);
+    gitOrThrow(ctx, ["worktree", "add", ...addArgs]);
+    return true;
+  } catch (err) {
+    ctx.deps.log(
+      `[factory-jobs] could not add a worktree at ${path}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
+}
+
+/** The base ref's own tip that was merged in (not the merge commit), or null on conflict. */
 function mergeBaseRef(ctx: Ctx, worktree: string): string | null {
   const res = git(ctx, ["merge", "--no-edit", BASE_REF], worktree, 5 * MIN);
   if (res.code !== 0) {
@@ -1419,9 +1466,15 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
 
     if (adopt) {
       const worktree = worktreePathFor(ctx.worktreeRoot, adopt.branch);
-      if (!ctx.dryRun) {
-        if (existsSync(worktree)) gitOrThrow(ctx, ["worktree", "remove", "--force", worktree]);
-        gitOrThrow(ctx, ["worktree", "add", worktree, adopt.branch]);
+      if (!ctx.dryRun && !ensureWorktree(ctx, worktree, [worktree, adopt.branch])) {
+        commentOn(
+          ctx,
+          config,
+          adopt.item.number,
+          `factory: could not create a worktree for \`${adopt.branch}\` at \`${worktree}\` (the branch may still be ` +
+            `checked out somewhere else). Left for the owner; nothing was claimed.`,
+        );
+        return { action: "stuck", item: adopt.item.number, detail: `no worktree for ${adopt.branch}` };
       }
       // An adopted branch was cut before this job existed, so its tree still holds the stage
       // agent definitions of that day — and stages are discovered from the worktree, not from
@@ -1470,8 +1523,9 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
     const worktree = worktreePathFor(ctx.worktreeRoot, branch);
     if (!ctx.dryRun) {
       if (existsSync(worktree)) gitOrThrow(ctx, ["worktree", "remove", "--force", worktree]);
-      if (branches.includes(branch)) gitOrThrow(ctx, ["worktree", "add", worktree, branch]);
-      else gitOrThrow(ctx, ["worktree", "add", "-b", branch, worktree, "dev"]);
+      if (!ensureWorktree(ctx, worktree, branches.includes(branch) ? [worktree, branch] : ["-b", branch, worktree, BASE_REF])) {
+        return { action: "stuck", item: candidate.number, detail: `could not create the worktree at ${worktree}` };
+      }
     }
     const job = newJob(ctx, candidate, { branch, worktree, stage: "build" });
     saveJob(ctx, job);

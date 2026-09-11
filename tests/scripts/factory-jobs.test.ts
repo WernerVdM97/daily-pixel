@@ -505,6 +505,27 @@ describe('the model stages', () => {
     expect(h.logs.join('\n')).toContain('not read-only');
   });
 
+  it('does not blame the reviewer for dirt the builder left behind', async () => {
+    const h = new Harness();
+    h.write(job({ stage: 'review' }));
+    h.reports = { review: 'VERDICT: clean' };
+    h.dirtyWorktree = '?? coverage/\n';
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran' });
+    expect(h.read(34).stage).toBe('deliver');
+    expect(h.logs.join('\n')).toContain('already dirty before the review');
+  });
+
+  it('says when a build leaves uncommitted files behind', async () => {
+    const h = new Harness();
+    h.write(job());
+    h.afterSpawn = () => {
+      h.dirtyWorktree = '?? coverage/\n';
+    };
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran' });
+    expect(h.read(34).stage).toBe('review');
+    expect(h.logs.join('\n')).toContain('left uncommitted files behind');
+  });
+
   it('fails a stage whose child reported nothing', async () => {
     const h = new Harness();
     h.write(job());
@@ -526,7 +547,9 @@ describe('the model stages', () => {
     const h = new Harness();
     h.write(job({ stage: 'review' }));
     h.reports = { review: 'VERDICT: clean' };
-    h.dirtyWorktree = ' M src/engine/WorldEngine.ts\n';
+    h.afterSpawn = () => {
+      h.dirtyWorktree = ' M src/engine/WorldEngine.ts\n';
+    };
     await drainOnce(h.ctx());
     const after = h.read(34);
     expect(after.stage).toBe('review');
@@ -602,13 +625,22 @@ describe('the failure policy', () => {
     expect(h.pages[0]).toContain('blocked');
   });
 
-  it('blocks a job that spent the cumulative cap, without running anything', async () => {
+  it('blocks a spent job before another model stage, without running anything', async () => {
     const h = new Harness();
     h.board = [item({ number: 34, status: 'In Progress' })];
     h.write(job({ stage: 'fix', spentMs: JOB_CAP_MS, attempts: {} }));
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
     expect(h.spawns).toEqual([]);
     expect(h.read(34).stageState).toBe('blocked');
+  });
+
+  it('still delivers a job that spent its whole budget getting through the model stages', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'In Progress' })];
+    h.write(job({ stage: 'deliver', spentMs: JOB_CAP_MS, attempts: {} }));
+    h.when('gh', ['pr', 'create'], ok('https://github.com/WernerVdM97/daily-pixel/pull/117\n'));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
+    expect(h.read(34)).toMatchObject({ pr: 117, stage: 'reconcile' });
   });
 
   it('pages again when the block tick dies before the page goes out', async () => {
@@ -884,6 +916,17 @@ describe('start', () => {
     expect(h.calls.some((call) => call.cmd === 'gh' && call.args.includes('bfbe5d7d'))).toBe(false);
   });
 
+  it('reports a worktree it cannot create instead of throwing, and claims nothing', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'Approved' })];
+    h.when('git', ['branch', '-a'], ok('dev\n'));
+    h.when('git', ['worktree add'], { code: 1, stdout: '', stderr: "fatal: 'feat/34-last-stand-buttons' is already checked out" });
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({ action: 'stuck', item: 34 });
+    expect(h.has(34)).toBe(false);
+    expect(h.called('gh', 'issue comment')).toBe(false);
+  });
+
   it('starts nothing when no item passes the gate', async () => {
     const h = new Harness();
     h.board = [item({ number: 5, status: 'Inbox' }), item({ number: 6, status: 'Triaged' })];
@@ -930,6 +973,7 @@ describe('the ledger read-outs', () => {
   it('parses a verdict line, and defaults to findings when there is none', () => {
     expect(parseVerdict('VERDICT: clean\n\nnothing')).toBe('clean');
     expect(parseVerdict('**VERDICT: findings**')).toBe('findings');
+    expect(parseVerdict('VERDICT: ok')).toBe('ok');
     expect(parseVerdict('VERDICT: nochange')).toBe('nochange');
     expect(parseVerdict('I found three things')).toBe('findings');
   });
