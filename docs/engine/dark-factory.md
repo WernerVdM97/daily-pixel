@@ -59,17 +59,17 @@ The loops run with `context: "fresh"`, so `.pi/factory/memory/` is the only thin
 
 ## The loops
 
-Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`schedule.list`); the escalator is the exception, a child the executor spawns rather than a scheduled loop. All schedules are currently **paused** — nothing runs until the owner fires it manually with `schedule.run` or resumes the schedule.
+Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`schedule.list`); the escalator is the exception, a child the executor spawns rather than a scheduled loop. All seven schedules are **enabled**, so they fire themselves through the headless launcher; a schedule flipped back to `paused` runs only when the owner fires it by hand with `schedule.run`.
 
-| Loop | Agent | Cadence (when resumed) | Writes code? |
+| Loop | Agent | Cadence | Writes code? |
 | --- | --- | --- | --- |
-| Triage | `factory-triage` | 12h, phase-anchored to 06:00 local (so 06:00 and 18:00) | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
-| Executor | `factory-executor` | 24h, anchored 04:00 local | Yes — the only one, and only behind the gate |
+| Triage | `factory-triage` | 12h, phase-anchored to 07:30 local (so 07:30 and 19:30) | No — `Inbox` → `Triaged`/`Blocked`, comments, labels |
+| Executor | `factory-executor` | 24h, anchored 06:00 local | Yes — the only one, and only behind the gate |
 | Sweeper | `factory-sweeper` | 48h, anchored 21:00 local (so 21:00 on alternating days) | No — gate audit, CI re-check, board hygiene, digest |
 | Scrumo | `factory-scrumo` | 7d × 2, 19:00 local on Tuesday and Thursday | No — DM digest, three recommended actions, blocker comments |
 | Meta-oil | `meta-oil` | Fri + Sat 18:00Z (20:00 local) | No — friction analysis and numbered proposals; edits a factory file only once that exact proposal is approved |
 
-**Clock times are approximate, and pi has no calendar trigger.** The scheduler knows one-shot `at` triggers and fixed intervals only (`on` and `timezone` are refused outright), so "06:00" is not a slot: it is a phase. A 12h interval anchored at 06:00 does fire at 06:00 and 18:00 forever, because the next run is plain arithmetic off the anchor and catch-up preserves that phase rather than resetting it, but the _actual_ start is quantised by the systemd tick (5 min, plus up to 30s of jitter), so a pass lands in the 06:00 to 06:05 window rather than on the minute. Tuesday plus Thursday is not expressible as one interval at all, since the gap alternates between 2d and 5d, which is why scrumo is a pair of weekly schedules (`factory-scrumo` on Tuesday, `factory-scrumo-thu` on Thursday) exactly as meta-oil is (`meta-oil-fri`, `meta-oil-sat`). Changing a cadence means editing `schedule.json` directly: the API exposes create/list/show/history/pause/resume/run/delete, and deliberately no update.
+**Clock times are approximate, and pi has no calendar trigger.** The scheduler knows one-shot `at` triggers and fixed intervals only (`on` and `timezone` are refused outright), so "07:30" is not a slot: it is a phase. A 12h interval anchored at 07:30 does fire at 07:30 and 19:30 forever, because the next run is plain arithmetic off the anchor and catch-up preserves that phase rather than resetting it, but the _actual_ start is quantised by the systemd tick (5 min, plus up to 30s of jitter), so a pass lands in the 07:30 to 07:35 window rather than on the minute. Tuesday plus Thursday is not expressible as one interval at all, since the gap alternates between 2d and 5d, which is why scrumo is a pair of weekly schedules (`factory-scrumo` on Tuesday, `factory-scrumo-thu` on Thursday) exactly as meta-oil is (`meta-oil-fri`, `meta-oil-sat`). Changing a cadence means editing `schedule.json` directly: the API exposes create/list/show/history/pause/resume/run/delete, and deliberately no update.
 
 **Triage** reads Inbox items, dedupes, resolves `[[doc-links]]`, drafts acceptance criteria, asks clarifying questions as comments, and moves items to Triaged — or to Blocked with `needs-human-decision` when it cannot proceed.
 
