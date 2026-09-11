@@ -1028,9 +1028,9 @@ async function runDeliver(ctx: Ctx, config: ProjectConfig, job: JobRecord): Prom
 async function runReconcile(ctx: Ctx, config: ProjectConfig, job: JobRecord): Promise<void> {
   const startedAt = ctx.deps.now();
   if (!job.pr) throw new Error("job carries no PR number to reconcile");
-  const raw = ctx.dryRun
-    ? '{"state":"OPEN","mergedAt":null}'
-    : gh(ctx, ["pr", "view", String(job.pr), "--repo", config.repo, "--json", "state,mergedAt"]);
+  // Read even in a dry run: reading is neither spawning nor writing, and a dry run that
+  // could only ever see an open PR would tell the operator nothing.
+  const raw = gh(ctx, ["pr", "view", String(job.pr), "--repo", config.repo, "--json", "state,mergedAt"]);
   let pr: { state: string; mergedAt: string | null };
   try {
     pr = JSON.parse(raw) as { state: string; mergedAt: string | null };
@@ -1072,8 +1072,13 @@ async function runReconcile(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pr
 
 function runDone(ctx: Ctx, job: JobRecord): void {
   const startedAt = ctx.deps.now();
-  const res = git(ctx, ["worktree", "remove", "--force", job.worktree]);
-  if (res.code !== 0 && !ctx.dryRun) throw new Error(`git worktree remove failed: ${res.stderr.trim()}`);
+  // A dry run decides and reports; it never removes a worktree or kills a process.
+  if (ctx.dryRun) {
+    ctx.deps.log(`[dry-run] git worktree remove --force ${job.worktree}`);
+  } else {
+    const res = git(ctx, ["worktree", "remove", "--force", job.worktree]);
+    if (res.code !== 0) throw new Error(`git worktree remove failed: ${res.stderr.trim()}`);
+  }
   succeed(job, "done", startedAt, ctx.deps.now(), "ok", null);
   // The branch outlives the job: `done` means merged, and those commits are the record.
   archiveJob(ctx, job);
@@ -1112,7 +1117,7 @@ export async function drainOnce(ctx: Ctx): Promise<DrainOutcome> {
         const pid = job.claim?.pid;
         // A live pid with a matching start time is provably ours; a recycled number never
         // reaches here (decide() only reaps on an exact match).
-        if (pid) ctx.deps.killGroup(pid);
+        if (pid && !ctx.dryRun) ctx.deps.killGroup(pid);
         fail(job, job.stage, attemptStart, ctx.deps.now(), "reaped", null);
         saveJob(ctx, job);
         ctx.deps.log(`[factory-jobs] reaped #${job.item} (${action.reason}); requeued ${job.stage}`);

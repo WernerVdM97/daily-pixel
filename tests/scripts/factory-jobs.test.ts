@@ -144,9 +144,15 @@ class Harness {
       }
       return { code: this.stageOutcome.code, timedOut: this.stageOutcome.timedOut, stdout: '', stderr: '' };
     },
-    killGroup: (pid) => this.killed.push(pid),
-    log: (msg) => this.logs.push(msg),
-    page: (title, body) => this.pages.push(`${title}\n${body}`),
+    killGroup: (pid) => {
+      this.killed.push(pid);
+    },
+    log: (msg) => {
+      this.logs.push(msg);
+    },
+    page: (title, body) => {
+      this.pages.push(`${title}\n${body}`);
+    },
   });
 
   private execSync(cmd: string, args: string[]): ExecResult {
@@ -855,5 +861,28 @@ describe('the ledger read-outs', () => {
     expect(h.spawns).toEqual([]);
     expect(readFileSync(join(h.jobsDir, '34.json'), 'utf8')).toBe(before);
     expect(h.logs.join('\n')).toContain('would spawn delegate-executor');
+  });
+
+  it('never kills a process or removes a worktree in a dry run', async () => {
+    const h = new Harness();
+    h.live = { startTime: (pid) => (pid === 4242 ? 'x' : null) };
+    h.write(
+      job({
+        stageState: 'running',
+        claim: { pid: 4242, pidStart: 'x' },
+        stageStartedAt: '2026-09-11T11:30:00.000Z',
+      }),
+    );
+    expect(await drainOnce(h.ctx({ dryRun: true }))).toMatchObject({ action: 'reaped' });
+    expect(h.killed).toEqual([]);
+    expect(h.read(34).stageState).toBe('running');
+
+    const merged = new Harness();
+    merged.when('gh', ['pr', 'view'], ok('{"state":"MERGED","mergedAt":"2026-09-11T13:00:00Z"}'));
+    merged.board = [item({ number: 34, status: 'In Review' })];
+    merged.write(job({ stage: 'reconcile', pr: 117 }));
+    expect(await drainOnce(merged.ctx({ dryRun: true }))).toMatchObject({ action: 'finished' });
+    expect(merged.called('git', 'worktree remove')).toBe(false);
+    expect(merged.has(34)).toBe(true);
   });
 });
