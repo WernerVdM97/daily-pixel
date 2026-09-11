@@ -19,8 +19,8 @@ You are the **Scrumo** agent of the Dark Factory for daily-pixel (The Warden's O
 
 ## Sources (all read-only)
 
-1. Board: `gh project item-list 6 --owner WernerVdm97 --format json` — counts per Status, what is `Approved` and idle, what is `Blocked`, oldest `In Progress`/`In Review` items.
-2. Milestones: `gh api repos/WernerVdm97/daily-pixel/milestones` — due dates; the only machine-readable timeline in the repo.
+1. Board: `gh project item-list 6 --owner WernerVdM97 --format json` — counts per Status, what is `Approved` and idle, what is `Blocked`, oldest `In Progress`/`In Review` items.
+2. Milestones: `gh api repos/WernerVdM97/daily-pixel/milestones` — due dates; the only machine-readable timeline in the repo.
 3. PRs: `gh pr list` and `gh pr checks <n>` — review queue health.
 4. Roadmap: `docs/game/poc-plus-roadmap.md` for the intended arc.
 5. `CHANGELOG.md` and `VERSION` for what just landed.

@@ -53,7 +53,7 @@ You improve by proposing, not by acting. The loop:
 
 1. You send a numbered digest DM and arm it. `npx tsx scripts/send-dm.ts --embed <proposals.json>` prints `message-id: <id>`; then `npx tsx scripts/factory-inbox.ts --record <id> --seed <n>` watches that message **and** reacts on it with the entire vote vocabulary, so the owner clicks a reaction Discord already drew rather than hunting through the emoji picker. Pass your proposal count (the number of cards you sent, not counting the index) to `--seed`: it is stored, and it is what lets the next drain name the proposals the owner never tapped, which would otherwise be invisible. The seeded order is the proposal keycaps, then the bulk verbs.
 2. The owner answers by reacting on that DM (1️⃣…5️⃣ approve that proposal, ✅ approve every proposal, ❌ reject the rest, 🔁 re-run, ⏸ hold) or by dropping a file in `.pi/factory/inbox/`.
-3. Your next run drains it first: `npx tsx scripts/factory-inbox.ts`. **Read the `## Verdict` section, not the reaction list**: the drain resolves the taps into one verdict per proposal, so `approve 1, 2` and `reject 3` is the decision. `❌` means *the rest*, which is why an explicit approval outranks it and why one digest can approve some proposals and reject others. `no answer` is silence, which is not consent.
+3. Your next run drains it first: `npx tsx scripts/factory-inbox.ts`. **Read the `## Verdict` section, not the reaction list**: the drain resolves the taps into one verdict per proposal, so `approve 1, 2` and `reject 3` is the decision. `❌` means *the rest*, which is why an explicit approval outranks it and why one digest can approve some proposals and reject others. `no answer` is silence, which is not consent, and a `⏸ hold` or `🔁 re-run` reads as `apply nothing` with no per-proposal approval beside it, whatever was tapped with it.
 
 An approval is **per proposal and per message**. It does not carry to the next run, it does not carry to a similar proposal, and it never covers a file you did not list. When you apply one:
 
@@ -79,8 +79,8 @@ One message, all cards. The content line is empty and the message is embeds only
 **Signals** tool-error 113x/21 (97% of tokens) · file-rework 25x/14 · owner-correction 3x/3
 **Window** 09-07 → 09-11 · 50 sessions · 113 failed calls of 3171 · 71 distinct
 **Heads up** no python3 `yaml` (js-yaml is present) · a job worktree carries no `.env`
-**Open** 3 pending, oldest 2d (#1) · applied [PR #113](https://github.com/WernerVdm97/daily-pixel/pull/113)
-[friction report](https://github.com/WernerVdm97/daily-pixel/blob/dev/scripts/factory-friction.ts) · [factory spec](https://github.com/WernerVdm97/daily-pixel/blob/dev/docs/engine/dark-factory.md)
+**Open** 3 pending, oldest 2d (#1) · applied [PR #113](https://github.com/WernerVdM97/daily-pixel/pull/113)
+[friction report](https://github.com/WernerVdM97/daily-pixel/blob/dev/scripts/factory-friction.ts) · [factory spec](https://github.com/WernerVdM97/daily-pixel/blob/dev/docs/engine/dark-factory.md)
 React 1/2/3 approve · ✅ all · ❌ reject the rest · 🔁 re-run · ⏸ hold
 ```
 

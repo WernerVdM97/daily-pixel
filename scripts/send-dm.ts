@@ -16,9 +16,9 @@
 // Unlike scripts/send-ansi.ts this resolves `.env` relative to the repo, so it runs
 // on this dev Mac and on the Linux deploy host unchanged.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, fstatSync } from "node:fs";
 import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   Client,
   Events,
@@ -149,6 +149,9 @@ export function parseEmbeds(raw: string, source: string): APIEmbed[] {
     throw new Error(`${source} is not valid JSON: ${(err as Error).message}`);
   }
   const embeds = Array.isArray(parsed) ? parsed : [parsed];
+  // An empty list is a mistake in the file rather than a message: `[]` is truthy, so it would
+  // clear the "nothing to send" guard and reach Discord as "Cannot send an empty message".
+  if (embeds.length === 0) throw new Error(`${source} carries no embeds, so there is nothing to send.`);
   const problem = embedError(embeds);
   if (problem) throw new Error(`${source}: ${problem}`);
   return embeds as APIEmbed[];
@@ -218,6 +221,29 @@ export async function sendToAdmin(
 
 // ── CLI ────────────────────────────────────────────────────────────────────
 
+function usage(): string {
+  return [
+    "Usage: tsx scripts/send-dm.ts [options] [message]",
+    "",
+    "  message            positional message text",
+    "  -t, --text <s>     message text",
+    "  -f, --file <path>  read the body from a file",
+    "  (stdin)            piped input when no text/file given",
+    "",
+    "  -e, --embed <path> JSON embed for the message: one object, or an array of them",
+    "                     (fields: title, description, fields[{name,value}], footer, author, color)",
+    "  --fence <lang>     wrap the body in a ```<lang> code fence (e.g. ansi)",
+    "  --title <s>        bold title line above the body",
+    "  --to <userId>      recipient (default: ADMIN_USER_ID from .env)",
+    "",
+    "Examples:",
+    '  tsx scripts/send-dm.ts "quick note to myself"',
+    "  tsx scripts/send-dm.ts --fence ansi -f docs/assets/ansi/test/frame.ansi",
+    '  echo "$RENDERED" | tsx scripts/send-dm.ts --title "Terminal card" --fence ansi',
+    "  tsx scripts/send-dm.ts -f digest.txt --embed digest-embed.json",
+  ].join("\n");
+}
+
 interface CliArgs {
   text?: string;
   file?: string;
@@ -239,6 +265,8 @@ function parseArgs(argv: string[]): CliArgs {
       case "--fence": out.fence = argv[++i]; break;
       case "--title": out.title = argv[++i]; break;
       case "--to": out.to = argv[++i]; break;
+      // Without this `--help` is read as a positional and DMed to the owner verbatim.
+      case "-h": case "--help": console.log(usage()); process.exit(0); break;
       default: positional.push(a);
     }
   }
@@ -255,12 +283,31 @@ function readStdin(): Promise<string> {
   });
 }
 
+/**
+ * True when stdin is something that could be carrying a body: a pipe, a socket or a redirected
+ * file, as opposed to a terminal or `/dev/null`, both of which are character devices and are what
+ * a headless or interactive caller gets. Read from the descriptor rather than `isTTY`, because a
+ * scheduled run has no TTY either and warning on every one of those would be noise.
+ */
+function stdinCouldCarryBody(): boolean {
+  try {
+    return !fstatSync(0).isCharacterDevice();
+  } catch {
+    return false;
+  }
+}
+
 async function runCli(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  // Body source precedence: --file, then --text/positional, then piped stdin. Stdin is only
-  // read when nothing else could carry the body, so an embed-only send does not sit waiting
-  // on a pipe that has no writer.
+  // Body source precedence: --file, then --text/positional, then piped stdin, and stdin only when
+  // nothing else could carry the body. Reading it would block on a pipe with no writer, so an
+  // embed-only send skips it and says so: a body that silently vanished is the one outcome a
+  // digest cannot report on its own.
+  if (args.embed && stdinCouldCarryBody()) {
+    console.error("note: --embed is set, so stdin is not read as the body; pass -f/--text to send both.");
+  }
+
   let body: string | undefined;
   if (args.file) body = readFileSync(resolve(process.cwd(), args.file), "utf-8");
   else if (args.text !== undefined) body = args.text;
@@ -280,28 +327,7 @@ async function runCli(): Promise<void> {
 
   // A body is only required when there is no embed: an embed is a complete message.
   if (!embeds && !body?.trim()) {
-    console.error(
-      [
-        "Usage: tsx scripts/send-dm.ts [options] [message]",
-        "",
-        "  message            positional message text",
-        "  -t, --text <s>     message text",
-        "  -f, --file <path>  read the body from a file",
-        "  (stdin)            piped input when no text/file given",
-        "",
-        "  -e, --embed <path> JSON embed for the message: one object, or an array of them",
-        "                     (fields: title, description, fields[{name,value}], footer, author, color)",
-        "  --fence <lang>     wrap the body in a ```<lang> code fence (e.g. ansi)",
-        "  --title <s>        bold title line above the body",
-        "  --to <userId>      recipient (default: ADMIN_USER_ID from .env)",
-        "",
-        "Examples:",
-        '  tsx scripts/send-dm.ts "quick note to myself"',
-        "  tsx scripts/send-dm.ts --fence ansi -f docs/assets/ansi/test/frame.ansi",
-        '  echo "$RENDERED" | tsx scripts/send-dm.ts --title "Terminal card" --fence ansi',
-        "  tsx scripts/send-dm.ts -f digest.txt --embed digest-embed.json",
-      ].join("\n"),
-    );
+    console.error(usage());
     process.exit(1);
   }
 
@@ -332,7 +358,9 @@ async function runCli(): Promise<void> {
 }
 
 // Run the CLI only when invoked directly, so importers get just the helper.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Through pathToFileURL, not `file://${argv[1]}`: a path holding a space is percent-encoded in
+// import.meta.url, so that comparison never matches and the CLI silently does nothing.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runCli().catch((err) => {
     console.error("Send error:", err);
     process.exit(1);

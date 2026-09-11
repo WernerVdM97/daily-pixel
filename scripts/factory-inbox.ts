@@ -26,15 +26,15 @@
 //
 // Reaction vocabulary (the digest's own footer repeats it):
 //   1️⃣…5️⃣  approve that numbered proposal      ✅  approve every pending proposal
-//   ❌      reject the rest (every proposal not approved)   🔁  re-run the analysis
-//   ⏸      hold, change nothing
+//   ❌      reject the rest (every proposal not approved)
+//   🔁      re-run the analysis                  ⏸  hold, change nothing
 //
 // ❌ is "the rest" rather than "all" so that approve-some/reject-some is one click per proposal:
 // 1️⃣ 2️⃣ ❌ reads as approve 1 and 2, reject 3. Tapping ❌ alone still rejects everything.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { resolve, dirname, join, basename } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   Client,
   Events,
@@ -78,6 +78,9 @@ function normaliseEmoji(raw: string): string {
   return raw.replace(/\uFE0F/g, "");
 }
 
+/** Five keycaps, so at most five proposals: a sixth could not be answered by reaction. */
+const MAX_PROPOSALS = 5;
+
 /**
  * The whole vocabulary in click order. Seeded onto every digest by `--seed`, so the owner
  * clicks a reaction Discord already drew instead of hunting through the emoji picker, and
@@ -98,11 +101,20 @@ const VOTE_ORDER: { emoji: string; vote: Vote }[] = [
   { emoji: "⏸", vote: { intent: "hold", proposal: null } },
 ];
 
-const BULK_VOTES = VOTE_ORDER.length - 5;
+const BULK_VOTES = VOTE_ORDER.length - MAX_PROPOSALS;
+
+/**
+ * Only five keycaps exist and a digest carries at least one proposal, so `--seed` clamps once
+ * here and the seeded reactions and the stored count come from the same number. Unclamped,
+ * `--seed 8` stores a count of eight for a digest the owner could only answer three of.
+ */
+function clampSeed(proposals: number): number {
+  return Math.max(1, Math.min(MAX_PROPOSALS, proposals));
+}
 
 /** The seed set for a digest carrying `proposals` proposals: its keycaps, then the verbs. */
 function seedSet(proposals: number): { emoji: string; vote: Vote }[] {
-  const wanted = Math.max(1, Math.min(5, proposals));
+  const wanted = clampSeed(proposals);
   return [...VOTE_ORDER.slice(0, wanted), ...VOTE_ORDER.slice(VOTE_ORDER.length - BULK_VOTES)];
 }
 
@@ -211,13 +223,33 @@ interface Drained {
   notes: string[];
 }
 
-interface State {
+export interface State {
   digestMessageId?: string;
   digestRecordedAt?: string;
   /** How many proposals the recorded digest carries, so a verdict can cover the ones not tapped. */
   proposalCount?: number;
   drainedAt?: string;
   reactionBaseline?: Record<string, number>;
+}
+
+/**
+ * Point the watcher at a digest message.
+ *
+ * A different message id is a different digest, so it clears the reaction baseline *and* the
+ * proposal count with it. Keeping the baseline would discount the new message's own approvals to
+ * zero and read them as ones already drained; keeping the count would name proposals this digest
+ * never carried, and on a longer digest hide the proposals it did. One state file serves every
+ * loop, so a stale count leaks between loops as well as between digests.
+ */
+export function recordDigest(state: State, messageId: string, seed: number | null): State {
+  if (state.digestMessageId !== messageId) {
+    state.reactionBaseline = {};
+    state.proposalCount = undefined;
+  }
+  state.digestMessageId = messageId;
+  state.digestRecordedAt = new Date().toISOString();
+  if (seed !== null) state.proposalCount = clampSeed(seed);
+  return state;
 }
 
 function readState(): State {
@@ -371,8 +403,8 @@ function parseArgs(argv: string[]): Options {
     else if (a === "--seed") {
       // Bare `--seed` means the full five; `--seed 3` matches a digest with three proposals.
       const next = argv[i + 1];
-      const count = next && /^\d+$/.test(next) ? Number.parseInt(argv[++i], 10) : 5;
-      opts.seed = count;
+      const count = next && /^\d+$/.test(next) ? Number.parseInt(argv[++i], 10) : MAX_PROPOSALS;
+      opts.seed = clampSeed(count);
     } else if (a === "--help" || a === "-h") {
       console.log(usage());
       process.exit(0);
@@ -398,26 +430,51 @@ function usage(): string {
   ].join("\n");
 }
 
-function renderVerdict(v: Verdict): string[] {
+/** What was tapped, in one line, for a digest whose verdict is not being applied. */
+function tapSummary(v: Verdict): string {
+  const taps: string[] = [];
+  if (v.approvedByKeycap.length) taps.push(`approve ${v.approvedByKeycap.join(", ")}`);
+  if (v.approveAll) taps.push("✅ approve every proposal");
+  if (v.rejectRest) taps.push("❌ reject the rest");
+  return taps.length ? taps.join(" · ") : "none";
+}
+
+/**
+ * The brief's verdict section, which is what the next run reads instead of the reaction list.
+ *
+ * A hold or a re-run is a decision about the whole digest, so it is reported *instead of* the
+ * per-proposal resolution: printed beside it the two read as contradictory answers, and the
+ * `approve: 1` line is the one an agent acts on.
+ */
+export function renderVerdict(v: Verdict): string[] {
   const lines: string[] = [];
   const named = (verdict: ProposalVerdict): string => {
     const nums = v.proposals.filter((p) => p.verdict === verdict).map((p) => p.proposal);
     return nums.length ? nums.join(", ") : "none";
   };
+
+  if (v.hold || v.rerun) {
+    const what = [v.hold ? "⏸ hold" : null, v.rerun ? "🔁 re-run" : null].filter(Boolean).join(" + ");
+    lines.push(`## Verdict (${what}: apply nothing)`);
+    lines.push(`  taps recorded: ${tapSummary(v)}`);
+    return lines;
+  }
+
   if (v.countKnown) {
     lines.push(`## Verdict (${v.proposals.length} proposals)`);
     lines.push(`  approve: ${named("approve")}`);
     lines.push(`  reject: ${named("reject")}`);
     lines.push(`  no answer: ${named("no answer")}`);
-  } else {
-    lines.push("## Verdict (proposal count unknown)");
-    lines.push(`  approved by keycap: ${v.approvedByKeycap.length ? v.approvedByKeycap.join(", ") : "none"}`);
-    if (v.approveAll) lines.push("  ✅ approve every proposal");
-    if (v.rejectRest) lines.push("  ❌ reject the rest");
-    if (!v.approvedByKeycap.length && !v.approveAll && !v.rejectRest) lines.push("  none");
+    return lines;
   }
-  if (v.hold) lines.push("  ⏸ hold: apply nothing");
-  if (v.rerun) lines.push("  🔁 re-run the analysis");
+
+  lines.push("## Verdict (proposal count unknown)");
+  lines.push(`  approved by keycap: ${v.approvedByKeycap.length ? v.approvedByKeycap.join(", ") : "none"}`);
+  if (v.approveAll) lines.push("  ✅ approve every proposal");
+  if (v.rejectRest) lines.push("  ❌ reject the rest");
+  if (!v.approvedByKeycap.length && !v.approveAll && !v.rejectRest) {
+    lines.push("  no answer: the digest carries no reaction");
+  }
   return lines;
 }
 
@@ -471,15 +528,16 @@ async function main(): Promise<void> {
   loadEnv();
 
   if (opts.record) {
-    const state = readState();
-    // A new message carries its own reactions. Keeping the previous digest's baseline would
-    // discount them to zero and read a fresh approval as one already drained.
-    if (state.digestMessageId !== opts.record) state.reactionBaseline = {};
-    state.digestMessageId = opts.record;
-    state.digestRecordedAt = new Date().toISOString();
-    if (opts.seed !== null) state.proposalCount = opts.seed;
+    const state = recordDigest(readState(), opts.record, opts.seed);
     writeState(state);
-    console.log(`Recorded digest message ${opts.record}`);
+    // The count is named rather than assumed: a digest recorded without one is the one case a
+    // verdict cannot enumerate, and saying so here is cheaper than reading it back in the brief.
+    console.log(
+      `Recorded digest message ${opts.record}` +
+        (state.proposalCount
+          ? ` (${state.proposalCount} proposals)`
+          : " (no proposal count; pass --seed <n> so a verdict can name every proposal)"),
+    );
     if (opts.seed === null) return;
   }
 
@@ -491,7 +549,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     // Stored so the next drain can name every proposal, including the ones never tapped.
-    state.proposalCount = opts.seed;
+    state.proposalCount = clampSeed(opts.seed);
     writeState(state);
     const emojis = seedSet(opts.seed);
     await withClient(async (client) => {
@@ -557,7 +615,10 @@ async function main(): Promise<void> {
 
 // Run the CLI only when invoked directly, so importers get just the helpers. Without this the
 // module drains the owner's real inbox the moment anything imports it, tests included.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Through pathToFileURL, not `file://${argv[1]}`: a path holding a space or a `#` is
+// percent-encoded in import.meta.url so that comparison never matches, and the guard then
+// silently no-ops the whole drain on an exit 0 that reads as a clean run.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error("Inbox drain failed:", err);
     process.exit(1);

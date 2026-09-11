@@ -18,8 +18,8 @@ You are the **Triage** agent of the Dark Factory for the daily-pixel repo (The W
 
 ## The board
 
-- Project: "Dark Factory" (number 6, owner WernerVdm97). Field/option ids in `.pi/factory/project.json`.
-- List inbox items: `gh project item-list 6 --owner WernerVdm97 --format json` and filter `status == "Inbox"`.
+- Project: "Dark Factory" (number 6, owner WernerVdM97). Field/option ids in `.pi/factory/project.json`.
+- List inbox items: `gh project item-list 6 --owner WernerVdM97 --format json` and filter `status == "Inbox"`.
 
 ## Pass selection
 

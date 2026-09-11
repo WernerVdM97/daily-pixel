@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   EMBED_LIMITS,
   composeMessage,
@@ -6,6 +11,9 @@ import {
   embedError,
   parseEmbeds,
 } from '../../scripts/send-dm';
+
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../../scripts/send-dm.ts');
+const REPO_ROOT = resolve(dirname(SCRIPT), '..');
 
 // The limits are Discord's, not ours: every one of them fails the whole send when exceeded,
 // and the API error names neither the embed nor the field. These tests pin the contract so a
@@ -97,6 +105,12 @@ describe('parsing an --embed file', () => {
       /digest\.json: embed 1 title is 257 characters/,
     );
   });
+
+  it('refuses a file carrying no embeds, which otherwise fails at the API as "empty message"', () => {
+    // `[]` is truthy, so it used to clear the "nothing to send" guard and reach Discord as a form
+    // error where there is a reason to give.
+    expect(() => parseEmbeds('[]', 'digest.json')).toThrow(/digest\.json carries no embeds/);
+  });
 });
 
 describe('composing the message', () => {
@@ -109,6 +123,59 @@ describe('composing the message', () => {
     const embed = { description: 'a card' };
     expect(composeMessage('the index', [embed])).toEqual({ content: 'the index', embeds: [embed] });
     expect(composeMessage(undefined, [embed])).toEqual({ content: '', embeds: [embed] });
+  });
+});
+
+// The CLI itself, run for real: the guard that decides whether the module is a script or an
+// import is a silent no-op when it fails to match (`file://${argv[1]}` never matches a path with
+// a space, which import.meta.url percent-encodes), and the stdin rule is what stops an embed-only
+// send from sitting on a pipe that has no writer.
+describe('running the CLI as a script', () => {
+  interface RunOptions {
+    input?: string;
+    files?: Record<string, string>;
+  }
+
+  const run = (args: string[], opts: RunOptions = {}): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'send dm '));
+    mkdirSync(join(dir, 'scripts'));
+    const copy = join(dir, 'scripts', 'send-dm.ts');
+    copyFileSync(SCRIPT, copy);
+    for (const [name, text] of Object.entries(opts.files ?? {})) writeFileSync(join(dir, name), text);
+    // The copy has to resolve tsx and discord.js, which live in the install.
+    symlinkSync(join(REPO_ROOT, 'node_modules'), join(dir, 'node_modules'));
+    return execFileSync(process.execPath, ['--import', 'tsx', copy, ...args], {
+      encoding: 'utf8',
+      cwd: dir,
+      input: opts.input,
+    });
+  };
+
+  /** stderr of a run that was expected to refuse: it must not reach Discord to be worth testing. */
+  const refusal = (args: string[], opts: RunOptions = {}): string => {
+    try {
+      run(args, opts);
+    } catch (err) {
+      return (err as { stderr?: string }).stderr ?? '';
+    }
+    throw new Error(`expected ${args.join(' ')} to be refused`);
+  };
+
+  it('answers --help from a path with a space rather than silently doing nothing', () => {
+    expect(run(['--help'])).toContain('Usage: tsx scripts/send-dm.ts');
+  });
+
+  it('says it skipped stdin when --embed is set, rather than dropping the body in silence', () => {
+    // An unreadable embed file ends the run before Discord, so only the note is under test.
+    const stderr = refusal(['--embed', 'missing.json'], { input: 'a piped body' });
+    expect(stderr).toContain('stdin is not read as the body');
+    expect(stderr).toContain('missing.json');
+  });
+
+  it('refuses an embed file with nothing in it instead of sending an empty message', () => {
+    const stderr = refusal(['--embed', 'empty.json'], { files: { 'empty.json': '[]' } });
+    expect(stderr).toContain('carries no embeds');
+    expect(stderr).not.toContain('Cannot send an empty message');
   });
 });
 
@@ -131,8 +198,8 @@ describe('the meta-oil digest shape', () => {
       '**Signals** tool-error 113x/21 (97% of tokens) · file-rework 25x/14 · owner-correction 3x/3',
       '**Window** 09-07 → 09-11 · 50 sessions · 113 failed calls of 3171 · 71 distinct',
       '**Heads up** no python3 `yaml` (js-yaml is present) · a job worktree carries no `.env`',
-      '**Open** 3 pending, oldest 2d (#1) · applied [PR #113](https://github.com/WernerVdm97/daily-pixel/pull/113)',
-      '[friction report](https://github.com/WernerVdm97/daily-pixel/blob/dev/scripts/factory-friction.ts) · [factory spec](https://github.com/WernerVdm97/daily-pixel/blob/dev/docs/engine/dark-factory.md)',
+      '**Open** 3 pending, oldest 2d (#1) · applied [PR #113](https://github.com/WernerVdM97/daily-pixel/pull/113)',
+      '[friction report](https://github.com/WernerVdM97/daily-pixel/blob/dev/scripts/factory-friction.ts) · [factory spec](https://github.com/WernerVdM97/daily-pixel/blob/dev/docs/engine/dark-factory.md)',
       'React 1/2/3 approve · ✅ all · ❌ reject the rest · 🔁 re-run · ⏸ hold',
     ].join('\n'),
     footer: { text: '40 owner + 10 fork sessions · 263.6M tok · $23.51' },
@@ -144,7 +211,7 @@ describe('the meta-oil digest shape', () => {
     description: [
       '**signal** tool-error 113x/21, 97% of the window’s tokens',
       '**why** 10 fork transcripts replay their parent; 31 of the 113 failures are 6 events counted up to 10x',
-      '**files** [factory-friction.ts](https://github.com/WernerVdm97/daily-pixel/blob/dev/scripts/factory-friction.ts)',
+      '**files** [factory-friction.ts](https://github.com/WernerVdM97/daily-pixel/blob/dev/scripts/factory-friction.ts)',
       '**diff** skip entries whose `id` is in an ancestor `parentSession`; add `--errors [n]`',
       '**verify** tool-error ~82 next window',
       '**blast** rankings only, no code path reads it',

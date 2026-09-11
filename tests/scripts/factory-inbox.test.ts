@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { resolveVerdict } from '../../scripts/factory-inbox';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { recordDigest, renderVerdict, resolveVerdict } from '../../scripts/factory-inbox';
+
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../../scripts/factory-inbox.ts');
+const REPO_ROOT = resolve(dirname(SCRIPT), '..');
 
 // The vocabulary is the whole answer protocol: 1️⃣…5️⃣ approve that proposal, ✅ all, ❌ "the
 // rest", 🔁 re-run, ⏸ hold. These tests pin what a combination of taps means, because the
@@ -111,5 +119,112 @@ describe('resolving a digest verdict', () => {
     expect(verdict.countKnown).toBe(false);
     expect(verdict.approvedByKeycap).toEqual([3]);
     expect(verdict.rejectRest).toBe(true);
+  });
+});
+
+// The brief's verdict section is what the next run reads instead of the reaction list, so what it
+// prints is the protocol. A hold or a re-run beside a per-proposal approval reads as two answers,
+// and the approval is the one that changes a file.
+describe('printing the verdict the agent reads', () => {
+  it('resolves the taps proposal by proposal when the digest is being applied', () => {
+    const v = resolveVerdict([tap('1️⃣', 'approve', 1), tap('❌', 'reject'), tap('3️⃣', 'approve', 3)], 3);
+    expect(renderVerdict(v)).toEqual([
+      '## Verdict (3 proposals)',
+      '  approve: 1, 3',
+      '  reject: 2',
+      '  no answer: none',
+    ]);
+  });
+
+  it('prints no approval to apply when the owner held the digest', () => {
+    const v = resolveVerdict([tap('1️⃣', 'approve', 1), tap('⏸', 'hold')], 3);
+    const lines = renderVerdict(v);
+    expect(lines[0]).toContain('hold');
+    expect(lines[0]).toContain('apply nothing');
+    expect(lines.join('\n')).toContain('taps recorded: approve 1');
+    expect(lines.join('\n')).not.toContain('approve: 1');
+  });
+
+  it('prints no approval to apply when the owner asked for a re-run', () => {
+    const v = resolveVerdict([tap('✅', 'approve'), tap('🔁', 'rerun')], 3);
+    const lines = renderVerdict(v);
+    expect(lines[0]).toContain('re-run');
+    expect(lines.join('\n')).toContain('taps recorded: ✅ approve every proposal');
+    expect(lines.join('\n')).not.toContain('approve: 1, 2, 3');
+  });
+
+  it('says the digest carries no reaction rather than printing a bare "none"', () => {
+    const lines = renderVerdict(resolveVerdict([], null));
+    expect(lines).toEqual([
+      '## Verdict (proposal count unknown)',
+      '  approved by keycap: none',
+      '  no answer: the digest carries no reaction',
+    ]);
+  });
+});
+
+// A digest is recorded by one loop and answered days later, and the state file is a single shared
+// one, so what a new recording clears is a correctness property rather than bookkeeping.
+describe('recording a digest message', () => {
+  it('stores the proposal count alongside the message it belongs to', () => {
+    const state = recordDigest({}, 'A', 3);
+    expect(state.digestMessageId).toBe('A');
+    expect(state.proposalCount).toBe(3);
+    expect(state.digestRecordedAt).toBeTruthy();
+  });
+
+  it('clamps the stored count to the keycaps that can answer it', () => {
+    expect(recordDigest({}, 'A', 8).proposalCount).toBe(5);
+    expect(recordDigest({}, 'A', 0).proposalCount).toBe(1);
+    expect(recordDigest({}, 'A', null).proposalCount).toBeUndefined();
+  });
+
+  it('clears the previous digest\'s count, so a new digest cannot be answered for', () => {
+    // The leak: meta-oil records `--record A --seed 3`, scrumo then records `--record B` with no
+    // seed. A surviving count of 3 names three proposals scrumo never sent, and a stale 3 on a
+    // five-card digest hides proposals 4 and 5.
+    const state = recordDigest({}, 'A', 3);
+    recordDigest(state, 'B', null);
+    expect(state.proposalCount).toBeUndefined();
+    expect(JSON.stringify(state)).not.toContain('proposalCount');
+  });
+
+  it('clears the reaction baseline with it, so a fresh approval is not read as an old one', () => {
+    const state = recordDigest({}, 'A', 3);
+    state.reactionBaseline = { '1️⃣': 1 };
+    recordDigest(state, 'B', 2);
+    expect(state.reactionBaseline).toEqual({});
+    expect(state.proposalCount).toBe(2);
+  });
+
+  it('keeps both when the same message is re-recorded', () => {
+    const state = recordDigest({}, 'A', 3);
+    state.reactionBaseline = { '1️⃣': 1 };
+    recordDigest(state, 'A', null);
+    expect(state.reactionBaseline).toEqual({ '1️⃣': 1 });
+    expect(state.proposalCount).toBe(3);
+  });
+});
+
+// The guard is what keeps an import from draining the owner's real inbox, and it is a silent
+// no-op when it fails to match: `file://${argv[1]}` never matches a path that holds a space,
+// because import.meta.url percent-encodes it. Run for real, from such a path.
+describe('running the CLI as a script', () => {
+  const run = (script: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory inbox '));
+    mkdirSync(join(dir, 'scripts'));
+    const copy = join(dir, 'scripts', script);
+    copyFileSync(resolve(REPO_ROOT, 'scripts', script), copy);
+    // The copy has to resolve tsx and discord.js, which live in the install.
+    symlinkSync(join(REPO_ROOT, 'node_modules'), join(dir, 'node_modules'));
+    return execFileSync(process.execPath, ['--import', 'tsx', copy, '--help'], { encoding: 'utf8', cwd: dir });
+  };
+
+  it('runs factory-inbox --help from a path with a space, rather than no-opping on exit 0', () => {
+    expect(run('factory-inbox.ts')).toContain('Usage: tsx scripts/factory-inbox.ts');
+  });
+
+  it('runs send-dm --help from the same path', () => {
+    expect(run('send-dm.ts')).toContain('Usage: tsx scripts/send-dm.ts');
   });
 });
