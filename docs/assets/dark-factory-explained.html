@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Dark Factory, explained</title>
+<style>
+  :root {
+    --bg: #0d0f12;
+    --panel: #14181d;
+    --panel-2: #1a1f26;
+    --line: #2a313a;
+    --text: #d8dee6;
+    --muted: #8b949e;
+    --amber: #ffb454;
+    --green: #7ee787;
+    --red: #ff7b72;
+    --blue: #79c0ff;
+    --violet: #c9a3ff;
+    --mono: "JetBrains Mono", "Fira Code", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: 0.5px; }
+  h2 {
+    font-size: 17px;
+    color: var(--amber);
+    margin: 56px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  h2 .num { color: var(--muted); margin-right: 10px; }
+  p { margin: 10px 0; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  em { color: var(--blue); font-style: normal; }
+  code {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 13px;
+    color: var(--green);
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin: 14px 0;
+  }
+  .callout {
+    border-left: 3px solid var(--amber);
+    background: var(--panel);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 18px 0;
+  }
+  .callout b { color: var(--amber); }
+  .facts { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
+  .fact {
+    flex: 1 1 150px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    text-align: center;
+  }
+  .fact .big { font-size: 20px; color: var(--amber); display: block; }
+  .fact .lbl { font-size: 12px; color: var(--muted); }
+
+  /* board flow */
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 16px 0; }
+  .node {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 12px;
+    text-align: center;
+    font-size: 13px;
+    flex: 1;
+    min-width: 92px;
+    position: relative;
+  }
+  .node .who { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .arrow { align-self: center; color: var(--muted); font-size: 15px; }
+  .node.human { border-color: var(--amber); }
+  .node.human .who { color: var(--amber); }
+  .node.blocked { border-style: dashed; border-color: var(--red); color: var(--red); flex-basis: 100%; }
+  .node.blocked .who { color: var(--red); }
+
+  /* crew grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; margin: 16px 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .card h3 { margin: 0 0 2px; font-size: 15px; color: var(--text); }
+  .card .role { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip {
+    font-size: 11px;
+    border-radius: 20px;
+    padding: 1px 10px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .chip.ok { color: var(--green); border-color: var(--green); }
+  .chip.no { color: var(--red); border-color: var(--red); }
+  .chip.model { color: var(--violet); border-color: var(--violet); }
+  .card p { margin: 0; font-size: 13px; color: var(--text); }
+
+  /* tick pipeline */
+  .tickline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+  .tickline .node { flex: 1 1 150px; font-size: 12px; padding: 10px 10px; }
+  .dot {
+    display: inline-block;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 8px;
+    animation: pulse 2.5s infinite;
+    vertical-align: 1px;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(126, 231, 135, 0.5); }
+    70% { box-shadow: 0 0 0 9px rgba(126, 231, 135, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(126, 231, 135, 0); }
+  }
+
+  /* job pipeline */
+  .pipe { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; margin: 16px 0; }
+  .stage {
+    flex: 1 1 110px;
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-size: 12px;
+    text-align: center;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+  }
+  .stage b { display: block; font-size: 13px; }
+  .stage .kind { display: block; font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .stage.model { border-color: var(--violet); }
+  .stage.model b { color: var(--violet); }
+  .stage.code { border-color: var(--blue); }
+  .stage.code b { color: var(--blue); }
+  .budget { margin: 18px 0 6px; }
+  .bar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .bar .seg { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #0d0f12; font-weight: bold; }
+  .bar .b1 { width: 50%; background: var(--violet); }
+  .bar .b2 { width: 20%; background: var(--amber); }
+  .bar .b3 { width: 30%; background: var(--green); }
+  .bar-cap { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 14px 0; }
+
+  .foot { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); margin-top: 60px; padding-top: 16px; }
+  .foot a { color: var(--blue); }
+  ul.tight { margin: 8px 0; padding-left: 20px; }
+  ul.tight li { margin: 4px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>THE DARK FACTORY</h1>
+  <p class="sub">A crew of AI agents that runs the to-do list of <em>The Warden's Oak</em> (a text-based Discord RPG) on a schedule, while one human keeps the only key that matters.</p>
+
+  <div class="facts">
+    <div class="fact"><span class="big">1</span><span class="lbl">board (GitHub Projects) as the control panel</span></div>
+    <div class="fact"><span class="big">5</span><span class="lbl">scheduled loops + 1 on-call specialist</span></div>
+    <div class="fact"><span class="big">5 min</span><span class="lbl">heartbeat tick that wakes the factory</span></div>
+    <div class="fact"><span class="big">1</span><span class="lbl">rule the whole thing hangs on</span></div>
+  </div>
+
+  <h2><span class="num">01</span>The one rule</h2>
+  <div class="callout">
+    <b>Agents may only do work a human has explicitly approved.</b> On the board, that means a card must sit in <code>Approved</code> (you moved it there, nobody else can), or carry a standing-approval label like <code>auto:docs</code> that limits it to a safe class of work. Everything else is read-only for the machines. This is checked twice: once in each agent's own instructions, and once by an auditor that re-checks every open pull request against the board.
+  </div>
+  <p>Think of it as a workshop where the staff can build anything, but only from signed work orders. You are the only person who signs.</p>
+
+  <h2><span class="num">02</span>The board is the whiteboard</h2>
+  <p>A GitHub Projects board called <em>Dark Factory</em> is the single control plane. The agents read it and write it; you steer by moving cards. Cards flow left to right:</p>
+  <div class="flow">
+    <div class="node">Inbox<span class="who">raw idea</span></div>
+    <span class="arrow">→</span>
+    <div class="node">Triaged<span class="who">scoped, ready</span></div>
+    <span class="arrow">→</span>
+    <div class="node human">Approved<span class="who">human only 🔑</span></div>
+    <span class="arrow">→</span>
+    <div class="node">In Progress<span class="who">the ledger owns it</span></div>
+    <span class="arrow">→</span>
+    <div class="node">In Review<span class="who">PR open for you</span></div>
+    <span class="arrow">→</span>
+    <div class="node">Done<span class="who">merged; the ledger closes the card</span></div>
+    <div class="node blocked">Blocked<span class="who">needs a human decision; reachable from anywhere except Done</span></div>
+  </div>
+  <p>Priority labels (P0 to P3) rank cards within a column, so when a builder asks "what next?", the answer is deterministic: highest priority first, then oldest.</p>
+
+  <h2><span class="num">03</span>The crew</h2>
+  <p>Each worker is an AI agent with a written job description (in <code>.pi/agents/</code>) and a fixed schedule (in <code>.pi/subagents/schedules/</code>). None of them remember yesterday directly; they keep notes in a small memory folder instead, one dated fact per line.</p>
+  <div class="grid">
+    <div class="card">
+      <h3>Triage</h3>
+      <div class="role">the receptionist</div>
+      <div class="chips"><span class="chip">every 12 h</span><span class="chip no">writes no code</span></div>
+      <p>Twice a day it cleans the Inbox: merges duplicates, links design docs, drafts acceptance criteria, asks you questions in card comments, then moves cards to <em>Triaged</em> (or <em>Blocked</em> if it's stuck).</p>
+    </div>
+    <div class="card">
+      <h3>Executor</h3>
+      <div class="role">the shift starter (redefined)</div>
+      <div class="chips"><span class="chip">once a day</span><span class="chip model">starts model work</span></div>
+      <p>It used to build whole features in one long, fragile session. Now it's thin: once a day it runs one command that picks an approved card (or rescues a crashed one) and registers a <em>job</em> in the ledger. Building happens stage by stage after that.</p>
+    </div>
+    <div class="card">
+      <h3>Sweeper</h3>
+      <div class="role">the auditor and janitor</div>
+      <div class="chips"><span class="chip">every 48 h</span><span class="chip no">writes no code</span></div>
+      <p>Re-checks that every open PR traces back to an approved card, re-runs CI checks on idle PRs, resets stalled cards, marks merged work <em>Done</em>, and posts a digest.</p>
+    </div>
+    <div class="card">
+      <h3>Scrumo</h3>
+      <div class="role">the scrum master in your DMs</div>
+      <div class="chips"><span class="chip">Tue + Thu evening</span><span class="chip no">writes no code</span></div>
+      <p>Reads the board, the roadmap and the changelog, then sends you a private Discord message: what changed, what's blocked, and exactly three recommended actions phrased as decisions you can just take.</p>
+    </div>
+    <div class="card">
+      <h3>Meta-oil</h3>
+      <div class="role">the one that studies the factory itself</div>
+      <div class="chips"><span class="chip">Fri + Sat evening</span><span class="chip no">writes no code</span></div>
+      <p>Measures the factory's own transcripts: wasted tokens, repeated failed commands, costly model choices. Sends you up to five numbered improvement proposals; you vote with emoji reactions (1️⃣ to 5️⃣, ✅, ❌). Only an approved proposal gets applied, as a PR you review.</p>
+    </div>
+    <div class="card">
+      <h3>Escalator</h3>
+      <div class="role">the on-call specialist</div>
+      <div class="chips"><span class="chip">on demand</span><span class="chip model">deep thinking</span></div>
+      <p>Not scheduled. When a builder hits something genuinely hard (a schema change, a weird failure), it spawns as a one-shot child with a heavyweight reasoning model, reproduces the problem, and hands back a binding verdict.</p>
+    </div>
+  </div>
+
+  <h2><span class="num">04</span>The heartbeat</h2>
+  <p><span class="dot"></span>Nobody presses a button to start these workers. A system timer (systemd) ticks <em>every 5 minutes</em>, and each tick walks the same short checklist:</p>
+  <div class="tickline">
+    <div class="node">Enough free RAM?<span class="who">refuse to start below ~1 GB (past OOM kills)</span></div>
+    <span class="arrow">→</span>
+    <div class="node">Already busy?<span class="who">one tick at a time, via a file lock</span></div>
+    <span class="arrow">→</span>
+    <div class="node">Anything due?<span class="who">fire the scheduled loop runs</span></div>
+    <span class="arrow">→</span>
+    <div class="node">Drain<span class="who">advance one stage of the oldest job</span></div>
+  </div>
+  <p>A tick with nothing due exits in milliseconds and costs nothing. The clock times are phases, not appointments: a loop "anchored at 07:30" actually starts somewhere in the 07:30 to 07:35 window.</p>
+
+  <h2><span class="num">05</span>A job: one card, six steps, a hard budget</h2>
+  <p>The redefined executor turns one approved card into a <em>job</em>: a small JSON file on disk (<code>.pi/factory/jobs/</code>) that tracks exactly where the work is. Each step runs as its own short-lived process, so a crash costs one retry, not the whole job. State lives in the file, never in a process's memory. A one-command <em>start</em> opens the job first — branch, isolated workspace, card claimed — and the six stages below then run one process at a time.</p>
+  <div class="pipe">
+    <div class="stage model"><b>build</b>50 min<span class="kind">AI: implement + commit</span></div>
+    <span class="arrow">→</span>
+    <div class="stage model"><b>review</b>20 min<span class="kind">AI, read-only: fresh look</span></div>
+    <span class="arrow">→</span>
+    <div class="stage model"><b>fix</b>30 min<span class="kind">AI: land the review's fixes</span></div>
+    <span class="arrow">→</span>
+    <div class="stage code"><b>deliver</b>seconds<span class="kind">code: push, open PR to dev</span></div>
+    <span class="arrow">→</span>
+    <div class="stage code"><b>reconcile</b>seconds<span class="kind">code: once you merge, set Done + close the card</span></div>
+    <span class="arrow">→</span>
+    <div class="stage code"><b>done</b>seconds<span class="kind">code: clean up, archive</span></div>
+  </div>
+  <div class="budget">
+    <div class="bar">
+      <div class="seg b1">build 50</div>
+      <div class="seg b2">review 20</div>
+      <div class="seg b3">fix 30</div>
+    </div>
+    <div class="bar-cap">Total machine budget per job: a hard cap of 100 minutes across every step and every retry. Recharging anything requires the owner's <code>retry</code> command.</div>
+  </div>
+  <div class="grid-3">
+    <div class="panel">
+      <b style="color: var(--green)">Fail once</b><br>
+      Quiet retry. The step goes back to ready and the next tick runs attempt 2, with whatever budget remains.
+    </div>
+    <div class="panel">
+      <b style="color: var(--amber)">Fail twice</b><br>
+      Card goes <em>Blocked</em> plus a comment and a Discord DM to you. The machines stop; you decide.
+    </div>
+    <div class="panel">
+      <b style="color: var(--violet)">Crash mid-step</b><br>
+      The next tick notices the dead worker, kills any leftover process, and counts it as a failed attempt. Nothing is stranded.
+    </div>
+  </div>
+  <p><strong>Rescuing crashed work (adoption):</strong> if a previous run died but left a branch with commits behind, the next <em>start</em> adopts it instead of building from scratch, re-entering at the review step. Committed work is never rebuilt.</p>
+  <p><strong>Why crashes can't corrupt anything:</strong> three locks. One tick at a time (system lock), one ledger writer at a time (drain lock), and one stage at a time per job. The drain also verifies a leftover process by its kernel start time before killing it, so a recycled process ID can never trick it into killing an innocent process.</p>
+
+  <h2><span class="num">06</span>What the machines are never allowed to do</h2>
+  <ul class="tight">
+    <li>Merge a PR, push to <code>dev</code> or <code>main</code>, or tag a release. Humans do all merging and releasing.</li>
+    <li>Execute a card that isn't <code>Approved</code> (or a safe <code>auto:*</code> class like docs-only changes).</li>
+    <li>Act on silence: no answer to a proposal means no, not yes.</li>
+    <li>Keep working after two failed attempts at the same step: it blocks and pages you instead.</li>
+  </ul>
+
+  <div class="foot">
+    The two design docs behind this page: <a href="../engine/dark-factory.md">docs/engine/dark-factory.md</a> (the factory) and
+    <a href="../engine/dark-factory-job-ledger.md">docs/engine/dark-factory-job-ledger.md</a> (the job pipeline).
+    A one-page explainer for the human in the loop; the specs are authoritative where they disagree.
+  </div>
+
+</div>
+</body>
+</html>

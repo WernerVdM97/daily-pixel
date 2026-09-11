@@ -14,10 +14,13 @@ The Warden's Oak is a slow-burn narrative game played over a real calendar year.
 
 It draws from **MUD** (text-rendered multi-user dungeon), **Frieren** (time as tension), **D&D** (visible dice), **Lord of the Rings** (fellowship of many), **Castlevania** (gothic threat on the horizon), **anime** (friendship as mechanic), **MapleStory** (the social grind as ritual), and **Fable** (NPCs who live their own lives).
 
-## Visual Guides
+## User Guides
 
-- [gameplay loop](./docs/assets/core-loop.png)
-- [character creation](./docs/assets/character-creation.png)
+ - [gameplay loop](./docs/assets/core-loop.png)
+ - [character creation](./docs/assets/character-creation.png)
+
+## Developer Guides
+ - [The Dark Factory](./docs/assets/dark-factory-explained.html) — one page on the scheduled agent crew that triages, builds and reviews this repo's own work, behind a human approval gate
 
 ---
 
