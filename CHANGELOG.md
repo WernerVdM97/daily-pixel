@@ -34,6 +34,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Internal
 
 - **Docs vault purged of shipped records** — the JSON-seam closure block, the POC+ arc's shipped items (0–2, Release A) and the v13 roadmap's shipped thread left TODO.md and the two roadmap docs; the v12 Thread C combat spec and the action-features/art tracker moved to `docs/archived/`, and the docs index now lists only live docs with one-line archive pointers. Open work untouched.
+- **`docs/assets/dark-factory-explained.html`, a one-page explainer of the Dark Factory** — the board, the one approval rule, the crew and their cadences, the 5-minute tick, and the job pipeline with its 100-minute budget, written for the human in the loop rather than for an agent. Linked from the root `README.md`; the two specs stay authoritative.
 - **Factory memory skeleton + `factory-memory` skill** — a tracked topic skeleton under `.pi/factory/memory/` (agent-written contents gitignored) so the fresh-context loops keep durable facts between runs; the `AGENTS.md` skill table gains the `factory-memory` row. A `meta/` topic (`proposals`, `metrics`, `sessions`) and `loops/meta-oil/` were added for the improvement loop.
 
 ## [0.3.4] - 2026-08-05
