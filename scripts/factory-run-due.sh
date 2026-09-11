@@ -17,6 +17,9 @@
 # Fire one named schedule now, even though it is paused and not yet due:
 #   FACTORY_FIRE=factory-triage scripts/factory-run-due.sh
 #
+# One switch turns the whole factory off: see § The one switch below. Off means no schedules,
+# no drain, no housekeeping; a FACTORY_FIRE by name still runs.
+#
 # A tick has two steps: the due schedules, then the job drain. The schedules step no longer
 # `exec`s, because the shell has to survive to the drain: a job's stage runs one per process
 # (see docs/engine/dark-factory-job-ledger.md), so its progress comes from the drain running
@@ -36,6 +39,79 @@ LOCK_FILE="${FACTORY_LOCK_FILE:-/tmp/factory-run-due.lock}"
 LOG_TAG="[factory-run-due]"
 
 log() { echo "$LOG_TAG $*"; }
+
+# ── The one switch ─────────────────────────────────────────────────────────
+# Off means this tick does nothing at all: no schedules, no drain, no housekeeping. Three
+# sources can say so, and any of them is enough, because none should have to be the only one:
+# the process environment (a systemd drop-in), the repo .env (where the factory's other knobs
+# live), and a pause file whose mere presence stops the factory, with an optional reason on its
+# first line. A named FACTORY_FIRE still runs — that is a human asking for one schedule by
+# hand — but it does not drag the drain and the pruner along behind it.
+PAUSE_FILE="${FACTORY_PAUSE_FILE:-$PROJECT_DIR/.pi/factory/PAUSED}"
+
+# bash 3.2 (macOS) has no ${var,,}, so lowercase through tr.
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+is_off() {
+  case "$(lower "$1")" in 0 | false | no | off) return 0 ;; *) return 1 ;; esac
+}
+
+factory_off_reason() {
+  local from_env reason enabled=0
+  if [ -n "${FACTORY_ENABLED:-}" ]; then
+    if is_off "$FACTORY_ENABLED"; then
+      echo "FACTORY_ENABLED=$FACTORY_ENABLED"
+      return 0
+    fi
+    enabled=1
+  fi
+  if [ -r "$PROJECT_DIR/.env" ]; then
+    # Line-oriented config, not a shell script: read the one key rather than sourcing it.
+    from_env="$(sed -n 's/^[[:space:]]*FACTORY_ENABLED[[:space:]]*=[[:space:]]*//p' "$PROJECT_DIR/.env" | tail -1)"
+    # A trailing comment is not part of a boolean, and the quoting is optional.
+    case "$from_env" in
+      \"*) from_env="${from_env#\"}" && from_env="${from_env%%\"*}" ;;
+      \'*) from_env="${from_env#\'}" && from_env="${from_env%%\'*}" ;;
+      *) from_env="${from_env%%#*}" ;;
+    esac
+    from_env="$(printf '%s' "$from_env" | tr -d '[:space:]')"
+    if [ -n "$from_env" ]; then
+      if is_off "$from_env"; then
+        echo "FACTORY_ENABLED=$from_env in .env"
+        return 0
+      fi
+      enabled=1
+    fi
+  fi
+  if [ -e "$PAUSE_FILE" ]; then
+    reason="$(sed -n '1p' "$PAUSE_FILE" 2>/dev/null || true)"
+    if [ -n "$reason" ]; then
+      echo "$PAUSE_FILE: $reason"
+    else
+      echo "$PAUSE_FILE exists"
+    fi
+    return 0
+  fi
+  # Nothing switched it on, so it is off: absence means off, which is the point of a switch
+  # that spends tokens and writes to GitHub. Enabling is a deliberate act (FACTORY_ENABLED=1
+  # in the environment, in `.env`, or in the unit), and FACTORY_FIRE still runs by name.
+  if [ "$enabled" = "1" ]; then
+    return 1
+  fi
+  echo "not enabled (no FACTORY_ENABLED=1 in the environment, .env or the unit)"
+  return 0
+}
+
+FACTORY_PAUSED=""
+if reason="$(factory_off_reason)"; then
+  if [ -n "$FIRE_ID" ]; then
+    FACTORY_PAUSED=1
+    log "factory is off ($reason); firing ${FIRE_ID} anyway, because it was asked for by name"
+  else
+    log "factory is off ($reason); skipping this tick"
+    exit 0
+  fi
+fi
 
 # MemAvailable is the kernel's estimate of what a new process can actually claim.
 # MemFree would refuse ticks that would have fitted, because it ignores reclaimable cache.
@@ -138,6 +214,11 @@ fi
 # stage. It holds its own drain lock for the whole run, stage included, so a stage in flight
 # is never started twice; a failure here is logged and retried on the next tick, and the exit
 # code still reaches systemd so `systemctl --failed` sees a broken factory.
+if [ "${FACTORY_PAUSED:-}" = "1" ]; then
+  log "factory is off; the drain and housekeeping steps are skipped too"
+  exit "$status"
+fi
+
 if [ -f "$PROJECT_DIR/scripts/factory-jobs.ts" ]; then
   log "draining job stages"
   npx --no-install tsx scripts/factory-jobs.ts drain || status=$?
