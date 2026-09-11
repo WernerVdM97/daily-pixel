@@ -133,6 +133,22 @@ The cadences are already tuned to clock times and the launcher already exists, s
 2. The launcher (`scripts/factory-run-due.{sh,service,timer}`, installed as a system timer that ticks every 5 min) is the lights-out path for a closed laptop. It owns the memory preflight, refusing to start below `FACTORY_MIN_AVAIL_MB` (default 1000MB) because a second pi stacked on a live session twice ended in an `oom-kill`, and a non-blocking lock, so ticks cannot stack. Every tick then drains the job ledger (`factory-jobs.ts drain`) after any due schedules, which is what advances a job's stages; a tick with nothing due still drains, and `TimeoutStartSec` is 5400 so a 50-minute `build` cannot be cut off by the launcher. A record it cannot parse counts as due, so a schedule-format change costs extra ticks rather than parking the factory silently.
 3. The watchdog (opt-in adversarial diff review at `agent_end`) is a natural extra review layer once running unattended; see `/subagents-watchdog`.
 
+## Turning it off
+
+One switch stops the factory, and any of three sources can throw it, because none of them should have to be the only one:
+
+- the process environment — `FACTORY_ENABLED=0` in the launcher's systemd unit (or a drop-in);
+- the repo `.env` — `FACTORY_ENABLED=0|false|no|off`, read by the launcher one key at a time rather than sourced;
+- a pause file — `.pi/factory/PAUSED`, whose **presence** is enough and whose first line becomes the reason the journal shows. `touch` stops the factory, `rm` starts it, which is the form that survives an edit to `.env`.
+
+Off means the tick does nothing at all: no schedules fire, the job drain does not advance a stage, and the branch pruner does not run. It is a gate on autonomous action, not a lock on yours:
+
+- **`FACTORY_FIRE=<id>` still runs**, because that is you asking for one schedule by name — but it does not drag the drain and the pruner along behind it, so a job you deliberately froze stays frozen.
+- **`factory-jobs.ts start|drain|retry` still work** when you run them yourself; they are your tools, not the schedule's.
+- **An in-flight stage finishes.** A tick already inside a 50-minute `build` cannot be interrupted safely, and killing it mid-write is exactly what loses work; the next tick is the one that sees the switch. Nothing new starts meanwhile.
+
+Per-loop control stays separate: a schedule's own `paused` flag (see § Running it) turns one loop off while the rest keep ticking, which is what the individual switches are for.
+
 ## Non-goals
 
 - The factory never merges PRs, never pushes to `dev`/`main`, never tags releases. Those stay human per the `releasing` skill.
