@@ -112,56 +112,72 @@ describe('composing the message', () => {
   });
 });
 
-// The shape meta-oil's role definition prescribes: content is the index, the embed carries one
-// field per proposal. This pins the design's numbers, so a proposal template that quietly grew
-// past a field limit fails here instead of losing a proposal at the API.
+// The shape meta-oil's role definition prescribes: an index card, then one card per proposal.
+// This pins the design's numbers, so a card template that quietly grew past a limit fails here
+// instead of losing a proposal at the API.
 describe('the meta-oil digest shape', () => {
-  const content = [
-    '**🛢️ meta-oil survey** · Fri 11 Sep, 20:00',
-    '**Signals** tool-error 113x/21 (97% of tokens) · file-rework 25x/14 · owner-correction 3x/3',
-    '**Window** 09-07 → 09-11 · 50 sessions · 113 failed calls of 3171 · 71 distinct',
-    '[friction report](…) · [factory spec](…)',
-    '**Open** 3 pending, oldest 2d (#1) · [PR #115](…) applied',
-    'React 1/2/3 · ✅ · ❌ · 🔁 · ⏸ · or reply in text',
-  ].join('\n');
+  // The cards share a shape, but only the index carries a footer, so the array needs one type.
+  interface SampleEmbed {
+    title: string;
+    color: number;
+    description: string;
+    footer?: { text: string };
+  }
 
-  const proposal = (n: number) => ({
-    name: `${n}. Stop counting a fork's replay of its parent in the friction ranking`,
-    value: [
+  const index: SampleEmbed = {
+    title: '🔧 meta-oil survey · 09-07 → 09-11',
+    color: 0x95a5a6,
+    description: [
+      '**Signals** tool-error 113x/21 (97% of tokens) · file-rework 25x/14 · owner-correction 3x/3',
+      '**Window** 09-07 → 09-11 · 50 sessions · 113 failed calls of 3171 · 71 distinct',
+      '**Heads up** no python3 `yaml` (js-yaml is present) · a job worktree carries no `.env`',
+      '**Open** 3 pending, oldest 2d (#1) · applied [PR #113](https://github.com/WernerVdm97/daily-pixel/pull/113)',
+      '[friction report](https://github.com/WernerVdm97/daily-pixel/blob/dev/scripts/factory-friction.ts) · [factory spec](https://github.com/WernerVdm97/daily-pixel/blob/dev/docs/engine/dark-factory.md)',
+      'React 1/2/3 approve · ✅ all · ❌ reject the rest · 🔁 re-run · ⏸ hold',
+    ].join('\n'),
+    footer: { text: '40 owner + 10 fork sessions · 263.6M tok · $23.51' },
+  };
+
+  const card = (n: number): SampleEmbed => ({
+    title: `${n}. Stop counting a fork's replay of its parent in the friction ranking`,
+    color: 0xdaa520,
+    description: [
       '**signal** tool-error 113x/21, 97% of the window’s tokens',
       '**why** 10 fork transcripts replay their parent; 31 of the 113 failures are 6 events counted up to 10x',
-      '**files** [factory-friction.ts](https://github.com/WernerVdm97/daily-pixel/blob/dev/scripts/factory-friction.ts), [CHANGELOG.md](https://github.com/WernerVdm97/daily-pixel/blob/dev/CHANGELOG.md)',
+      '**files** [factory-friction.ts](https://github.com/WernerVdm97/daily-pixel/blob/dev/scripts/factory-friction.ts)',
       '**diff** skip entries whose `id` is in an ancestor `parentSession`; add `--errors [n]`',
       '**verify** tool-error ~82 next window',
       '**blast** rankings only, no code path reads it',
     ].join('\n'),
   });
 
-  const embeds = [
-    {
-      title: '🔧 meta-oil survey · 09-07 → 09-11',
-      color: 0xdaa520,
-      description: '• no python3 `yaml` (js-yaml is present) · • a job worktree carries no `.env`',
-      fields: [1, 2, 3, 4, 5].map(proposal),
-      footer: { text: '40 owner + 10 fork sessions · 263.6M tok · $23.51' },
-    },
-  ];
+  const embeds: SampleEmbed[] = [index, ...[1, 2, 3, 4, 5].map(card)];
 
-  it('fits the content budget with room to spare', () => {
-    expect(content.length).toBeLessThan(900);
-    expect(contentLengthError(content)).toBeNull();
+  it('sends the index and five proposals as six cards inside one message', () => {
+    expect(embeds).toHaveLength(6);
+    expect(EMBED_LIMITS.embeds).toBeGreaterThanOrEqual(6);
+    expect(embedError(embeds)).toBeNull();
   });
 
-  it('fits five six-field proposals inside one embed', () => {
-    expect(embedError(embeds)).toBeNull();
-    for (const field of embeds[0].fields) {
-      expect(field.value.length).toBeLessThan(EMBED_LIMITS.fieldValue);
-      expect(field.name.length).toBeLessThan(EMBED_LIMITS.fieldName);
+  it('keeps the index card to a glance', () => {
+    expect(index.description.length).toBeLessThan(900);
+    expect(index.title.length).toBeLessThan(EMBED_LIMITS.title);
+  });
+
+  it('keeps each proposal card well inside its own limit', () => {
+    for (const field of embeds.slice(1)) {
+      expect(field.description.length).toBeLessThan(600);
+      expect(field.description.length).toBeLessThan(EMBED_LIMITS.description);
+      expect(field.title.length).toBeLessThan(EMBED_LIMITS.title);
     }
   });
 
-  it('keeps the whole digest well inside the aggregate, so there is room to grow', () => {
-    const aggregate = content.length + JSON.stringify(embeds).length;
+  it('stays well inside the aggregate, so a sixth proposal still fits', () => {
+    const aggregate = embeds.reduce(
+      (sum, e) => sum + e.title.length + e.description.length + (e.footer?.text.length ?? 0),
+      0,
+    );
     expect(aggregate).toBeLessThan(4000);
+    expect(aggregate + card(6).description.length + card(6).title.length).toBeLessThan(EMBED_LIMITS.total);
   });
 });
