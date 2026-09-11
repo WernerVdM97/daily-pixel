@@ -87,6 +87,15 @@ export const MAX_ATTEMPTS = 2;
 export const WAITING_STALE_MS = 7 * 24 * 60 * MIN;
 /** The integration branch every job forks from and PRs to. */
 export const BASE_REF = "dev";
+/**
+ * The same branch as git tracks it. Jobs fork from this, not from the local `dev` ref:
+ * the local ref only moves when a human pulls, and a stale fork point is invisible until
+ * the PR turns out to be based on week-old work. `baseRef: "dev"` stays in the record
+ * because that is the name GitHub resolves server-side.
+ */
+export const UPSTREAM_REF = `origin/${BASE_REF}`;
+/** Never pruned: the integration branch itself, and the release line. */
+const PROTECTED_BRANCHES = new Set([BASE_REF, "main", "master"]);
 
 export type StageResult =
   | "ok"
@@ -234,7 +243,7 @@ export function decide(job: JobRecord, live: Liveness): Action {
 export function parseVerdict(text: string): "clean" | "findings" | "ok" | "nochange" {
   const first = text.trimStart().split("\n", 1)[0] ?? "";
   const match = /VERDICT:\s*(clean|findings|ok|nochange)\b/i.exec(first);
-  // Unparseable reads as `findings`: the safe default is to assume there is work to do.
+  // Anything else reads as `findings`: the safe default is to assume there is work to do.
   if (!match) return "findings";
   return match[1]!.toLowerCase() as "clean" | "findings" | "ok" | "nochange";
 }
@@ -805,13 +814,13 @@ function gitOrThrow(ctx: Ctx, args: string[], cwd = ctx.root, timeoutMs = 60_000
 }
 
 function commitsAhead(ctx: Ctx, branch: string): number {
-  const res = git(ctx, ["rev-list", "--count", `${BASE_REF}..${branch}`]);
+  const res = git(ctx, ["rev-list", "--count", `${UPSTREAM_REF}..${branch}`]);
   return res.code === 0 ? Number.parseInt(res.stdout.trim() || "0", 10) : 0;
 }
 
 /** The PR body is generated, not composed: the commits are what changed, the issue is why. */
 export function deliverBody(ctx: Ctx, job: JobRecord): string {
-  const log = git(ctx, ["log", "--no-merges", "--pretty=format:- %s", `${job.baseRef}..${job.branch}`], job.worktree);
+  const log = git(ctx, ["log", "--no-merges", "--pretty=format:- %s", `${UPSTREAM_REF}..${job.branch}`], job.worktree);
   const changed = log.code === 0 && log.stdout.trim() ? log.stdout.trim() : "- (no commit subjects found)";
   return [
     `Closes #${job.item}`,
@@ -1419,12 +1428,12 @@ function ensureWorktree(ctx: Ctx, path: string, addArgs: string[]): boolean {
 
 /** The base ref's own tip that was merged in (not the merge commit), or null on conflict. */
 function mergeBaseRef(ctx: Ctx, worktree: string): string | null {
-  const res = git(ctx, ["merge", "--no-edit", BASE_REF], worktree, 5 * MIN);
+  const res = git(ctx, ["merge", "--no-edit", UPSTREAM_REF], worktree, 5 * MIN);
   if (res.code !== 0) {
     git(ctx, ["merge", "--abort"], worktree);
     return null;
   }
-  return git(ctx, ["rev-parse", BASE_REF], worktree).stdout.trim();
+  return git(ctx, ["rev-parse", UPSTREAM_REF], worktree).stdout.trim();
 }
 
 function branchList(ctx: Ctx): string[] {
@@ -1488,7 +1497,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
           config,
           adopt.item.number,
           `factory: found the orphaned branch \`${adopt.branch}\` but merging \`${BASE_REF}\` into it conflicts, so the ` +
-            `job was not opened. Resolve it (\`git merge ${BASE_REF}\`) and the next \`start\` will adopt it at ` +
+            `job was not opened. Resolve it (\`git merge ${UPSTREAM_REF}\`) and the next \`start\` will adopt it at ` +
             `\`${adopt.stage}\`.`,
         );
         ctx.deps.log(`[factory-jobs] adopted nothing: ${BASE_REF} does not merge cleanly into ${adopt.branch}`);
@@ -1507,10 +1516,10 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
         config,
         adopt.item.number,
         `factory: adopted the orphaned branch \`${adopt.branch}\` at \`${adopt.commit ?? "no commits"}\`; ` +
-          `re-entering the ledger at \`${adopt.stage}\`, with \`${BASE_REF}\` merged in at \`${mergedDev.slice(0, 7)}\` ` +
+          `re-entering the ledger at \`${adopt.stage}\`, with \`${UPSTREAM_REF}\` merged in at \`${mergedDev.slice(0, 7)}\` ` +
           `so the stage agents are current. The prior run's cost is not charged against the new budget.`,
       );
-      ctx.deps.log(`[factory-jobs] adopted #${adopt.item.number} at ${adopt.stage} (${adopt.branch}, ${BASE_REF} merged)`);
+      ctx.deps.log(`[factory-jobs] adopted #${adopt.item.number} at ${adopt.stage} (${adopt.branch}, ${UPSTREAM_REF} merged)`);
       return { action: "adopted", item: adopt.item.number, branch: adopt.branch };
     }
 
@@ -1523,7 +1532,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
     const worktree = worktreePathFor(ctx.worktreeRoot, branch);
     if (!ctx.dryRun) {
       if (existsSync(worktree)) gitOrThrow(ctx, ["worktree", "remove", "--force", worktree]);
-      if (!ensureWorktree(ctx, worktree, branches.includes(branch) ? [worktree, branch] : ["-b", branch, worktree, BASE_REF])) {
+      if (!ensureWorktree(ctx, worktree, branches.includes(branch) ? [worktree, branch] : ["-b", branch, worktree, UPSTREAM_REF])) {
         return { action: "stuck", item: candidate.number, detail: `could not create the worktree at ${worktree}` };
       }
     }
@@ -1654,6 +1663,306 @@ export function staleReport(ctx: Ctx): string {
   return lines.length ? lines.join("\n") : "nothing stale";
 }
 
+// ── Housekeeping: a fresh base, no stale branches ─────────────────────────
+
+export interface BranchesReport {
+  branch: string;
+  /** The tip it was deleted (or kept) at, so the operation can be audited or undone. */
+  commit: string;
+  reason: string;
+}
+
+export interface HousekeepingOutcome {
+  fetched: boolean;
+  /** What happened to the local `dev` ref: the worktree fork point must not rot. */
+  devRef: "already-current" | "advanced" | "behind-but-unsafe" | "unknown";
+  devRefBehind: number;
+  deleted: BranchesReport[];
+  kept: BranchesReport[];
+}
+
+/**
+ * The one command that tidies the checkout instead of advancing a job. Three things: fetch,
+ * so nothing forks from a stale base; fast-forward the local `dev` ref when that is provably
+ * safe; delete local branches whose work is already in `dev`.
+ *
+ * It never deletes on ancestry alone. This repo squash-merges, so a merged branch is not an
+ * ancestor of dev — `git branch -d` refuses it, and a naive `-D` would delete real work. The
+ * predicate is the branch's own **merged PR**, or full containment in `origin/dev`. The
+ * exclusions are the current branch, `dev`/`main`/`master`, anything checked out in a
+ * worktree, and any branch a live job record names. Nothing remote is touched: deleting the
+ * remote branch is the owner's affordance on the PR page, and `git fetch` cannot undo it.
+ *
+ * Failures here are reported, never thrown: this runs beside the drain, and hygiene must not
+ * fail a tick that advanced a job.
+ */
+export function housekeeping(ctx: Ctx): HousekeepingOutcome {
+  const outcome: HousekeepingOutcome = { fetched: false, devRef: "unknown", devRefBehind: 0, deleted: [], kept: [] };
+  if (ctx.dryRun) {
+    // Reading is fine, moving refs is not: decide against the refs as they stand.
+    ctx.deps.log("[dry-run] git fetch origin --prune");
+    outcome.fetched = true;
+    outcome.devRefBehind = behindCount(ctx);
+    outcome.devRef = advanceLocalBase(ctx, outcome.devRefBehind);
+    pruneMergedBranches(ctx, outcome);
+    return outcome;
+  }
+  const fetch = git(ctx, ["fetch", "origin", "--prune", "--quiet"], ctx.root, 2 * MIN);
+  outcome.fetched = fetch.code === 0;
+  if (!outcome.fetched) {
+    ctx.deps.log(`[factory-jobs] fetch failed, so nothing is pruned on stale information: ${fetch.stderr.trim()}`);
+    return outcome;
+  }
+  // A worktree registration whose directory is gone blocks its branch from being reused.
+  if (!ctx.dryRun) git(ctx, ["worktree", "prune"], ctx.root);
+
+  outcome.devRefBehind = behindCount(ctx);
+  outcome.devRef = advanceLocalBase(ctx, outcome.devRefBehind);
+  pruneMergedBranches(ctx, outcome);
+  return outcome;
+}
+
+/** How many commits the local base ref is behind the tracked one. */
+function behindCount(ctx: Ctx): number {
+  const raw = git(ctx, ["rev-list", "--count", `${BASE_REF}..${UPSTREAM_REF}`]).stdout.trim() || "0";
+  const behind = Number.parseInt(raw, 10);
+  return Number.isFinite(behind) ? behind : 0;
+}
+
+/** Move the local base ref to the tracked one, but only where that cannot lose work. */
+function advanceLocalBase(ctx: Ctx, behind: number): HousekeepingOutcome["devRef"] {
+  if (behind === 0) return "already-current";
+  if (ctx.dryRun) {
+    ctx.deps.log(`[dry-run] ${BASE_REF} is ${behind} behind ${UPSTREAM_REF}`);
+    return "behind-but-unsafe";
+  }
+  const head = currentBranch(ctx);
+  if (head === BASE_REF) {
+    // Checked out here, so the ref can only move through the working tree. A dirty tree is
+    // someone mid-edit: refuse rather than surprise them.
+    if (porcelain(ctx, ctx.root)) {
+      ctx.deps.log(`[factory-jobs] ${BASE_REF} is ${behind} behind and this checkout is dirty; left alone`);
+      return "behind-but-unsafe";
+    }
+    const merged = git(ctx, ["merge", "--ff-only", UPSTREAM_REF]);
+    if (merged.code === 0) {
+      ctx.deps.log(`[factory-jobs] fast-forwarded ${BASE_REF} by ${behind}`);
+      return "advanced";
+    }
+    ctx.deps.log(`[factory-jobs] ${BASE_REF} is behind but not fast-forwardable: ${merged.stderr.trim()}`);
+    return "behind-but-unsafe";
+  }
+  // Not checked out here: move the ref itself, which git refuses unless it is a fast-forward.
+  const res = git(ctx, ["fetch", "origin", `${BASE_REF}:${BASE_REF}`]);
+  if (res.code === 0) {
+    ctx.deps.log(`[factory-jobs] advanced the local ${BASE_REF} ref by ${behind} (not checked out here)`);
+    return "advanced";
+  }
+  ctx.deps.log(`[factory-jobs] could not advance ${BASE_REF}: ${res.stderr.trim()}`);
+  return "behind-but-unsafe";
+}
+
+function currentBranch(ctx: Ctx): string {
+  return git(ctx, ["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim();
+}
+
+/** Head branches of merged PRs, or null when gh could not answer (so: prune nothing). */
+/** A merged PR, identified by the commit its head was at when it merged. */
+interface MergedPrRef {
+  number: number;
+  headOid: string;
+}
+
+/** How many merged PRs one bulk query asks for. See `mergedPrsByHead`. */
+const MERGED_PR_PAGE = 1000;
+
+interface MergedPrIndex {
+  byHead: Map<string, MergedPrRef[]>;
+  /**
+   * False when the bulk query returned exactly the page size, i.e. it may have been cut off.
+   * A complete index is authoritative: a branch missing from it has no merged PR at all. A
+   * possibly-truncated one falls back to a per-branch query, so the page size can only ever
+   * cost an extra call, never a wrong decision.
+   */
+  complete: boolean;
+}
+
+function mergedPrsByHead(ctx: Ctx, repo: string): MergedPrIndex | null {
+  let raw: string;
+  try {
+    raw = gh(ctx, [
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "merged",
+      "--limit",
+      String(MERGED_PR_PAGE),
+      "--json",
+      "number,headRefName,headRefOid",
+    ]);
+  } catch (err) {
+    ctx.deps.log(`[factory-jobs] cannot list merged PRs: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+  let prs: { number?: number; headRefName?: string; headRefOid?: string }[];
+  try {
+    prs = JSON.parse(raw || "[]") as { number?: number; headRefName?: string; headRefOid?: string }[];
+  } catch {
+    ctx.deps.log("[factory-jobs] gh returned unparseable JSON for the merged PR list; pruning nothing");
+    return null;
+  }
+  const byHead = new Map<string, MergedPrRef[]>();
+  for (const pr of prs) {
+    if (!pr.headRefName || !pr.headRefOid) continue;
+    const list = byHead.get(pr.headRefName) ?? [];
+    list.push({ number: pr.number ?? 0, headOid: pr.headRefOid });
+    byHead.set(pr.headRefName, list);
+  }
+  return { byHead, complete: prs.length < MERGED_PR_PAGE };
+}
+
+/** Merged PRs for one head, asked directly. Only needed when the bulk page may be truncated. */
+function mergedPrsForHead(ctx: Ctx, repo: string, branch: string): MergedPrRef[] {
+  try {
+    const raw = gh(ctx, [
+      "pr",
+      "list",
+      "--repo",
+      repo,
+      "--head",
+      branch,
+      "--state",
+      "merged",
+      "--limit",
+      "10",
+      "--json",
+      "number,headRefOid",
+    ]);
+    const prs = JSON.parse(raw || "[]") as { number?: number; headRefOid?: string }[];
+    const refs: MergedPrRef[] = [];
+    for (const pr of prs) {
+      if (pr.headRefOid) refs.push({ number: pr.number ?? 0, headOid: pr.headRefOid });
+    }
+    return refs;
+  } catch (err) {
+    ctx.deps.log(
+      `[factory-jobs] cannot list merged PRs for ${branch}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return [];
+  }
+}
+
+function pruneMergedBranches(ctx: Ctx, outcome: HousekeepingOutcome): void {
+  let repo: string;
+  try {
+    repo = readProjectConfig(ctx.root).repo;
+  } catch (err) {
+    ctx.deps.log(`[factory-jobs] cannot read the board config: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  const index = mergedPrsByHead(ctx, repo);
+  if (!index) return;
+
+  const locals: string[] = [];
+  for (const line of git(ctx, ["for-each-ref", "refs/heads", "--format=%(refname:short)"]).stdout.split("\n")) {
+    const name = line.trim();
+    if (name) locals.push(name);
+  }
+  const head = currentBranch(ctx);
+  const checkedOut = new Set(
+    git(ctx, ["worktree", "list", "--porcelain"])
+      .stdout.split("\n")
+      .filter((line) => line.startsWith("branch refs/heads/"))
+      .map((line) => line.replace("branch refs/heads/", "").trim()),
+  );
+  const liveJobBranches = new Set(loadJobs(ctx.jobsDir).map((job) => job.branch));
+
+  for (const branch of locals) {
+    const keep = (commit: string, reason: string): void => {
+      outcome.kept.push({ branch, commit, reason });
+    };
+    const excluded = untouchableReason(branch, { head, checkedOut, live: liveJobBranches });
+    if (excluded) {
+      keep("", excluded);
+      continue;
+    }
+
+    const tip = git(ctx, ["rev-parse", "--verify", `${branch}^{commit}`]).stdout.trim();
+    if (!tip) {
+      keep("", "could not resolve its tip");
+      continue;
+    }
+
+    // Safe on its own: every commit on the branch is already in the tracked ref.
+    if (git(ctx, ["merge-base", "--is-ancestor", branch, UPSTREAM_REF]).code === 0) {
+      removeBranch(ctx, outcome, branch, tip, "-d", `contained in ${UPSTREAM_REF}`);
+      continue;
+    }
+
+    // Otherwise its work can only have landed as a squash, and that is proven by a merged PR
+    // whose head was *exactly this tip*. A branch name is not proof: `feat/<item>-<slug>` is
+    // deterministic, so a redone item recreates a name an older merged PR already owns, and
+    // a branch that advanced after its own merge carries commits no PR ever saw.
+    const prs = index.byHead.get(branch) ?? (index.complete ? [] : mergedPrsForHead(ctx, repo, branch));
+    const merged = prs.find((pr) => pr.headOid === tip);
+    if (!merged) {
+      const other = prs[0];
+      keep(
+        tip,
+        other
+          ? `its tip differs from merged PR #${other.number}'s head ${other.headOid.slice(0, 7)}`
+          : "not merged",
+      );
+      continue;
+    }
+    removeBranch(ctx, outcome, branch, tip, "-D", `PR #${merged.number} merged at this exact commit`);
+  }
+}
+
+/** Why a branch is never a pruning candidate, whatever git says about its commits. */
+function untouchableReason(
+  branch: string,
+  seen: { head: string; checkedOut: Set<string>; live: Set<string> },
+): string | null {
+  if (PROTECTED_BRANCHES.has(branch)) return "protected";
+  if (branch === seen.head) return "checked out here";
+  if (seen.checkedOut.has(branch)) return "checked out in a worktree";
+  if (seen.live.has(branch)) return "a live job owns it";
+  return null;
+}
+
+/**
+ * `-d` where ancestry already proved containment; `-D` only when the tip-equality proof was
+ * logged first, so a forced delete always has its evidence in the journal beside it.
+ */
+function removeBranch(
+  ctx: Ctx,
+  outcome: HousekeepingOutcome,
+  branch: string,
+  tip: string,
+  flag: "-d" | "-D",
+  proof: string,
+): void {
+  if (ctx.dryRun) {
+    ctx.deps.log(`[dry-run] git branch ${flag} ${branch} at ${tip.slice(0, 7)} (${proof})`);
+    outcome.deleted.push({ branch, commit: tip, reason: proof });
+    return;
+  }
+  let res = git(ctx, ["branch", "-d", branch]);
+  if (res.code !== 0 && flag === "-D") {
+    ctx.deps.log(`[factory-jobs] ${branch} is not an ancestor of ${UPSTREAM_REF}; forcing: ${proof}`);
+    res = git(ctx, ["branch", "-D", branch]);
+  }
+  if (res.code === 0) {
+    outcome.deleted.push({ branch, commit: tip, reason: proof });
+    ctx.deps.log(`[factory-jobs] deleted merged branch ${branch} at ${tip.slice(0, 7)} (${proof})`);
+  } else {
+    outcome.kept.push({ branch, commit: tip, reason: `delete failed: ${res.stderr.trim()}` });
+  }
+}
+
 // ── CLI ───────────────────────────────────────────────────────────────────
 
 export interface Options {
@@ -1675,6 +1984,7 @@ const USAGE = `Dark Factory job ledger
   tsx scripts/factory-jobs.ts list           every live job, one line each
   tsx scripts/factory-jobs.ts show <item>    one job's record
   tsx scripts/factory-jobs.ts stale          orphans, and PRs open over a week
+  tsx scripts/factory-jobs.ts housekeeping   fetch, freshen local dev, prune merged branches
 
   FACTORY_DRY_RUN=1        spawn nothing, write nothing
   FACTORY_JOBS_DIR=<dir>   use a scratch ledger instead of .pi/factory/jobs`;
@@ -1719,6 +2029,9 @@ async function main(): Promise<void> {
     }
     case "stale":
       ctx.deps.log(staleReport(ctx));
+      break;
+    case "housekeeping":
+      ctx.deps.log(JSON.stringify(housekeeping(ctx)));
       break;
     default:
       process.stdout.write(`${USAGE}\n`);

@@ -6,6 +6,7 @@ import {
   AUTO_LABELS,
   BASE_REF,
   type BoardItem,
+  UPSTREAM_REF,
   type Claim,
   type Ctx,
   type Deps,
@@ -25,6 +26,7 @@ import {
   deliverCommands,
   drainOnce,
   findAdoptable,
+  housekeeping,
   isGated,
   listJobs,
   loadJobs,
@@ -107,6 +109,19 @@ class Harness {
   stageDurationMs = 12 * MIN;
   /** Runs inside the fake stage, for effects the drainer must notice after it returns. */
   afterSpawn?: (run: StageRun) => void;
+  /** Repo shape the housekeeping pass reasons about. */
+  branches: string[] = [];
+  worktreeBranches: string[] = [];
+  currentBranch = 'feat/34-last-stand';
+  devBehind = 0;
+  /** Merged PRs as gh reports them: the head ref *and* the commit that head was at. */
+  mergedPrs: { branch: string; oid: string; number: number }[] = [];
+  /** Branch tips, when they differ from `branchSha`. */
+  tips: Record<string, string> = {};
+  /** Pretend the bulk merged-PR page came back full, so the index cannot be trusted. */
+  bulkTruncated = false;
+  /** Branches already wholly contained in the tracked ref (no squash involved). */
+  ancestors = new Set<string>();
   /** The branch the job is on, and its tip: a committing stage moves the tip. */
   jobBranch = 'feat/34-last-stand';
   branchSha = 'aaaaaaa';
@@ -167,7 +182,47 @@ class Harness {
       return ok(JSON.stringify({ items: this.board.map(toRawItem) }));
     }
     if (cmd === 'git' && args.join(' ') === `rev-parse ${this.jobBranch}`) return ok(`${this.branchSha}\n`);
-    if (cmd === 'git' && args.join(' ').startsWith('status --porcelain')) return ok(this.dirtyWorktree);
+    if (cmd === 'git' && args.join(' ') === `rev-list --count ${BASE_REF}..${UPSTREAM_REF}`) {
+      return ok(`${this.devBehind}\n`);
+    }
+    if (cmd === 'git' && args.join(' ') === 'status --porcelain') return ok(this.dirtyWorktree);
+    if (cmd === 'git' && args[0] === 'symbolic-ref') return ok(this.currentBranch ? `${this.currentBranch}\n` : '');
+    if (cmd === 'git' && args[0] === 'for-each-ref') return ok(this.branches.map((b) => `${b}\n`).join(''));
+    if (cmd === 'git' && args.join(' ') === 'worktree list --porcelain') {
+      return ok(this.worktreeBranches.map((b) => `worktree /tmp/wt\nbranch refs/heads/${b}\n\n`).join(''));
+    }
+    // A branch containment probe (`merge-base --is-ancestor <branch> origin/dev`).
+    if (cmd === 'git' && args[0] === 'merge-base') {
+      return this.ancestors.has(args[2] ?? '') ? ok('') : { code: 1, stdout: '', stderr: 'not an ancestor' };
+    }
+    if (cmd === 'gh' && args.join(' ').startsWith('pr list') && args.includes('merged')) {
+      const heads = args.indexOf('--head');
+      const only = heads === -1 ? null : args[heads + 1];
+      if (!only && this.bulkTruncated) {
+        const page = Array.from({ length: 1000 }, (_, i) => ({
+          number: i + 1,
+          headRefName: `bulk/${i}`,
+          headRefOid: 'b',
+        }));
+        return ok(JSON.stringify(page));
+      }
+      const rows = this.mergedPrs
+        .filter((pr) => (only ? pr.branch === only : true))
+        .map((pr) => ({ number: pr.number, headRefName: pr.branch, headRefOid: pr.oid }));
+      return ok(JSON.stringify(rows));
+    }
+    if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === '--verify') {
+      const name = (args[2] ?? '').replace(/\^\{commit\}$/, '');
+      return ok(`${this.tips[name] ?? this.branchSha}\n`);
+    }
+    // `git branch -d` refuses anything not fully merged; `-D` forces it.
+    if (cmd === 'git' && args[0] === 'branch' && (args[1] === '-d' || args[1] === '-D')) {
+      const name = args[2] ?? '';
+      if (args[1] === '-d' && !this.ancestors.has(name)) {
+        return { code: 1, stdout: '', stderr: `error: the branch '${name}' is not fully merged` };
+      }
+      return ok('');
+    }
     for (const handler of this.handlers) {
       const hit = handler(cmd, args);
       if (hit) return hit;
@@ -888,7 +943,7 @@ describe('start', () => {
     h.when('git', ['branch', '-a'], ok('dev\nfeat/34-last-stand\n'));
     h.when('git', ['rev-list', '--count'], ok('1\n'));
     h.when('git', ['rev-parse', '--short'], ok('31eb9e3\n'));
-    h.when('git', ['rev-parse', 'dev'], ok('d3f557b\n'));
+    h.when('git', ['rev-parse', 'origin/dev'], ok('d3f557b\n'));
     const { startPass } = await import('../../scripts/factory-jobs.js');
     expect(await startPass(h.ctx())).toMatchObject({ action: 'adopted', item: 34, branch: 'feat/34-last-stand' });
     const adopted = h.read(34);
@@ -896,7 +951,7 @@ describe('start', () => {
     expect(adopted.adoptedFrom).toEqual({ branch: 'feat/34-last-stand', commit: '31eb9e3', mergedDev: 'd3f557b' });
     expect(h.called('git', 'worktree add')).toBe(true);
     // Stages are discovered from the worktree, so the adopted tree has to be current.
-    expect(h.called('git', 'merge --no-edit dev')).toBe(true);
+    expect(h.called('git', 'merge --no-edit origin/dev')).toBe(true);
   });
 
   it('opens no job when the base ref will not merge into the orphan, and says so', async () => {
@@ -906,7 +961,7 @@ describe('start', () => {
     h.when('git', ['branch', '-a'], ok('dev\nfeat/34-last-stand\n'));
     h.when('git', ['rev-list', '--count'], ok('1\n'));
     h.when('git', ['rev-parse', '--short'], ok('31eb9e3\n'));
-    h.when('git', ['merge --no-edit dev'], { code: 1, stdout: '', stderr: 'CONFLICT' });
+    h.when('git', ['merge --no-edit origin/dev'], { code: 1, stdout: '', stderr: 'CONFLICT' });
     const { startPass } = await import('../../scripts/factory-jobs.js');
     expect(await startPass(h.ctx())).toMatchObject({ action: 'conflict', item: 34 });
     expect(h.called('git', 'merge --abort')).toBe(true);
@@ -945,6 +1000,185 @@ describe('start', () => {
     expect(h.called('git', 'worktree add')).toBe(false);
     expect(h.called('gh', 'issue comment')).toBe(false);
     expect(h.has(34)).toBe(false);
+  });
+});
+
+// ── Housekeeping: a fresh base, no stale branches ─────────────────────────
+
+describe('housekeeping', () => {
+  it('fetches, fast-forwards the checked-out dev, and prunes merged branches', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.devBehind = 2;
+    h.branches = ['dev', 'main', 'feat/merged', 'feat/34-last-stand'];
+    h.mergedPrs = [{ branch: 'feat/merged', oid: h.branchSha, number: 5 }];
+    const out = housekeeping(h.ctx());
+    expect(h.called('git', 'fetch origin --prune')).toBe(true);
+    expect(h.called('git', 'merge --ff-only origin/dev')).toBe(true);
+    expect(out.devRef).toBe('advanced');
+    expect(out.devRefBehind).toBe(2);
+    expect(out.deleted).toContainEqual({
+      branch: 'feat/merged',
+      commit: 'aaaaaaa',
+      reason: 'PR #5 merged at this exact commit',
+    });
+    expect(out.kept).toContainEqual({ branch: 'dev', commit: '', reason: 'protected' });
+    expect(out.kept).toContainEqual({ branch: 'main', commit: '', reason: 'protected' });
+    expect(out.kept).toContainEqual({ branch: 'feat/34-last-stand', commit: 'aaaaaaa', reason: 'not merged' });
+  });
+
+  it('keeps a branch whose commits moved past what its merged PR saw', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'feat/34-last-stand'];
+    h.mergedPrs = [{ branch: 'feat/34-last-stand', oid: 'aaaaaaa', number: 107 }];
+    h.tips = { 'feat/34-last-stand': 'ccccccc' };
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([]);
+    expect(h.called('git', 'branch')).toBe(false);
+    expect(out.kept).toContainEqual({
+      branch: 'feat/34-last-stand',
+      commit: 'ccccccc',
+      reason: "its tip differs from merged PR #107's head aaaaaaa",
+    });
+    expect(h.logs.join('\n')).toBe('');
+  });
+
+  it('tries the safe delete first, and forces it only with the tip proof', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'feat/squashed'];
+    h.tips = { 'feat/squashed': 'bbbbbbb' };
+    h.mergedPrs = [{ branch: 'feat/squashed', oid: 'bbbbbbb', number: 9 }];
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([
+      { branch: 'feat/squashed', commit: 'bbbbbbb', reason: 'PR #9 merged at this exact commit' },
+    ]);
+    expect(h.called('git', 'branch -d feat/squashed')).toBe(true);
+    expect(h.called('git', 'branch -D feat/squashed')).toBe(true);
+    expect(h.logs.join('\n')).toContain('forcing');
+  });
+
+  it('asks gh about one branch when the bulk merged-PR page may be truncated', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.bulkTruncated = true;
+    h.branches = ['dev', 'feat/squashed'];
+    h.mergedPrs = [{ branch: 'feat/squashed', oid: h.branchSha, number: 9 }];
+    const out = housekeeping(h.ctx());
+    expect(out.deleted.map((entry) => entry.branch)).toEqual(['feat/squashed']);
+    expect(h.calls.filter((call) => call.cmd === 'gh' && call.args.includes('--head')).length).toBe(1);
+  });
+
+  it('does not ask per branch when the bulk page came back whole', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'feat/unknown'];
+    h.mergedPrs = [{ branch: 'someone/else', oid: h.branchSha, number: 9 }];
+    expect(housekeeping(h.ctx()).deleted).toEqual([]);
+    expect(h.calls.filter((call) => call.cmd === 'gh' && call.args.includes('--head')).length).toBe(0);
+  });
+
+  it('deletes a squashed branch, which is not an ancestor of dev', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'docs/squashed'];
+    h.mergedPrs = [{ branch: 'docs/squashed', oid: h.branchSha, number: 108 }];
+    h.ancestors = new Set();
+    const out = housekeeping(h.ctx());
+    expect(out.deleted.map((entry) => entry.branch)).toEqual(['docs/squashed']);
+  });
+
+  it('deletes a branch that is wholly contained in the tracked ref even with no PR', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'chore/merged-by-hand'];
+    h.ancestors = new Set(['chore/merged-by-hand']);
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([
+      { branch: 'chore/merged-by-hand', commit: 'aaaaaaa', reason: 'contained in origin/dev' },
+    ]);
+    // Ancestry is proof enough: no merged PR, no forcing.
+    expect(h.called('git', 'branch -D')).toBe(false);
+  });
+
+  it('never deletes a branch a live job owns, or one checked out elsewhere', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'feat/34-last-stand', 'feat/in-a-worktree'];
+    h.mergedPrs = [
+      { branch: 'feat/34-last-stand', oid: h.branchSha, number: 1 },
+      { branch: 'feat/in-a-worktree', oid: h.branchSha, number: 2 },
+    ];
+    h.worktreeBranches = ['feat/in-a-worktree'];
+    h.write(job({ branch: 'feat/34-last-stand' }));
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([]);
+    expect(out.kept).toContainEqual({ branch: 'feat/34-last-stand', commit: '', reason: 'a live job owns it' });
+    expect(out.kept).toContainEqual({
+      branch: 'feat/in-a-worktree',
+      commit: '',
+      reason: 'checked out in a worktree',
+    });
+  });
+
+  it('leaves dev alone rather than moving it under a dirty checkout', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.devBehind = 1;
+    h.dirtyWorktree = ' M src/a.ts\n';
+    const out = housekeeping(h.ctx());
+    expect(out.devRef).toBe('behind-but-unsafe');
+    expect(h.called('git', 'merge --ff-only')).toBe(false);
+    expect(h.logs.join('\n')).toContain('dirty');
+  });
+
+  it('moves the local dev ref without touching the tree when dev is not checked out', () => {
+    const h = new Harness();
+    h.currentBranch = 'feat/elsewhere';
+    h.devBehind = 3;
+    const out = housekeeping(h.ctx());
+    expect(out.devRef).toBe('advanced');
+    expect(h.called('git', 'fetch origin dev:dev')).toBe(true);
+    expect(h.called('git', 'merge --ff-only')).toBe(false);
+  });
+
+  it('reports a base ref it cannot fast-forward instead of forcing it', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.devBehind = 4;
+    h.when('git', ['merge', '--ff-only'], { code: 1, stdout: '', stderr: 'not possible to fast-forward' });
+    expect(housekeeping(h.ctx()).devRef).toBe('behind-but-unsafe');
+  });
+
+  it('prunes nothing when the fetch fails, rather than acting on stale refs', () => {
+    const h = new Harness();
+    h.branches = ['dev', 'feat/merged'];
+    h.mergedPrs = [{ branch: 'feat/merged', oid: h.branchSha, number: 5 }];
+    h.when('git', ['fetch', 'origin', '--prune'], { code: 1, stdout: '', stderr: 'no network' });
+    const out = housekeeping(h.ctx());
+    expect(out.fetched).toBe(false);
+    expect(out.deleted).toEqual([]);
+    expect(h.called('git', 'branch -D')).toBe(false);
+    expect(h.called('gh', 'pr list')).toBe(false);
+  });
+
+  it('moves no ref and deletes no branch in a dry run', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.devBehind = 1;
+    h.branches = ['dev', 'feat/merged'];
+    h.mergedPrs = [{ branch: 'feat/merged', oid: h.branchSha, number: 5 }];
+    const out = housekeeping(h.ctx({ dryRun: true }));
+    expect(h.called('git', 'fetch')).toBe(false);
+    expect(h.called('git', 'merge --ff-only')).toBe(false);
+    expect(h.called('git', 'branch -D')).toBe(false);
+    // Reported as if it had run, so the operator can see what the tick would do.
+    expect(out).toMatchObject({
+      fetched: true,
+      devRef: 'behind-but-unsafe',
+      deleted: [{ branch: 'feat/merged', commit: 'aaaaaaa', reason: 'PR #5 merged at this exact commit' }],
+    });
   });
 });
 
