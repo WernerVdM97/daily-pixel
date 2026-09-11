@@ -25,7 +25,7 @@ One folder per subject, so an agent can aim a search at a branch of the tree ins
 | `delivery/` | `discord`, `pr-and-review`, `ci` |
 | `models/` | `tiers`, `escalations` |
 | `owner/` | `preferences` |
-| `meta/` | the factory's own improvement record: `proposals`, `metrics`, `sessions` |
+| `meta/` | the factory's own improvement record: `proposals` (its `memory.md` index, plus one dated draft file per survey), `metrics`, `sessions` |
 | `incidents/` | one dated bullet per incident; split into `incidents/YYYY-MM/` once it outgrows a page |
 
 Nest deeper only when a topic genuinely splits. Depth is cheap for grepping, but a folder holding one line is a worse index than a line in the parent.
@@ -72,6 +72,7 @@ One fact per line, `- YYYY-MM-DD: fact`. Each grep hit is then a whole fact, and
 ## Hygiene
 
 - Under 25 lines per `memory.md`. Over that, promote a subject to its own topic folder or prune.
+- One topic is the exception to one-`memory.md`: `meta/proposals/` also holds one `YYYY-MM-DD.md` per survey carrying that run's **full drafted edits**, because an approval is applied days later in a fresh context and two lines in a DM cannot rebuild it. The `memory.md` index stays one line per proposal, with its message id and state.
 - Prune on every write: delete lines that are now false, merge duplicates, drop what the repo or the prompt already states.
 - Adding a topic folder: create it with a `.gitkeep` so the skeleton stays tracked, and a `memory.md` beside it. Add a row to the memory `README.md` table in the same change.
 

@@ -15,7 +15,7 @@ Full conventions: [`.pi/skills/factory-memory/SKILL.md`](../../../.pi/skills/fac
 | `delivery/` | Discord plumbing, PR and review mechanics, CI behaviour |
 | `models/` | which model for which role, escalation routes, failures seen |
 | `owner/` | the owner's stated preferences and priorities |
-| `meta/` | the factory's own improvement record: `proposals`, `metrics`, `sessions` |
+| `meta/` | the factory's own improvement record: `proposals` (index plus one dated draft file per survey), `metrics`, `sessions` |
 | `incidents/` | one dated bullet per incident; split into `incidents/YYYY-MM/` when it outgrows a page |
 
 ## Rules
