@@ -18,6 +18,7 @@ It draws from **MUD** (text-rendered multi-user dungeon), **Frieren** (time as t
 
  - [gameplay loop](./docs/assets/core-loop.png)
  - [character creation](./docs/assets/character-creation.png)
+ - [The Dark Factory, explained](./docs/assets/dark-factory-explained.html) — one page on the scheduled agent crew that triages, builds and reviews this repo's own work, behind a human approval gate
 
 ---
 
