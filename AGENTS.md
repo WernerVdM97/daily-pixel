@@ -14,7 +14,7 @@ Comments explain **why**, NOT **what**! omit echo comments that just narrate the
 
 ## Skills
 
-Task- and tool-specific conventions live as auto-discovered skills in [`.claude/skills/`](./.claude/skills/)
+Task- and tool-specific conventions live as auto-discovered skills in [`.pi/skills/`](./.pi/skills/)
 
 | Skill               | Use when                                                                                                                         |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |

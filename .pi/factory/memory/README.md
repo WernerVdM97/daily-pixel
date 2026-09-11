@@ -2,7 +2,7 @@
 
 Durable, topic-scoped notes the factory loops write for their future selves. The **tree is tracked** (a `.gitkeep` per leaf topic, so the taxonomy is reviewable in a PR); the **`memory.md` contents are not** (`.gitignore` ignores them).
 
-Full conventions: [`.claude/skills/factory-memory/SKILL.md`](../../../.claude/skills/factory-memory/SKILL.md).
+Full conventions: [`.pi/skills/factory-memory/SKILL.md`](../../../.pi/skills/factory-memory/SKILL.md).
 
 ## Topics
 
