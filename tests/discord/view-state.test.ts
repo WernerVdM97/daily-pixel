@@ -103,11 +103,6 @@ describe('buildOutcomeView — semantic shape', () => {
       });
       expect(view.outcomeBlock).toContain('The stag falls.');
     });
-
-    it('omits storyThread when opts.compact is set', () => {
-      const view = buildOutcomeView(outcome, char, null, state, { compact: true });
-      expect(view.storyThread).toBeUndefined();
-    });
   });
 
   describe('combat outcome', () => {

@@ -54,10 +54,9 @@ function buildOutcomeEmbed(
   character: CharacterData | null | undefined,
   scene: string | null | undefined,
   state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string; narration?: string }>; kind?: ActionKind },
-  opts?: { compact?: boolean },
   engine?: WorldEngine,
 ) {
-  return outcomeViewToDiscord(buildOutcomeView(outcome, character, scene, state, opts, engine));
+  return outcomeViewToDiscord(buildOutcomeView(outcome, character, scene, state, engine));
 }
 
 function buttons(msg: ReturnType<typeof buildDecisionMessage>): any[] {

@@ -314,7 +314,6 @@ export function buildOutcomeView(
   character: CharacterData | null | undefined,
   scene: string | null | undefined,
   state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string; narration?: string }>; kind?: ActionKind },
-  opts?: { compact?: boolean },
   engine?: WorldEngine,
 ): OutcomeViewState {
   const ctx: OutcomeRenderContext = {
@@ -372,16 +371,12 @@ export function buildOutcomeView(
   const outcomeBlock = formatOutcome(outcome, ctx, terminalRenderer);
   const workEmoji = character?.dayJob ? dayJobEmoji(character.dayJob) : '🛠️';
 
-  // Both story-thread variants are pre-rendered here (compact mode carries neither — the
-  // player just saw the thread in the decision embed, so repeating it here is the
-  // double-showing the player flagged, F#19c) so the medium step can re-run the exact same
-  // degrade ladder (full → collapsed → drop scene → hard clip) against pre-rendered strings.
-  const storyThread = !opts?.compact
-    ? {
-      full: buildStoryThread(state.rawInput, state.decisions, false, state.kind, workEmoji),
-      collapsed: buildStoryThread(state.rawInput, state.decisions, true, state.kind, workEmoji),
-    }
-    : undefined;
+  // Both story-thread variants are pre-rendered here so the medium step can re-run the exact
+  // same degrade ladder (full → collapsed → drop scene → hard clip) against pre-rendered strings.
+  const storyThread = {
+    full: buildStoryThread(state.rawInput, state.decisions, false, state.kind, workEmoji),
+    collapsed: buildStoryThread(state.rawInput, state.decisions, true, state.kind, workEmoji),
+  };
 
   return {
     screen: 'outcome',

@@ -49,7 +49,8 @@ export interface OutcomeViewState {
   combatSceneBlock?: string;
   /** Selects `combatSceneBlock` over `sceneBlock` when the medium step includes the scene. */
   isCombat: boolean;
-  /** Absent when the caller asked for `opts.compact` (the current `!compact` guard). */
+  /** Optional on the wire (`buildOutcomeView` always renders it; the protocol stub's fixed
+   *  sample omits it), so `outcomeViewToDiscord`/`viewToText` keep their presence guard. */
   storyThread?: { full: string; collapsed: string };
   outcomeBlock: string;
 }
