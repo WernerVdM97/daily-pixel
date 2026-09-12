@@ -236,15 +236,15 @@ export class SessionController {
   }
 
   /** Steps the action machine with the resolved label — mirrors the pre-M3.2 button
-   *  handler's step + apply-result logic exactly (same re-read-after-step, same
-   *  NOT-compact outcome view, same scene source). Does NOT catch: `stepAction`/view-build
-   *  errors propagate so the adapter's single inner try can cover step + paint + broadcast
+   *  handler's step + apply-result logic exactly (same re-read-after-step, same outcome view,
+   *  same scene source). Does NOT catch: `stepAction`/view-build errors propagate so the
+   *  adapter's single inner try can cover step + paint + broadcast
    *  + announceCollapse, exactly like the pre-M3.2 handler's one inner try/catch. */
   async stepChoice(userId: string, label: string, prevChar: CharacterData): Promise<StepChoiceResult> {
     const result = await this.engine.stepAction(prevChar.id, label);
     if (result.resolved) {
       const char = this.engine.getCharacter(userId);
-      const view = buildOutcomeView(result.outcome, char, this.getCurrentScene(userId), result.state, undefined, this.engine);
+      const view = buildOutcomeView(result.outcome, char, this.getCurrentScene(userId), result.state, this.engine);
       return {
         kind: 'outcome',
         view,
@@ -608,7 +608,7 @@ export class SessionController {
       // was strictly missing the gamebook trail. One build shared by both arms: the view is a
       // plain DTO and `outcomeViewToDiscord` only reads it, so aliasing is safe and avoids
       // rendering the identical frames twice.
-      const view = buildOutcomeView(result.outcome, char, scene, result.state, undefined, this.engine);
+      const view = buildOutcomeView(result.outcome, char, scene, result.state, this.engine);
       return {
         kind: 'outcome',
         viewPrivate: view,

@@ -52,7 +52,6 @@ This file now keeps only the **narrative layer** — the handover context that i
 
 These are tracked on the board as `type:decision` / `needs-human-decision` issues, but the *reasoning* stays here. Full write-ups in the plan's § Follow-up logged.
 
-- **`opts.compact` has had no production caller since RA-6** — still plumbed through `buildOutcomeView`/`viewState.ts`/`commands/action.ts` with a unit test. Delete it, or keep it as a deliberate capability.
 - **RA-1 residual** — the daunting band is fixed in prose and the arithmetic checks out, but no re-probe was run; it stays unverified behaviourally, needing isolated DECIDE probes (the kind stage 4 used), not an agent-player run.
 - **RA-2 residual** — the ~10% target and 3.2-3.7 band remain unverified (the agent-player structurally cannot check them). Needs human play, or a harness switch that forces free actions, before anyone concludes it worked.
 - **P3 residuals** (both balance decisions, see [[resolve-difficulty-signal]]) — `dangerTier`'s thresholds predate v13's ladder, so an ordinary 16-17 fight reads `hard` (re-tuning moves the combat card, so it needs measurement); and the card/narration match is per round, not per fight, because each CONTINUE round re-authors `baseDc`.
