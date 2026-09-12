@@ -14,6 +14,7 @@
 // Usage:
 //   tsx scripts/factory-friction.ts                     # last 7 days, text brief
 //   tsx scripts/factory-friction.ts --since 3d --top 8
+//   tsx scripts/factory-friction.ts --errors 20         # the failed calls behind the ranking
 //   tsx scripts/factory-friction.ts --json              # full structured report
 //   tsx scripts/factory-friction.ts --sessions ~/.pi/agent/sessions --all-projects
 
@@ -34,6 +35,7 @@ interface Options {
   sinceMs: number;
   top: number;
   json: boolean;
+  errors: number;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -45,6 +47,7 @@ function parseArgs(argv: string[]): Options {
     sinceMs: 7 * 24 * 60 * 60 * 1000,
     top: 5,
     json: false,
+    errors: 0,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -55,7 +58,10 @@ function parseArgs(argv: string[]): Options {
     else if (a === "--since") opts.sinceMs = parseSpan(argv[++i]);
     else if (a === "--top") opts.top = Number.parseInt(argv[++i], 10);
     else if (a === "--json") opts.json = true;
-    else if (a === "--help" || a === "-h") {
+    else if (a === "--errors") {
+      const next = argv[i + 1];
+      opts.errors = next && /^\d+$/.test(next) ? Number.parseInt(argv[++i], 10) : 20;
+    } else if (a === "--help" || a === "-h") {
       printUsage();
       process.exit(0);
     } else {
@@ -83,6 +89,7 @@ function printUsage(): void {
       "  --since <span>     window, e.g. 7d / 24h / 90m (default: 7d)",
       "  --cache-shards <dir>  pi-cache-optimizer shard dir (default: the agent dir's)",
       "  --top <n>          instances listed per signal (default: 5)",
+      "  --errors [n]       list failed tool calls (tool, session, first line; default 20)",
       "  --json             machine-readable report instead of the text brief",
     ].join("\n"),
   );
@@ -145,7 +152,77 @@ function collectTranscripts(dir: string): string[] {
   return out;
 }
 
+// ── Fork replay ────────────────────────────────────────────────────────────
+
+/**
+ * A fork replays its parent's entries verbatim under the same ids, so counting them
+ * again double-counts every failure, token and command the parent already contributed:
+ * one session with 10 forks reads as eleven sessions with the same six failures. Only
+ * the entries a fork itself created are new, so the ancestor's ids are the skip set.
+ * The chain is followed through `parentSession` (an absolute path in the fork header),
+ * and a missing or cyclic ancestor degrades to no skipping rather than to a wrong count.
+ */
+function parentSessionOf(file: string): string | null {
+  let text: string;
+  try {
+    text = readFileSync(file, "utf-8");
+  } catch {
+    return null;
+  }
+  const firstLine = text.slice(0, text.indexOf("\n") === -1 ? undefined : text.indexOf("\n"));
+  try {
+    const header = JSON.parse(firstLine);
+    return header?.type === "session" && typeof header.parentSession === "string" ? header.parentSession : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Every entry id a transcript holds: exactly what a fork of it would replay. */
+function entryIdsOf(file: string, cache: Map<string, Set<string>>): Set<string> {
+  const cached = cache.get(file);
+  if (cached) return cached;
+  const ids = new Set<string>();
+  cache.set(file, ids); // stored before reading so a fork cycle cannot recurse for ever
+  let text: string;
+  try {
+    text = readFileSync(file, "utf-8");
+  } catch {
+    return ids;
+  }
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (typeof entry?.id === "string") ids.add(entry.id);
+    } catch {
+      continue;
+    }
+  }
+  return ids;
+}
+
+function ancestorEntryIds(file: string, cache: Map<string, Set<string>>): Set<string> {
+  const out = new Set<string>();
+  const seen = new Set<string>([file]);
+  let current = parentSessionOf(file);
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    for (const id of entryIdsOf(current, cache)) out.add(id);
+    current = parentSessionOf(current);
+  }
+  return out;
+}
+
 // ── Reading one transcript ─────────────────────────────────────────────────
+
+interface FailedCall {
+  tool: string;
+  session: string;
+  at: number;
+  firstLine: string;
+}
 
 interface SessionStats {
   file: string;
@@ -158,6 +235,7 @@ interface SessionStats {
   toolCalls: number;
   toolResults: number;
   failedTools: Record<string, number>;
+  failedCalls: FailedCall[];
   aborts: number;
   providerErrors: number;
   reasoningTokens: number;
@@ -170,7 +248,8 @@ interface SessionStats {
   correctionTurns: number;
   shipped: boolean;
   signals: Record<string, number>;
-  offenders: Record<string, string[]>;
+  /** Per label, how many times this session itself hit it: an offender is session-scoped. */
+  offenders: Record<string, Record<string, number>>;
 }
 
 const CORRECTION = /^\s*(no\b|nope|not\b|actually|wait\b|stop\b|wrong|that'?s (not|wrong)|still (broken|failing)|didn'?t work|revert|undo|again\b)/i;
@@ -181,7 +260,14 @@ function shortCommand(cmd: string): string {
   return one.length > 110 ? `${one.slice(0, 107)}...` : one;
 }
 
-function readSession(file: string): SessionStats {
+/** The first line of a failed call's text, collapsed and capped: enough to name the cause. */
+function firstLineOf(parts: any[]): string {
+  const text = parts.find((p) => p?.type === "text" && typeof p.text === "string")?.text ?? "";
+  const line = String(text).split("\n")[0].replace(/\s+/g, " ").trim();
+  return line.length > 160 ? `${line.slice(0, 157)}...` : line;
+}
+
+function readSession(file: string, ancestorIds: Set<string>): SessionStats {
   const stats: SessionStats = {
     file,
     id: basename(file).replace(/\.jsonl$/, ""),
@@ -193,6 +279,7 @@ function readSession(file: string): SessionStats {
     toolCalls: 0,
     toolResults: 0,
     failedTools: {},
+    failedCalls: [],
     aborts: 0,
     providerErrors: 0,
     reasoningTokens: 0,
@@ -227,6 +314,9 @@ function readSession(file: string): SessionStats {
     } catch {
       continue; // A truncated final line in a live session is expected, not an error.
     }
+
+    // Skipped before every counter below, so a replayed entry contributes nothing at all.
+    if (typeof entry?.id === "string" && ancestorIds.has(entry.id)) continue;
 
     const ts = Date.parse(entry?.timestamp ?? "");
     if (Number.isFinite(ts)) {
@@ -281,6 +371,7 @@ function readSession(file: string): SessionStats {
       if (msg.isError === true) {
         const name = String(msg.toolName ?? "?");
         stats.failedTools[name] = (stats.failedTools[name] ?? 0) + 1;
+        stats.failedCalls.push({ tool: name, session: stats.id, at: Number.isFinite(ts) ? ts : 0, firstLine: firstLineOf(parts) });
       }
     }
   }
@@ -297,30 +388,35 @@ function readSession(file: string): SessionStats {
  * verify in the transcript, because a signal nobody can audit is just a vibe with a name.
  */
 function deriveSignals(s: SessionStats): void {
-  const add = (name: string, offender?: string): void => {
+  // Every offender carries a per-session count, because a label tallied across sessions
+  // cannot be read: "5x edit" beside one session id looked like five edits in that
+  // session when it meant five sessions elsewhere. Labels that used to embed their own
+  // tally (`4x path`) drop it; the count column states it once, for the session named.
+  const add = (name: string, offender?: string, count = 1): void => {
     s.signals[name] = (s.signals[name] ?? 0) + 1;
     if (offender) {
-      const list = (s.offenders[name] ??= []);
-      if (!list.includes(offender)) list.push(offender);
+      const list = (s.offenders[name] ??= {});
+      list[offender] = (list[offender] ?? 0) + count;
     }
   };
 
-  const failed = Object.values(s.failedTools).reduce((a, b) => a + b, 0);
-  for (let i = 0; i < failed; i++) {
-    add("tool-error", Object.entries(s.failedTools).sort((a, b) => b[1] - a[1])[0]?.[0]);
+  // A tool's failures are counted one `add` per failed call, so `tool-error Nx` keeps
+  // meaning N failed calls, and its offender row carries that tool's own share of them.
+  for (const [tool, n] of Object.entries(s.failedTools)) {
+    for (let i = 0; i < n; i++) add("tool-error", tool);
   }
 
   // The same command re-run three times is a retry loop: either a flaky tool or a model
   // that did not read the first failure.
   const commandCounts = tally(s.commands);
-  for (const [cmd, n] of commandCounts) if (n >= 3) add("repeat-command", `${n}x ${shortCommand(cmd)}`);
+  for (const [cmd, n] of commandCounts) if (n >= 3) add("repeat-command", shortCommand(cmd), n);
 
   const fileCounts = tally(s.editedFiles);
-  for (const [path, n] of fileCounts) if (n >= 4) add("file-rework", `${n}x ${path}`);
+  for (const [path, n] of fileCounts) if (n >= 4) add("file-rework", path, n);
 
-  if (s.aborts > 0) add("abort", `${s.aborts} aborted turn(s)`);
-  if (s.providerErrors > 0) add("provider-error", `${s.providerErrors} errorMessage turn(s)`);
-  if (s.correctionTurns > 0) add("owner-correction", `${s.correctionTurns} correction turn(s)`);
+  if (s.aborts > 0) add("abort", "aborted turn(s)", s.aborts);
+  if (s.providerErrors > 0) add("provider-error", "errorMessage turn(s)", s.providerErrors);
+  if (s.correctionTurns > 0) add("owner-correction", "correction turn(s)", s.correctionTurns);
 
   // A session that edited files and still never committed is the factory's most expensive
   // failure mode: the tokens are gone and nothing landed. Editing is required precisely so
@@ -366,6 +462,8 @@ interface Report {
   };
   models: { model: string; turns: number; reasoningTokens: number }[];
   signals: SignalRollup[];
+  /** Populated only when `--errors` is passed: the failed calls behind the ranking. */
+  errors: { total: number; calls: FailedCall[] } | null;
   subagents: { runs: number; failed: number; medianSeconds: number };
   cache: CacheReport | null;
   deltas: Record<string, number>;
@@ -379,17 +477,17 @@ function summarise(sessions: SessionStats[], previous: SessionStats[], cache: Ca
   const totalTokens = sum(sessions, (s) => s.totalTokens);
   const totalToolCalls = sum(sessions, (s) => s.toolCalls);
 
-  const byName = new Map<string, { sessions: Set<string>; occurrences: number; tokens: number; offenders: Map<string, { count: number; session: string }> }>();
+  const byName = new Map<string, { sessions: Set<string>; occurrences: number; tokens: number; offenders: Map<string, { label: string; count: number; session: string }> }>();
   for (const s of sessions) {
     for (const [name, count] of Object.entries(s.signals)) {
       const bucket = byName.get(name) ?? { sessions: new Set<string>(), occurrences: 0, tokens: 0, offenders: new Map() };
       bucket.sessions.add(s.id);
       bucket.occurrences += count;
       bucket.tokens += s.totalTokens;
-      for (const label of s.offenders[name] ?? []) {
-        const prior = bucket.offenders.get(label);
-        if (prior) prior.count++;
-        else bucket.offenders.set(label, { count: 1, session: s.id });
+      // One row per (label, session), counting that session's own hits, so the session id
+      // printed beside a count is the session the count belongs to.
+      for (const [label, hits] of Object.entries(s.offenders[name] ?? {})) {
+        bucket.offenders.set(`${s.id}\u0000${label}`, { label, count: hits, session: s.id });
       }
       byName.set(name, bucket);
     }
@@ -408,9 +506,7 @@ function summarise(sessions: SessionStats[], previous: SessionStats[], cache: Ca
       attributedTokens: b.tokens,
       tokenShare,
       frictionScore: Math.round(b.tokens * density),
-      offenders: [...b.offenders.entries()]
-        .map(([label, v]) => ({ label, count: v.count, session: v.session }))
-        .sort((x, y) => y.count - x.count),
+      offenders: [...b.offenders.values()].sort((x, y) => y.count - x.count || x.label.localeCompare(y.label)),
     };
   });
   signals.sort((a, b) => b.frictionScore - a.frictionScore);
@@ -464,6 +560,7 @@ function summarise(sessions: SessionStats[], previous: SessionStats[], cache: Ca
     signals,
     subagents: subagentOutcomes(),
     cache,
+    errors: null,
     deltas: {
       sessions: sessions.length - priorSessions.length,
       failedToolCalls:
@@ -703,6 +800,15 @@ function renderText(report: Report, top: number): string {
   }
   lines.push("");
 
+  if (report.errors) {
+    const { total, calls } = report.errors;
+    lines.push(`Failed tool calls (newest ${calls.length} of ${total})`);
+    for (const [i, call] of calls.entries()) {
+      lines.push(`  ${i + 1}. ${call.tool}  [${call.session.slice(0, 36)}]  ${call.firstLine}`);
+    }
+    lines.push("");
+  }
+
   lines.push("Reasoning tokens by model");
   for (const m of report.models.slice(0, 6)) {
     lines.push(`  ${m.model}: ${formatTokens(m.reasoningTokens)} reasoning over ${m.turns} turns`);
@@ -772,11 +878,16 @@ function main(): void {
   const cutoff = now - opts.sinceMs;
   const priorCutoff = cutoff - opts.sinceMs;
 
-  const all = files.map(readSession).filter((s) => s.toolCalls > 0);
+  const idCache = new Map<string, Set<string>>();
+  const all = files.map((f) => readSession(f, ancestorEntryIds(f, idCache))).filter((s) => s.toolCalls > 0);
   const current = all.filter((s) => s.endedAt >= cutoff);
   const previous = all.filter((s) => s.endedAt >= priorCutoff && s.endedAt < cutoff);
 
   const report = summarise(current, previous, readCacheReport(opts.cacheShards, opts.sinceMs));
+  if (opts.errors > 0) {
+    const window = current.flatMap((s) => s.failedCalls).sort((a, b) => b.at - a.at);
+    report.errors = { total: window.length, calls: window.slice(0, opts.errors) };
+  }
   if (opts.json) {
     console.log(JSON.stringify({ ...report, sources: { root: opts.sessionsRoot, folders, files: files.length } }, null, 2));
     return;
