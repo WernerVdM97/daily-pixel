@@ -33,7 +33,10 @@
  * fragment joins the brain's SYSTEM prompt after brain.md and the handbook, and the run is stamped
  * `agent-v2/<name>`. Unset = no persona fragment at all, which is today's behaviour and the
  * baseline arm a panel is read against. An unknown name is a config error: the run exits 1 naming
- * the valid personas before any LLM call is constructed),
+ * the valid personas before any LLM call is constructed. WHEN SET it also turns on the persona
+ * REVIEW (spec § F): a second, persona-voiced LLM call after the expert critique, printed to stderr
+ * and written to `<AGENT_OUT>.reviews.json` for `agent:panel`. Unset runs review nothing and write
+ * nothing extra — the review is the persona's, so there is no voice to review in without one),
  * AGENT_USER_ID (session id; default a per-session unique `agent:play-<timestamp>`),
  * AGENT_INHERIT ("1" = play as the existing AGENT_USER_ID player, no creation walk),
  * ENABLE_COHERENCE_CRITIC (RA-4 Finding 1, default on — "false" opts out, same as index.ts),
@@ -55,6 +58,7 @@ import type { CharCreateData } from '../engine/WorldEngine.js';
 import { loadYamlFile } from '../assets/yaml-loader.js';
 import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
+import { buildReviewFile, formatPersonaReview, personaReviewInput } from './reviewFile.js';
 import { PERSONA_NAMES } from './agentPrompt.js';
 import { GameRouter } from '../protocol/router.js';
 import type { RouterBackend } from '../protocol/router.js';
@@ -287,6 +291,48 @@ async function main(): Promise<void> {
   } catch (err) {
     // A critic failure must not bury the run output already printed above — report it and move on.
     console.error('\n── playtest critique failed ──\n ', err instanceof Error ? err.message : String(err));
+  }
+
+  // T5 (spec § F): the persona review — a SECOND artefact, not a replacement for the critique above.
+  // One call per persona per run, and only when a persona played: the baseline arm stays critic-only
+  // and writes nothing extra, which is what keeps the ARM comparison the panel reads clean.
+  if (persona !== undefined) {
+    try {
+      const reviewer = new ProdPlaytestCriticGateway({
+        apiKey,
+        ...(model ? { model } : {}),
+        recorder: new LlmCallRepository(agentEngine.db),
+        verbose: true,
+      });
+      const review = await reviewer.review(personaReviewInput(persona, harness.transcript));
+      console.error(`\n${formatPersonaReview(review)}`);
+
+      // The reviews file the panel aggregates (contract §9). Written here, not in the `finally`
+      // above, because it carries the review — a run whose reviewer threw leaves no file rather than
+      // a file with a hole in the measurement. The cost query runs AFTER the review call for the
+      // same reason it must run in-process at all: the `:memory:` DB holding `llm_calls` dies with
+      // the run, and a per-run cost that omitted the review's own call would understate the panel's
+      // price by one call per persona.
+      const reviewsPath = `${outPath}.reviews.json`;
+      writeFileSync(
+        reviewsPath,
+        JSON.stringify(
+          buildReviewFile({
+            persona,
+            review,
+            transcript: harness.transcript,
+            cost: summarizeLlmCosts(agentEngine.db),
+          }),
+          null,
+          2,
+        ),
+      );
+      console.error(`── persona review written to ${reviewsPath} ──`);
+    } catch (err) {
+      // Same contract as a failed critique: report it and move on. The run itself is complete and
+      // its transcript is on disk; a failing reviewer must not turn a paid run into a failed process.
+      console.error('\n── persona review failed ──\n ', err instanceof Error ? err.message : String(err));
+    }
   }
 }
 
