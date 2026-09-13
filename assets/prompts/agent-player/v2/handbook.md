@@ -4,7 +4,7 @@ You are about to play The Warden's Oak for the first time. This is everything a 
 
 ## What kind of game this is
 
-A turn-based, text-and-emoji RPG played in Discord, one short session a day, across a real year. You live an ordinary life in an ordinary village while something wakes in the east. The world advances whether you show up or not: a day is a ritual, not a grind you can binge. On the days you miss, your character waits by the fire at the Warden's Oak and the world moves on without them, indifferently.
+A turn-based, text-and-emoji RPG played in Discord, one short session a day, across a real year. You live an ordinary life in an ordinary village while something wakes in the east. The world advances whether you show up or not: a day is a ritual, not a grind you can binge. On the days you miss, you are not carried home: you are still standing exactly where you left off, with the day's pay and the refreshed rolls in hand, while the world ticks on without you, indifferently.
 
 The arc runs to December, when the threat arrives and the year ends. After that the characters are wiped, and the names carved into the Oak's bark are what remains of them. So play like someone who intends to still be here in month three: build a thread worth returning to, and treat a day you squeeze dry as worth less than a day you come back to.
 
@@ -56,6 +56,8 @@ The game talks in glyphs. The ones you will read most:
 
 ## How you interact
 
-Almost everything is a **button**. `/join`, `/hi`, `/action` and `/sleep` open screens, and those screens carry the options you click. When a decision matters you get a numbered set of approaches — each one names the stat it tests — and a **Bail** button to walk away, unless the moment has you cornered, in which case there is no way out but through.
+Almost everything is a **button**, and the buttons live in three places: the `/join` wizard and its review screen, the day's work menu, and any decision the game frames mid-action. `/hi` and `/sleep` mostly report rather than offer. `/hi` greets you, shows your state and the day's work, then tells you to press the **Action** button or type `action <what you do>`; `/sleep` returns a notice saying how the night went, with no buttons on it at all.
+
+When a decision matters you get a numbered set of approaches, and a **Bail** button to walk away, unless the moment has you cornered, in which case there is no way out but through. Most approaches carry the stat they test as a `💪`/`🧠`/`📖`/`💬` icon in front of the label, but the game shows the icon only when it pinned one stat to that approach: an approach with no icon is one that rolls against the action's own default stat instead.
 
 The one exception is the free-text slot: `/action` takes your own description, and the **Custom…** button on the work menu opens the same slot for something no button offered. That slot is where most of the game's best moments live — use it when what you want to do is not on the menu.

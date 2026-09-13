@@ -23,6 +23,8 @@ import {
   loadHandbookPrompt,
   loadPersonaFragment,
 } from '../../src/agent/agentPrompt.js';
+import { RECON_SCREENS } from '../../src/agent/AgentPlayerGateway.js';
+import { PROMPT_SET_VERSION } from '../../src/llm/prompt-builder.js';
 import { ProdAgentPlayerGateway } from '../../src/agent/ProdAgentPlayerGateway.js';
 import { AgentHarness } from '../../src/agent/harness.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
@@ -85,6 +87,33 @@ function readFragment(name: string): string {
   return readFileSync(path.join(PERSONA_DIR, `${name}.md`), 'utf-8');
 }
 
+/** The verb families the harness can actually offer, taken from the repo's own sources rather than
+ *  re-typed here:
+ *
+ *  - the six distilled kinds the action pipeline routes free text on (`travel`, `search`, `social`,
+ *    `combat`, `rest`, `skill`), parsed out of the ACTIVE decision set's own `classify.md`, so a v14
+ *    rename cannot leave this test asserting a vocabulary the pipeline no longer speaks;
+ *  - the six recon screens the harness offers (`RECON_SCREENS`);
+ *  - `custom`, the free-text move, and the day-job family (`getDayJobActions`, `src/controller/dayJob.ts`).
+ *
+ *  `other` is dropped deliberately: it is the classifier's catch-all, not a family a player picks. */
+function offeredVerbFamilies(): string[] {
+  const classify = readFileSync(
+    path.join(ROOT, 'assets', 'prompts', 'decision-prompts', PROMPT_SET_VERSION, 'classify.md'),
+    'utf-8',
+  );
+  const typeBlock = classify.slice(
+    classify.indexOf('## ACTION TYPE'),
+    classify.indexOf('### Disambiguation'),
+  );
+  const kinds = [...typeBlock.matchAll(/^- `(\w+)`/gm)]
+    .map((m) => m[1])
+    .filter((kind) => kind !== 'other');
+
+  expect(kinds.length).toBe(6);
+  return [...kinds, ...RECON_SCREENS, 'custom', 'work'];
+}
+
 // ── the roster ──
 
 describe('PERSONA_NAMES (spec § A)', () => {
@@ -130,6 +159,17 @@ describe('the ten fragments', () => {
     for (const aspect of ['Verb families', 'Risk appetite', 'sleep', 'stalls']) {
       expect(priors, `${name}'s Priors say nothing about ${aspect}`).toContain(aspect);
     }
+    // And the families it names must be ones the harness can really offer, which the label match
+    // above cannot tell us: a Priors line naming a family that exists in no move vocabulary is a
+    // persona written against a game this harness is not running. Matched as whole words, so
+    // "search/investigate" and "`/look`" count while "working" does not count as `work`.
+    const offered = offeredVerbFamilies();
+    const words = new Set(priors.toLowerCase().split(/[^a-z0-9]+/));
+    const named = offered.filter((family) => words.has(family));
+    expect(
+      named,
+      `${name}'s Priors name none of the families the harness offers: ${offered.join(', ')}`,
+    ).not.toEqual([]);
   });
 
   it.each([...PERSONA_NAMES])('%s carries no mechanical vote-weighting (spec § A)', (name) => {

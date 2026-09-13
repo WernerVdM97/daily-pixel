@@ -109,7 +109,7 @@ describe('loaders', () => {
     }
     // And the working-memory sections T1 plumbs must be named, or the brain is handed blocks
     // it is never told it has.
-    for (const header of ['RECAP', 'TODAY SO FAR', 'INTENT', 'ARC', 'LAST LOOK']) {
+    for (const header of ['RECAP', 'TODAY SO FAR', 'INTENT', 'ARC', 'LAST LOOK', 'LAST ROLL']) {
       expect(brain).toContain(header);
     }
     expect(handbook).toContain('seven-step wizard');

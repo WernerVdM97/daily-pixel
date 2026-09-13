@@ -18,15 +18,15 @@ Every LLM prompt is versioned so historical `llm_calls`/`actions` rows stay attr
 Each family lives in `assets/prompts/<family>/`, loaded from the file matching its version constant, which is stamped on every row it produces. The owning module is the module that reads the prompt, not necessarily `prompt-builder.ts`:
 
 | Family | Folder | Version constant | Owning module | Versioned file | Stamped as |
-|--------|--------|------------------|---------------|----------------|------------|
-| Decision | `assets/prompts/decision-prompts/` | `PROMPT_VERSION` | `src/llm/prompt-builder.ts` | `decision-<vN>.md` | `<vN>` |
+| -------- | -------- | ------------------ | --------------- | ---------------- | ------------ |
+| Decision | `assets/prompts/decision-prompts/` | `PROMPT_SET_VERSION` | `src/llm/prompt-builder.ts` | the set directory `v13/` (`classify.md`, `decide/*.md`, `resolve/**/*.md`) | `<vN>/<template>` |
 | Critic | `assets/prompts/critic/` | `CRITIC_VERSION` | `src/llm/prompt-builder.ts` | `critic-<vN>.md` | `critic-<vN>` |
-| Agent brain | `assets/prompts/agent-player/` | `AGENT_PLAYER_VERSION` | `src/agent/agentPrompt.ts` | `agent-<vN>.md` | `agent-<vN>` |
-| Playtest critic | `assets/prompts/agent-critic/` | `AGENT_CRITIC_VERSION` | `src/agent/criticPrompt.ts` | `agent-critic-<vN>.md` | `agent-critic-<vN>` |
+| Agent brain | `assets/prompts/agent-player/` | `AGENT_PLAYER_SET_VERSION` | `src/agent/agentPrompt.ts` | the set directory `v2/` (`brain.md`, `handbook.md`, `personas/<name>.md`) | `agent-<vN>` / `agent-<vN>/<persona>` |
+| Playtest critic | `assets/prompts/agent-critic/` | `AGENT_CRITIC_SET_VERSION` | `src/agent/criticPrompt.ts` | the set directory `v2/` (`<template>.md`: `critic.md`, `persona-review.md`) | `agent-critic-<vN>/<template>` |
 
-New families follow the same shape: own folder, own `*_VERSION` constant, `<family>-<vN>.md` files, and a `current_source.md` mirror (single-file) or a `current_source/` directory mirror (set-based — see below).
+New families follow the same shape: own folder, a `*_VERSION` constant for a single-file family or a `*_SET_VERSION` constant for a set-based one, `<family>-<vN>.md` files in the first case or a `<vN>/` directory in the second, and a `current_source.md` mirror (single-file) or a `current_source/` directory mirror (set-based — see below).
 
-**Where a version constant lives.** The two `src/llm/prompt-builder.ts` families load eagerly at module scope and are boot-critical for the live bot. The two `src/agent/` families belong to the opt-in agent-player QA adapter (JSON-seam DA-5), which core LLM code must never depend on, so they own their constants and load lazily at gateway construction. Putting them in `prompt-builder.ts` would make a missing harness asset a production boot failure for a path prod never runs. Rules 1-3 below are location-agnostic and bind every family equally. Note the agent brain's files are `agent-<vN>.md`, not `agent-player-<vN>.md`; renaming them would decouple the filename from rows already stamped `agent-v1`, so the divergence stands deliberately.
+**Where a version constant lives.** The two `src/llm/prompt-builder.ts` families load eagerly at module scope and are boot-critical for the live bot. The two `src/agent/` families belong to the opt-in agent-player QA adapter (JSON-seam DA-5), which core LLM code must never depend on, so they own their constants and load lazily at gateway construction. Putting them in `prompt-builder.ts` would make a missing harness asset a production boot failure for a path prod never runs. Rules 1-3 below are location-agnostic and bind every family equally. Note the frozen v1 agent brain file is `agent-v1.md`, not `agent-player-v1.md`; renaming it would decouple the filename from rows already stamped `agent-v1`, so the divergence stands deliberately.
 
 ## Rules (every family)
 
