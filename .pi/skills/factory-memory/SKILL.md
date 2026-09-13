@@ -1,6 +1,6 @@
 ---
 name: factory-memory
-description: Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil) reads or writes .pi/factory/memory/.
+description: "Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil) reads or writes .pi/factory/memory/."
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 paths:
   - .pi/factory/memory/**
