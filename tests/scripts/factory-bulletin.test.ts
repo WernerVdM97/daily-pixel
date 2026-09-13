@@ -204,15 +204,22 @@ describe('renderBulletin', () => {
 
 describe('the ledger line and its notes', () => {
   const triaged = [item({ number: 34, status: 'Triaged', milestone: 'B. v0.3.x polish' })];
+  const A = 'A. Release A closeout';
+  const B = 'B. v0.3.x polish';
+
+  function held(number: number, reason: 'needs-decision' | 'blocked-by' | 'out-of-focus', milestone: string | null) {
+    return { number, reason, detail: `${reason} on #${number}`, milestone, priority: 'P2 - normal' };
+  }
 
   it('says which milestone is being built, and how much gated work is held', () => {
     const queue = classifyBoard(triaged, new Map(), {
       agentLogins: AGENTS,
       nowMs: NOW,
-      readiness: { focus: 'A. Release A closeout', held: [] },
+      readiness: { focus: A, held: [], window: [A, B] },
     });
     const body = renderBulletin(queue, new Date(NOW));
-    expect(body).toContain('_Ledger: building **A. Release A closeout** · gated work held back: 0_');
+    expect(body).toContain(`_Ledger: building **${A}** \u00b7 gated work held back: 0_`);
+    expect(body).toContain(`Showing **${A}** and **${B}** (the next two milestones, plus any P1)`);
   });
 
   it('explains an idle factory instead of leaving it looking broken', () => {
@@ -220,27 +227,122 @@ describe('the ledger line and its notes', () => {
       agentLogins: AGENTS,
       nowMs: NOW,
       readiness: {
-        focus: 'A. Release A closeout',
-        held: [
-          { number: 97, reason: 'needs-decision', detail: 'carries needs-human-decision' },
-          { number: 34, reason: 'blocked-by', detail: 'waiting on #119' },
-          { number: 40, reason: 'out-of-focus', detail: 'B. v0.3.x polish' },
-        ],
+        focus: A,
+        window: [A, B],
+        held: [held(97, 'needs-decision', A), held(34, 'blocked-by', B), held(40, 'out-of-focus', B)],
       },
     });
     const notes = queue.notes.join('\n');
-    expect(notes).toContain('**2** approved item(s) cannot run yet');
+    expect(notes).toContain('**2** card(s) shown here cannot run yet');
     expect(notes).toContain('1 needs-decision (#97)');
     expect(notes).toContain('1 blocked-by (#34)');
-    expect(notes).toContain('The executor builds **A. Release A closeout** only');
-    expect(notes).toContain('**1** gated card(s) in other milestones');
+    expect(notes).toContain(`run when the focus rolls off **${A}**`);
+    expect(notes).toContain('#40');
     // The milestone hold is a separate fact from the two real blockers.
     expect(notes.split('\n').find((line) => line.includes('cannot run yet'))).not.toContain('#40');
+  });
+
+  it('accounts for held work the window left off the page', () => {
+    const queue = classifyBoard(triaged, new Map(), {
+      agentLogins: AGENTS,
+      nowMs: NOW,
+      readiness: { focus: A, window: [A, B], held: [held(52, 'out-of-focus', 'C. POC+ arc')] },
+    });
+    const notes = queue.notes.join('\n');
+    expect(notes).not.toContain('shown here are in a later milestone');
+    expect(notes).not.toContain('cannot run yet');
   });
 
   it('stays silent about holds when there are none, so the notes stay actionable', () => {
     const queue = classifyBoard(triaged, new Map(), { agentLogins: AGENTS, nowMs: NOW });
     expect(queue.notes.join('\n')).not.toContain('cannot run yet');
     expect(queue.focus).toBeNull();
+    expect(queue.window).toEqual([]);
+  });
+});
+
+// ── The milestone window ──────────────────────────────────────────────────
+
+describe('the milestone window', () => {
+  const A = 'A. Release A closeout';
+  const B = 'B. v0.3.x polish';
+  const C = 'C. POC+ arc';
+  const D = 'D. MVP';
+  const window = [A, B];
+
+  const withWindow = (items: BoardItem[]) =>
+    classifyBoard(items, new Map(), { agentLogins: AGENTS, nowMs: NOW, readiness: { focus: A, held: [], window } });
+
+  it('lists only the window, and counts what it left off by milestone', () => {
+    const queue = withWindow([
+      item({ number: 96, status: 'Triaged', milestone: A }),
+      item({ number: 34, status: 'Triaged', milestone: B }),
+      item({ number: 58, status: 'Triaged', milestone: C }),
+      item({ number: 27, status: 'Triaged', milestone: D }),
+      item({ number: 85, status: 'Inbox', milestone: D }),
+    ]);
+    expect(queue.approve.map((e) => e.number)).toEqual([96, 34]);
+    // An Inbox card is never listed anyway, so counting it would overstate what was hidden.
+    expect(queue.outside).toEqual([{ milestone: C, numbers: [58] }, { milestone: D, numbers: [27] }]);
+  });
+
+  it('keeps an urgent card from a later milestone, at the end', () => {
+    const queue = withWindow([
+      item({ number: 34, status: 'Triaged', milestone: B, priority: 'P2 - normal' }),
+      item({ number: 50, status: 'Triaged', milestone: C, priority: 'P1 - high' }),
+      item({ number: 96, status: 'Triaged', milestone: A, priority: 'P1 - high' }),
+    ]);
+    // Window order is the first key, so the exception sits after the last milestone it covers,
+    // and the off-window group is itself in priority order.
+    expect(queue.approve.map((e) => e.number)).toEqual([96, 34, 50]);
+    expect(queue.outside).toEqual([]);
+  });
+
+  it('orders by milestone first, then priority, then age', () => {
+    const asked = new Map([
+      [43, [comment('agent97eth', '2026-09-10T20:00:00Z', 'What ladder?')]],
+      [70, [comment('agent97eth', '2026-09-10T20:00:00Z', 'Re-aim it?')]],
+      [94, [comment('agent97eth', '2026-09-10T20:00:00Z', 'Which issue?')]],
+      [96, [comment('agent97eth', '2026-09-10T20:00:00Z', '(a) or (b)?')]],
+    ]);
+    const queue = classifyBoard(
+      [
+        item({ number: 43, status: 'Blocked', milestone: B, priority: 'P2 - normal' }),
+        item({ number: 70, status: 'Blocked', milestone: B, priority: 'P1 - high' }),
+        item({ number: 94, status: 'Blocked', milestone: A, priority: 'P2 - normal' }),
+        item({ number: 96, status: 'Blocked', milestone: A, priority: 'P1 - high' }),
+      ],
+      asked,
+      { agentLogins: AGENTS, nowMs: NOW, readiness: { focus: A, held: [], window } },
+    );
+    expect(queue.answer.map((e) => e.number)).toEqual([96, 94, 70, 43]);
+  });
+
+  it('never hides an item that has no milestone at all', () => {
+    const queue = withWindow([item({ number: 7, status: 'Triaged', milestone: null })]);
+    expect(queue.approve.map((e) => e.number)).toEqual([7]);
+    expect(queue.outside).toEqual([]);
+  });
+
+  it('shows the whole board when there is no window, so a dated milestone is the only cause', () => {
+    const unwindowed = classifyBoard([item({ number: 58, status: 'Triaged', milestone: C })], new Map(), {
+      agentLogins: AGENTS,
+      nowMs: NOW,
+      readiness: { focus: null, held: [], window: [] },
+    });
+    expect(unwindowed.approve.map((e) => e.number)).toEqual([58]);
+    expect(unwindowed.window).toEqual([]);
+    const body = renderBulletin(unwindowed, new Date(NOW));
+    expect(body).toContain('Showing the whole board: no open milestone carries a due date');
+  });
+
+  it('names the window and what is parked in the notes', () => {
+    const queue = withWindow([
+      item({ number: 58, status: 'Triaged', milestone: C }),
+      item({ number: 27, status: 'Triaged', milestone: D }),
+    ]);
+    const body = renderBulletin(queue, new Date(NOW));
+    expect(body).toContain(`not listed: ${C} (1), ${D} (1)`);
+    expect(queue.notes.join('\n')).toContain(`Not listed: ${C} (1), ${D} (1)`);
   });
 });

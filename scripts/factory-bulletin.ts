@@ -27,7 +27,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildCtx, type HeldReport, heldReports, readReadiness } from "./factory-jobs.js";
+import { buildCtx, type Ctx, type HeldReport, heldReports, readReadiness } from "./factory-jobs.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -160,6 +160,10 @@ export interface Queue {
    */
   held: HeldReport[];
   focus: string | null;
+  /** The milestones this page covers, the focus first. Empty means no filter was applied. */
+  window: string[];
+  /** Listable work the window left off, per milestone, so nothing vanishes without a trace. */
+  outside: { milestone: string; numbers: number[] }[];
   notes: string[];
 }
 
@@ -368,7 +372,7 @@ interface ClassifyOpts {
   agentLogins: ReadonlySet<string>;
   nowMs: number;
   /** The ledger's own view of what can run now. Absent in tests that only classify. */
-  readiness?: { focus: string | null; held: HeldReport[] };
+  readiness?: { focus: string | null; held: HeldReport[]; window?: string[] };
 }
 
 /**
@@ -417,16 +421,22 @@ function buildNotes(queue: Queue): string[] {
       "Nothing is `Approved`, so the executor has nothing to pick up. Every card in `Triaged` is idle until you move it.",
     );
   }
-  const declines = queue.held.filter((held) => held.reason !== "out-of-focus");
-  if (declines.length > 0) {
+  const held = queue.held.filter((entry) => inWindow(entry, queue.window));
+  const blockedHolds = held.filter((entry) => entry.reason !== "out-of-focus");
+  if (blockedHolds.length > 0) {
     notes.push(
-      `**${declines.length}** approved item(s) cannot run yet: ${describeHolds(declines)}. The ledger prints the same list; nothing is stalled, it is waiting.`,
+      `**${blockedHolds.length}** card(s) shown here cannot run yet: ${describeHolds(blockedHolds)}. The ledger prints the same list; nothing is stalled, it is waiting.`,
     );
   }
-  const outOfFocus = queue.held.filter((held) => held.reason === "out-of-focus");
-  if (queue.focus && outOfFocus.length > 0) {
+  const parked = held.filter((entry) => entry.reason === "out-of-focus");
+  if (queue.focus && parked.length > 0) {
     notes.push(
-      `The executor builds **${queue.focus}** only, so **${outOfFocus.length}** gated card(s) in other milestones wait for the focus to roll. Approving one does not pull it forward.`,
+      `**${parked.length}** card(s) shown here are in a later milestone, so they run when the focus rolls off **${queue.focus}**: ${parked.map((entry) => `#${entry.number}`).join(", ")}. Approving one does not pull it forward.`,
+    );
+  }
+  if (queue.outside.length > 0) {
+    notes.push(
+      `Not listed: ${queue.outside.map((group) => `${group.milestone} (${group.numbers.length})`).join(", ")}. The window is the sprint plus the milestone after it; those wait their turn.`,
     );
   }
   if (queue.neverAsked.length > 0) {
@@ -447,6 +457,32 @@ function describeHolds(held: HeldReport[]): string {
     .join(", ");
 }
 
+/** P1 and above: the one thing the window never hides. */
+const URGENT_RANK = PRIORITY_RANK["P1 - high"] ?? 1;
+
+function isUrgent(priority: string | null): boolean {
+  return priorityRank(priority) <= URGENT_RANK;
+}
+
+/**
+ * Whether an item belongs on the page. The window is a reading aid, not a gate: it trims the
+ * board to the sprint's neighbourhood so the to-do list stays a to-do list. Two things it
+ * never hides: an urgent item wherever it lives, and an item with no milestone at all, since
+ * a card with nowhere to live is a defect to see rather than a card to lose.
+ */
+export function inWindow(item: { milestone: string | null; priority: string | null }, window: string[]): boolean {
+  if (window.length === 0) return true;
+  if (item.milestone === null) return true;
+  return window.includes(item.milestone) || isUrgent(item.priority);
+}
+
+/** Sort key: the window's order first, then anything shown off-window, then no milestone. */
+function windowRank(milestone: string | null, window: string[]): number {
+  if (milestone === null) return window.length + 1;
+  const at = window.indexOf(milestone);
+  return at === -1 ? window.length : at;
+}
+
 /**
  * Split the board into the five human-gated buckets. Pure: takes the item list and the
  * comments it needs, so the rules can be tested without a gh call.
@@ -456,6 +492,7 @@ export function classifyBoard(
   commentsByNumber: Map<number, Comment[]>,
   opts: ClassifyOpts,
 ): Queue {
+  const window = opts.readiness?.window ?? [];
   const queue: Queue = {
     answer: [],
     answered: [],
@@ -465,20 +502,43 @@ export function classifyBoard(
     statusCounts: {},
     held: opts.readiness?.held ?? [],
     focus: opts.readiness?.focus ?? null,
+    window,
+    outside: [],
     notes: [],
   };
 
+  const outside = new Map<string, number[]>();
   for (const item of items) {
     queue.statusCounts[item.status] = (queue.statusCounts[item.status] ?? 0) + 1;
     const classified = classifyItem(item, commentsByNumber.get(item.number) ?? [], opts);
+    if (!inWindow(item, window)) {
+      // Only the cards that would otherwise have been listed, so the count means "work you
+      // would have been reading" rather than "every Inbox card in a later milestone".
+      if (classified) {
+        const key = item.milestone ?? "(no milestone)";
+        outside.set(key, [...(outside.get(key) ?? []), item.number]);
+      }
+      continue;
+    }
     if (classified) queue[classified.bucket].push(classified.entry);
   }
 
-  queue.answer.sort(byPriorityThenAge);
-  queue.answered.sort(byPriorityThenAge);
-  queue.approve.sort(byPriorityThenAge);
-  queue.merge.sort(byPriorityThenAge);
+  const byWindowThenPriority = (a: Entry, b: Entry): number =>
+    windowRank(a.milestone, window) - windowRank(b.milestone, window) || byPriorityThenAge(a, b);
+  queue.answer.sort(byWindowThenPriority);
+  queue.answered.sort(byWindowThenPriority);
+  queue.approve.sort(byWindowThenPriority);
+  queue.merge.sort(byWindowThenPriority);
   queue.neverAsked.sort((a, b) => a.number - b.number);
+  queue.outside = [...outside.entries()]
+    .map(([milestone, numbers]) => ({ milestone, numbers: numbers.sort((a, b) => a - b) }))
+    // Off-window groups share a rank, so the tiebreak is the milestone name: the letters the
+    // roadmap already uses keep them in order without a second ordering source.
+    .sort(
+      (a, b) =>
+        windowRank(a.milestone, window) - windowRank(b.milestone, window) ||
+        a.milestone.localeCompare(b.milestone),
+    );
   queue.notes = buildNotes(queue);
 
   return queue;
@@ -508,6 +568,15 @@ function truncate(markdown: string): string {
   return markdown.replace(/\n+$/, "");
 }
 
+/** What this page covers, in the owner's terms rather than the code's. */
+function windowLine(queue: Queue): string {
+  if (queue.window.length === 0) return "Showing the whole board: no open milestone carries a due date";
+  const shown = queue.window.map((milestone) => `**${milestone}**`).join(" and ");
+  const listed = queue.outside.map((group) => `${group.milestone} (${group.numbers.length})`).join(", ");
+  const tail = listed ? ` · not listed: ${listed}` : "";
+  return `Showing ${shown} (the next ${queue.window.length === 1 ? "milestone" : "two milestones"}, plus any P1)${tail}`;
+}
+
 export function renderBulletin(queue: Queue, generatedAt: Date): string {
   const stamp = generatedAt.toISOString().replace(/\.\d+Z$/, "Z");
   const lines: string[] = [];
@@ -522,9 +591,9 @@ export function renderBulletin(queue: Queue, generatedAt: Date): string {
     `**Waiting on you: ${queue.answer.length}** · answered, waiting on triage: ${queue.answered.length} · no question written: ${queue.neverAsked.length} · ready to approve: ${queue.approve.length} · ready to merge: ${queue.merge.length}`,
   );
   lines.push("");
-  lines.push(
-    `_Ledger: building **${queue.focus ?? "no milestone focus"}** · gated work held back: ${queue.held.length}_`,
-  );
+  lines.push(`_Ledger: building **${queue.focus ?? "no milestone focus"}** · gated work held back: ${queue.held.length}_`);
+  lines.push("");
+  lines.push(`_${windowLine(queue)}_`);
   lines.push("");
 
   if (queue.answer.length > 0) {
@@ -696,9 +765,19 @@ function main(): void {
     agentLogins: opts.agentLogins,
     nowMs,
     readiness: (() => {
-      const ctx = buildCtx(process.env);
+      // The ledger logs to stdout, which is this script's payload: send its lines to stderr so
+      // `--json` stays parseable and `--post`'s one-line result is not buried.
+      const base = buildCtx(process.env);
+      const ctx: Ctx = {
+        ...base,
+        deps: { ...base.deps, log: (line) => process.stderr.write(`${line}\n`) },
+      };
       const readiness = readReadiness(ctx, config, items);
-      return { focus: readiness.focus ?? null, held: heldReports(items, [], readiness) };
+      return {
+        focus: readiness.focus ?? null,
+        held: heldReports(items, [], readiness),
+        window: readiness.window ?? [],
+      };
     })(),
   });
 
