@@ -29,7 +29,7 @@ Per-subagent command (Bash, timeout **600000** ms — live calls take minutes; a
 set -a && . ./.env && set +a && AGENT_OUT=<scratchpad>/smoke-<id>.json AGENT_DAYS=<N> npm run agent:play > <scratchpad>/smoke-<id>.stdout 2> <scratchpad>/smoke-<id>.log; echo "EXIT=$?"
 ```
 
-Output split: the **transcript** is clean JSON in `AGENT_OUT`; **stderr** (`.log`) has the transcript path + day summaries + run scoreboard + critic report; **stdout** is engine/gateway/npm log noise (ignore). Env knobs: `AGENT_DAYS` (default 1), `DEEPSEEK_MODEL` (optional), `AGENT_OUT` (transcript path).
+Output split: the **transcript** is clean JSON in `AGENT_OUT`; **stderr** (`.log`) has the transcript path + day summaries + run scoreboard + critic report; **stdout** is engine/gateway/npm log noise (ignore). Env knobs: `AGENT_DAYS` (default 1), `DEEPSEEK_MODEL` (optional), `AGENT_OUT` (transcript path), `AGENT_FORCE_FREE_ACTIONS` (`1` = each day's first menu withholds the day-job buttons until a free-text action completes; use it when the run has to exercise the quest loop rather than day-job work, e.g. any RA-2 inspiration question).
 
 ## Subagent prompt template
 

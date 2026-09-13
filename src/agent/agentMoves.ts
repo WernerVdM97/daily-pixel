@@ -49,6 +49,25 @@ export function menuLegalMoves(view: MenuViewState): LegalMove[] {
   return moves;
 }
 
+/** Legal moves on the day-job menu with the day-job buttons withheld — the free-text slot only,
+ *  no `sleep`. `AGENT_FORCE_FREE_ACTIONS` (RA-2) offers this list until the day holds a completed
+ *  free action, so the brain cannot take day-job work (whose outcome `stripWorkInspiration`
+ *  strips of any inspiration grant) or end the day instead. Empty when the menu carries no custom
+ *  button — the caller falls back to `menuLegalMoves` rather than offering zero moves. */
+export function freeActionLegalMoves(view: MenuViewState): LegalMove[] {
+  return menuLegalMoves(view).filter((m) => m.move.kind === 'custom');
+}
+
+/** The menu the brain is SHOWN while the free action is still owed: the same view with the day-job
+ *  buttons removed. Withholding the moves alone is not enough — `viewToText` numbers the screen's
+ *  OWN buttons positionally, so the brain would read `[0] Run the day job` while `MOVES[0]` was the
+ *  free-text slot; a brain answering the screen's numbers (the prod gateway range-checks the index
+ *  before the harness sees it) crashed the run instead of stumbling. Filtering the view keeps the
+ *  screen numbering and the offered move list in lockstep. */
+export function freeActionMenuView(view: MenuViewState): MenuViewState {
+  return { ...view, buttons: view.buttons.filter((b) => b.customId === CID_DAYJOB_CUSTOM) };
+}
+
 /** Legal moves on the character-creation wizard (M8.5, DC-S3): step 1 offers the free-text name
  *  slot only — the Discord modal is NOT a protocol action, so the brain fills the custom text;
  *  steps 2-8 enumerate the view's semantic buttons POSITIONALLY (the brain's index IS the view
