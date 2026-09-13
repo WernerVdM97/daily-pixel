@@ -295,6 +295,247 @@ describe('ProdAgentPlayerGateway — parse', () => {
   });
 });
 
+// ── ProdAgentPlayerGateway — the note half of the reply (T4, spec § E / contract §1.2) ──
+
+// The brain now has somewhere to put what it noticed. The degrade rule is the contract here: a
+// malformed MOVE throws exactly as before, a malformed NOTE never does — it is dropped, named on
+// `droppedNotes`, and the turn comes back with its move intact.
+
+describe('ProdAgentPlayerGateway — notes (T4)', () => {
+  it('round-trips every recurrence tag', async () => {
+    for (const recurrence of ['once', 'periodic', 'ritual'] as const) {
+      const gw = makeGateway(
+        mockFetch(
+          apiResponse({
+            choice: 0,
+            friction: { what: 'the bail dice read inconsistently', severity: 4, recurrence },
+          }),
+        ),
+      );
+      expect(await gw.chooseMove(menuInput())).toEqual({
+        move: { kind: 'menu-pick', index: 0 },
+        friction: { what: 'the bail dice read inconsistently', severity: 4, recurrence },
+      });
+    }
+  });
+
+  it('round-trips a fully-populated turn, trimming the free text', async () => {
+    const gw = makeGateway(
+      mockFetch(
+        apiResponse({
+          // A sleep turn: the only move a `dayNote` is honoured on (contract §1.2).
+          choice: 3,
+          intent: '  head north for the archive  ',
+          arcNote: 'the temple; three consecrations left',
+          friction: { what: ' bail dice read inconsistently ', severity: 4, recurrence: 'periodic' },
+          dayNote: {
+            engagement: 4,
+            fulfilment: 3,
+            line: ' A quiet day, but the thread moved. ',
+            arcNote: ' the temple; two consecrations left ',
+          },
+        }),
+      ),
+    );
+
+    expect(await gw.chooseMove(menuInput())).toEqual({
+      move: { kind: 'sleep' },
+      intent: 'head north for the archive',
+      arcNote: 'the temple; three consecrations left',
+      friction: { what: 'bail dice read inconsistently', severity: 4, recurrence: 'periodic' },
+      dayNote: {
+        engagement: 4,
+        fulfilment: 3,
+        line: 'A quiet day, but the thread moved.',
+        arcNote: 'the temple; two consecrations left',
+      },
+    });
+  });
+
+  it('omits an absent note rather than carrying an empty one', async () => {
+    const turn = await makeGateway(mockFetch(apiResponse({ choice: 0 }))).chooseMove(menuInput());
+    expect(turn).toEqual({ move: { kind: 'menu-pick', index: 0 } });
+    // Omitted means "unchanged": neither a value nor a drop is reported for it.
+    expect('intent' in turn).toBe(false);
+    expect('arcNote' in turn).toBe(false);
+    expect('friction' in turn).toBe(false);
+    expect('dayNote' in turn).toBe(false);
+    expect('droppedNotes' in turn).toBe(false);
+  });
+
+  // One row per malformed shape: [field it names, the reply fragment, the exact reason].
+  const MALFORMED: Array<[string, Record<string, unknown>, string]> = [
+    ['intent', { intent: 42 }, 'intent: expected a string, got 42'],
+    ['intent', { intent: '' }, 'intent: expected a non-empty string'],
+    ['intent', { intent: '   ' }, 'intent: expected a non-empty string'],
+    ['arcNote', { arcNote: null }, 'arcNote: expected a string, got null'],
+    ['arcNote', { arcNote: ['a', 'b'] }, 'arcNote: expected a string, got ["a","b"]'],
+    ['arcNote', { arcNote: '' }, 'arcNote: expected a non-empty string'],
+    [
+      'friction',
+      { friction: 'the screen fought me' },
+      'friction: expected an object, got "the screen fought me"',
+    ],
+    ['friction', { friction: [1, 2] }, 'friction: expected an object, got [1,2]'],
+    [
+      'friction',
+      { friction: { severity: 3, recurrence: 'once' } },
+      'friction.what: expected a string, got nothing',
+    ],
+    [
+      'friction',
+      { friction: { what: '  ', severity: 3, recurrence: 'once' } },
+      'friction.what: expected a non-empty string',
+    ],
+    [
+      'friction',
+      { friction: { what: 'x', severity: 9, recurrence: 'once' } },
+      'friction: severity must be a whole number 1-5, got 9',
+    ],
+    [
+      'friction',
+      { friction: { what: 'x', severity: 2.5, recurrence: 'once' } },
+      'friction: severity must be a whole number 1-5, got 2.5',
+    ],
+    [
+      'friction',
+      { friction: { what: 'x', severity: '3', recurrence: 'once' } },
+      'friction: severity must be a whole number 1-5, got "3"',
+    ],
+    [
+      'friction',
+      { friction: { what: 'x', severity: 3, recurrence: 'daily' } },
+      'friction: recurrence must be once, periodic or ritual, got "daily"',
+    ],
+    [
+      'friction',
+      { friction: { what: 'x', severity: 3 } },
+      'friction: recurrence must be once, periodic or ritual, got nothing',
+    ],
+    ['dayNote', { dayNote: 4 }, 'dayNote: expected an object, got 4'],
+    [
+      'dayNote',
+      { dayNote: { engagement: 6, fulfilment: 3, line: 'l', arcNote: 'a' } },
+      'dayNote: engagement must be a whole number 1-5, got 6',
+    ],
+    [
+      'dayNote',
+      { dayNote: { engagement: 4, fulfilment: 0, line: 'l', arcNote: 'a' } },
+      'dayNote: fulfilment must be a whole number 1-5, got 0',
+    ],
+    [
+      'dayNote',
+      { dayNote: { engagement: 4, fulfilment: 3, line: '   ', arcNote: 'a' } },
+      'dayNote.line: expected a non-empty string',
+    ],
+    [
+      'dayNote',
+      { dayNote: { engagement: 4, fulfilment: 3, line: 'l' } },
+      'dayNote.arcNote: expected a string, got nothing',
+    ],
+  ];
+
+  it.each(MALFORMED)('drops a malformed %s and keeps the turn move', async (_field, fragment, reason) => {
+    const gw = makeGateway(mockFetch(apiResponse({ choice: 0, ...fragment })));
+    const turn = await gw.chooseMove(menuInput());
+
+    expect(turn.move).toEqual({ kind: 'menu-pick', index: 0 });
+    expect(turn.droppedNotes).toEqual([reason]);
+    // The malformed field itself is gone, not carried as junk.
+    expect(turn.friction).toBeUndefined();
+    expect(turn.dayNote).toBeUndefined();
+  });
+
+  it('names every dropped field, in reply order, when several notes are malformed at once', async () => {
+    const gw = makeGateway(
+      mockFetch(
+        apiResponse({
+          choice: 0,
+          intent: '',
+          arcNote: 7,
+          friction: { what: 'x', severity: 3, recurrence: 'monthly' },
+          dayNote: { engagement: 5, fulfilment: 5, line: '', arcNote: 'a' },
+        }),
+      ),
+    );
+    const turn = await gw.chooseMove(menuInput());
+
+    expect(turn.move).toEqual({ kind: 'menu-pick', index: 0 });
+    expect(turn.droppedNotes).toEqual([
+      'intent: expected a non-empty string',
+      'arcNote: expected a string, got 7',
+      'friction: recurrence must be once, periodic or ritual, got "monthly"',
+      'dayNote.line: expected a non-empty string',
+    ]);
+  });
+
+  it('keeps a well-formed note next to a dropped one', async () => {
+    const gw = makeGateway(
+      mockFetch(apiResponse({ choice: 0, intent: 'hold the gate', friction: { what: 'x', severity: 0, recurrence: 'once' } })),
+    );
+    expect(await gw.chooseMove(menuInput())).toEqual({
+      move: { kind: 'menu-pick', index: 0 },
+      intent: 'hold the gate',
+      droppedNotes: ['friction: severity must be a whole number 1-5, got 0'],
+    });
+  });
+
+  // Contract §1.2: a day note rides the sleep turn. Anywhere else it is ignored AND reported —
+  // silence would lose the day's rating pair with no trace in the transcript.
+  const VALID_DAY_NOTE = { engagement: 4, fulfilment: 3, line: 'A quiet day.', arcNote: 'the temple; two left' };
+
+  it('drops a valid day note on a non-sleep turn, naming it, and leaves the move alone', async () => {
+    const { records, recorder } = capture();
+    const gw = makeGateway(mockFetch(apiResponse({ choice: 0, dayNote: VALID_DAY_NOTE })), recorder);
+    const turn = await gw.chooseMove(menuInput());
+
+    expect(turn.move).toEqual({ kind: 'menu-pick', index: 0 });
+    expect(turn.droppedNotes).toEqual(['dayNote: only honoured on a sleep turn']);
+    expect('dayNote' in turn).toBe(false);
+    expect(records[0].validationWarnings).toEqual(['dayNote: only honoured on a sleep turn']);
+  });
+
+  it('keeps the same day note untouched on a sleep turn', async () => {
+    const gw = makeGateway(mockFetch(apiResponse({ choice: 3, dayNote: VALID_DAY_NOTE })));
+    expect(await gw.chooseMove(menuInput())).toEqual({ move: { kind: 'sleep' }, dayNote: VALID_DAY_NOTE });
+  });
+
+  it('still throws on a malformed MOVE beside a malformed NOTE (the degrade rule is notes-only)', async () => {
+    const gw = makeGateway(mockFetch(apiResponse({ choice: 99, friction: 'junk' })));
+    await expect(gw.chooseMove(menuInput())).rejects.toThrow(/not a legal move index/);
+  });
+
+  it('appends the dropped reasons to the llm_calls validationWarnings', async () => {
+    const { records, recorder } = capture();
+    await makeGateway(
+      mockFetch(
+        apiResponse({ choice: 0, intent: '', friction: { what: 'x', severity: 9, recurrence: 'once' } }),
+      ),
+      recorder,
+    ).chooseMove(menuInput());
+
+    expect(records[0].validationWarnings).toEqual([
+      'intent: expected a non-empty string',
+      'friction: severity must be a whole number 1-5, got 9',
+    ]);
+  });
+
+  it('records the drops even when the turn dies on its move (the reply is the only trace)', async () => {
+    const { records, recorder } = capture();
+    await expect(
+      makeGateway(mockFetch(apiResponse({ choice: 99, friction: 'junk' })), recorder).chooseMove(menuInput()),
+    ).rejects.toThrow();
+
+    expect(records[0].validationWarnings).toEqual(['friction: expected an object, got "junk"']);
+  });
+
+  it('leaves validationWarnings empty on a clean turn', async () => {
+    const { records, recorder } = capture();
+    await makeGateway(mockFetch(apiResponse({ choice: 0 })), recorder).chooseMove(menuInput());
+    expect(records[0].validationWarnings).toEqual([]);
+  });
+});
+
 // ── ProdAgentPlayerGateway — audit recording ──
 
 describe('ProdAgentPlayerGateway — recording', () => {

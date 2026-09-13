@@ -1,9 +1,9 @@
 /**
  * Production, OpenRouter-backed `AgentPlayerGateway` (JSON-seam M4.1). The agent-player's brain: it
  * renders the current turn into a user message, asks the model to pick a move, and maps the reply
- * back to one of the legal `AgentMove`s, wrapped in the `BrainTurn` the harness reads. Only the
- * MOVE half of the reply is resolved here: the note fields (`intent`, `arcNote`, `friction`,
- * `dayNote`) are not parsed yet, so a reply carrying them returns the move alone.
+ * back to one of the legal `AgentMove`s, wrapped in the `BrainTurn` the harness reads. Both halves
+ * of the reply are resolved here: the MOVE (`resolveMove`, fail-loud) and the NOTES (`resolveNotes`,
+ * fail-soft — spec § E).
  *
  * Mirrors `ProdPipelineLlmGateway` deliberately: reuses `callChatCompletion` verbatim (JSON mode,
  * single attempt, no retry/fallback at this layer), throws loudly on transport/parse/validation
@@ -19,7 +19,15 @@ import { DEFAULT_LLM_MODEL } from '../llm/openrouter.js';
 import type { LlmCallRecorder } from '../llm/LlmCallRecorder.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
-import type { AgentMove, AgentPlayerGateway, BrainTurn, ChooseMoveInput } from './AgentPlayerGateway.js';
+import type {
+  AgentMove,
+  AgentPlayerGateway,
+  BrainTurn,
+  ChooseMoveInput,
+  DayNote,
+  FrictionReport,
+  Recurrence,
+} from './AgentPlayerGateway.js';
 import { agentPlayerStamp, loadBrainPrompt, loadHandbookPrompt, loadPersonaFragment } from './agentPrompt.js';
 
 export interface ProdAgentPlayerGatewayConfig {
@@ -41,14 +49,35 @@ export interface ProdAgentPlayerGatewayConfig {
 }
 
 /** The shape the brain must return (see `brain.md`). `choice` indexes into the turn's MOVES
- *  list; `text` is present only for a free-text move. */
-interface RawMovePick {
+ *  list; `text` is present only for a free-text move. The four note fields are optional and typed
+ *  `unknown` on purpose: they arrive from a model, so they are validated rather than trusted. */
+interface RawBrainReply {
   thought?: unknown;
   choice?: unknown;
   text?: unknown;
+  intent?: unknown;
+  arcNote?: unknown;
+  friction?: unknown;
+  dayNote?: unknown;
+}
+
+/** The note half of a reply, resolved: a field is present only when it survived validation. */
+interface ResolvedNotes {
+  intent?: string;
+  arcNote?: string;
+  friction?: FrictionReport;
+  dayNote?: DayNote;
+  /** One reason per dropped field, in reply-field order — so the sleep-gate reason for `dayNote`
+   *  lands last, where that field sits. Also the audit row's
+   *  `validationWarnings`, so a lost data point leaves a trace even when the run carries on. */
+  droppedNotes: string[];
 }
 
 const CALL_KIND = 'agent-player';
+
+/** The recurrence vocabulary (spec § E, contract §1.2) as a runtime list, so the parser checks the
+ *  same three tags the type names. Order is the prompt's order. */
+const RECURRENCE_TAGS: readonly Recurrence[] = ['once', 'periodic', 'ritual'];
 
 export class ProdAgentPlayerGateway implements AgentPlayerGateway {
   private apiKey: string;
@@ -88,6 +117,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     let parseOk = false;
     let errorMsg: string | null = null;
     let move: AgentMove | undefined;
+    let notes: ResolvedNotes = { droppedNotes: [] };
 
     try {
       const res = await callChatCompletion({
@@ -115,15 +145,20 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
       }
       content = res.content;
 
-      let raw: RawMovePick;
+      let raw: RawBrainReply;
       try {
-        raw = JSON.parse(content) as RawMovePick;
+        raw = JSON.parse(content) as RawBrainReply;
       } catch {
         throw new Error(`ProdAgentPlayerGateway: failed to parse OpenRouter response: ${content.slice(0, 200)}`);
       }
       parseOk = true;
 
+      // Notes first: a turn whose MOVE then throws still reports the notes it dropped in the
+      // audit row, which is the only trace of that reply (the turn itself is discarded).
+      notes = resolveNotes(raw);
+
       move = resolveMove(raw, input);
+      notes = gateDayNote(notes, move);
 
       if (this.verbose) {
         const latencyMs = Date.now() - startedAt;
@@ -155,7 +190,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
             contextDigest: buildContextDigest(input),
             responseJson: parseOk ? content : null,
             parseOk,
-            validationWarnings: [],
+            validationWarnings: notes.droppedNotes,
             error: errorMsg,
             httpStatus,
             promptTokens: usage?.prompt_tokens ?? null,
@@ -179,7 +214,17 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
       // propagates past this point. Guard is compile-time defence against a future early return.
       throw new Error('unreachable: move was never set');
     }
-    return { move };
+    return {
+      move,
+      // Each note is spread in only when it survived: an omitted or dropped field stays ABSENT
+      // (never an explicit `undefined`), so a turn with no notes serialises as the bare `{ move }`
+      // every pre-persona call site and test expects.
+      ...(notes.intent !== undefined ? { intent: notes.intent } : {}),
+      ...(notes.arcNote !== undefined ? { arcNote: notes.arcNote } : {}),
+      ...(notes.friction !== undefined ? { friction: notes.friction } : {}),
+      ...(notes.dayNote !== undefined ? { dayNote: notes.dayNote } : {}),
+      ...(notes.droppedNotes.length > 0 ? { droppedNotes: notes.droppedNotes } : {}),
+    };
   }
 }
 
@@ -192,7 +237,7 @@ function personaFragments(persona?: string): string[] {
 /** Map the brain's `{ choice, text }` reply to a concrete legal `AgentMove`. Throws loudly on an
  *  out-of-range choice or a free-text move with no text — the same "fail visibly" contract as the
  *  pipeline gateway's parse step. */
-function resolveMove(raw: RawMovePick, input: ChooseMoveInput): AgentMove {
+function resolveMove(raw: RawBrainReply, input: ChooseMoveInput): AgentMove {
   const choice = Number(raw.choice);
   if (!Number.isInteger(choice) || choice < 0 || choice >= input.moves.length) {
     throw new Error(
@@ -209,6 +254,156 @@ function resolveMove(raw: RawMovePick, input: ChooseMoveInput): AgentMove {
     return { kind: 'custom', text };
   }
   return picked;
+}
+
+/**
+ * Resolve the reply's NOTE half (spec § E, contract §1.2). The degrade rule is the whole point: a
+ * malformed MOVE throws (see `resolveMove`), a malformed NOTE never does — that one field is
+ * dropped, a one-line reason naming it is pushed onto `droppedNotes`, and the turn comes back with
+ * its move intact. A live run has already spent tokens by the time this runs, so a lost data point
+ * must be visible in the transcript without killing the run. An ABSENT field is not a drop: omitted
+ * means "unchanged" (intent/arc note) or "nothing to report" (friction/day note).
+ */
+function resolveNotes(raw: RawBrainReply): ResolvedNotes {
+  const droppedNotes: string[] = [];
+  /** Collect one field: absent (undefined check) means unchanged, a failed check pushes its one
+   *  reason and drops the field, a pass yields the value. */
+  const take = <T>(checked: Checked<T> | undefined): T | undefined => {
+    if (checked === undefined) return undefined;
+    if (!checked.ok) {
+      droppedNotes.push(checked.reason);
+      return undefined;
+    }
+    return checked.value;
+  };
+  return {
+    intent: take(checkLine(raw.intent, 'intent')),
+    arcNote: take(checkLine(raw.arcNote, 'arcNote')),
+    friction: take(checkFriction(raw.friction, 'friction')),
+    dayNote: take(checkDayNote(raw.dayNote, 'dayNote')),
+    droppedNotes,
+  };
+}
+
+/**
+ * Contract §1.2: a `dayNote` is honoured ONLY on a sleep turn. A valid note arriving on any other
+ * move is dropped through `droppedNotes` — discarding it silently is the exact failure the degrade
+ * rule exists to prevent, since the day's engagement/fulfilment reading would vanish untraced. This
+ * reports the loss; it does NOT re-enable the note (the harness still writes no `day-note` event).
+ */
+function gateDayNote(notes: ResolvedNotes, move: AgentMove): ResolvedNotes {
+  if (notes.dayNote === undefined || move.kind === 'sleep') return notes;
+  return {
+    ...notes,
+    dayNote: undefined,
+    droppedNotes: [...notes.droppedNotes, 'dayNote: only honoured on a sleep turn'],
+  };
+}
+
+/** A validated field: either the value, or the single one-line reason it was rejected. `undefined`
+ *  (returned by the checkers instead of a `Checked`) means the field was absent, not malformed. */
+type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
+
+/** A one-line note (`intent`, `arcNote`): a present, non-empty (trimmed) string, else a drop. */
+function checkLine(value: unknown, field: string): Checked<string> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return { ok: false, reason: `${field}: expected a string, got ${preview(value)}` };
+  const trimmed = value.trim();
+  if (trimmed === '') return { ok: false, reason: `${field}: expected a non-empty string` };
+  return { ok: true, value: trimmed };
+}
+
+/** Inside `friction`/`dayNote` a MISSING key is not "absent, leave it alone" (that only holds for
+ *  the four top-level note fields) — there is no shape the harness can honour without it, so it is
+ *  dropped like any other bad value. */
+function missingLine(field: string): Checked<string> {
+  return { ok: false, reason: `${field}: expected a string, got nothing` };
+}
+
+/** A friction report (spec § E): `what` a non-empty string, `severity` a whole number 1..5, and
+ *  `recurrence` one of the three tags. The recurrence tag is the measurement, not metadata — the
+ *  panel weights a friction by projected exposure over a campaign — so an unknown tag drops the
+ *  report rather than being coerced into a tag it is not. */
+function checkFriction(value: unknown, field: string): Checked<FrictionReport> | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) {
+    return { ok: false, reason: `${field}: expected an object, got ${preview(value)}` };
+  }
+  const what = checkLine(value.what, `${field}.what`) ?? missingLine(`${field}.what`);
+  if (!what.ok) return what;
+  const severity = rating(value.severity);
+  if (severity === undefined) {
+    return { ok: false, reason: `${field}: severity must be a whole number 1-5, got ${preview(value.severity)}` };
+  }
+  const recurrence = asRecurrence(value.recurrence);
+  if (recurrence === undefined) {
+    return {
+      ok: false,
+      reason: `${field}: recurrence must be once, periodic or ritual, got ${preview(value.recurrence)}`,
+    };
+  }
+  return { ok: true, value: { what: what.value, severity, recurrence } };
+}
+
+/** The end-of-day note (spec § E): the rating pair plus the day's line and the updated arc note.
+ *  Held to the `brain.md` shape exactly — a half-filled note is dropped whole, because the panel
+ *  reads the rating pair and the arc note together. */
+function checkDayNote(value: unknown, field: string): Checked<DayNote> | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) {
+    return { ok: false, reason: `${field}: expected an object, got ${preview(value)}` };
+  }
+  const engagement = rating(value.engagement);
+  if (engagement === undefined) {
+    return {
+      ok: false,
+      reason: `${field}: engagement must be a whole number 1-5, got ${preview(value.engagement)}`,
+    };
+  }
+  const fulfilment = rating(value.fulfilment);
+  if (fulfilment === undefined) {
+    return {
+      ok: false,
+      reason: `${field}: fulfilment must be a whole number 1-5, got ${preview(value.fulfilment)}`,
+    };
+  }
+  const line = checkLine(value.line, `${field}.line`) ?? missingLine(`${field}.line`);
+  if (!line.ok) return line;
+  const arcNote = checkLine(value.arcNote, `${field}.arcNote`) ?? missingLine(`${field}.arcNote`);
+  if (!arcNote.ok) return arcNote;
+  return { ok: true, value: { engagement, fulfilment, line: line.value, arcNote: arcNote.value } };
+}
+
+/** A 1..5 rating: a whole number in range, or `undefined` (the caller names the field it dropped).
+ *  A stringified number is NOT accepted — `brain.md` asks for a number, JSON mode can deliver one,
+ *  and coercing here would hide a prompt the model keeps misreading. */
+function rating(value: unknown): 1 | 2 | 3 | 4 | 5 | undefined {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 5) return undefined;
+  return value as 1 | 2 | 3 | 4 | 5;
+}
+
+/** The recurrence tag, matched against the runtime vocabulary so the parser and the type cannot
+ *  drift. Written as a loop rather than a cast so the union narrows on evidence. */
+function asRecurrence(value: unknown): Recurrence | undefined {
+  for (const tag of RECURRENCE_TAGS) {
+    if (tag === value) return tag;
+  }
+  return undefined;
+}
+
+/** A JSON object (`null` and arrays are not). */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The offending value, one line, for a drop reason — truncated so a whole reply pasted into the
+ *  wrong field cannot blow up the transcript. A string keeps its quotes so `"3"` (a string) reads
+ *  differently from `3` (a number) in a reason that rejects one of them. */
+function preview(value: unknown): string {
+  if (value === undefined) return 'nothing';
+  const text = typeof value === 'string' ? `"${value}"` : (JSON.stringify(value) ?? String(value));
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 40 ? `${flat.slice(0, 40)}...` : flat;
 }
 
 /** The turn rendered as the user message: the working memory a player carries (only the blocks

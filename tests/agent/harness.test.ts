@@ -729,7 +729,7 @@ function stubBackend(character: CharacterData, opts: StubBackendConfig): RouterB
   };
 }
 
-function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[]; forceFreeActions?: boolean }): AgentHarness {
+function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] | BrainTurn[]; forceFreeActions?: boolean }): AgentHarness {
   const character = stubChar(opts.char);
   // DC-S4: the stub observer is the QA-OBSERVER surface — getCharacter/getMeta/tick, the
   // harness's only engine touch. restAtOak is extra (structural typing tolerates it) and
@@ -1355,5 +1355,73 @@ describe('AgentHarness — recon and working memory (T1)', () => {
     // The line is the outcome's own first line (the render's title), not the narration — the day
     // log is a log, not a story: it exists to name the attempt and its result.
     expect(brain.calls[3].dayLog).toBe('1. free action: "attack the goblin" → ⚔️ Combat');
+  });
+});
+
+// ── T4 — friction reaches the transcript (spec § E). The brain's `friction` note is the panel's
+// recurrence measurement: the tag is what lets a screen read every day outrank a once-a-session
+// clunk, so it has to survive the trip from the reply into the transcript with its day attached.
+
+describe('AgentHarness — friction capture (T4)', () => {
+  it('records each friction against the day it was reported on, across the whole tag vocabulary', async () => {
+    const { harness, seed } = buildHarness([
+      {
+        move: { kind: 'recon', screen: 'map' },
+        friction: { what: 'the map screen took three reads', severity: 2, recurrence: 'once' },
+      },
+      {
+        move: { kind: 'sleep' },
+        friction: { what: 'the bail dice read inconsistently', severity: 4, recurrence: 'periodic' },
+      },
+      {
+        move: { kind: 'sleep' },
+        friction: { what: 'the roll button moves every day', severity: 3, recurrence: 'ritual' },
+      },
+    ]);
+    await seed();
+
+    expect(await harness.playDays(2)).toEqual([
+      { dayNumber: 1, outcomes: 0, ended: 'slept' },
+      { dayNumber: 2, outcomes: 0, ended: 'slept' },
+    ]);
+
+    // A friction on a mid-day turn and on the sleep turn both land, each stamped with the day in
+    // progress rather than the day the run started on.
+    expect(harness.transcript.events.filter((e) => e.type === 'friction')).toEqual([
+      { type: 'friction', dayNumber: 1, what: 'the map screen took three reads', severity: 2, recurrence: 'once' },
+      { type: 'friction', dayNumber: 1, what: 'the bail dice read inconsistently', severity: 4, recurrence: 'periodic' },
+      { type: 'friction', dayNumber: 2, what: 'the roll button moves every day', severity: 3, recurrence: 'ritual' },
+    ]);
+    expect(harness.transcript.summary().frictions).toBe(3);
+  });
+
+  it('records a friction reported on a turn whose move the game refused', async () => {
+    // The brain reported what it hit while reading the screen; that reading stands even though its
+    // move was rejected (a refused pick is a day-log entry, not a reason to lose the friction).
+    const h = stubHarness({
+      menu: { kind: 'menu', view: DAYJOB_MENU },
+      moves: [
+        {
+          move: { kind: 'choice', index: 0 }, // not offered on a menu screen
+          friction: { what: 'the screen lied about my options', severity: 3, recurrence: 'ritual' },
+        },
+        { move: { kind: 'sleep' } },
+      ],
+    });
+
+    expect(await h.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+    expect(h.transcript.events.filter((e) => e.type === 'friction')).toEqual([
+      { type: 'friction', dayNumber: 1, what: 'the screen lied about my options', severity: 3, recurrence: 'ritual' },
+    ]);
+    expect(h.transcript.summary().frictions).toBe(1);
+  });
+
+  it('records no friction event on a turn that reports none', async () => {
+    const { harness, seed } = buildHarness([{ kind: 'sleep' }]);
+    await seed();
+    await harness.playDay();
+
+    expect(harness.transcript.events.some((e) => e.type === 'friction')).toBe(false);
+    expect(harness.transcript.summary().frictions).toBe(0);
   });
 });

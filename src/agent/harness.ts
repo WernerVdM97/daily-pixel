@@ -996,11 +996,21 @@ export class AgentHarness {
   }
 
   /** Fold the brain's own notes back into harness state (spec § B): the running intent and the arc
-   *  note persist across turns AND days; a note the gateway had to drop is a warning finding, never
-   *  a stall (a lost data point must be visible, but must not kill a run that has spent tokens). */
+   *  note persist across turns AND days; a friction is recorded as its own transcript event against
+   *  the day in progress (so the panel can rank it by projected exposure, spec § E); a note the
+   *  gateway had to drop is a warning finding, never a stall (a lost data point must be visible, but
+   *  must not kill a run that has spent tokens). */
   private absorbTurn(turn: BrainTurn): void {
     if (turn.intent !== undefined) this.intentNote = turn.intent;
     if (turn.arcNote !== undefined) this.arcNote = turn.arcNote;
+    if (turn.friction !== undefined) {
+      this.transcript.friction({
+        dayNumber: this.currentDay(),
+        what: turn.friction.what,
+        severity: turn.friction.severity,
+        recurrence: turn.friction.recurrence,
+      });
+    }
     for (const reason of turn.droppedNotes ?? []) {
       this.transcript.finding('warning', `dropped note: ${reason}`);
     }
