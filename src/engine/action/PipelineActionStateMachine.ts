@@ -99,7 +99,13 @@ export interface PipelineInternalActionState extends ActionState {
     enemyBonus: number;
     dc: number;
   };
-  /** Epoch ms last persisted. Used by the 30-min timeout hook. */
+  /** Epoch ms last persisted. Used by the 30-min timeout hook.
+   *
+   *  AUDIT (spec § G's advancing clock): stamped from `Date.now()` at all four state constructors
+   *  below, so under the agent harness's advancing pin a pending action left over a night reads as
+   *  24 hours stale and resolves as a server-side timeout on the next day's first step. DECISION:
+   *  intentional and unchanged — the full reasoning (and the test that pins it) is at
+   *  `WorldEngineImpl.resolveStaleTimeout`, the one place these stamps are compared. */
   lastActionAt: number;
   /** All llm_calls ids in this action. Task 5 built the per-stage stamp/callKind derivation
    *  (`src/llm/pipeline/stamping.ts`) but nothing wires it into an actual `LlmCallRecorder` call
@@ -270,7 +276,7 @@ export class PipelineActionStateMachine {
           rollStat: decideResult.stat,
           required: decideResult.required,
           lastDecideResult: decideResult,
-          lastActionAt: Date.now(),
+          lastActionAt: Date.now(), // advancing-pin audited: see the field note above
           ...(allCallIds.length > 0 ? { llmCallIds: allCallIds } : {}),
         };
         return { resolved: false, state: combatState, firstDecision: combatFirstDecision };
@@ -291,7 +297,7 @@ export class PipelineActionStateMachine {
         rollStat: decideResult.stat,
         required: decideResult.required,
         lastDecideResult: decideResult,
-        lastActionAt: Date.now(),
+        lastActionAt: Date.now(), // advancing-pin audited: see the field note above
         ...(allCallIds.length > 0 ? { llmCallIds: allCallIds } : {}),
       };
       // Same fail-open as the decide beat above: the auto-resolve path runs RESOLVE-MUTATE and
@@ -322,7 +328,7 @@ export class PipelineActionStateMachine {
       rollStat: decideResult.stat,
       required: decideResult.required,
       lastDecideResult: decideResult,
-      lastActionAt: Date.now(),
+      lastActionAt: Date.now(), // advancing-pin audited: see the field note above
       // llmCallIds accumulates every recorded LLM call in this action (gateway stages +
       // critic). Filter zeros: callId===0 means no recorder was wired for that call.
       ...([...gatewayCallIds, ...criticCallIds, ...validatorCallIds].length > 0
@@ -1522,7 +1528,7 @@ export class PipelineActionStateMachine {
       // other hardcoded fields above rather than being read by anything, since divine
       // intervention resolves outright and never reaches resolve()'s handoff.
       lastDecideResult: { distilledType: 'divine_intervention', stat: 'physical', baseDc: 0, required: false, decision: [] },
-      lastActionAt: Date.now(),
+      lastActionAt: Date.now(), // advancing-pin audited: see the field note above
     };
     return {
       resolved: true,

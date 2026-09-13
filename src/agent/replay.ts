@@ -12,20 +12,28 @@
  * verify-first probe (stage 7 Task A) confirmed characterId assignment IS reproducible on a
  * fresh engine (the fresh DB's first created character is again id 1, and mulberry32 is
  * keyed by characterId/dayNumber, so day-job actions/workplaces/rolls re-seed identically).
- * The determinism caveat is the same-weekday-class one, and it is NOT just the greeting: the
- * day-start greeting reads wall-clock `isWeekend()` (hiScreen.ts), and the nightly tick is
+ * The determinism caveat that used to sit here was the same-weekday-class one, and it is now
+ * DISCHARGED for multi-day streams as well as one-day ones: the day-start greeting reads wall-clock `isWeekend()` (hiScreen.ts), and the nightly tick is
  * wall-clock dependent TOO — the Saturday tick grants the bonus roll and runs the Saturday
  * NPC script (`getUTCDay() === 6`, WorldEngineImpl.ts) and the 5-day absence nudge fires on
  * the tick crossing five idle days — so a MULTI-DAY real-backend recording must be replayed
  * in the same weekday class it was recorded in (a weekday recording replayed on a Saturday
- * re-ticks with one extra roll). The envelope-visible effect lands in the action hints keyed
- * off rollsRemaining.
+ * re-ticks with one extra roll) — and the replay half re-ticks on the SAME weekdays, because
+ * it steps the clock one day per tick marker exactly as the recording half did (harness.ts
+ * calls `advanceDays(1)` immediately before each `tick(true)`). So a multi-day recording is
+ * green on any calendar day the suite runs on, and the day-N+1 Saturday bonus and the
+ * five-day absence nudge are reproducible rather than accidentally-matching. The
+ * envelope-visible effect lands in the action hints keyed off rollsRemaining — those are what
+ * a wrong-dated replay still diverges on. (The one-day corpus entries committed before the
+ * stepping half existed are unaffected: their tick is the last entry, and a tick marker
+ * asserts only its dayNumber.)
  * The real-backend arm rebuilds a fresh deterministic engine (scripted pipeline gateway +
  * rollD20:()=>20) and re-seeds by REPLAYING the recorded creation walk (the stream's
  * join.open → wizard.* → character.create dispatches run on the fresh engine as-is); a
  * real-backend replay of a stream WITHOUT a creation walk (an inherit-class transcript)
  * fails loudly — the caller must pre-seed the engine instead (DC-S2). Tick markers
- * re-execute via `engine.tick(true)` with a dayNumber assert.
+ * re-execute via `engine.tick(true)` with a dayNumber assert, each one advancing the pinned
+ * clock a day first.
  *
  * Backend selection defaults to the header's recorded `backend` class; `--stub`/`--real`
  * override (a header/flags disagreement is warned, never silently honoured).
@@ -63,7 +71,8 @@ import { deterministicPipelineScript, buildDeterministicRouter } from './determi
 import { buildAgentEngine } from './engineHarness.js';
 import { PipelineScriptedGateway } from '../sim/PipelineScriptedGateway.js';
 import { GameRouter } from '../protocol/router.js';
-import { pinClock } from './clock.js';
+import { pinAdvancingClock } from './clock.js';
+import type { AdvancingClock } from './clock.js';
 import { establishBootParity } from './bootParity.js';
 import { PROTOCOL_VERSION, validateGameResponse, type GameResponse } from '../protocol/envelope.js';
 import { validateGameEvent, type GameEvent } from '../protocol/events.js';
@@ -268,22 +277,29 @@ export interface ReplayResult {
  *  a recorded file holds), so a live object and its recorded twin compare equal. */
 
 export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions = {}): Promise<ReplayResult> {
-  // DC-M10.6: pin before anything runs, restore unconditionally. A malformed or absent stamp
-  // replays unpinned rather than throwing — parseProtocolFile already rejects those, so this
-  // only forgives a hand-built in-process log, and the header is normalized below anyway.
+  // DC-M10.6 + spec § G: pin before anything runs, restore unconditionally. A malformed or absent
+  // stamp replays unpinned rather than throwing — parseProtocolFile already rejects those, so this
+  // only forgives a hand-built in-process log, and the header is normalized below anyway. The pin
+  // ADVANCES one day per tick marker (see the tick branch): the recording half stepped the clock a
+  // day per nightly tick, so a multi-day stream only re-ticks on the right calendar date if the
+  // replay steps with it.
   const head = protocol[0];
   const stamp = head?.kind === 'header' ? head.recordedAt : undefined;
-  const restore = typeof stamp === 'string' && !Number.isNaN(new Date(stamp).getTime())
-    ? pinClock(stamp)
-    : () => {};
+  const clock = typeof stamp === 'string' && !Number.isNaN(new Date(stamp).getTime())
+    ? pinAdvancingClock(stamp)
+    : undefined;
   try {
-    return await replayLogPinned(protocol, opts);
+    return await replayLogPinned(protocol, opts, clock);
   } finally {
-    restore();
+    clock?.restore();
   }
 }
 
-async function replayLogPinned(protocol: ProtocolEntry[], opts: ReplayOptions = {}): Promise<ReplayResult> {
+async function replayLogPinned(
+  protocol: ProtocolEntry[],
+  opts: ReplayOptions = {},
+  clock?: AdvancingClock,
+): Promise<ReplayResult> {
   const header = protocol[0];
   if (!header || header.kind !== 'header') {
     return {
@@ -354,6 +370,13 @@ async function replayLogPinned(protocol: ProtocolEntry[], opts: ReplayOptions = 
     if (entry.kind === 'header') continue;
 
     if (entry.kind === 'tick') {
+      // One calendar day per tick marker (spec § G): the recording half stepped the clock inside
+      // `endDay` before each `tick(true)`, so the replay must step identically or a multi-day
+      // stream re-ticks on the wrong weekday and the Saturday bonus / absence nudge diverge from
+      // the recorded bytes. Ahead of both arms for symmetry: the canned stub observer owns no
+      // world, so the step is inert there, but the clock state a stream implies should not depend
+      // on which backend read it.
+      clock?.advanceDays(1);
       if (backend === 'real' && engine) {
         const tick = engine.tick(true);
         const ok = tick.dayNumber === entry.dayNumber;
