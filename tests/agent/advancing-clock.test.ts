@@ -99,6 +99,7 @@ function buildClockHarness(
   agentEngine: ReturnType<typeof buildAgentEngine>;
   engine: ReturnType<typeof buildAgentEngine>['engine'];
   harness: AgentHarness;
+  brain: ScriptedAgentPlayerGateway;
   observer: TickRecordingObserver;
   clock: ReturnType<typeof pinAdvancingClock>;
 } {
@@ -110,18 +111,13 @@ function buildClockHarness(
   establishBootParity(agentEngine.db);
   const observer = new TickRecordingObserver(agentEngine.engine, USER_ID);
   const clock = pinAdvancingClock(startIso);
-  const harness = createAgentHarness(
-    observer,
-    buildDeterministicRouter(agentEngine),
-    new ScriptedAgentPlayerGateway(moves),
-    USER_ID,
-    {
-      recordedAt: startIso,
-      backend: 'real',
-      ...(opts.pin === false ? {} : { pinnedClock: clock }),
-    },
-  );
-  return { agentEngine, engine: agentEngine.engine, harness, observer, clock };
+  const brain = new ScriptedAgentPlayerGateway(moves);
+  const harness = createAgentHarness(observer, buildDeterministicRouter(agentEngine), brain, USER_ID, {
+    recordedAt: startIso,
+    backend: 'real',
+    ...(opts.pin === false ? {} : { pinnedClock: clock }),
+  });
+  return { agentEngine, engine: agentEngine.engine, harness, brain, observer, clock };
 }
 
 /** The envelope's view, asserting the call succeeded — the union makes `view` unreachable
@@ -327,6 +323,38 @@ describe('skipDays — the interruption (spec § G, contract §10)', () => {
       // the calendar stands still. Documented rather than defended: `play.ts` always pins.
       expect(ticks(harness).map((t) => t.dayNumber)).toEqual([2, 3]);
       expect(engine.getMeta('day_number')).toBe('3');
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('the resumed day tells the brain it was away, instead of calling a day it never played yesterday', async () => {
+    // The interrupted panel's one measurement (spec § G): the absence has to reach the brain, and
+    // the day-start recap is the only block that can carry it. Without this the run resumes on day 7
+    // wearing a day-6 recap the player never earned.
+    const { harness, brain, clock } = buildClockHarness(TWO_DAYS);
+    try {
+      await harness.createCharacter(SEED);
+      await harness.playDays(1);
+      // Day 1 has nothing behind it: no recap on any of its turns.
+      expect(brain.calls[0].recap).toBeUndefined();
+
+      harness.skipDays(5);
+      const callsBefore = brain.calls.length;
+
+      // The resume: day 7, five days after the last day actually played.
+      expect((await harness.playDays(1)).map((s) => s.dayNumber)).toEqual([7]);
+      const recap = brain.calls[callsBefore].recap;
+      const lines = (recap ?? '').split('\n');
+
+      expect(lines[0]).toBe('LAST PLAYED (day 1):');
+      expect(lines[1]).toBe('5 days passed without you.');
+      // Day 1's own outcome lines still ride the recap, and it still ends with its disposition.
+      expect(lines.length).toBeGreaterThan(3);
+      expect(lines.at(-1)).toBe('ended: slept');
+
+      // Non-vacuity for the gap itself: those five days were ticks and `day` lines, never turns.
+      expect(harness.transcript.events.filter((e) => e.type === 'day' && e.note.includes('skipped'))).toHaveLength(5);
     } finally {
       clock.restore();
     }
