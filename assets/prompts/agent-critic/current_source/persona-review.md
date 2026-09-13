@@ -26,7 +26,7 @@ Every review answers these, and the panel is read in this order:
 Five criteria, each scored 1-5 (1 = absent, 3 = present but thin, 5 = the pillar delivered), **or `unobserved`**:
 
 | Criterion | The question you are answering |
-|---|---|
+| --- | --- |
 | `ritualPull` | Was today's one visit worth it, and is tomorrow's? |
 | `visibleStakes` | Were the dice and the danger legible, and worth caring about? |
 | `somethingToBuild` | Is there a thread, project or bond in progress that I would miss? |

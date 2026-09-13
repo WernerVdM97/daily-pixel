@@ -32,10 +32,11 @@ export interface TurnEvent {
 export interface OutcomeEvent {
   type: 'outcome';
   text: string;
-  /** The ENGINE's own classification of the action that produced this outcome — the outcome
-   *  envelope's `facts.distilledType` (a `FACTS_KEYS` fact), recorded verbatim so the panel can
-   *  read a persona's measured verbs in one language with its priors (spec § A, contract §9).
-   *  Never keyword-matched from the outcome text. Absent on an envelope that carried no fact. */
+  /** The action model's own label for the action that produced this outcome — the outcome
+   *  envelope's `facts.distilledType` (a `FACTS_KEYS` fact), recorded verbatim. MODEL-AUTHORED and
+   *  open-vocabulary, NOT the engine's classify kind (which is not on the envelope) and not a
+   *  persona's verb priors (contract §9, the correction found while implementing T5). Never
+   *  keyword-matched from the outcome text. Absent on an envelope that carried no fact. */
   verb?: string;
 }
 export interface DeadEndEvent { type: 'dead-end'; reason: string; detail?: string }
@@ -269,9 +270,9 @@ export class Transcript {
    *  - `kinds` counts the `turn` events by `AgentMove.kind` — what the brain actually chose
    *    (`menu-pick`, `custom`, `choice`, `bail`, `sleep`, `recon`). Exact, and independent of the
    *    engine's reading of the action.
-   *  - `verbs` counts the `outcome` events by the engine's own `distilledType`, the same classify
-   *    vocabulary the action pipeline uses, so a persona's priors and its measured verbs are
-   *    expressed in one language.
+   *  - `verbs` counts the `outcome` events by the action model's own `distilledType`: a free label,
+   *    open-vocabulary and model-authored, so it is a reading of what a persona reached for in the
+   *    model's own words rather than an exact vocabulary shared with its priors (contract §9).
    *
    *  The two can disagree, and that disagreement is a finding of its own: a brain that `custom`-ed its
    *  way to a `rest` outcome played rest, whatever slot it reached for. */

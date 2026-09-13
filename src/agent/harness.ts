@@ -1079,8 +1079,9 @@ export class AgentHarness {
 
   /** Record a completed action: the transcript's outcome event plus the day's own line (its first
    *  line), which is what the next day's recap block carries. The outcome envelope's facts carry the
-   *  engine's own classification of the action (`distilledType`), recorded as the outcome's `verb`
-   *  so the verb histogram is measured rather than guessed (spec § A, contract §9). */
+   *  action model's own label for the action (`distilledType`, model-authored and open-vocabulary),
+   *  recorded as the outcome's `verb` so the histogram reports what the model called it rather than a
+   *  guess from free text (spec § A, contract §9). */
   private recordOutcome(text: string, facts?: Record<string, unknown>): void {
     const verb = typeof facts?.distilledType === 'string' ? facts.distilledType : undefined;
     this.transcript.outcome(text, verb);

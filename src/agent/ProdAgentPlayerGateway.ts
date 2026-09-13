@@ -67,19 +67,27 @@ interface ResolvedNotes {
   arcNote?: string;
   friction?: FrictionReport;
   dayNote?: DayNote;
-  /** One reason per dropped field, in reply-field order — plus one per text field the length cap
-   *  had to cut, since a truncated value is a loss too. Also the audit row's
-   *  `validationWarnings`, so a lost data point leaves a trace even when the run carries on. */
+  /** One reason per dropped field, in reply-field order. Also the audit row's `validationWarnings`,
+   *  so a lost data point leaves a trace even when the run carries on. Truncation is NOT a drop and
+   *  is not reported here: see `checkLine`. */
   droppedNotes: string[];
 }
 
 const CALL_KIND = 'agent-player';
 
-/** Cap on every free-text value accepted from a reply (`intent`, `arcNote`, `friction.what`, the
- *  day note's two strings, a custom action's text). All of them are re-rendered into a later prompt,
- *  so an unbounded reply could grow the prompt every turn. 200 is comfortably more than the one
- *  short line the prompt asks for. */
+/** Cap on every free-text value that is re-sent to the model every turn (`intent`, `arcNote`,
+ *  `friction.what`, the day note's persisted `arcNote`, a custom action's text). All of them are
+ *  re-rendered into a later prompt, so an unbounded reply could grow the prompt every turn. 200 is
+ *  comfortably more than the one short line the prompt asks for. */
 const TEXT_MAX_LEN = 200;
+
+/** A wider cap for the day note's `line` alone. It is rendered ONCE, into the day-note event and
+ *  then the panel's series, and never re-sent as context — unlike the fields `TEXT_MAX_LEN` guards.
+ *  The prompt asks for "one line on the day" and models write a sentence (a live run's line ran to
+ *  151 characters against the old 200 ceiling), so the backstop against runaway growth sits at 400.
+ *  The day note's `arcNote` stays at `TEXT_MAX_LEN`: it becomes the persisted `arcNote`, which IS
+ *  re-rendered every following turn. */
+const DAY_NOTE_LINE_MAX_LEN = 400;
 
 /** The recurrence vocabulary (spec § E, contract §1.2) as a runtime list, so the parser checks the
  *  same three tags the type names. Order is the prompt's order. */
@@ -276,14 +284,13 @@ function resolveMove(raw: RawBrainReply, input: ChooseMoveInput): AgentMove {
 function resolveNotes(raw: RawBrainReply): ResolvedNotes {
   const droppedNotes: string[] = [];
   /** Collect one field: absent (undefined check) means unchanged, a failed check pushes its one
-   *  reason and drops the field, a pass yields the value (reporting a cut one as a loss). */
+   *  reason and drops the field, a pass yields the value. */
   const take = <T>(checked: Checked<T> | undefined): T | undefined => {
     if (checked === undefined) return undefined;
     if (!checked.ok) {
       droppedNotes.push(checked.reason);
       return undefined;
     }
-    if (checked.truncated !== undefined) droppedNotes.push(...checked.truncated);
     return checked.value;
   };
   return {
@@ -296,43 +303,36 @@ function resolveNotes(raw: RawBrainReply): ResolvedNotes {
 }
 
 /** A validated field: either the value, or the single one-line reason it was rejected. `undefined`
- *  (returned by the checkers instead of a `Checked`) means the field was absent, not malformed.
- *  `truncated` is set when the value had to be cut to the length cap: the field is still accepted,
- *  but the lost tail is named on `droppedNotes` rather than vanishing. A checker that validates a
- *  nested object carries the cuts its own fields suffered up through its result. */
-type Checked<T> = { ok: true; value: T; truncated?: string[] } | { ok: false; reason: string };
-
-/** An accepted value, carrying the truncation reasons of any text field inside it (none when
- *  nothing was cut), so a nested cut still reaches `droppedNotes`. */
-function accepted<T>(value: T, ...cuts: Array<string[] | undefined>): Checked<T> {
-  const truncated = cuts.flatMap((cut) => cut ?? []);
-  return truncated.length > 0 ? { ok: true, value, truncated } : { ok: true, value };
-}
+ *  (returned by the checkers instead of a `Checked`) means the field was absent, not malformed. */
+type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
 
 /** A one-line note (`intent`, `arcNote`, `friction.what`, a day note's strings): a present,
  *  non-empty string, whitespace-collapsed and length-capped. Collapsing is not cosmetic — these
  *  lines are re-rendered into the next turn's prompt, so un-collapsed multi-line text lets a reply
- *  inject its own section headers and grow the prompt every turn. */
-function checkLine(value: unknown, field: string): Checked<string> | undefined {
+ *  inject its own section headers and grow the prompt every turn. The cap is the second half of that
+ *  protection, aimed at runaway growth rather than at prose: like trimming, it is NORMALISATION, so
+ *  a cut value is still the brain's note and is reported as nothing. `maxLen` is a parameter only so
+ *  the day note's `line` can take `DAY_NOTE_LINE_MAX_LEN`; the value still has to pass the same
+ *  checks, so a malformed line still drops and is still named. */
+function checkLine(value: unknown, field: string, maxLen: number = TEXT_MAX_LEN): Checked<string> | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') return { ok: false, reason: `${field}: expected a string, got ${preview(value)}` };
-  const { text, truncated } = collapse(value);
+  const text = collapse(value, maxLen);
   if (text === '') return { ok: false, reason: `${field}: expected a non-empty string` };
-  return accepted(text, truncated ? [`${field}: truncated to ${TEXT_MAX_LEN} characters`] : undefined);
+  return { ok: true, value: text };
 }
 
 /** Whitespace-collapsed, length-capped free text — the shape every brain-authored string is accepted
- *  in. `truncated` says the cap bit, so the caller can name the loss. */
-function collapse(value: string): { text: string; truncated: boolean } {
+ *  in. The cap is silent by design: the ellipsis the caller renders is the whole record of the cut. */
+function collapse(value: string, maxLen: number = TEXT_MAX_LEN): string {
   const flat = value.trim().replace(/\s+/g, ' ');
-  if (flat.length <= TEXT_MAX_LEN) return { text: flat, truncated: false };
-  return { text: `${flat.slice(0, TEXT_MAX_LEN).trimEnd()}…`, truncated: true };
+  return flat.length <= maxLen ? flat : `${flat.slice(0, maxLen).trimEnd()}…`;
 }
 
 /** The same shaping for a custom action's free text, which is not a validated NOTE (so it has no
  *  `droppedNotes` channel): '' when the reply carried no usable text, which the caller throws on. */
 function collapseText(value: unknown): string {
-  return typeof value === 'string' ? collapse(value).text : '';
+  return typeof value === 'string' ? collapse(value) : '';
 }
 
 /** Inside `friction`/`dayNote` a MISSING key is not "absent, leave it alone" (that only holds for
@@ -364,12 +364,13 @@ function checkFriction(value: unknown, field: string): Checked<FrictionReport> |
       reason: `${field}: recurrence must be once, periodic or ritual, got ${preview(value.recurrence)}`,
     };
   }
-  return accepted({ what: what.value, severity, recurrence }, what.truncated);
+  return { ok: true, value: { what: what.value, severity, recurrence } };
 }
 
 /** The end-of-day note (spec § E): the rating pair plus the day's line and the updated arc note.
  *  Held to the `brain.md` shape exactly — a half-filled note is dropped whole, because the panel
- *  reads the rating pair and the arc note together. */
+ *  reads the rating pair and the arc note together. `line` is the one field that gets the wider cap
+ *  (see `DAY_NOTE_LINE_MAX_LEN`); `arcNote` is a per-turn field and stays at `TEXT_MAX_LEN`. */
 function checkDayNote(value: unknown, field: string): Checked<DayNote> | undefined {
   if (value === undefined) return undefined;
   if (!isPlainObject(value)) {
@@ -389,11 +390,11 @@ function checkDayNote(value: unknown, field: string): Checked<DayNote> | undefin
       reason: `${field}: fulfilment must be a whole number 1-5, got ${preview(value.fulfilment)}`,
     };
   }
-  const line = checkLine(value.line, `${field}.line`) ?? missingLine(`${field}.line`);
+  const line = checkLine(value.line, `${field}.line`, DAY_NOTE_LINE_MAX_LEN) ?? missingLine(`${field}.line`);
   if (!line.ok) return line;
   const arcNote = checkLine(value.arcNote, `${field}.arcNote`) ?? missingLine(`${field}.arcNote`);
   if (!arcNote.ok) return arcNote;
-  return accepted({ engagement, fulfilment, line: line.value, arcNote: arcNote.value }, line.truncated, arcNote.truncated);
+  return { ok: true, value: { engagement, fulfilment, line: line.value, arcNote: arcNote.value } };
 }
 
 /** A 1..5 rating: a whole number in range, or `undefined` (the caller names the field it dropped).

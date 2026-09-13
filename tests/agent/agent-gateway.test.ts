@@ -553,9 +553,51 @@ describe('ProdAgentPlayerGateway — notes (T4)', () => {
     expect(turn.arcNote).toBe('the temple ARC: injected');
     expect(turn.friction?.what).toBe('bail dice read inconsistently');
     expect(turn.dayNote?.line).toBe('a quiet day');
+    // `dayNote.arcNote` becomes the persisted `arcNote`, so it is re-rendered every following turn
+    // and stays at the per-turn cap.
     expect(turn.dayNote?.arcNote).toBe(`${'x'.repeat(200)}…`);
-    // The cut is named: a truncated value is a loss, and losses are reported, never silent.
-    expect(turn.droppedNotes).toEqual(['dayNote.arcNote: truncated to 200 characters']);
+    // The cut is NOT reported. Truncation is normalisation, like trimming whitespace: nothing was
+    // dropped, and reporting it padded the operator's warning count with noise it could not act on.
+    expect('droppedNotes' in turn).toBe(false);
+  });
+
+  it('keeps a long day note line up to the wider cap, and reports nothing for it', async () => {
+    // `dayNote.line` is rendered ONCE, into the day-note event and the panel's series, and is never
+    // re-sent as context — so it gets a wider cap than the per-turn fields. The live run that
+    // surfaced this wrote a 151-character sentence against the old 200 ceiling.
+    const line = 'y'.repeat(400);
+    const gw = makeGateway(mockFetch(apiResponse({ choice: 3, dayNote: { ...VALID_DAY_NOTE, line } })));
+    const turn = await gw.chooseMove(menuInput());
+
+    expect(turn.dayNote?.line).toBe(line);
+    expect('droppedNotes' in turn).toBe(false);
+
+    // Past 400 it is still capped — the backstop against runaway growth — and still silently.
+    const runaway = makeGateway(
+      mockFetch(apiResponse({ choice: 3, dayNote: { ...VALID_DAY_NOTE, line: 'y'.repeat(500) } })),
+    );
+    const capped = await runaway.chooseMove(menuInput());
+    expect(capped.dayNote?.line).toBe(`${'y'.repeat(400)}…`);
+    expect('droppedNotes' in capped).toBe(false);
+
+    // The degrade rule is untouched: a line that is MALFORMED rather than long still drops by name.
+    const malformed = makeGateway(
+      mockFetch(apiResponse({ choice: 3, dayNote: { ...VALID_DAY_NOTE, line: '   ' } })),
+    );
+    expect((await malformed.chooseMove(menuInput())).droppedNotes).toEqual([
+      'dayNote.line: expected a non-empty string',
+    ]);
+  });
+
+  it('still caps the per-turn fields at 200', async () => {
+    const gw = makeGateway(
+      mockFetch(apiResponse({ choice: 3, intent: 'z'.repeat(300), arcNote: 'z'.repeat(300) })),
+    );
+    const turn = await gw.chooseMove(menuInput());
+
+    expect(turn.intent).toBe(`${'z'.repeat(200)}…`);
+    expect(turn.arcNote).toBe(`${'z'.repeat(200)}…`);
+    expect('droppedNotes' in turn).toBe(false);
   });
 
   it('collapses and caps a custom action\'s free text', async () => {
