@@ -75,7 +75,7 @@ Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`s
 
 **Triage** reads Inbox items, dedupes, resolves `[[doc-links]]`, drafts acceptance criteria, asks clarifying questions as comments, and moves items to Triaged — or to Blocked with `needs-human-decision` when it cannot proceed.
 
-**Executor** is now a starter, not a builder. At its slot the schedule runs `npx tsx scripts/factory-jobs.ts start`, which claims the highest-priority-then-oldest `Approved` (or `auto:*`-class) item or adopts an orphaned branch, cuts a worktree off `dev`, and opens a _job_ in `.pi/factory/jobs/<item>.json`; the agent itself builds nothing and exits in seconds. The stages then run one per process, advanced by the tick's drainer and enforced by the ledger: `build` (agent, 50 min) → `review` (fresh read-only agent, 20 min) → `fix` (agent, 30 min, skipped when the review is clean) → `deliver` (code: push, PR to `dev` with `Closes #n`, Status `In Review`) → `reconcile` (code: on merge, Status `Done` + closes the issue) → `done` (code: worktree removed, record archived, branch kept). 100 minutes cumulative per job; a second failure at one stage, or a spent budget, blocks the item and pages the owner. Full rationale in [[dark-factory-job-ledger]]. It never merges.
+**Executor** is now a starter, not a builder. At its slot the schedule runs `npx tsx scripts/factory-jobs.ts start`, which claims the highest-priority-then-oldest runnable item (see § The gate for the two questions behind "runnable") or adopts an orphaned branch, cuts a worktree off `dev`, and opens a _job_ in `.pi/factory/jobs/<item>.json`; the agent itself builds nothing and exits in seconds. The stages then run one per process, advanced by the tick's drainer and enforced by the ledger: `build` (agent, 50 min) → `review` (fresh read-only agent, 20 min) → `fix` (agent, 30 min, skipped when the review is clean) → `deliver` (code: push, PR to `dev` with `Closes #n`, Status `In Review`) → `reconcile` (code: on merge, Status `Done` + closes the issue) → `done` (code: worktree removed, record archived, branch kept). 100 minutes cumulative per job; a second failure at one stage, or a spent budget, blocks the item and pages the owner. Full rationale in [[dark-factory-job-ledger]]. It never merges.
 
 **Sweeper** is the gate's backstop: it flags any PR whose issue was never Approved and has no `auto:*` label, re-checks CI on idle PRs, runs the branch pruner (`factory-jobs.ts housekeeping`) and lists the stale branches it left for the owner, resets stalled `In Progress` items back to `Approved`, marks merged items `Done`, and posts a digest. Its two board-hygiene rules stand down for items that carry a job record: `In Progress` with a job is a run in flight rather than a stalled card, and `In Review` with a job is the ledger's transition to make, because the ledger also closes the linked issue. It keeps both rules for items with no job, which is every item that predates the ledger.
 
@@ -103,6 +103,16 @@ Enforced twice, belt and braces:
 2. **Mechanical** — the sweeper audits open PRs against issue approval state and flags violations.
 
 Standing-approval classes (the only work that can run without per-item approval): `auto:docs` (docs/ and comments only), `auto:changelog` (CHANGELOG.md upkeep), `auto:tests` (test-only, no `src/`). Anything else always needs Status=`Approved`.
+
+### Approval is not readiness
+
+Approval answers "may this ever run"; the ledger also asks "now", and an approved item is held back in three cases:
+
+- **It carries `needs-human-decision`.** That label means a human decides first, and `Approved` does not outrank it. An approval set in bulk, or set before triage parked the card, would otherwise start work whose acceptance criteria are still a question for the owner.
+- **One of its dependencies is open.** The ledger reads GitHub's own `blockedBy` relations for the items it is about to consider. Dependencies used to exist only as prose in the loops' memory, which the pick could not read, so a card could be approved while the design it waited on was still open.
+- **It sits outside the focus milestone.** The factory builds one milestone at a time: the open milestone with the earliest due date, read from `gh` and cached at `.pi/factory/focus.json`. The cache is what lets triage order its passes by the sprint without its own API call, and it is the only writer's state, never hand-edited. A milestone with no due date never takes the focus while a dated one is open; when no open milestone is dated the filter switches off and priority order decides. Advancing the sprint is therefore a milestone change — close or re-date one — and not a config edit.
+
+Every declined item is named with its reason, in the `start` log and on the pinned bulletin. A factory with nothing runnable is a normal state, since the sprint may be waiting on the owner; what matters is that the bulletin says which, so an idle machine is never indistinguishable from a broken one.
 
 ## Running it (manual, while trust builds)
 

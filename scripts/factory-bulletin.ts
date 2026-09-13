@@ -27,6 +27,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildCtx, type HeldReport, heldReports, readReadiness } from "./factory-jobs.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -152,6 +153,13 @@ export interface Queue {
   /** In Review, or an open PR to the integration branch. */
   merge: Entry[];
   statusCounts: Record<string, number>;
+  /**
+   * Gated work the ledger will decline to start, and the milestone it is building instead.
+   * Both are facts about the machine, not the owner: they explain an idle factory, which is
+   * otherwise indistinguishable from a broken one.
+   */
+  held: HeldReport[];
+  focus: string | null;
   notes: string[];
 }
 
@@ -359,6 +367,8 @@ function toEntry(item: BoardItem, sinceMs: number | null, excerpt: string): Entr
 interface ClassifyOpts {
   agentLogins: ReadonlySet<string>;
   nowMs: number;
+  /** The ledger's own view of what can run now. Absent in tests that only classify. */
+  readiness?: { focus: string | null; held: HeldReport[] };
 }
 
 /**
@@ -407,12 +417,34 @@ function buildNotes(queue: Queue): string[] {
       "Nothing is `Approved`, so the executor has nothing to pick up. Every card in `Triaged` is idle until you move it.",
     );
   }
+  const declines = queue.held.filter((held) => held.reason !== "out-of-focus");
+  if (declines.length > 0) {
+    notes.push(
+      `**${declines.length}** approved item(s) cannot run yet: ${describeHolds(declines)}. The ledger prints the same list; nothing is stalled, it is waiting.`,
+    );
+  }
+  const outOfFocus = queue.held.filter((held) => held.reason === "out-of-focus");
+  if (queue.focus && outOfFocus.length > 0) {
+    notes.push(
+      `The executor builds **${queue.focus}** only, so **${outOfFocus.length}** gated card(s) in other milestones wait for the focus to roll. Approving one does not pull it forward.`,
+    );
+  }
   if (queue.neverAsked.length > 0) {
     notes.push(
       `**${queue.neverAsked.length}** item(s) are \`Blocked\` with \`needs-human-decision\` and no comments at all, so nobody has written the question: that is a factory defect for triage to fix, not a decision for you.`,
     );
   }
   return notes;
+}
+
+function describeHolds(held: HeldReport[]): string {
+  const counts = new Map<string, number[]>();
+  for (const entry of held) {
+    counts.set(entry.reason, [...(counts.get(entry.reason) ?? []), entry.number]);
+  }
+  return [...counts.entries()]
+    .map(([reason, numbers]) => `${numbers.length} ${reason} (${numbers.map((n) => `#${n}`).join(", ")})`)
+    .join(", ");
 }
 
 /**
@@ -431,6 +463,8 @@ export function classifyBoard(
     approve: [],
     merge: [],
     statusCounts: {},
+    held: opts.readiness?.held ?? [],
+    focus: opts.readiness?.focus ?? null,
     notes: [],
   };
 
@@ -486,6 +520,10 @@ export function renderBulletin(queue: Queue, generatedAt: Date): string {
   lines.push("");
   lines.push(
     `**Waiting on you: ${queue.answer.length}** · answered, waiting on triage: ${queue.answered.length} · no question written: ${queue.neverAsked.length} · ready to approve: ${queue.approve.length} · ready to merge: ${queue.merge.length}`,
+  );
+  lines.push("");
+  lines.push(
+    `_Ledger: building **${queue.focus ?? "no milestone focus"}** · gated work held back: ${queue.held.length}_`,
   );
   lines.push("");
 
@@ -651,9 +689,17 @@ function main(): void {
   }
   const commentsByNumber = fetchComments(config.repo, needsComments);
 
+  // The ledger's own gate, asked here rather than reimplemented: the bulletin's job is to
+  // explain an idle factory, and the only way to stay honest about *why* is to run the
+  // same readiness read the pick runs.
   const queue = classifyBoard(items, commentsByNumber, {
     agentLogins: opts.agentLogins,
     nowMs,
+    readiness: (() => {
+      const ctx = buildCtx(process.env);
+      const readiness = readReadiness(ctx, config, items);
+      return { focus: readiness.focus ?? null, held: heldReports(items, [], readiness) };
+    })(),
   });
 
   // Open non-draft PRs to the integration branch are the factory's other merge queue:

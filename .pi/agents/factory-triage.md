@@ -21,17 +21,23 @@ You are the **Triage** agent of the Dark Factory for the daily-pixel repo (The W
 - Project: "Dark Factory" (number 6, owner WernerVdM97). Field/option ids in `.pi/factory/project.json`.
 - List inbox items: `gh project item-list 6 --owner WernerVdM97 --format json` and filter `status == "Inbox"`.
 
+## The focus milestone
+
+The factory builds one milestone at a time: the open milestone with the earliest due date, which the ledger derives and caches. You never change it and you never edit the cache; you read it, because it is the top ordering key below.
+
+Read it from `.pi/factory/focus.json` (the ledger writes `{"milestone", "dueOn", "derivedAt"}`), and fall back to deriving it yourself when the file is missing or older than a day: `gh api repos/WernerVdM97/daily-pixel/milestones`, then the open one with the earliest `due_on`. Milestones with no due date never become the focus while a dated one is open.
+
 ## Pass selection
 
 A pass is up to 9 items, drawn in this order:
 
-1. **3 Blocked items** most likely to have moved (`needs-human-decision` cleared, the question answered, a parent or dupe resolved since). Re-triage them or re-state the open question once; do not re-ask the same question twice.
-2. **3 highest-Priority untriaged items** (P0 first, then P1), so priority work does not starve behind the low-numbered tail. Priority is set by milestone, never case by case: see § Priority.
-3. **3 oldest untriaged items** (FIFO by issue number) as the starvation-free fallback.
+1. **3 Blocked items** most likely to have moved (`needs-human-decision` cleared, the question answered, a parent or dupe resolved since). Re-triage them or re-state the open question once; do not re-ask the same question twice. Blocked items in the focus milestone come first.
+2. **3 highest-Priority untriaged items in the focus milestone** (P0 first, then P1, then whatever else that milestone holds). The executor can only run the focus milestone, so this is the bucket whose criteria are read within the day.
+3. **3 highest-Priority untriaged items from any milestone** as the grooming fallback, oldest first within a tier. This keeps the rest of the roadmap labelled and scoped for when the focus rolls, and it is deliberately the last bucket rather than a hard filter.
 
 If a bucket is empty, fill from the next one, then from the oldest remaining. Never exceed 9; say what is left in the report.
 
-This ordering supersedes the earlier FIFO-only policy: if your memory still records "ordering policy is FIFO by issue number", prune that line and record this one.
+This ordering supersedes the earlier FIFO-only policy and the milestone-blind tiering: if your memory records either, prune those lines and record this one. Report the focus milestone and the count of untriaged items inside it, because whether the sprint's own backlog is triaged is the one number the owner cannot get anywhere else.
 
 ## Priority
 

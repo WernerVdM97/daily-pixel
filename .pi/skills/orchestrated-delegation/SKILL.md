@@ -19,6 +19,7 @@ This is a meta-workflow. It orchestrates other skills (`spec-driven-development`
 This repo runs the skill as the Dark Factory's build loop, which puts one hard gate on top of everything below:
 
 - **Execute only gated items.** An agent works a board item only when its Status is `Approved`, or it carries a matching standing-approval label (`auto:docs`, `auto:changelog`, `auto:tests`) and the change stays inside that class. Anything else is read-only. Only the owner approves.
+- **Approval is not readiness.** The ledger also holds back an approved item that carries `needs-human-decision`, that has an open native `blockedBy` dependency, or that sits outside the focus milestone (the open milestone with the earliest due date). `start` names every held item and the reason; treat that list as the answer to "why is nothing running", and never clear a label, a dependency or a milestone to force an item through.
 - **Worktrees fork off `dev`.** Every stream builds in an isolated worktree cut from `dev` (`baseRef: 'dev'`), never on `dev` or `main` directly.
 - **Agents never merge or push.** The executor opens a PR targeting `dev`. Merging, releases, and pushes to `dev`/`main` stay with the owner.
 

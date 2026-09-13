@@ -199,3 +199,48 @@ describe('renderBulletin', () => {
     }
   });
 });
+
+// ── The ledger's readiness, as the owner reads it ─────────────────────────
+
+describe('the ledger line and its notes', () => {
+  const triaged = [item({ number: 34, status: 'Triaged', milestone: 'B. v0.3.x polish' })];
+
+  it('says which milestone is being built, and how much gated work is held', () => {
+    const queue = classifyBoard(triaged, new Map(), {
+      agentLogins: AGENTS,
+      nowMs: NOW,
+      readiness: { focus: 'A. Release A closeout', held: [] },
+    });
+    const body = renderBulletin(queue, new Date(NOW));
+    expect(body).toContain('_Ledger: building **A. Release A closeout** · gated work held back: 0_');
+  });
+
+  it('explains an idle factory instead of leaving it looking broken', () => {
+    const queue = classifyBoard(triaged, new Map(), {
+      agentLogins: AGENTS,
+      nowMs: NOW,
+      readiness: {
+        focus: 'A. Release A closeout',
+        held: [
+          { number: 97, reason: 'needs-decision', detail: 'carries needs-human-decision' },
+          { number: 34, reason: 'blocked-by', detail: 'waiting on #119' },
+          { number: 40, reason: 'out-of-focus', detail: 'B. v0.3.x polish' },
+        ],
+      },
+    });
+    const notes = queue.notes.join('\n');
+    expect(notes).toContain('**2** approved item(s) cannot run yet');
+    expect(notes).toContain('1 needs-decision (#97)');
+    expect(notes).toContain('1 blocked-by (#34)');
+    expect(notes).toContain('The executor builds **A. Release A closeout** only');
+    expect(notes).toContain('**1** gated card(s) in other milestones');
+    // The milestone hold is a separate fact from the two real blockers.
+    expect(notes.split('\n').find((line) => line.includes('cannot run yet'))).not.toContain('#40');
+  });
+
+  it('stays silent about holds when there are none, so the notes stay actionable', () => {
+    const queue = classifyBoard(triaged, new Map(), { agentLogins: AGENTS, nowMs: NOW });
+    expect(queue.notes.join('\n')).not.toContain('cannot run yet');
+    expect(queue.focus).toBeNull();
+  });
+});
