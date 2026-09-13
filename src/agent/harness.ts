@@ -20,7 +20,14 @@ import type { AgentObserver, CharacterData, CharCreateData } from './observer.js
 import type { MenuViewState, DecisionViewState, ViewState } from '../view/viewState.js';
 import type { AgentPlayerGateway, AgentMove, LegalMove, AgentCharView } from './AgentPlayerGateway.js';
 import { viewToText } from './viewToText.js';
-import { menuLegalMoves, decisionLegalMoves, wizardLegalMoves, freeActionLegalMoves, isLegal } from './agentMoves.js';
+import {
+  menuLegalMoves,
+  decisionLegalMoves,
+  wizardLegalMoves,
+  freeActionLegalMoves,
+  freeActionMenuView,
+  isLegal,
+} from './agentMoves.js';
 import { Transcript } from './transcript.js';
 import type { GameRouter } from '../protocol/router.js';
 import type { GameResponse } from '../protocol/envelope.js';
@@ -73,7 +80,7 @@ function formatError(e: unknown): string {
  *  but the day can continue); `outcome` is a completed action; `crashed` is an uncaught exception
  *  captured as a finding (M4.4) — fatal to the run, but the transcript survives as a repro. */
 export type PlayResult =
-  | { kind: 'outcome' }
+  | { kind: 'outcome'; bailed?: boolean }
   | { kind: 'decision-abandoned' }
   | { kind: 'dead-end'; reason: string }
   | { kind: 'slept' }
@@ -573,11 +580,14 @@ export class AgentHarness {
 
     // AGENT_FORCE_FREE_ACTIONS: while the day still owes a free action, offer the free-text slot
     // ONLY — no day-job buttons (work outcomes are inspiration-stripped) and no `sleep` (which
-    // would end the day short of taking one). A menu with no custom button falls back to the full
-    // list: zero moves would make the brain throw, not take a free action.
+    // would end the day short of taking one). The VIEW the brain reads is filtered along with the
+    // moves, so the screen's `[i]` numbering still addresses exactly the MOVES list offered. A menu
+    // with no custom button falls back to the full list: zero moves would make the brain throw,
+    // not take a free action.
     const forced = this.freeActionPending ? freeActionLegalMoves(view) : [];
+    const offer = forced.length > 0 ? freeActionMenuView(view) : view;
     const moves = forced.length > 0 ? forced : menuLegalMoves(view);
-    const move = await this.ask(view, charView, moves);
+    const move = await this.ask(offer, charView, moves);
     if (!isLegal(move, moves)) {
       this.transcript.finding('warning', `illegal move on menu screen: ${move.kind}`);
       return { kind: 'illegal-move', move };
@@ -591,8 +601,11 @@ export class AgentHarness {
         const result = await this.doCustom(move.text);
         // Only a COMPLETED free action discharges the day's debt: a dead-end or aborted attempt
         // leaves it standing, so the next menu offers the free slot again while the run still has
-        // day left. A stalled day then reports the stall rather than silently playing work-only.
-        if (result.kind === 'outcome') this.freeActionPending = false;
+        // day left. A BAIL resolves the action too (the roll is refunded, nothing rolled), so it
+        // leaves the debt standing as well — otherwise a bailed pick would pass as the day's
+        // measured free action. A stalled day then reports the stall rather than silently playing
+        // work-only.
+        if (result.kind === 'outcome' && !result.bailed) this.freeActionPending = false;
         return result;
       }
       default:
@@ -687,7 +700,9 @@ export class AgentHarness {
       const view = response.view!;
       if (view.screen === 'outcome') {
         this.transcript.outcome(viewToText(view));
-        return { kind: 'outcome' };
+        // The bail button resolves the action (`outcome: 'bailed'`, roll refunded) — reported so
+        // the menu arm does not read it as a completed free action (RA-2).
+        return move.kind === 'bail' ? { kind: 'outcome', bailed: true } : { kind: 'outcome' };
       }
       // Next decision screen — loop with its view and facts.
       current = view as DecisionViewState;

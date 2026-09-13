@@ -21,6 +21,11 @@
  * AGENT_PROTOCOL_BEATS (record router beats into the protocol log, default off). No API
  * key — this run is network-free by construction.
  *
+ * `AGENT_FORCE_FREE_ACTIONS` is deliberately NOT read here: the scripted day-loop opens with a
+ * day-job pick, so the switch would only stall the run, and the canned script is a bytes-pinned
+ * replay corpus, not a measurement arm. Its RA-2 free-action forcing belongs to `agent:play`
+ * (where a live brain reads the restricted menu).
+ *
  * The CLI is a thin wrapper over the exported `stubRun` — the in-process driver stage 9's
  * dogfood test uses — so the scripted move list and the canned stub script are defined
  * here once and the CLI and the test drive the same flow.

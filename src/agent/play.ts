@@ -199,9 +199,14 @@ async function main(): Promise<void> {
     console.error(`\n── transcript written to ${outPath} ──`);
     console.error(`── protocol log written to ${protocolOut} ──`);
     console.error('\n── day summaries ──');
-    for (const s of summaries) {
-      console.error(`  day ${s.dayNumber}: ${s.outcomes} outcome(s), ended ${s.ended}`);
-    }
+    // Criterion 3 reads per day ("at least one non-work action per day"), so the scoreboard the
+    // operator/critic actually reads carries the per-day free-action count, not just the run total.
+    const freeByDay = harness.transcript.freeActionsByDay();
+    summaries.forEach((s, i) => {
+      console.error(
+        `  day ${s.dayNumber}: ${s.outcomes} outcome(s), ${freeByDay[i] ?? 0} free action(s), ended ${s.ended}`,
+      );
+    });
     const run = harness.transcript.summary();
     // RA-2 instrument: the recorded dispatch stream's free (non-work) actions — the denominator
     // an inspiration grant rate is read against, and the reason AGENT_FORCE_FREE_ACTIONS exists.

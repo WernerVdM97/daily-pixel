@@ -171,17 +171,31 @@ export class Transcript {
     this.protocol.push({ seq: this.seq++, kind: 'tick', dayNumber });
   }
 
-  /** Count the free-text (`action.custom`) actions the brain started in this run — the recorded
-   *  dispatch stream's non-work actions. Day-job work is excluded on purpose: its outcome is
+  /** Count the free-text (`action.custom`) actions the brain RESOLVED in this run — the recorded
+   *  dispatch stream's real non-work actions. Day-job work is excluded on purpose: its outcome is
    *  `kind: 'work'` at the engine, where `stripWorkInspiration` removes every positive roll grant,
    *  so only a free action's resolution can carry RA-2's inspiration. `AGENT_FORCE_FREE_ACTIONS`
-   *  exists to put at least one per day in here; an `ok:false` dispatch (no-rolls, empty action,
-   *  a bail) never happened as an action and is not counted. Derived from the protocol log, so a
-   *  QA reader and a test read the same number. */
+   *  exists to put at least one per day in here. "Resolved" is the transcript's own contract
+   *  ({@link freeActionsByDay}): an `ok:false` dispatch (no-rolls, empty action) never happened as
+   *  an action, and neither did one that resolved through a bail (roll refunded, nothing rolled) or
+   *  never resolved at all (an abandoned `session-expired` beat, a beat-cap dead-end). Derived from
+   *  the protocol log, so a QA reader and a test read the same number. */
   freeActions(): number {
-    return this.protocol.filter(
-      (e) => e.kind === 'dispatch' && e.event.type === 'action.custom' && e.response.ok,
-    ).length;
+    return this.freeActionsByDay().reduce((total, perDay) => total + perDay, 0);
+  }
+
+  /** The same count split per game day — criterion 3 reads "at least one non-work action PER DAY",
+   *  so the run summary needs the day granularity, not just the total. Sliced at each nightly
+   *  `rest.begin`, the play loop's own day boundary; a day the run stopped inside (stalled, crashed)
+   *  is the last slice. */
+  freeActionsByDay(): number[] {
+    const days: ProtocolDispatchEntry[][] = [[]];
+    for (const entry of this.protocol) {
+      if (entry.kind !== 'dispatch') continue;
+      days[days.length - 1].push(entry);
+      if (entry.event.type === 'rest.begin') days.push([]);
+    }
+    return days.filter((day) => day.length > 0).map(resolvedFreeActions);
   }
 
   /** Roll up the log into a QA scoreboard. Derived on demand — no cached counters to drift. */
@@ -208,4 +222,38 @@ export class Transcript {
     }
     return s;
   }
+}
+
+/** Count the free-text actions in one day's dispatch slice that actually RESOLVED. A custom
+ *  dispatch counts when it returned an outcome itself, or when a later `action.choose` beat on the
+ *  same action returned one without bailing: the decision loop's beats are the only dispatches
+ *  between starting an action and its resolution, so anything else means this action never
+ *  resolved — a bail (roll refunded, nothing rolled) or an abandoned beat (session-expired,
+ *  internal, the beat cap) is not a free action the RA-2 dial can be read from. */
+function resolvedFreeActions(slice: ProtocolDispatchEntry[]): number {
+  let count = 0;
+  for (let i = 0; i < slice.length; i++) {
+    const start = slice[i];
+    if (start.event.type !== 'action.custom' || !start.response.ok) continue;
+    if (isResolvedOutcome(start.response)) {
+      count++;
+      continue;
+    }
+    for (let beat = i + 1; beat < slice.length; beat++) {
+      const choose = slice[beat];
+      if (choose.event.type !== 'action.choose') break;
+      if (choose.event.selector.kind === 'bail') break;
+      if (isResolvedOutcome(choose.response)) {
+        count++;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
+/** An ok envelope carrying a completed action outcome. The bail arm resolves the action too but
+ *  stamps the `bailed` colour intent, so rejecting it here is what keeps a bail out of the count. */
+function isResolvedOutcome(response: GameResponse): boolean {
+  return response.ok && response.view?.screen === 'outcome' && response.view.colorIntent !== 'bailed';
 }

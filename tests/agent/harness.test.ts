@@ -17,6 +17,7 @@ import type { AgentObserver } from '../../src/agent/observer.js';
 import type { ActionMenuResult, DayJobStart, RestBeginResult, StartRenderResult } from '../../src/controller/SessionController.js';
 import type { MenuViewState, OutcomeViewState } from '../../src/view/viewState.js';
 import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
+import type { AgentPlayerGateway, ChooseMoveInput } from '../../src/agent/AgentPlayerGateway.js';
 import type { ProtocolDispatchEntry } from '../../src/agent/transcript.js';
 import type { CriticGateway, CriticInput, CriticVerdict } from '../../src/llm/LlmGateway.js';
 import { viewToText } from '../../src/agent/viewToText.js';
@@ -367,6 +368,26 @@ describe('AgentHarness — full-day + multi-day loop (M6 protocol)', () => {
 // buttons until the day holds one completed free-text action, making the dial observable. ──
 
 describe('AgentHarness — forceFreeActions (AGENT_FORCE_FREE_ACTIONS)', () => {
+  /** A brain that answers the SCREEN's bracketed numbering, the way a live model reads
+   *  `viewToText`, and range-checks its pick like `ProdAgentPlayerGateway.resolveMove` does (it
+   *  throws rather than guessing). Picks the free-text line when the screen shows one, else the
+   *  first listed move — so it resolves decisions and re-takes the free slot on every full menu. */
+  class ScreenNumberingBrain implements AgentPlayerGateway {
+    async chooseMove(input: ChooseMoveInput): Promise<AgentMove> {
+      const line = input.screenText
+        .split('\n')
+        .find((l) => /^\[\d+\]/.test(l) && l.includes('Custom'));
+      const choice = line ? Number(line.slice(1, line.indexOf(']'))) : 0;
+      if (!Number.isInteger(choice) || choice < 0 || choice >= input.moves.length) {
+        throw new Error(
+          `ScreenNumberingBrain: choice ${choice} is not a legal move index (0..${input.moves.length - 1})`,
+        );
+      }
+      const picked = input.moves[choice].move;
+      return picked.kind === 'custom' ? { kind: 'custom', text: 'search the cart' } : picked;
+    }
+  }
+
   /** One day with the switch OFF: day-job work only (the pre-switch default behaviour). */
   const WORK_ONLY: AgentMove[] = [
     { kind: 'menu-pick', index: 0 },
@@ -389,6 +410,11 @@ describe('AgentHarness — forceFreeActions (AGENT_FORCE_FREE_ACTIONS)', () => {
   /** The recorded dispatch entries, in order (the protocol log's play stream). */
   function dispatchStream(harness: AgentHarness): ProtocolDispatchEntry[] {
     return harness.transcript.protocol.filter((e): e is ProtocolDispatchEntry => e.kind === 'dispatch');
+  }
+
+  /** The screen's bracketed move lines (`[0] …`) — the numbering the brain reads in SCREEN. */
+  function screenMoveLines(text: string): string[] {
+    return text.split('\n').filter((l) => /^\[\d+\]/.test(l));
   }
 
   it('is off by default: the menu the brain sees is the full one, and no free action is recorded', async () => {
@@ -472,6 +498,92 @@ describe('AgentHarness — forceFreeActions (AGENT_FORCE_FREE_ACTIONS)', () => {
     const workOutcome = work.harness.transcript.events.find((e) => e.type === 'outcome');
     expect(freeOutcome?.type === 'outcome' && freeOutcome.text).toContain('✨ Inspired: +1 roll');
     expect(workOutcome?.type === 'outcome' && workOutcome.text).not.toContain('Inspired');
+  });
+
+  it('shows the brain the forced menu itself, so SCREEN and MOVES share one numbering', async () => {
+    const { harness, brain, seed } = buildHarness(FREE_THEN_WORK, undefined, { forceFreeActions: true });
+    await seed();
+    await harness.playDay();
+
+    // Every turn: the screen's `[i]` lines must enumerate exactly the MOVES list offered. Before the
+    // fix the forced menu filtered MOVES only, so SCREEN still advertised `[0] Drill with the watch`
+    // while MOVES[0] was the free-text slot — a brain picking by the SCREEN's numbers threw inside
+    // the prod gateway's range check, which `playOneAction` captures as a CRASHED run, not a stumble.
+    for (const call of brain.calls) {
+      const screenIndices = screenMoveLines(call.screenText).map((l) => Number(l.slice(1, l.indexOf(']'))));
+      // `sleep` is the one move no screen enumerates (DA-6), so the screen's lines are exactly the
+      // non-sleep moves, in order.
+      const numbered = call.moves.filter((m) => m.move.kind !== 'sleep').map((_, i) => i);
+      expect(screenIndices).toEqual(numbered);
+    }
+
+    // The forced turn: one button on screen, one move offered, and the recorded turn agrees.
+    const forcedLines = screenMoveLines(brain.calls[0].screenText);
+    expect(forcedLines).toHaveLength(1);
+    expect(forcedLines[0]).toContain('Custom');
+    expect(brain.calls[0].moves.map((m) => m.move.kind)).toEqual(['custom']);
+    const menus = harness.transcript.events.filter((e) => e.type === 'turn' && e.screen === 'menu');
+    expect(menus[0].type === 'turn' && screenMoveLines(menus[0].text)).toEqual(forcedLines);
+  });
+
+  it('does not count a free action that resolved through a bail (the bail refunds the roll)', async () => {
+    const { harness, seed } = buildHarness(
+      [{ kind: 'custom', text: 'pray at the shrine' }, { kind: 'bail' }],
+      undefined,
+      { forceFreeActions: true },
+    );
+    await seed();
+
+    expect(await harness.playOneAction()).toEqual({ kind: 'outcome', bailed: true });
+    expect(harness.transcript.freeActions()).toBe(0);
+    expect(harness.transcript.freeActionsByDay()).toEqual([0]);
+  });
+
+  it('keeps the day in the forced state after a bail, and counts only the action that resolves', async () => {
+    // The recorded shape criterion 3 asks for ("one non-work action per day") must not be reachable
+    // by a bail: the debt has to stand, so the next menu is the forced one again, and the run only
+    // measures the free action that actually rolled.
+    const BAIL_THEN_FREE: AgentMove[] = [
+      { kind: 'custom', text: 'pray at the shrine' },
+      { kind: 'bail' },
+      { kind: 'custom', text: 'search the cart' },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+      { kind: 'sleep' },
+    ];
+    const { harness, seed } = buildHarness(BAIL_THEN_FREE, undefined, { forceFreeActions: true });
+    await seed();
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 2, ended: 'slept' });
+
+    const menus = harness.transcript.events.filter((e) => e.type === 'turn' && e.screen === 'menu');
+    expect(menus[1].type === 'turn' && menus[1].offered).toEqual(['Type your own action']);
+    expect(menus[2].type === 'turn' && menus[2].offered).toContain('Go to sleep — end the day');
+    expect(harness.transcript.freeActions()).toBe(1);
+    expect(harness.transcript.freeActionsByDay()).toEqual([1]);
+  });
+
+  it('does not crash a range-checking brain that answers the SCREEN numbering (the #93 probe)', async () => {
+    // `ProdAgentPlayerGateway.resolveMove` range-checks the brain's `choice` against the offered
+    // list and throws rather than guessing, and `playOneAction` captures that throw as a `crashed`
+    // run (fatal: `playDays` stops). Before the forced menu's view was filtered, a brain reading the
+    // screen's own `[3] Custom…` line picked an index the forced list did not have and killed the
+    // run. This brain picks by the screen's numbers and range-checks like the prod one.
+    const agentEngine = buildAgentEngine({
+      pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
+      rollD20: () => 20,
+    });
+    const router = buildDeterministicRouter(agentEngine);
+    const harness = createAgentHarness(agentEngine.engine, router, new ScreenNumberingBrain(), USER_ID, {
+      forceFreeActions: true,
+    });
+    await harness.createCharacter(SEED);
+
+    const summary = await harness.playDay();
+    expect(['slept', 'no-rolls']).toContain(summary.ended);
+    expect(
+      harness.transcript.events.some((e) => e.type === 'finding' && e.summary.includes('uncaught exception')),
+    ).toBe(false);
+    expect(harness.transcript.freeActions()).toBeGreaterThan(0);
   });
 
   it('withholds the day-job buttons on the stub backend too', async () => {
