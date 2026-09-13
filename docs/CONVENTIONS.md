@@ -15,7 +15,7 @@ Copy the shape from **[`docs/templates/doc-template.md`](./templates/doc-templat
 ### `phase` — the implementation target
 
 | phase | Meaning |
-|---|---|
+| --- | --- |
 | `poc` | Essential for a short proof-of-concept. Ship or die. |
 | `mvp` | Core game loop, needed before anyone plays for real. |
 | `mvp+` | Polish, depth, and deferred features. Only after POC survives. |
@@ -24,22 +24,28 @@ Copy the shape from **[`docs/templates/doc-template.md`](./templates/doc-templat
 
 ### List markers
 
-Bodies use Obsidian task markers to signal the *kind* of list item, not just done-ness. **Never use `[x]` in sparks** (`[x]` tracks code implementation only). Never use plain `-` bullets when a list mixes kinds; mix flavours freely.
+Bodies use Obsidian task markers to signal the *kind* of list item, not just done-ness. A marker is **always a list item**: write `- [!] text`, never a bare `[!] text` line, which Obsidian renders as prose and which no reader can tell from a stray bracket.
 
 Decision-making (any doc):
-[?] open question
-[!] critical/must-resolve
-[I] alternative idea
-[p] pro
-[c] con
+
+- `- [?]` open question
+- `- [!]` critical/must-resolve
+- `- [I]` alternative idea
+- `- [p]` pro
+- `- [c]` con
 
 Progress (build plans / specs):
-[ ] to-do
-[/] in progress
-[x] done
-[-] cancelled
-[>] forwarded
-[<] scheduled
+
+- `- [ ]` to-do
+- `- [/]` in progress
+- `- [x]` done
+- `- [-]` cancelled
+- `- [>]` forwarded
+- `- [<]` scheduled
+
+**Never use `[x]` in sparks** (`[x]` tracks code implementation only). Never use plain `-` bullets when a list mixes kinds; mix flavours freely.
+
+> **NB** The set above is closed, and the letters are load-bearing: `[p]` is not `[P]`, and `[M]` or any other invented letter is a typo that reads as a decision, not a marker. If a genuinely new kind of item is needed, add it to this table (and say what it means) before the doc that uses it lands.
 
 ## 2. `status` — the maturity signal (lives here, never in the folder)
 

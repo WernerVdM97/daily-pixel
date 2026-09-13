@@ -32,7 +32,7 @@ Today there's one mega-listener (`src/index.ts:1335`) with a long `if/else` chai
 - [c] **Stale-message cleanup** — the day-job menu is deleted via a raw `WebhookClient` + `consumeMenuMessage` dance, inline, in two places (`src/index.ts:1543-1550`, `1575-1582`).
 - [c] **Error surfacing** — three near-identical swallow-and-log helpers (`safeErrorReply` `index.ts:310`, `safeNotify` `join.ts:261`, and the inline `code !== 10062` check at `1488`), each subtly different.
 
-[p] Standardising these isn't just tidiness — it's the difference between "every interaction is correct and consistent by construction" and "every interaction is correct if the author remembered five things."
+- [p] Standardising these isn't just tidiness — it's the difference between "every interaction is correct and consistent by construction" and "every interaction is correct if the author remembered five things."
 
 ## The MVP target: a thin interaction layer
 
