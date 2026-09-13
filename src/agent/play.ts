@@ -19,6 +19,9 @@
  * AGENT_OUT (transcript path; default a timestamped file under the OS temp dir),
  * AGENT_PROTOCOL_OUT (protocol-log path; default `<AGENT_OUT>.protocol.json`),
  * AGENT_PROTOCOL_BEATS (record router beats into the protocol log, default off),
+ * AGENT_FORCE_FREE_ACTIONS ("1" = force the brain to take at least one free-text (non-work)
+ * action per day: each day's first menu offers the free slot only; the RA-2 measurement aid —
+ * day-job work is inspiration-stripped by design, so a plain run cannot observe the dial),
  * AGENT_BRAIN_CHOOSES_CHAR ("1" = the opt-in realism arm: the brain authors the character
  * through the join wizard — name + step choices — instead of the deterministic scripted walk;
  * non-deterministic + token-heavy, live runs only),
@@ -155,6 +158,9 @@ async function main(): Promise<void> {
   const harness = createAgentHarness(agentEngine.engine, router, brain, userId, {
     brain: 'prod',
     ...(process.env.AGENT_PROTOCOL_BEATS === '1' ? { recordBeats: true } : {}),
+    // AGENT_FORCE_FREE_ACTIONS — read here, in the runner: the harness library stays env-free
+    // (DC-S1), same as the AGENT_PROTOCOL_BEATS knob above.
+    ...(process.env.AGENT_FORCE_FREE_ACTIONS === '1' ? { forceFreeActions: true } : {}),
   });
 
   // The transcript is the repro (goal a): dump it in `finally` so a run that throws before finishing
@@ -193,14 +199,22 @@ async function main(): Promise<void> {
     console.error(`\n── transcript written to ${outPath} ──`);
     console.error(`── protocol log written to ${protocolOut} ──`);
     console.error('\n── day summaries ──');
-    for (const s of summaries) {
-      console.error(`  day ${s.dayNumber}: ${s.outcomes} outcome(s), ended ${s.ended}`);
-    }
+    // Criterion 3 reads per day ("at least one non-work action per day"), so the scoreboard the
+    // operator/critic actually reads carries the per-day free-action count, not just the run total.
+    const freeByDay = harness.transcript.freeActionsByDay();
+    summaries.forEach((s, i) => {
+      console.error(
+        `  day ${s.dayNumber}: ${s.outcomes} outcome(s), ${freeByDay[i] ?? 0} free action(s), ended ${s.ended}`,
+      );
+    });
     const run = harness.transcript.summary();
+    // RA-2 instrument: the recorded dispatch stream's free (non-work) actions — the denominator
+    // an inspiration grant rate is read against, and the reason AGENT_FORCE_FREE_ACTIONS exists.
+    const freeActions = harness.transcript.freeActions();
     console.error(
       `\n── run summary ──\n  ${run.turns} turns, ${run.outcomes} outcomes, ${run.deadEnds} dead-ends, ` +
-        `${run.commutes} commutes, ${run.dayBoundaries} nights\n  findings: ${run.findings.error} error(s), ` +
-        `${run.findings.warning} warning(s)`,
+        `${run.commutes} commutes, ${run.dayBoundaries} nights, ${freeActions} free action(s)\n  ` +
+        `findings: ${run.findings.error} error(s), ${run.findings.warning} warning(s)`,
     );
     // RA-4a: queried from the SAME `:memory:` db `recordLlmCalls` wrote into — must run here,
     // before the process exits and that db (and its llm_calls rows) is gone for good.
