@@ -18,8 +18,9 @@
  * The brain's WORKING MEMORY (spec § B, `docs/engine/agent-player-personas.md`) lives here
  * because it is the play loop's own state: the recap block (yesterday's lines + how the day
  * ended), today's day log (attempts, refusals and dead-ends included), the brain's intent and arc
- * notes, and the recon screen it asked to read last turn. `turnContext.ts` shapes those blocks as
- * pure functions; this file owns the cells and composes them into every `ChooseMoveInput`.
+ * notes, the day note it reported (written when the day closes, spec § E), and the recon screen it
+ * asked to read last turn. `turnContext.ts` shapes those blocks as pure functions; this file owns
+ * the cells and composes them into every `ChooseMoveInput`.
  */
 
 import type { AgentObserver, CharacterData, CharCreateData } from './observer.js';
@@ -28,6 +29,7 @@ import type {
   AgentPlayerGateway,
   AgentMove,
   BrainTurn,
+  DayNote,
   LegalMove,
   AgentCharView,
   ReconScreen,
@@ -195,7 +197,7 @@ export class AgentHarness {
   private intentNote?: string;
 
   /** The brain's own arc line — what it is building. Rewritten by a turn's `arcNote`, and last by
-   *  a sleep turn's `dayNote.arcNote`. */
+   *  the day note's `arcNote` when the day closes. */
   private arcNote?: string;
 
   /** Today's attempts, refusals included — the block that tells a brain an option was rejected
@@ -231,6 +233,21 @@ export class AgentHarness {
    *  turn's `ChooseMoveInput.lastRecon` and then cleared (it stays readable in the day log, and
    *  again in full if the brain re-requests it). */
   private lastRecon?: { screen: ReconScreen; text: string };
+
+  /** The day's note (spec § E), kept as the brain reports it: the LAST one seen in the day is the
+   *  one that counts. Written when the day closes, whatever closed it — a day that spends its last
+   *  roll is never asked another question (`menu.open` returns `no-rolls` at zero rolls), so a
+   *  sleep-only write would lose the rating pair on the commonest day end of all. */
+  private todayDayNote?: DayNote;
+
+  /** How many questions the brain was asked today (wizard steps are not play turns). A day that
+   *  closes with no note is only a hole in the series if the brain was actually given the chance. */
+  private todayTurns = 0;
+
+  /** Whether the action attempt in progress has already written its own day-log line. The
+   *  decision loop logs its own failures (an illegal pick inside it is not the day job's refusal),
+   *  so the enclosing menu branch must not append a second, misleading line. */
+  private attemptLogged = false;
 
   /** DC-S1's single recording point — every dispatch in the harness flows through here so the
    *  protocol log gets exactly one `{ seq, event, response, beats? }` entry per dispatch, at one
@@ -297,6 +314,7 @@ export class AgentHarness {
    *  only catches rendering errors in `ask()` and the error envelope → PlayResult mapping —
    *  the action path itself is throw-safe by construction. */
   async playOneAction(): Promise<PlayResult> {
+    this.attemptLogged = false;
     try {
       const result = await this.runAction();
       // DC-S3: the look-after-outcome parity beat — the player looks around the new scene
@@ -424,8 +442,9 @@ export class AgentHarness {
   }
 
   /** Open a day (spec § B): reset everything the day owns — the forced-free-action debt, the recon
-   *  budget, the day log and the one-turn recon delivery — and compose the day-start recap from the
-   *  day that just closed (absent on the first day, when no day has closed yet). */
+   *  budget, the day log, the day's note and turn count, and the one-turn recon delivery — and
+   *  compose the day-start recap from the day that just closed (absent on the first day, when no
+   *  day has closed yet). */
   private beginDay(): void {
     this.freeActionPending = this.forceFreeActions;
     this.reconUsage = { perScreen: {}, total: 0 };
@@ -433,6 +452,8 @@ export class AgentHarness {
     this.dayLog = [];
     this.lastRecon = undefined;
     this.lastOutcomeLine = undefined;
+    this.todayDayNote = undefined;
+    this.todayTurns = 0;
     this.recap =
       this.yesterdayEnded === undefined
         ? undefined
@@ -443,9 +464,30 @@ export class AgentHarness {
           });
   }
 
-  /** Close a day: hand its completed-action lines and its disposition to the recap cells (the next
-   *  day's day-start block), and start today's lines over. */
+  /** Close a day: write the day's note (spec § E) — it is day-level, not sleep-level, so it is
+   *  written HERE, when the day closes, whatever closed it — then hand its completed-action lines
+   *  and its disposition to the recap cells (the next day's day-start block), and start today's
+   *  lines over. */
   private closeDay(dayNumber: number, outcomes: number, ended: DaySummary['ended']): DaySummary {
+    if (this.todayDayNote !== undefined) {
+      // The closing day's number, whatever the disposition: `slept`, `no-rolls`, `stalled` and
+      // `crashed` all end a day the brain rated.
+      this.transcript.dayNote({ dayNumber, ...this.todayDayNote });
+      // Last, so the end-of-day statement of what the brain is building wins over whatever the
+      // day's own turns said.
+      this.arcNote = this.todayDayNote.arcNote;
+    } else if (this.todayTurns > 0) {
+      // A hole in the engagement/fulfilment series must never be silent. A day that asked the
+      // brain nothing (a fatal no-character on the first call) had no chance to give one, so that
+      // is not a warning.
+      this.transcript.finding(
+        'warning',
+        `day ${dayNumber} closed as ${ended} with no dayNote captured after ${this.todayTurns} turns`,
+      );
+    }
+    this.todayDayNote = undefined;
+    this.todayTurns = 0;
+
     this.yesterdayOutcomes = this.todayOutcomes;
     this.yesterdayEnded = ended;
     this.todayOutcomes = [];
@@ -696,13 +738,11 @@ export class AgentHarness {
     const move = turn.move;
     if (!isLegal(move, moves)) {
       this.transcript.finding('warning', `illegal move on menu screen: ${move.kind}`);
-      this.logAttempt(`illegal pick: ${move.kind}`, { kind: 'illegal-move', move });
+      this.logAttempt(this.illegalPickLabel(move), { kind: 'illegal-move', move });
       return { kind: 'illegal-move', move };
     }
     switch (move.kind) {
       case 'sleep':
-        // The day note (spec § E) rides the sleep turn, and its arcNote is written last.
-        this.applyDayNote(turn);
         return { kind: 'slept' };
       case 'menu-pick': {
         const result = await this.doDayJob(move.index);
@@ -739,6 +779,10 @@ export class AgentHarness {
 
     const response = await this.dispatch(this.reconEvent(screen));
     if (!response.ok) {
+      // The attempt spent its cap whether or not the dispatch resolved, so the caps are checked on
+      // this path too: a FAILED recon can be the one that hits a cap, and without the warning the
+      // next menu silently omits screens with nothing in the transcript to say why.
+      this.logReconCaps();
       if (response.error.code === 'no-character') {
         this.dayLog.push({ attempt, result: 'refused: no-character', refused: true });
         return { kind: 'no-character' };
@@ -809,11 +853,47 @@ export class AgentHarness {
     }
   }
 
+  /** A refused pick, named as precisely as the move allows: an over-cap recon names the SCREEN it
+   *  asked for, everything else names its kind. `illegal pick: recon` alone left the transcript
+   *  unable to say which screen the caps had withheld. */
+  private illegalPickLabel(move: AgentMove): string {
+    return move.kind === 'recon' ? `illegal pick: recon /${move.screen}` : `illegal pick: ${move.kind}`;
+  }
+
+  /** The decision pick named for the day log: the button's own label when the pick was one of the
+   *  offered moves, and the move itself when it was not (an illegal pick, or a recon no decision
+   *  screen offers). */
+  private decisionLabel(move: AgentMove, moves: LegalMove[]): string {
+    switch (move.kind) {
+      case 'choice': {
+        const picked = moves.find((l) => l.move.kind === 'choice' && l.move.index === move.index);
+        return picked ? picked.label : `choice ${move.index}`;
+      }
+      case 'bail':
+        return moves.find((l) => l.move.kind === 'bail')?.label ?? 'bail';
+      case 'recon':
+        return `recon /${move.screen}`;
+      default:
+        return move.kind;
+    }
+  }
+
+  /** The decision loop's OWN day-log line: the enclosing day-job/free-action attempt did not fail
+   *  (its button was legal), a decision beat inside it did. Recording that against the day job told
+   *  the brain a legal button was refused; `attemptLogged` stops the enclosing arm from adding a
+   *  second, misleading line for the same attempt. */
+  private logDecisionAttempt(attempt: string, result: PlayResult): void {
+    this.logAttempt(attempt, result);
+    this.attemptLogged = true;
+  }
+
   /** One day-log line per attempted action: what was tried and what came back, refusals included.
    *  This is the context the blind brain was missing — with it, a refused option cannot come back
    *  looking like a fresh one. `recon` logs its own line; the day-ending dispositions have nothing
-   *  to hand back. */
+   *  to hand back. A line the attempt already wrote itself (see `logDecisionAttempt`) is left
+   *  alone, so an attempt never appears twice with two different stories. */
   private logAttempt(attempt: string, result: PlayResult): void {
+    if (this.attemptLogged) return;
     switch (result.kind) {
       case 'outcome':
         this.dayLog.push({ attempt, result: this.lastOutcomeLine ?? '', refused: false });
@@ -896,6 +976,7 @@ export class AgentHarness {
       const move = turn.move;
       if (!isLegal(move, moves)) {
         this.transcript.finding('warning', `illegal move on decision screen: ${move.kind}`);
+        this.logDecisionAttempt(`decision pick: ${this.decisionLabel(move, moves)}`, { kind: 'illegal-move', move });
         return { kind: 'illegal-move', move };
       }
 
@@ -912,6 +993,9 @@ export class AgentHarness {
       if (!response.ok) {
         if (response.error.code === 'session-expired') {
           this.transcript.deadEnd('session-expired');
+          this.logDecisionAttempt(`decision pick: ${this.decisionLabel(move, moves)}`, {
+            kind: 'decision-abandoned',
+          });
           return { kind: 'decision-abandoned' };
         }
         return this.mapError(response);
@@ -929,6 +1013,7 @@ export class AgentHarness {
       currentFacts = response.facts;
     }
     this.transcript.finding('warning', `decision loop exceeded ${MAX_BEATS} beats`);
+    this.logDecisionAttempt(`decision loop (${MAX_BEATS} beats)`, { kind: 'dead-end', reason: 'beat-cap' });
     return { kind: 'dead-end', reason: 'beat-cap' };
   }
 
@@ -971,6 +1056,11 @@ export class AgentHarness {
     const lastRecon = this.lastRecon;
     this.lastRecon = undefined;
     const dayLog = buildDayLog(this.dayLog);
+    // The day's last turn is the one the day note has to ride: at zero rolls `menu.open` returns
+    // `no-rolls` and the brain is never asked another question. Spread in only when true, so a
+    // turn that is not the day's last renders exactly the message it rendered before.
+    const lastRoll = charView.rollsRemaining === 1;
+    this.todayTurns++;
     const turn = await this.brain.chooseMove({
       screenText: text,
       moves,
@@ -980,6 +1070,7 @@ export class AgentHarness {
       ...(this.intentNote !== undefined ? { intentNote: this.intentNote } : {}),
       ...(this.arcNote !== undefined ? { arcNote: this.arcNote } : {}),
       ...(lastRecon !== undefined ? { lastRecon } : {}),
+      ...(lastRoll ? { lastRoll: true } : {}),
     });
     this.transcript.turn(view.screen === 'decision' ? 'decision' : 'menu', text, moves, turn.move);
     this.absorbTurn(turn);
@@ -999,10 +1090,12 @@ export class AgentHarness {
    *  note persist across turns AND days; a friction is recorded as its own transcript event against
    *  the day in progress (so the panel can rank it by projected exposure, spec § E); a note the
    *  gateway had to drop is a warning finding, never a stall (a lost data point must be visible, but
-   *  must not kill a run that has spent tokens). */
+   *  must not kill a run that has spent tokens). The day note is only CAPTURED here — it is written
+   *  when the day closes (see `closeDay`), because the day, not the turn, is what it rates. */
   private absorbTurn(turn: BrainTurn): void {
     if (turn.intent !== undefined) this.intentNote = turn.intent;
     if (turn.arcNote !== undefined) this.arcNote = turn.arcNote;
+    if (turn.dayNote !== undefined) this.todayDayNote = turn.dayNote;
     if (turn.friction !== undefined) {
       this.transcript.friction({
         dayNumber: this.currentDay(),
@@ -1014,22 +1107,6 @@ export class AgentHarness {
     for (const reason of turn.droppedNotes ?? []) {
       this.transcript.finding('warning', `dropped note: ${reason}`);
     }
-  }
-
-  /** The end-of-day note, folded into the turn whose move is `sleep` (spec § E). Its arc note is
-   *  written LAST, so the end-of-day statement of what the brain is building wins over whatever the
-   *  same turn's `arcNote` said. */
-  private applyDayNote(turn: BrainTurn): void {
-    const note = turn.dayNote;
-    if (!note) return;
-    this.transcript.dayNote({
-      dayNumber: this.currentDay(),
-      engagement: note.engagement,
-      fulfilment: note.fulfilment,
-      line: note.line,
-      arcNote: note.arcNote,
-    });
-    this.arcNote = note.arcNote;
   }
 }
 

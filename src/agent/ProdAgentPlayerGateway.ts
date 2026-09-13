@@ -67,13 +67,19 @@ interface ResolvedNotes {
   arcNote?: string;
   friction?: FrictionReport;
   dayNote?: DayNote;
-  /** One reason per dropped field, in reply-field order — so the sleep-gate reason for `dayNote`
-   *  lands last, where that field sits. Also the audit row's
+  /** One reason per dropped field, in reply-field order — plus one per text field the length cap
+   *  had to cut, since a truncated value is a loss too. Also the audit row's
    *  `validationWarnings`, so a lost data point leaves a trace even when the run carries on. */
   droppedNotes: string[];
 }
 
 const CALL_KIND = 'agent-player';
+
+/** Cap on every free-text value accepted from a reply (`intent`, `arcNote`, `friction.what`, the
+ *  day note's two strings, a custom action's text). All of them are re-rendered into a later prompt,
+ *  so an unbounded reply could grow the prompt every turn. 200 is comfortably more than the one
+ *  short line the prompt asks for. */
+const TEXT_MAX_LEN = 200;
 
 /** The recurrence vocabulary (spec § E, contract §1.2) as a runtime list, so the parser checks the
  *  same three tags the type names. Order is the prompt's order. */
@@ -147,7 +153,11 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
 
       let raw: RawBrainReply;
       try {
-        raw = JSON.parse(content) as RawBrainReply;
+        const parsed: unknown = JSON.parse(content);
+        // A body that parses but is not an object (`null`, a bare number, an array) is not a reply
+        // at all: the note half must not be asked to read fields off it, and the move half's own
+        // failure is the accurate diagnosis (`choice undefined is not a legal move index`).
+        raw = isPlainObject(parsed) ? (parsed as RawBrainReply) : {};
       } catch {
         throw new Error(`ProdAgentPlayerGateway: failed to parse OpenRouter response: ${content.slice(0, 200)}`);
       }
@@ -158,7 +168,6 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
       notes = resolveNotes(raw);
 
       move = resolveMove(raw, input);
-      notes = gateDayNote(notes, move);
 
       if (this.verbose) {
         const latencyMs = Date.now() - startedAt;
@@ -247,7 +256,7 @@ function resolveMove(raw: RawBrainReply, input: ChooseMoveInput): AgentMove {
   }
   const picked = input.moves[choice].move;
   if (picked.kind === 'custom') {
-    const text = typeof raw.text === 'string' ? raw.text.trim() : '';
+    const text = collapseText(raw.text);
     if (text === '') {
       throw new Error('ProdAgentPlayerGateway: chose a free-text action but returned no text');
     }
@@ -267,13 +276,14 @@ function resolveMove(raw: RawBrainReply, input: ChooseMoveInput): AgentMove {
 function resolveNotes(raw: RawBrainReply): ResolvedNotes {
   const droppedNotes: string[] = [];
   /** Collect one field: absent (undefined check) means unchanged, a failed check pushes its one
-   *  reason and drops the field, a pass yields the value. */
+   *  reason and drops the field, a pass yields the value (reporting a cut one as a loss). */
   const take = <T>(checked: Checked<T> | undefined): T | undefined => {
     if (checked === undefined) return undefined;
     if (!checked.ok) {
       droppedNotes.push(checked.reason);
       return undefined;
     }
+    if (checked.truncated !== undefined) droppedNotes.push(...checked.truncated);
     return checked.value;
   };
   return {
@@ -285,32 +295,44 @@ function resolveNotes(raw: RawBrainReply): ResolvedNotes {
   };
 }
 
-/**
- * Contract §1.2: a `dayNote` is honoured ONLY on a sleep turn. A valid note arriving on any other
- * move is dropped through `droppedNotes` — discarding it silently is the exact failure the degrade
- * rule exists to prevent, since the day's engagement/fulfilment reading would vanish untraced. This
- * reports the loss; it does NOT re-enable the note (the harness still writes no `day-note` event).
- */
-function gateDayNote(notes: ResolvedNotes, move: AgentMove): ResolvedNotes {
-  if (notes.dayNote === undefined || move.kind === 'sleep') return notes;
-  return {
-    ...notes,
-    dayNote: undefined,
-    droppedNotes: [...notes.droppedNotes, 'dayNote: only honoured on a sleep turn'],
-  };
+/** A validated field: either the value, or the single one-line reason it was rejected. `undefined`
+ *  (returned by the checkers instead of a `Checked`) means the field was absent, not malformed.
+ *  `truncated` is set when the value had to be cut to the length cap: the field is still accepted,
+ *  but the lost tail is named on `droppedNotes` rather than vanishing. A checker that validates a
+ *  nested object carries the cuts its own fields suffered up through its result. */
+type Checked<T> = { ok: true; value: T; truncated?: string[] } | { ok: false; reason: string };
+
+/** An accepted value, carrying the truncation reasons of any text field inside it (none when
+ *  nothing was cut), so a nested cut still reaches `droppedNotes`. */
+function accepted<T>(value: T, ...cuts: Array<string[] | undefined>): Checked<T> {
+  const truncated = cuts.flatMap((cut) => cut ?? []);
+  return truncated.length > 0 ? { ok: true, value, truncated } : { ok: true, value };
 }
 
-/** A validated field: either the value, or the single one-line reason it was rejected. `undefined`
- *  (returned by the checkers instead of a `Checked`) means the field was absent, not malformed. */
-type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
-
-/** A one-line note (`intent`, `arcNote`): a present, non-empty (trimmed) string, else a drop. */
+/** A one-line note (`intent`, `arcNote`, `friction.what`, a day note's strings): a present,
+ *  non-empty string, whitespace-collapsed and length-capped. Collapsing is not cosmetic — these
+ *  lines are re-rendered into the next turn's prompt, so un-collapsed multi-line text lets a reply
+ *  inject its own section headers and grow the prompt every turn. */
 function checkLine(value: unknown, field: string): Checked<string> | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') return { ok: false, reason: `${field}: expected a string, got ${preview(value)}` };
-  const trimmed = value.trim();
-  if (trimmed === '') return { ok: false, reason: `${field}: expected a non-empty string` };
-  return { ok: true, value: trimmed };
+  const { text, truncated } = collapse(value);
+  if (text === '') return { ok: false, reason: `${field}: expected a non-empty string` };
+  return accepted(text, truncated ? [`${field}: truncated to ${TEXT_MAX_LEN} characters`] : undefined);
+}
+
+/** Whitespace-collapsed, length-capped free text — the shape every brain-authored string is accepted
+ *  in. `truncated` says the cap bit, so the caller can name the loss. */
+function collapse(value: string): { text: string; truncated: boolean } {
+  const flat = value.trim().replace(/\s+/g, ' ');
+  if (flat.length <= TEXT_MAX_LEN) return { text: flat, truncated: false };
+  return { text: `${flat.slice(0, TEXT_MAX_LEN).trimEnd()}…`, truncated: true };
+}
+
+/** The same shaping for a custom action's free text, which is not a validated NOTE (so it has no
+ *  `droppedNotes` channel): '' when the reply carried no usable text, which the caller throws on. */
+function collapseText(value: unknown): string {
+  return typeof value === 'string' ? collapse(value).text : '';
 }
 
 /** Inside `friction`/`dayNote` a MISSING key is not "absent, leave it alone" (that only holds for
@@ -342,7 +364,7 @@ function checkFriction(value: unknown, field: string): Checked<FrictionReport> |
       reason: `${field}: recurrence must be once, periodic or ritual, got ${preview(value.recurrence)}`,
     };
   }
-  return { ok: true, value: { what: what.value, severity, recurrence } };
+  return accepted({ what: what.value, severity, recurrence }, what.truncated);
 }
 
 /** The end-of-day note (spec § E): the rating pair plus the day's line and the updated arc note.
@@ -371,7 +393,7 @@ function checkDayNote(value: unknown, field: string): Checked<DayNote> | undefin
   if (!line.ok) return line;
   const arcNote = checkLine(value.arcNote, `${field}.arcNote`) ?? missingLine(`${field}.arcNote`);
   if (!arcNote.ok) return arcNote;
-  return { ok: true, value: { engagement, fulfilment, line: line.value, arcNote: arcNote.value } };
+  return accepted({ engagement, fulfilment, line: line.value, arcNote: arcNote.value }, line.truncated, arcNote.truncated);
 }
 
 /** A 1..5 rating: a whole number in range, or `undefined` (the caller names the field it dropped).
@@ -418,6 +440,9 @@ export function buildUserMessage(input: ChooseMoveInput): string {
   if (input.intentNote !== undefined) sections.push('INTENT:', input.intentNote, '');
   if (input.arcNote !== undefined) sections.push('ARC:', input.arcNote, '');
   if (input.lastRecon !== undefined) sections.push(`LAST LOOK: /${input.lastRecon.screen}`, input.lastRecon.text, '');
+  if (input.lastRoll) {
+    sections.push("LAST ROLL: this is the day's final action; include your dayNote with this pick.", '');
+  }
 
   const moveLines = input.moves.map((m, i) => `${i}. ${m.label}`).join('\n');
   return [

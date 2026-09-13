@@ -45,7 +45,10 @@ export interface FrictionReport {
   recurrence: Recurrence;
 }
 
-/** The end-of-day note, folded into the turn whose move is `sleep`. */
+/** The end-of-day note (spec § E). It may ride ANY turn: the LAST one captured in a day is the one
+ *  that counts, and the harness writes it when the day closes, whatever its disposition. A
+ *  `sleep`-only rule loses it on the commonest day end — `menu.open` returns `no-rolls` at zero
+ *  rolls, so a day that spends its rolls is never offered a turn it could rate. */
 export interface DayNote {
   engagement: 1 | 2 | 3 | 4 | 5;
   fulfilment: 1 | 2 | 3 | 4 | 5;
@@ -61,7 +64,8 @@ export interface BrainTurn {
   /** Rewrites the arc note when what it is building changes. Omitted = unchanged. */
   arcNote?: string;
   friction?: FrictionReport;
-  /** Only honoured on a turn whose `move.kind === 'sleep'`; ignored and reported otherwise. */
+  /** The day's rating. May ride ANY turn; the harness keeps the LAST one seen in the day and
+   *  writes the `day-note` event when the day closes (see {@link ChooseMoveInput.lastRoll}). */
   dayNote?: DayNote;
   /** Reasons a malformed note field was dropped. The harness logs each as a warning finding. */
   droppedNotes?: string[];
@@ -110,6 +114,12 @@ export interface ChooseMoveInput {
   /** The recon screen rendered on the PREVIOUS turn because the brain asked for it. Delivered
    *  for exactly one turn, then cleared (it stays readable in the day log / on re-request). */
   lastRecon?: { screen: ReconScreen; text: string };
+  /** True when the character has exactly ONE roll left, so this turn's action is the day's last.
+   *  The day note rides this turn because the brain is otherwise never asked again:
+   *  `SessionController.openActionMenu` returns `no-rolls` at zero rolls, so a day that spends its
+   *  rolls is never offered a turn it could rate. Spread in only when true, so a turn that is not
+   *  the day's last renders exactly the message it rendered before this field existed. */
+  lastRoll?: boolean;
 }
 
 export interface AgentPlayerGateway {
