@@ -20,7 +20,7 @@ import type { LlmCallRecorder } from '../llm/LlmCallRecorder.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
 import type { AgentMove, AgentPlayerGateway, BrainTurn, ChooseMoveInput } from './AgentPlayerGateway.js';
-import { agentPlayerStamp, loadBrainPrompt, loadHandbookPrompt } from './agentPrompt.js';
+import { agentPlayerStamp, loadBrainPrompt, loadHandbookPrompt, loadPersonaFragment } from './agentPrompt.js';
 
 export interface ProdAgentPlayerGatewayConfig {
   apiKey: string;
@@ -32,6 +32,10 @@ export interface ProdAgentPlayerGatewayConfig {
   recorder?: LlmCallRecorder;
   /** Injectable system prompt for tests. Defaults to the versioned file on disk. */
   systemPrompt?: string;
+  /** The persona this brain plays as (spec § A/§ Versioning and wiring). Joins the system prompt
+   *  after `brain.md` and `handbook.md`, and is stamped into every `llm_calls` row. Unset = the
+   *  pre-persona brain (`agent-v2`), which is the baseline arm. */
+  persona?: string;
   /** If true, console-log a one-line summary per call (model, latency, tokens, snippet). */
   verbose?: boolean;
 }
@@ -54,6 +58,8 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
   private recorder?: LlmCallRecorder;
   private systemPrompt: string;
   private verbose: boolean;
+  /** Stamps `llm_calls.promptVersion`: `agent-v2`, or `agent-v2/<persona>` when set. */
+  private persona?: string;
 
   constructor(config: ProdAgentPlayerGatewayConfig) {
     this.apiKey = config.apiKey;
@@ -61,9 +67,13 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
-    // The v2 set fires as a unit: the move-picker's instruction plus the first-time-player
-    // handbook every brain carries (T3 appends the persona fragment after these two).
-    this.systemPrompt = config.systemPrompt ?? `${loadBrainPrompt()}\n\n${loadHandbookPrompt()}`;
+    this.persona = config.persona;
+    // The v2 set fires as a unit: the move-picker's instruction, the first-time-player handbook
+    // every brain carries, and (when a persona is set) its fragment. Unset adds nothing at all, so
+    // the persona-less prompt stays exactly what T2 shipped. `loadPersonaFragment` also validates
+    // the name, so a bad one fails here rather than as a stamped row nobody can attribute.
+    this.systemPrompt =
+      config.systemPrompt ?? [loadBrainPrompt(), loadHandbookPrompt(), ...personaFragments(config.persona)].join('\n\n');
     this.verbose = config.verbose ?? false;
   }
 
@@ -136,7 +146,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
         try {
           this.recorder.record({
             appVersion: APP_VERSION,
-            promptVersion: agentPlayerStamp(),
+            promptVersion: agentPlayerStamp(this.persona),
             callKind: CALL_KIND,
             model: this.model,
             temperature: this.temperature,
@@ -171,6 +181,12 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     }
     return { move };
   }
+}
+
+/** The persona fragment as a zero-or-one-element list, so the system prompt is assembled from one
+ *  spread instead of a branch. No persona = no extra text, which is the baseline arm's prompt. */
+function personaFragments(persona?: string): string[] {
+  return persona ? [loadPersonaFragment(persona)] : [];
 }
 
 /** Map the brain's `{ choice, text }` reply to a concrete legal `AgentMove`. Throws loudly on an

@@ -28,6 +28,12 @@
  * AGENT_BRAIN_CHOOSES_CHAR ("1" = the opt-in realism arm: the brain authors the character
  * through the join wizard — name + step choices — instead of the deterministic scripted walk;
  * non-deterministic + token-heavy, live runs only),
+ * AGENT_PERSONA (the persona this run plays as, one of the ten roster names: explorer, socialite,
+ * soldier, homesteader, grinder, collector, storyteller, tourist, casual, lapsed-returner. Its
+ * fragment joins the brain's SYSTEM prompt after brain.md and the handbook, and the run is stamped
+ * `agent-v2/<name>`. Unset = no persona fragment at all, which is today's behaviour and the
+ * baseline arm a panel is read against. An unknown name is a config error: the run exits 1 naming
+ * the valid personas before any LLM call is constructed),
  * AGENT_USER_ID (session id; default a per-session unique `agent:play-<timestamp>`),
  * AGENT_INHERIT ("1" = play as the existing AGENT_USER_ID player, no creation walk),
  * ENABLE_COHERENCE_CRITIC (RA-4 Finding 1, default on — "false" opts out, same as index.ts),
@@ -49,6 +55,7 @@ import type { CharCreateData } from '../engine/WorldEngine.js';
 import { loadYamlFile } from '../assets/yaml-loader.js';
 import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
+import { PERSONA_NAMES } from './agentPrompt.js';
 import { GameRouter } from '../protocol/router.js';
 import type { RouterBackend } from '../protocol/router.js';
 import { SessionController } from '../controller/SessionController.js';
@@ -90,8 +97,21 @@ const SEED: CharCreateData = {
 // session id the protocol header carries.
 const userId = process.env.AGENT_USER_ID ?? `agent:play-${Date.now()}`;
 const inherit = process.env.AGENT_INHERIT === '1';
+// The persona this run plays as. Read here, in the runner, so the harness library stays env-free
+// (DC-S1, same as the AGENT_PROTOCOL_BEATS knob). `AGENT_PERSONA=` (empty) reads as unset, and so
+// does an unset variable. T5's persona review reads the same value to decide whether to review.
+const persona = process.env.AGENT_PERSONA || undefined;
 
 async function main(): Promise<void> {
+  // Validate the persona before anything is constructed: a typo'd AGENT_PERSONA must cost a start-up
+  // error, not a run that spends tokens under the wrong (or no) persona fragment.
+  if (persona !== undefined && !PERSONA_NAMES.includes(persona)) {
+    console.error(
+      `agent:play: AGENT_PERSONA="${persona}" is not a known persona; valid personas: ${PERSONA_NAMES.join(', ')}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   // Inherit mode needs the recorded session id to find the existing player — there is no
   // name→userId lookup (DC-S7), so a missing AGENT_USER_ID is a hard config error.
   if (inherit && !process.env.AGENT_USER_ID) {
@@ -144,6 +164,7 @@ async function main(): Promise<void> {
   const brain = new ProdAgentPlayerGateway({
     apiKey,
     ...(model ? { model } : {}),
+    ...(persona ? { persona } : {}),
     recorder: new LlmCallRepository(agentEngine.db),
     verbose: true,
   });
@@ -170,6 +191,9 @@ async function main(): Promise<void> {
     // AGENT_FORCE_FREE_ACTIONS — read here, in the runner: the harness library stays env-free
     // (DC-S1), same as the AGENT_PROTOCOL_BEATS knob above.
     ...(process.env.AGENT_FORCE_FREE_ACTIONS === '1' ? { forceFreeActions: true } : {}),
+    // The persona is stamped onto the protocol-log header (DC-S1/spec § H) so the recording is
+    // attributable in replay: absent key when unset, which keeps the pre-persona shape.
+    ...(persona ? { persona } : {}),
   });
 
   // The transcript is the repro (goal a): dump it in `finally` so a run that throws before finishing

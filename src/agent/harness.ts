@@ -135,6 +135,11 @@ export interface AgentHarnessOptions {
    *  the menu the brain sees is then exactly `menuLegalMoves`, byte-identical to before this
    *  option existed. */
   forceFreeActions?: boolean;
+  /** The persona the run played as (spec § A/§ H), stamped into the protocol-log header so a
+   *  recorded run is attributable in replay. Absent = the pre-persona header shape, which is what
+   *  keeps every recording made before personas existed byte-identical. Read from `AGENT_PERSONA`
+   *  in `play.ts`, so the library stays env-free (DC-S1). */
+  persona?: string;
 }
 
 /** The disposition of a single game day — the QA/loop signal `playDays` reads. `slept`/`no-rolls`
@@ -163,11 +168,13 @@ export class AgentHarness {
     this.freeActionPending = this.forceFreeActions;
     // The protocol-log header (DC-S1): written once at construction so every dispatch entry that
     // follows has the session identity (brain class + backend class) to interpret it against.
+    // `persona` is spread onto the entry only when set (see `protocolHeader`).
     this.transcript.protocolHeader(
       userId,
       options.brain ?? 'scripted',
       options.backend ?? 'real',
       options.recordedAt ?? new Date().toISOString(),
+      options.persona,
     );
   }
 
