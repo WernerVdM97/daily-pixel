@@ -64,6 +64,24 @@ describe('isProbeExit', () => {
     expect(isProbeExit('bash', 'ls -la', 'Permission denied')).toBe(false); // not a missing path
     expect(isProbeExit('edit', 'grep -q x y', '')).toBe(false); // probes are a bash-only concept
   });
+
+  it('judges the segment that actually failed, not the first one', () => {
+    // A chain exits with its last command's status, so a grep that matched in front of the
+    // failure must not launder it as a probe (the observed `grep … | head; echo …; cmd` case).
+    expect(
+      isProbeExit('bash', 'grep -rn bulletin .pi/agents/ | head -5; echo "==="; npx tsx scripts/factory-jobs.ts drain', 'exit 1'),
+    ).toBe(false);
+    expect(isProbeExit('bash', 'cd /repo && grep -q x f && echo found; awk 1 g', 'awk: cannot open g')).toBe(false);
+    // The probe as the last link is still a probe.
+    expect(isProbeExit('bash', 'echo "---"; grep -q x f', '(no output)')).toBe(true);
+    expect(isProbeExit('bash', 'cd /repo && test -e f', '')).toBe(true);
+  });
+
+  it('never calls a shell syntax error a probe', () => {
+    expect(
+      isProbeExit('bash', 'grep -rn "alias _=" ~/.zshrc | head; echo "==="', "/bin/bash: -c: line 1: unexpected EOF while looking for matching `\"'"),
+    ).toBe(false);
+  });
 });
 
 describe('unprocessedOwnerAnswer', () => {
@@ -143,9 +161,10 @@ describe('readLedger', () => {
     expect(report.jobs[0].stages).toHaveLength(3);
     expect(report.firstTryOk).toBe(3);
     expect(report.retries).toBe(0);
-    // Budget mirrors STAGES: 50 + 20 + 30 model minutes plus the three 1-minute code stages.
-    expect(report.jobs[0].budgetMs).toBe(103 * 60_000);
-    expect(report.jobs[0].burnPct).toBeCloseTo(400_000 / (103 * 60_000) * 100, 1);
+    // JOB_CAP_MS, not the sum of the stage budgets: the drainer clamps every stage to what
+    // remains of the 100-minute job cap, so 103 minutes is a ceiling no job can reach.
+    expect(report.jobs[0].budgetMs).toBe(100 * 60_000);
+    expect(report.jobs[0].burnPct).toBeCloseTo(400_000 / (100 * 60_000) * 100, 1);
   });
 
   it('counts a retried stage as not first-try ok and reports the retry', () => {
@@ -187,6 +206,81 @@ describe('readLedger', () => {
     );
     const report = readLedger(dir, 7 * 86_400_000)!;
     expect(report.jobs.map((j) => j.item)).toEqual([91]);
+  });
+
+  it('does not count a skipped stage: a clean review is not a failed fix', () => {
+    const dir = scratch();
+    // factory-jobs.ts pushes this row when the reviewer's verdict is `clean` and the fix
+    // stage is bypassed. The stage never ran, so it is neither a stage nor a first-try miss.
+    writeFileSync(
+      join(dir, '94.json'),
+      JSON.stringify(
+        jobRecord(94, {
+          history: [
+            { stage: 'build', endedAt: new Date(NOW).toISOString(), result: 'ok' },
+            { stage: 'review', endedAt: new Date(NOW).toISOString(), result: 'ok' },
+            { stage: 'fix', endedAt: new Date(NOW).toISOString(), result: 'skipped' },
+            { stage: 'deliver', endedAt: new Date(NOW).toISOString(), result: 'ok' },
+          ],
+        }),
+      ),
+    );
+    const report = readLedger(dir, 7 * 86_400_000)!;
+    expect(report.jobs[0].stages.map((s) => s.stage)).toEqual(['build', 'review', 'deliver']);
+    expect(report.firstTryOk).toBe(3);
+    expect(report.retries).toBe(0);
+  });
+
+  it("counts the fixer's nochange verdict as a first-try pass", () => {
+    const dir = scratch();
+    // The fixer may accept a finding without committing; the drainer verifies that verdict
+    // in code and advances the job, so the stage succeeded on its first attempt.
+    writeFileSync(
+      join(dir, '95.json'),
+      JSON.stringify(
+        jobRecord(95, {
+          history: [
+            { stage: 'build', endedAt: new Date(NOW).toISOString(), result: 'ok' },
+            { stage: 'review', endedAt: new Date(NOW).toISOString(), result: 'ok' },
+            { stage: 'fix', endedAt: new Date(NOW).toISOString(), result: 'nochange' },
+          ],
+        }),
+      ),
+    );
+    const report = readLedger(dir, 7 * 86_400_000)!;
+    expect(report.firstTryOk).toBe(3);
+    expect(report.retries).toBe(0);
+  });
+
+  it("does not read the owner's retry stamp as a model retry", () => {
+    const dir = scratch();
+    // `factory-jobs retry <item>` stamps the current stage with `retried` before resuming it.
+    writeFileSync(
+      join(dir, '96.json'),
+      JSON.stringify(
+        jobRecord(96, {
+          history: [
+            { stage: 'build', endedAt: new Date(NOW).toISOString(), result: 'retried' },
+            { stage: 'build', endedAt: new Date(NOW).toISOString(), result: 'ok' },
+            { stage: 'review', endedAt: new Date(NOW).toISOString(), result: 'ok' },
+          ],
+        }),
+      ),
+    );
+    const report = readLedger(dir, 7 * 86_400_000)!;
+    expect(report.jobs[0].stages.find((s) => s.stage === 'build')).toMatchObject({ attempts: 1, firstTryOk: true });
+    expect(report.firstTryOk).toBe(2);
+    expect(report.retries).toBe(0);
+  });
+
+  it('prices the window burn against one budget per job', () => {
+    const dir = scratch();
+    writeFileSync(join(dir, '97.json'), JSON.stringify(jobRecord(97)));
+    writeFileSync(join(dir, '98.json'), JSON.stringify(jobRecord(98)));
+    const report = readLedger(dir, 7 * 86_400_000)!;
+    // Two jobs that each spent 400s are 800s of 200 minutes, never 800s of 100.
+    expect(report.spentMs).toBe(800_000);
+    expect(report.budgetMs).toBe(2 * 100 * 60_000);
   });
 
   it('survives an unparseable record by noting it', () => {

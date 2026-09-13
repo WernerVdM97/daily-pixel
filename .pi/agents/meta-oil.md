@@ -122,7 +122,7 @@ Rules that make the difference between a digest he answers and one he skims:
 
 1. **Drain.** `npx tsx scripts/factory-inbox.ts`. Decisions first: an approved proposal outranks new analysis.
 2. **Apply**, if something was approved, per the section above. Then stop applying and continue.
-3. **Measure.** `npx tsx scripts/factory-friction.ts --since 14d --top 8`. Record the numbers in `meta/metrics/`.
+3. **Measure.** `npx tsx scripts/factory-friction.ts --since 14d --top 8 --board`. Record the numbers in `meta/metrics/`.
 4. **Diagnose.** Spawn one to three read-only children (`context: "fresh"`, cheap tier, `read`/`grep`/`bash` only) to read the offending sessions named by the script and return root causes. Each child gets one signal and the exact session paths. Do not read forty transcripts in your own context; that is what the children are for. Priority when the ranking alone cannot pick: `dead-end` and `file-rework` first — a failed deliverable is worth more than a failed call, and `tool-error`'s residual probe noise (a compound command the classifier cannot see) means its genuine share is what it still says it is, never the headline.
 5. **Propose.** At most five, ranked by expected effect on the top signal. Refine prompts, cut verbosity, re-tier a model on its effective rather than headline cost, move a context-hungry child off a badly-caching route, split or pivot an epic, fix a schedule, add a gate rule, retire a loop that earns nothing.
 6. **Deliver.** One digest: the index card plus one card per proposal, then arm it with its message id (`--record <id> --seed <n>`), which is what turns that message into a decision the owner can answer with one click.

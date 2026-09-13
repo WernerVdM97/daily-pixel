@@ -35,6 +35,9 @@ import { resolve, dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
+// The ledger's own budget, imported rather than mirrored: a copy drifts the first time a
+// stage budget moves, and the drainer clamps every stage to what remains of this one.
+import { JOB_CAP_MS } from "./factory-jobs.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -283,7 +286,7 @@ const CORRECTION = /^\s*(no\b|nope|not\b|actually|wait\b|stop\b|wrong|that'?s (n
 const SHIPPED = /git commit|gh pr create|gh pr merge/i;
 
 /** A scheduled loop's launcher brief: the headless session that fires `schedule.run-due`. */
-export const SCHEDULE_LAUNCHER = /schedule\.run-due/;
+const SCHEDULE_LAUNCHER = /schedule\.run-due/;
 
 /** `subagent-<agent>-<runUuid>-<n>`: the run id is a strict hex group, so a hyphenated agent name parses. */
 const SUBAGENT_NAME = /^subagent-([a-z0-9][a-z0-9-]*?)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-\d+$/i;
@@ -314,15 +317,19 @@ export function agentOf(subagentName: string | null, firstUserText: string): str
  */
 export function isProbeExit(tool: string, command: string, resultText: string): boolean {
   if (tool !== "bash") return false;
-  // A leading `cd <dir> &&` wrapper is the most common compound form; strip it so the
-  // probe token is tested against the command that actually ran first.
-  const cmd = command.trim().replace(/^cd\s+\S+\s*&&\s*/, "").trim();
-  if (!cmd) return false;
-  if (/^!\s/.test(cmd)) return true;
-  if (/^(grep|diff|cmp)\b/.test(cmd)) return true; // no-match and files-differ exits are the check itself
-  if (/^(test\s+(-[efd]|--)|\[\s+(-[efd]|--))/.test(cmd)) return true;
-  if (/^git\s+(rev-parse\s+--verify|cat-file\s+-e)\b/.test(cmd)) return true;
-  if (/^ls\b/.test(cmd) && /No such file or directory/.test(resultText)) return true;
+  // A chain exits with its last command's status, pipes included (pi sets no `pipefail`), so
+  // only the final segment can explain the failure: `cd x && grep -q y f` is a probe, while
+  // `grep y f | head; echo ---; ls .claude/skills` that dies on the `ls` is a probe for the
+  // `ls` and not for the grep in front of it.
+  const last = command.trim().split(/;|&&|\|\||\|/).at(-1)?.trim() ?? "";
+  if (!last) return false;
+  // A command the shell could not parse is a model error, never a deliberate check.
+  if (/unexpected EOF|syntax error near|unterminated/i.test(resultText)) return false;
+  if (/^!\s/.test(last)) return true;
+  if (/^(grep|diff|cmp)\b/.test(last)) return true; // no-match and files-differ exits are the check itself
+  if (/^(test\s+(-[efd]|--)|\[\s+(-[efd]|--))/.test(last)) return true;
+  if (/^git\s+(rev-parse\s+--verify|cat-file\s+-e)\b/.test(last)) return true;
+  if (/^ls\b/.test(last) && /No such file or directory/.test(resultText)) return true;
   return false;
 }
 
@@ -563,7 +570,8 @@ interface Report {
   window: { since: string; until: string; days: number };
   totals: {
     sessions: number;
-    ownerSessions: number;
+    /** Transcripts that are not forks. A fork replays its parent, so it is the same session. */
+    nonForkSessions: number;
     userTurns: number;
     toolCalls: number;
     failedToolCalls: number;
@@ -589,16 +597,6 @@ interface Report {
   deltas: Record<string, number>;
   notes: string[];
 }
-
-// Mirrors STAGES in scripts/factory-jobs.ts, so budget burn stays true if the ledger config moves.
-const STAGE_BUDGET_MS: Record<string, number> = {
-  build: 50 * 60_000,
-  review: 20 * 60_000,
-  fix: 30 * 60_000,
-  deliver: 60_000,
-  reconcile: 60_000,
-  done: 60_000,
-};
 
 const SIGNAL_WINDOW_FLOOR = 1; // kept named so the ranking formula reads as intended
 
@@ -698,7 +696,7 @@ function summarise(sessions: SessionStats[], previous: SessionStats[], cache: Ca
     window: range,
     totals: {
       sessions: sessions.length,
-      ownerSessions: sessions.filter((s) => !s.fork).length,
+      nonForkSessions: sessions.filter((s) => !s.fork).length,
       userTurns: sum(sessions, (s) => s.userTurns),
       toolCalls: totalToolCalls,
       failedToolCalls: sum(sessions, (s) => Object.values(s.failedTools).reduce((a, b) => a + b, 0)),
@@ -758,11 +756,25 @@ interface LedgerReport {
 }
 
 /**
+ * A stage the model ran and succeeded at. `nochange` is the fixer's own verdict: the drainer
+ * code-verifies it and advances the job, so it is a first-try pass, not a failure.
+ */
+const STAGE_OK = new Set(["ok", "nochange"]);
+
+/**
+ * History rows that are markers rather than attempts. `skipped` is a stage the drainer
+ * bypassed (a clean review needs no fix), `retried` is the owner's `factory-jobs retry`
+ * stamp. Counting either as an attempt reports a first-try failure and a retry where no
+ * model ran twice.
+ */
+const LEDGER_MARKERS = new Set(["skipped", "retried"]);
+
+/**
  * Executor outcome metrics from `.pi/factory/jobs/` (live jobs plus `archive/`). The
  * transcripts say how a run felt; the ledger says whether it delivered. A stage's first
  * history row decides first-try ok (the drainer blocks on a stage's second failure, so
  * retries beyond that are ledger bugs, not model behaviour); budget burn compares spent
- * wall-clock against the stage budgets the drainer charges against.
+ * wall-clock against `JOB_CAP_MS`, the ceiling the drainer clamps every stage to.
  */
 export function readLedger(jobsDir: string, sinceMs: number): LedgerReport | null {
   if (!existsSync(jobsDir)) return null;
@@ -794,15 +806,16 @@ export function readLedger(jobsDir: string, sinceMs: number): LedgerReport | nul
 
     const byStage = new Map<string, { attempts: number; firstTryOk: boolean }>();
     for (const row of history) {
+      const result = String(row.result ?? "");
+      if (LEDGER_MARKERS.has(result)) continue;
       const stage = String(row.stage ?? "?");
-      const ok = row.result === "ok";
       const entry = byStage.get(stage);
-      if (!entry) byStage.set(stage, { attempts: 1, firstTryOk: ok });
+      if (!entry) byStage.set(stage, { attempts: 1, firstTryOk: STAGE_OK.has(result) });
       else entry.attempts++;
     }
     const stages = [...byStage.entries()].map(([stage, v]) => ({ stage, ...v }));
     const retries = stages.reduce((a, s) => a + Math.max(0, s.attempts - 1), 0);
-    const budgetMs = Object.values(STAGE_BUDGET_MS).reduce((a, b) => a + b, 0);
+    const budgetMs = JOB_CAP_MS;
     const spentMs = Number(job.spentMs ?? 0) || 0;
     jobs.push({
       item: Number(job.item ?? 0),
@@ -827,7 +840,8 @@ export function readLedger(jobsDir: string, sinceMs: number): LedgerReport | nul
     firstTryOk: jobs.reduce((a, j) => a + j.stages.filter((s) => s.firstTryOk).length, 0),
     retries: jobs.reduce((a, j) => a + j.retries, 0),
     spentMs: jobs.reduce((a, j) => a + j.spentMs, 0),
-    budgetMs: jobs.length ? jobs[0].budgetMs : 0,
+    // One budget per job: summing only the spend would price five jobs against one job's cap.
+    budgetMs: jobs.reduce((a, j) => a + j.budgetMs, 0),
     notes,
   };
 }
@@ -863,13 +877,16 @@ export function unprocessedOwnerAnswer(
   ownerLogin: string,
   nowMs: number,
 ): { lastAuthor: string; answeredAt: string; ageHours: number; missedPasses: boolean } | null {
-  if (!comments.length) return null;
-  const last = comments[comments.length - 1];
-  if (last.author.toLowerCase() !== ownerLogin.toLowerCase()) return null;
-  const at = Date.parse(last.createdAt);
-  if (!Number.isFinite(at)) return null;
-  const ageHours = (nowMs - at) / 3_600_000;
-  return { lastAuthor: last.author, answeredAt: last.createdAt, ageHours: round(ageHours, 1), missedPasses: ageHours >= 24 };
+  // Ordered here rather than trusted from the API: "the owner spoke last" is a question about
+  // time, and today's `gh issue view` ordering is not part of the contract.
+  const ordered = comments
+    .map((c) => ({ c, at: Date.parse(c.createdAt) }))
+    .filter((e) => Number.isFinite(e.at))
+    .sort((a, b) => a.at - b.at);
+  const last = ordered.at(-1);
+  if (!last || last.c.author.toLowerCase() !== ownerLogin.toLowerCase()) return null;
+  const ageHours = (nowMs - last.at) / 3_600_000;
+  return { lastAuthor: last.c.author, answeredAt: last.c.createdAt, ageHours: round(ageHours, 1), missedPasses: ageHours >= 24 };
 }
 
 function ghJson(args: string[], timeoutMs = 60_000): any | null {
@@ -918,7 +935,13 @@ function readBoardStaleness(): BoardReport | null {
   const now = Date.now();
   const unprocessed: BoardStaleItem[] = [];
   const ownerLogin = repo.split("/")[0] || owner;
-  for (const it of blockedItems.slice(0, 40)) {
+  // One `gh issue view` per item: bounded rather than unbounded, and said out loud when the
+  // bound bites, because a report that silently under-counts is worse than a slow one.
+  const scanned = blockedItems.slice(0, 40);
+  if (scanned.length < blockedItems.length) {
+    notes.push(`Board truncated: ${blockedItems.length} Blocked items, the first ${scanned.length} checked for an unprocessed answer`);
+  }
+  for (const it of scanned) {
     const number = Number(it.content?.number ?? 0);
     const title = String(it.content?.title ?? "");
     if (!number) continue;
@@ -1229,10 +1252,10 @@ function renderText(report: Report, top: number): string {
   }
   lines.push("");
 
-  const forks = report.totals.sessions - report.totals.ownerSessions;
+  const forks = report.totals.sessions - report.totals.nonForkSessions;
   const sa = report.subagents;
   lines.push(`Subagent runs: ${sa.runs} recorded, ${sa.failed} failed, median ${sa.medianSeconds}s`);
-  lines.push(`Sessions: ${report.totals.ownerSessions} owner, ${forks} child/agent`);
+  lines.push(`Sessions: ${report.totals.nonForkSessions} non-fork, ${forks} fork(s)`);
   lines.push("");
 
   if (report.cache) {
