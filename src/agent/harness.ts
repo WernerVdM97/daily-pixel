@@ -20,7 +20,7 @@ import type { AgentObserver, CharacterData, CharCreateData } from './observer.js
 import type { MenuViewState, DecisionViewState, ViewState } from '../view/viewState.js';
 import type { AgentPlayerGateway, AgentMove, LegalMove, AgentCharView } from './AgentPlayerGateway.js';
 import { viewToText } from './viewToText.js';
-import { menuLegalMoves, decisionLegalMoves, wizardLegalMoves, isLegal } from './agentMoves.js';
+import { menuLegalMoves, decisionLegalMoves, wizardLegalMoves, freeActionLegalMoves, isLegal } from './agentMoves.js';
 import { Transcript } from './transcript.js';
 import type { GameRouter } from '../protocol/router.js';
 import type { GameResponse } from '../protocol/envelope.js';
@@ -98,6 +98,14 @@ export interface AgentHarnessOptions {
    *  or the header alone makes the transcript differ byte-wise on every run — the corpus
    *  regen command and the transcript smoke test both supply one. */
   recordedAt?: string;
+  /** `AGENT_FORCE_FREE_ACTIONS` (RA-2 measurement aid). When true, each day's first menu offers
+   *  the free-text slot ONLY until the day holds one completed non-work action, so the brain must
+   *  take a free action before it can pick day-job work. Why: day-job work is `kind: 'work'`, whose
+   *  positive roll grants `stripWorkInspiration` removes by design, so a run without this switch
+   *  cannot observe the inspiration dial at all (see TODO.md's standing caution). Off by default —
+   *  the menu the brain sees is then exactly `menuLegalMoves`, byte-identical to before this
+   *  option existed. */
+  forceFreeActions?: boolean;
 }
 
 /** The disposition of a single game day — the QA/loop signal `playDays` reads. `slept`/`no-rolls`
@@ -122,6 +130,8 @@ export class AgentHarness {
     options: AgentHarnessOptions = {},
   ) {
     this.recordBeats = options.recordBeats ?? false;
+    this.forceFreeActions = options.forceFreeActions ?? false;
+    this.freeActionPending = this.forceFreeActions;
     // The protocol-log header (DC-S1): written once at construction so every dispatch entry that
     // follows has the session identity (brain class + backend class) to interpret it against.
     this.transcript.protocolHeader(
@@ -133,6 +143,14 @@ export class AgentHarness {
   }
 
   private readonly recordBeats: boolean;
+
+  /** `AGENT_FORCE_FREE_ACTIONS` — see {@link AgentHarnessOptions.forceFreeActions}. */
+  private readonly forceFreeActions: boolean;
+
+  /** Whether the current day still owes its forced free action. Seeded at construction (so a
+   *  caller driving `playOneAction` directly gets one too) and reset per day in `playDay`; always
+   *  false when `forceFreeActions` is off. */
+  private freeActionPending: boolean;
 
   /** DC-S1's single recording point — every dispatch in the harness flows through here so the
    *  protocol log gets exactly one `{ seq, event, response, beats? }` entry per dispatch, at one
@@ -279,6 +297,9 @@ export class AgentHarness {
    *  consecutive stumbles (or the action cap) ends the day as `stalled` with a logged finding. */
   async playDay(): Promise<DaySummary> {
     const dayNumber = this.currentDay();
+    // AGENT_FORCE_FREE_ACTIONS: each day owes one free action, discharged by the first completed
+    // free-text action (see `playMenu`). Reset per day so every day in a multi-day run gets one.
+    this.freeActionPending = this.forceFreeActions;
     // DC-S3: the scripted day-start parity beats — the greeting + the stats screen, once per
     // day, before the action loop (the brain never picks chrome; parity argues for scripted
     // beats). Both protocol-logged, both NO-STAMP pure reads (hi.open/stats carry no stamp).
@@ -550,7 +571,12 @@ export class AgentHarness {
     const charView = this.charFromFacts(facts);
     if (!charView) return { kind: 'no-character' };
 
-    const moves = menuLegalMoves(view);
+    // AGENT_FORCE_FREE_ACTIONS: while the day still owes a free action, offer the free-text slot
+    // ONLY — no day-job buttons (work outcomes are inspiration-stripped) and no `sleep` (which
+    // would end the day short of taking one). A menu with no custom button falls back to the full
+    // list: zero moves would make the brain throw, not take a free action.
+    const forced = this.freeActionPending ? freeActionLegalMoves(view) : [];
+    const moves = forced.length > 0 ? forced : menuLegalMoves(view);
     const move = await this.ask(view, charView, moves);
     if (!isLegal(move, moves)) {
       this.transcript.finding('warning', `illegal move on menu screen: ${move.kind}`);
@@ -561,8 +587,14 @@ export class AgentHarness {
         return { kind: 'slept' };
       case 'menu-pick':
         return this.doDayJob(move.index);
-      case 'custom':
-        return this.doCustom(move.text);
+      case 'custom': {
+        const result = await this.doCustom(move.text);
+        // Only a COMPLETED free action discharges the day's debt: a dead-end or aborted attempt
+        // leaves it standing, so the next menu offers the free slot again while the run still has
+        // day left. A stalled day then reports the stall rather than silently playing work-only.
+        if (result.kind === 'outcome') this.freeActionPending = false;
+        return result;
+      }
       default:
         return { kind: 'illegal-move', move };
     }

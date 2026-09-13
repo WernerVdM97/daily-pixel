@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { AgentHarness, createAgentHarness } from '../../src/agent/harness.js';
+import type { AgentHarnessOptions } from '../../src/agent/harness.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
 import { deterministicPipelineScript as pipelineScript, SEED, loadRealDefs, buildDeterministicRouter } from '../../src/agent/deterministicSession.js';
 import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
@@ -48,7 +49,11 @@ const immediateScript: PipelineScript = {
 
 const USER_ID = 'agent:test';
 
-function buildHarness(brainMoves: AgentMove[], script: PipelineScript = pipelineScript) {
+function buildHarness(
+  brainMoves: AgentMove[],
+  script: PipelineScript = pipelineScript,
+  harnessOptions: AgentHarnessOptions = {},
+) {
   const agentEngine = buildAgentEngine({
     pipelineLlmGateway: new PipelineScriptedGateway(script),
     rollD20: () => 20,
@@ -58,7 +63,7 @@ function buildHarness(brainMoves: AgentMove[], script: PipelineScript = pipeline
   // M8.5 stage 7 (DC-S2): the construction moved to src/agent/deterministicSession.ts (the
   // shared src-side source both this suite and the replay runner import).
   const router = buildDeterministicRouter(agentEngine);
-  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID);
+  const harness = createAgentHarness(agentEngine.engine, router, brain, USER_ID, harnessOptions);
   return {
     harness,
     brain,
@@ -356,6 +361,142 @@ describe('AgentHarness — full-day + multi-day loop (M6 protocol)', () => {
   });
 });
 
+// ── RA-2 instrument (#93): AGENT_FORCE_FREE_ACTIONS. Day-job work is `kind: 'work'` at the
+// engine, and `stripWorkInspiration` removes every positive roll grant on it by design, so a run
+// that plays work only reads a structural 0% inspiration rate. The switch withholds the day-job
+// buttons until the day holds one completed free-text action, making the dial observable. ──
+
+describe('AgentHarness — forceFreeActions (AGENT_FORCE_FREE_ACTIONS)', () => {
+  /** One day with the switch OFF: day-job work only (the pre-switch default behaviour). */
+  const WORK_ONLY: AgentMove[] = [
+    { kind: 'menu-pick', index: 0 },
+    { kind: 'choice', index: 0 },
+    { kind: 'choice', index: 0 },
+    { kind: 'sleep' },
+  ];
+
+  /** One day with the switch ON: the forced free action, then day-job work, then sleep. */
+  const FREE_THEN_WORK: AgentMove[] = [
+    { kind: 'custom', text: 'Search the abandoned cart' },
+    { kind: 'choice', index: 0 },
+    { kind: 'choice', index: 0 },
+    { kind: 'menu-pick', index: 0 },
+    { kind: 'choice', index: 0 },
+    { kind: 'choice', index: 0 },
+    { kind: 'sleep' },
+  ];
+
+  /** The recorded dispatch entries, in order (the protocol log's play stream). */
+  function dispatchStream(harness: AgentHarness): ProtocolDispatchEntry[] {
+    return harness.transcript.protocol.filter((e): e is ProtocolDispatchEntry => e.kind === 'dispatch');
+  }
+
+  it('is off by default: the menu the brain sees is the full one, and no free action is recorded', async () => {
+    const { harness, brain, seed } = buildHarness(WORK_ONLY);
+    await seed();
+    await harness.playDay();
+
+    const menuTurn = harness.transcript.events.find((e) => e.type === 'turn');
+    expect(menuTurn?.type === 'turn' && menuTurn.screen).toBe('menu');
+    // Day-job buttons + the free-text slot + sleep, exactly as menuLegalMoves has always built it.
+    expect(menuTurn?.type === 'turn' && menuTurn.offered.length).toBeGreaterThan(2);
+    expect(menuTurn?.type === 'turn' && menuTurn.offered).toContain('Type your own action');
+    expect(menuTurn?.type === 'turn' && menuTurn.offered).toContain('Go to sleep — end the day');
+    expect(brain.calls[0].moves.some((m) => m.move.kind === 'menu-pick')).toBe(true);
+    expect(harness.transcript.freeActions()).toBe(0);
+  });
+
+  it("withholds the day-job buttons until the day's first free action completes", async () => {
+    const { harness, brain, seed } = buildHarness(FREE_THEN_WORK, undefined, { forceFreeActions: true });
+    await seed();
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 2, ended: 'slept' });
+
+    // Turn 1: the free-text slot is the ONLY legal move — no day-job buttons, no sleep.
+    expect(brain.calls[0].moves).toEqual([{ move: { kind: 'custom', text: '' }, label: 'Type your own action' }]);
+    const menus = harness.transcript.events.filter((e) => e.type === 'turn' && e.screen === 'menu');
+    expect(menus[0].type === 'turn' && menus[0].offered).toEqual(['Type your own action']);
+    expect(menus[0].type === 'turn' && menus[0].chosen).toEqual({ kind: 'custom', text: 'Search the abandoned cart' });
+
+    // The completed free action discharges the day's debt: the next menu is the full one again
+    // (day-job work, then sleep — the menu is where the brain commits to ending the day).
+    expect(menus).toHaveLength(3);
+    expect(menus[1].type === 'turn' && menus[1].offered).toContain('Go to sleep — end the day');
+    expect(brain.calls[3].moves.some((m) => m.move.kind === 'menu-pick')).toBe(true);
+    expect(menus[2].type === 'turn' && menus[2].chosen).toEqual({ kind: 'sleep' });
+  });
+
+  it('records one free action per day in the transcript (run-level, 2 days)', async () => {
+    const { harness, seed } = buildHarness([...FREE_THEN_WORK, ...FREE_THEN_WORK], undefined, {
+      forceFreeActions: true,
+    });
+    await seed();
+
+    expect(await harness.playDays(2)).toEqual([
+      { dayNumber: 1, outcomes: 2, ended: 'slept' },
+      { dayNumber: 2, outcomes: 2, ended: 'slept' },
+    ]);
+    expect(harness.transcript.freeActions()).toBe(2);
+
+    // Split the recorded dispatch stream at each nightly rest — one slice per game day — and
+    // assert each day carries a free-text action (the only resolutions RA-2 can be read from).
+    const days: ProtocolDispatchEntry[][] = [[]];
+    for (const d of dispatchStream(harness)) {
+      days[days.length - 1].push(d);
+      if (d.event.type === 'rest.begin') days.push([]);
+    }
+    const playedDays = days.filter((d) => d.length > 0);
+    expect(playedDays).toHaveLength(2);
+    for (const day of playedDays) {
+      expect(day.filter((d) => d.event.type === 'action.custom' && d.response.ok)).toHaveLength(1);
+    }
+  });
+
+  it("keeps an inspiration grant on the forced free action that the day-job path strips", async () => {
+    // One script for both arms — only the action kind differs: the free-text (quest) path keeps a
+    // +1 roll grant, day-job (work) work has it removed by `stripWorkInspiration`. This is the
+    // eligibility criterion-3 claims, proved end-to-end rather than reasoned from the engine.
+    const granting: PipelineScript = {
+      ...pipelineScript,
+      resolveMutate: () => ({ mutations: [{ type: 'modify_rolls_remaining', amount: 1 }] }),
+    };
+
+    const free = buildHarness(FREE_THEN_WORK.slice(0, 3), granting, { forceFreeActions: true });
+    await free.seed();
+    expect(await free.harness.playOneAction()).toEqual({ kind: 'outcome' });
+
+    const work = buildHarness(WORK_ONLY.slice(0, 3), granting);
+    await work.seed();
+    expect(await work.harness.playOneAction()).toEqual({ kind: 'outcome' });
+
+    const freeOutcome = free.harness.transcript.events.find((e) => e.type === 'outcome');
+    const workOutcome = work.harness.transcript.events.find((e) => e.type === 'outcome');
+    expect(freeOutcome?.type === 'outcome' && freeOutcome.text).toContain('✨ Inspired: +1 roll');
+    expect(workOutcome?.type === 'outcome' && workOutcome.text).not.toContain('Inspired');
+  });
+
+  it('withholds the day-job buttons on the stub backend too', async () => {
+    const menu: MenuViewState = {
+      screen: 'menu',
+      title: { emoji: '🛠️', text: 'Work' },
+      description: 'Pick a task.',
+      buttons: [
+        { label: 'Guard the gate', customId: CID_DAYJOB + '0', style: 'secondary' },
+        { label: 'Custom…', customId: CID_DAYJOB_CUSTOM, style: 'primary' },
+      ],
+    };
+    const h = stubHarness({
+      menu: { kind: 'menu', view: menu },
+      moves: [{ kind: 'custom', text: 'pray at the shrine' }],
+      forceFreeActions: true,
+    });
+
+    expect(await h.playOneAction()).toEqual({ kind: 'outcome' });
+    const turn = h.transcript.events.find((e) => e.type === 'turn');
+    expect(turn?.type === 'turn' && turn.offered).toEqual(['Type your own action']);
+    expect(h.transcript.freeActions()).toBe(1);
+  });
+});
+
 // ── M4.4 — QA capture, ported to the protocol surface. Arms that can't be reached
 // deterministically through the real engine run against a stub RouterBackend + GameRouter. ──
 
@@ -474,7 +615,7 @@ function stubBackend(character: CharacterData, opts: StubBackendConfig): RouterB
   };
 }
 
-function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHarness {
+function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[]; forceFreeActions?: boolean }): AgentHarness {
   const character = stubChar(opts.char);
   // DC-S4: the stub observer is the QA-OBSERVER surface — getCharacter/getMeta/tick, the
   // harness's only engine touch. restAtOak is extra (structural typing tolerates it) and
@@ -492,7 +633,10 @@ function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] }): AgentHa
   const router = new GameRouter(stubBackend(character, opts), { idle: () => IDLE });
   const brain = new ScriptedAgentPlayerGateway(opts.moves ?? []);
   // The stub-router backend class is 'stub' — the protocol-log header must be honest (DC-S2).
-  return new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' });
+  return new AgentHarness(observer, router, brain, USER_ID, {
+    backend: 'stub',
+    ...(opts.forceFreeActions ? { forceFreeActions: true } : {}),
+  });
 }
 
 describe('AgentHarness — QA capture (M6 protocol)', () => {

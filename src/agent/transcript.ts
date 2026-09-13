@@ -171,6 +171,19 @@ export class Transcript {
     this.protocol.push({ seq: this.seq++, kind: 'tick', dayNumber });
   }
 
+  /** Count the free-text (`action.custom`) actions the brain started in this run — the recorded
+   *  dispatch stream's non-work actions. Day-job work is excluded on purpose: its outcome is
+   *  `kind: 'work'` at the engine, where `stripWorkInspiration` removes every positive roll grant,
+   *  so only a free action's resolution can carry RA-2's inspiration. `AGENT_FORCE_FREE_ACTIONS`
+   *  exists to put at least one per day in here; an `ok:false` dispatch (no-rolls, empty action,
+   *  a bail) never happened as an action and is not counted. Derived from the protocol log, so a
+   *  QA reader and a test read the same number. */
+  freeActions(): number {
+    return this.protocol.filter(
+      (e) => e.kind === 'dispatch' && e.event.type === 'action.custom' && e.response.ok,
+    ).length;
+  }
+
   /** Roll up the log into a QA scoreboard. Derived on demand — no cached counters to drift. */
   summary(): TranscriptSummary {
     const s: TranscriptSummary = {
