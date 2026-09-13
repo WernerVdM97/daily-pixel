@@ -142,6 +142,14 @@ export interface AgentHarnessOptions {
    *  keeps every recording made before personas existed byte-identical. Read from `AGENT_PERSONA`
    *  in `play.ts`, so the library stays env-free (DC-S1). */
   persona?: string;
+  /** The run's pinned clock, when the caller pinned one (spec § G "the time axis", contract §10).
+   *  The harness advances it one day immediately before each nightly tick, so the tick that opens
+   *  day N+1 sees day N+1's calendar date: the tick refills the COMING day's rolls, so the Saturday
+   *  bonus belongs to the coming day, not the one that just ended. Absent = nothing changes at all
+   *  (the pre-clock behaviour, which is what keeps every stub/replay corpus entry byte-identical).
+   *  Prefer `pinAdvancingClock(...)` in the caller — the harness deliberately knows nothing about
+   *  how the clock is implemented, only that it can step. */
+  pinnedClock?: { advanceDays(n: number): void };
 }
 
 /** The disposition of a single game day — the QA/loop signal `playDays` reads. `slept`/`no-rolls`
@@ -167,6 +175,7 @@ export class AgentHarness {
   ) {
     this.recordBeats = options.recordBeats ?? false;
     this.forceFreeActions = options.forceFreeActions ?? false;
+    this.pinnedClock = options.pinnedClock;
     this.freeActionPending = this.forceFreeActions;
     // The protocol-log header (DC-S1): written once at construction so every dispatch entry that
     // follows has the session identity (brain class + backend class) to interpret it against.
@@ -181,6 +190,9 @@ export class AgentHarness {
   }
 
   private readonly recordBeats: boolean;
+
+  /** The caller's pinned clock, when there is one — see {@link AgentHarnessOptions.pinnedClock}. */
+  private readonly pinnedClock?: { advanceDays(n: number): void };
 
   /** `AGENT_FORCE_FREE_ACTIONS` — see {@link AgentHarnessOptions.forceFreeActions}. */
   private readonly forceFreeActions: boolean;
@@ -671,6 +683,10 @@ export class AgentHarness {
       // illegal-move (rolls unspent or mid-action) = idler — no finding, no abort.
 
       step = 'nightly tick';
+      // The calendar moves BEFORE the tick, so the world tick that opens day N+1 runs on day N+1's
+      // date — the rolls it refills are the coming day's (a Saturday tick grants Saturday's bonus
+      // roll), and the same ordering is what `replay.ts` reproduces one tick marker at a time.
+      this.pinnedClock?.advanceDays(1);
       const tick = this.observer.tick(true);
       // DC-S1: the nightly-cron marker — recorded only when the tick succeeds (matching the
       // existing flow; a throwing tick is caught below and never logged as a marker).
@@ -684,6 +700,30 @@ export class AgentHarness {
     } catch (e) {
       this.transcript.finding('error', `uncaught exception during ${step}`, formatError(e));
       return false;
+    }
+  }
+
+  /** The interruption (spec § G "Interrupted panel", contract §10): advance the world `n` days
+   *  with NO play dispatches — the player was away, and the world moved on without them. Reuses
+   *  the two pieces `src/sim/driver.ts` already establishes between days: the daily admin-style
+   *  tick (`advanceDays`, `src/sim/time.ts` — a non-admin `tick(false)` no-ops once
+   *  `last_cron_date` matches today, so it could never skip a day) and one calendar day of clock
+   *  movement per tick. The harness drives the tick through the observer seam rather than calling
+   *  `advanceDays` itself: that helper is typed on `WorldEngineImpl`, and importing it here would
+   *  put an engine type on the harness's QA-OBSERVER seam (DC-S4). Same mechanism, one seam.
+   *
+   *  Each skipped day records its nightly tick MARKER (so a replayed recording re-executes the
+   *  skipped ticks and keeps day-number-seeded RNG aligned) and a `day` line naming the skip — a
+   *  run whose world advanced must say so in its own transcript. No dispatch is recorded, which is
+   *  the whole point: the absence is an absence of play. Calling this without `pinnedClock` still
+   *  ticks the world; the calendar just will not follow. */
+  skipDays(n: number): void {
+    for (let i = 0; i < n; i++) {
+      this.pinnedClock?.advanceDays(1);
+      const tick = this.observer.tick(true);
+      this.transcript.recordTick(tick.dayNumber);
+      this.transcript.day(tick.dayNumber, 'skipped — the world advanced with no play (an absence)');
+      this.checkInvariants('skipped day tick');
     }
   }
 

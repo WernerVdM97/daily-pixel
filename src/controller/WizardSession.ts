@@ -137,6 +137,16 @@ export class WizardSession {
 
   /**
    * Check if the session has expired (10 min TTL by default).
+   *
+   * AUDIT (spec § G's advancing clock): this is a `Date.now() - stamp` comparison on the live agent
+   * path that must NOT follow the game clock — no player spends a night inside the join wizard. The
+   * advancing pin only moves inside a nightly tick (`harness.endDay` / `harness.skipDays` are its
+   * only callers), and the creation walk finishes before a run's first tick, so the walk's session
+   * is never more than one instant old and the TTL stays INERT on a multi-day run. Deliberately
+   * unchanged: the TTL answers "has this human walked away from a half-finished wizard", and a
+   * game-calendar reading of that would expire a live wizard on the first night. Since an
+   * unreachability argument is worth less than a test, the ordering is pinned in
+   * tests/agent/advancing-clock.test.ts.
    */
   isExpired(discordUserId: string): boolean {
     const state = this.sessions.get(discordUserId);
