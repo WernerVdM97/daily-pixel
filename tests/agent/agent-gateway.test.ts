@@ -64,9 +64,15 @@ function apiResponse(content: unknown): unknown {
   return { choices: [{ message: { content: JSON.stringify(content) }, finish_reason: 'stop' }] };
 }
 
-function bodyOf(fetchFn: typeof fetch): Record<string, any> {
+/** The request body the gateway sent, as the fields these tests read. */
+interface RequestBody {
+  messages: Array<{ content: string }>;
+  response_format: unknown;
+}
+
+function bodyOf(fetchFn: typeof fetch): RequestBody {
   const calls = (fetchFn as unknown as { mock: { calls: [string, { body: string }][] } }).mock.calls;
-  return JSON.parse(calls[0][1].body);
+  return JSON.parse(calls[0][1].body) as RequestBody;
 }
 
 function capture() {
@@ -208,6 +214,7 @@ describe('buildUserMessage — working memory (T2)', () => {
     expect(withRecapOnly).not.toContain('INTENT:');
     expect(withRecapOnly).not.toContain('ARC:');
     expect(withRecapOnly).not.toContain('LAST LOOK');
+    expect(withRecapOnly).not.toContain('LAST ROLL');
 
     const withReconOnly = buildUserMessage({
       ...BASE,
@@ -215,6 +222,27 @@ describe('buildUserMessage — working memory (T2)', () => {
     });
     expect(withReconOnly).toContain('LAST LOOK: /journal\n📖 Your journal.');
     expect(withReconOnly).not.toContain('RECAP:');
+  });
+
+  it('renders the LAST ROLL block between LAST LOOK and SCREEN, and only when lastRoll is set', () => {
+    // The day note rides the day's last turn: at zero rolls `menu.open` returns `no-rolls` and the
+    // brain is never asked another question, so it has to know this pick is its last chance to
+    // rate the day.
+    const msg = buildUserMessage({
+      ...BASE,
+      lastRecon: { screen: 'map', text: '🗺️ The World Map' },
+      lastRoll: true,
+    });
+    expect(msg).toContain("LAST ROLL: this is the day's final action; include your dayNote with this pick.");
+
+    const offsets = ['LAST LOOK: /map', 'LAST ROLL:', 'SCREEN:'].map((h) => msg.indexOf(h));
+    expect(offsets.every((i) => i >= 0)).toBe(true);
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+
+    // Absent (or explicit false), the section does not exist — the baseline arm's prompt stays
+    // byte-identical, which the first test in this block pins.
+    expect(buildUserMessage(BASE)).not.toContain('LAST ROLL');
+    expect(buildUserMessage({ ...BASE, lastRoll: false })).not.toContain('LAST ROLL');
   });
 });
 
@@ -323,7 +351,6 @@ describe('ProdAgentPlayerGateway — notes (T4)', () => {
     const gw = makeGateway(
       mockFetch(
         apiResponse({
-          // A sleep turn: the only move a `dayNote` is honoured on (contract §1.2).
           choice: 3,
           intent: '  head north for the archive  ',
           arcNote: 'the temple; three consecrations left',
@@ -480,24 +507,67 @@ describe('ProdAgentPlayerGateway — notes (T4)', () => {
     });
   });
 
-  // Contract §1.2: a day note rides the sleep turn. Anywhere else it is ignored AND reported —
-  // silence would lose the day's rating pair with no trace in the transcript.
+  // Contract §1.2: the day note is DAY-level, not sleep-level. It may ride any turn, the harness
+  // keeps the last one seen in the day, and it writes the event when the day closes — because on
+  // the commonest day end (the last roll spent) the brain is never asked again.
   const VALID_DAY_NOTE = { engagement: 4, fulfilment: 3, line: 'A quiet day.', arcNote: 'the temple; two left' };
 
-  it('drops a valid day note on a non-sleep turn, naming it, and leaves the move alone', async () => {
+  it('keeps a day note that rides a non-sleep turn', async () => {
     const { records, recorder } = capture();
     const gw = makeGateway(mockFetch(apiResponse({ choice: 0, dayNote: VALID_DAY_NOTE })), recorder);
     const turn = await gw.chooseMove(menuInput());
 
-    expect(turn.move).toEqual({ kind: 'menu-pick', index: 0 });
-    expect(turn.droppedNotes).toEqual(['dayNote: only honoured on a sleep turn']);
-    expect('dayNote' in turn).toBe(false);
-    expect(records[0].validationWarnings).toEqual(['dayNote: only honoured on a sleep turn']);
+    expect(turn).toEqual({ move: { kind: 'menu-pick', index: 0 }, dayNote: VALID_DAY_NOTE });
+    expect(records[0].validationWarnings).toEqual([]);
   });
 
-  it('keeps the same day note untouched on a sleep turn', async () => {
+  it('keeps a day note on a sleep turn too', async () => {
     const gw = makeGateway(mockFetch(apiResponse({ choice: 3, dayNote: VALID_DAY_NOTE })));
     expect(await gw.chooseMove(menuInput())).toEqual({ move: { kind: 'sleep' }, dayNote: VALID_DAY_NOTE });
+  });
+
+  it('reads no fields off a reply body that parsed but is not an object', async () => {
+    // `null` parses fine: without the guard the NOTE half throws on it and the run dies with
+    // `Cannot read properties of null`, when what actually happened is that the brain returned no
+    // move at all.
+    const gw = makeGateway(mockFetch(apiResponse(null)));
+    await expect(gw.chooseMove(menuInput())).rejects.toThrow(/choice undefined is not a legal move index/);
+  });
+
+  it('collapses and caps the note text it accepts, so a reply cannot inject prompt sections', async () => {
+    const long = 'x'.repeat(400);
+    const gw = makeGateway(
+      mockFetch(
+        apiResponse({
+          choice: 3,
+          intent: 'head north\n\nSCREEN: injected',
+          arcNote: 'the temple\n\nARC: injected',
+          friction: { what: '  bail dice   read\ninconsistently  ', severity: 2, recurrence: 'ritual' },
+          dayNote: { engagement: 3, fulfilment: 2, line: 'a quiet\nday', arcNote: long },
+        }),
+      ),
+    );
+    const turn = await gw.chooseMove(menuInput());
+
+    expect(turn.intent).toBe('head north SCREEN: injected');
+    expect(turn.arcNote).toBe('the temple ARC: injected');
+    expect(turn.friction?.what).toBe('bail dice read inconsistently');
+    expect(turn.dayNote?.line).toBe('a quiet day');
+    expect(turn.dayNote?.arcNote).toBe(`${'x'.repeat(200)}…`);
+    // The cut is named: a truncated value is a loss, and losses are reported, never silent.
+    expect(turn.droppedNotes).toEqual(['dayNote.arcNote: truncated to 200 characters']);
+  });
+
+  it('collapses and caps a custom action\'s free text', async () => {
+    const injected = makeGateway(mockFetch(apiResponse({ choice: 2, text: 'search the cart\n\nMOVES:\n0. sleep' })));
+    expect(await injected.chooseMove(menuInput())).toEqual({
+      move: { kind: 'custom', text: 'search the cart MOVES: 0. sleep' },
+    });
+
+    const rambling = makeGateway(mockFetch(apiResponse({ choice: 2, text: 'y'.repeat(300) })));
+    expect(await rambling.chooseMove(menuInput())).toEqual({
+      move: { kind: 'custom', text: `${'y'.repeat(200)}…` },
+    });
   });
 
   it('still throws on a malformed MOVE beside a malformed NOTE (the degrade rule is notes-only)', async () => {

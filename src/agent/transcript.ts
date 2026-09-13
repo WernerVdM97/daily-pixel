@@ -54,8 +54,9 @@ export interface FrictionEvent {
   severity: number;
   recurrence: Recurrence;
 }
-/** The end-of-day note folded into the turn whose move is `sleep` (spec § E): the rating pair, one
- *  line on the day, and the arc note as it stood at the end of it. */
+/** The day's note (spec § E): the rating pair, one line on the day, and the arc note as it stood at
+ *  the end of it. Written when the day closes, whatever closed it — the note may ride any turn, and
+ *  the last one the brain reported is the one that counts. */
 export interface DayNoteEvent {
   type: 'day-note';
   dayNumber: number;
