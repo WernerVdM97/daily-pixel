@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 /**
  * The agent-player brain family is SET-BASED as of v2 (spec § Versioning and wiring,
  * `docs/engine/agent-player-personas.md`): the runtime unit is the whole version directory —
- * `brain.md` plus the `handbook.md` every brain carries, joined later by the `personas/*.md`
- * fragments T3 adds — fired together for one turn and stamped as a unit. The `v1` single file
+ * `brain.md` plus the `handbook.md` every brain carries, joined by the `personas/<name>.md`
+ * fragment when `AGENT_PERSONA` selects one (`PERSONA_NAMES` + {@link loadPersonaFragment}) — fired
+ * together for one turn and stamped as a unit. The `v1` single file
  * stays on disk, frozen, because rows already produced are stamped `agent-v1` and must stay
  * attributable.
  *
@@ -47,4 +48,48 @@ export function loadBrainPrompt(): string {
  *  `brain.md` and composed into the same system prompt (see `ProdAgentPlayerGateway`). */
 export function loadHandbookPrompt(): string {
   return readFileSync(path.join(setDir(), 'handbook.md'), 'utf-8').trim();
+}
+
+/** The ten persona fragments in the spec's Roster order. Lowercase, and the only names
+ *  `loadPersonaFragment` accepts: `AGENT_PERSONA` is validated against this list in `play.ts`
+ *  before any LLM call exists, so an unknown name fails at startup rather than mid-run. */
+export const PERSONA_NAMES: readonly string[] = [
+  'explorer',
+  'socialite',
+  'soldier',
+  'homesteader',
+  'grinder',
+  'collector',
+  'storyteller',
+  'tourist',
+  'casual',
+  'lapsed-returner',
+];
+
+/** The `personas/` directory of the active set. */
+function personaDir(): string {
+  return path.join(setDir(), 'personas');
+}
+
+/** Read one `personas/<name>.md` fragment (spec § A, T3). The fragment rides in the SYSTEM prompt
+ *  after `brain.md` and `handbook.md`, and the caller stamps `agentPlayerStamp(name)`.
+ *
+ *  Fails loud on both misuses: an unknown name lists the valid ones (so a typo in `AGENT_PERSONA`
+ *  is self-diagnosing), and a missing fragment directory says so by path rather than surfacing a
+ *  bare ENOENT from three frames deep. */
+export function loadPersonaFragment(name: string): string {
+  if (!PERSONA_NAMES.includes(name)) {
+    throw new Error(
+      `agentPlayer: unknown persona "${name}"; valid personas: ${PERSONA_NAMES.join(', ')}`,
+    );
+  }
+  const dir = personaDir();
+  try {
+    return readFileSync(path.join(dir, `${name}.md`), 'utf-8').trim();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`agentPlayer: no persona fragments at ${dir} (expected ${name}.md)`);
+    }
+    throw err;
+  }
 }
