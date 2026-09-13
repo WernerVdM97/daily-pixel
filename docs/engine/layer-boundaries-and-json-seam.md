@@ -17,12 +17,12 @@ How the layers wire together today versus a frontend-neutral target where every 
 
 Six responsibilities. The problem is not that they exist; it is that three of them currently live in one place (the Discord layer) instead of being separated.
 
-[I] **Transport / frontend adapter** — talks the wire protocol of one client. Today: `discord.js`. Captures input events, paints output.
-[I] **Application / flow orchestration** — the game *as played*: guards, which screen to show, menu composition, resume, auto-finish-vs-buttons, nav routing, per-session working state. Frontend-agnostic by nature.
-[I] **Presentation / rendering** — turns semantic outcome data into a medium (ANSI frames, embeds, plain text).
-[I] **Engine / domain** — all game rules and state transitions. Plain data in, plain data out.
-[I] **Persistence** — durable state behind repositories.
-[I] **LLM pipeline** — decision/critic/classify gateways, injected into the engine.
+- [I] **Transport / frontend adapter** — talks the wire protocol of one client. Today: `discord.js`. Captures input events, paints output.
+- [I] **Application / flow orchestration** — the game *as played*: guards, which screen to show, menu composition, resume, auto-finish-vs-buttons, nav routing, per-session working state. Frontend-agnostic by nature.
+- [I] **Presentation / rendering** — turns semantic outcome data into a medium (ANSI frames, embeds, plain text).
+- [I] **Engine / domain** — all game rules and state transitions. Plain data in, plain data out.
+- [I] **Persistence** — durable state behind repositories.
+- [I] **LLM pipeline** — decision/critic/classify gateways, injected into the engine.
 
 ---
 
@@ -64,10 +64,10 @@ flowchart TB
   SIM ==>|enters at engine| ENGINE
 ```
 
-[p] **The engine boundary was drawn deliberately and holds.** `WorldEngine` is a plain-serialisable seam (its header says so), the engine imports nothing from `discord.js` or `render/`, and `sim/` proves it runs standalone.
-[p] **`render/*` is genuinely pure** — its own input DTOs, string output, zero imports from engine/db/discord.
-[c] **The application boundary above the engine was never drawn.** Flow, session state, and view-assembly all accreted inside the Discord handlers because a single `discord.js` `Interaction` bundles input + response + identity, so guard→engine→build-embed→reply in one handler is the path of least resistance. The `index.ts` dispatcher is now a ~2460-line `if/else` on `customId` with 20-plus branches, and it is not the only home: the `src/discord/commands/*` files (`action`, `sleep`, `hi`) carry their own resume/`lastActionState` flow, so the extraction is bigger than one file.
-[!] **One real rule leak:** the "commute from the Oak to workplace" path writes character stamina + location straight to the DB via `charRepo.update` (`index.ts`, under the `── Commute from the Oak to the workplace ──` block — the sole direct repo write in the whole Discord layer), bypassing the engine. It is the canary: a game rule living in the UI. Contained (one site) but it is exactly the drift that grows.
+- [p] **The engine boundary was drawn deliberately and holds.** `WorldEngine` is a plain-serialisable seam (its header says so), the engine imports nothing from `discord.js` or `render/`, and `sim/` proves it runs standalone.
+- [p] **`render/*` is genuinely pure** — its own input DTOs, string output, zero imports from engine/db/discord.
+- [c] **The application boundary above the engine was never drawn.** Flow, session state, and view-assembly all accreted inside the Discord handlers because a single `discord.js` `Interaction` bundles input + response + identity, so guard→engine→build-embed→reply in one handler is the path of least resistance. The `index.ts` dispatcher is now a ~2460-line `if/else` on `customId` with 20-plus branches, and it is not the only home: the `src/discord/commands/*` files (`action`, `sleep`, `hi`) carry their own resume/`lastActionState` flow, so the extraction is bigger than one file.
+- [!] **One real rule leak:** the "commute from the Oak to workplace" path writes character stamina + location straight to the DB via `charRepo.update` (`index.ts`, under the `── Commute from the Oak to the workplace ──` block — the sole direct repo write in the whole Discord layer), bypassing the engine. It is the canary: a game rule living in the UI. Contained (one site) but it is exactly the drift that grows.
 
 ---
 
@@ -112,10 +112,10 @@ flowchart TB
 
 The shape in one sentence: **Discord and the agent-player become peer adapters over one JSON seam; a new session controller owns all flow; the engine owns all rules; rendering is a shared pure service any adapter can reuse.**
 
-[I] **Adapters shrink to two jobs:** translate their transport's events into protocol input-events, and paint the returned view-state in their medium. No game logic.
-[I] **The controller is the new layer** and is transport-neutral: it never imports `discord.js`. It emits a *semantic* view-state DTO (screen kind, prompt, narration, options, art slots, footer), not embeds.
-[I] **Rendering is shared:** the pure `render/*` frames plus a view-state→medium step, callable by any adapter, so an agent can see close to what a Discord player sees.
-[I] **Two test depths, kept distinct:** `sim/` still enters at the *engine* (fast, deterministic, LLM cut — for months of data); the *agent-player* enters at the *protocol/controller* (all features on, real LLM — for bug-hunting and feedback). This is the "in between" target: a shorter sim of the whole game, not the engine core alone.
+- [I] **Adapters shrink to two jobs:** translate their transport's events into protocol input-events, and paint the returned view-state in their medium. No game logic.
+- [I] **The controller is the new layer** and is transport-neutral: it never imports `discord.js`. It emits a *semantic* view-state DTO (screen kind, prompt, narration, options, art slots, footer), not embeds.
+- [I] **Rendering is shared:** the pure `render/*` frames plus a view-state→medium step, callable by any adapter, so an agent can see close to what a Discord player sees.
+- [I] **Two test depths, kept distinct:** `sim/` still enters at the *engine* (fast, deterministic, LLM cut — for months of data); the *agent-player* enters at the *protocol/controller* (all features on, real LLM — for bug-hunting and feedback). This is the "in between" target: a shorter sim of the whole game, not the engine core alone.
 
 ---
 
@@ -149,11 +149,11 @@ Every open question from the spark phase is resolved below. Changing any of thes
 Carried idea, not a commitment: [I] **declarative controller** — a route table rather than hand-written branches, folding in the interaction-layer's route-table idea so both frontends and the ack model share one declaration. The lead may adopt it during M3 if it pays for itself.
 
 Why now, not later:
-[p] The "all features on, agent-driven" target is **unreachable** without the controller — those features live in the handlers, so `sim/` cannot reach them. Extraction is a prerequisite, not polish.
-[p] Same seam serves the eventual frontend swap. Build once.
-[p] Stops further rule/flow accretion in the handlers (the commute leak is the warning shot).
-[c] The bulk is untangling the ~2460-line `index.ts` dispatcher — the busiest file in the repo.
-[c] Regression risk in the live Discord flow during extraction. Mitigated by M1 (oracle first) and migrating screen-by-screen against it.
+- [p] The "all features on, agent-driven" target is **unreachable** without the controller — those features live in the handlers, so `sim/` cannot reach them. Extraction is a prerequisite, not polish.
+- [p] Same seam serves the eventual frontend swap. Build once.
+- [p] Stops further rule/flow accretion in the handlers (the commute leak is the warning shot).
+- [c] The bulk is untangling the ~2460-line `index.ts` dispatcher — the busiest file in the repo.
+- [c] Regression risk in the live Discord flow during extraction. Mitigated by M1 (oracle first) and migrating screen-by-screen against it.
 
 ---
 

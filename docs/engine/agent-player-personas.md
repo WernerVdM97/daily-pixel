@@ -14,10 +14,11 @@ related:
   - "[[poc-plus-roadmap]]"
   - "[[prompt-v13-roadmap]]"
 ---
+_The agent-player harness (`src/agent/`, the DA-5 opt-in QA adapter) gets a persona layer: ten player-type presets that roleplay a gamer with real wants, see the screens a real player sees, and judge the run against the game's own long-horizon promise rather than one day's fun. Reviews split **engagement** from **fulfilment**, tag friction by recurrence, and track a per-day series so decay is visible._
 
-The agent-player harness (`src/agent/`, the DA-5 opt-in QA adapter) gets a persona layer: the brain roleplays a *type of gamer* with real wants, sees the screens a real player sees, and closes the run by judging the experience **against the game's own long-horizon promise** rather than against a single day's fun. Ten presets ship. The existing expert critic stays as the design voice; the personas are the player voice.
+---
 
-This is the follow-up to #93. That task proved the point with a blunt switch, `AGENT_FORCE_FREE_ACTIONS`, and its own snapshot (\[Baseline\] below) showed both that free-text play reads qualitatively better and that forcing it only reaches one menu a day. The persona layer replaces the switch with motivation.
+The existing expert critic stays as the design voice; the personas are the player voice. This is the follow-up to #93. That task proved the point with a blunt switch, `AGENT_FORCE_FREE_ACTIONS`, and its own baseline (see the snapshot below) showed both that free-text play reads qualitatively better and that forcing it only reaches one menu a day. The persona layer replaces the switch with motivation.
 
 ---
 
@@ -67,7 +68,7 @@ The original ask named this criterion **Company** ("did I feel one of many, or a
 What the harness cannot see, stated once so that no criterion and no panel shape is read as a verdict it cannot deliver. The rubric above cites these, and the build plan assumes them.
 
 - **One player per world.** A run boots a fresh `:memory:` DB and creates exactly one character (a per-session `agent:play-<timestamp>` id, or `AGENT_BRAIN_CHOOSES_CHAR=1` for a brain-authored one). Nothing in a run is co-play, so "one of many" can only be read off the seeded NPC cast, which the engine walks on a timer of its own.
-- **Bounded hand-written content.** The world is ten locations (`assets/world/locations.yml` + `edges.yml`) and eight seeded NPCs (`seedNpcs`, `src/db/migrate.ts`), plus whatever the action pipeline mints in-run. Content-exhaustion questions hit that ceiling on day one and belong to the arc panel, not to a breadth run.
+- **Bounded hand-written content.** The world is eleven locations (`assets/world/locations.yml` + `edges.yml`) and eight seeded NPCs (`seedNpcs`, `src/db/migrate.ts`), plus whatever the action pipeline mints in-run. Content-exhaustion questions hit that ceiling on day one and belong to the arc panel, not to a breadth run.
 - **No cross-process continuation.** The engine's DB is `:memory:`, so an arc is one process with `AGENT_DAYS=n`. `AGENT_INHERIT=1` plus `AGENT_USER_ID` looks like continuation and is not: the previous process's world is gone, no character is found, and the run exits 1 on the `no-character` guard. A panel of ten personas is therefore ten processes and ten review files, aggregated offline.
 - **The world clock is the real clock.** The nightly tick and `hiScreen` read `new Date()` for the Saturday bonus, the five-day absence nudge and the weekend greeting, so a fast multi-day run does not move the calendar. Simulating an absence needs a pinned clock that advances a day per tick, or the absence consequences never fire and the interrupted panel tests nothing.
 - **The boot differs between environments.** `migrate()` skips the world and NPC seeders under `VITEST` (`src/db/migrate.ts`), which is why `establishBootParity` exists. A scripted or in-process panel that does not go through boot parity plays an empty world.
@@ -193,7 +194,7 @@ A `handbook.md` fragment in the brain's system prompt: what a first-time player 
 
 Covers the command list (`/join`, `/hi`, `/action`, `/sleep`, `/look`, `/map`, `/stats`, `/backpack`, `/journal`, `/help`), the `/join` wizard (seven steps plus the confirm screen), the roll economy (three rolls a day, `SATURDAY_BONUS_ROLLS = 1` on Saturdays, no-roll deterministic screens, `/sleep` to end the day), the emoji signal vocabulary, and the interaction model (most moves are buttons; the free-text `/action` slot is the exception, and it is the one the personas are meant to reach for). It also states the **shape of the game's promise**: a day is a ritual, the world advances without you, the arc runs to December.
 
-- [!] **Do not transcribe the two infographics in `docs/assets/`.** They are LLM-authored NotebookLM posters and at least one claim is already wrong: the daily-cycle poster says "2 rolls per day" while the engine is `DAILY_ROLL_ALLOWANCE = 3`, plus `SATURDAY_BONUS_ROLLS = 1` on Saturdays (`WorldEngineImpl.ts`). [[pitch-and-pillars]] says "two rolls" as well, and so did the in-game `/help` copy, which also called `/join` a 6-step wizard when the wizard's own footer counts seven, so the stale figures had reached the one source this handbook is told to trust. Both help-copy errors are fixed ahead of this work, because a tutorial that teaches wrong rules is worse than no tutorial. T2 then adds a test that reads the handbook fragments and asserts every roll figure against those two constants, so the fourth copy cannot drift.
+- [!] **Do not transcribe the two infographics in `docs/assets/`** (`core-loop.png` and `character-creation.png`). They are LLM-authored NotebookLM posters, and at least one claim is already wrong: `core-loop.png` states "2 Rolls Per Day" (and "Rolls: 0/2") while the engine is `DAILY_ROLL_ALLOWANCE = 3`, plus `SATURDAY_BONUS_ROLLS = 1` on Saturdays (`WorldEngineImpl.ts`). [[pitch-and-pillars]] said "two rolls" too and so did the in-game `/help` copy, which also called `/join` a 6-step wizard when the wizard's own footer counts seven, so the stale figures had reached the one source this handbook is told to trust. Both copies are now corrected (the pitch and `/help` in the same change that lands this spec, the wizard length in `/help`), because a tutorial that teaches wrong rules is worse than no tutorial. T2 then adds a test that reads the handbook fragments and asserts every roll figure against those two constants, so the next copy cannot drift.
 
 ### E. Feedback, in three layers
 
@@ -298,7 +299,7 @@ Ten presets. The first four are the asked-for set; the rest come from the loops 
 | **Casual / Drifter** | a quick fix | hi → one action → sleep | does a two-minute visit still pay |
 | **Lapsed Returner** | to catch up after a gap | hi → journal → resume the old thread | re-entry, absence cost, whether coming back is worth it |
 
-Two roster rows ask content questions the breadth shape cannot answer: the Explorer's "does the map keep opening, or run out" and the Collector's "how much content actually exists". Both hit the ten-location, eight-NPC ceiling on day one, so they are arc-panel readings; on day one those two personas are worth their voice and the chattiness of their priors, not their answer.
+Two roster rows ask content questions the breadth shape cannot answer: the Explorer's "does the map keep opening, or run out" and the Collector's "how much content actually exists". Both hit the eleven-location, eight-NPC ceiling on day one, so they are arc-panel readings; on day one those two personas are worth their voice and the chattiness of their priors, not their answer.
 
 - [?] **Farmers split into two deliberately.** The ask named one "farmer who collects XP and goes fishing". Those are two different motivations with different failure modes: the *Grinder* leaves when the reward curve flattens, the *Homesteader* leaves when the world stops feeling safe. One persona could not report both.
 

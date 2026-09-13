@@ -118,10 +118,10 @@ o══════════════════╡@╞══════
 o══════════════════════════════════════o
 ```
 
-[p] Zero dependencies, zero attachments — pure strings through the existing send path.
-[p] Same art degrades cleanly to monochrome on mobile.
-[c] 8+8 fixed colours cap the fidelity — the reference pixel art's ~16 tuned earth tones are unreachable; bg fills + `░▒▓` dither is the ceiling.
-[c] Colour roughly doubles a frame's char cost; the splash is already at ~97% of one message.
+- [p] Zero dependencies, zero attachments — pure strings through the existing send path.
+- [p] Same art degrades cleanly to monochrome on mobile.
+- [c] 8+8 fixed colours cap the fidelity — the reference pixel art's ~16 tuned earth tones are unreachable; bg fills + `░▒▓` dither is the ceiling.
+- [c] Colour roughly doubles a frame's char cost; the splash is already at ~97% of one message.
 
 ## 5. Reference — bento item-grid border poster (2026-07-09)
 
@@ -138,10 +138,10 @@ Zelda-style inventory poster; noted as the model for **UI/menu frames** (invento
 - **Palette is near-1:1 ANSI**: gold→33, orange→31, lavender→35, white accents→37 (sparse: eyes, glints), black bg→40. Two warm + two cool tones per icon = the same ramp-sharing trick as the landscape reference.
 - The `≡ $ ≡` cash plaque works verbatim as text glyphs.
 
-[I] A bento inventory frame: box-drawing panels, one half-block icon per slot, rivets at junctions — strong candidate for the inventory/shop command replies.
-[p] First reference whose full palette fits the 8-colour ANSI set without loss.
-[c] Irregular panel grids spend many box-drawing junction chars; the mobile single-width question above applies double here.
-[?] 35 magenta is "reserved: magic" in the colour-role table, but here lavender is the natural metal/chrome tone for icons — allow a per-screen role override for menu frames?
+- [I] A bento inventory frame: box-drawing panels, one half-block icon per slot, rivets at junctions — strong candidate for the inventory/shop command replies.
+- [p] First reference whose full palette fits the 8-colour ANSI set without loss.
+- [c] Irregular panel grids spend many box-drawing junction chars; the mobile single-width question above applies double here.
+- [?] 35 magenta is "reserved: magic" in the colour-role table, but here lavender is the natural metal/chrome tone for icons — allow a per-screen role override for menu frames?
 
 ## 6. Reference — dialogue/choice modal (2026-07-09)
 
@@ -157,10 +157,10 @@ Pixel-UI dialogue box ("You have found: 2 RED mushrooms…"); noted as the model
 - **Bullet hierarchy** in body text: `•` event line, indented `+` detail line, then the question, then choices — a reusable 4-beat layout for any loot/confirm reply.
 - Flat fills only, no dither — reinforces the scenes-dither / UI-flat split from §5.
 
-[I] Adopt the 4-beat loot-found layout for gather/loot tick replies: event line, detail line, question, Discord buttons.
-[p] The rim + crest + corner sparkles are all single-colour ASCII runs — polish at almost zero char-budget cost.
-[c] Actual Yes/No selection lives in Discord buttons per §3, so in-frame choice rows are preview/decoration only — don't duplicate interactive state in art.
-[I] Filled-vs-hollow marker (`●`/`·`) as the standard shape-redundant highlight wherever colour marks the active element.
+- [I] Adopt the 4-beat loot-found layout for gather/loot tick replies: event line, detail line, question, Discord buttons.
+- [p] The rim + crest + corner sparkles are all single-colour ASCII runs — polish at almost zero char-budget cost.
+- [c] Actual Yes/No selection lives in Discord buttons per §3, so in-frame choice rows are preview/decoration only — don't duplicate interactive state in art.
+- [I] Filled-vs-hollow marker (`●`/`·`) as the standard shape-redundant highlight wherever colour marks the active element.
 
 ## 7. Reference — outline tree-town scene (2026-07-09)
 
@@ -236,7 +236,7 @@ Four colour-selection techniques:
 - **Ramp sharing** — one navy is the shadow for foliage, mountains and bushes; sky tan reappears as path highlight. The trick that makes 8 colours viable.
 - **Warm/cool depth** — warm tans pull the path/village forward, cool desaturated greens/blues push the forest back; near-black framing vignette.
 
-[I] For *exploration* scenes the outline register (§7) is the better medium fit; this reference remains the vocabulary source for dither, shadows and palette discipline wherever fills are used (splashes, ground strips, dissolves, bar crumble).
+- [I] For *exploration* scenes the outline register (§7) is the better medium fit; this reference remains the vocabulary source for dither, shadows and palette discipline wherever fills are used (splashes, ground strips, dissolves, bar crumble).
 
 ## 12. Reference — roll result card (own mock, June 2026)
 
@@ -248,7 +248,7 @@ Own mock from the render-pipeline era, previously unindexed; the model for the *
 - **Colour carries the verdict, position carries the data**: outcome line green 32 / red 31, everything else near-monochrome — mobile-safe because the `+`/`x` markers and wording are shape-redundant.
 - The cheapest frame in the whole library: ~8 short lines, two colour switches.
 
-[I] Adopt as the template for every skill-check tick reply; the calculation line doubles as the transparency/audit surface for LLM-driven checks.
+- [I] Adopt as the template for every skill-check tick reply; the calculation line doubles as the transparency/audit surface for LLM-driven checks.
 
 ## 13. Anti-reference — luminance-mapped ASCII portrait (June 2026)
 
@@ -260,7 +260,7 @@ The Eisen portrait through `ascii-image-converter` density mapping (` .:-=+*#@`)
 - Luminance mapping preserves *values* but destroys *shapes*; every §5–§11 reference works by the opposite priority (shape first, then one shading accent).
 - At 30 cols this collapses entirely; hand-authored outline + selective fill (§7) is the portrait path instead.
 
-[!] The POC pipeline (see [[mvp-ascii-render-pipeline]]) produces exactly this style — fine as a placeholder generator, but scene/portrait *assets* that matter should be authored per the registers above, not converted.
+- [!] The POC pipeline (see [[mvp-ascii-render-pipeline]]) produces exactly this style — fine as a placeholder generator, but scene/portrait *assets* that matter should be authored per the registers above, not converted.
 
 ## 14. Reference — honey mushrooms field scene (2026-07-09)
 
@@ -309,8 +309,8 @@ Two single-item hero shots; the model for the **item showcase** register — the
 
 Shared devices: hero diagonal composition on empty ground (ANSI: `▀▄` staircases and `/ \` edges), corner-only chrome (card 1's stepped brackets — cheapest ornament tier vs §6's full rim), and card 1's `▢ ▪ ▪ ▪` **pip meter** — the smallest resource notation (rarity/upgrade/charges), shape-redundant as ever.
 
-[I] Reserve the showcase treatment for rare+ drops so the format itself signals rarity — common loot stays in the §6 dialogue layout.
-[I] Pick the strategy per item: one-hue ramp for elemental/simple items, temperature-split for ornate/named gear.
+- [I] Reserve the showcase treatment for rare+ drops so the format itself signals rarity — common loot stays in the §6 dialogue layout.
+- [I] Pick the strategy per item: one-hue ramp for elemental/simple items, temperature-split for ornate/named gear.
 
 ## 17. Reference — consumable family set (2026-07-09)
 
@@ -324,7 +324,7 @@ Four bottles, one system; the model for **item families** — how consumables st
 - **Hue = effect class**: red/heal, pink/charm-fizz, blue/stock, green/poison — one-hue ramps per bottle (§16 card-1 strategy at sprite scale), always backed by the motif so colour never carries it alone.
 - **Even the stopper is identity**: plain cork band, living beetle, wooden plug, tall collar — the cap line of each sprite is a free variation slot.
 
-[I] Build the potion fragment as a parameterised family: one bottle outline per silhouette class, motif glyph + colour role injected per item type. Four silhouettes × motifs × hues covers the whole consumable economy.
+- [I] Build the potion fragment as a parameterised family: one bottle outline per silhouette class, motif glyph + colour role injected per item type. Four silhouettes × motifs × hues covers the whole consumable economy.
 
 ## 18. Reference — key in two render states (2026-07-09)
 
@@ -337,7 +337,7 @@ The same key twice: solid orange, then red as a **stippled ghost outline with a 
 - **Hue shift doubles the signal**: orange→red alongside solid→ghost; state never rides on colour alone (the shape treatment carries it), consistent with every state mark in this library.
 - Game mappings: quest item not yet found (ghost in the objective card), key consumed on use (ghost in the "used" reply), cursed/enchanted variants (solid + sparkle halo only).
 
-[I] Add render-state transforms (solid / ghost / sparkled) to the fragment pipeline rather than authoring state variants — one key sprite, N states for free.
+- [I] Add render-state transforms (solid / ghost / sparkled) to the fragment pipeline rather than authoring state variants — one key sprite, N states for free.
 
 ## 19. Reference — monster portrait card (2026-07-09)
 
@@ -350,13 +350,13 @@ Undead head in the same dashed card system; the model for **monster portraits** 
 - **Decay as edge noise**: the silhouette is deliberately chipped and pocked, with dither patches inside — damage/corruption carried by contour irregularity, readable in monochrome. A cleaner-vs-chipped contour could even scale with the creature's HP.
 - **Discord palette pairing**: sickly green body + pink brain + red eyes — horror via complementary clash, with red still reserved for threat (eyes only), consistent with §9's red discipline.
 
-[I] Bestiary/inspect replies: §17's card dressing + head-crop portrait + name/level line — a third card type alongside items and data cards.
+- [I] Bestiary/inspect replies: §17's card dressing + head-crop portrait + name/level line — a third card type alongside items and data cards.
 
 ## 20. Implications & direction
 
-[I] Build a small `AnsiRenderer`: keep `.ascii` fragments **colour-free**, apply colour by role at render time (chrome/bar/sprite/floater slots), so mobile fallback and the 30-char width validation both operate on the monochrome source.
-[I] **Delivery convention (settled 2026-07-10): art post + reply body.** Every frame is its own Discord message; the narration/options/speech are a reply beneath it — universal across the art/Discord messaging engine. Formalised in [[ansi-art-classification-framework]] §2b, with the pre-decision **opening frame** (one per classified action type) in §2c/§3.0 and canonical monochrome wireframes under `assets/ansi/wireframes/`.
-[!] If coloured strings are ever stored as assets, `SceneLoader` width validation must strip SGR codes before counting (`SceneLoader.ts` counts raw length today).
-[I] Splash-as-PNG hybrid: for the one screen where fidelity matters, attach a rendered image (full colour on every client incl. mobile) and keep ANSI for in-game frames — pairs with the Aseprite pixel-art pipeline in [[mvp-ascii-render-pipeline]].
-[I] Generator scripts (frame markup → validated `.ans`, block-letter fonts, width ruler) were session scratch — rebuild as repo tooling if this graduates.
-[?] Where does colour land first: combat frames (highest information payoff: HP bars, damage) or the `/hi` splash (highest wow payoff)?
+- [I] Build a small `AnsiRenderer`: keep `.ascii` fragments **colour-free**, apply colour by role at render time (chrome/bar/sprite/floater slots), so mobile fallback and the 30-char width validation both operate on the monochrome source.
+- [I] **Delivery convention (settled 2026-07-10): art post + reply body.** Every frame is its own Discord message; the narration/options/speech are a reply beneath it — universal across the art/Discord messaging engine. Formalised in [[ansi-art-classification-framework]] §2b, with the pre-decision **opening frame** (one per classified action type) in §2c/§3.0 and canonical monochrome wireframes under `assets/ansi/wireframes/`.
+- [!] If coloured strings are ever stored as assets, `SceneLoader` width validation must strip SGR codes before counting (`SceneLoader.ts` counts raw length today).
+- [I] Splash-as-PNG hybrid: for the one screen where fidelity matters, attach a rendered image (full colour on every client incl. mobile) and keep ANSI for in-game frames — pairs with the Aseprite pixel-art pipeline in [[mvp-ascii-render-pipeline]].
+- [I] Generator scripts (frame markup → validated `.ans`, block-letter fonts, width ruler) were session scratch — rebuild as repo tooling if this graduates.
+- [?] Where does colour land first: combat frames (highest information payoff: HP bars, damage) or the `/hi` splash (highest wow payoff)?
