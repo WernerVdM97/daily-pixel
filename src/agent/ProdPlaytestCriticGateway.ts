@@ -210,6 +210,12 @@ function renderEvent(e: TranscriptEvent): string {
       return `⚠ FINDING [${e.severity}]: ${e.summary}${e.detail ? ` (${oneLine(e.detail)})` : ''}`;
     case 'greeting':
       return `👋 ${oneLine(e.text)}`;
+    case 'recon':
+      return `RECON /${e.screen}: ${oneLine(e.text)}`;
+    case 'friction':
+      return `FRICTION [severity ${e.severity}, ${e.recurrence}]: ${oneLine(e.what)}`;
+    case 'day-note':
+      return `DAY NOTE → day ${e.dayNumber}: engagement ${e.engagement}, fulfilment ${e.fulfilment} — ${oneLine(e.line)}`;
   }
 }
 

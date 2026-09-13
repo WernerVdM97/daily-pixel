@@ -96,12 +96,27 @@ describe('ScriptedAgentPlayerGateway', () => {
       { kind: 'choice', index: 0 },
     ]);
 
-    expect(await gw.chooseMove(menuInput())).toEqual({ kind: 'menu-pick', index: 1 });
-    expect(await gw.chooseMove(decisionInput())).toEqual({ kind: 'choice', index: 0 });
+    // A bare-move script is wrapped into single-move turns, so every pre-recon scenario reads as
+    // it always did — the brain half of the turn is simply empty.
+    expect(await gw.chooseMove(menuInput())).toEqual({ move: { kind: 'menu-pick', index: 1 } });
+    expect(await gw.chooseMove(decisionInput())).toEqual({ move: { kind: 'choice', index: 0 } });
 
     expect(gw.calls).toHaveLength(2);
     expect(gw.calls[0].moves).toBe(MENU_MOVES);
     expect(gw.calls[1].moves).toBe(DECISION_MOVES);
+  });
+
+  it('plays back a whole-turn script, notes included (spec § B)', async () => {
+    const turn = {
+      move: { kind: 'sleep' as const },
+      intent: 'chase the Oath thread',
+      arcNote: 'the temple; three consecrations left',
+      dayNote: { engagement: 4 as const, fulfilment: 3 as const, line: 'A quiet day.', arcNote: 'the temple; two left' },
+      droppedNotes: ['friction dropped: severity 9 is not 1-5'],
+    };
+    const gw = new ScriptedAgentPlayerGateway([turn]);
+
+    expect(await gw.chooseMove(menuInput())).toEqual(turn);
   });
 
   it('throws loudly when the script is exhausted rather than repeating or idling', async () => {
@@ -139,11 +154,14 @@ describe('ProdAgentPlayerGateway — request', () => {
 
 // ── ProdAgentPlayerGateway — response parse → AgentMove ──
 
+// Every arm below returns the move wrapped in a `BrainTurn` (T1): the gateway resolves the MOVE
+// half of the reply and leaves the note fields empty.
+
 describe('ProdAgentPlayerGateway — parse', () => {
   it('maps a menu choice to the underlying view-positional AgentMove', async () => {
     // choice 1 (list position) → MENU_MOVES[1] = menu-pick with VIEW index 1.
     const gw = makeGateway(mockFetch(apiResponse({ thought: 'patrol', choice: 1 })));
-    expect(await gw.chooseMove(menuInput())).toEqual({ kind: 'menu-pick', index: 1 });
+    expect(await gw.chooseMove(menuInput())).toEqual({ move: { kind: 'menu-pick', index: 1 } });
   });
 
   it('preserves the VIEW-positional index, not the list position (DA-6 crux)', async () => {
@@ -157,17 +175,27 @@ describe('ProdAgentPlayerGateway — parse', () => {
     ];
     const input: ChooseMoveInput = { screenText: 'menu', moves: divergent, character: CHARACTER };
     const gw = makeGateway(mockFetch(apiResponse({ choice: 0 })));
-    expect(await gw.chooseMove(input)).toEqual({ kind: 'menu-pick', index: 5 });
+    expect(await gw.chooseMove(input)).toEqual({ move: { kind: 'menu-pick', index: 5 } });
   });
 
   it('maps a bail pick to the bail move', async () => {
     const gw = makeGateway(mockFetch(apiResponse({ choice: 2 })));
-    expect(await gw.chooseMove(decisionInput())).toEqual({ kind: 'bail' });
+    expect(await gw.chooseMove(decisionInput())).toEqual({ move: { kind: 'bail' } });
+  });
+
+  it('maps a recon screen pick to the recon move (the brain-chosen turn, spec § C)', async () => {
+    const moves: LegalMove[] = [
+      { move: { kind: 'menu-pick', index: 0 }, label: 'Patrol the walls' },
+      { move: { kind: 'recon', screen: 'map' }, label: '/map — the world map' },
+    ];
+    const input: ChooseMoveInput = { screenText: 'menu', moves, character: CHARACTER };
+    const gw = makeGateway(mockFetch(apiResponse({ choice: 1 })));
+    expect(await gw.chooseMove(input)).toEqual({ move: { kind: 'recon', screen: 'map' } });
   });
 
   it('fills a custom slot with the trimmed free text', async () => {
     const gw = makeGateway(mockFetch(apiResponse({ choice: 2, text: '  search the cart  ' })));
-    expect(await gw.chooseMove(menuInput())).toEqual({ kind: 'custom', text: 'search the cart' });
+    expect(await gw.chooseMove(menuInput())).toEqual({ move: { kind: 'custom', text: 'search the cart' } });
   });
 
   it('throws on an out-of-range choice', async () => {

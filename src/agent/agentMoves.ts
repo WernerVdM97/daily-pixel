@@ -12,10 +12,33 @@ import type { CharacterData } from '../engine/WorldEngine.js';
 import { viewMoves } from './viewToText.js';
 import { parseActionCid, CID_BAIL } from '../view/actionViewState.js';
 import { CID_DAYJOB, CID_DAYJOB_CUSTOM } from '../controller/dayJob.js';
-import type { AgentMove, AgentCharView, LegalMove } from './AgentPlayerGateway.js';
+import { RECON_SCREENS } from './AgentPlayerGateway.js';
+import type { AgentMove, AgentCharView, LegalMove, ReconScreen } from './AgentPlayerGateway.js';
 
 /** The always-available "end the day" move — no screen enumerates it (DA-6). */
 export const SLEEP_MOVE: LegalMove = { move: { kind: 'sleep' }, label: 'Go to sleep — end the day' };
+
+/** How many times one recon screen may be consulted in a day (spec § C's per-screen cap). */
+export const RECON_PER_SCREEN_CAP = 2;
+
+/** How many recon turns a day may spend in total (spec § C's per-day cap). */
+export const RECON_PER_DAY_CAP = 6;
+
+/** How much recon the day has already spent. The harness owns this; it is reset per day. */
+export interface ReconUsage {
+  perScreen: Partial<Record<ReconScreen, number>>;
+  total: number;
+}
+
+/** The label the brain reads for each recon screen, in the offer order `RECON_SCREENS` fixes. */
+const RECON_LABELS: Record<ReconScreen, string> = {
+  look: '/look — look around',
+  map: '/map — the world map',
+  stats: '/stats — your sheet',
+  backpack: '/backpack — your kit',
+  journal: '/journal — your journal',
+  help: '/help — commands',
+};
 
 /** Project the engine's character row down to the brief state the brain reads each turn. */
 export function agentCharView(char: CharacterData): AgentCharView {
@@ -34,8 +57,10 @@ export function agentCharView(char: CharacterData): AgentCharView {
 
 /** Legal moves on the day-job menu: each day-job button → `menu-pick` (index = the day-job action
  *  index the button's customId encodes), the `Custom…` button → a `custom` free-text slot, plus
- *  the always-available `sleep`. */
-export function menuLegalMoves(view: MenuViewState): LegalMove[] {
+ *  the always-available `sleep`. When `reconUsage` is supplied, one `recon` entry per screen still
+ *  under BOTH caps is appended after the day-job/custom buttons and before `sleep` (spec § C) — no
+ *  screen enumerates them, so they are contextual moves like `sleep`, not view buttons. */
+export function menuLegalMoves(view: MenuViewState, reconUsage?: ReconUsage): LegalMove[] {
   const moves: LegalMove[] = [];
   for (const m of viewMoves(view)) {
     if (m.customId === CID_DAYJOB_CUSTOM) {
@@ -45,15 +70,34 @@ export function menuLegalMoves(view: MenuViewState): LegalMove[] {
       moves.push({ move: { kind: 'menu-pick', index: idx }, label: m.label });
     }
   }
+  if (reconUsage) {
+    const withheld = new Set(reconWithheld(reconUsage));
+    for (const screen of RECON_SCREENS) {
+      if (withheld.has(screen)) continue;
+      moves.push({ move: { kind: 'recon', screen }, label: RECON_LABELS[screen] });
+    }
+  }
   moves.push(SLEEP_MOVE);
   return moves;
+}
+
+/** The screens the caps are withholding right now — the complement of the recon entries
+ *  `menuLegalMoves` appends. The harness reads it to log ONE warning finding per day when a cap is
+ *  first hit, so a screen the day has spent its budget on is visible in the transcript rather than
+ *  silently missing from the offer. */
+export function reconWithheld(usage: ReconUsage): ReconScreen[] {
+  return RECON_SCREENS.filter(
+    (screen) => (usage.perScreen[screen] ?? 0) >= RECON_PER_SCREEN_CAP || usage.total >= RECON_PER_DAY_CAP,
+  );
 }
 
 /** Legal moves on the day-job menu with the day-job buttons withheld — the free-text slot only,
  *  no `sleep`. `AGENT_FORCE_FREE_ACTIONS` (RA-2) offers this list until the day holds a completed
  *  free action, so the brain cannot take day-job work (whose outcome `stripWorkInspiration`
  *  strips of any inspiration grant) or end the day instead. Empty when the menu carries no custom
- *  button — the caller falls back to `menuLegalMoves` rather than offering zero moves. */
+ *  button — the caller falls back to `menuLegalMoves` rather than offering zero moves. Recon
+ *  entries are filtered out too (it builds without a `ReconUsage`): the forced menu is the
+ *  free-text slot ONLY, and its screened view is filtered in lockstep. */
 export function freeActionLegalMoves(view: MenuViewState): LegalMove[] {
   return menuLegalMoves(view).filter((m) => m.move.kind === 'custom');
 }
@@ -105,13 +149,18 @@ export function decisionLegalMoves(view: DecisionViewState): LegalMove[] {
 }
 
 /** True when `move` is one the harness offered this turn — the harness logs a mismatch as an
- *  illegal-move QA finding rather than acting on it (M4.4). Compared by kind + index/text so a
- *  scripted or hallucinated move for the wrong screen is caught. */
+ *  illegal-move QA finding rather than acting on it (M4.4). Compared by kind + index/text/screen
+ *  so a scripted or hallucinated move for the wrong screen is caught. */
 export function isLegal(move: AgentMove, legal: LegalMove[]): boolean {
   return legal.some((l) => {
     if (l.move.kind !== move.kind) return false;
     if (move.kind === 'menu-pick' || move.kind === 'choice') {
       return (l.move as { index: number }).index === move.index;
+    }
+    if (move.kind === 'recon') {
+      // Recon entries are per screen, so a `recon` for a screen this turn did not offer (a capped
+      // one, or one asked for on a decision screen) is an illegal move, not a kind match.
+      return (l.move as { screen: ReconScreen }).screen === move.screen;
     }
     return true; // custom (any text), bail, sleep — kind match is enough
   });
