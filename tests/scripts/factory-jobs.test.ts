@@ -28,6 +28,7 @@ import {
   deliverCommands,
   drainOnce,
   findAdoptable,
+  focusWindow,
   focusCachePath,
   HELD_LABEL,
   heldReport,
@@ -436,6 +437,35 @@ describe('the focus milestone', () => {
     ).toBeNull();
     const board = [item({ number: 34, status: 'Approved', milestone: 'D. MVP' })];
     expect(pickCandidate(board, [], { focus: null })?.number).toBe(34);
+  });
+
+  it('takes the focus and the milestone after it, and stops there', () => {
+    const milestones = [
+      { number: 1, title: A, dueOn: '2026-09-30T00:00:00Z', state: 'open' },
+      { number: 2, title: 'C. POC+ arc', dueOn: '2026-11-30T00:00:00Z', state: 'open' },
+      { number: 3, title: B, dueOn: '2026-10-31T00:00:00Z', state: 'open' },
+      { number: 4, title: 'D. MVP', dueOn: null, state: 'open' },
+      { number: 5, title: 'E. MVP+ / someday', dueOn: null, state: 'open' },
+    ];
+    expect(focusWindow(milestones, A)).toEqual([A, B]);
+  });
+
+  it('anchors on the focus the ledger is building, not on the head of the list', () => {
+    const milestones = [
+      { number: 1, title: A, dueOn: '2026-09-30T00:00:00Z', state: 'open' },
+      { number: 3, title: B, dueOn: '2026-10-31T00:00:00Z', state: 'open' },
+      { number: 2, title: 'C. POC+ arc', dueOn: '2026-11-30T00:00:00Z', state: 'open' },
+    ];
+    expect(focusWindow(milestones, B)).toEqual([B, 'C. POC+ arc']);
+    // A focus that is no longer open (the owner closed it mid-cache) falls back to the head.
+    expect(focusWindow(milestones, 'Z. gone')).toEqual([A, B]);
+  });
+
+  it('returns no window rather than every milestone when nothing is usable', () => {
+    expect(focusWindow([], A)).toEqual([]);
+    expect(
+      focusWindow([{ number: 1, title: A, dueOn: '2026-09-30T00:00:00Z', state: 'closed' }], A),
+    ).toEqual([]);
   });
 
   it('caches the derived focus, and reuses the cache inside its window', async () => {
@@ -1507,9 +1537,9 @@ describe('start under the readiness gate', () => {
     const outcome = await startPass(h.ctx());
     expect(outcome).toMatchObject({ action: 'nothing', focus: 'A. Release A closeout' });
     expect(outcome.held).toEqual([
-      { number: 34, reason: 'blocked-by', detail: 'waiting on #119' },
-      { number: 40, reason: 'out-of-focus', detail: 'B. v0.3.x polish' },
-      { number: 97, reason: 'needs-decision', detail: 'carries needs-human-decision' },
+      { number: 34, reason: 'blocked-by', detail: 'waiting on #119', milestone: 'A. Release A closeout', priority: 'P2 - normal' },
+      { number: 40, reason: 'out-of-focus', detail: 'B. v0.3.x polish', milestone: 'B. v0.3.x polish', priority: 'P2 - normal' },
+      { number: 97, reason: 'needs-decision', detail: 'carries needs-human-decision', milestone: 'A. Release A closeout', priority: 'P1 - high' },
     ]);
     expect(h.has(34)).toBe(false);
   });
@@ -1530,7 +1560,15 @@ describe('start under the readiness gate', () => {
     const { startPass } = await import('../../scripts/factory-jobs.js');
     expect(await startPass(h.ctx())).toMatchObject({
       action: 'nothing',
-      held: [{ number: 34, reason: 'blocked-by', detail: 'waiting on #119' }],
+      held: [
+        {
+          number: 34,
+          reason: 'blocked-by',
+          detail: 'waiting on #119',
+          milestone: 'A. Release A closeout',
+          priority: 'P2 - normal',
+        },
+      ],
     });
     expect(h.has(34)).toBe(false);
   });

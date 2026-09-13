@@ -629,6 +629,22 @@ export function deriveFocus(milestones: Milestone[]): { milestone: string; dueOn
   return first ? { milestone: first.title, dueOn: first.dueOn! } : null;
 }
 
+/**
+ * The milestone window: the focus and the one after it, in roadmap order. Derived from `gh`
+ * rather than configured, like the focus itself, and anchored on the focus the ledger is
+ * actually building so a fresh-looking list cannot disagree with the pick. An empty result
+ * means no window at all (nothing is dated, or nothing is open), never "hide everything".
+ */
+export function focusWindow(milestones: Milestone[], focus: string | null, size = 2): string[] {
+  const ordered = milestones
+    .filter((milestone) => milestone.state === "open")
+    .sort((a, b) => (a.dueOn ?? "~" + a.number).localeCompare(b.dueOn ?? "~" + b.number) || a.number - b.number);
+  if (ordered.length === 0) return [];
+  const at = focus ? ordered.findIndex((milestone) => milestone.title === focus) : 0;
+  const head = at === -1 ? 0 : at;
+  return ordered.slice(head, head + size).map((milestone) => milestone.title);
+}
+
 export interface FocusCache {
   milestone: string | null;
   dueOn: string | null;
@@ -802,6 +818,7 @@ export interface GateCandidate {
   number: number;
   status: string;
   milestone: string | null;
+  priority: string | null;
   labels: string[];
 }
 
@@ -839,6 +856,12 @@ export interface Readiness {
    */
   focus?: string | null;
   blockers?: BlockersByItem;
+  /**
+   * The milestones a human should be looking at, the focus first. A *view* window rather
+   * than a gate: it narrows the bulletin to the sprint's neighbourhood, and it is empty
+   * when there is no focus.
+   */
+  window?: string[];
 }
 
 export type HoldReason = "needs-decision" | "blocked-by" | "out-of-focus";
@@ -1663,11 +1686,14 @@ export interface StartOutcome {
   held?: HeldReport[];
 }
 
-/** `Held` in the shape a JSON outcome carries. */
+/** `Held` in the shape a JSON outcome or a bulletin note carries. */
 export interface HeldReport {
   number: number;
   reason: HoldReason;
   detail: string;
+  /** Carried so a reader can window the list without another board read. */
+  milestone: string | null;
+  priority: string | null;
 }
 
 /**
@@ -1687,7 +1713,20 @@ export function readReadiness(
       !hasJobRecord(item.number, jobs) &&
       (item.status === "In Progress" || (PICKABLE_STATUSES.has(item.status) && isGated(item))),
   );
-  return { focus, blockers: fetchOpenBlockers(ctx, config, considered.map((item) => item.number)) };
+  const window = readWindow(ctx, config, focus);
+  return { focus, blockers: fetchOpenBlockers(ctx, config, considered.map((item) => item.number)), window };
+}
+
+/** The window read, kept separate so a failure narrows the bulletin rather than stopping it. */
+function readWindow(ctx: Ctx, config: { repo: string }, focus: string | null): string[] {
+  try {
+    const window = focusWindow(fetchMilestones(ctx, config), focus);
+    ctx.deps.log(`[factory-jobs] milestone window: ${window.join(", ") || "none"}`);
+    return window;
+  } catch (err) {
+    ctx.deps.log(`[factory-jobs] milestone window unavailable, showing the whole board: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
 }
 
 /** The `Held` list in the shape a JSON outcome or a bulletin note carries. */
@@ -1696,6 +1735,8 @@ export function heldReports(items: GateCandidate[], jobs: JobRecord[], readiness
     number: entry.item.number,
     reason: entry.reason,
     detail: entry.detail,
+    milestone: entry.item.milestone,
+    priority: entry.item.priority ?? null,
   }));
 }
 
