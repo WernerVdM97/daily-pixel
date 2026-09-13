@@ -4,7 +4,35 @@
 
 This file now keeps only the **narrative layer** — the handover context that is documentation, not cards.
 
-## ⏭️ RESUME HERE (newest) — Dark Factory: bulletin live, headless launcher proven, loops fired (2026-09-10)
+## ⏭️ RESUME HERE (newest) - Agent-player persona panel: layer 1 done, layers 2-3 open (2026-09-13)
+
+**State.** Three stacked branches, nothing pushed. Refs are unmerged and no PR exists yet; `git log dev..<branch>` on each shows the work.
+
+| Branch | Covers | State |
+| --- | --- | --- |
+| `feat/agent-panel-1-surface` | T1 recon + working memory, T2 set-based v2 prompts + handbook, T3 ten personas + `AGENT_PERSONA`, T4 friction/day-note parsing, plus a review-fix round | **done**, 6 commits off `dev`, reviewed by two fresh reviewers, tip `5d2ad1f` |
+| `feat/agent-panel-2-feedback` | T5 the `PersonaReview` seam, T6 `panel.ts` + the three-persona smoke (plus an `AGENT_PERSONA`-unset control run on the same commit) | open |
+| `feat/agent-panel-3-panels` | clock pinning for multi-day runs, T7 the arc panel, T8 `skipDays`, T9 the remaining tests, T10 skill/changelog/doc loop | not cut yet |
+
+Each branch's `gh-merge-base` is set (`dev`, then its parent), so the stack is ready for `gh pr create --base`. Spec of record: `docs/engine/agent-player-personas.md` (tasks T1..T10). Gates run before every commit: `npx tsc --noEmit`, `npx tsc -p tsconfig.test.json`, `npx vitest run`. Layer 1 baseline 111 files / 2395 tests, layer 1 tip 114 / 2533.
+
+**Decisions that diverge from the spec.** These belong in the spec's build log before the PR (T10 owns it).
+
+1. **The day note is day-level, not sleep-level.** The spec folds it into the `sleep` pick. But a day usually ends because the rolls ran out: `menu.open` returns `no-rolls` at zero rolls (`SessionController.openActionMenu`), so the brain is never asked again and its last offered turn always has exactly one roll left. No prompt wording could capture a rating that way, and the spec's own baseline table shows all four sampled days ending `no-rolls`, so the series would have lost the common case. `ChooseMoveInput.lastRoll` now tells the brain when its last roll is being spent; a note may ride any turn, the last one wins, and the event is written whatever closed the day. A day that closes unrated logs a warning finding. Still zero extra LLM calls.
+2. **T4 moved into layer 1**, after T2/T3. T2's prompt requests `friction`/`dayNote`, so the parsing had to land in the same PR or layer 1 would ask for fields its own gateway drops.
+3. **Tests are allocated by module, not by task number**, so each layer carries the tests for what it introduces rather than deferring them all to T9.
+4. **The clock is pinned for all multi-day runs**, not only T8's `skipDays` (owner decision), so the Saturday bonus roll and the five-day absence nudge actually fire instead of reading the real date.
+
+**Known limitations. Write these down; do not silently fix them.**
+
+- **Recon is unreachable once the rolls are spent.** `menu.open` returns `no-rolls` at zero rolls, so a day can never end with a look. A persona whose chit trigger is "I could not look something up when it mattered" therefore cannot have it satisfied at end of day, which is a reading the panel must not over-interpret.
+- **A decision-loop failure that interrupts an attempt** means that action's eventual outcome never reaches the day log (the resume path from `menu.open` appends no entry). Harmless for the log's purpose, which is to stop a refused move being repeated, but it is a gap.
+- **The live half of spec A's anti-theatre test needs the paid panel.** The offline half (pairwise distinct `Want`/`Quit condition` per persona) is a test; the per-persona verb histograms are not. T1's own acceptance wording, "verify by hand that a run can read a map, act on it, and not repeat a refused option", also has no live run behind it yet.
+- **`intent` never reaches the transcript.** It persists across turns and is rendered into the next prompt, but no artifact records it, so nothing in a recorded run shows whether a plan held across days.
+- **`actionVerbs` carries model-authored labels, not the classify vocabulary.** `facts.distilledType` is defined as "single lowercase label capturing the action's essence" (`v13/decide/BASE.md`), so it is open-vocabulary free text (`chore`, `patrol`, `haggle`). The classify *kind* is not on the envelope. The panel therefore reads `actionVerbs` as an observed label frequency table, and the anti-theatre comparison runs on move kinds, which is exact.
+- **The printed LLM cost summary excludes the critique and review calls.** `play.ts` prints it from the play block's `finally`, before either runs, so the operator's total and the reviews file's `cost` disagree. Fixed in layer 2.
+
+## ⏭️ RESUME HERE - Dark Factory: bulletin live, headless launcher proven, loops fired (2026-09-10)
 
 **Why the previous session stopped:** two OOM kills, `journalctl` → `tmux-spawn-*.scope: Failed with result 'oom-kill'` at 23:09:06 and 23:15:03, on a box with 1973 MB RAM, ~240 MB available, an interactive `pi` at 715 MB and the pi-lens TypeScript stack at ~690 MB. The 23:09 kill took triage run `d80169f9` (29 turns / 53 tool calls, then "process exited or disappeared before writing a result", nothing written); the 23:15 kill took the session that fired it. RAM is now 6 GB, and every loop below ran headless, outside any session, one at a time. Full record in `.pi/factory/memory/incidents/`.
 
