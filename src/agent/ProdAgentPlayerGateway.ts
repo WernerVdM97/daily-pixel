@@ -1,7 +1,9 @@
 /**
  * Production, OpenRouter-backed `AgentPlayerGateway` (JSON-seam M4.1). The agent-player's brain: it
  * renders the current turn into a user message, asks the model to pick a move, and maps the reply
- * back to one of the legal `AgentMove`s.
+ * back to one of the legal `AgentMove`s, wrapped in the `BrainTurn` the harness reads. Only the
+ * MOVE half of the reply is resolved here: the note fields (`intent`, `arcNote`, `friction`,
+ * `dayNote`) are not parsed yet, so a reply carrying them returns the move alone.
  *
  * Mirrors `ProdPipelineLlmGateway` deliberately: reuses `callChatCompletion` verbatim (JSON mode,
  * single attempt, no retry/fallback at this layer), throws loudly on transport/parse/validation
@@ -17,7 +19,7 @@ import { DEFAULT_LLM_MODEL } from '../llm/openrouter.js';
 import type { LlmCallRecorder } from '../llm/LlmCallRecorder.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
-import type { AgentMove, AgentPlayerGateway, ChooseMoveInput } from './AgentPlayerGateway.js';
+import type { AgentMove, AgentPlayerGateway, BrainTurn, ChooseMoveInput } from './AgentPlayerGateway.js';
 import { AGENT_PLAYER_STAMP, loadAgentPrompt } from './agentPrompt.js';
 
 export interface ProdAgentPlayerGatewayConfig {
@@ -63,7 +65,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     this.verbose = config.verbose ?? false;
   }
 
-  async chooseMove(input: ChooseMoveInput): Promise<AgentMove> {
+  async chooseMove(input: ChooseMoveInput): Promise<BrainTurn> {
     const userMessage = buildUserMessage(input);
     const startedAt = Date.now();
     let httpStatus: number | null = null;
@@ -165,7 +167,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
       // propagates past this point. Guard is compile-time defence against a future early return.
       throw new Error('unreachable: move was never set');
     }
-    return move;
+    return { move };
   }
 }
 

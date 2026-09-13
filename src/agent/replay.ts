@@ -39,6 +39,13 @@
  * rule does not apply to them); wizard.* events only appear inside the creation walk prefix.
  * Sequence-sanity failures are validation failures (exit non-zero).
  *
+ * Spec § C's recon screens are chrome in the same sense: a brain-chosen `screen.look` /
+ * `screen.map` / `screen.stats` / `screen.backpack` / `screen.journal` / `screen.help` dispatch
+ * reads a screen rather than acting on a button (it costs no roll and opens no decision), so it
+ * is legal after a menu view with no preceding-view check — the same carve-out the scripted
+ * `screen.stats` / `screen.look` beats already get. The move KIND is `recon`, and `isLegal`
+ * matches it by screen, so the harness's offer and the brain's pick cannot drift.
+ *
  * D2 tolerance: an 'internal' greeting envelope (the stale-/hi inherit edge — hi.open →
  * resumeAction throw) is a RECORDED envelope like any other and the replay deep-equals it
  * with no special handling: it either matches its recorded bytes or it is reported as a
@@ -164,8 +171,22 @@ function validateProtocolFile(raw: unknown): { ok: true; entries: ProtocolEntry[
   if (typeof head.recordedAt !== 'string' || Number.isNaN(new Date(head.recordedAt).getTime())) {
     return { ok: false, message: 'header.recordedAt must be an ISO-8601 timestamp (DC-M10.6)' };
   }
+  // Optional (spec § H): a pre-persona recording carries no key at all, so absence is legal —
+  // a present-but-non-string key is malformed and would otherwise be silently dropped here.
+  if (head.persona !== undefined && typeof head.persona !== 'string') {
+    return { ok: false, message: 'header.persona must be a string when present' };
+  }
 
-  const header: ProtocolHeaderEntry = { seq: 0, kind: 'header', v: head.v, userId: head.userId, brain: head.brain, backend: head.backend, recordedAt: head.recordedAt };
+  const header: ProtocolHeaderEntry = {
+    seq: 0,
+    kind: 'header',
+    v: head.v,
+    userId: head.userId,
+    brain: head.brain,
+    backend: head.backend,
+    recordedAt: head.recordedAt,
+    ...(typeof head.persona === 'string' ? { persona: head.persona } : {}),
+  };
   const entries: ProtocolEntry[] = [header];
   let seq = 1;
   let sawDispatch = false;
@@ -359,8 +380,9 @@ async function replayLogPinned(protocol: ProtocolEntry[], opts: ReplayOptions = 
     const ev = validateGameEvent(event);
 
     // ── DC-S5 sequence sanity (the stale-rule carve: the scripted beats hi.open /
-    // screen.stats / screen.look are chrome — no preceding-view check; only action.choose
-    // and dayjob.start are checked against the preceding envelope's view). ──
+    // screen.stats / screen.look AND a brain-chosen recon `screen.*` dispatch are chrome —
+    // no preceding-view check; only action.choose and dayjob.start are checked against the
+    // preceding envelope's view). ──
     const sanityFailures: string[] = [];
 
     // wizard.* events only appear inside the creation walk prefix. The prefix starts at the

@@ -482,3 +482,70 @@ describe('replay — deterministic real-backend round trip (PROBE B made permane
     expect(red.ok).toBe(false);
   });
 });
+
+// ── T1 (spec § C/§ H) — two stream shapes the recon rework adds: a brain-chosen `screen.*`
+// dispatch, and the optional persona stamp on the header. ──
+
+describe('replay — recon turns and the persona stamp (T1)', () => {
+  /** A day that opens by reading two screens before it acts: the brain-chosen recon turns. */
+  const RECON_DAY_MOVES: AgentMove[] = [
+    { kind: 'recon', screen: 'map' },
+    { kind: 'recon', screen: 'journal' },
+    { kind: 'menu-pick', index: 0 },
+    { kind: 'choice', index: 0 },
+    { kind: 'choice', index: 0 },
+    { kind: 'sleep' },
+  ];
+
+  it('replays a stream carrying brain-chosen screen.map / screen.journal dispatches byte-green', async () => {
+    const protocol = await recordRealSession(RECON_DAY_MOVES);
+
+    // Non-vacuity: the recon turns are really in the stream, right after the menu views that
+    // offered them — and there are TWO of them, so a carve-out that only forgave a leading beat
+    // could not pass this.
+    const reconTypes = dispatches(protocol)
+      .map((d) => d.event.type)
+      .filter((t) => t === 'screen.map' || t === 'screen.journal');
+    expect(reconTypes).toEqual(['screen.map', 'screen.journal']);
+    const firstMenu = dispatches(protocol).findIndex((d) => d.event.type === 'menu.open');
+    expect(dispatches(protocol)[firstMenu + 1].event.type).toBe('screen.map');
+
+    const result = await replayLog(protocol, { backend: 'real' });
+
+    expect(result.fatal).toBeUndefined();
+    expect(result.ok).toBe(true);
+    expect(result.entries.every((e) => e.ok)).toBe(true);
+  });
+
+  it('accepts an optional string persona on the header and copies it onto the replay header', async () => {
+    const run = await stubRun(1);
+    const protocol = JSON.parse(JSON.stringify(run.harness.transcript.protocol)) as ProtocolEntry[];
+    (protocol[0] as { persona?: string }).persona = 'explorer';
+
+    const result = await replayLog(protocol);
+
+    expect(result.header?.persona).toBe('explorer');
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a non-string persona when the key is present (absent stays legal)', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'replay-test-'));
+    const file = path.join(dir, 'bad-persona.json');
+    const run = await stubRun(1);
+    const protocol = JSON.parse(JSON.stringify(run.harness.transcript.protocol)) as ProtocolEntry[];
+    // Absent is the pre-persona shape and must keep replaying: pin that first.
+    writeFileSync(file, JSON.stringify(protocol));
+    try {
+      expect((await replayFile(file)).header?.persona).toBeUndefined();
+
+      (protocol[0] as { persona?: unknown }).persona = 7;
+      writeFileSync(file, JSON.stringify(protocol));
+      const result = await replayFile(file);
+
+      expect(result.ok).toBe(false);
+      expect(result.fatal).toContain('header.persona must be a string');
+    } finally {
+      unlinkSync(file);
+    }
+  });
+});
