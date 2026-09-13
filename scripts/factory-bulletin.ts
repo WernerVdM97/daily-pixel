@@ -480,7 +480,7 @@ export function renderBulletin(queue: Queue, generatedAt: Date): string {
 
   lines.push(BULLETIN_MARKER);
   lines.push("");
-  lines.push(`_Generated ${stamp} by \`scripts/factory-bulletin.ts\`. Regenerated in place by the sweeper; editing this body by hand is pointless._`);
+  lines.push(`_Generated ${stamp} by \`scripts/factory-bulletin.ts\`. Regenerated in place by scrumo on every digest and by the sweeper as backstop; editing this body by hand is pointless._`);
   lines.push("");
   lines.push(`# ${BULLETIN_TITLE}`);
   lines.push("");
