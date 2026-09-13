@@ -201,7 +201,8 @@ Unit tests only, no real `pi` spawn, with an injected clock and an injected runn
 - Adoption: an orphan with a claim comment is taken over; one with only a matching branch is taken over; one with neither is left for the sweeper; a branch with commits enters at `review` and one without enters at `build`.
 - Reconcile: an open PR leaves the job waiting with no attempt charged and nothing spent; a merged PR sets `Done` and closes the issue; a PR closed unmerged blocks; a waiting job survives many ticks without reaching the attempt or budget guards.
 - Liveness and locking: a second drain exits on the drain lock; a genuine orphan (pid live, start time matches) is killed as a group and counted; a recycled pid (pid live, start time differs) is counted and never killed; a clean crash is counted; `retry` clears `blocked`, zeroes the attempts and refreshes the budget.
-- The gate: only `Approved`, plus `auto:docs`/`auto:changelog`/`auto:tests` within their class; priority then oldest; `Inbox` and `Blocked` never picked.
+- The gate: only `Approved`, plus `auto:docs`/`auto:changelog`/`auto:tests` within their class; priority then oldest; `Inbox` and `Blocked` never picked. Readiness is a second question on top of approval, and each is its own case here: an item carrying `needs-human-decision`, an item with an open native `blockedBy` dependency, and an item outside the focus milestone are all declined with a reason and reported, never silently skipped.
+- Focus: the sprint is the open milestone with the earliest due date, cached at `.pi/factory/focus.json`, and no dated open milestone means no filter at all (priority order is the fallback, not the norm). The empty-results and stale-cache paths are asserted, because a silently disabled focus filter looks exactly like a working one.
 - `deliver` command construction against an injected exec.
 - A dry-run mode (`FACTORY_DRY_RUN=1`) so the drainer can be exercised by hand against a scratch jobs dir.
 

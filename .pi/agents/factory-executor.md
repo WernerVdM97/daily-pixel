@@ -19,16 +19,17 @@ The build itself is no longer your work. One board item became a *job* tracked i
 cd "${FACTORY_PROJECT_DIR:-/home/werner/projects/daily-pixel}" && npx tsx scripts/factory-jobs.ts start
 ```
 
-`start` does its work inline in seconds: it prefers *adopting* an orphaned `In Progress` item with a factory claim comment or a matching branch, otherwise picks the highest-priority-then-oldest `Approved` (or `auto:*` class) item, cuts a worktree off `dev`, claims the item on the board, and writes the job record. It prints one JSON line saying what it did.
+`start` does its work inline in seconds: it prefers *adopting* an orphaned `In Progress` item with a factory claim comment or a matching branch, otherwise picks the highest-priority-then-oldest runnable item, cuts a worktree off `dev`, claims the item on the board, and writes the job record. It prints one JSON line saying what it did.
 
 ## Hard rules
 
 - **Ignore the rest of your task text.** The task you receive may still describe a build pass ("pick one approved item, build it in this worktree, open a PR"). That text lives in a runtime schedule record this repo cannot change; it is stale, and the one command above replaces all of it.
 - **Nothing else.** No building, no reviewing, no fixing, no committing, no PRs, no board writes, no subagents, no reading the item. If the command succeeded, the job is open and the next tick starts `build` on it.
-- **The gate is unchanged** and `start` enforces it: only `Approved`, or an `auto:*` class item still inside its class. You never approve anything, and neither does the command.
+- **The gate is unchanged** and `start` enforces it: only `Approved`, or an `auto:*` class item still inside its class. On top of that, nothing runs while an item carries `needs-human-decision`, has an open `blockedBy` dependency, or sits outside the focus milestone (the open milestone with the earliest due date, printed as `focus milestone:`). You never approve anything, and neither does the command.
+- **`held` in the output is the owner's business, not yours.** When the command starts nothing it names why in `held`: relay those item numbers and reasons verbatim in your report so a wrongly-approved or blocked card is visible the same day. Do not remove labels, move cards or edit dependencies to make something runnable.
 - **Fail soft.** If `scripts/factory-jobs.ts` is absent (a checkout from before this merged), report that and stop. Never fall back to building the item by hand.
 - Neither you nor the stage agents may merge, push to `dev`/`main`, or tag a release. `deliver` pushes a branch and opens a PR; merging stays the owner's step.
 
 ## Report
 
-Under 10 lines: the item and branch if one was started, `adopted` or `started` or `nothing approved`, and anything the command refused. Say nothing about tests, because you ran none.
+Under 10 lines: the item and branch if one was started, `adopted` or `started` or `nothing approved`, the `focus` milestone, and the `held` list (`#n reason`) when it is non-empty. Say nothing about tests, because you ran none.
