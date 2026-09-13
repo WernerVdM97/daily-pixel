@@ -34,7 +34,7 @@ export function composeHelpScreen(): string {
     SEPARATOR,
     "",
     "**Economy**",
-    "You have **3 rolls per day**. Each `/action` consumes 1 roll.",
+    "You have **3 rolls per day** (4 on Saturdays). Each `/action` consumes 1 roll.",
     "Rolls reset at nightfall (admin `/sleep` or nightly cron).",
     "Optional actions can be skipped (Bail or Skip button).",
     "Required actions (attacked, cornered) cannot be skipped.",

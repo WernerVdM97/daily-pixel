@@ -76,6 +76,7 @@ describe("/help", () => {
     const result = await handler({ user: { id: "u1" } } as never);
 
     expect(result).toContain("3 rolls per day");
+    expect(result).toContain("4 on Saturdays");
     expect(result).toContain("consumes 1 roll");
     expect(result).toContain("Bail");
     expect(result).toContain("Skip");
