@@ -362,7 +362,7 @@ describe('ProdPlaytestCriticGateway — persona review audit', () => {
     await makeReviewer(mockFetch(apiResponse(reviewReply())), recorder).review(sampleInput());
 
     expect(records).toHaveLength(1);
-    expect(records[0].callKind).toBe('agent-critic');
+    expect(records[0].callKind).toBe('agent-persona-review');
     expect(records[0].promptVersion).toBe(agentCriticStamp('persona-review'));
     expect(records[0].playerInput).toContain('persona explorer');
     expect(records[0].parseOk).toBe(true);

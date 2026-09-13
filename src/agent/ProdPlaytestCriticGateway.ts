@@ -78,6 +78,9 @@ interface RawReview {
 }
 
 const CALL_KIND = 'agent-critic';
+/** The persona review gets its own kind: `summarizeLlmCosts` groups by call kind alone, so sharing
+ *  `CALL_KIND` would fold a panel's reviews into one merged `agent-critic` row and hide their spend. */
+const REVIEW_CALL_KIND = 'agent-persona-review';
 const RUBRIC_FIELDS = ['ritualPull', 'visibleStakes', 'somethingToBuild', 'aliveness', 'memory'] as const;
 const SCORE_FIELDS = ['engagement', 'fulfilment', 'clarity', 'challenge', 'variety'] as const;
 const RETURN_TOMORROW_VALUES: readonly ReturnTomorrow[] = ['yes', 'probably', 'no'];
@@ -291,7 +294,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
           this.recorder.record({
             appVersion: APP_VERSION,
             promptVersion: agentCriticStamp('persona-review'),
-            callKind: CALL_KIND,
+            callKind: REVIEW_CALL_KIND,
             model: this.model,
             temperature: this.temperature,
             tier: 0,
