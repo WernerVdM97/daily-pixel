@@ -6,6 +6,7 @@ import {
   AUTO_LABELS,
   BASE_REF,
   type BoardItem,
+  type BlockersByItem,
   UPSTREAM_REF,
   type Claim,
   type Ctx,
@@ -22,10 +23,15 @@ import {
   attemptTimeoutMs,
   branchFor,
   claimedBranch,
+  deriveFocus,
   decide,
   deliverCommands,
   drainOnce,
   findAdoptable,
+  focusCachePath,
+  HELD_LABEL,
+  heldReport,
+  holdReason,
   housekeeping,
   isGated,
   listJobs,
@@ -33,6 +39,9 @@ import {
   parseVerdict,
   pickCandidate,
   probeClaim,
+  readFocusCache,
+  readProjectConfig,
+  resolveFocus,
   resolveRepoRoot,
   retryPass,
   staleReport,
@@ -316,6 +325,155 @@ describe('the gate', () => {
   it('runs an auto:* item ahead of nothing, at Inbox or Triaged', () => {
     const board = [item({ number: 3, status: 'Triaged', labels: ['auto:changelog'], priority: 'P3 - low' })];
     expect(pickCandidate(board, [])?.number).toBe(3);
+  });
+});
+
+// ── Readiness: owner holds, dependencies, the focus milestone ─────────────
+
+const A = 'A. Release A closeout';
+const B = 'B. v0.3.x polish';
+
+function blockerMap(entries: [number, number[]][]): BlockersByItem {
+  return new Map(
+    entries.map(([item_, numbers]) => [
+      item_,
+      numbers.map((number) => ({ number, title: `Blocker ${number}`, repo: null })),
+    ]),
+  );
+}
+
+describe('the readiness gate', () => {
+  it('records why an item cannot run, and null when it can', () => {
+    expect(holdReason(item({ number: 1 }))).toBeNull();
+    expect(holdReason(item({ number: 1, labels: [HELD_LABEL] }))?.reason).toBe('needs-decision');
+    expect(holdReason(item({ number: 1 }), { blockers: blockerMap([[1, [119]]]) })).toMatchObject({
+      reason: 'blocked-by',
+      detail: 'waiting on #119',
+    });
+    expect(holdReason(item({ number: 1, milestone: B }), { focus: A })).toMatchObject({
+      reason: 'out-of-focus',
+      detail: B,
+    });
+  });
+
+  it('holds an Approved item carrying needs-human-decision, whatever its priority', () => {
+    const board = [
+      item({ number: 97, status: 'Approved', priority: 'P1 - high', labels: [HELD_LABEL] }),
+      item({ number: 98, status: 'Approved', priority: 'P3 - low' }),
+    ];
+    expect(pickCandidate(board, [])?.number).toBe(98);
+    expect(heldReport(board, []).map((held) => [held.item.number, held.reason])).toEqual([[97, 'needs-decision']]);
+  });
+
+  it('holds an item whose dependency is still open, and releases it when it closes', () => {
+    const board = [item({ number: 34, status: 'Approved' }), item({ number: 40, status: 'Approved' })];
+    const blockers = blockerMap([[34, [119]]]);
+    expect(pickCandidate(board, [], { blockers })?.number).toBe(40);
+    expect(heldReport(board, [], { blockers }).map((held) => held.reason)).toEqual(['blocked-by']);
+    expect(pickCandidate(board, [], { blockers: blockerMap([]) })?.number).toBe(34);
+  });
+
+  it('holds work outside the focus milestone, and names the milestone it is in', () => {
+    const board = [
+      item({ number: 34, status: 'Approved', milestone: B }),
+      item({ number: 97, status: 'Approved', milestone: A }),
+    ];
+    const readiness = { focus: A };
+    expect(pickCandidate(board, [], readiness)?.number).toBe(97);
+    expect(heldReport(board, [], readiness).map((held) => held.detail)).toEqual([B]);
+  });
+
+  it('treats an item with no milestone as out of focus', () => {
+    const board = [item({ number: 34, status: 'Approved', milestone: null })];
+    expect(pickCandidate(board, [], { focus: A })).toBeNull();
+    expect(heldReport(board, [], { focus: A })[0]?.detail).toBe('no milestone');
+  });
+
+  it('lists only work a human claimed to run, not the ungated backlog', () => {
+    const board = [item({ number: 5, status: 'Inbox' }), item({ number: 6, status: 'Triaged' })];
+    expect(heldReport(board, [], { focus: A })).toEqual([]);
+  });
+
+  it('reports an In Progress orphan the gate is holding back from adoption', () => {
+    const board = [item({ number: 34, status: 'In Progress', labels: [HELD_LABEL], milestone: B })];
+    expect(heldReport(board, [], { focus: A }).map((held) => [held.item.number, held.reason])).toEqual([
+      [34, 'needs-decision'],
+    ]);
+  });
+
+  it('leaves an item with a job record out of the report', () => {
+    const board = [item({ number: 34, status: 'Approved', labels: [HELD_LABEL] })];
+    expect(heldReport(board, [job({ item: 34 })])).toEqual([]);
+  });
+});
+
+describe('the focus milestone', () => {
+  it('takes the open milestone with the earliest due date', () => {
+    expect(
+      deriveFocus([
+        { number: 2, title: 'C. POC+ arc', dueOn: '2026-11-30T00:00:00Z', state: 'open' },
+        { number: 1, title: A, dueOn: '2026-09-30T00:00:00Z', state: 'open' },
+        { number: 3, title: B, dueOn: '2026-10-31T00:00:00Z', state: 'open' },
+      ]),
+    ).toEqual({ milestone: A, dueOn: '2026-09-30T00:00:00Z' });
+  });
+
+  it('rolls to the next dated milestone when the sprint closes', () => {
+    expect(
+      deriveFocus([
+        { number: 1, title: A, dueOn: '2026-09-30T00:00:00Z', state: 'closed' },
+        { number: 3, title: B, dueOn: '2026-10-31T00:00:00Z', state: 'open' },
+      ])?.milestone,
+    ).toBe(B);
+  });
+
+  it('returns no focus when no open milestone is dated, so priority order decides', () => {
+    expect(
+      deriveFocus([
+        { number: 1, title: A, dueOn: '2026-09-30T00:00:00Z', state: 'closed' },
+        { number: 4, title: 'D. MVP', dueOn: null, state: 'open' },
+      ]),
+    ).toBeNull();
+    const board = [item({ number: 34, status: 'Approved', milestone: 'D. MVP' })];
+    expect(pickCandidate(board, [], { focus: null })?.number).toBe(34);
+  });
+
+  it('caches the derived focus, and reuses the cache inside its window', async () => {
+    const h = new Harness();
+    h.when(
+      'gh',
+      ['api', `repos/${readProjectConfig(h.root).repo}/milestones`],
+      ok(JSON.stringify([{ number: 1, title: A, due_on: '2026-09-30T00:00:00Z', state: 'open' }])),
+    );
+    const config = readProjectConfig(h.root);
+    expect(resolveFocus(h.ctx(), config)).toMatchObject({ focus: A, detail: 'derived, due 2026-09-30T00:00:00Z' });
+    expect(readFocusCache(focusCachePath(h.ctx()))?.milestone).toBe(A);
+    // Second call inside the window answers from disk, with no further gh call.
+    const before = h.calls.filter((call) => call.cmd === 'gh' && call.args.join(' ').includes('milestones')).length;
+    expect(resolveFocus(h.ctx(), config).focus).toBe(A);
+    expect(h.calls.filter((call) => call.cmd === 'gh' && call.args.join(' ').includes('milestones')).length).toBe(before);
+  });
+
+  it('falls back to the stale cache, then to no filter, when gh cannot answer', async () => {
+    const h = new Harness();
+    const config = readProjectConfig(h.root);
+    writeFileSync(
+      focusCachePath(h.ctx()),
+      JSON.stringify({ milestone: B, dueOn: '2026-10-31T00:00:00Z', derivedAt: '2026-09-01T00:00:00Z' }),
+    );
+    h.nowMs = Date.parse('2026-09-13T12:00:00Z');
+    expect(resolveFocus(h.ctx(), config)).toMatchObject({ focus: B });
+    rmSync(focusCachePath(h.ctx()));
+    expect(resolveFocus(h.ctx(), config).focus).toBeNull();
+    expect(h.logs.some((line) => line.includes('focus unresolved'))).toBe(true);
+  });
+
+  it('keeps the cached focus when the dependency lookup is what fails', async () => {
+    const h = new Harness();
+    const blockers = (await import('../../scripts/factory-jobs.js')).fetchOpenBlockers;
+    h.when('gh', ['api', 'graphql'], { code: 1, stdout: '', stderr: 'not enabled' });
+    expect(blockers(h.ctx(), readProjectConfig(h.root), [34]).size).toBe(0);
+    expect(h.logs.some((line) => line.includes('dependency lookup failed'))).toBe(true);
   });
 });
 
@@ -1286,5 +1444,102 @@ describe('the ledger read-outs', () => {
     expect(await drainOnce(merged.ctx({ dryRun: true }))).toMatchObject({ action: 'finished' });
     expect(merged.called('git', 'worktree remove')).toBe(false);
     expect(merged.has(34)).toBe(true);
+  });
+});
+
+// ── The start path under readiness ────────────────────────────────────────
+
+describe('start under the readiness gate', () => {
+  const MILESTONES = JSON.stringify([
+    { number: 1, title: 'A. Release A closeout', due_on: '2026-09-30T00:00:00Z', state: 'open' },
+    { number: 3, title: 'B. v0.3.x polish', due_on: '2026-10-31T00:00:00Z', state: 'open' },
+    { number: 4, title: 'D. MVP', due_on: null, state: 'open' },
+  ]);
+
+  function milestones(h: Harness): Harness {
+    return h.when('gh', ['api', `repos/${readProjectConfig(h.root).repo}/milestones`], ok(MILESTONES));
+  }
+
+  function blockedBy(h: Harness, entries: { item: number; blockers: { number: number; state: string }[] }[]): Harness {
+    const repository = Object.fromEntries(
+      entries.map((entry) => [
+        `i${entry.item}`,
+        {
+          blockedBy: {
+            nodes: entry.blockers.map((blocker) => ({
+              number: blocker.number,
+              title: `#${blocker.number}`,
+              state: blocker.state,
+              repository: { nameWithOwner: 'WernerVdM97/daily-pixel' },
+            })),
+          },
+        },
+      ]),
+    );
+    return h.when('gh', ['api', 'graphql'], ok(JSON.stringify({ data: { repository } })));
+  }
+
+  it('picks the in-focus item over a lower-numbered one two milestones out', async () => {
+    const h = milestones(new Harness());
+    h.board = [
+      item({ number: 34, status: 'Approved', milestone: 'B. v0.3.x polish', title: 'Last stand buttons' }),
+      item({ number: 97, status: 'Approved', priority: 'P2 - normal', milestone: 'A. Release A closeout', title: 'Combat card' }),
+    ];
+    h.when('git', ['branch', '-a'], ok('dev\nmain\n'));
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({
+      action: 'started',
+      item: 97,
+      focus: 'A. Release A closeout',
+      held: [{ number: 34, reason: 'out-of-focus', detail: 'B. v0.3.x polish' }],
+    });
+  });
+
+  it('starts nothing, and names every hold, when the sprint has no runnable work', async () => {
+    const h = blockedBy(milestones(new Harness()), [{ item: 34, blockers: [{ number: 119, state: 'OPEN' }] }]);
+    h.board = [
+      item({ number: 34, status: 'Approved', milestone: 'A. Release A closeout' }),
+      item({ number: 97, status: 'Approved', priority: 'P1 - high', milestone: 'A. Release A closeout', labels: [HELD_LABEL] }),
+      item({ number: 40, status: 'Approved', milestone: 'B. v0.3.x polish' }),
+    ];
+    h.when('git', ['branch', '-a'], ok('dev\nmain\n'));
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    const outcome = await startPass(h.ctx());
+    expect(outcome).toMatchObject({ action: 'nothing', focus: 'A. Release A closeout' });
+    expect(outcome.held).toEqual([
+      { number: 34, reason: 'blocked-by', detail: 'waiting on #119' },
+      { number: 40, reason: 'out-of-focus', detail: 'B. v0.3.x polish' },
+      { number: 97, reason: 'needs-decision', detail: 'carries needs-human-decision' },
+    ]);
+    expect(h.has(34)).toBe(false);
+  });
+
+  it('does not ask for dependencies when no item is gated', async () => {
+    const h = milestones(new Harness());
+    h.board = [item({ number: 5, status: 'Inbox' })];
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({ action: 'nothing' });
+    expect(h.called('gh', 'api graphql')).toBe(false);
+  });
+
+  it('holds back an orphan whose dependency is still open', async () => {
+    const h = blockedBy(milestones(new Harness()), [{ item: 34, blockers: [{ number: 119, state: 'OPEN' }] }]);
+    h.board = [item({ number: 34, status: 'In Progress', milestone: 'A. Release A closeout' })];
+    h.when('gh', ['issue', 'view'], ok(JSON.stringify({ comments: [{ body: 'factory: claimed (branch feat/34-last-stand)' }] })));
+    h.when('git', ['branch', '-a'], ok('dev\nfeat/34-last-stand\n'));
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({
+      action: 'nothing',
+      held: [{ number: 34, reason: 'blocked-by', detail: 'waiting on #119' }],
+    });
+    expect(h.has(34)).toBe(false);
+  });
+
+  it('ignores a closed blocker', async () => {
+    const h = blockedBy(milestones(new Harness()), [{ item: 97, blockers: [{ number: 34, state: 'CLOSED' }] }]);
+    h.board = [item({ number: 97, status: 'Approved', milestone: 'A. Release A closeout', title: 'Combat card' })];
+    h.when('git', ['branch', '-a'], ok('dev\nmain\n'));
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({ action: 'started', item: 97, held: [] });
   });
 });

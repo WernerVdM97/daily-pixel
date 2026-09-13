@@ -590,6 +590,167 @@ export function fetchBoard(ctx: Ctx, config: ProjectConfig): BoardItem[] {
   return items;
 }
 
+// ── Readiness: the focus milestone, and open dependencies ─────────────────
+
+export interface Milestone {
+  number: number;
+  title: string;
+  dueOn: string | null;
+  state: string;
+}
+
+/**
+ * One page is plenty, and `--paginate` would emit concatenated JSON that cannot be parsed:
+ * this repo has single-digit milestones.
+ */
+export function fetchMilestones(ctx: Ctx, config: { repo: string }): Milestone[] {
+  const raw = ghJson<{ number: number; title: string; due_on: string | null; state: string }[]>(ctx, [
+    "api",
+    `repos/${config.repo}/milestones`,
+  ]);
+  return (raw ?? []).map((entry) => ({
+    number: entry.number,
+    title: entry.title,
+    dueOn: entry.due_on,
+    state: entry.state,
+  }));
+}
+
+/**
+ * The sprint: the open milestone with the earliest due date. The letters A..E are the
+ * roadmap order, but a due date is the only machine-readable commitment, so the dated
+ * milestones decide and the undated parking milestones only ever follow them.
+ */
+export function deriveFocus(milestones: Milestone[]): { milestone: string; dueOn: string } | null {
+  const dated = milestones
+    .filter((milestone) => milestone.state === "open" && milestone.dueOn)
+    .sort((a, b) => a.dueOn!.localeCompare(b.dueOn!) || a.number - b.number);
+  const first = dated[0];
+  return first ? { milestone: first.title, dueOn: first.dueOn! } : null;
+}
+
+export interface FocusCache {
+  milestone: string | null;
+  dueOn: string | null;
+  derivedAt: string;
+}
+
+/**
+ * Re-derived far more often than the daily `start` needs. The cache exists so the loops
+ * that are not this program (triage's ordering) can read the sprint without a gh call.
+ */
+export const FOCUS_TTL_MS = 6 * 60 * MIN;
+
+export function focusCachePath(ctx: Ctx): string {
+  return resolve(ctx.root, ".pi/factory/focus.json");
+}
+
+/** The cached focus, at whatever age: a stale answer beats none when gh is unreachable. */
+export function readFocusCache(path: string): FocusCache | null {
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as FocusCache;
+    return typeof raw?.derivedAt === "string" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function cacheIsFresh(cache: FocusCache, nowMs: number): boolean {
+  const derivedAt = Date.parse(cache.derivedAt);
+  return Number.isFinite(derivedAt) && nowMs - derivedAt < FOCUS_TTL_MS;
+}
+
+/**
+ * The focus milestone, or null for "no filter". Never throws: this is a scheduling
+ * preference, not a safety gate, so an unreachable API falls back to the last cached
+ * answer and then to unfiltered priority order, loudly.
+ */
+export function resolveFocus(ctx: Ctx, config: { repo: string }): { focus: string | null; detail: string } {
+  const path = focusCachePath(ctx);
+  const cached = readFocusCache(path);
+  const nowMs = ctx.deps.now();
+  if (cached && cacheIsFresh(cached, nowMs)) return { focus: cached.milestone, detail: `cached at ${cached.derivedAt}` };
+  try {
+    const derived = deriveFocus(fetchMilestones(ctx, config));
+    const next: FocusCache = {
+      milestone: derived?.milestone ?? null,
+      dueOn: derived?.dueOn ?? null,
+      derivedAt: new Date(nowMs).toISOString(),
+    };
+    if (!ctx.dryRun) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+    }
+    return {
+      focus: next.milestone,
+      detail: derived ? `derived, due ${derived.dueOn}` : "no dated open milestone",
+    };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (cached) return { focus: cached.milestone, detail: `stale cache (${reason})` };
+    ctx.deps.log(`[factory-jobs] focus unresolved, picking unfiltered: ${reason}`);
+    return { focus: null, detail: `unresolved: ${reason}` };
+  }
+}
+
+/** Bounded so one gh call stays small; the gate needs blockers for a handful of items. */
+export const BLOCKER_CHUNK = 20;
+
+/**
+ * Native `blockedBy` relations for the items the gate is about to consider, and only those.
+ * GraphQL only: `gh issue list --json` has no field for it. A failure leaves items
+ * unblocked rather than stopping the factory, but it says so, because a silently disabled
+ * dependency gate looks exactly like a working one.
+ */
+export function fetchOpenBlockers(ctx: Ctx, config: { repo: string }, numbers: number[]): BlockersByItem {
+  const blockers: BlockersByItem = new Map();
+  const unique = [...new Set(numbers)].sort((a, b) => a - b);
+  if (unique.length === 0) return blockers;
+  const [owner, name] = config.repo.split("/");
+  for (let i = 0; i < unique.length; i += BLOCKER_CHUNK) {
+    const chunk = unique.slice(i, i + BLOCKER_CHUNK);
+    const fields = chunk
+      .map(
+        (number) =>
+          `i${number}: issue(number: ${number}) { number blockedBy(first: 20) { nodes { number title state repository { nameWithOwner } } } }`,
+      )
+      .join(" ");
+    const query = `query { repository(owner: "${owner}", name: "${name}") { ${fields} } }`;
+    try {
+      const raw = ghJson<{
+        data?: { repository?: Record<string, { blockedBy?: { nodes?: BlockerNode[] } }> };
+        errors?: { message?: string }[];
+      }>(ctx, ["api", "graphql", "-f", `query=${query}`]);
+      if (raw.errors?.length) {
+        throw new Error(raw.errors.map((error) => error.message ?? "unknown").join("; "));
+      }
+      for (const [alias, node] of Object.entries(raw.data?.repository ?? {})) {
+        const number = Number(alias.slice(1));
+        if (!Number.isInteger(number) || !node?.blockedBy?.nodes) continue;
+        const open = node.blockedBy.nodes
+          .filter((blocker) => blocker.state === "OPEN")
+          .map((blocker) => ({
+            number: blocker.number,
+            title: blocker.title,
+            repo: blocker.repository?.nameWithOwner === config.repo ? null : (blocker.repository?.nameWithOwner ?? null),
+          }));
+        if (open.length > 0) blockers.set(number, open);
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      ctx.deps.log(`[factory-jobs] dependency lookup failed, treating ${chunk.length} item(s) as unblocked: ${reason}`);
+    }
+  }
+  return blockers;
+}
+
+interface BlockerNode {
+  number: number;
+  title: string;
+  state: string;
+  repository?: { nameWithOwner?: string };
+}
+
 export function setStatus(ctx: Ctx, config: ProjectConfig, item: BoardItem, status: string): void {
   const option = config.statusOptions[status];
   if (!option) throw new Error(`No board option named "${status}" in .pi/factory/project.json`);
@@ -633,25 +794,113 @@ export function hasJobRecord(item: number, jobs: JobRecord[]): boolean {
   return jobs.some((job) => job.item === item);
 }
 
+/**
+ * Everything a gate decision reads. Narrow on purpose: the bulletin, a sibling script, asks
+ * the same questions about the same board without this file's fuller board shape.
+ */
+export interface GateCandidate {
+  number: number;
+  status: string;
+  milestone: string | null;
+  labels: string[];
+}
+
 /** `Approved`, or an `auto:*` item still upstream of execution. `Blocked`/`Done` never. */
-export function isGated(item: BoardItem): boolean {
+export function isGated(item: GateCandidate): boolean {
   if (item.status === "Approved") return true;
   const auto = item.labels.some((label) => (AUTO_LABELS as readonly string[]).includes(label));
   return auto && (item.status === "Inbox" || item.status === "Triaged");
 }
 
 const PICKABLE_STATUSES = new Set(["Approved", "Inbox", "Triaged"]);
+const REPORTABLE_STATUSES = new Set(["Approved", "Inbox", "Triaged", "In Progress"]);
+
+/**
+ * The label whose whole meaning is "a human decides first". `Approved` does not outrank it:
+ * an approval set in bulk, or set before triage parked the item, would otherwise run a card
+ * whose acceptance criteria are a question for the owner (see #97).
+ */
+export const HELD_LABEL = "needs-human-decision";
+
+export interface Blocker {
+  number: number;
+  title: string;
+  /** `owner/repo` when the blocker lives outside this repo, else null. */
+  repo: string | null;
+}
+
+/** Open dependencies per item, from GitHub's own `blockedBy` relations. */
+export type BlockersByItem = Map<number, Blocker[]>;
+
+export interface Readiness {
+  /**
+   * The milestone being built now. Absent or null means no filter, which is also the
+   * fallback when no open milestone carries a due date.
+   */
+  focus?: string | null;
+  blockers?: BlockersByItem;
+}
+
+export type HoldReason = "needs-decision" | "blocked-by" | "out-of-focus";
+
+export interface Held {
+  item: GateCandidate;
+  reason: HoldReason;
+  detail: string;
+}
+
+/**
+ * Why an item is not runnable yet, or null when it is. `isGated` answers "may this run at
+ * all" (approval); this answers "now" (dependencies, owner holds, the sprint's milestone).
+ */
+export function holdReason(item: GateCandidate, readiness: Readiness = {}): Held | null {
+  if (item.labels.includes(HELD_LABEL)) {
+    return { item, reason: "needs-decision", detail: `carries ${HELD_LABEL}` };
+  }
+  const blockers = readiness.blockers?.get(item.number) ?? [];
+  if (blockers.length > 0) {
+    const names = blockers.map((blocker) => `${blocker.repo ? `${blocker.repo}` : ""}#${blocker.number}`).join(", ");
+    return { item, reason: "blocked-by", detail: `waiting on ${names}` };
+  }
+  if (readiness.focus && item.milestone !== readiness.focus) {
+    return { item, reason: "out-of-focus", detail: item.milestone ?? "no milestone" };
+  }
+  return null;
+}
+
+function runnable(item: GateCandidate, jobs: JobRecord[], readiness: Readiness): boolean {
+  return (
+    PICKABLE_STATUSES.has(item.status) &&
+    isGated(item) &&
+    !hasJobRecord(item.number, jobs) &&
+    holdReason(item, readiness) === null
+  );
+}
 
 /** Highest priority then oldest, one item per job. */
-export function pickCandidate(items: BoardItem[], jobs: JobRecord[]): BoardItem | null {
-  const eligible = items.filter(
-    (item) => PICKABLE_STATUSES.has(item.status) && isGated(item) && !hasJobRecord(item.number, jobs),
-  );
+export function pickCandidate(items: BoardItem[], jobs: JobRecord[], readiness: Readiness = {}): BoardItem | null {
+  const eligible = items.filter((item) => runnable(item, jobs, readiness));
   eligible.sort((a, b) => {
     const rank = (PRIORITY_RANK[a.priority ?? ""] ?? 9) - (PRIORITY_RANK[b.priority ?? ""] ?? 9);
     return rank !== 0 ? rank : a.number - b.number;
   });
   return eligible[0] ?? null;
+}
+
+/**
+ * Work a human said "run this" to, and the gate declined anyway, so an approved card is
+ * never silently idle. The ungated backlog is not listed: it was never claimed.
+ */
+export function heldReport(items: GateCandidate[], jobs: JobRecord[], readiness: Readiness = {}): Held[] {
+  const held: Held[] = [];
+  for (const item of items) {
+    if (!REPORTABLE_STATUSES.has(item.status) || hasJobRecord(item.number, jobs)) continue;
+    // In Progress is an orphan the ledger could adopt; the other statuses are gated work.
+    if (item.status !== "In Progress" && !isGated(item)) continue;
+    const reason = holdReason(item, readiness);
+    if (reason) held.push(reason);
+  }
+  return held.sort((a, b) => a.item.number - b.item.number);
 }
 
 export interface AdoptionProposal {
@@ -682,17 +931,20 @@ export function claimedBranch(comments: { body: string }[], number: number, bran
  * An orphan is an `In Progress` item with no job record and evidence a run got there first:
  * a factory claim comment naming the branch, a branch whose name carries the item number and
  * a slug, or a worktree still checked out at it. Anything else `In Progress` is left for the
- * owner or the sweeper, so an item a human set by hand is never silently taken over.
+ * owner or the sweeper, so an item a human set by hand is never silently taken over. An
+ * adopted branch is still work the gate governs, so readiness holds it back like any other.
  */
 export function findAdoptable(
   items: BoardItem[],
   jobs: JobRecord[],
   ctx: { branches: string[]; commentsFor(number: number): { body: string }[]; hasCommits(branch: string): boolean; headOf(branch: string): string | null },
+  readiness: Readiness = {},
 ): AdoptionProposal | null {
   const orphans = items
     .filter((item) => item.status === "In Progress" && !hasJobRecord(item.number, jobs))
     .sort((a, b) => a.number - b.number);
   for (const item of orphans) {
+    if (holdReason(item, readiness)) continue;
     const branch = claimedBranch(ctx.commentsFor(item.number), item.number, ctx.branches);
     if (!branch) continue;
     const hasCommits = ctx.hasCommits(branch);
@@ -1405,6 +1657,58 @@ export interface StartOutcome {
   item?: number;
   branch?: string;
   detail?: string;
+  /** The milestone `start` was building, so a loop's report can say what the sprint is. */
+  focus?: string | null;
+  /** Approved work the gate declined, and why. Never omitted when non-empty. */
+  held?: HeldReport[];
+}
+
+/** `Held` in the shape a JSON outcome carries. */
+export interface HeldReport {
+  number: number;
+  reason: HoldReason;
+  detail: string;
+}
+
+/**
+ * The gate's inputs: the sprint's milestone, and the dependencies of the work it may run.
+ * Exported so a sibling script (the bulletin) can report the same holds the ledger enforces.
+ */
+export function readReadiness(
+  ctx: Ctx,
+  config: { repo: string },
+  items: GateCandidate[],
+  jobs: JobRecord[] = [],
+): Readiness {
+  const { focus, detail } = resolveFocus(ctx, config);
+  ctx.deps.log(`[factory-jobs] focus milestone: ${focus ?? "none"} (${detail})`);
+  const considered = items.filter(
+    (item) =>
+      !hasJobRecord(item.number, jobs) &&
+      (item.status === "In Progress" || (PICKABLE_STATUSES.has(item.status) && isGated(item))),
+  );
+  return { focus, blockers: fetchOpenBlockers(ctx, config, considered.map((item) => item.number)) };
+}
+
+/** The `Held` list in the shape a JSON outcome or a bulletin note carries. */
+export function heldReports(items: GateCandidate[], jobs: JobRecord[], readiness: Readiness): HeldReport[] {
+  return heldReport(items, jobs, readiness).map((entry) => ({
+    number: entry.item.number,
+    reason: entry.reason,
+    detail: entry.detail,
+  }));
+}
+
+/**
+ * Logged rather than commented: one line per tick in the journal, no noise on the board, and
+ * the bulletin relays the same list to the page the owner actually reads.
+ */
+function reportHeld(ctx: Ctx, items: BoardItem[], jobs: JobRecord[], readiness: Readiness): HeldReport[] {
+  const held = heldReports(items, jobs, readiness);
+  for (const entry of held) {
+    ctx.deps.log(`[factory-jobs] held #${entry.number} (${entry.reason}: ${entry.detail})`);
+  }
+  return held;
 }
 
 /**
@@ -1495,13 +1799,20 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
     const jobs = loadJobs(ctx.jobsDir);
     const items = fetchBoard(ctx, config);
     const branches = branchList(ctx);
+    const readiness = readReadiness(ctx, config, items, jobs);
+    const held = reportHeld(ctx, items, jobs, readiness);
 
-    const adopt = findAdoptable(items, jobs, {
-      branches,
-      commentsFor: (number) => fetchComments(ctx, config, number),
-      hasCommits: (branch) => commitsAhead(ctx, branch) > 0,
-      headOf: (branch) => git(ctx, ["rev-parse", "--short", branch]).stdout.trim() || null,
-    });
+    const adopt = findAdoptable(
+      items,
+      jobs,
+      {
+        branches,
+        commentsFor: (number) => fetchComments(ctx, config, number),
+        hasCommits: (branch) => commitsAhead(ctx, branch) > 0,
+        headOf: (branch) => git(ctx, ["rev-parse", "--short", branch]).stdout.trim() || null,
+      },
+      readiness,
+    );
 
     if (adopt) {
       const worktree = worktreePathFor(ctx.worktreeRoot, adopt.branch);
@@ -1550,13 +1861,13 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
           `so the stage agents are current. The prior run's cost is not charged against the new budget.`,
       );
       ctx.deps.log(`[factory-jobs] adopted #${adopt.item.number} at ${adopt.stage} (${adopt.branch}, ${UPSTREAM_REF} merged)`);
-      return { action: "adopted", item: adopt.item.number, branch: adopt.branch };
+      return { action: "adopted", item: adopt.item.number, branch: adopt.branch, focus: readiness.focus ?? null, held };
     }
 
-    const candidate = pickCandidate(items, jobs);
+    const candidate = pickCandidate(items, jobs, readiness);
     if (!candidate) {
       ctx.deps.log("[factory-jobs] nothing approved to start; no orphan to adopt either");
-      return { action: "nothing" };
+      return { action: "nothing", focus: readiness.focus ?? null, held };
     }
     const branch = branchFor(candidate.number, candidate.title);
     const worktree = worktreePathFor(ctx.worktreeRoot, branch);
@@ -1577,7 +1888,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
         `100 minutes total budget. ${autoClassNote(candidate)}`,
     );
     ctx.deps.log(`[factory-jobs] started #${candidate.number} at build (${branch})`);
-    return { action: "started", item: candidate.number, branch };
+    return { action: "started", item: candidate.number, branch, focus: readiness.focus ?? null, held };
   } finally {
     lock.release();
   }
