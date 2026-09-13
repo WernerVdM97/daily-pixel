@@ -144,7 +144,7 @@ export interface PersonaReviewInput {
 
 /**
  * The bucket `parseQuitHorizon` puts a `quitHorizon` phrase in, ordered by how soon the persona
- * would leave: `day` < `week` < `month` < `never`. `unknown` sits outside that order on purpose — a
+ * would leave: `day` < `week` < `month` < `never`. `unknown` sits OUTSIDE that order on purpose — a
  * phrase the harness could not read is not evidence of a long horizon, so it must not sort as one.
  */
 export type QuitHorizonKind = 'day' | 'week' | 'month' | 'never' | 'unknown';
@@ -163,14 +163,18 @@ export interface QuitHorizon {
   raw: string;
 }
 
-/** The kind order for `compareQuitHorizons`: soonest churn first, `never` after every bounded
- *  horizon, and `unknown` last (unread evidence is not a long horizon). */
+/** The kind order for `compareQuitHorizons`: `unknown` FIRST, then the bounded horizons soonest
+ *  churn first, with `never` after every bounded horizon. The unreadable bucket leads because it is
+ *  unread evidence, not a long horizon: showing it last would present the personas whose answer the
+ *  parser could not read as the panel's most committed players, under a table headed "soonest
+ *  first" — the exact opposite of what is known. Sorting it first keeps the report honest (a reader
+ *  sees the gap at the top of the matrix) without inventing a churn prediction for it. */
 export const QUIT_HORIZON_RANK: Record<QuitHorizonKind, number> = {
-  day: 0,
-  week: 1,
-  month: 2,
-  never: 3,
-  unknown: 4,
+  unknown: 0,
+  day: 1,
+  week: 2,
+  month: 3,
+  never: 4,
 };
 
 const DAYS_PER_UNIT: Record<'day' | 'week' | 'month', number> = { day: 1, week: 7, month: 30 };
@@ -204,7 +208,8 @@ export function parseQuitHorizon(raw: string): QuitHorizon {
 
 /** Order two horizons soonest-first: by kind rank, then by figure (`week 1` before `week 2`), with a
  *  figure-less horizon of a kind sorting before a figured one of the same kind (`week` before
- *  `week 2` — the sooner of the two readings). */
+ *  `week 2` — the sooner of the two readings). An `unknown` horizon leads every bounded one
+ *  ({@link QUIT_HORIZON_RANK}). */
 export function compareQuitHorizons(a: QuitHorizon, b: QuitHorizon): number {
   const byKind = QUIT_HORIZON_RANK[a.kind] - QUIT_HORIZON_RANK[b.kind];
   if (byKind !== 0) return byKind;

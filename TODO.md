@@ -32,6 +32,21 @@ Each branch's `gh-merge-base` is set (`dev`, then its parent), so the stack is r
 - **`actionVerbs` carries model-authored labels, not the classify vocabulary.** `facts.distilledType` is defined as "single lowercase label capturing the action's essence" (`v13/decide/BASE.md`), so it is open-vocabulary free text (`chore`, `patrol`, `haggle`). The classify *kind* is not on the envelope. The panel therefore reads `actionVerbs` as an observed label frequency table, and the anti-theatre comparison runs on move kinds, which is exact.
 - **The printed LLM cost summary excludes the critique and review calls.** `play.ts` prints it from the play block's `finally`, before either runs, so the operator's total and the reviews file's `cost` disagree. Fixed in layer 2.
 
+**Layer 2 smoke evidence (2026-09-14, one day each, live DeepSeek, commit `508178d`).** Four runs: three personas plus the `AGENT_PERSONA`-unset control the coordinator required, so the persona reading is not confounded with the wider surface. Move kinds counted from each transcript's `turn` events:
+
+| run | menu-pick | custom | choice | bail | recon | free-text share | day note |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| explorer | 0 | 4 | 6 | 1 | 1 | 33% | 1 |
+| soldier | 1 | 2 | 6 | 0 | 0 | 22% | 1 |
+| homesteader | 4 | 0 | 4 | 2 | 0 | 0% | 1 |
+| control (no persona) | 3 | 1 | 7 | 1 | 0 | 8% | 1 |
+
+This is the spec's acceptance test for the whole layer, and it passes on real data: the histogram differs by persona and moves the way the priors predict (the Explorer, whose priors name look/map/travel/search, reaches for both free text and recon; the Homesteader stays on buttons). It also moves away from the baseline's "the free-text slot was used zero times in an unforced run", to 8% for the control and 22-33% for the personas that want it.
+
+**All four days ended `no-rolls` and all four still captured a day note**, which is exactly the path that used to lose the rating, so the day-level redesign is validated live rather than only in tests. Zero error findings across all four runs, no crashed or stalled days. The panel over the three reviews reports `aliveness` and `memory` at coverage 0/3 as gaps rather than scoring them low, which is the anti-false-negative rule working on real data, and all 3 personas could name something they were building.
+
+Two real product findings the persona layer surfaced, both independently corroborated by the expert critic in the same runs: a decision screen offers roll-gated options when the player has zero rolls left (forcing a bail to end the day), and a free-text attempt to join the road patrol returned the player to the same work menu because "Beyond the Palisade" is not in the location graph. Both are content or design tickets, not harness defects.
+
 ## ⏭️ RESUME HERE - Dark Factory: bulletin live, headless launcher proven, loops fired (2026-09-10)
 
 **Why the previous session stopped:** two OOM kills, `journalctl` → `tmux-spawn-*.scope: Failed with result 'oom-kill'` at 23:09:06 and 23:15:03, on a box with 1973 MB RAM, ~240 MB available, an interactive `pi` at 715 MB and the pi-lens TypeScript stack at ~690 MB. The 23:09 kill took triage run `d80169f9` (29 turns / 53 tool calls, then "process exited or disappeared before writing a result", nothing written); the 23:15 kill took the session that fired it. RAM is now 6 GB, and every loop below ran headless, outside any session, one at a time. Full record in `.pi/factory/memory/incidents/`.

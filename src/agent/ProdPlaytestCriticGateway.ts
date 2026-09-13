@@ -352,8 +352,12 @@ function resolveReport(raw: RawReport): PlaytestReport {
  * failure mode the `unobserved` rule exists to prevent. Text is trimmed; the closed vocabularies are
  * normalised first (case, spacing, a trailing sentence stop), so `"would  drift off."` is read
  * rather than thrown away over punctuation.
+ *
+ * Exported for the prompt-agreement test: `tests/agent/persona-review.test.ts` round-trips the
+ * prompt's own JSON block through this resolver, so a prompt edit that drops or moves a field
+ * breaks the suite rather than a paid run.
  */
-function resolvePersonaReview(raw: RawReview): PersonaReview {
+export function resolvePersonaReview(raw: RawReview): PersonaReview {
   if (!isRecord(raw.rubric)) {
     throw new Error('ProdPlaytestCriticGateway: review field "rubric" is missing or not an object');
   }

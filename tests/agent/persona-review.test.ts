@@ -7,9 +7,10 @@
  *   set, because a criterion the session could not exercise must be able to say so (spec § Risks);
  * - `parseQuitHorizon` reads the four prompt-constrained shapes and fails safe on noise, so the panel
  *   can sequence churn horizons without trusting the model's phrasing;
- * - the prompt the prod gateway loads actually asks for every field the parser requires — prompt and
- *   parser drifting apart is this task's one silent failure mode, and it would only surface on a paid
- *   run.
+ * - the prompt the prod gateway loads and the parser that reads the reply agree FIELD FOR FIELD: the
+ *   prompt's own JSON block is round-tripped through the real `resolvePersonaReview`, and every field
+ *   that resolver requires is checked back against the block. Prompt and parser drifting apart is this
+ *   task's one silent failure mode, and it would only surface on a paid run.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -22,6 +23,7 @@ import {
   ProdPlaytestCriticGateway,
   buildReviewMessage,
   composePersonaReviewPrompt,
+  resolvePersonaReview,
 } from '../../src/agent/ProdPlaytestCriticGateway.js';
 import {
   compareQuitHorizons,
@@ -47,6 +49,28 @@ const REPORT: PlaytestReport = {
 };
 
 const RUBRIC_FIELDS = ['ritualPull', 'visibleStakes', 'somethingToBuild', 'aliveness', 'memory'] as const;
+const SCORE_FIELDS = ['engagement', 'fulfilment', 'clarity', 'challenge', 'variety'] as const;
+
+/** EVERY field `resolvePersonaReview` demands, in the prompt's own key order. The reverse half of the
+ *  agreement check: adding a field to the resolver without asking for it in the prompt fails the test
+ *  below, naming the field. */
+const REQUIRED_REVIEW_FIELDS: readonly string[] = [
+  'persona',
+  'rubric',
+  'scores',
+  'returnTomorrow',
+  'hook',
+  'building',
+  'quitTrigger',
+  'quitHorizon',
+  'engaging',
+  'boring',
+  'clunky',
+  'best',
+  'worst',
+  'verdict',
+  'review',
+];
 
 const REVIEW: PersonaReview = {
   persona: 'explorer',
@@ -429,14 +453,17 @@ describe('parseQuitHorizon', () => {
     expect(parseQuitHorizon('daytime drudgery').kind).toBe('unknown');
   });
 
-  it('orders soonest churn first, with never after every bounded horizon and unknown last', () => {
+  it('orders soonest churn first, with the unreadable horizon ahead of every bounded one, and never after them', () => {
+    // Two exceptions to soonest-first, both read off the panel's own header: an UNREADABLE horizon
+    // leads, because a phrase the harness could not read is not evidence of a long horizon, and
+    // `never` trails every bounded horizon.
     const sorted = ['unknown', 'never', 'month 3', 'week 2', 'day 5'].map(parseQuitHorizon).sort(compareQuitHorizons);
     expect(sorted.map((h) => `${h.kind} ${h.n}`)).toEqual([
+      'unknown null',
       'day 5',
       'week 2',
       'month 3',
       'never null',
-      'unknown null',
     ]);
   });
 
@@ -564,6 +591,53 @@ describe('formatPersonaReview', () => {
 
 // ── the prompt the parser depends on ──
 
+/** The fenced JSON block the prompt tells the model to answer in — the one under "Output". */
+function promptJsonBlock(prompt: string): Record<string, unknown> {
+  const fenced = prompt.match(/```json\s*\n([\s\S]*?)```/);
+  if (!fenced) throw new Error('persona-review.md: no fenced ```json block to round-trip');
+  return JSON.parse(fenced[1]) as Record<string, unknown>;
+}
+
+/** Valid values for the round-trip, keyed by the field name the prompt uses. `rubric` and `scores`
+ *  are built from the BLOCK's own keys instead (see `fillPromptBlock`), so a criterion or score the
+ *  prompt stopped asking for is missing from the filled reply too, and the resolver rejects it by
+ *  name rather than the test passing on a substring that survives the drop. */
+const FILLED_VALUES: Record<string, unknown> = {
+  persona: 'explorer',
+  returnTomorrow: 'probably',
+  hook: 'the rumour about the shrine',
+  building: 'the archive thread',
+  quitTrigger: 'a map that stops opening',
+  quitHorizon: 'week 2',
+  engaging: ['the gate scene'],
+  boring: [],
+  clunky: ['bail dice read inconsistently'],
+  best: 'the sergeant handing me a patrol',
+  worst: 'the same three tasks re-offered',
+  verdict: 'would drift off',
+  review: 'Three sentences of voice go here.',
+};
+
+/** Fill the prompt's own JSON skeleton with valid values, ready to be fed back to the resolver. A
+ *  key the skeleton carries and the resolver never reads is itself a disagreement: it fails here. */
+function fillPromptBlock(block: Record<string, unknown>): Record<string, unknown> {
+  const filled: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(block)) {
+    if (key === 'rubric' || key === 'scores') {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new Error(`persona-review.md: "${key}" is not a JSON object of fields`);
+      }
+      filled[key] = Object.fromEntries(Object.keys(value).map((field) => [field, 3]));
+      continue;
+    }
+    if (!(key in FILLED_VALUES)) {
+      throw new Error(`persona-review.md asks for "${key}", which resolvePersonaReview never reads`);
+    }
+    filled[key] = FILLED_VALUES[key];
+  }
+  return filled;
+}
+
 describe('persona-review.md (spec § F)', () => {
   const prompt = loadCriticTemplate('persona-review');
 
@@ -587,26 +661,38 @@ describe('persona-review.md (spec § F)', () => {
     expect(prompt).toMatch(/one-day run cannot honestly rate/);
   });
 
-  it('asks for every field the parser requires, in a JSON-only reply', () => {
+  it('asks for a JSON-only reply whose own block round-trips through the resolver, field for field', () => {
     expect(prompt).toContain('valid JSON only');
-    for (const key of [
-      'persona',
-      'rubric',
-      'scores',
-      'returnTomorrow',
-      'hook',
-      'building',
-      'quitTrigger',
-      'quitHorizon',
-      'engaging',
-      'boring',
-      'clunky',
-      'best',
-      'worst',
-      'verdict',
-      'review',
-    ]) {
-      expect(prompt).toContain(`"${key}"`);
+    // The strong form of the agreement check: fill the block the model is told to return with valid
+    // values and pass it through the real resolver. A block that nests or drops a key fails HERE,
+    // naming the field, instead of on a paid run.
+    const filled = fillPromptBlock(promptJsonBlock(prompt));
+    expect(resolvePersonaReview(filled)).toEqual(filled);
+  });
+
+  it('names every field the resolver requires, and asks for nothing it cannot read', () => {
+    const block = promptJsonBlock(prompt);
+    const topLevel = Object.keys(block);
+    for (const field of REQUIRED_REVIEW_FIELDS) {
+      expect(
+        topLevel,
+        `persona-review.md's JSON block does not name "${field}", which resolvePersonaReview requires`,
+      ).toContain(field);
+    }
+    for (const field of topLevel) {
+      expect(
+        REQUIRED_REVIEW_FIELDS,
+        `persona-review.md's JSON block names "${field}", which resolvePersonaReview never reads`,
+      ).toContain(field);
+    }
+
+    // Nested too: `rubric` and `scores` are objects of named fields, and a missing one is a rejected
+    // review however well the parent key reads.
+    for (const field of RUBRIC_FIELDS) {
+      expect(Object.keys(block.rubric as object), `persona-review.md's rubric is missing "${field}"`).toContain(field);
+    }
+    for (const field of SCORE_FIELDS) {
+      expect(Object.keys(block.scores as object), `persona-review.md's scores is missing "${field}"`).toContain(field);
     }
   });
 

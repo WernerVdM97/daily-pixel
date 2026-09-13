@@ -36,14 +36,17 @@ import {
   aggregateHistogram,
   aggregatePanel,
   aggregateRubric,
+  aggregateRuns,
   aggregateScores,
   aggregateSeries,
   isNothingAnswer,
   normalizePhrase,
+  orderReviews,
   parseReviewFile,
   partitionFrictions,
   readReviewDirectory,
   renderPanelMarkdown,
+  runLength,
   sparkline,
 } from '../../src/agent/panel.js';
 import { REVIEW_FILE_VERSION, type ReviewFile } from '../../src/agent/reviewFile.js';
@@ -51,7 +54,7 @@ import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
 import type { PersonaReview, PersonaScores, PersonaRubric } from '../../src/agent/PlaytestCriticGateway.js';
 import type { Recurrence } from '../../src/agent/AgentPlayerGateway.js';
 import type { LlmCostSummary } from '../../src/agent/llmCostSummary.js';
-import type { DayNoteEvent, FrictionEvent } from '../../src/agent/transcript.js';
+import type { DayNoteEvent, FrictionEvent, TranscriptSummary } from '../../src/agent/transcript.js';
 
 // ── Fixtures: a synthetic review file, built the way T5's `buildReviewFile` builds one ──
 
@@ -59,6 +62,9 @@ interface ReviewFileOptions {
   persona: string;
   /** One entry per day note; `arcNote` defaults to a persona-specific line. */
   days?: Array<{ day: number; engagement: number; fulfilment: number; arcNote?: string }>;
+  /** Overrides on the DERIVED summary. The run's length comes from `greetings`/`dayBoundaries`, not
+   *  from the notes, so a test that models a lost note must say how many days were played. */
+  summary?: Partial<TranscriptSummary>;
   rubric?: Partial<PersonaRubric>;
   scores?: Partial<PersonaScores>;
   building?: string;
@@ -72,7 +78,7 @@ interface ReviewFileOptions {
   cost?: Record<string, [calls: number, tokens: number]>;
 }
 
-export function reviewFile(options: ReviewFileOptions): ReviewFile {
+function reviewFile(options: ReviewFileOptions): ReviewFile {
   const days = options.days ?? [{ day: 1, engagement: 4, fulfilment: 3 }];
   const dayNotes: DayNoteEvent[] = days.map((d) => ({
     type: 'day-note',
@@ -106,6 +112,7 @@ export function reviewFile(options: ReviewFileOptions): ReviewFile {
       recons: 2,
       frictions: frictions.length,
       findings: { error: 0, warning: 1 },
+      ...options.summary,
     },
     review: {
       persona: options.persona,
@@ -203,23 +210,24 @@ describe('rubric aggregation (spec § Risks: `unobserved` is load-bearing)', () 
       reviewFile({ persona: 'casual', rubric: { ritualPull: 1, somethingToBuild: 2 } }),
     ];
     const { rows, criteria } = aggregateRubric(reviews);
+    // Canonical order (churn horizon, ties by name) — the same row order as every other section.
     expect(rows).toEqual([
-      {
-        persona: 'grinder',
-        values: {
-          ritualPull: 5,
-          visibleStakes: 3,
-          somethingToBuild: 4,
-          aliveness: 'unobserved',
-          memory: 'unobserved',
-        },
-      },
       {
         persona: 'casual',
         values: {
           ritualPull: 1,
           visibleStakes: 3,
           somethingToBuild: 2,
+          aliveness: 'unobserved',
+          memory: 'unobserved',
+        },
+      },
+      {
+        persona: 'grinder',
+        values: {
+          ritualPull: 5,
+          visibleStakes: 3,
+          somethingToBuild: 4,
           aliveness: 'unobserved',
           memory: 'unobserved',
         },
@@ -262,14 +270,59 @@ describe('score matrix (spec § H)', () => {
       reviewFile({ persona: 'collector', quitHorizon: 'week 1' }),
     ]);
     expect(rows.map((r) => r.persona)).toEqual([
+      // Unreadable phrasing sorts FIRST: the parser could not read it, and an unread phrase is not
+      // evidence of a long horizon, so it must not be shown as the panel's most loyal persona.
+      'tourist',
       'casual',
       'collector',
       'storyteller',
       'lapsed-returner',
-      // Unreadable phrasing sorts LAST: unread evidence is not a long horizon.
-      'tourist',
     ]);
-    expect(rows.map((r) => r.quitHorizon.kind)).toEqual(['day', 'week', 'month', 'never', 'unknown']);
+    expect(rows.map((r) => r.quitHorizon.kind)).toEqual(['unknown', 'day', 'week', 'month', 'never']);
+  });
+
+  it('says under the table why an unreadable horizon leads, and prints the raw phrase', () => {
+    const markdown = renderPanelMarkdown(
+      aggregatePanel([
+        reviewFile({ persona: 'tourist', quitHorizon: 'it depends, honestly' }),
+        reviewFile({ persona: 'casual', quitHorizon: 'day 3' }),
+      ]),
+    );
+    const lines = markdown.split('\n');
+    const tableRow = lines.findIndex((l) => l.startsWith('| tourist |'));
+    const noteRow = lines.findIndex((l) => l.includes('sort FIRST, not last'));
+    expect(noteRow).toBeGreaterThan(-1);
+    expect(noteRow).toBeLessThan(tableRow);
+    expect(markdown).toContain('an unread phrase is not evidence of a long horizon');
+    expect(markdown).toContain('| tourist | 4 | 3 | 3 | 3 | 3 | would play again tomorrow | probably | it depends, honestly |');
+
+    // A panel with no unreadable horizon does not carry the note at all.
+    const clean = renderPanelMarkdown(aggregatePanel([reviewFile({ persona: 'casual', quitHorizon: 'day 3' })]));
+    expect(clean).not.toContain('sort FIRST, not last');
+  });
+
+  it('surfaces `returnTomorrow` and `hook` — the retention half of the churn reading', () => {
+    const reviews = [
+      reviewFile({ persona: 'explorer', returnTomorrow: 'yes', quitHorizon: 'week 2' }),
+      reviewFile({ persona: 'casual', returnTomorrow: 'no', quitHorizon: 'day 2' }),
+    ];
+    const rows = aggregateScores(reviews);
+    expect(rows.map((r) => [r.persona, r.returnTomorrow, r.hook])).toEqual([
+      ['casual', 'no', 'the Oath thread'],
+      ['explorer', 'yes', 'the Oath thread'],
+    ]);
+
+    const report = aggregatePanel(reviews);
+    expect(report.scores.every((row) => row.hook !== '')).toBe(true);
+    expect(report.scores[0].hook).toBe(reviewFile({ persona: 'x' }).review.hook);
+
+    const markdown = renderPanelMarkdown(report);
+    expect(markdown).toContain('## Retention signal');
+    expect(markdown).toContain('1 said yes, 0 said probably, 1 said no');
+    expect(markdown).toContain('| casual | no | the Oath thread |');
+    // ...and the score matrix itself carries the answer, not just the prose section.
+    expect(markdown).toContain('| persona | engagement | fulfilment | clarity | challenge | variety | verdict | return tomorrow | quitHorizon |');
+    expect(markdown).toContain('| casual | 4 | 3 | 3 | 3 | 3 | would play again tomorrow | no | day 2 |');
   });
 });
 
@@ -317,7 +370,7 @@ describe('engagement / fulfilment series (spec § G)', () => {
     expect(rows[0].engagement).toEqual([]);
     expect(rows[0].engagementSpark).toBe('');
     expect(renderPanelMarkdown(aggregatePanel([reviewFile({ persona: 'casual', days: [] })]))).toContain(
-      '| casual | — | — | — |',
+      '| casual | — | no days rated | — | — |',
     );
   });
 
@@ -328,8 +381,9 @@ describe('engagement / fulfilment series (spec § G)', () => {
         { day: 1, engagement: 4, fulfilment: 3 },
         { day: 3, engagement: 3, fulfilment: 2 },
       ],
+      summary: { greetings: 3, dayBoundaries: 3 },
     });
-    expect(renderPanelMarkdown(aggregatePanel([gap]))).toContain('| storyteller | days 1, 3 |');
+    expect(renderPanelMarkdown(aggregatePanel([gap]))).toContain('| storyteller | days 1, 3 | 2 of 3 days rated (no note: day 2) |');
     const whole = reviewFile({
       persona: 'storyteller',
       days: [
@@ -337,7 +391,130 @@ describe('engagement / fulfilment series (spec § G)', () => {
         { day: 2, engagement: 3, fulfilment: 2 },
       ],
     });
-    expect(renderPanelMarkdown(aggregatePanel([whole]))).toContain('| storyteller | days 1-2 |');
+    expect(renderPanelMarkdown(aggregatePanel([whole]))).toContain('| storyteller | days 1-2 | 2 of 2 days rated |');
+  });
+});
+
+// ── The run's length: the summary's, never the highest surviving note ──
+
+describe('the run length comes from the summary, not from the day notes', () => {
+  it('does not read a lost note as a shorter run, so a two-day run stays an arc run', () => {
+    // The exact failure the harness warns about: day 2 closed with no dayNote captured, so the only
+    // note left is day 1. The old form read that as a ONE-DAY run, which flipped the panel's own
+    // header to the breadth prose ("it cannot speak to the core goal") under-counted persona-days
+    // and hid the hole.
+    const lost = reviewFile({
+      persona: 'homesteader',
+      days: [{ day: 1, engagement: 4, fulfilment: 4 }],
+      summary: { greetings: 2, dayBoundaries: 2 },
+    });
+    expect(runLength(lost)).toEqual({ played: 2, rated: [1], unrated: [2] });
+    expect(aggregateComposition([lost])).toEqual({
+      personas: 1,
+      shapes: [{ label: 'arc', personas: 1, days: [2] }],
+      personaDays: 2,
+    });
+    const markdown = renderPanelMarkdown(aggregatePanel([lost]));
+    expect(markdown).toContain('An arc panel is the **retention instrument**');
+    expect(markdown).not.toContain('cannot speak to the core goal');
+    expect(markdown).toContain('1 persona(s) over 2 persona-day(s): 1 arc (2 days each)');
+  });
+
+  it('reads the days played as the max of greetings and day boundaries', () => {
+    const days = [1, 2, 3].map((day) => ({ day, engagement: 4, fulfilment: 3 }));
+    // A clean five-day run: N greetings and N nightly ticks.
+    expect(runLength(reviewFile({ persona: 'a', days, summary: { greetings: 5, dayBoundaries: 5 } })).played).toBe(5);
+    // The final day ended non-clean (`stalled`/`crashed`/`no-character`), so it never ticked: N
+    // greetings, N-1 boundaries. The greeting is proof the day was played.
+    expect(runLength(reviewFile({ persona: 'a', days, summary: { greetings: 5, dayBoundaries: 4 } })).played).toBe(5);
+    // A summary that lags its own notes cannot shorten the run either: a run may never be reported
+    // as shorter than the series it printed.
+    expect(runLength(reviewFile({ persona: 'a', days, summary: { greetings: 1, dayBoundaries: 0 } })).played).toBe(3);
+  });
+
+  it('counts the day the note went missing at the END of the series', () => {
+    const file = reviewFile({
+      persona: 'grinder',
+      days: [1, 2, 3].map((day) => ({ day, engagement: 4, fulfilment: 3 })),
+      summary: { greetings: 4, dayBoundaries: 4 },
+    });
+    expect(runLength(file)).toEqual({ played: 4, rated: [1, 2, 3], unrated: [4] });
+    const markdown = renderPanelMarkdown(aggregatePanel([file]));
+    expect(markdown).toContain('| grinder | days 1-3 | 3 of 4 days rated (no note: day 4) |');
+    // The runs table carries the same pair, so the length is never read off the notes.
+    expect(markdown).toContain('| grinder | 2026-09-13T10:00:00.000Z | 4 | 3/4 |');
+  });
+
+  it('never renders a run with no notes as a 0-day breadth run', () => {
+    const unrated = reviewFile({
+      persona: 'casual',
+      days: [],
+      summary: { greetings: 3, dayBoundaries: 3 },
+    });
+    expect(runLength(unrated)).toEqual({ played: 3, rated: [], unrated: [1, 2, 3] });
+    const markdown = renderPanelMarkdown(aggregatePanel([unrated]));
+    expect(markdown).toContain('| casual | — | no days rated (no note: days 1-3) | — | — |');
+    expect(markdown).toContain('1 arc (3 days each)');
+    expect(markdown).toContain('a day that closed unrated was still played');
+    expect(markdown).toContain('| casual | 2026-09-13T10:00:00.000Z | 3 | 0/3 |');
+  });
+});
+
+// ── The arc note over time: spec § G's "the day the arc note stops growing" ──
+
+describe('the per-day arc note series (spec § G)', () => {
+  it('carries every day\'s arc note, not just the closing one', () => {
+    const rows = aggregateSeries([
+      reviewFile({
+        persona: 'homesteader',
+        days: [
+          { day: 1, engagement: 4, fulfilment: 4, arcNote: 'get a routine at the gate' },
+          { day: 2, engagement: 4, fulfilment: 4, arcNote: 'get a routine at the gate and a cooked meal' },
+          { day: 3, engagement: 4, fulfilment: 3, arcNote: 'get a routine at the gate and a cooked meal' },
+        ],
+      }),
+    ]);
+    expect(rows[0].arcNotes).toEqual([
+      { day: 1, note: 'get a routine at the gate' },
+      { day: 2, note: 'get a routine at the gate and a cooked meal' },
+      { day: 3, note: 'get a routine at the gate and a cooked meal' },
+    ]);
+    // The closing note alone (the old shape) cannot show that day 3 added nothing.
+    const markdown = renderPanelMarkdown(
+      aggregatePanel([
+        reviewFile({
+          persona: 'homesteader',
+          days: [
+            { day: 1, engagement: 4, fulfilment: 4, arcNote: 'get a routine at the gate' },
+            { day: 2, engagement: 4, fulfilment: 4, arcNote: 'get a routine at the gate and a cooked meal' },
+            { day: 3, engagement: 4, fulfilment: 3, arcNote: 'get a routine at the gate and a cooked meal' },
+          ],
+        }),
+      ]),
+    );
+    expect(markdown).toContain('### The arc note, day by day');
+    expect(markdown).toContain('the day the arc note stops growing');
+    expect(markdown).toContain('| homesteader | 1 | get a routine at the gate |');
+    expect(markdown).toContain('| homesteader | 3 | get a routine at the gate and a cooked meal |');
+  });
+
+  it('pairs each day note with its own arc note even when the notes arrive out of day order', () => {
+    const file = reviewFile({
+      persona: 'grinder',
+      days: [{ day: 2, engagement: 3, fulfilment: 2, arcNote: 'day two' }],
+    });
+    file.dayNotes.unshift({ ...file.dayNotes[0], dayNumber: 1, arcNote: 'day one' });
+    file.arcNotes = ['day one', 'day two'];
+    expect(aggregateSeries([file])[0].arcNotes).toEqual([
+      { day: 1, note: 'day one' },
+      { day: 2, note: 'day two' },
+    ]);
+  });
+
+  it('says there was no arc note series rather than printing an empty table', () => {
+    expect(renderPanelMarkdown(aggregatePanel([reviewFile({ persona: 'casual', days: [] })]))).toContain(
+      '_No day notes, so no arc note was recorded._',
+    );
   });
 });
 
@@ -370,7 +547,8 @@ describe('friction themes by exposure (contract §9)', () => {
       count: 4,
       worstSeverity: 4,
       recurrences: ['once', 'periodic'],
-      personas: ['explorer', 'soldier', 'grinder'],
+      // Personas are listed in the panel's canonical order, like every other section.
+      personas: ['explorer', 'grinder', 'soldier'],
       ritual: false,
     });
     expect(themes[0].theme).toBe('the menu re offers the same three jobs');
@@ -412,6 +590,74 @@ describe('friction themes by exposure (contract §9)', () => {
     expect(mixed.ritual).toHaveLength(1);
     expect(mixed.other).toEqual([]);
     expect(mixed.ritual[0]).toMatchObject({ personaCount: 2, worstSeverity: 3, recurrences: ['once', 'ritual'] });
+  });
+
+  it('sums each report\'s OWN severity x weight instead of multiplying attributes of two reports', () => {
+    // Contract §9's worked failure: a severity-2 `ritual` from one persona plus a severity-5 `once`
+    // from another used to score 5 x 180 x 2 = 1800, a number NO single report supported. The sum is
+    // 2 x 180 + 5 x 1 = 365.
+    const themes = aggregateFrictions([
+      reviewFile({
+        persona: 'explorer',
+        frictions: [{ dayNumber: 1, what: 'The Oak door sticks', severity: 2, recurrence: 'ritual' }],
+      }),
+      reviewFile({
+        persona: 'soldier',
+        frictions: [{ dayNumber: 1, what: 'the oak door sticks!', severity: 5, recurrence: 'once' }],
+      }),
+    ]);
+    expect(themes[0].exposure).toBe(2 * RECURRENCE_WEIGHT.ritual + 5 * RECURRENCE_WEIGHT.once);
+    expect(themes[0].exposure).toBe(365);
+    // ...and the severity, tag set and persona count stay display columns, unmultiplied.
+    expect(themes[0]).toMatchObject({
+      worstSeverity: 5,
+      recurrences: ['once', 'ritual'],
+      personaCount: 2,
+      count: 2,
+    });
+
+    // A report repeated by one persona contributes each time, like any sum: (2 + 4) x 13.
+    const repeated = aggregateFrictions([
+      reviewFile({
+        persona: 'grinder',
+        frictions: [
+          { dayNumber: 1, what: 'Training needs a roll I do not have', severity: 2, recurrence: 'periodic' },
+          { dayNumber: 2, what: 'training needs a roll i do not have', severity: 4, recurrence: 'periodic' },
+        ],
+      }),
+    ]);
+    expect(repeated[0].exposure).toBe((2 + 4) * RECURRENCE_WEIGHT.periodic);
+
+    // The caveat in the panel's own header describes the sum, not the old product.
+    expect(EXPOSURE_NOTE).toContain('sum, over every report of the theme');
+    expect(EXPOSURE_NOTE).toContain('never multiplied together');
+  });
+
+  it('makes the JSON self-describing: `friction.themes` is every theme, ritual included', () => {
+    const report = aggregatePanel([
+      reviewFile({
+        persona: 'homesteader',
+        frictions: [{ dayNumber: 1, what: 'Cosy play has nowhere to go', severity: 2, recurrence: 'once' }],
+      }),
+      reviewFile({
+        persona: 'lapsed-returner',
+        frictions: [{ dayNumber: 1, what: 'Catching up gives me nothing to catch up on', severity: 2, recurrence: 'ritual' }],
+      }),
+    ]);
+    // A consumer summing `themes` gets the whole panel: the ritual half is IN the list, not the other
+    // side of a partition it has to know to add back.
+    expect(report.friction.themes.map((t) => t.label)).toEqual([
+      'Catching up gives me nothing to catch up on',
+      'Cosy play has nowhere to go',
+    ]);
+    expect(report.friction.ritual.map((t) => t.label)).toEqual(['Catching up gives me nothing to catch up on']);
+    expect(report.friction.themes).toContainEqual(report.friction.ritual[0]);
+    const bySum = report.friction.themes.reduce((sum, t) => sum + t.exposure, 0);
+    const byParts = [...report.friction.ritual, ...report.friction.themes.filter((t) => !t.ritual)].reduce(
+      (sum, t) => sum + t.exposure,
+      0,
+    );
+    expect(bySum).toBe(byParts);
   });
 
   it('ranks by exposure, so one persona meeting a defect daily outranks many meeting it once', () => {
@@ -479,7 +725,7 @@ describe('fulfilment signal (spec § F/§ G)', () => {
     expect(signal.namedCount).toBe(2);
     expect(signal.nothingCount).toBe(2);
     expect(signal.nothing).toEqual(['casual', 'tourist']);
-    expect(signal.named.map((n) => n.persona)).toEqual(['explorer', 'collector']);
+    expect(signal.named.map((n) => n.persona)).toEqual(['collector', 'explorer']);
   });
 
   it('does not read a hedged but real answer as nothing', () => {
@@ -508,11 +754,13 @@ describe('anti-theatre check (spec § A, contract §9)', () => {
       reviewFile({ persona: 'casual', verbs: { 'menu-pick': 4, sleep: 1 } }),
     ]);
     expect(kinds).toEqual(['menu-pick', 'custom', 'choice', 'bail', 'sleep', 'recon']);
-    expect(rows[0].total).toBe(10);
-    expect(rows[0].kinds.choice).toBe(0);
-    expect(rows[0].freeTextShare).toBeCloseTo(0.5);
+    const explorer = rows.find((r) => r.persona === 'explorer')!;
+    const casual = rows.find((r) => r.persona === 'casual')!;
+    expect(explorer.total).toBe(10);
+    expect(explorer.kinds.choice).toBe(0);
+    expect(explorer.freeTextShare).toBeCloseTo(0.5);
     // The baseline arm's headline: the free-text slot used zero times.
-    expect(rows[1].freeTextShare).toBe(0);
+    expect(casual.freeTextShare).toBe(0);
   });
 
   it('carries a kind it has never heard of instead of dropping the run\'s turn', () => {
@@ -635,7 +883,7 @@ describe('cost, composition and the assembled report', () => {
       reviewFile({ persona: 'casual', building: 'nothing', verdict: 'would churn', quitHorizon: 'day 2' }),
     ]);
     expect(report.v).toBe(PANEL_FILE_VERSION);
-    expect(report.runs.map((r) => r.persona)).toEqual(['explorer', 'casual']);
+    expect(report.runs.map((r) => r.persona)).toEqual(['casual', 'explorer']);
     expect(report.friction.exposureNote).toBe(EXPOSURE_NOTE);
     expect(report.histogram.rows).toHaveLength(2);
     expect(() => aggregatePanel([])).toThrow(PanelInputError);
@@ -662,6 +910,58 @@ describe('cost, composition and the assembled report', () => {
     // A panel's own header must not claim more than a day-one panel can say.
     expect(markdown).toContain('onboarding instrument');
     expect(markdown).toContain('not a verdict on month three');
+  });
+});
+
+// ── One canonical row order for every section ──
+
+describe('one canonical order everywhere (spec § H)', () => {
+  const reviews = [
+    reviewFile({ persona: 'tourist', quitHorizon: 'who knows, honestly' }),
+    reviewFile({ persona: 'grinder', quitHorizon: 'month 1' }),
+    reviewFile({ persona: 'casual', quitHorizon: 'day 2' }),
+    reviewFile({ persona: 'explorer', quitHorizon: 'day 2' }),
+  ];
+  // Churn horizon, ties by name: the two `day 2` personas in name order, and the unreadable horizon
+  // first rather than last.
+  const expected = ['tourist', 'casual', 'explorer', 'grinder'];
+  const personas = (rows: ReadonlyArray<{ persona: string }>): string[] => rows.map((r) => r.persona);
+
+  it('orders every aggregation by churn horizon, ties by name', () => {
+    expect(personas(orderReviews(reviews))).toEqual(expected);
+    expect(personas(aggregateScores(reviews))).toEqual(expected);
+    expect(personas(aggregateRuns(reviews))).toEqual(expected);
+    expect(personas(aggregateRubric(reviews).rows)).toEqual(expected);
+    expect(personas(aggregateSeries(reviews))).toEqual(expected);
+    expect(personas(aggregateHistogram(reviews).rows)).toEqual(expected);
+    expect(personas(aggregateActionVerbs(reviews))).toEqual(expected);
+    expect(personas(aggregateCost(reviews).perRun)).toEqual(expected);
+    expect(personas(aggregateDistinctiveness(reviews).rows)).toEqual(expected);
+    expect(aggregateFulfilment(reviews).named.filter((n) => n.persona !== '').length).toBe(expected.length);
+  });
+
+  it('makes row N of one markdown table the same persona as row N of the next', () => {
+    const markdown = renderPanelMarkdown(aggregatePanel(reviews));
+    const firstDataRow = (heading: string): string => {
+      const lines = markdown.split('\n');
+      const start = lines.findIndex((l) => l === heading);
+      expect(start).toBeGreaterThan(-1);
+      const rows = lines.slice(start).filter((l) => l.startsWith('| '));
+      return rows[2]; // header, separator, first data row
+    };
+    for (const heading of [
+      '## Score matrix',
+      '## Retention signal',
+      '## Rubric matrix',
+      '## Engagement and fulfilment series',
+      '### The arc note, day by day',
+      '### Move kinds (what the brain chose)',
+      '### Observed action labels (model-authored)',
+      '### arcNote / quitTrigger distinctiveness',
+      '## Runs and cost',
+    ]) {
+      expect(firstDataRow(heading)).toContain('| tourist |');
+    }
   });
 });
 
@@ -707,8 +1007,125 @@ describe('review-file input (contract §9)', () => {
       // A version mismatch is named, with both versions, so the reader knows what to do.
       writeFileSync(path.join(dir, 'b.json.reviews.json'), JSON.stringify({ ...reviewFile({ persona: 'casual' }), v: 9 }));
       expect(() => readReviewDirectory(dir)).toThrow(/reviews-file version 9 but this panel reads version 1/);
+
+      // A malformed CELL stops the panel too, and the message names the file it came from.
+      writeFileSync(
+        path.join(dir, 'b.json.reviews.json'),
+        JSON.stringify({ ...reviewFile({ persona: 'casual' }), review: { ...reviewFile({ persona: 'casual' }).review, rubric: { ...reviewFile({ persona: 'casual' }).review.rubric, ritualPull: 7 } } }),
+      );
+      expect(() => readReviewDirectory(dir)).toThrow(/b\.json\.reviews\.json: review\.rubric\.ritualPull: expected an integer 1-5 or the exact string "unobserved", got 7/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // ── Malformed cells (contract §9: a file the panel does not understand must stop it) ──
+
+  it('rejects an out-of-range or mistyped rubric cell, naming the field', () => {
+    const file = reviewFile({ persona: 'explorer' });
+    const withRubric = (rubric: unknown) => ({ ...file, review: { ...file.review, rubric } });
+    expect(() => parseReviewFile(withRubric({ ...file.review.rubric, ritualPull: 7 }), 'r.reviews.json')).toThrow(
+      /r\.reviews\.json: review\.rubric\.ritualPull: expected an integer 1-5 or the exact string "unobserved", got 7/,
+    );
+    expect(() => parseReviewFile(withRubric({ ...file.review.rubric, ritualPull: 0 }), 'r.reviews.json')).toThrow(
+      /review\.rubric\.ritualPull/,
+    );
+    expect(() => parseReviewFile(withRubric({ ...file.review.rubric, visibleStakes: 3.5 }), 'r.reviews.json')).toThrow(
+      /review\.rubric\.visibleStakes: expected an integer 1-5 or the exact string "unobserved", got 3\.5/,
+    );
+    // A near-miss of `unobserved` is a mistyped cell, not a gap: `unobserved` is the exact string.
+    expect(() => parseReviewFile(withRubric({ ...file.review.rubric, aliveness: 'Unobserved' }), 'r.reviews.json')).toThrow(
+      /review\.rubric\.aliveness: expected an integer 1-5 or the exact string "unobserved", got "Unobserved"/,
+    );
+    expect(() => parseReviewFile(withRubric({ ...file.review.rubric, memory: 'unobserved' }), 'r.reviews.json')).not.toThrow();
+  });
+
+  it('rejects a MISSING rubric key rather than counting it as `unobserved`', () => {
+    const file = reviewFile({ persona: 'explorer' });
+    const rubric: Record<string, unknown> = { ...file.review.rubric };
+    delete rubric.ritualPull;
+    // A silent `undefined` here would print the literal `undefined` in the matrix AND drop the
+    // persona from that criterion's coverage — the exact reading the `unobserved` rule prevents.
+    expect(() => parseReviewFile({ ...file, review: { ...file.review, rubric } }, 'r.reviews.json')).toThrow(
+      /review\.rubric\.ritualPull: expected an integer 1-5 or the exact string "unobserved", got nothing \(the key is missing\)/,
+    );
+  });
+
+  it('rejects a mistyped score cell, so a string can never reach a numeric column', () => {
+    const file = reviewFile({ persona: 'explorer' });
+    const withScores = (scores: unknown) => ({ ...file, review: { ...file.review, scores } });
+    expect(() => parseReviewFile(withScores({ ...file.review.scores, variety: 'high' }), 'r.reviews.json')).toThrow(
+      /review\.scores\.variety: expected an integer 1-5, got "high"/,
+    );
+    expect(() => parseReviewFile(withScores({ ...file.review.scores, engagement: 9 }), 'r.reviews.json')).toThrow(
+      /review\.scores\.engagement: expected an integer 1-5, got 9/,
+    );
+    // `unobserved` belongs to the rubric alone: the five scores rate the session (spec § F).
+    expect(() => parseReviewFile(withScores({ ...file.review.scores, clarity: 'unobserved' }), 'r.reviews.json')).toThrow(
+      /review\.scores\.clarity: expected an integer 1-5, got "unobserved"/,
+    );
+    const scores: Record<string, unknown> = { ...file.review.scores };
+    delete scores.challenge;
+    expect(() => parseReviewFile(withScores(scores), 'r.reviews.json')).toThrow(/review\.scores\.challenge/);
+  });
+
+  it('rejects a day-note cell that is not a 1-5 integer', () => {
+    const file = reviewFile({ persona: 'explorer' });
+    expect(() => parseReviewFile({ ...file, dayNotes: [{ ...file.dayNotes[0], engagement: 'four' }] }, 'r.reviews.json')).toThrow(
+      /dayNotes\[0\]\.engagement: expected an integer 1-5, got "four"/,
+    );
+    expect(() => parseReviewFile({ ...file, dayNotes: [{ ...file.dayNotes[0], fulfilment: 6 }] }, 'r.reviews.json')).toThrow(
+      /dayNotes\[0\]\.fulfilment: expected an integer 1-5, got 6/,
+    );
+    expect(() => parseReviewFile({ ...file, dayNotes: [{ engagement: 3, fulfilment: 3 }] }, 'r.reviews.json')).toThrow(
+      /dayNotes\[0\]\.dayNumber: expected a number, got nothing \(the key is missing\)/,
+    );
+  });
+
+  it('rejects an out-of-vocabulary friction severity or recurrence', () => {
+    const file = reviewFile({
+      persona: 'explorer',
+      frictions: [{ dayNumber: 1, what: 'The menu repeats', severity: 2, recurrence: 'once' }],
+    });
+    const withFriction = (patch: Record<string, unknown>) => ({ ...file, frictions: [{ ...file.frictions[0], ...patch }] });
+    // severity 9 in a 1-5 scale, and a tag no weight exists for (exposure 0, blank rank cell).
+    expect(() => parseReviewFile(withFriction({ severity: 9 }), 'r.reviews.json')).toThrow(
+      /frictions\[0\]\.severity: expected an integer 1-5, got 9/,
+    );
+    expect(() => parseReviewFile(withFriction({ recurrence: 'daily' }), 'r.reviews.json')).toThrow(
+      /frictions\[0\]\.recurrence: expected one of once\|periodic\|ritual, got "daily"/,
+    );
+    // A non-string `what` would crash `normalizePhrase` as a TypeError rather than a PanelInputError.
+    expect(() => parseReviewFile(withFriction({ what: 12 }), 'r.reviews.json')).toThrow(
+      /frictions\[0\]\.what: expected a string, got 12/,
+    );
+  });
+
+  it('rejects a summary count that is not a number, because the run length comes from it', () => {
+    const file = reviewFile({ persona: 'explorer' });
+    expect(() => parseReviewFile({ ...file, summary: { ...file.summary, greetings: 'two' } }, 'r.reviews.json')).toThrow(
+      /summary\.greetings: expected a number, got "two"/,
+    );
+    const summary: Record<string, unknown> = { ...file.summary };
+    delete summary.dayBoundaries;
+    expect(() => parseReviewFile({ ...file, summary }, 'r.reviews.json')).toThrow(
+      /summary\.dayBoundaries: expected a number, got nothing \(the key is missing\)/,
+    );
+    expect(() => parseReviewFile({ ...file, summary: { ...file.summary, findings: { error: 0 } } }, 'r.reviews.json')).toThrow(
+      /summary\.findings\.warning: expected a number/,
+    );
+  });
+
+  it('rejects a verb or cost figure that is not a number, instead of concatenating it into a total', () => {
+    const file = reviewFile({ persona: 'explorer' });
+    expect(() => parseReviewFile({ ...file, verbs: { 'menu-pick': '3' } }, 'r.reviews.json')).toThrow(
+      /verbs\.menu-pick: expected a number, got "3"/,
+    );
+    expect(() => parseReviewFile({ ...file, cost: { ...file.cost, totalTokens: null } }, 'r.reviews.json')).toThrow(
+      /cost\.totalTokens: expected a number, got null/,
+    );
+    expect(() => parseReviewFile({ ...file, arcNotes: ['fine', 7] }, 'r.reviews.json')).toThrow(
+      /arcNotes\[1\]: expected a string, got 7/,
+    );
   });
 });

@@ -1721,10 +1721,11 @@ describe('the working memory reaches the prompt the brain reads (the seam, end t
 // ── T5 — the outcome verb (spec § A, contract §9) ──
 
 describe('AgentHarness — the outcome verb', () => {
-  it("stamps the engine's own distilledType onto the outcome event", async () => {
-    // `immediateScript.decide` distils every action to 'chore' — the classification the verb
-    // histogram counts, so the panel measures a persona's verbs rather than guessing them from
-    // free text (contract §9 forbids keyword-matching).
+  it("stamps the action model's own distilledType onto the outcome event", async () => {
+    // `immediateScript.decide` writes 'chore' — the model-authored label the verb histogram counts,
+    // so the panel reports a persona's verbs in the model's own words rather than guessing them from
+    // free text (contract §9 forbids keyword-matching, and the engine's classify kind is not on the
+    // envelope at all).
     const { harness, seed } = buildHarness([{ kind: 'custom', text: 'polish my boots' }], immediateScript);
     await seed();
     expect(await harness.playOneAction()).toEqual({ kind: 'outcome' });
