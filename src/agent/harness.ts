@@ -227,6 +227,12 @@ export class AgentHarness {
    *  Absent until a day has closed, which is what makes the recap absent on day one. */
   private yesterdayEnded?: string;
 
+  /** The game day the player last actually PLAYED, as `closeDay` numbers it. Kept separately from
+   *  `currentDay() - 1` because `skipDays` moves the world with no play: without this the day-start
+   *  recap would call a day the player never played "yesterday", and the gap that the interrupted
+   *  panel exists to measure would be invisible to the brain. */
+  private lastPlayedDay?: number;
+
   /** The rendered recap block for the day in progress, composed once at day start. */
   private recap?: string;
 
@@ -473,13 +479,14 @@ export class AgentHarness {
             dayNumber: this.currentDay(),
             yesterdayOutcomes: this.yesterdayOutcomes,
             yesterdayEnded: this.yesterdayEnded,
+            lastPlayedDay: this.lastPlayedDay,
           });
   }
 
   /** Close a day: write the day's note (spec § E) — it is day-level, not sleep-level, so it is
-   *  written HERE, when the day closes, whatever closed it — then hand its completed-action lines
-   *  and its disposition to the recap cells (the next day's day-start block), and start today's
-   *  lines over. */
+   *  written HERE, when the day closes, whatever closed it — then hand its completed-action lines,
+   *  its disposition and its own day number (the recap's `lastPlayedDay`) to the recap cells (the
+   *  next day's day-start block), and start today's lines over. */
   private closeDay(dayNumber: number, outcomes: number, ended: DaySummary['ended']): DaySummary {
     if (this.todayDayNote !== undefined) {
       // The closing day's number, whatever the disposition: `slept`, `no-rolls`, `stalled` and
@@ -502,6 +509,9 @@ export class AgentHarness {
 
     this.yesterdayOutcomes = this.todayOutcomes;
     this.yesterdayEnded = ended;
+    // The recap cells' day: `dayNumber` here is the day that just ended, which is by definition
+    // the last day played (and stays so across a `skipDays` gap).
+    this.lastPlayedDay = dayNumber;
     this.todayOutcomes = [];
     return { dayNumber, outcomes, ended };
   }

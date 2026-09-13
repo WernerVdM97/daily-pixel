@@ -169,4 +169,40 @@ describe('buildRecap', () => {
       'YESTERDAY (day 1):\n1. A quiet day.',
     );
   });
+
+  it('is byte-identical for a consecutive day whether or not the caller names it', () => {
+    // The `dayNumber - 1` boundary: the ordinary run's shape must not move because the harness now
+    // always tells the recap which day it played. Pinned against a literal, both ways.
+    const input = { dayNumber: 4, yesterdayOutcomes: ['The gate held.'], yesterdayEnded: 'slept' };
+    expect(buildRecap(input)).toBe(
+      'YESTERDAY (day 3):\n1. The gate held.\nended: slept',
+    );
+    expect(buildRecap({ ...input, lastPlayedDay: 3 })).toBe(buildRecap(input));
+  });
+
+  it('names the absent day and the gap when the player was away', () => {
+    // Five days missed (day 2..6), so the heading cannot say "yesterday" — day 6 was never played.
+    expect(
+      buildRecap({
+        dayNumber: 7,
+        yesterdayOutcomes: ['You finish the chore and pocket the coin.'],
+        yesterdayEnded: 'slept',
+        lastPlayedDay: 1,
+      }),
+    ).toBe(
+      'LAST PLAYED (day 1):\n5 days passed without you.\n1. You finish the chore and pocket the coin.\nended: slept',
+    );
+
+    // A different skip size, so the count is arithmetic and not a constant: day 1 → day 4 is two
+    // days gone (the 2nd and the 3rd).
+    expect(
+      buildRecap({ dayNumber: 4, yesterdayOutcomes: [], yesterdayEnded: 'slept', lastPlayedDay: 1 }),
+    ).toBe('LAST PLAYED (day 1):\n2 days passed without you.\nended: slept');
+  });
+
+  it('counts a single missing day in the singular', () => {
+    expect(
+      buildRecap({ dayNumber: 4, yesterdayOutcomes: ['A quiet day.'], lastPlayedDay: 2 }),
+    ).toBe('LAST PLAYED (day 2):\n1 day passed without you.\n1. A quiet day.');
+  });
 });
