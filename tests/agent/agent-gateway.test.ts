@@ -142,6 +142,15 @@ describe('ProdAgentPlayerGateway — request', () => {
     expect(body.messages[1].content).toContain('3. Go to sleep');
   });
 
+  it('defaults the system prompt to the whole v2 set — brain.md plus the handbook', async () => {
+    const fetchFn = mockFetch(apiResponse({ choice: 0 }));
+    await new ProdAgentPlayerGateway({ apiKey: 'test-key', fetch: fetchFn }).chooseMove(menuInput());
+
+    const system = bodyOf(fetchFn).messages[0].content as string;
+    expect(system).toContain('move-picker');
+    expect(system).toContain('player handbook');
+  });
+
   it('buildUserMessage renders SCREEN, numbered MOVES, and CHARACTER', () => {
     const msg = buildUserMessage(decisionInput());
     expect(msg).toContain('SCREEN:');
@@ -149,6 +158,63 @@ describe('ProdAgentPlayerGateway — request', () => {
     expect(msg).toMatch(/MOVES:\n0\. Advance carefully\n1\. Charge in\n2\. Retreat/);
     expect(msg).toContain('"class":"Town Guard"');
     expect(msg).toContain('"rollsRemaining":3');
+  });
+});
+
+// ── ProdAgentPlayerGateway — working-memory sections (T2, contract §7b) ──
+
+// T1 plumbed the brain's working memory into `ChooseMoveInput`; this is the render half. The
+// preservation rule is load-bearing: with none of the new fields present the message must stay
+// byte-identical to the pre-rework text, because that is the baseline arm's prompt.
+
+describe('buildUserMessage — working memory (T2)', () => {
+  const BASE = decisionInput();
+
+  it('stays byte-identical to the pre-rework text when no memory field is present', () => {
+    expect(buildUserMessage(BASE)).toBe(
+      [
+        'SCREEN:',
+        '⚔️ Action\n\nThe wolf snarls.\n\n[0] Advance\n[1] Charge',
+        '',
+        'MOVES:',
+        '0. Advance carefully\n1. Charge in\n2. Retreat',
+        '',
+        'CHARACTER:',
+        '{"name":"Bram","class":"Town Guard","hp":"12/12","stamina":"10/10","rollsRemaining":3,"wealth":5,"location":"The Warden\'s Oak"}',
+      ].join('\n'),
+    );
+  });
+
+  it("renders every section, in the contract's order, when its field is present", () => {
+    const msg = buildUserMessage({
+      ...BASE,
+      recap: 'YESTERDAY (day 1):\n1. You stood the gate.\nended: slept',
+      dayLog: '1. day job: Stand the gate → You finish the chore.\n2. recon: /map → 🗺️ The World Map',
+      intentNote: 'heading north for the archive; stamina low',
+      arcNote: 'the temple; three consecrations left',
+      lastRecon: { screen: 'map', text: '🗺️ The World Map\n━━━' },
+    });
+
+    const headers = ['RECAP:', 'TODAY SO FAR:', 'INTENT:', 'ARC:', 'LAST LOOK: /map', 'SCREEN:', 'MOVES:', 'CHARACTER:'];
+    const offsets = headers.map((h) => msg.indexOf(h));
+    expect(offsets.every((i) => i >= 0)).toBe(true);
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+  });
+
+  it("carries each block's text, and drops a section whose field is absent", () => {
+    const withRecapOnly = buildUserMessage({ ...BASE, recap: 'YESTERDAY (day 1):\nended: slept' });
+    expect(withRecapOnly).toContain('RECAP:\nYESTERDAY (day 1):\nended: slept');
+    expect(withRecapOnly).not.toContain('TODAY SO FAR:');
+    expect(withRecapOnly).not.toContain('INTENT:');
+    expect(withRecapOnly).not.toContain('ARC:');
+    expect(withRecapOnly).not.toContain('LAST LOOK');
+
+    const withReconOnly = buildUserMessage({
+      ...BASE,
+      lastRecon: { screen: 'journal', text: '📖 Your journal.' },
+    });
+    expect(withReconOnly).toContain('LAST LOOK: /journal\n📖 Your journal.');
+    expect(withReconOnly).not.toContain('RECAP:');
   });
 });
 
@@ -232,12 +298,12 @@ describe('ProdAgentPlayerGateway — parse', () => {
 // ── ProdAgentPlayerGateway — audit recording ──
 
 describe('ProdAgentPlayerGateway — recording', () => {
-  it('records one row stamped agent-v1 / agent-player on success', async () => {
+  it('records one row stamped agent-v2 / agent-player on success', async () => {
     const { records, recorder } = capture();
     await makeGateway(mockFetch(apiResponse({ choice: 0 })), recorder).chooseMove(menuInput());
 
     expect(records).toHaveLength(1);
-    expect(records[0].promptVersion).toBe('agent-v1');
+    expect(records[0].promptVersion).toBe('agent-v2');
     expect(records[0].callKind).toBe('agent-player');
     expect(records[0].parseOk).toBe(true);
     expect(records[0].error).toBeNull();

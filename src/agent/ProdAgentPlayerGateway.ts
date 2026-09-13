@@ -19,7 +19,7 @@ import type { LlmCallRecorder } from '../llm/LlmCallRecorder.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
 import type { AgentMove, AgentPlayerGateway, BrainTurn, ChooseMoveInput } from './AgentPlayerGateway.js';
-import { AGENT_PLAYER_STAMP, loadAgentPrompt } from './agentPrompt.js';
+import { agentPlayerStamp, loadBrainPrompt, loadHandbookPrompt } from './agentPrompt.js';
 
 export interface ProdAgentPlayerGatewayConfig {
   apiKey: string;
@@ -35,7 +35,7 @@ export interface ProdAgentPlayerGatewayConfig {
   verbose?: boolean;
 }
 
-/** The shape the brain must return (see agent-v1.md). `choice` indexes into the turn's MOVES
+/** The shape the brain must return (see `brain.md`). `choice` indexes into the turn's MOVES
  *  list; `text` is present only for a free-text move. */
 interface RawMovePick {
   thought?: unknown;
@@ -60,7 +60,9 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
-    this.systemPrompt = config.systemPrompt ?? loadAgentPrompt();
+    // The v2 set fires as a unit: the move-picker's instruction plus the first-time-player
+    // handbook every brain carries (T3 appends the persona fragment after these two).
+    this.systemPrompt = config.systemPrompt ?? `${loadBrainPrompt()}\n\n${loadHandbookPrompt()}`;
     this.verbose = config.verbose ?? false;
   }
 
@@ -133,7 +135,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
         try {
           this.recorder.record({
             appVersion: APP_VERSION,
-            promptVersion: AGENT_PLAYER_STAMP,
+            promptVersion: agentPlayerStamp(),
             callKind: CALL_KIND,
             model: this.model,
             temperature: this.temperature,
@@ -192,11 +194,22 @@ function resolveMove(raw: RawMovePick, input: ChooseMoveInput): AgentMove {
   return picked;
 }
 
-/** The turn rendered as the user message: screen, numbered legal moves, character state. Kept a
- *  free function (not a method) so tests can assert the exact wire text. */
+/** The turn rendered as the user message: the working memory a player carries (only the blocks
+ *  that exist this turn — spec § B), then the screen, numbered legal moves and character state.
+ *  Kept a free function (not a method) so tests can assert the exact wire text. */
 export function buildUserMessage(input: ChooseMoveInput): string {
+  const sections: string[] = [];
+  // Each memory block is appended only when its field is present, so a first turn (and every turn
+  // of a pre-rework call site) renders exactly the three keys the seam carried before.
+  if (input.recap !== undefined) sections.push('RECAP:', input.recap, '');
+  if (input.dayLog !== undefined) sections.push('TODAY SO FAR:', input.dayLog, '');
+  if (input.intentNote !== undefined) sections.push('INTENT:', input.intentNote, '');
+  if (input.arcNote !== undefined) sections.push('ARC:', input.arcNote, '');
+  if (input.lastRecon !== undefined) sections.push(`LAST LOOK: /${input.lastRecon.screen}`, input.lastRecon.text, '');
+
   const moveLines = input.moves.map((m, i) => `${i}. ${m.label}`).join('\n');
   return [
+    ...sections,
     'SCREEN:',
     input.screenText,
     '',

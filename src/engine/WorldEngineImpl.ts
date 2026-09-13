@@ -76,11 +76,12 @@ import type {
 } from "./WorldEngine.js";
 import { sanitizeAuthored } from "./authored-text.js";
 
-/** Daily rolls granted at creation and refreshed each tick. */
-const DAILY_ROLL_ALLOWANCE = 3;
+/** Daily rolls granted at creation and refreshed each tick. Exported so the agent-player
+ *  handbook test can pin its copy against the engine's real figures (spec § D). */
+export const DAILY_ROLL_ALLOWANCE = 3;
 
 /** Extra rolls granted on the Saturday tick. */
-const SATURDAY_BONUS_ROLLS = 1;
+export const SATURDAY_BONUS_ROLLS = 1;
 
 // ── Seeded RNG helpers ──
 

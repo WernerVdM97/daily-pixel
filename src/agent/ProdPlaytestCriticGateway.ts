@@ -14,7 +14,7 @@ import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
 import type { CritiqueInput, PlaytestCriticGateway, PlaytestReport } from './PlaytestCriticGateway.js';
 import type { TranscriptEvent } from './transcript.js';
-import { AGENT_CRITIC_STAMP, loadCriticPrompt } from './criticPrompt.js';
+import { agentCriticStamp, loadCriticTemplate } from './criticPrompt.js';
 
 export interface ProdPlaytestCriticGatewayConfig {
   apiKey: string;
@@ -57,7 +57,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
     this.temperature = config.temperature ?? 0.4;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
-    this.systemPrompt = config.systemPrompt ?? loadCriticPrompt();
+    this.systemPrompt = config.systemPrompt ?? loadCriticTemplate('critic');
     this.verbose = config.verbose ?? false;
   }
 
@@ -129,7 +129,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
         try {
           this.recorder.record({
             appVersion: APP_VERSION,
-            promptVersion: AGENT_CRITIC_STAMP,
+            promptVersion: agentCriticStamp('critic'),
             callKind: CALL_KIND,
             model: this.model,
             temperature: this.temperature,
