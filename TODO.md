@@ -53,7 +53,13 @@ None of the agent account's PRs appear in a PR list, for anyone, including the a
 
 Branch and commit views also resolve, so the work can be reviewed and merged locally without a PR object ever being visible. The PR objects are the only broken thing, not the code, the tests or the history.
 
-**The one test that decides how much this matters.** Open `https://github.com/WernerVdM97/daily-pixel/pull/126` **logged in as WernerVdM97**. If it opens for the repo owner, the stack is reviewable and mergeable as it stands and only the lists are broken. If it 404s for the owner too, the objects are effectively unreachable and the appeal or a replacement identity becomes mandatory.
+**The one test that decides how much this matters, and its answer.** Open `https://github.com/WernerVdM97/daily-pixel/pull/126` logged in as the repo owner: it **404s**. So the content is visible to `agent97eth` and to nobody else, which is the withheld state, and the direct-URL access the author found is the author's privilege rather than evidence the objects are reachable more widely. Nothing here can be reviewed or merged through GitHub as it stands.
+
+**The comments are hidden too, and that has a consequence.** The eight comments written onto #94 to #97 to carry the Release A reasoning are invisible as well: #94's page shows no trace of them and never renders `agent97eth`. So the reasoning relocated out of this file is unreadable on the issues it was meant to sit with.
+
+**Nothing textual is lost, because commits are visible.** The pre-deprecation version of this file is reachable at `https://github.com/WernerVdM97/daily-pixel/blob/7dbf4e6/TODO.md`, which still carries both the Release A residuals (RA-1, RA-2, the two P3 decisions) and the dev-line carry-overs, and the deprecation diff itself is readable through the compare URL below. The twenty issue bodies are also exported to `/tmp/agent-panel/export`, though that is a temp directory.
+
+**Do not merge #154 while the account is broken.** It removes the ticket list from this file and leaves it only in issues that nobody else can read, which would turn a visible record into an invisible one. Hold it until either the issues are readable or the findings have a visible home again. The three code layers have no such problem: their diffs are visible and their content is in the commits.
 
 **No self-serve fix.** Support is the only remedy that keeps the same identity, at `support.github.com/contact` filed while logged in as `agent97eth`, describing the list and search exclusion and the date it began (between 2026-09-10 and 2026-09-11). If that stalls or fails, the durable replacement is a GitHub App rather than another user account: it opens PRs as `<app>[bot]`, is built for automation, and is not subject to the new-account heuristics a fresh user account would be.
 
