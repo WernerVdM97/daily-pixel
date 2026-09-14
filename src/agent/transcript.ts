@@ -29,7 +29,16 @@ export interface TurnEvent {
 }
 
 /** A terminal or noteworthy event closing out an action or a day. */
-export interface OutcomeEvent { type: 'outcome'; text: string }
+export interface OutcomeEvent {
+  type: 'outcome';
+  text: string;
+  /** The action model's own label for the action that produced this outcome — the outcome
+   *  envelope's `facts.distilledType` (a `FACTS_KEYS` fact), recorded verbatim. MODEL-AUTHORED and
+   *  open-vocabulary, NOT the engine's classify kind (which is not on the envelope) and not a
+   *  persona's verb priors (contract §9, the correction found while implementing T5). Never
+   *  keyword-matched from the outcome text. Absent on an envelope that carried no fact. */
+  verb?: string;
+}
 export interface DeadEndEvent { type: 'dead-end'; reason: string; detail?: string }
 export interface DayBoundaryEvent { type: 'day'; dayNumber: number; note: string }
 /** The day-job work flow's transient commute beat (the "you moved to work" screen) — an
@@ -157,8 +166,8 @@ export class Transcript {
     this.events.push({ type: 'turn', screen, text, offered: offered.map((m) => m.label), chosen });
   }
 
-  outcome(text: string): void {
-    this.events.push({ type: 'outcome', text });
+  outcome(text: string, verb?: string): void {
+    this.events.push({ type: 'outcome', text, ...(verb ? { verb } : {}) });
   }
 
   deadEnd(reason: string, detail?: string): void {
@@ -253,6 +262,28 @@ export class Transcript {
       if (entry.event.type === 'rest.begin') days.push([]);
     }
     return days.filter((day) => day.length > 0).map(resolvedFreeActions);
+  }
+
+  /** The run's verb histogram on BOTH axes (contract §9), derived on demand like `summary()` so
+   *  there are no cached counters to drift:
+   *
+   *  - `kinds` counts the `turn` events by `AgentMove.kind` — what the brain actually chose
+   *    (`menu-pick`, `custom`, `choice`, `bail`, `sleep`, `recon`). Exact, and independent of the
+   *    engine's reading of the action.
+   *  - `verbs` counts the `outcome` events by the action model's own `distilledType`: a free label,
+   *    open-vocabulary and model-authored, so it is a reading of what a persona reached for in the
+   *    model's own words rather than an exact vocabulary shared with its priors (contract §9).
+   *
+   *  The two can disagree, and that disagreement is a finding of its own: a brain that `custom`-ed its
+   *  way to a `rest` outcome played rest, whatever slot it reached for. */
+  verbHistogram(): { kinds: Record<string, number>; verbs: Record<string, number> } {
+    const kinds: Record<string, number> = {};
+    const verbs: Record<string, number> = {};
+    for (const e of this.events) {
+      if (e.type === 'turn') kinds[e.chosen.kind] = (kinds[e.chosen.kind] ?? 0) + 1;
+      else if (e.type === 'outcome' && e.verb) verbs[e.verb] = (verbs[e.verb] ?? 0) + 1;
+    }
+    return { kinds, verbs };
   }
 
   /** Roll up the log into a QA scoreboard. Derived on demand — no cached counters to drift. */

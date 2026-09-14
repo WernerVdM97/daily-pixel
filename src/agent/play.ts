@@ -30,7 +30,10 @@
  * fragment joins the brain's SYSTEM prompt after brain.md and the handbook, and the run is stamped
  * `agent-v2/<name>`. Unset = no persona fragment at all, which is today's behaviour and the
  * baseline arm a panel is read against. An unknown name is a config error: the run exits 1 naming
- * the valid personas before any LLM call is constructed),
+ * the valid personas before any LLM call is constructed. WHEN SET it also turns on the persona
+ * REVIEW (spec § F): a second, persona-voiced LLM call after the expert critique, printed to stderr
+ * and written to `<AGENT_OUT>.reviews.json` for `agent:panel`. Unset runs review nothing and write
+ * nothing extra — the review is the persona's, so there is no voice to review in without one),
  * AGENT_USER_ID (session id; default a per-session unique `agent:play-<timestamp>`),
  * AGENT_INHERIT ("1" = play as the existing AGENT_USER_ID player, no creation walk),
  * ENABLE_COHERENCE_CRITIC (RA-4 Finding 1, default on — "false" opts out, same as index.ts),
@@ -52,6 +55,7 @@ import type { CharCreateData } from '../engine/WorldEngine.js';
 import { loadYamlFile } from '../assets/yaml-loader.js';
 import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
+import { buildReviewFile, formatPersonaReview, personaReviewInput } from './reviewFile.js';
 import { PERSONA_NAMES } from './agentPrompt.js';
 import { GameRouter } from '../protocol/router.js';
 import type { RouterBackend } from '../protocol/router.js';
@@ -187,97 +191,149 @@ async function main(): Promise<void> {
     ...(persona ? { persona } : {}),
   });
 
-  // The transcript is the repro (goal a): dump it in `finally` so a run that throws before finishing
-  // still writes what it saw up to the failure, not just an opaque stack. The creation walk is inside
-  // the try for the same reason — a mid-walk rejection (e.g. a has-character collision on a shared
-  // backend) must still land the partial walk in the protocol log via finally, and the walk IS the
-  // repro (DC-S7's recording-gap fix).
-  let summaries: Awaited<ReturnType<typeof harness.playDays>> = [];
+  // T6 fix: the cost summary is printed from this OUTER finally, after the critique and the persona
+  // review have run. The play block's own finally used to print it, so the operator's total excluded
+  // both of those calls while `.reviews.json` cost included the review — the printed number and the
+  // panel's number disagreed, and the review is the expensive half. The outer finally keeps the
+  // guarantee the inner one had: a play block that throws still leaves the spend up to the failure
+  // on the terminal.
   try {
-    if (inherit) {
-      // DC-S7 inherit mode: no creation walk — the session starts at menu.open as that player.
-      console.error(`Inheriting ${userId} — playing ${days} day(s)…\n`);
-    } else {
-      // DC-S7 fresh spawn: the full join wizard walk through the harness's recorded dispatch,
-      // so the creation walk lands in the protocol log (stage 7's replay re-seeding depends on it).
-      if (process.env.AGENT_BRAIN_CHOOSES_CHAR === '1') {
-        // DC-S3 opt-in realism arm: the brain authors the character (name + wizard steps) like
-        // a real user — non-deterministic + token-heavy, live runs only (the standard fleet
-        // keeps the deterministic scripted walk below).
-        await harness.createCharacterWithBrain();
-        console.error('Brain chose the character — playing …\n');
+    // The transcript is the repro (goal a): dump it in `finally` so a run that throws before finishing
+    // still writes what it saw up to the failure, not just an opaque stack. The creation walk is inside
+    // the try for the same reason — a mid-walk rejection (e.g. a has-character collision on a shared
+    // backend) must still land the partial walk in the protocol log via finally, and the walk IS the
+    // repro (DC-S7's recording-gap fix).
+    let summaries: Awaited<ReturnType<typeof harness.playDays>> = [];
+    try {
+      if (inherit) {
+        // DC-S7 inherit mode: no creation walk — the session starts at menu.open as that player.
+        console.error(`Inheriting ${userId} — playing ${days} day(s)…\n`);
       } else {
-        await harness.createCharacter(SEED);
-        console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
+        // DC-S7 fresh spawn: the full join wizard walk through the harness's recorded dispatch,
+        // so the creation walk lands in the protocol log (stage 7's replay re-seeding depends on it).
+        if (process.env.AGENT_BRAIN_CHOOSES_CHAR === '1') {
+          // DC-S3 opt-in realism arm: the brain authors the character (name + wizard steps) like
+          // a real user — non-deterministic + token-heavy, live runs only (the standard fleet
+          // keeps the deterministic scripted walk below).
+          await harness.createCharacterWithBrain();
+          console.error('Brain chose the character — playing …\n');
+        } else {
+          await harness.createCharacter(SEED);
+          console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
+        }
+      }
+      summaries = await harness.playDays(days);
+    } finally {
+      // Transcript → a file (always clean JSON, immune to stdout log noise); everything human-readable
+      // → stderr. Written in finally so a throwing run still leaves the repro up to the failure point.
+      writeFileSync(outPath, JSON.stringify(harness.transcript.events, null, 2));
+      // DC-S1: the parallel protocol log lands beside the semantic transcript (default
+      // `<AGENT_OUT>.protocol.json`) — the replayable instrument, same finally-guarantee.
+      const protocolOut = process.env.AGENT_PROTOCOL_OUT ?? `${outPath}.protocol.json`;
+      writeFileSync(protocolOut, JSON.stringify(harness.transcript.protocol, null, 2));
+      console.error(`\n── transcript written to ${outPath} ──`);
+      console.error(`── protocol log written to ${protocolOut} ──`);
+      console.error('\n── day summaries ──');
+      // Criterion 3 reads per day ("at least one non-work action per day"), so the scoreboard the
+      // operator/critic actually reads carries the per-day free-action count, not just the run total.
+      const freeByDay = harness.transcript.freeActionsByDay();
+      summaries.forEach((s, i) => {
+        console.error(
+          `  day ${s.dayNumber}: ${s.outcomes} outcome(s), ${freeByDay[i] ?? 0} free action(s), ended ${s.ended}`,
+        );
+      });
+      const run = harness.transcript.summary();
+      // RA-2 instrument: the recorded dispatch stream's free (non-work) actions — the denominator
+      // an inspiration grant rate is read against, and the reason AGENT_FORCE_FREE_ACTIONS exists.
+      const freeActions = harness.transcript.freeActions();
+      console.error(
+        `\n── run summary ──\n  ${run.turns} turns, ${run.outcomes} outcomes, ${run.deadEnds} dead-ends, ` +
+          `${run.commutes} commutes, ${run.dayBoundaries} nights, ${freeActions} free action(s)\n  ` +
+          `findings: ${run.findings.error} error(s), ${run.findings.warning} warning(s)`,
+      );
+    }
+
+    // Inherit-mode asymmetry (review c022d1f): a stale/missing AGENT_USER_ID plays zero turns and
+    // would otherwise exit 0 like a success — the fresh arm fails loud on a walk rejection, so the
+    // inherit arm must too (smoke-run automation keys on the exit code).
+    if (inherit && summaries.some((s) => s.ended === 'no-character')) {
+      console.error(`agent:play: no character found for ${userId} (AGENT_INHERIT=1) — nothing played (exit 1).`);
+      process.exitCode = 1;
+    }
+
+    // M4.5 feedback pass (goal b): a critic reads the completed transcript and writes a qualitative
+    // playtest report. Only reached when the run itself didn't throw (the try above rethrows past
+    // here) — a completed run, crashes-captured-as-findings included, is what the critic reviews.
+    try {
+      const critic = new ProdPlaytestCriticGateway({
+        apiKey,
+        ...(model ? { model } : {}),
+        recorder: new LlmCallRepository(agentEngine.db),
+        verbose: true,
+      });
+      const report = await critic.critique({
+        events: harness.transcript.events,
+        summary: harness.transcript.summary(),
+      });
+      console.error(
+        '\n── playtest critique ──' +
+          `\n  pacing:     ${report.pacing}` +
+          `\n  clarity:    ${report.clarity}` +
+          `\n  fun:        ${report.fun}` +
+          `\n  difficulty: ${report.difficulty}` +
+          `\n  summary:    ${report.summary}`,
+      );
+    } catch (err) {
+      // A critic failure must not bury the run output already printed above — report it and move on.
+      console.error('\n── playtest critique failed ──\n ', err instanceof Error ? err.message : String(err));
+    }
+
+    // T5 (spec § F): the persona review — a SECOND artefact, not a replacement for the critique above.
+    // One call per persona per run, and only when a persona played: the baseline arm stays critic-only
+    // and writes nothing extra, which is what keeps the ARM comparison the panel reads clean.
+    if (persona !== undefined) {
+      try {
+        const reviewer = new ProdPlaytestCriticGateway({
+          apiKey,
+          ...(model ? { model } : {}),
+          recorder: new LlmCallRepository(agentEngine.db),
+          verbose: true,
+        });
+        const review = await reviewer.review(personaReviewInput(persona, harness.transcript));
+        console.error(`\n${formatPersonaReview(review)}`);
+
+        // The reviews file the panel aggregates (contract §9). Written here, not in the `finally`
+        // above, because it carries the review — a run whose reviewer threw leaves no file rather than
+        // a file with a hole in the measurement. The cost query runs AFTER the review call for the
+        // same reason it must run in-process at all: the `:memory:` DB holding `llm_calls` dies with
+        // the run, and a per-run cost that omitted the review's own call would understate the panel's
+        // price by one call per persona.
+        const reviewsPath = `${outPath}.reviews.json`;
+        writeFileSync(
+          reviewsPath,
+          JSON.stringify(
+            buildReviewFile({
+              persona,
+              review,
+              transcript: harness.transcript,
+              cost: summarizeLlmCosts(agentEngine.db),
+            }),
+            null,
+            2,
+          ),
+        );
+        console.error(`── persona review written to ${reviewsPath} ──`);
+      } catch (err) {
+        // Same contract as a failed critique: report it and move on. The run itself is complete and
+        // its transcript is on disk; a failing reviewer must not turn a paid run into a failed process.
+        console.error('\n── persona review failed ──\n ', err instanceof Error ? err.message : String(err));
       }
     }
-    summaries = await harness.playDays(days);
   } finally {
-    // Transcript → a file (always clean JSON, immune to stdout log noise); everything human-readable
-    // → stderr. Written in finally so a throwing run still leaves the repro up to the failure point.
-    writeFileSync(outPath, JSON.stringify(harness.transcript.events, null, 2));
-    // DC-S1: the parallel protocol log lands beside the semantic transcript (default
-    // `<AGENT_OUT>.protocol.json`) — the replayable instrument, same finally-guarantee.
-    const protocolOut = process.env.AGENT_PROTOCOL_OUT ?? `${outPath}.protocol.json`;
-    writeFileSync(protocolOut, JSON.stringify(harness.transcript.protocol, null, 2));
-    console.error(`\n── transcript written to ${outPath} ──`);
-    console.error(`── protocol log written to ${protocolOut} ──`);
-    console.error('\n── day summaries ──');
-    // Criterion 3 reads per day ("at least one non-work action per day"), so the scoreboard the
-    // operator/critic actually reads carries the per-day free-action count, not just the run total.
-    const freeByDay = harness.transcript.freeActionsByDay();
-    summaries.forEach((s, i) => {
-      console.error(
-        `  day ${s.dayNumber}: ${s.outcomes} outcome(s), ${freeByDay[i] ?? 0} free action(s), ended ${s.ended}`,
-      );
-    });
-    const run = harness.transcript.summary();
-    // RA-2 instrument: the recorded dispatch stream's free (non-work) actions — the denominator
-    // an inspiration grant rate is read against, and the reason AGENT_FORCE_FREE_ACTIONS exists.
-    const freeActions = harness.transcript.freeActions();
-    console.error(
-      `\n── run summary ──\n  ${run.turns} turns, ${run.outcomes} outcomes, ${run.deadEnds} dead-ends, ` +
-        `${run.commutes} commutes, ${run.dayBoundaries} nights, ${freeActions} free action(s)\n  ` +
-        `findings: ${run.findings.error} error(s), ${run.findings.warning} warning(s)`,
-    );
     // RA-4a: queried from the SAME `:memory:` db `recordLlmCalls` wrote into — must run here,
-    // before the process exits and that db (and its llm_calls rows) is gone for good.
+    // before the process exits and that db (and its llm_calls rows) is gone for good. Printed exactly
+    // once, and last, so one cost line covers every LLM call the run made.
     console.error(`\n${formatLlmCostSummary(summarizeLlmCosts(agentEngine.db))}`);
-  }
-
-  // Inherit-mode asymmetry (review c022d1f): a stale/missing AGENT_USER_ID plays zero turns and
-  // would otherwise exit 0 like a success — the fresh arm fails loud on a walk rejection, so the
-  // inherit arm must too (smoke-run automation keys on the exit code).
-  if (inherit && summaries.some((s) => s.ended === 'no-character')) {
-    console.error(`agent:play: no character found for ${userId} (AGENT_INHERIT=1) — nothing played (exit 1).`);
-    process.exitCode = 1;
-  }
-
-  // M4.5 feedback pass (goal b): a critic reads the completed transcript and writes a qualitative
-  // playtest report. Only reached when the run itself didn't throw (the try above rethrows past
-  // here) — a completed run, crashes-captured-as-findings included, is what the critic reviews.
-  try {
-    const critic = new ProdPlaytestCriticGateway({
-      apiKey,
-      ...(model ? { model } : {}),
-      recorder: new LlmCallRepository(agentEngine.db),
-      verbose: true,
-    });
-    const report = await critic.critique({
-      events: harness.transcript.events,
-      summary: harness.transcript.summary(),
-    });
-    console.error(
-      '\n── playtest critique ──' +
-        `\n  pacing:     ${report.pacing}` +
-        `\n  clarity:    ${report.clarity}` +
-        `\n  fun:        ${report.fun}` +
-        `\n  difficulty: ${report.difficulty}` +
-        `\n  summary:    ${report.summary}`,
-    );
-  } catch (err) {
-    // A critic failure must not bury the run output already printed above — report it and move on.
-    console.error('\n── playtest critique failed ──\n ', err instanceof Error ? err.message : String(err));
   }
 }
 

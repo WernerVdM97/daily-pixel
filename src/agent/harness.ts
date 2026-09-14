@@ -931,7 +931,7 @@ export class AgentHarness {
       case 'outcome': {
         // Outcome: record the private (acting-player) view. The character snapshot is
         // read fresh from the engine on the next menu.open, so no char extraction needed here.
-        this.recordOutcome(viewToText(view));
+        this.recordOutcome(viewToText(view), response.facts);
         return { kind: 'outcome' };
       }
       case 'decision':
@@ -952,7 +952,7 @@ export class AgentHarness {
       case 'decision':
         return this.runDecisionLoop(view, response.facts);
       case 'outcome':
-        this.recordOutcome(viewToText(view));
+        this.recordOutcome(viewToText(view), response.facts);
         return { kind: 'outcome' };
       default:
         this.transcript.finding('error', `unexpected screen "${view.screen}" from action.custom`);
@@ -1003,7 +1003,7 @@ export class AgentHarness {
 
       const view = response.view!;
       if (view.screen === 'outcome') {
-        this.recordOutcome(viewToText(view));
+        this.recordOutcome(viewToText(view), response.facts);
         // The bail button resolves the action (`outcome: 'bailed'`, roll refunded) — reported so
         // the menu arm does not read it as a completed free action (RA-2).
         return move.kind === 'bail' ? { kind: 'outcome', bailed: true } : { kind: 'outcome' };
@@ -1078,9 +1078,13 @@ export class AgentHarness {
   }
 
   /** Record a completed action: the transcript's outcome event plus the day's own line (its first
-   *  line), which is what the next day's recap block carries. */
-  private recordOutcome(text: string): void {
-    this.transcript.outcome(text);
+   *  line), which is what the next day's recap block carries. The outcome envelope's facts carry the
+   *  action model's own label for the action (`distilledType`, model-authored and open-vocabulary),
+   *  recorded as the outcome's `verb` so the histogram reports what the model called it rather than a
+   *  guess from free text (spec § A, contract §9). */
+  private recordOutcome(text: string, facts?: Record<string, unknown>): void {
+    const verb = typeof facts?.distilledType === 'string' ? facts.distilledType : undefined;
+    this.transcript.outcome(text, verb);
     const line = summarizeOutcome(text);
     this.lastOutcomeLine = line;
     this.todayOutcomes.push(line);
