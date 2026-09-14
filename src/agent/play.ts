@@ -326,12 +326,16 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     }
 
-    // A run that ended `crashed` or `stalled` is a TRUNCATED run, not a finished one, and it must not
-    // report success: a five-day arc that died on day 3 still exits 0 otherwise, and the exit code is
-    // the only thing QA automation reads. `stalled` is included because a wedged day stops the run
-    // just as dead as an exception (playDays breaks on both), so a panel silently loses the days after
-    // it. The findings carry the detail; this makes the truncation impossible to miss.
-    const truncated = summaries.filter((s) => s.ended === 'crashed' || s.ended === 'stalled');
+    // A run whose day ended on anything but a clean night (`slept`/`no-rolls`) is a TRUNCATED run,
+    // not a finished one, and it must not report success: a five-day arc that died on day 3 still
+    // exits 0 otherwise, and the exit code is the only thing QA automation reads. The disposition
+    // list is the complement of `playDays`' own continue-condition rather than a hand-picked set, so
+    // it cannot go stale as dispositions are added: `stalled` counts because a wedged day stops the
+    // run just as dead as an exception, and `no-character` counts for the same reason (the inherit
+    // guard above already exits 1 for it, in inherit mode only — a fresh-mode run truncated that
+    // way would otherwise report success). The findings carry the detail; this makes the truncation
+    // impossible to miss.
+    const truncated = summaries.filter((s) => s.ended !== 'slept' && s.ended !== 'no-rolls');
     if (truncated.length > 0) {
       console.error(
         `agent:play: run ended early — ${truncated.map((s) => `day ${s.dayNumber} ${s.ended}`).join(', ')} ` +

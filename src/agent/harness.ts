@@ -521,11 +521,19 @@ export class AgentHarness {
    *  `rest.begin`, M7.1) + the nightly world tick through the observer (the cron mechanism
    *  stays engine-owned).
    *  The run stops early on `no-character` (fatal — nothing left to play) OR `stalled` (the brain
-   *  wedged): a stalled day leaves whatever pending action wedged it untouched, and the nightly
-   *  auto-expiry gates on real wall-clock so it never fires across a harness run's millisecond
-   *  "days" — pressing on would just replay the identical frozen state every remaining day (burning
-   *  a real LLM run with no progress and no fresh signal). Stopping keeps the stall a single, clear
-   *  finding. Returns one summary per day actually played, in order. */
+   *  wedged): a stalled day leaves whatever pending action wedged it untouched, and pressing on
+   *  would just replay the identical frozen state every remaining day (burning a real LLM run with
+   *  no progress and no fresh signal). Stopping keeps the stall a single, clear finding.
+   *  The auto-expiry reasoning that used to sit on that sentence was wrong under the pinned clock:
+   *  `Date.now()` is not real wall-clock any more, it steps a day at every nightly tick, so a
+   *  pending action that survives a day boundary DOES read as stale and `resolveStaleTimeout`
+   *  (WorldEngineImpl.ts — its audit note names this the sharpest site on the live path) resolves it
+   *  as a server-side timeout rather than leaving the frozen state intact. What keeps that off THIS
+   *  path is the early stop, not the clock: a day that ends non-clean breaks the loop below before
+   *  `endDay` (the thing that advances the clock), so no next day exists in which the expiry could
+   *  fire, and the old claim is vacuously true here rather than generally true. Do not reuse it
+   *  elsewhere.
+   *  Returns one summary per day actually played, in order. */
   async playDays(days: number): Promise<DaySummary[]> {
     const summaries: DaySummary[] = [];
     for (let day = 0; day < days; day++) {

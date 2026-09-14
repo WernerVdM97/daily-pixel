@@ -12,21 +12,30 @@
  * verify-first probe (stage 7 Task A) confirmed characterId assignment IS reproducible on a
  * fresh engine (the fresh DB's first created character is again id 1, and mulberry32 is
  * keyed by characterId/dayNumber, so day-job actions/workplaces/rolls re-seed identically).
- * The determinism caveat that used to sit here was the same-weekday-class one, and it is now
- * DISCHARGED for multi-day streams as well as one-day ones: the day-start greeting reads wall-clock `isWeekend()` (hiScreen.ts), and the nightly tick is
- * wall-clock dependent TOO — the Saturday tick grants the bonus roll and runs the Saturday
- * NPC script (`getUTCDay() === 6`, WorldEngineImpl.ts) and the 5-day absence nudge fires on
- * the tick crossing five idle days — so a MULTI-DAY real-backend recording must be replayed
- * in the same weekday class it was recorded in (a weekday recording replayed on a Saturday
- * re-ticks with one extra roll) — and the replay half re-ticks on the SAME weekdays, because
- * it steps the clock one day per tick marker exactly as the recording half did (harness.ts
- * calls `advanceDays(1)` immediately before each `tick(true)`). So a multi-day recording is
- * green on any calendar day the suite runs on, and the day-N+1 Saturday bonus and the
- * five-day absence nudge are reproducible rather than accidentally-matching. The
- * envelope-visible effect lands in the action hints keyed off rollsRemaining — those are what
- * a wrong-dated replay still diverges on. (The one-day corpus entries committed before the
- * stepping half existed are unaffected: their tick is the last entry, and a tick marker
- * asserts only its dayNumber.)
+ * The determinism caveat that used to sit here was the same-weekday-class one, and the clock pin
+ * now discharges PART of it. What IS discharged is the TICK's calendar-dependent behaviour, which
+ * reads UTC on both sides: the Saturday tick grants the bonus roll and runs the Saturday NPC
+ * script (`getUTCDay() === 6`, WorldEngineImpl.ts) and the 5-day absence nudge fires on the tick
+ * crossing five idle days, and the replay half re-ticks on the SAME weekdays because it steps the
+ * clock one day per tick marker exactly as the recording half did (harness.ts calls
+ * `advanceDays(1)` immediately before each `tick(true)`). So a multi-day recording is green on any
+ * calendar day the suite runs on, and the day-N+1 Saturday bonus and the five-day absence nudge
+ * are reproducible rather than accidentally-matching. The envelope-visible effect lands in the
+ * action hints keyed off rollsRemaining — those are what a wrong-dated replay still diverges on.
+ * What is NOT discharged is any TEXT that reads a LOCAL weekday, and the day-start greeting is
+ * exactly that: it is rendered by `isWeekend()` (hiScreen.ts), which is `new Date().getDay()` — the
+ * HOST's weekday, straight off the process clock's local offset. The pin fixes the instant, not the
+ * host's offset from it, so the same pinned epoch instant renders weekday copy on one host and
+ * weekend copy on another (a Saturday-locally / Friday-UTC instant is the worked example), and a
+ * multi-day recording is byte-green only on a host whose local weekday matches the recording's.
+ * `hiScreen.ts` is deliberately NOT changed to read UTC here: that copy is player-facing, so it is
+ * a game change rather than harness work (TODO.md carries it), which is why the mitigation is the
+ * noon-UTC `AGENT_START_DATE` rule in the agent-smoke skill instead of a fix in this file. Neither
+ * half is a general fake-timer: timers and intervals are outside the pin entirely (`clock.ts`), so
+ * anything scheduled rather than read behaves exactly as it did.
+ * (The one-day corpus entries committed before the stepping half existed are unaffected: their
+ * tick is the last entry, and a tick marker asserts only its dayNumber. The greeting caveat applies
+ * to them too — their mid-week `recordedAt` is what keeps the two halves' weekday classes equal.)
  * The real-backend arm rebuilds a fresh deterministic engine (scripted pipeline gateway +
  * rollD20:()=>20) and re-seeds by REPLAYING the recorded creation walk (the stream's
  * join.open → wizard.* → character.create dispatches run on the fresh engine as-is); a

@@ -28,6 +28,10 @@ Never pay for the arc panel before the three-persona smoke has passed. The smoke
 
 Every panel shape includes **one run on the same commit with `AGENT_PERSONA` unset**, in the same directory. Without it the persona signal is confounded with the wider move and information surface: a free-text share that rose because the menu widened reads exactly like one that rose because a persona wanted it, and the panel has nothing to compare against. The control arm also writes no review, so it appears in the histogram and day-note tables but not the persona matrices. This is not optional advice — it is the arm the whole reading is relative to.
 
+## Pin every start to noon UTC
+
+Every run's `AGENT_START_DATE` must be a **noon-UTC instant** (`2026-09-15T12:00:00Z`), not a bare date and not a local-time stamp. The day-start greeting reads the **local** weekday (`hiScreen.isWeekend()` is `new Date().getDay()`) while the nightly tick reads **UTC** (`getUTCDay() === 6`), so a start a few hours either side of UTC midnight can greet the player with the weekend copy on a day whose tick grants the weekday roll allowance, and which side you land on depends on the host's timezone. Noon UTC leaves eleven hours of slack either way, so the two weekdays agree in any plausible host timezone and across a multi-day run's one-day steps.
+
 ## Env knobs
 
 `AGENT_OPENROUTER_API_KEY` must be in `.env`, and it is a **different key from the bot's** `OPENROUTER_API_KEY`. It is **not** auto-loaded — subagents must source it: `set -a && . ./.env && set +a && <command>`. `agent:play` refuses to start without it rather than falling back to the bot's key, so a mistyped var is an error and not a quiet spend against the bot's quota.
@@ -36,7 +40,7 @@ Every panel shape includes **one run on the same commit with `AGENT_PERSONA` uns
 | --- | --- |
 | `AGENT_DAYS` | Game days played in one process (default 1). An arc is one process with `AGENT_DAYS=n` — no cross-process continuation. |
 | `AGENT_PERSONA` | One of `explorer`, `socialite`, `soldier`, `homesteader`, `grinder`, `collector`, `storyteller`, `tourist`, `casual`, `lapsed-returner`. **Unset = no persona fragment = the baseline arm, and no review is written.** A typo exits 1 before any call. |
-| `AGENT_START_DATE` | The run's start instant (ISO date or timestamp, default real now). Pins the process clock and **advances it one calendar day per nightly tick**, so a multi-day run crosses real weekdays. Use `2026-09-15T12:00:00Z`-style noon-UTC starts so `hiScreen.isWeekend()` (local weekday) and the tick (UTC) agree. |
+| `AGENT_START_DATE` | The run's start instant (ISO date or timestamp, default real now). Pins the process clock and **advances it one calendar day per nightly tick**, so a multi-day run crosses real weekdays. **Every panel must pin it to a noon-UTC instant** (e.g. `2026-09-15T12:00:00Z`) — never a bare date, never a local-time stamp. See the rule above. |
 | `AGENT_SKIP_DAYS` | `<n>` = play day 1, advance the world `n` days with no play at all (the absence), then play the remaining `AGENT_DAYS-1` days. The interrupted shape. Only reached when day 1 ends cleanly. |
 | `AGENT_OUT` | Transcript path, one per run. The review lands at `<AGENT_OUT>.reviews.json`. |
 | `AGENT_PROTOCOL_OUT` | Protocol-log path (default `<AGENT_OUT>.protocol.json`); the replayable instrument. |

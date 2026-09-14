@@ -19,11 +19,13 @@ Regenerate with `AGENT_PROTOCOL_BEATS` unset — the corpus is recorded with the
 
 Commit the regenerated file together with the change that caused the drift. Never hand-edit the JSON.
 
-## The recording clock (DC-M10.6) — and the SF3 caveat it retires
+## The recording clock (DC-M10.6): the SF3 caveat, and what it does not cover
 
 Every header carries `recordedAt`, an ISO-8601 stamp, and **both halves obey it**: a deterministic recorder pins the process clock to the stamp it writes, and replay pins itself to the header's stamp before running anything.
 
-This is what retires the SF3 same-weekday-class caveat that deferred real-backend corpus entries from M8.5 through M9. These streams read the wall clock in two places — the day-start greeting branches on `isWeekend()` (`src/controller/hiScreen.ts`) and the nightly tick grants the Saturday bonus roll on `getUTCDay() === 6` (`src/engine/WorldEngineImpl.ts`) — so before the pin, a transcript recorded on a Thursday diverged when replayed on a Saturday, and a committed real-backend entry would have rotted on a schedule.
+This is what retires the SF3 same-weekday-class caveat that deferred real-backend corpus entries from M8.5 through M9, for the UTC-based read these streams make. The nightly tick grants the Saturday bonus roll on `getUTCDay() === 6` (`src/engine/WorldEngineImpl.ts`), and the same instant has the same UTC weekday on every host, so the pin fixes that one everywhere: before it, a transcript recorded on a Thursday diverged when replayed on a Saturday, and a committed real-backend entry would have rotted on a schedule.
+
+The day-start greeting is the read the pin does NOT settle on its own. `isWeekend()` (`src/controller/hiScreen.ts`) is `new Date().getDay()`, the LOCAL weekday, so the greeting text reproduces only when the recording host and the replay host share a timezone. Keep corpus instants well inside the day (`STUB_RECORDED_AT` is a midweek noon) and see the noon-UTC rule in `.pi/skills/agent-smoke/SKILL.md`.
 
 Pinning only the replay half is not enough and the suite proves it: the recording would still run on the wall clock, so the two would disagree on exactly those branches. `tests/agent/replay.test.ts` pins the mechanism with a tamper rather than an assertion — a session recorded on a Saturday stamp replays green, and the identical stream restamped to a Wednesday replays RED. If the clock were not being obeyed, both would agree.
 

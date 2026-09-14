@@ -81,9 +81,10 @@ describe("M8.5 corpus — committed transcripts for M9's replay gate", () => {
 
   // M10.1d — the REAL-backend arm of M9's replay gate, which the gate has always claimed
   // ("stub + deterministic real-backend transcripts byte-green") and never had. Deferred
-  // since M8.5 on the SF3 same-weekday-class caveat, which DC-M10.6's clock pin discharges:
-  // the entry stamps a fixed clock and both the recording and the replay run on it. No live
-  // LLM and no API key — the pipeline gateway is scripted and the d20 is fixed.
+  // since M8.5 on the SF3 same-weekday-class caveat, which DC-M10.6's clock pin discharges for the
+  // UTC-based reads: the entry stamps a fixed clock and both the recording and the replay run on
+  // it. (The greeting's local-weekday read is the exception, and both runs here share this host's
+  // timezone.) No live LLM and no API key — the pipeline gateway is scripted and the d20 is fixed.
   it('the committed real-backend transcript replays byte-green', async () => {
     const result = await replayFile(REAL_CORPUS_FILE);
 
