@@ -4,6 +4,7 @@ import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { AgentHarness, createAgentHarness } from '../../src/agent/harness.js';
 import type { AgentHarnessOptions } from '../../src/agent/harness.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
+import { buildUserMessage } from '../../src/agent/ProdAgentPlayerGateway.js';
 import { deterministicPipelineScript as pipelineScript, SEED, loadRealDefs, buildDeterministicRouter } from '../../src/agent/deterministicSession.js';
 import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
 import { GameRouter } from '../../src/protocol/router.js';
@@ -15,8 +16,8 @@ import type { PipelineScript } from '../../src/sim/types.js';
 import type { CharCreateData, CharacterData } from '../../src/engine/WorldEngine.js';
 import type { AgentObserver } from '../../src/agent/observer.js';
 import type { ActionMenuResult, DayJobStart, RestBeginResult, StartRenderResult } from '../../src/controller/SessionController.js';
-import type { MenuViewState, OutcomeViewState } from '../../src/view/viewState.js';
-import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
+import type { MenuViewState, NoticeViewState, OutcomeViewState, DecisionViewState } from '../../src/view/viewState.js';
+import type { AgentMove, BrainTurn, DayNote, LegalMove, ReconScreen } from '../../src/agent/AgentPlayerGateway.js';
 import type { AgentPlayerGateway, ChooseMoveInput } from '../../src/agent/AgentPlayerGateway.js';
 import type { ProtocolDispatchEntry } from '../../src/agent/transcript.js';
 import type { CriticGateway, CriticInput, CriticVerdict } from '../../src/llm/LlmGateway.js';
@@ -51,7 +52,7 @@ const immediateScript: PipelineScript = {
 const USER_ID = 'agent:test';
 
 function buildHarness(
-  brainMoves: AgentMove[],
+  brainMoves: AgentMove[] | BrainTurn[],
   script: PipelineScript = pipelineScript,
   harnessOptions: AgentHarnessOptions = {},
 ) {
@@ -373,7 +374,7 @@ describe('AgentHarness — forceFreeActions (AGENT_FORCE_FREE_ACTIONS)', () => {
    *  throws rather than guessing). Picks the free-text line when the screen shows one, else the
    *  first listed move — so it resolves decisions and re-takes the free slot on every full menu. */
   class ScreenNumberingBrain implements AgentPlayerGateway {
-    async chooseMove(input: ChooseMoveInput): Promise<AgentMove> {
+    async chooseMove(input: ChooseMoveInput): Promise<BrainTurn> {
       const line = input.screenText
         .split('\n')
         .find((l) => /^\[\d+\]/.test(l) && l.includes('Custom'));
@@ -384,7 +385,7 @@ describe('AgentHarness — forceFreeActions (AGENT_FORCE_FREE_ACTIONS)', () => {
         );
       }
       const picked = input.moves[choice].move;
-      return picked.kind === 'custom' ? { kind: 'custom', text: 'search the cart' } : picked;
+      return { move: picked.kind === 'custom' ? { kind: 'custom', text: 'search the cart' } : picked };
     }
   }
 
@@ -511,9 +512,11 @@ describe('AgentHarness — forceFreeActions (AGENT_FORCE_FREE_ACTIONS)', () => {
     // the prod gateway's range check, which `playOneAction` captures as a CRASHED run, not a stumble.
     for (const call of brain.calls) {
       const screenIndices = screenMoveLines(call.screenText).map((l) => Number(l.slice(1, l.indexOf(']'))));
-      // `sleep` is the one move no screen enumerates (DA-6), so the screen's lines are exactly the
-      // non-sleep moves, in order.
-      const numbered = call.moves.filter((m) => m.move.kind !== 'sleep').map((_, i) => i);
+      // `sleep` and the recon entries are the moves no screen enumerates (DA-6, spec § C), so the
+      // screen's lines are exactly the remaining moves, in order.
+      const numbered = call.moves
+        .filter((m) => m.move.kind !== 'sleep' && m.move.kind !== 'recon')
+        .map((_, i) => i);
       expect(screenIndices).toEqual(numbered);
     }
 
@@ -656,6 +659,21 @@ const SLEEP_ONLY_MENU: MenuViewState = {
   buttons: [],
 };
 
+/** A decision screen with one real choice and a bail — the minimum the decision loop needs to
+ *  offer a legal pick (the choice's customId carries option index 0). */
+const DECISION_VIEW = {
+  screen: 'decision',
+  title: { emoji: '⚔️', text: 'Action' },
+  colorIntent: 'decision',
+  prompt: 'What do you do?',
+  optionLines: ['**A.** Press the attack'],
+  buttons: [
+    { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: false },
+    { kind: 'bail', label: 'Retreat', customId: 'action:bail' },
+  ],
+  footer: '',
+} as unknown as DecisionViewState;
+
 interface StubBackendConfig {
   menu?: ActionMenuResult;
   dayJob?: DayJobStart;
@@ -664,6 +682,20 @@ interface StubBackendConfig {
   rest?: RestBeginResult;
   throwOn?: 'openActionMenu' | 'runCustomAction' | 'tick';
   char?: Partial<CharacterData>;
+  /** A recon screen whose `screen.*` dispatch THROWS — the router converts it to an `internal`
+   *  envelope, the shape a failed recon actually takes in play. */
+  reconThrow?: ReconScreen;
+  /** `resolveChoice` finds no live decision — the router's `session-expired` envelope. */
+  sessionExpired?: boolean;
+  /** `stepChoice` keeps returning the decision screen, so the loop runs into its beat cap. */
+  loopDecision?: boolean;
+}
+
+/** A recon screen render for the stub backend: a notice view naming the screen (the harness
+ *  records the rendered text), or a throw for the one screen configured to fail. */
+function reconScreen(opts: StubBackendConfig, screen: ReconScreen): { kind: 'view'; view: NoticeViewState } {
+  if (opts.reconThrow === screen) throw new Error('recon blew up');
+  return { kind: 'view', view: { screen: 'notice', text: `/${screen} render`, ephemeral: true } };
 }
 
 /** The stub RouterBackend — the minimal surface the six flows need. Extracted from
@@ -695,8 +727,11 @@ function stubBackend(character: CharacterData, opts: StubBackendConfig): RouterB
       return opts.start ?? outcome;
     },
     beginChoice: () => ({ kind: 'ok', character }),
-    resolveChoice: () => 'Press on',
-    stepChoice: async () => ({ kind: 'outcome' as const, view: OUTCOME_VIEW, distilledType: 'chore', characterName: 'Stub', characterClass: 'Warrior', char: character, prevChar: character }),
+    resolveChoice: () => (opts.sessionExpired ? null : 'Press on'),
+    stepChoice: async () =>
+      opts.loopDecision
+        ? { kind: 'decision' as const, view: DECISION_VIEW }
+        : ({ kind: 'outcome' as const, view: OUTCOME_VIEW, distilledType: 'chore', characterName: 'Stub', characterClass: 'Warrior', char: character, prevChar: character }),
     beginRest: () => opts.rest ?? {
       kind: 'rested' as const,
       alreadyThere: true,
@@ -708,12 +743,12 @@ function stubBackend(character: CharacterData, opts: StubBackendConfig): RouterB
     openHi: () => ({ kind: 'no-character' }),
     // M8.1 screen surface — the harness never dispatches `screen.*` events, so minimal
     // canned defaults are all this stub needs to satisfy RouterBackend structurally.
-    openLook: () => ({ kind: 'no-character' }),
-    openMap: () => ({ kind: 'no-character' }),
-    openStats: () => ({ kind: 'no-character' }),
-    openBackpack: () => ({ kind: 'no-character' }),
-    openJournal: () => ({ kind: 'no-character' }),
-    openHelp: () => ({ kind: 'view', view: { screen: 'notice', text: '', ephemeral: true } }),
+    openLook: () => reconScreen(opts, 'look'),
+    openMap: () => reconScreen(opts, 'map'),
+    openStats: () => reconScreen(opts, 'stats'),
+    openBackpack: () => reconScreen(opts, 'backpack'),
+    openJournal: () => reconScreen(opts, 'journal'),
+    openHelp: () => reconScreen(opts, 'help'),
     // M7.3 wizard surface — these QA tests never spawn a character (createCharacter is only
     // exercised by the protocol-log suite), so the minimal no-session defaults are all the
     // stub needs.
@@ -727,7 +762,7 @@ function stubBackend(character: CharacterData, opts: StubBackendConfig): RouterB
   };
 }
 
-function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[]; forceFreeActions?: boolean }): AgentHarness {
+function stubHarness(opts: StubBackendConfig & { moves?: AgentMove[] | BrainTurn[]; forceFreeActions?: boolean }): AgentHarness {
   const character = stubChar(opts.char);
   // DC-S4: the stub observer is the QA-OBSERVER surface — getCharacter/getMeta/tick, the
   // harness's only engine touch. restAtOak is extra (structural typing tolerates it) and
@@ -881,7 +916,11 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
       // greeting beat recorded one greeting (the stubHarness tests keep greetings: 0 — the
       // stub's openHi returns no-character and the beats are silent on no-character).
       greetings: 1,
-      findings: { error: 0, warning: 0 },
+      recons: 0,
+      frictions: 0,
+      // One warning: the day closed with no dayNote captured, which is the series-hole guard
+      // (`closeDay`) — the scripted brain never rates its days.
+      findings: { error: 0, warning: 1 },
     });
   });
 
@@ -912,6 +951,52 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
 
 // ── M4.4 — faithful endDay (M7.1: the rest half crosses the seam as rest.begin; the world
 // tick stays engine-direct) ──
+
+// ── A2 — the decision loop logs its OWN failures. The arms below cannot be reached through the
+// real engine on demand, so they run over the stub backend; the harness keeps its brain private
+// there, and the day log is only ever shown to the brain, so these build the harness themselves.
+
+describe('AgentHarness — the decision loop owns its day-log line (A2)', () => {
+  function harnessOverStub(opts: StubBackendConfig, moves: AgentMove[]) {
+    const character = stubChar();
+    const router = new GameRouter(stubBackend(character, opts), { idle: () => IDLE });
+    const brain = new ScriptedAgentPlayerGateway(moves);
+    const observer = {
+      getCharacter: () => character,
+      getMeta: () => '1',
+      restAtOak: () => character,
+      tick: () => ({ dayNumber: 2, playersAffected: 0, npcMovements: [], absentWarnings: [], collapsedNames: [] }),
+    } as unknown as AgentObserver;
+    return { harness: new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' }), brain };
+  }
+
+  it('logs an abandoned decision beat against the decision pick', async () => {
+    const { harness, brain } = harnessOverStub(
+      { menu: { kind: 'menu', view: CUSTOM_MENU }, start: { kind: 'decision', view: DECISION_VIEW }, sessionExpired: true },
+      [{ kind: 'custom', text: 'attack the thing' }, { kind: 'choice', index: 0 }, { kind: 'sleep' }],
+    );
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+    expect(harness.transcript.events.some((e) => e.type === 'dead-end' && e.reason === 'session-expired')).toBe(true);
+    expect(brain.calls[2].dayLog).toBe('1. decision pick: **A.** Press the attack → refused: decision-abandoned');
+  });
+
+  it('logs a beat-capped decision loop once, as the loop\'s own failure', async () => {
+    const moves: AgentMove[] = [
+      { kind: 'custom', text: 'attack the thing' },
+      ...Array.from({ length: 10 }, (): AgentMove => ({ kind: 'choice', index: 0 })),
+      { kind: 'sleep' },
+    ];
+    const { harness, brain } = harnessOverStub(
+      { menu: { kind: 'menu', view: CUSTOM_MENU }, start: { kind: 'decision', view: DECISION_VIEW }, loopDecision: true },
+      moves,
+    );
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+    // The ten beats were all legal picks; the failure is the loop's, and it is named once.
+    expect(brain.calls[11].dayLog).toBe('1. decision loop (10 beats) → refused: beat-cap');
+  });
+});
 
 describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', () => {
   const dayJobAction: AgentMove[] = [
@@ -958,7 +1043,10 @@ describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', (
     const summaries = await h.playDays(1);
 
     expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'slept' }]);
-    const finding = h.transcript.events.find((e) => e.type === 'finding' && e.severity === 'warning');
+    // Named, not just "the first warning finding": the day also closes with no day note.
+    const finding = h.transcript.events.find(
+      (e) => e.type === 'finding' && e.severity === 'warning' && e.summary.includes('lost 1 HP'),
+    );
     expect(finding?.type === 'finding' && finding.summary).toContain('lost 1 HP');
     // The tick still advanced the world — an unsafe rest never aborts the nightly cron.
     expect(h.transcript.events.some((e) => e.type === 'day')).toBe(true);
@@ -1128,5 +1216,504 @@ describe('AgentHarness — minimal observer (DC-S4: the observer is exactly thre
     // observer (its { dayNumber: 2 } advanced the world — the day-boundary event records 2).
     expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'slept' }]);
     expect(harness.transcript.events.some((e) => e.type === 'day' && e.dayNumber === 2)).toBe(true);
+  });
+});
+
+// ── T1 (spec § B/§ C, docs/engine/agent-player-personas.md) — the brain's working memory and the
+// recon move. The two gaps the baseline proved live: the brain was blind (the six read-only
+// screens crossed the seam but never reached the context) and amnesiac (every turn stateless, so a
+// refused option came back looking new and the same pick repeated until the day stalled). ──
+
+describe('AgentHarness — recon and working memory (T1)', () => {
+  const reconMoves = (moves: LegalMove[]): string[] =>
+    moves.filter((m) => m.move.kind === 'recon').map((m) => (m.move as { screen: string }).screen);
+
+  it('a recon turn hands the rendered screen to exactly the next turn, and costs nothing', async () => {
+    const { harness, brain, agentEngine, seed } = buildHarness([
+      { kind: 'recon', screen: 'map' },
+      { kind: 'recon', screen: 'stats' },
+      { kind: 'sleep' },
+    ]);
+    const before = await seed();
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+
+    // The rendered screens are in the transcript, whole (spec § C: the brain asked for them, the
+    // critic can re-read them) — and the recon summary counts them.
+    const recons = harness.transcript.events.filter((e) => e.type === 'recon');
+    expect(recons.map((e) => e.type === 'recon' && e.screen)).toEqual(['map', 'stats']);
+    expect(harness.transcript.summary().recons).toBe(2);
+    const mapText = recons[0].type === 'recon' ? recons[0].text : '';
+    expect(mapText.length).toBeGreaterThan(0);
+
+    // Delivered for exactly ONE turn: the map comes back on the turn after it, the stats on the
+    // turn after THAT, and neither is re-sent on the turn after its own delivery.
+    expect(brain.calls).toHaveLength(3);
+    expect(brain.calls[0].lastRecon).toBeUndefined();
+    expect(brain.calls[1].lastRecon).toEqual({ screen: 'map', text: mapText });
+    expect(brain.calls[2].lastRecon?.screen).toBe('stats');
+
+    // Free: no roll spent, no day advanced. A player who stares at the map has spent a moment,
+    // not a roll (spec § C).
+    const after = agentEngine.engine.getCharacter(USER_ID)!;
+    expect(after.rollsRemaining).toBe(before.rollsRemaining);
+    expect(Number(agentEngine.engine.getMeta('day_number'))).toBe(1);
+
+    // The brain-chosen screen crosses the seam as the same `screen.*` event the beats use.
+    const dispatched = harness.transcript.protocol
+      .filter((e): e is ProtocolDispatchEntry => e.kind === 'dispatch')
+      .map((d) => d.event.type);
+    expect(dispatched).toContain('screen.map');
+  });
+
+  it('offers recon under both caps, then withholds a capped screen and finally the day', async () => {
+    const { harness, brain, seed } = buildHarness([
+      { kind: 'recon', screen: 'look' },
+      { kind: 'recon', screen: 'look' },
+      { kind: 'recon', screen: 'map' },
+      { kind: 'recon', screen: 'stats' },
+      { kind: 'recon', screen: 'backpack' },
+      { kind: 'recon', screen: 'journal' },
+      { kind: 'sleep' },
+    ]);
+    await seed();
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+
+    // The first two menus offer the full set, in RECON_SCREENS order.
+    expect(reconMoves(brain.calls[0].moves)).toEqual(['look', 'map', 'stats', 'backpack', 'journal', 'help']);
+    expect(reconMoves(brain.calls[1].moves)).toEqual(['look', 'map', 'stats', 'backpack', 'journal', 'help']);
+    // Third menu: /look has spent its per-screen budget (2) and is withheld; the rest stay.
+    expect(reconMoves(brain.calls[2].moves)).toEqual(['map', 'stats', 'backpack', 'journal', 'help']);
+    // Seventh menu: six recons spent, so the per-day cap withholds everything.
+    expect(reconMoves(brain.calls[6].moves)).toEqual([]);
+
+    // A cap is a warning, and it is logged ONCE for the day rather than once per turn.
+    const capped = harness.transcript.events.filter(
+      (e) => e.type === 'finding' && e.summary.includes('recon capped'),
+    );
+    expect(capped).toHaveLength(1);
+
+    // Six recon turns did not trip STALL_LIMIT, and the day ends on the brain's own terms.
+    expect(harness.transcript.events.some((e) => e.type === 'finding' && e.summary.includes('stalled'))).toBe(false);
+  });
+
+  it('a recon result neither trips nor resets the stumble counter', async () => {
+    const illegal: AgentMove = { kind: 'choice', index: 0 }; // not offered on a menu screen
+    const { harness, brain, seed } = buildHarness([
+      illegal,
+      illegal,
+      illegal,
+      illegal,
+      { kind: 'recon', screen: 'look' },
+      illegal,
+      illegal,
+    ]);
+    await seed();
+
+    // Four refusals, a recon between them, then the fifth refusal: the day stalls on the fifth,
+    // which is only true if the recon left the counter alone (had it reset the run, the day would
+    // have needed five MORE refusals after it).
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'stalled' });
+    expect(brain.calls).toHaveLength(6);
+    expect(harness.transcript.summary().recons).toBe(1);
+  });
+
+  it("records a refusal in the day log and shows it back to the brain's next turn", async () => {
+    // A stub backend whose day job lands on unsafe ground — the baseline's rejection shape. The
+    // brain is a recording stub because the day-log line is what the assertion is about.
+    const character = stubChar();
+    const router = new GameRouter(
+      stubBackend(character, {
+        menu: { kind: 'menu', view: DAYJOB_MENU },
+        dayJob: { kind: 'unsafe', location: 'The Bog' },
+      }),
+      { idle: () => IDLE },
+    );
+    const observer = {
+      getCharacter: () => character,
+      getMeta: () => '1',
+      tick: () => ({ dayNumber: 2 }),
+    } as unknown as AgentObserver;
+    const brain = new ScriptedAgentPlayerGateway([
+      { kind: 'menu-pick', index: 0 },
+      { kind: 'sleep' },
+    ]);
+    const harness = new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' });
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+
+    // The first turn had nothing to report; the second carries the refusal, named by the button
+    // the brain pressed and the reason it came back.
+    expect(brain.calls[0].dayLog).toBeUndefined();
+    expect(brain.calls[1].dayLog).toBe('1. day job: Guard the gate → refused: unsafe');
+    expect(harness.transcript.events.some((e) => e.type === 'dead-end' && e.reason === 'unsafe-ground')).toBe(true);
+  });
+
+  it('carries the intent and arc notes across a day boundary, and folds the day note into sleep', async () => {
+    const dayOne: BrainTurn = {
+      move: { kind: 'sleep' },
+      intent: 'chase the Oath thread north',
+      arcNote: 'the temple; three consecrations left',
+      dayNote: {
+        engagement: 4,
+        fulfilment: 3,
+        line: 'A quiet day at the gate, but the thread is still moving.',
+        arcNote: 'the temple; two consecrations left',
+      },
+    };
+    const { harness, brain, seed } = buildHarness([dayOne, { move: { kind: 'sleep' } }]);
+    await seed();
+
+    expect(await harness.playDays(2)).toEqual([
+      { dayNumber: 1, outcomes: 0, ended: 'slept' },
+      { dayNumber: 2, outcomes: 0, ended: 'slept' },
+    ]);
+
+    // Day one carries no memory: no recap before a day has closed, no notes before the brain sets
+    // one.
+    expect(brain.calls[0].recap).toBeUndefined();
+    expect(brain.calls[0].intentNote).toBeUndefined();
+    expect(brain.calls[0].arcNote).toBeUndefined();
+
+    // Day two: yesterday's lines + how it ended, and the brain's own notes still standing.
+    expect(brain.calls[1].recap).toBe('YESTERDAY (day 1):\nended: slept');
+    expect(brain.calls[1].intentNote).toBe('chase the Oath thread north');
+    // The day note's arc note is the one that survives the day it rated (it is written when the
+    // day closes, after that day's own turn-level `arcNote`).
+    expect(brain.calls[1].arcNote).toBe('the temple; two consecrations left');
+
+    const note = harness.transcript.events.find((e) => e.type === 'day-note');
+    expect(note).toEqual({
+      type: 'day-note',
+      dayNumber: 1,
+      engagement: 4,
+      fulfilment: 3,
+      line: 'A quiet day at the gate, but the thread is still moving.',
+      arcNote: 'the temple; two consecrations left',
+    });
+    expect(harness.transcript.summary().dayBoundaries).toBe(2);
+  });
+
+  it('writes a day note captured on a non-sleep turn when the day closes', async () => {
+    // The sleep gate is gone (A1): the note is day-level, so a note on any turn of the day is a
+    // note about that day. T1 pinned the opposite and the pin was the bug.
+    const note: DayNote = { engagement: 5, fulfilment: 5, line: 'Best day ever.', arcNote: 'everything' };
+    const { harness, seed } = buildHarness([
+      { move: { kind: 'recon', screen: 'help' }, dayNote: note },
+      { move: { kind: 'sleep' } },
+    ]);
+    await seed();
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+
+    expect(harness.transcript.events.filter((e) => e.type === 'day-note')).toEqual([
+      { type: 'day-note', dayNumber: 1, ...note },
+    ]);
+  });
+
+  it("writes the note captured on the day's LAST turn when the day ends as no-rolls", async () => {
+    // The headline path (A1): a day that spends its rolls ends `no-rolls` because
+    // `SessionController.openActionMenu` answers that at ZERO rolls, so the brain is never asked a
+    // further question. Its last asked turn has exactly one roll left, and that is the turn the
+    // note has to ride — otherwise the series silently loses the commonest kind of day there is.
+    const last: BrainTurn = {
+      move: { kind: 'custom', text: 'polish my boots' },
+      dayNote: { engagement: 3, fulfilment: 2, line: 'Three actions, no note till the last.', arcNote: 'boots; three left' },
+    };
+    const { harness, brain, seed } = buildHarness(
+      [
+        {
+          move: { kind: 'custom', text: 'sweep the yard' },
+          dayNote: { engagement: 5, fulfilment: 5, line: 'An early note.', arcNote: 'the yard' },
+        },
+        { move: { kind: 'custom', text: 'mend the fence' } },
+        last,
+      ],
+      immediateScript,
+    );
+    await seed();
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 3, ended: 'no-rolls' });
+
+    // The brain is told which pick is the day's last, and only on that pick.
+    expect(brain.calls[0].lastRoll).toBeUndefined();
+    expect(brain.calls[1].lastRoll).toBeUndefined();
+    expect(brain.calls[2].lastRoll).toBe(true);
+
+    // The LAST note of the day is the one that counts, written against the closing day's number
+    // whatever the disposition — here `no-rolls`.
+    expect(harness.transcript.events.filter((e) => e.type === 'day-note')).toEqual([
+      { type: 'day-note', dayNumber: 1, ...(last.dayNote as DayNote) },
+    ]);
+    // No hole in the series, so no warning about one.
+    expect(
+      harness.transcript.events.some((e) => e.type === 'finding' && e.summary.includes('no dayNote captured')),
+    ).toBe(false);
+  });
+
+  it('warns when a day closes with no day note after asking the brain, and stays quiet when it asked nothing', async () => {
+    // A hole in the engagement/fulfilment series must never be silent...
+    const asked = stubHarness({ menu: { kind: 'menu', view: SLEEP_ONLY_MENU }, moves: [{ kind: 'sleep' }] });
+    expect(await asked.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+    const hole = asked.transcript.events.find(
+      (e) => e.type === 'finding' && e.summary.includes('with no dayNote captured'),
+    );
+    expect(hole?.type === 'finding' && hole.summary).toBe('day 1 closed as slept with no dayNote captured after 1 turns');
+
+    // ...but a day that never asked the brain a question (a fatal no-character on the first call)
+    // had no chance to give one, so it is not a warning.
+    const unasked = stubHarness({ menu: { kind: 'no-character' }, moves: [] });
+    expect(await unasked.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'no-character' });
+    expect(
+      unasked.transcript.events.some((e) => e.type === 'finding' && e.summary.includes('no dayNote captured')),
+    ).toBe(false);
+  });
+
+  it('logs every dropped note as a warning finding, never as a stalled day', async () => {
+    const { harness, seed } = buildHarness([
+      {
+        move: { kind: 'sleep' },
+        droppedNotes: ['friction dropped: severity 9 is not 1-5', 'dayNote dropped: engagement missing'],
+      },
+    ]);
+    await seed();
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+    const warnings = harness.transcript.events.filter(
+      (e) => e.type === 'finding' && e.severity === 'warning' && e.summary.startsWith('dropped note:'),
+    );
+    expect(warnings.map((e) => e.type === 'finding' && e.summary)).toEqual([
+      'dropped note: friction dropped: severity 9 is not 1-5',
+      'dropped note: dayNote dropped: engagement missing',
+    ]);
+  });
+
+  it('records a completed action in the day log with its outcome summary', async () => {
+    const { harness, brain, seed } = buildHarness([
+      { kind: 'custom', text: 'attack the goblin' },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+      { kind: 'sleep' },
+    ]);
+    await seed();
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 1, ended: 'slept' });
+
+    // The line is the outcome's own first line (the render's title), not the narration — the day
+    // log is a log, not a story: it exists to name the attempt and its result.
+    expect(brain.calls[3].dayLog).toBe('1. free action: "attack the goblin" → ⚔️ Combat');
+  });
+
+  it('logs a refusal INSIDE the decision loop against the decision pick, not the day-job button', async () => {
+    // A2: the decision loop's own failure used to be recorded by the enclosing menu arm, so an
+    // illegal pick inside it read as `day job: <label> → refused: illegal-move` — telling the brain
+    // a legal button had been refused, and leaving the decision that actually failed unnamed.
+    const { harness, brain, seed } = buildHarness([
+      { kind: 'menu-pick', index: 0 },
+      { kind: 'choice', index: 42 }, // not a choice the decision screen offered
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+      { kind: 'sleep' },
+    ]);
+    await seed();
+
+    const summary = await harness.playDay();
+    // One illegal decision beat, then the action resolves: the day holds one completed action and
+    // ends on the brain's own sleep.
+    expect(summary).toEqual({ dayNumber: 1, outcomes: 1, ended: 'slept' });
+
+    // ONE line for the attempt, naming what actually failed. The pre-fix pair was
+    // `day job: Drill with the watch → refused: illegal-move` — a legal button blamed for a
+    // decision pick, with the decision itself never named.
+    expect(brain.calls[2].dayLog).toBe('1. decision pick: choice 42 → refused: illegal-move');
+    expect(brain.calls[4].dayLog?.split('\n')).toHaveLength(1);
+    expect(brain.calls[4].dayLog).not.toContain('day job');
+  });
+
+  it('names the screen when an over-cap recon is refused as an illegal pick', async () => {
+    // A4.4: `illegal pick: recon` left the transcript unable to say WHICH screen the caps had
+    // withheld, which is the only question the line exists to answer.
+    const { harness, brain, seed } = buildHarness([
+      { kind: 'recon', screen: 'look' },
+      { kind: 'recon', screen: 'look' }, // spends /look's per-screen cap
+      { kind: 'recon', screen: 'look' }, // no longer offered → illegal
+      { kind: 'sleep' },
+    ]);
+    await seed();
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+
+    // The third menu no longer offers /look — the refusal is the cap, not a hallucination.
+    expect(brain.calls[2].moves.some((m) => m.move.kind === 'recon' && m.move.screen === 'look')).toBe(false);
+    expect(brain.calls[3].dayLog).toContain('3. illegal pick: recon /look → refused: illegal-move');
+  });
+
+  it('warns when the FAILED recon is the one that spends the last cap', async () => {
+    // A5: `doRecon` increments usage and then returns early on a failed dispatch, so the caps were
+    // only checked on the success path. A failed recon can be the one that hits the cap, and the
+    // next menu then silently omits every recon entry with nothing in the transcript to say why.
+    const h = stubHarness({
+      menu: { kind: 'menu', view: SLEEP_ONLY_MENU },
+      reconThrow: 'journal',
+      // Five screens under their own caps, then the sixth recon — the one that spends the DAY's
+      // cap — failing. Nothing withheld it before, so this warning exists only if the failure path
+      // checks the caps.
+      moves: [
+        { kind: 'recon', screen: 'look' },
+        { kind: 'recon', screen: 'map' },
+        { kind: 'recon', screen: 'stats' },
+        { kind: 'recon', screen: 'backpack' },
+        { kind: 'recon', screen: 'help' },
+        { kind: 'recon', screen: 'journal' },
+        { kind: 'sleep' },
+      ],
+    });
+    await h.playDay();
+
+    expect(h.transcript.events.some((e) => e.type === 'finding' && e.summary === 'recon /journal failed: internal')).toBe(true);
+    const capped = h.transcript.events.filter((e) => e.type === 'finding' && e.summary.includes('recon capped'));
+    expect(capped).toHaveLength(1);
+    expect(capped[0].type === 'finding' && capped[0].detail).toContain('per-day cap 6');
+  });
+});
+
+// ── T4 — friction reaches the transcript (spec § E). The brain's `friction` note is the panel's
+// recurrence measurement: the tag is what lets a screen read every day outrank a once-a-session
+// clunk, so it has to survive the trip from the reply into the transcript with its day attached.
+
+describe('AgentHarness — friction capture (T4)', () => {
+  it('records each friction against the day it was reported on, across the whole tag vocabulary', async () => {
+    const { harness, seed } = buildHarness([
+      {
+        move: { kind: 'recon', screen: 'map' },
+        friction: { what: 'the map screen took three reads', severity: 2, recurrence: 'once' },
+      },
+      {
+        move: { kind: 'sleep' },
+        friction: { what: 'the bail dice read inconsistently', severity: 4, recurrence: 'periodic' },
+      },
+      {
+        move: { kind: 'sleep' },
+        friction: { what: 'the roll button moves every day', severity: 3, recurrence: 'ritual' },
+      },
+    ]);
+    await seed();
+
+    expect(await harness.playDays(2)).toEqual([
+      { dayNumber: 1, outcomes: 0, ended: 'slept' },
+      { dayNumber: 2, outcomes: 0, ended: 'slept' },
+    ]);
+
+    // A friction on a mid-day turn and on the sleep turn both land, each stamped with the day in
+    // progress rather than the day the run started on.
+    expect(harness.transcript.events.filter((e) => e.type === 'friction')).toEqual([
+      { type: 'friction', dayNumber: 1, what: 'the map screen took three reads', severity: 2, recurrence: 'once' },
+      { type: 'friction', dayNumber: 1, what: 'the bail dice read inconsistently', severity: 4, recurrence: 'periodic' },
+      { type: 'friction', dayNumber: 2, what: 'the roll button moves every day', severity: 3, recurrence: 'ritual' },
+    ]);
+    expect(harness.transcript.summary().frictions).toBe(3);
+  });
+
+  it('records a friction reported on a turn whose move the game refused', async () => {
+    // The brain reported what it hit while reading the screen; that reading stands even though its
+    // move was rejected (a refused pick is a day-log entry, not a reason to lose the friction).
+    const h = stubHarness({
+      menu: { kind: 'menu', view: DAYJOB_MENU },
+      moves: [
+        {
+          move: { kind: 'choice', index: 0 }, // not offered on a menu screen
+          friction: { what: 'the screen lied about my options', severity: 3, recurrence: 'ritual' },
+        },
+        { move: { kind: 'sleep' } },
+      ],
+    });
+
+    expect(await h.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+    expect(h.transcript.events.filter((e) => e.type === 'friction')).toEqual([
+      { type: 'friction', dayNumber: 1, what: 'the screen lied about my options', severity: 3, recurrence: 'ritual' },
+    ]);
+    expect(h.transcript.summary().frictions).toBe(1);
+  });
+
+  it('records no friction event on a turn that reports none', async () => {
+    const { harness, seed } = buildHarness([{ kind: 'sleep' }]);
+    await seed();
+    await harness.playDay();
+
+    expect(harness.transcript.events.some((e) => e.type === 'friction')).toBe(false);
+    expect(harness.transcript.summary().frictions).toBe(0);
+  });
+});
+
+// ── the working memory reaches the prompt the brain is actually handed ──
+//
+// The harness suite asserts the `ChooseMoveInput` the gateway is handed, and the gateway suite
+// asserts `buildUserMessage` in isolation. Nothing connected the two, so a rename on either side of
+// the seam would leave both suites green while the brain was handed memory it never saw. That is not
+// hypothetical: T1 plumbed these five fields into the input and nothing rendered them until T2, and
+// only a by-hand reading of the gateway caught it. This walks the real chain instead — harness
+// state, through the input the harness composes, through the production formatter — and asserts the
+// prompt carries exactly the blocks the input carried.
+describe('the working memory reaches the prompt the brain reads (the seam, end to end)', () => {
+  /** One refused day job, one free recon, then sleep — so the final turn carries a day log, a recon
+   *  render handed back, and the last-roll flag, all at once. */
+  async function playAndCapture(): Promise<ChooseMoveInput[]> {
+    // One roll left for the whole day, so every turn is flagged as the day's final action.
+    const character = stubChar({ rollsRemaining: 1 });
+    const router = new GameRouter(
+      stubBackend(character, {
+        menu: { kind: 'menu', view: DAYJOB_MENU },
+        dayJob: { kind: 'unsafe', location: 'The Bog' },
+      }),
+      { idle: () => IDLE },
+    );
+    const observer = {
+      getCharacter: () => character,
+      getMeta: () => '1',
+      tick: () => ({ dayNumber: 2 }),
+    } as unknown as AgentObserver;
+    const brain = new ScriptedAgentPlayerGateway([
+      { kind: 'menu-pick', index: 0 },
+      { kind: 'recon', screen: 'map' },
+      { kind: 'sleep' },
+    ]);
+    const harness = new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' });
+    await harness.playDay();
+    return brain.calls;
+  }
+
+  it('renders every block the harness put on the turn, and no block it did not', async () => {
+    const calls = await playAndCapture();
+    const last = calls[calls.length - 1];
+
+    // The harness's own state, on the turn the brain is actually answering.
+    expect(last.dayLog).toContain('refused: unsafe');
+    expect(last.dayLog).toContain('recon: /map');
+    expect(last.lastRecon).toEqual({ screen: 'map', text: '/map render' });
+    expect(last.lastRoll).toBe(true);
+
+    // The same memory, as the brain reads it. This is the assertion that ties the harness's cells
+    // to the production formatter; a renamed key or a dropped section fails here and nowhere else.
+    const message = buildUserMessage(last);
+    expect(message).toContain(`TODAY SO FAR:\n${last.dayLog}`);
+    expect(message).toContain('LAST LOOK: /map\n/map render');
+    expect(message).toContain("LAST ROLL: this is the day's final action; include your dayNote with this pick.");
+
+    // Absent memory renders nothing at all, rather than an empty heading: the first turn of a run
+    // has no day log, and the baseline arm's prompt depends on that.
+    const first = buildUserMessage(calls[0]);
+    expect(calls[0].dayLog).toBeUndefined();
+    expect(first).not.toContain('TODAY SO FAR:');
+    expect(first).not.toContain('LAST LOOK:');
+    expect(first).not.toContain('RECAP:');
+  });
+
+  it('keeps the sections in the order the prompt documents', async () => {
+    const calls = await playAndCapture();
+    const message = buildUserMessage(calls[calls.length - 1]);
+
+    // Every section this turn carries, in contract §7b's order. LAST ROLL sits after LAST LOOK and
+    // before the screen, because it is about the turn being answered, not about the day behind it.
+    const order = ['TODAY SO FAR:', 'LAST LOOK: /map', 'LAST ROLL:', 'SCREEN:', 'MOVES:', 'CHARACTER:'];
+    const offsets = order.map((heading) => message.indexOf(heading));
+    expect(offsets.every((offset) => offset >= 0)).toBe(true);
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
   });
 });

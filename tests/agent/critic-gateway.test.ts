@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { ScriptedPlaytestCriticGateway } from '../../src/agent/ScriptedPlaytestCriticGateway.js';
 import { ProdPlaytestCriticGateway, buildCritiqueMessage } from '../../src/agent/ProdPlaytestCriticGateway.js';
-import { AGENT_CRITIC_STAMP } from '../../src/agent/criticPrompt.js';
+import { agentCriticStamp } from '../../src/agent/criticPrompt.js';
 import { Transcript } from '../../src/agent/transcript.js';
 import type { CritiqueInput, PlaytestReport } from '../../src/agent/PlaytestCriticGateway.js';
 import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
@@ -170,7 +170,7 @@ describe('ProdPlaytestCriticGateway — audit', () => {
 
     expect(records).toHaveLength(1);
     expect(records[0].callKind).toBe('agent-critic');
-    expect(records[0].promptVersion).toBe(AGENT_CRITIC_STAMP);
+    expect(records[0].promptVersion).toBe(agentCriticStamp('critic'));
     expect(records[0].parseOk).toBe(true);
     expect(records[0].error).toBeNull();
   });

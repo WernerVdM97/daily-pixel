@@ -24,7 +24,9 @@ describe('stubRun — fresh arm (DC-S2 canned full-lifecycle script)', () => {
     expect(summaries).toEqual([{ dayNumber: 1, outcomes: 2, ended: 'slept' }]);
     const s = harness.transcript.summary();
     expect(s.outcomes).toBe(2);
-    expect(s.findings).toEqual({ error: 0, warning: 0 });
+    // One warning: the canned script rates no day, so day 1 closes with no dayNote captured (the
+    // series-hole guard in `closeDay`).
+    expect(s.findings).toEqual({ error: 0, warning: 1 });
     // The scripted day-start greeting beat fired the semantic greeting event.
     expect(s.greetings).toBe(1);
   });

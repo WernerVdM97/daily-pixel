@@ -315,6 +315,8 @@ describe('Transcript — greeting plumbing (DC-S3, type-level only)', () => {
       commutes: 0,
       dayBoundaries: 0,
       greetings: 1,
+      recons: 0,
+      frictions: 0,
       findings: { error: 0, warning: 0 },
     });
   });

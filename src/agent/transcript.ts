@@ -13,7 +13,7 @@
 
 import { PROTOCOL_VERSION, type GameResponse } from '../protocol/envelope.js';
 import type { GameEvent } from '../protocol/events.js';
-import type { AgentMove, LegalMove } from './AgentPlayerGateway.js';
+import type { AgentMove, LegalMove, Recurrence, ReconScreen } from './AgentPlayerGateway.js';
 
 /** One turn: the screen the brain read, the moves offered, and the move it committed to. */
 export interface TurnEvent {
@@ -41,6 +41,30 @@ export interface FindingEvent { type: 'finding'; severity: 'error' | 'warning'; 
 /** A scripted day-start greeting (DC-S3, type plumbing only at M8.5 task 1) — the screen text of
  *  the `hi.open` parity beat. Pure derived data, never wired into the play loop here (task 4). */
 export interface GreetingEvent { type: 'greeting'; text: string }
+/** A recon screen the brain asked to read (spec § C) — free, deterministic, and re-readable here
+ *  for the critic, which is why the whole rendered text is kept and not just the screen name. */
+export interface ReconEvent { type: 'recon'; screen: ReconScreen; text: string }
+/** A friction the brain reported this turn (spec § E). The recurrence tag is what a raw count
+ *  cannot express: in a daily ritual a screen read every day costs more than a once-a-session
+ *  clunk, so the panel ranks by projected exposure rather than by how often it happens to appear. */
+export interface FrictionEvent {
+  type: 'friction';
+  dayNumber: number;
+  what: string;
+  severity: number;
+  recurrence: Recurrence;
+}
+/** The day's note (spec § E): the rating pair, one line on the day, and the arc note as it stood at
+ *  the end of it. Written when the day closes, whatever closed it — the note may ride any turn, and
+ *  the last one the brain reported is the one that counts. */
+export interface DayNoteEvent {
+  type: 'day-note';
+  dayNumber: number;
+  engagement: number;
+  fulfilment: number;
+  line: string;
+  arcNote: string;
+}
 
 export type TranscriptEvent =
   | TurnEvent
@@ -49,7 +73,10 @@ export type TranscriptEvent =
   | DayBoundaryEvent
   | CommuteEvent
   | FindingEvent
-  | GreetingEvent;
+  | GreetingEvent
+  | ReconEvent
+  | FrictionEvent
+  | DayNoteEvent;
 
 // ── The parallel protocol log (DC-S1) — plain JSON entries, no timestamps (determinism). ──
 
@@ -68,6 +95,10 @@ export interface ProtocolHeaderEntry {
    *  transcript recorded on a Thursday used to diverge when replayed on a Saturday. Supplied
    *  by the caller rather than read here, so this module stays env- and clock-free (DC-S1). */
   recordedAt: string;
+  /** The persona the run played as (spec § H), stamped alongside `brain`/`backend` so a recorded
+   *  run is attributable in replay. Absent on a persona-less run — which is what keeps every
+   *  pre-persona recording byte-identical. */
+  persona?: string;
 }
 
 /** One raw dispatch: the exact `GameEvent` sent and the final `GameResponse` envelope returned,
@@ -103,6 +134,10 @@ export interface TranscriptSummary {
   dayBoundaries: number;
   /** Scripted day-start greetings (DC-S3). */
   greetings: number;
+  /** Recon screens the brain asked to read (spec § C). */
+  recons: number;
+  /** Frictions the brain reported (spec § E). */
+  frictions: number;
   findings: { error: number; warning: number };
 }
 
@@ -146,6 +181,18 @@ export class Transcript {
     this.events.push({ type: 'greeting', text });
   }
 
+  recon(screen: ReconScreen, text: string): void {
+    this.events.push({ type: 'recon', screen, text });
+  }
+
+  friction(evt: Omit<FrictionEvent, 'type'>): void {
+    this.events.push({ type: 'friction', ...evt });
+  }
+
+  dayNote(evt: Omit<DayNoteEvent, 'type'>): void {
+    this.events.push({ type: 'day-note', ...evt });
+  }
+
   // ── Protocol log (DC-S1) — recorded by the harness's single dispatch point, never here. ──
 
   protocolHeader(
@@ -153,8 +200,18 @@ export class Transcript {
     brain: 'scripted' | 'prod',
     backend: 'real' | 'stub',
     recordedAt: string,
+    persona?: string,
   ): void {
-    this.protocol.push({ seq: 0, kind: 'header', v: PROTOCOL_VERSION, userId, brain, backend, recordedAt });
+    this.protocol.push({
+      seq: 0,
+      kind: 'header',
+      v: PROTOCOL_VERSION,
+      userId,
+      brain,
+      backend,
+      recordedAt,
+      ...(persona !== undefined ? { persona } : {}),
+    });
   }
 
   recordDispatch(event: GameEvent, response: GameResponse, beats?: GameResponse[]): void {
@@ -207,6 +264,8 @@ export class Transcript {
       commutes: 0,
       dayBoundaries: 0,
       greetings: 0,
+      recons: 0,
+      frictions: 0,
       findings: { error: 0, warning: 0 },
     };
     for (const e of this.events) {
@@ -218,6 +277,8 @@ export class Transcript {
         case 'day': s.dayBoundaries++; break;
         case 'finding': s.findings[e.severity]++; break;
         case 'greeting': s.greetings++; break;
+        case 'recon': s.recons++; break;
+        case 'friction': s.frictions++; break;
       }
     }
     return s;
