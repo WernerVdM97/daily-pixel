@@ -30,6 +30,7 @@ import {
   findAdoptable,
   focusWindow,
   focusCachePath,
+  factoryApiKey,
   HELD_LABEL,
   heldReport,
   holdReason,
@@ -45,6 +46,7 @@ import {
   resolveFocus,
   resolveRepoRoot,
   retryPass,
+  stagePiArgs,
   staleReport,
   worktreePathFor,
 } from '../../scripts/factory-jobs.js';
@@ -1579,5 +1581,65 @@ describe('start under the readiness gate', () => {
     h.when('git', ['branch', '-a'], ok('dev\nmain\n'));
     const { startPass } = await import('../../scripts/factory-jobs.js');
     expect(await startPass(h.ctx())).toMatchObject({ action: 'started', item: 97, held: [] });
+  });
+});
+
+// ── the factory's own credential ──────────────────────────────────────────
+
+describe('the factory OpenRouter key', () => {
+  function scratchEnvFile(contents: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-key-'));
+    writeFileSync(join(dir, '.env'), contents);
+    return dir;
+  }
+
+  it('reads the key out of the repo .env by name, never sourcing it', () => {
+    const dir = scratchEnvFile('DISCORD_TOKEN=x\nFACTORY_ENABLED=1\nFACTORY_OPENROUTER_API_KEY=sk-or-v1-fromfile\n');
+    expect(factoryApiKey(dir, {})).toBe('sk-or-v1-fromfile');
+  });
+
+  it('takes the last match, mirroring the launcher', () => {
+    const dir = scratchEnvFile('FACTORY_OPENROUTER_API_KEY=sk-or-v1-first\nFACTORY_OPENROUTER_API_KEY=sk-or-v1-last\n');
+    expect(factoryApiKey(dir, {})).toBe('sk-or-v1-last');
+  });
+
+  it('tolerates optional quoting, padding and a trailing comment', () => {
+    expect(factoryApiKey(scratchEnvFile('FACTORY_OPENROUTER_API_KEY="sk-or-v1-q"\n'), {})).toBe('sk-or-v1-q');
+    expect(factoryApiKey(scratchEnvFile('FACTORY_OPENROUTER_API_KEY=   sk-or-v1-pad   \n'), {})).toBe('sk-or-v1-pad');
+    expect(factoryApiKey(scratchEnvFile('FACTORY_OPENROUTER_API_KEY=sk-or-v1-c # the factory key\n'), {})).toBe('sk-or-v1-c');
+  });
+
+  it('lets the process environment win over the file', () => {
+    const dir = scratchEnvFile('FACTORY_OPENROUTER_API_KEY=sk-or-v1-fromfile\n');
+    expect(factoryApiKey(dir, { FACTORY_OPENROUTER_API_KEY: 'sk-or-v1-fromenv' })).toBe('sk-or-v1-fromenv');
+  });
+
+  it('answers empty for a missing file, a missing key and a blank value', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-key-none-'));
+    expect(factoryApiKey(dir, {})).toBe('');
+    expect(factoryApiKey(scratchEnvFile('DISCORD_TOKEN=x\n'), {})).toBe('');
+    expect(factoryApiKey(scratchEnvFile('FACTORY_OPENROUTER_API_KEY=\n'), {})).toBe('');
+  });
+});
+
+describe('the stage wrapper argv', () => {
+  it('omits --api-key when there is no factory key, rather than passing it empty', () => {
+    // An empty `--api-key` is not "no key", it is a broken key: it would replace the shared
+    // auth.json credential with garbage and a pin failure into an unreachable model.
+    const args = stagePiArgs('do the thing', '');
+    expect(args).not.toContain('--api-key');
+    expect(args.at(-1)).toBe('do the thing');
+  });
+
+  it('passes the key when there is one', () => {
+    const args = stagePiArgs('do the thing', 'sk-or-v1-factory');
+    expect(args[args.indexOf('--api-key') + 1]).toBe('sk-or-v1-factory');
+  });
+
+  it('keeps the wrapper on the cheap model with thinking off', () => {
+    const args = stagePiArgs('x', '');
+    expect(args[args.indexOf('--model') + 1]).toBe('openrouter/deepseek/deepseek-v4.1-flash');
+    expect(args[args.indexOf('--thinking') + 1]).toBe('off');
+    expect(args).toEqual(expect.arrayContaining(['-p', '--approve', '--tools', 'subagent']));
   });
 });
