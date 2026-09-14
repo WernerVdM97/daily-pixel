@@ -393,8 +393,9 @@ function killGroupDefault(pid: number): void {
   }
 }
 
-/** Cheap and mechanical: the wrapper relays, the child does the work. */
-const WRAPPER_MODEL = "deepseek/deepseek-flash";
+/** Cheap and mechanical: the wrapper relays, the child does the work. Routed through OpenRouter
+ *  like every other pin, so nothing in the factory spends on the direct DeepSeek API. */
+const WRAPPER_MODEL = "openrouter/deepseek/deepseek-v4.1-flash";
 
 export function piBinary(env: NodeJS.ProcessEnv = process.env): string | null {
   const configured = env.FACTORY_PI_BIN ?? env.PI_BIN;

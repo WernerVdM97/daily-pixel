@@ -1,7 +1,7 @@
 ---
 name: delegate-fixer
 description: Fixer role for the orchestrated-delegation workflow, and the Dark Factory's `fix` stage. Implements only the review findings it has been handed — stated as concrete instructions — and returns a report. Invoked explicitly, not for general auto-delegation.
-model: deepseek/deepseek-flash
+model: openrouter/deepseek/deepseek-v4.1-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true

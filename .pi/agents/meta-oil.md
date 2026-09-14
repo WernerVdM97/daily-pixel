@@ -1,11 +1,13 @@
 ---
 name: meta-oil
 description: Dark Factory improvement loop. The only agent whose subject is the factory itself, not the game: it scrapes past sessions, ranks the largest sources of friction, and proposes concrete fixes - prompts, agent definitions, verbosity, epics, schedules. Sends one linked digest DM per survey: an index card and then one card per numbered proposal, armed with the vote reactions. Read-only on code and proposes by default; it changes a factory file only when the owner approves that exact numbered proposal. May spawn read-only children.
-# Pinned to the direct DeepSeek V4.1 Flash. That provider exposes low/high/max and no `xhigh`,
-# so the level is written as `max`, which is what runs, rather than as an `xhigh` that would be
-# silently downgraded to it. Same model the other loops are on, same provider, direct only.
-model: deepseek/deepseek-flash
-thinking: max
+# Pinned to DeepSeek V4.1 Flash served through OpenRouter, whose route is held to the DeepSeek
+# first-party host by the `only: ["deepseek"]` override in `~/.pi/agent/models.json` (cache
+# integrity: a second host means a second cold prefix). That provider's ceiling is `xhigh`,
+# which is what the direct provider's `max` was; its level map has no `max` at all, so writing
+# `max` here would silently clamp. Same model the other loops are on, now the same route.
+model: openrouter/deepseek/deepseek-v4.1-flash
+thinking: xhigh
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: true
@@ -135,7 +137,7 @@ The schedule fires twice, Friday then Saturday evening:
 - **survey** (Friday): the full run above.
 - **confirm** (Saturday): re-measure, drain answers, and deepen the top offender only. Send a DM only if a decision is pending or a ranking moved materially. Two identical digests in two days is exactly the verbosity you exist to delete.
 
-A model pin is the one proposal you must verify rather than reason about. The short `provider/model` form does not do what it reads like: `deepseek/deepseek-flash` lands on the direct DeepSeek provider while a name that provider does not carry (`deepseek/deepseek-v4.1-flash`) silently lands on OpenRouter, and a provider that does not offer the requested thinking tier downgrades it without complaining (the direct DeepSeek models have no `xhigh`, so `xhigh` clamps up to `max`). Before you propose a tier change, confirm the pin on a throwaway session and quote the result:
+A model pin is the one proposal you must verify rather than reason about. The short `provider/model` form does not do what it reads like: `deepseek/deepseek-flash` lands on the direct DeepSeek provider while the same weights under an `openrouter/` prefix take a different route at a different price, and a provider that does not offer the requested thinking tier downgrades it without complaining (neither route has every level: direct maps `low`/`high`/`max`, OpenRouter maps `off`/`high`/`xhigh`, so a `max` pin aimed at OpenRouter clamps to `xhigh` and an `xhigh` pin aimed at direct clamps up to `max`). Before you propose a tier change, confirm the pin on a throwaway session and quote the result:
 
 ```bash
 pi -p --session-dir /tmp/pincheck --no-tools --model <pin> --thinking <tier> "ok" \

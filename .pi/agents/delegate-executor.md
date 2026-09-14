@@ -1,7 +1,7 @@
 ---
 name: delegate-executor
 description: Executor role for the orchestrated-delegation workflow, and the Dark Factory's `build` stage. A lead spawns this to implement exactly to a written spec and return a report — never to decide scope. In a ledger job it also runs the verification and commits on the job branch. Invoked explicitly, not for general auto-delegation.
-model: deepseek/deepseek-flash
+model: openrouter/deepseek/deepseek-v4.1-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
