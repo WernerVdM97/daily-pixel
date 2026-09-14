@@ -114,7 +114,7 @@ Forced means `AGENT_FORCE_FREE_ACTIONS=1`; unforced is the same command without 
 
 - [I] `AGENT_FORCE_FREE_ACTIONS` stays as a diagnostic, but it stops being _the way_ the harness reaches free-action play. Persona priors are the principled replacement: the Homesteader and the Soldier reach for the custom slot because of who they are, not because a debt is owed.
 
-- [>] The snapshot's own product findings (the doubled article in the unsafe-ground copy, the location-blind work menu, the inconsistent bail dice display) route to TODO.md, not into this spec. This document owns the harness.
+- [>] The snapshot's own product findings route to the board, not into this spec: the doubled article in the unsafe-ground copy is #141, the location-blind work menu is #134, and the inconsistent bail dice display — the worked example of recurrence below — is #153. This document owns the harness.
 
 ---
 
@@ -166,9 +166,9 @@ Two structural gaps cap what the harness can tell us today, and neither is a pro
 
 - [!] **The brain is amnesiac.** Every turn is stateless. No yesterday, no goal, no thread being chased. Fulfilment is by definition a cross-day property, so a brain with no memory cannot even perceive the thing we are trying to measure. Persona consistency across a day, let alone across weeks, is impossible without a running intent.
 
-- [I] The repo already has the scar: TODO.md's "the realism arm didn't fix move variety", where the a/b brains still funnelled into `menu-pick 0`. Personas layered onto today's surface produce _flavoured funnel_, not new behaviour. Widening the information and move surfaces is the actual level-up; the persona prompt is what makes the widened surface pay off.
+- [I] The repo already has the scar: the pre-persona finding that the realism arm did not fix move variety, where the a/b brains still funnelled into `menu-pick 0` — superseded, because the panel has since produced the reading it asked for (a verb histogram that differs by persona). Personas layered onto today's surface produce _flavoured funnel_, not new behaviour. Widening the information and move surfaces is the actual level-up; the persona prompt is what makes the widened surface pay off.
 
-- [I] **Second-order win: the RA-2 dial becomes observable.** `stripWorkInspiration` strips inspiration from `kind: 'work'` actions by design, so a work-dominated run measures a structural 0% and the harness "structurally cannot check" RA-2 (TODO.md:46, :56). Explorer, Socialite and Storyteller personas reach for the free-text `custom` slot by character, and those are exactly the non-work actions inspiration can land on. A panel is the first realistic route to a measured grant rate.
+- [I] **Second-order win: the RA-2 dial becomes observable.** `stripWorkInspiration` strips inspiration from `kind: 'work'` actions by design, so a work-dominated run measures a structural 0% and the harness "structurally cannot check" RA-2. Explorer, Socialite and Storyteller personas reach for the free-text `custom` slot by character, and those are exactly the non-work actions inspiration can land on. A panel is the first realistic route to a measured grant rate.
 
 ---
 
@@ -256,7 +256,7 @@ One end-of-run review is lossy, and for a long-horizon game it is also the wrong
 
 The panel ranks friction by projected exposure over a campaign, not by raw count. This is the single most important measurement difference between testing a session-based game and testing this one.
 
-The baseline gives the rule a worked example. Its second finding is that bail dice read inconsistently: `🎲 1 (refunded)` on one bail and `🎲 0 (-1)` on the next for the same "Step back" move, flagged by three of four critics. That is `periodic` friction at worst for most players, and untagged it would rank alongside trivia. For the **Soldier**, who fights and therefore bails as a habit, it is `ritual`, and it outranks almost anything else in the run. Same defect, different weight, decided by the persona. That is the instrument working.
+The baseline gives the rule a worked example. Its second finding is that bail dice read inconsistently: `🎲 1 (refunded)` on one bail and `🎲 0 (-1)` on the next for the same "Step back" move, flagged by three of four critics (#153). That is `periodic` friction at worst for most players, and untagged it would rank alongside trivia. For the **Soldier**, who fights and therefore bails as a habit, it is `ritual`, and it outranks almost anything else in the run. Same defect, different weight, decided by the persona. That is the instrument working.
 
 The per-day rating pair also gives the panel its headline artefact: an **engagement and fulfilment series across days**. A run where engagement holds at 4 while fulfilment slides 4 → 2 has found something a single number cannot express, and it is the shape that predicts churn.
 
@@ -402,4 +402,4 @@ Decisions taken during the build, where they diverge from this document or from 
 - **`facts.distilledType` is not the classify vocabulary.** It is the action model's own open-vocabulary label ("one word preferred"), so the panel reports `actionVerbs` as an observed label frequency table and the priors-versus-behaviour comparison runs on move kinds instead.
 - **Stale task numbering corrected.** The tests task is T9, so the two inline "T8" references (the replay coverage in § C and the review parsing in § F) now read T9.
 
-Still open, and named here rather than left to be inferred: the interrupted shape has not been run live, the ten-persona breadth panel has not been paid for, and the flat fulfilment series and blind work menu in § Panel evidence are product tickets in `TODO.md`, not harness defects.
+Still open, and named here rather than left to be inferred: the interrupted shape has not been run live, the ten-persona breadth panel has not been paid for, and the flat fulfilment series (#137) and blind work menu (#134) in § Panel evidence are product tickets on the board, not harness defects.
