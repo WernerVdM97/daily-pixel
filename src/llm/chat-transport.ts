@@ -1,21 +1,32 @@
-// Shared raw HTTP mechanics for DeepSeek chat completions — extracted from
-// DeepseekLlmGateway's 4 near-identical inline `fetch` blocks (decide/enrich/summarizeWeek/
-// critique) so the wire format (request shape, auth header, timeout/abort, response envelope)
-// lives in ONE place instead of four copies that could silently drift.
+// Shared raw HTTP mechanics for the chat completions upstream — extracted from ProdLlmGateway's
+// 4 near-identical inline `fetch` blocks (decide/enrich/summarizeWeek/critique) so the wire format
+// (request shape, auth header, timeout/abort, response envelope) lives in ONE place instead of
+// four copies that could silently drift.
 //
-// Deliberately policy-free: whether a non-2xx or empty-content response should throw, fail
-// open, or retry is different per caller (see DeepseekLlmGateway.ts) — this function only
-// builds the request, sends it, and reports back a uniform envelope. It never throws on
-// `!response.ok` or on empty `content`; every caller's existing error-handling behaviour is
-// reproduced verbatim on top of this envelope, not folded in here.
-export interface DeepseekRequest {
+// Deliberately policy-free: whether a non-2xx or empty-content response should throw, fail open,
+// or retry is different per caller (see ProdLlmGateway.ts) — this function only builds the
+// request, sends it, and reports back a uniform envelope. It never throws on `!response.ok` or on
+// empty `content`; every caller's existing error-handling behaviour is reproduced verbatim on top
+// of this envelope, not folded in here.
+//
+// Two wire details are OpenRouter's rather than DeepSeek's, and both fail *silently* if you get
+// them wrong, so they are called out here:
+//
+//  - Chain-of-thought is requested with `reasoning: { enabled: true }`. DeepSeek's native
+//    `thinking: { type: 'enabled' }` is not recognised on this hop: it is accepted, ignored, and
+//    the response comes back without reasoning. No error, no warning.
+//  - It comes back on `message.reasoning`. OpenRouter normalises every vendor's chain-of-thought
+//    into that field, so DeepSeek's native `message.reasoning_content` is absent.
+import { OPENROUTER_TITLE, OPENROUTER_URL, OPENROUTER_PROVIDER_ROUTING } from './openrouter.js';
+
+export interface ChatRequest {
   apiKey: string;
   model: string;
   temperature: number;
   systemPrompt: string;
   userMessage: string;
-  /** Enables DeepSeek's `thinking` mode (chain-of-thought surfaced as `reasoning_content`).
-   *  Default false — only decide/critic (and now the pipeline's decide stage) opt in. */
+  /** Ask for chain-of-thought. Default false — only decide/critic (and the pipeline's decide
+   *  stage) opt in. */
   thinking?: boolean;
   /** Abort timeout in ms. Default 15000; the weekly recap uses 30000 (a bigger payload, off the
    *  hot path). */
@@ -24,14 +35,14 @@ export interface DeepseekRequest {
   fetchFn: typeof fetch;
 }
 
-export interface DeepseekResponse {
+export interface ChatResponse {
   ok: boolean;
   httpStatus: number;
   /** `choices[0].message.content ?? null`. An empty string is passed through as-is (not
    *  coerced to null) — callers that treat empty content as "nothing came back" already check
    *  falsiness, not strict null, so this preserves their exact behaviour. */
   content: string | null;
-  reasoningContent: string | null;
+  reasoning: string | null;
   finishReason: string | null;
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
   /** `response.text()` — only populated when `!ok`, mirroring each caller's existing
@@ -39,9 +50,7 @@ export interface DeepseekResponse {
   errorText?: string;
 }
 
-const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
-
-export async function callDeepseek(req: DeepseekRequest): Promise<DeepseekResponse> {
+export async function callChatCompletion(req: ChatRequest): Promise<ChatResponse> {
   const requestBody = {
     model: req.model,
     messages: [
@@ -49,20 +58,22 @@ export async function callDeepseek(req: DeepseekRequest): Promise<DeepseekRespon
       { role: 'user' as const, content: req.userMessage },
     ],
     response_format: { type: 'json_object' as const },
-    ...(req.thinking ? { thinking: { type: 'enabled' as const } } : {}),
+    ...(req.thinking ? { reasoning: { enabled: true as const } } : {}),
     temperature: req.temperature,
     stream: false,
+    provider: OPENROUTER_PROVIDER_ROUTING,
   };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), req.timeoutMs ?? 60000);
 
   try {
-    const response = await req.fetchFn(DEEPSEEK_URL, {
+    const response = await req.fetchFn(OPENROUTER_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${req.apiKey}`,
+        'X-Title': OPENROUTER_TITLE,
       },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
@@ -74,14 +85,14 @@ export async function callDeepseek(req: DeepseekRequest): Promise<DeepseekRespon
         ok: false,
         httpStatus: response.status,
         content: null,
-        reasoningContent: null,
+        reasoning: null,
         finishReason: null,
         errorText,
       };
     }
 
     const data = await response.json() as {
-      choices?: Array<{ message?: { content?: string; reasoning_content?: string }; finish_reason?: string }>;
+      choices?: Array<{ message?: { content?: string; reasoning?: string }; finish_reason?: string }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
     const message = data.choices?.[0]?.message;
@@ -89,7 +100,7 @@ export async function callDeepseek(req: DeepseekRequest): Promise<DeepseekRespon
       ok: true,
       httpStatus: response.status,
       content: message?.content ?? null,
-      reasoningContent: message?.reasoning_content ?? null,
+      reasoning: message?.reasoning ?? null,
       finishReason: data.choices?.[0]?.finish_reason ?? null,
       usage: data.usage,
     };

@@ -1476,7 +1476,7 @@ export class PipelineActionStateMachine {
   }
 
   /** Beat-1 LLM fault → the divine intervention below. The card the player gets is deliberately
-   *  in-voice and says nothing about DeepSeek, so this console line is the only place the real
+   *  in-voice and says nothing about the model, so this console line is the only place the real
    *  cause survives — without it a run of stage failures is indistinguishable from a run of
    *  ordinary refunds. */
   private divineOnStageFailure(

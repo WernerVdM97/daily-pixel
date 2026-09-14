@@ -107,8 +107,9 @@ daily-pixel/
 │   │   └── actionViewState.ts      # Builders that assemble ViewState from engine output
 │   ├── llm/
 │   │   ├── LlmGateway.ts           # Gateway interface & types
-│   │   ├── DeepseekLlmGateway.ts   # v11 monolithic DeepSeek gateway
-│   │   ├── deepseek-transport.ts   # Shared raw HTTP mechanics for DeepSeek calls
+│   │   ├── ProdLlmGateway.ts       # v11 monolithic LLM gateway (OpenRouter)
+│   │   ├── chat-transport.ts       # Shared raw HTTP mechanics for LLM calls
+│   │   ├── openrouter.ts           # The upstream, its model slug and the DeepSeek host pin
 │   │   ├── FallbackLlmGateway.ts   # Retry chain + divine intervention mock
 │   │   ├── CritiquedLlmGateway.ts  # Coherence critic decorator
 │   │   ├── MockLlmGateway.ts
@@ -187,7 +188,7 @@ daily-pixel/
 ### Quick start
 
 ```bash
-cp .env.example .env      # fill in DISCORD_TOKEN, DEEPSEEK_API_KEY, ADMIN_USER_ID, TICK_CHANNEL_ID
+cp .env.example .env      # fill in DISCORD_TOKEN, OPENROUTER_API_KEY, ADMIN_USER_ID, TICK_CHANNEL_ID
 npm install
 npx tsx --env-file=.env src/index.ts
 ```

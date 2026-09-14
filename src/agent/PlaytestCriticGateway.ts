@@ -3,7 +3,7 @@
  *
  * `PlaytestCriticGateway` is the feedback-pass peer to the move-picker `AgentPlayerGateway`: a
  * single `critique` method that reads a COMPLETED run (the transcript + its scoreboard) and returns
- * a qualitative `PlaytestReport`. Like the brain, it has a real DeepSeek implementation
+ * a qualitative `PlaytestReport`. Like the brain, it has a real OpenRouter implementation
  * (`ProdPlaytestCriticGateway`) and a deterministic stub (`ScriptedPlaytestCriticGateway`), so the
  * real critic is opt-in on a harness run and CI never touches the network.
  *

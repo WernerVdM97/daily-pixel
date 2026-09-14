@@ -75,7 +75,7 @@ export interface SceneStateEdge {
 
 // Canonical list — the SINGLE source of truth for the category set. The union type below is
 // derived from this array (never a hand-copied literal), so every consumer (prompt-builder's
-// decide-map, DeepseekLlmGateway's runtime validation, tests) imports the same array and a
+// decide-map, ProdLlmGateway's runtime validation, tests) imports the same array and a
 // category can't be added to one without the other silently drifting.
 export const ACTION_CATEGORIES = ['combat', 'travel', 'social', 'skill', 'search', 'rest', 'other'] as const;
 export type ActionCategory = (typeof ACTION_CATEGORIES)[number];
@@ -106,7 +106,7 @@ export interface LlmDecision {
   _rawPrompt?: string;
   _reasoning?: string | null;
   /** validateDecision warnings, surfaced as the coherence critic's checklist of suspicions.
-   *  Set by DeepseekLlmGateway.decide; absent on gateways that don't validate. */
+   *  Set by ProdLlmGateway.decide; absent on gateways that don't validate. */
   _warnings?: string[];
 }
 

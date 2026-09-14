@@ -1,4 +1,4 @@
-// Deep-capture (raw prompt + thinking) gating, shared by DeepseekLlmGateway and
+// Deep-capture (raw prompt + thinking) gating, shared by ProdLlmGateway and
 // ProdPipelineLlmGateway so both v11 and v12 honour the same LLM_LOG_THINKING contract —
 // the pipeline previously ignored the spiral threshold entirely (the prod gap this closes).
 

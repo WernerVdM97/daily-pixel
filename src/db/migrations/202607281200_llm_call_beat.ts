@@ -7,7 +7,7 @@ import type { Migration } from './types.js';
  * bound (every minor+major verdict): a `major` verdict from a narrate beat is a logged-and-
  * discarded no-op (see `critiqueNarration`), indistinguishable from a `major` from a decide beat
  * (which fires a bounded re-decide) without knowing which beat produced the row. This column
- * closes that gap — see `DeepseekLlmGateway.critique()`'s recorder call. Guarded for idempotency.
+ * closes that gap — see `ProdLlmGateway.critique()`'s recorder call. Guarded for idempotency.
  */
 export const migration: Migration = {
   id: '202607281200_llm_call_beat',

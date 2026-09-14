@@ -22,10 +22,10 @@ const ERROR_MAP: Array<[string, string]> = [
   ['Invalid choice:', 'That option is no longer available. Try again.'],
   ['timed out after 30 minutes', 'Your action has expired. The moment has passed. Try `/hi` to start fresh.'],
 
-  // LLM
-  ['DeepSeek API error', 'The warden\'s vision is clouded. Try again shortly.'],
-  ['DeepSeek returned empty response', 'The warden\'s vision is clouded. Try again shortly.'],
-  ['Failed to parse DeepSeek response', 'The warden\'s vision is clouded. Try again shortly.'],
+  // LLM (the message prefixes the gateways throw; see chat-transport.ts)
+  ['OpenRouter API error', 'The warden\'s vision is clouded. Try again shortly.'],
+  ['OpenRouter returned empty response', 'The warden\'s vision is clouded. Try again shortly.'],
+  ['Failed to parse OpenRouter response', 'The warden\'s vision is clouded. Try again shortly.'],
 
   // DB
   ['Database not initialized', 'Something went wrong. The warden has been notified.'],

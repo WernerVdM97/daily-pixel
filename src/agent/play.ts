@@ -3,10 +3,10 @@
  * Opt-in real-LLM agent-player run (JSON-seam M4.3, DA-5 entry point).
  *
  * NEVER imported by `npm test` — this is the manual `npm run agent:play` entry, gated on
- * `DEEPSEEK_API_KEY`. It stands up the prod-faithful engine with a REAL DeepSeek pipeline (the
- * action LLM) AND a REAL DeepSeek brain (the move-picker), seeds a character, plays N days, writes
- * the transcript to a file, and prints the day summaries + critique. Every LLM call is DeepSeek —
- * the real network — so this costs money and stays out of CI by construction (tests inject the
+ * `AGENT_OPENROUTER_API_KEY`. It stands up the prod-faithful engine with a REAL OpenRouter
+ * pipeline (the action LLM) AND a REAL brain (the move-picker), seeds a character, plays N days,
+ * writes the transcript to a file, and prints the day summaries + critique. Every LLM call is a
+ * real network call — so this costs money and stays out of CI by construction (tests inject the
  * scripted stubs instead).
  *
  * The transcript (the repro artefact, goal a) is written to a FILE, not stdout: the engine, the
@@ -15,7 +15,10 @@
  * always clean regardless of stdout chatter, and is written in `finally` so a throwing run still
  * leaves the repro up to the failure point.
  *
- * Env: DEEPSEEK_API_KEY (required), DEEPSEEK_MODEL (optional override), AGENT_DAYS (default 1),
+ * Env: AGENT_OPENROUTER_API_KEY (required, and deliberately a SEPARATE key from the bot's
+ * OPENROUTER_API_KEY: playtest spend is noisy, repeated and unattributable, and giving it its
+ * own key keeps it off the bot's quota and separable on the dashboard), AGENT_MODEL (optional
+ * override), AGENT_DAYS (default 1),
  * AGENT_OUT (transcript path; default a timestamped file under the OS temp dir),
  * AGENT_PROTOCOL_OUT (protocol-log path; default `<AGENT_OUT>.protocol.json`),
  * AGENT_PROTOCOL_BEATS (record router beats into the protocol log, default off),
@@ -96,13 +99,17 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  // The agent key, not the bot's. No fallback on purpose: this run is a playtest, its spend has a
+  // different owner, and a silent slide onto the bot's key is the failure the split exists to stop.
+  const apiKey = process.env.AGENT_OPENROUTER_API_KEY?.trim();
   if (!apiKey) {
-    console.error('agent:play needs DEEPSEEK_API_KEY set — this is the opt-in real-LLM run.');
+    console.error(
+      'agent:play needs AGENT_OPENROUTER_API_KEY set (a separate key from the bot\'s OPENROUTER_API_KEY) — this is the opt-in real-LLM run.',
+    );
     process.exitCode = 1;
     return;
   }
-  const model = process.env.DEEPSEEK_MODEL;
+  const model = process.env.AGENT_MODEL?.trim() || undefined;
   const days = Number(process.env.AGENT_DAYS ?? '1');
   if (!Number.isFinite(days) || days < 1) {
     console.error(`agent:play: AGENT_DAYS must be a positive integer (got "${process.env.AGENT_DAYS}").`);
@@ -119,7 +126,9 @@ async function main(): Promise<void> {
   // gates both beats. Pick the arm per run, no code edit needed.
   const criticGateMode: CriticGateMode = parseCriticGateMode(process.env.CRITIC_GATE_MODE);
 
-  // Real pipeline gateway (built from apiKey inside buildAgentEngine) + real brain, both DeepSeek.
+  // Real pipeline gateway (built from apiKey inside buildAgentEngine) + real brain, both on
+  // OpenRouter. This key is the *agent* key, not the bot's, and there is deliberately no fallback
+  // to the bot's: a playtest that quietly spent the bot's quota would defeat the split.
   // recordLlmCalls persists every pipeline stage; the brain records its own picks into the same DB.
   // RA-4: buildAgentEngine now also wires a real coherence-critic gateway from this apiKey (it never
   // did before), so a live run actually has a critic to gate — see engineHarness.ts. criticEnabled

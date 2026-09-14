@@ -3043,7 +3043,7 @@ describe('PipelineActionStateMachine — beat-1 stage failures (0.3.4)', () => {
   it('turns a decide stage failure into divine intervention instead of throwing', async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decide = async () => {
-      throw new PipelineStageError('decide', 'timeout', 'ProdPipelineLlmGateway.decide: DeepSeek request aborted (timeout)');
+      throw new PipelineStageError('decide', 'timeout', 'ProdPipelineLlmGateway.decide: OpenRouter request aborted (timeout)');
     };
     const machine = new PipelineActionStateMachine(llm, () => 20);
 
@@ -3061,7 +3061,7 @@ describe('PipelineActionStateMachine — beat-1 stage failures (0.3.4)', () => {
     // Empty decision on beat 1 → start() runs the whole resolve pipeline inline.
     llm.decideResult = { distilledType: 'rest', stat: 'physical', baseDc: 10, required: false, decision: [] };
     llm.resolveNarrate = async () => {
-      throw new PipelineStageError('resolveNarrate', 'parse', 'ProdPipelineLlmGateway.resolveNarrate: failed to parse DeepSeek response: {');
+      throw new PipelineStageError('resolveNarrate', 'parse', 'ProdPipelineLlmGateway.resolveNarrate: failed to parse OpenRouter response: {');
     };
     const machine = new PipelineActionStateMachine(llm, () => 20);
 

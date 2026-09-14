@@ -1,4 +1,4 @@
-// Production, DeepSeek-backed PipelineLlmGateway (T2, docs/engine/... v12 pipeline plan).
+// Production, OpenRouter-backed PipelineLlmGateway (T2, docs/engine/... v12 pipeline plan).
 //
 // ── Q1: does FallbackLlmGateway (v9) wrap this gateway? ──
 //
@@ -11,7 +11,7 @@
 // outcome in `start()` (`resolveDivineIntervention`, `isDivineIntervention: true`), and since
 // 0.3.4 so does any stage failure on beat 1 — see `start()`'s catch. A beat-2+ failure is caught
 // one level up, by `WorldEngineImpl.stepActionPipeline`, and resolved as `timed_out`. This gateway
-// therefore mirrors `DeepseekLlmGateway`'s single-attempt transport (no internal retry) and still
+// therefore mirrors `ProdLlmGateway`'s single-attempt transport (no internal retry) and still
 // throws loudly on transport/parse failure — it just throws a `PipelineStageError`, so those two
 // call sites can fail open on an LLM fault without also swallowing an engine fault.
 // `FallbackLlmGateway` stays on the v11 path only, deleted with it in T7.
@@ -24,7 +24,8 @@ import {
 import type { LlmCallRecorder } from '../LlmCallRecorder.js';
 import { DeepCapturePolicy } from '../capture-policy.js';
 import { buildUserMessage, buildContextDigest, loadPromptSet, type PromptSet } from '../prompt-builder.js';
-import { callDeepseek, type DeepseekResponse } from '../deepseek-transport.js';
+import { callChatCompletion, type ChatResponse } from '../chat-transport.js';
+import { DEFAULT_LLM_MODEL } from '../openrouter.js';
 import { PipelineStageError, isPipelineStageError } from './PipelineStageError.js';
 import { buildClassifyUserMessage, buildResolveUserMessage } from './pipeline-messages.js';
 import { stripCR, parseStat, parseOptionStat, resolveNpcHandles } from './pipeline-parse.js';
@@ -55,7 +56,7 @@ export interface ProdPipelineGatewayConfig {
   /** Injectable prompt set for tests. Defaults to the active `PROMPT_SET_VERSION` set. */
   promptSet?: PromptSet;
   /** If true, console-log a one-line summary per stage (stage label, model, latency, token
-   *  usage, response snippet) — mirrors DeepseekLlmGateway's verbose logging. */
+   *  usage, response snippet) — mirrors ProdLlmGateway's verbose logging. */
   verbose?: boolean;
   /** Governs when raw prompt + reasoning are persisted alongside a call. Defaults to
    *  `new DeepCapturePolicy()` (mode 'spiral', {@link SPIRAL_CHARS_DEFAULT} threshold). */
@@ -90,7 +91,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
 
   constructor(config: ProdPipelineGatewayConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model ?? 'deepseek-v4-flash';
+    this.model = config.model ?? DEFAULT_LLM_MODEL;
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
@@ -235,12 +236,12 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
    * The one call-shape shared by all four stages (T2 spec steps 1-7): send the request, throw
    * loudly on transport/parse/validation failure (§5 — no retry, no fallback wrapping at this
    * layer), and record ONE audit row in `finally` regardless of outcome. A recorder error is
-   * caught + logged, never rethrown (mirrors DeepseekLlmGateway).
+   * caught + logged, never rethrown (mirrors ProdLlmGateway).
    */
   private async runStage<T>(req: StageRequest<T>): Promise<{ result: T; callId: number }> {
     const startedAt = Date.now();
     let httpStatus: number | null = null;
-    let usage: DeepseekResponse['usage'];
+    let usage: ChatResponse['usage'];
     let finishReason: string | null = null;
     let reasoningContent: string | null = null;
     let content: string | null = null;
@@ -250,7 +251,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
     let callId = 0;
 
     try {
-      const res = await callDeepseek({
+      const res = await callChatCompletion({
         apiKey: this.apiKey,
         model: this.model,
         temperature: this.temperature,
@@ -263,18 +264,18 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
       httpStatus = res.httpStatus;
       usage = res.usage;
       finishReason = res.finishReason;
-      reasoningContent = res.reasoningContent;
+      reasoningContent = res.reasoning;
 
       if (!res.ok) {
         throw new PipelineStageError(
           req.stageLabel,
           'transport',
-          `ProdPipelineLlmGateway.${req.stageLabel}: DeepSeek API error ${res.httpStatus}${res.errorText ? `: ${res.errorText}` : ''}`,
+          `ProdPipelineLlmGateway.${req.stageLabel}: OpenRouter API error ${res.httpStatus}${res.errorText ? `: ${res.errorText}` : ''}`,
         );
       }
       // Whitespace-only counts as empty, not as a parse failure. DeepSeek does occasionally
       // answer 200 with `content: ""`; that used to fall through to `JSON.parse('')` and surface
-      // as `failed to parse DeepSeek response:` with nothing after the colon — the one failure
+      // as `failed to parse OpenRouter response:` with nothing after the colon — the one failure
       // mode the message could not describe, and the one the 0.3.3 smoke run actually hit.
       // `finishReason` is carried because it is the only signal that separates a truncated
       // completion ('length') from a genuinely empty one ('stop').
@@ -282,7 +283,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
         throw new PipelineStageError(
           req.stageLabel,
           'empty',
-          `ProdPipelineLlmGateway.${req.stageLabel}: DeepSeek returned empty response (finishReason=${res.finishReason ?? 'none'})`,
+          `ProdPipelineLlmGateway.${req.stageLabel}: OpenRouter returned empty response (finishReason=${res.finishReason ?? 'none'})`,
         );
       }
       content = res.content;
@@ -294,7 +295,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
         throw new PipelineStageError(
           req.stageLabel,
           'parse',
-          `ProdPipelineLlmGateway.${req.stageLabel}: failed to parse DeepSeek response: ${content.slice(0, 200)}`,
+          `ProdPipelineLlmGateway.${req.stageLabel}: failed to parse OpenRouter response: ${content.slice(0, 200)}`,
           { cause },
         );
       }
@@ -324,11 +325,11 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
       }
     } catch (err) {
       // Everything leaves this stage as a PipelineStageError. What reaches here unwrapped is
-      // raised below the envelope — the abort timeout in `deepseek-transport`, or a fetch-level
+      // raised below the envelope — the abort timeout in `chat-transport`, or a fetch-level
       // network failure — and both are LLM faults the call sites are entitled to fail open on.
       const wrapped = isPipelineStageError(err) ? err : wrapTransportFailure(req.stageLabel, err);
       errorMsg = wrapped.message;
-      // Unconditional (not gated on this.verbose) — mirrors DeepseekLlmGateway's [llm:error] /
+      // Unconditional (not gated on this.verbose) — mirrors ProdLlmGateway's [llm:error] /
       // [llm:parse-error] logging so a failed pipeline stage is never silent in prod.
       if (content !== null) {
         console.error(c.red(`[pipeline:${req.stageLabel}]`), errorMsg, content.slice(0, 500));
@@ -341,7 +342,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
         try {
           const reasoningChars = reasoningContent?.length ?? null;
           // Diagnostic = the stage went wrong (transport error or unparseable response); tier is
-          // always 0 here (no internal retry, unlike DeepseekLlmGateway's fallback tiers).
+          // always 0 here (no internal retry, unlike ProdLlmGateway's fallback tiers).
           const isDiagnostic = errorMsg !== null || !parseOk;
           const captureDeep = this.capturePolicy.shouldCapture({ diagnostic: isDiagnostic, reasoningChars });
           callId = this.recorder.record({
@@ -395,8 +396,8 @@ function wrapTransportFailure(stageLabel: string, err: unknown): PipelineStageEr
     stageLabel,
     aborted ? 'timeout' : 'transport',
     aborted
-      ? `ProdPipelineLlmGateway.${stageLabel}: DeepSeek request aborted (timeout)`
-      : `ProdPipelineLlmGateway.${stageLabel}: DeepSeek request failed: ${e?.message ?? String(err)}`,
+      ? `ProdPipelineLlmGateway.${stageLabel}: OpenRouter request aborted (timeout)`
+      : `ProdPipelineLlmGateway.${stageLabel}: OpenRouter request failed: ${e?.message ?? String(err)}`,
     { cause: err },
   );
 }

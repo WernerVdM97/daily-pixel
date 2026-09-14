@@ -1,4 +1,4 @@
-// Small, deliberate duplication (T2 spec §4) of DeepseekLlmGateway.ts's private parse helpers
+// Small, deliberate duplication (T2 spec §4) of ProdLlmGateway.ts's private parse helpers
 // (`stripCR`, `parseStat`, `parseOptionStat`, and the NPC-handle resolution in `parseDecision`).
 // The pipeline gateway's parse layer is kept independent of the legacy gateway's — sharing them
 // would couple two modules that Stage 1's zero-risk-to-v11 constraint (and T7's eventual deletion
@@ -29,7 +29,7 @@ export function parseOptionStat(raw: unknown): 'physical' | 'wisdom' | 'intellig
 
 /**
  * Resolve `update_npc`/`remove_npc` `handle` (`[N#]`) references into `npcId`, mirroring
- * `DeepseekLlmGateway.parseDecision`'s `resolveMutations` closure. Handles are ephemeral,
+ * `ProdLlmGateway.parseDecision`'s `resolveMutations` closure. Handles are ephemeral,
  * index-assigned per turn (`### Present`'s NPC list) — the engine must never see a raw handle.
  */
 export function resolveNpcHandles(muts: unknown[], nearbyNpcs: LlmContext['nearbyNpcs']): unknown[] {

@@ -1,9 +1,9 @@
 /**
- * Production, DeepSeek-backed `AgentPlayerGateway` (JSON-seam M4.1). The agent-player's brain: it
- * renders the current turn into a user message, asks DeepSeek to pick a move, and maps the reply
+ * Production, OpenRouter-backed `AgentPlayerGateway` (JSON-seam M4.1). The agent-player's brain: it
+ * renders the current turn into a user message, asks the model to pick a move, and maps the reply
  * back to one of the legal `AgentMove`s.
  *
- * Mirrors `ProdPipelineLlmGateway` deliberately: reuses `callDeepseek` verbatim (JSON mode,
+ * Mirrors `ProdPipelineLlmGateway` deliberately: reuses `callChatCompletion` verbatim (JSON mode,
  * single attempt, no retry/fallback at this layer), throws loudly on transport/parse/validation
  * failure so the harness sees the failure, and records ONE `llm_calls` audit row in `finally`
  * regardless of outcome. A recorder error is logged, never rethrown.
@@ -12,7 +12,8 @@
  * concrete brain depends on the transport.
  */
 
-import { callDeepseek, type DeepseekResponse } from '../llm/deepseek-transport.js';
+import { callChatCompletion, type ChatResponse } from '../llm/chat-transport.js';
+import { DEFAULT_LLM_MODEL } from '../llm/openrouter.js';
 import type { LlmCallRecorder } from '../llm/LlmCallRecorder.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
@@ -54,7 +55,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
 
   constructor(config: ProdAgentPlayerGatewayConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model ?? 'deepseek-v4-flash';
+    this.model = config.model ?? DEFAULT_LLM_MODEL;
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
@@ -66,7 +67,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     const userMessage = buildUserMessage(input);
     const startedAt = Date.now();
     let httpStatus: number | null = null;
-    let usage: DeepseekResponse['usage'];
+    let usage: ChatResponse['usage'];
     let finishReason: string | null = null;
     let reasoningContent: string | null = null;
     let content: string | null = null;
@@ -75,7 +76,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     let move: AgentMove | undefined;
 
     try {
-      const res = await callDeepseek({
+      const res = await callChatCompletion({
         apiKey: this.apiKey,
         model: this.model,
         temperature: this.temperature,
@@ -88,15 +89,15 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
       httpStatus = res.httpStatus;
       usage = res.usage;
       finishReason = res.finishReason;
-      reasoningContent = res.reasoningContent;
+      reasoningContent = res.reasoning;
 
       if (!res.ok) {
         throw new Error(
-          `ProdAgentPlayerGateway: DeepSeek API error ${res.httpStatus}${res.errorText ? `: ${res.errorText}` : ''}`,
+          `ProdAgentPlayerGateway: OpenRouter API error ${res.httpStatus}${res.errorText ? `: ${res.errorText}` : ''}`,
         );
       }
       if (res.content === null) {
-        throw new Error('ProdAgentPlayerGateway: DeepSeek returned empty response');
+        throw new Error('ProdAgentPlayerGateway: OpenRouter returned empty response');
       }
       content = res.content;
 
@@ -104,7 +105,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
       try {
         raw = JSON.parse(content) as RawMovePick;
       } catch {
-        throw new Error(`ProdAgentPlayerGateway: failed to parse DeepSeek response: ${content.slice(0, 200)}`);
+        throw new Error(`ProdAgentPlayerGateway: failed to parse OpenRouter response: ${content.slice(0, 200)}`);
       }
       parseOk = true;
 

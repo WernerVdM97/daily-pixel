@@ -46,7 +46,7 @@ import type { WorldEngine } from "./engine/WorldEngine.js";
 import type { ClassDef, ModifierDef } from "./engine/StatComputer.js";
 import type { LlmDecision, LlmContext, RecapGateway, CriticGateway } from "./llm/LlmGateway.js";
 import { parseCriticGateMode, type CriticGateMode } from "./engine/action/critic-gate.js";
-import { DeepseekLlmGateway } from "./llm/DeepseekLlmGateway.js";
+import { ProdLlmGateway } from "./llm/ProdLlmGateway.js";
 import { DeepCapturePolicy } from "./llm/capture-policy.js";
 import { readLoggingEnv, staleLoggingEnv } from "./config/env.js";
 import {
@@ -135,7 +135,7 @@ const RELEASE_NOTES_DIR = path.join(ASSETS_DIR, "release-notes");
 // ── Config ──
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN ?? "";
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? "";
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? "";
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID ?? "";
 // A/B testing: override the LLM model without a code change. Empty → gateway default.
 const LLM_MODEL = process.env.LLM_MODEL?.trim() || undefined;
@@ -1175,9 +1175,9 @@ async function main() {
 
   // 4. LLM gateway
   let llm: FallbackLlmGateway;
-  // D3 cartographer — same DeepSeek transport, for async location enrichment.
+  // D3 cartographer — same OpenRouter transport, for async location enrichment.
   // Undefined on the mock path; the engine then leaves provisional rows unenriched.
-  let cartographer: DeepseekLlmGateway | undefined;
+  let cartographer: ProdLlmGateway | undefined;
   // Weekly recap chronicler. Undefined on the mock path (recap falls back to a count summary).
   let recapGateway: RecapGateway | undefined;
   // Coherence critic (Thread 2). On by default; ENABLE_COHERENCE_CRITIC=false opts out.
@@ -1187,27 +1187,27 @@ async function main() {
   // "anomaly" gates both; see `critic-gate.ts` for the A/B evidence behind the default.
   const criticGateMode: CriticGateMode = parseCriticGateMode(process.env.CRITIC_GATE_MODE);
   let criticGateway: CriticGateway | undefined;
-  if (DEEPSEEK_API_KEY) {
-    const deepseek = new DeepseekLlmGateway({
-      apiKey: DEEPSEEK_API_KEY,
+  if (OPENROUTER_API_KEY) {
+    const openrouter = new ProdLlmGateway({
+      apiKey: OPENROUTER_API_KEY,
       ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
       verbose: loggingEnv.verboseLlm,
       recorder: new LlmCallRepository(initDb()),
       capturePolicy,
     });
-    llm = new FallbackLlmGateway(deepseek, {
+    llm = new FallbackLlmGateway(openrouter, {
       onTier2Fallback: () => {
         const metaRepo = new MetaRepository(initDb());
         const count = metaRepo.get("llm_fallback_count");
         metaRepo.set("llm_fallback_count", String(Number(count ?? "0") + 1));
       },
     });
-    cartographer = deepseek;
-    recapGateway = deepseek;
-    criticGateway = deepseek;
+    cartographer = openrouter;
+    recapGateway = openrouter;
+    criticGateway = openrouter;
     console.log(
       c.cyan(
-        `[llm] DeepSeek gateway initialized with fallback chain (model: ${LLM_MODEL ?? "default"})`,
+        `[llm] OpenRouter gateway initialized, pinned to the DeepSeek host (model: ${LLM_MODEL ?? "default"})`,
       ),
     );
   } else {
@@ -1224,7 +1224,7 @@ async function main() {
     });
     console.warn(
       c.yellow(
-        "[llm] No DEEPSEEK_API_KEY — using divine-intervention mock. `/action` will auto-succeed.",
+        "[llm] No OPENROUTER_API_KEY — using divine-intervention mock. `/action` will auto-succeed.",
       ),
     );
   }
@@ -1249,8 +1249,8 @@ async function main() {
     ...(cartographer ? { cartographer } : {}),
     ...(criticEnabled && criticGateway ? { critic: criticGateway, criticGateMode } : {}),
     // v12 pipeline config (required). Always provided — the legacy v11 machine is gone.
-    pipelineLlm: DEEPSEEK_API_KEY ? {
-      apiKey: DEEPSEEK_API_KEY,
+    pipelineLlm: OPENROUTER_API_KEY ? {
+      apiKey: OPENROUTER_API_KEY,
       ...(LLM_MODEL ? { model: LLM_MODEL } : {}),
       recorder: new LlmCallRepository(initDb()),
       verbose: loggingEnv.verboseLlm,

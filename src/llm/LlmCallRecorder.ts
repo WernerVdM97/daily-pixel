@@ -10,7 +10,7 @@ export interface LlmCallRecord {
   promptVersion: string;
   /** Which pipeline stage produced this call. A loose `string`, not a closed union, by design
    *  (new call kinds shouldn't require touching this type). Known values in use:
-   *  - `'decision'` (default) / `'critic'` — the live v11 path (`DeepseekLlmGateway.ts`).
+   *  - `'decision'` (default) / `'critic'` — the live v11 path (`ProdLlmGateway.ts`).
    *  - `'pipeline-classify'` / `'pipeline-decide'` / `'pipeline-resolve-mutate'` /
    *    `'pipeline-resolve-narrate'` — the v12 pipeline machine's four stages (Thread D Task 5,
    *    `src/llm/pipeline/stamping.ts::callKindForPipelineStage`); not wired to any real
@@ -45,7 +45,7 @@ export interface LlmCallRecord {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
-  /** Length of reasoning_content — gauges thinking volume without storing it. */
+  /** Length of the model's reasoning — gauges thinking volume without storing it. */
   reasoningChars: number | null;
   latencyMs: number;
   finishReason: string | null;

@@ -3,7 +3,7 @@
  *
  * `AgentPlayerGateway` is the agent-player's peer to the pipeline's `PipelineLlmGateway`: a single
  * `chooseMove` method the harness calls once per turn. It has a real implementation
- * (`ProdAgentPlayerGateway`, a DeepSeek call) and a deterministic stub
+ * (`ProdAgentPlayerGateway`, a real LLM call) and a deterministic stub
  * (`ScriptedAgentPlayerGateway`) — exactly the split `ProdPipelineLlmGateway` /
  * `PipelineScriptedGateway` established, so the real brain is opt-in on a harness run and CI never
  * touches the network.

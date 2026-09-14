@@ -17,7 +17,7 @@ function baseRecord(overrides?: Partial<LlmCallRecord>): LlmCallRecord {
     callKind: 'pipeline-decide',
     criticSeverity: null,
     beat: null,
-    model: 'deepseek-v4-flash',
+    model: 'deepseek/deepseek-v4.1-flash',
     temperature: 0.7,
     tier: 0,
     playerInput: 'barter with the merchant',

@@ -5,7 +5,7 @@ Run and deploy The Warden's Oak during the POC phase.
 ## Local dev (quick)
 
 ```bash
-cp .env.example .env      # fill in DISCORD_TOKEN, DEEPSEEK_API_KEY, ADMIN_USER_ID, TICK_CHANNEL_ID
+cp .env.example .env      # fill in DISCORD_TOKEN, OPENROUTER_API_KEY, ADMIN_USER_ID, TICK_CHANNEL_ID
 npm install
 npx tsx --env-file=.env src/index.ts
 ```
@@ -95,7 +95,7 @@ Create `/home/bot/app/.env` with your secrets:
 
 ```
 DISCORD_TOKEN=...
-DEEPSEEK_API_KEY=...
+OPENROUTER_API_KEY=...
 ADMIN_USER_ID=...
 TICK_CHANNEL_ID=...
 ```

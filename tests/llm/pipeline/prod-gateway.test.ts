@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ProdPipelineLlmGateway } from '../../../src/llm/pipeline/ProdPipelineGateway.js';
-import { callDeepseek } from '../../../src/llm/deepseek-transport.js';
+import { callChatCompletion } from '../../../src/llm/chat-transport.js';
 import { buildUserMessage, PROMPT_SET_VERSION } from '../../../src/llm/prompt-builder.js';
 import type { PromptSet } from '../../../src/llm/prompt-builder.js';
 import { ACTION_CATEGORIES } from '../../../src/llm/LlmGateway.js';
@@ -59,6 +59,12 @@ function bodyOf(fetchFn: typeof fetch): Record<string, any> {
   return JSON.parse(calls[0][1].body);
 }
 
+/** The URL vitest's mocked `fetch` was called with. */
+function urlOf(fetchFn: typeof fetch): string {
+  const calls = (fetchFn as unknown as { mock: { calls: [string, { body: string }][] } }).mock.calls;
+  return calls[0][0];
+}
+
 function capture() {
   const records: LlmCallRecord[] = [];
   const recorder = {
@@ -113,13 +119,13 @@ describe('ProdPipelineLlmGateway — classify', () => {
     await expect(gw.classify('do a thing', minimalContext)).rejects.toThrow(/actionType/i);
   });
 
-  it('does not enable thinking mode', async () => {
+  it('does not request reasoning', async () => {
     const fetchFn = mockFetch(apiResponse({ actionType: 'combat' }));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
     await gw.classify('attack', minimalContext);
 
-    expect(bodyOf(fetchFn).thinking).toBeUndefined();
+    expect(bodyOf(fetchFn).reasoning).toBeUndefined();
   });
 
   it('user message quotes the raw input and includes Location when present', async () => {
@@ -148,7 +154,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     ],
   };
 
-  it('picks the newAction template with no previousDecisions; correct stamp/callKind; sends thinking enabled', async () => {
+  it('picks the newAction template with no previousDecisions; correct stamp/callKind; sends reasoning enabled', async () => {
     const fetchFn = mockFetch(apiResponse(decideResponse));
     const { records, recorder } = capture();
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder, promptSet: fixturePromptSet() });
@@ -162,7 +168,7 @@ describe('ProdPipelineLlmGateway — decide', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT NEW_ACTION SYSTEM');
-    expect(body.thinking).toEqual({ type: 'enabled' });
+    expect(body.reasoning).toEqual({ enabled: true });
     expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/decide/combat`);
     expect(records[0].callKind).toBe('pipeline-decide');
 
@@ -359,7 +365,7 @@ describe('ProdPipelineLlmGateway — resolveMutate', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT SUCCESS SYSTEM');
-    expect(body.thinking).toBeUndefined();
+    expect(body.reasoning).toBeUndefined();
     expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/resolve/combat/success`);
     expect(records[0].callKind).toBe('pipeline-resolve-mutate');
     expect(result.mutations).toEqual([{ type: 'modify_stamina', amount: -2 }]);
@@ -476,7 +482,7 @@ describe('ProdPipelineLlmGateway — resolveNarrate', () => {
 
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT SUCCESS SYSTEM');
-    expect(body.thinking).toBeUndefined();
+    expect(body.reasoning).toBeUndefined();
     const userMessage = body.messages[1].content as string;
     expect(userMessage).toContain('TASK: RESOLVE-NARRATE');
     expect(userMessage).toContain('### Final mutations');
@@ -513,11 +519,11 @@ describe('ProdPipelineLlmGateway — errors propagate (no retry, no fallback wra
     const fetchFn = mockFetch({ error: 'boom' }, 500);
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
-    await expect(gw.classify('x', minimalContext)).rejects.toThrow(/DeepSeek API error 500/);
+    await expect(gw.classify('x', minimalContext)).rejects.toThrow(/OpenRouter API error 500/);
   });
 
   it('throws on missing content (transport reports content: null)', async () => {
-    // No `content` key at all — `callDeepseek` reports `content: null` (strict, per T2 spec
+    // No `content` key at all — `callChatCompletion` reports `content: null` (strict, per T2 spec
     // §2's "On `!ok` or `content===null`").
     const fetchFn = mockFetch({ choices: [{ message: {} }] });
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
@@ -527,7 +533,7 @@ describe('ProdPipelineLlmGateway — errors propagate (no retry, no fallback wra
 
   it('an empty-string content reads as an empty response, not a parse failure (0.3.3 smoke run)', async () => {
     // Was the reverse until 0.3.4: `content: ''` is not `null`, so it fell through to
-    // `JSON.parse('')` and threw `failed to parse DeepSeek response:` with nothing after the
+    // `JSON.parse('')` and threw `failed to parse OpenRouter response:` with nothing after the
     // colon — the live run that hit it left no way to tell an empty body from a malformed one.
     const fetchFn = mockFetch({ choices: [{ message: { content: '' } }] });
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
@@ -593,7 +599,7 @@ describe('ProdPipelineLlmGateway — errors propagate (no retry, no fallback wra
 
     expect(records).toHaveLength(1);
     expect(records[0].parseOk).toBe(false);
-    expect(records[0].error).toMatch(/DeepSeek API error 500/);
+    expect(records[0].error).toMatch(/OpenRouter API error 500/);
     expect(records[0].rawPrompt).not.toBeNull();
   });
 
@@ -618,7 +624,7 @@ describe('ProdPipelineLlmGateway — errors propagate (no retry, no fallback wra
 
 describe('ProdPipelineLlmGateway — deep-capture policy', () => {
   function apiResponseWithReasoning(content: unknown, reasoning: string): unknown {
-    return { choices: [{ message: { content: JSON.stringify(content), reasoning_content: reasoning }, finish_reason: 'stop' }] };
+    return { choices: [{ message: { content: JSON.stringify(content), reasoning: reasoning }, finish_reason: 'stop' }] };
   }
 
   it('captures rawPrompt/reasoning on a parse-ok call whose reasoning exceeds the spiral threshold', async () => {
@@ -724,14 +730,14 @@ describe('ProdPipelineLlmGateway — verbose logging', () => {
   });
 });
 
-// ── shared transport (deepseek-transport.ts) ──
+// ── shared transport (chat-transport.ts) ──
 
-describe('callDeepseek — shared transport', () => {
+describe('callChatCompletion — shared transport', () => {
   it('returns {ok:false, httpStatus, errorText} on a non-200 without throwing', async () => {
     const fetchFn = mockFetch({ error: 'unauthorized' }, 401);
 
-    const result = await callDeepseek({
-      apiKey: 'x', model: 'deepseek-v4-flash', temperature: 0.7,
+    const result = await callChatCompletion({
+      apiKey: 'x', model: 'deepseek/deepseek-v4.1-flash', temperature: 0.7,
       systemPrompt: 'sys', userMessage: 'msg', fetchFn,
     });
 
@@ -741,29 +747,59 @@ describe('callDeepseek — shared transport', () => {
     expect(result.content).toBeNull();
   });
 
-  it('omits the thinking key by default', async () => {
+  it('omits the reasoning key by default', async () => {
     const fetchFn = mockFetch({ choices: [{ message: { content: '{}' } }] });
 
-    await callDeepseek({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', fetchFn });
+    await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', fetchFn });
 
-    expect(bodyOf(fetchFn).thinking).toBeUndefined();
+    expect(bodyOf(fetchFn).reasoning).toBeUndefined();
   });
 
-  it('includes thinking:{type:"enabled"} when requested', async () => {
+  it('includes reasoning:{enabled:true} when requested', async () => {
     const fetchFn = mockFetch({ choices: [{ message: { content: '{}' } }] });
 
-    await callDeepseek({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', thinking: true, fetchFn });
+    await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', thinking: true, fetchFn });
 
-    expect(bodyOf(fetchFn).thinking).toEqual({ type: 'enabled' });
+    expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: true });
   });
 
   it('does not throw on empty content — returns content: null', async () => {
     const fetchFn = mockFetch({ choices: [{ message: { content: '' } }] });
 
-    const result = await callDeepseek({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', fetchFn });
+    const result = await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', fetchFn });
 
     // Empty string is passed through, not coerced — callers check falsiness themselves.
     expect(result.ok).toBe(true);
     expect(result.content).toBe('');
+  });
+
+  it('always pins the route to the DeepSeek host', async () => {
+    const fetchFn = mockFetch({ choices: [{ message: { content: '{}' } }] });
+
+    await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', fetchFn });
+
+    // The route is part of the contract, not a default: OpenRouter load-balances a model across
+    // every host serving it, and a host switch means a cold prompt cache on a prefix this code
+    // re-reads on every call. allow_fallbacks:false makes a DeepSeek outage a visible failure
+    // rather than a silent re-route onto a cold cache.
+    expect(bodyOf(fetchFn).provider).toEqual({ order: ['deepseek'], allow_fallbacks: false });
+  });
+
+  it('posts to OpenRouter, never to the DeepSeek API directly', async () => {
+    const fetchFn = mockFetch({ choices: [{ message: { content: '{}' } }] });
+
+    await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', fetchFn });
+
+    expect(urlOf(fetchFn)).toBe('https://openrouter.ai/api/v1/chat/completions');
+  });
+
+  it('reads chain-of-thought from `reasoning`, the field OpenRouter normalises it into', async () => {
+    const fetchFn = mockFetch({ choices: [{ message: { content: '{}', reasoning: 'deep thoughts' } }] });
+
+    const result = await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', thinking: true, fetchFn });
+
+    // DeepSeek's native `reasoning_content` does not survive the hop, so a transport that still
+    // read it would silently report no reasoning at all.
+    expect(result.reasoning).toBe('deep thoughts');
   });
 });

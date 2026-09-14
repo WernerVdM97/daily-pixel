@@ -1,12 +1,12 @@
 ---
 name: agent-smoke
-description: Spawn live AI-player smoke runs of the agent-player harness via Sonnet subagents. Use when asked to smoke-test the game with real LLM players, run live playthroughs, QA the agent-player end-to-end, or "spawn AI players". Each subagent runs `npm run agent:play` against live DeepSeek and reports findings.
+description: Spawn live AI-player smoke runs of the agent-player harness via Sonnet subagents. Use when asked to smoke-test the game with real LLM players, run live playthroughs, QA the agent-player end-to-end, or "spawn AI players". Each subagent runs `npm run agent:play` against live OpenRouter (DeepSeek V4.1 Flash, pinned to the DeepSeek host) and reports findings.
 allowed-tools: Agent, Bash, Read
 ---
 
 # Agent smoke runs
 
-The agent-player harness (`src/agent/`, milestone M4) plays the whole game with a real DeepSeek brain over a prod-faithful in-memory engine, then a critic LLM reviews the run. `npm test` only ever uses stubs — the **real** path is opt-in via `npm run agent:play`. This skill fans that live path out across Sonnet subagents for QA + playtest feedback.
+The agent-player harness (`src/agent/`, milestone M4) plays the whole game with a real LLM brain over a prod-faithful in-memory engine, then a critic LLM reviews the run. `npm test` only ever uses stubs — the **real** path is opt-in via `npm run agent:play`. This skill fans that live path out across Sonnet subagents for QA + playtest feedback.
 
 ## When to use
 
@@ -16,8 +16,8 @@ The agent-player harness (`src/agent/`, milestone M4) plays the whole game with 
 
 ## Prereqs
 
-- `DEEPSEEK_API_KEY` in `.env`. It is **not** auto-loaded — subagents must source it: `set -a && . ./.env && set +a && <command>`.
-- Each run costs real DeepSeek tokens (every brain move + pipeline stage + the critique). Keep the fleet small.
+- `AGENT_OPENROUTER_API_KEY` in `.env`, which is a **different key from the bot's** `OPENROUTER_API_KEY`. It is **not** auto-loaded — subagents must source it: `set -a && . ./.env && set +a && <command>`. `agent:play` refuses to start without it rather than falling back to the bot's key, so a mistyped var is an error and not a quiet spend against the bot's quota.
+- Each run costs real tokens (every brain move + pipeline stage + the critique). Keep the fleet small.
 
 ## How to spawn
 
@@ -29,11 +29,11 @@ Per-subagent command (Bash, timeout **600000** ms — live calls take minutes; a
 set -a && . ./.env && set +a && AGENT_OUT=<scratchpad>/smoke-<id>.json AGENT_DAYS=<N> npm run agent:play > <scratchpad>/smoke-<id>.stdout 2> <scratchpad>/smoke-<id>.log; echo "EXIT=$?"
 ```
 
-Output split: the **transcript** is clean JSON in `AGENT_OUT`; **stderr** (`.log`) has the transcript path + day summaries + run scoreboard + critic report; **stdout** is engine/gateway/npm log noise (ignore). Env knobs: `AGENT_DAYS` (default 1), `DEEPSEEK_MODEL` (optional), `AGENT_OUT` (transcript path), `AGENT_FORCE_FREE_ACTIONS` (`1` = each day's first menu withholds the day-job buttons until a free-text action completes; use it when the run has to exercise the quest loop rather than day-job work, e.g. any RA-2 inspiration question).
+Output split: the **transcript** is clean JSON in `AGENT_OUT`; **stderr** (`.log`) has the transcript path + day summaries + run scoreboard + critic report; **stdout** is engine/gateway/npm log noise (ignore). Env knobs: `AGENT_DAYS` (default 1), `AGENT_MODEL` (optional), `AGENT_OUT` (transcript path), `AGENT_FORCE_FREE_ACTIONS` (`1` = each day's first menu withholds the day-job buttons until a free-text action completes; use it when the run has to exercise the quest loop rather than day-job work, e.g. any RA-2 inspiration question).
 
 ## Subagent prompt template
 
-> Run a LIVE smoke test of the agent-player harness in `/Users/werner/projects/daily-pixel`. `npm run agent:play` plays N game days with a real DeepSeek brain, then a critic reviews the run; it captures exceptions, dead-ends, illegal moves, and invariant breaches (negative HP/stamina/wealth, roll underflow) as transcript `finding`s. The key is in `.env` (not auto-loaded — source with `set -a && . ./.env && set +a`). Run exactly the command above (with your `AGENT_OUT`/`AGENT_DAYS`), timeout 600000 ms. Then Read the `.log`; parse the `AGENT_OUT` JSON if you need finding detail. **READ-ONLY QA** — do not modify source, commit, or touch `.env`; if the Bash call times out, note it and do NOT re-run (it costs tokens). Report tight: (1) completed? exit code + did it produce a critic report; (2) the run scoreboard line verbatim; (3) every `finding`/`dead-end`, and any day that ended `crashed`/`stalled`, verbatim — error findings are real bugs, flag them; (4) sanity read (moves sensible, rolls/HP/stamina/wealth changing correctly); (5) the critic's verdict, trimmed; (6) suspected harness/engine bugs. For a multi-day run, also confirm the day boundary: day_number advances, rolls refill, overnight regen + income, rest-to-Oak only when rolls were spent.
+> Run a LIVE smoke test of the agent-player harness in `/Users/werner/projects/daily-pixel`. `npm run agent:play` plays N game days with a real LLM brain, then a critic reviews the run; it captures exceptions, dead-ends, illegal moves, and invariant breaches (negative HP/stamina/wealth, roll underflow) as transcript `finding`s. The key is in `.env` (not auto-loaded — source with `set -a && . ./.env && set +a`). Run exactly the command above (with your `AGENT_OUT`/`AGENT_DAYS`), timeout 600000 ms. Then Read the `.log`; parse the `AGENT_OUT` JSON if you need finding detail. **READ-ONLY QA** — do not modify source, commit, or touch `.env`; if the Bash call times out, note it and do NOT re-run (it costs tokens). Report tight: (1) completed? exit code + did it produce a critic report; (2) the run scoreboard line verbatim; (3) every `finding`/`dead-end`, and any day that ended `crashed`/`stalled`, verbatim — error findings are real bugs, flag them; (4) sanity read (moves sensible, rolls/HP/stamina/wealth changing correctly); (5) the critic's verdict, trimmed; (6) suspected harness/engine bugs. For a multi-day run, also confirm the day boundary: day_number advances, rolls refill, overnight regen + income, rest-to-Oak only when rolls were spent.
 
 ## Consolidate
 

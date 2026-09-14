@@ -1,5 +1,5 @@
 // Central parse of the logging/debug env contract (hotfix: standardise logging env vars).
-// Kept separate from any single gateway so both DeepseekLlmGateway and ProdPipelineLlmGateway
+// Kept separate from any single gateway so both ProdLlmGateway and ProdPipelineLlmGateway
 // read the same names/semantics — the prod gap this closes was the pipeline silently ignoring
 // a var the legacy gateway honoured.
 

@@ -12,7 +12,7 @@
 export type PipelineStageFailureKind =
   /** Non-2xx from the API, or the request never completed (DNS, socket, etc). */
   | 'transport'
-  /** The request was aborted — almost always `deepseek-transport`'s own abort timeout. */
+  /** The request was aborted — almost always `chat-transport`'s own abort timeout. */
   | 'timeout'
   /** 2xx, but the body carried no content (null, empty, or whitespace-only). */
   | 'empty'

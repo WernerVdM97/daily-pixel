@@ -1,14 +1,15 @@
 /**
- * Production, DeepSeek-backed `PlaytestCriticGateway` (JSON-seam M4.5). Renders a completed run into
- * a user message, asks DeepSeek for a qualitative playtest report, and validates the reply.
+ * Production, OpenRouter-backed `PlaytestCriticGateway` (JSON-seam M4.5). Renders a completed run into
+ * a user message, asks the model for a qualitative playtest report, and validates the reply.
  *
- * Mirrors `ProdAgentPlayerGateway` deliberately: reuses `callDeepseek` verbatim (JSON mode, single
+ * Mirrors `ProdAgentPlayerGateway` deliberately: reuses `callChatCompletion` verbatim (JSON mode, single
  * attempt, no retry/fallback at this layer), throws loudly on transport/parse/validation failure so
  * the caller sees it, and records ONE `llm_calls` audit row in `finally` regardless of outcome. A
  * recorder error is logged, never rethrown.
  */
 
-import { callDeepseek, type DeepseekResponse } from '../llm/deepseek-transport.js';
+import { callChatCompletion, type ChatResponse } from '../llm/chat-transport.js';
+import { DEFAULT_LLM_MODEL } from '../llm/openrouter.js';
 import type { LlmCallRecorder } from '../llm/LlmCallRecorder.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
@@ -52,7 +53,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
 
   constructor(config: ProdPlaytestCriticGatewayConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model ?? 'deepseek-v4-flash';
+    this.model = config.model ?? DEFAULT_LLM_MODEL;
     // Lower than the brain's 0.7 — this is analysis, not roleplay; steadier, more consistent reads.
     this.temperature = config.temperature ?? 0.4;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
@@ -65,7 +66,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
     const userMessage = buildCritiqueMessage(input);
     const startedAt = Date.now();
     let httpStatus: number | null = null;
-    let usage: DeepseekResponse['usage'];
+    let usage: ChatResponse['usage'];
     let finishReason: string | null = null;
     let reasoningContent: string | null = null;
     let content: string | null = null;
@@ -74,7 +75,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
     let report: PlaytestReport | undefined;
 
     try {
-      const res = await callDeepseek({
+      const res = await callChatCompletion({
         apiKey: this.apiKey,
         model: this.model,
         temperature: this.temperature,
@@ -87,15 +88,15 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
       httpStatus = res.httpStatus;
       usage = res.usage;
       finishReason = res.finishReason;
-      reasoningContent = res.reasoningContent;
+      reasoningContent = res.reasoning;
 
       if (!res.ok) {
         throw new Error(
-          `ProdPlaytestCriticGateway: DeepSeek API error ${res.httpStatus}${res.errorText ? `: ${res.errorText}` : ''}`,
+          `ProdPlaytestCriticGateway: OpenRouter API error ${res.httpStatus}${res.errorText ? `: ${res.errorText}` : ''}`,
         );
       }
       if (res.content === null) {
-        throw new Error('ProdPlaytestCriticGateway: DeepSeek returned empty response');
+        throw new Error('ProdPlaytestCriticGateway: OpenRouter returned empty response');
       }
       content = res.content;
 
@@ -103,7 +104,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
       try {
         raw = JSON.parse(content) as RawReport;
       } catch {
-        throw new Error(`ProdPlaytestCriticGateway: failed to parse DeepSeek response: ${content.slice(0, 200)}`);
+        throw new Error(`ProdPlaytestCriticGateway: failed to parse OpenRouter response: ${content.slice(0, 200)}`);
       }
       parseOk = true;
 

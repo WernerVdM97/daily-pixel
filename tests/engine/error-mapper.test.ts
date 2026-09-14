@@ -46,8 +46,8 @@ describe('ErrorMapper — known errors', () => {
     expect(result).toBe('Your action has expired. The moment has passed. Try `/hi` to start fresh.');
   });
 
-  it('maps DeepSeek API errors', () => {
-    const result = mapError(new Error('DeepSeek API error 401: Unauthorized'));
+  it('maps OpenRouter API errors', () => {
+    const result = mapError(new Error('OpenRouter API error 401: Unauthorized'));
     expect(result).toBe('The warden\'s vision is clouded. Try again shortly.');
   });
 
