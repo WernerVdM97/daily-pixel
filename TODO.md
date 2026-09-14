@@ -28,11 +28,11 @@ Dropped as superseded, with the reason rather than silently:
 
 ## Human notes
 
-### Invisible PRs: every PR authored by `agent97eth` is withheld (noted 2026-09-14)
+### Invisible PRs: every PR authored by `agent97eth` is missing from every list (noted 2026-09-14)
 
-Nothing authored by the agent account is visible to anyone but the account itself. This is not about one PR: **all 22 PRs it has opened are withheld**, including the 18 that are already merged, so it is author-scoped and retroactive.
+None of the agent account's PRs appear in a PR list, for anyone, including the account itself. This is not about one PR: **all 22 it has opened are absent**, including the 18 that are already merged, so it is author-scoped and retroactive.
 
-| PR | state | what it carries | visible |
+| PR | state | what it carries | in a list |
 | --- | --- | --- | --- |
 | #126 | open | layer 1: recon move, working memory, v2 prompts + handbook, ten personas, friction and the day note | no |
 | #127 | open | layer 2: the per-persona review and `npm run agent:panel` | no |
@@ -40,15 +40,22 @@ Nothing authored by the agent account is visible to anyone but the account itsel
 | #154 | open | the `TODO.md` deprecation and the issue migration | no |
 | #101, #102, #107 to #118, #122 to #125 | merged | earlier agent work, already in `dev`, listed only for provenance | no |
 
-The four open ones are the live problem: the stack cannot be reviewed or merged from the web UI.
+**What the state actually is, narrowed.** The content is excluded from GitHub's list and search index while the objects still exist and direct access mostly still works. The evidence, all checkable in a glance: logged in as `agent97eth`, the Pull requests tab badge reads **9** while the filtered list header reads **Open 5** and renders only the five dependabot PRs, so the account cannot find its own work in a list either. The same four open PRs are reachable **one at a time by direct URL**, which is what rules out deletion and points at list and search exclusion rather than withheld content. Anonymous fetches 404 for all 22 while a dependabot PR in the same repo returns 200, and `github.com/agent97eth` 404s while `github.com/WernerVdM97` returns 200.
 
-**How to see it is real, in one glance:** the Pull requests tab badge reads **9**, the list header reads **Open 5**, and only the five dependabot PRs render. The API agrees there are 9 open PRs and that 4 of them are authored by `agent97eth`. Fetching any of the 22 by URL returns 404 while a dependabot PR in the same repo returns 200, and `github.com/agent97eth` itself 404s while `github.com/WernerVdM97` does not.
+**No warning banner.** GitHub does not banner this, so the account's email inbox is the place to look for a notice, under Settings then Emails to find which address is on it.
 
-**What is *not* affected.** Branches and commits are public and fine: `feat/agent-panel-1-surface`, `feat/agent-panel-2-feedback`, `feat/agent-panel-3-panels`, `chore/todo-human-only` and every commit SHA resolve for anyone. Nothing about the code, the tests or the history is at risk, and the four open PRs' bodies are exported so they can be recreated in minutes.
+**The code is reviewable today, without any PR.** Nothing about the branches is affected, and every layer's full diff renders for anyone logged in or not:
 
-**What the author's view shows, and why it misleads.** Logged in as `agent97eth` the PRs look normal and there is no warning banner, because a withheld item stays visible to its own author. The account also still authenticates and still writes. So "it looks fine to me" is expected and is not evidence that the PRs are published. Check the account's email inbox for a notice from GitHub instead, since that is the usual channel rather than a banner.
+- Layer 1: `https://github.com/WernerVdM97/daily-pixel/compare/dev...feat/agent-panel-1-surface`
+- Layer 2, once layer 1 is in: the same URL with `feat/agent-panel-2-feedback`
+- Layer 3: the same URL with `feat/agent-panel-3-panels`
+- The notes branch: the same URL with `chore/todo-human-only`
 
-**No self-serve fix.** Support is the only remedy that keeps the same identity, at `support.github.com/contact` filed while logged in as `agent97eth`, describing the author-scoped withholding and the date it began (between 2026-09-10 and 2026-09-11). If that stalls or fails, the durable replacement is a GitHub App rather than another user account: it opens PRs as `<app>[bot]`, is built for automation, and is not subject to the new-account heuristics a fresh user account would be.
+Branch and commit views also resolve, so the work can be reviewed and merged locally without a PR object ever being visible. The PR objects are the only broken thing, not the code, the tests or the history.
+
+**The one test that decides how much this matters.** Open `https://github.com/WernerVdM97/daily-pixel/pull/126` **logged in as WernerVdM97**. If it opens for the repo owner, the stack is reviewable and mergeable as it stands and only the lists are broken. If it 404s for the owner too, the objects are effectively unreachable and the appeal or a replacement identity becomes mandatory.
+
+**No self-serve fix.** Support is the only remedy that keeps the same identity, at `support.github.com/contact` filed while logged in as `agent97eth`, describing the list and search exclusion and the date it began (between 2026-09-10 and 2026-09-11). If that stalls or fails, the durable replacement is a GitHub App rather than another user account: it opens PRs as `<app>[bot]`, is built for automation, and is not subject to the new-account heuristics a fresh user account would be.
 
 **Two things to stop doing meanwhile**, because they are the likely triggers and would repeat on any replacement account: writing in bursts (20 issues, 4 PRs and 13 comments inside half an hour from a four-day-old account), and leaving the leaked `gh` OAuth token live, which the handover notes have flagged since it was printed into a session transcript.
 
