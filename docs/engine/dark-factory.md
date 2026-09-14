@@ -41,6 +41,8 @@ Blocked (needs-human-decision) is reachable from any stage except Done; triage o
 
 `Priority` (P0–P3) ranks within a column. Labels carry two axes: `area:*` (subsystem) and the gate labels `auto:*`, `needs-human-decision`, `factory:seeded`. The declarative source of truth for labels is `.github/labels.yml`. Milestones map to planning horizons: Release A closeout, POC+ arc, v0.3.x polish, MVP, MVP+ / someday.
 
+**Issues are how work arrives.** An agent that needs to record a todo, a finding, a follow-up or a handover note files **one issue per item**, labelled from `.github/labels.yml` (`area:*` / `type:*`) with a milestone only where it is obvious, and leaves it in `Inbox` for triage to enrich. `TODO.md` is not a queue: it is a human's notes file, and an agent that writes its work there has lost it.
+
 ## Where the factory lives
 
 | Path | What it is |
@@ -174,4 +176,4 @@ Per-loop control stays separate: a schedule's own `paused` flag (see § Running 
 
 ---
 
-_Board seeded 2026-08-03 from `TODO.md` (71 items); the loop machinery (agents, schedules, memory) was built 2026-09-07 to 09-10, with scrumo, the escalator and the model tiering landing 09-10 per [[dark-factory-requirements]]. The meta-oil improvement loop, its friction and cache metrics and its owner intake landed the same day. The job ledger landed 2026-09-11 ([[dark-factory-job-ledger]]), after the executor's first headless run was killed at 30:00 and left #34 `In Progress` with no PR. Only `.pi/agents/`, `.pi/factory/project.json` and `scripts/factory-jobs.ts` are tracked: the seeding payloads, the runbook, the job records and the memory contents stay local. `TODO.md`'s actionable items live on the board; its narrative layer stays in the repo._
+_Board seeded 2026-08-03 from `TODO.md` (71 items); the loop machinery (agents, schedules, memory) was built 2026-09-07 to 09-10, with scrumo, the escalator and the model tiering landing 09-10 per [[dark-factory-requirements]]. The meta-oil improvement loop, its friction and cache metrics and its owner intake landed the same day. The job ledger landed 2026-09-11 ([[dark-factory-job-ledger]]), after the executor's first headless run was killed at 30:00 and left #34 `In Progress` with no PR. Only `.pi/agents/`, `.pi/factory/project.json` and `scripts/factory-jobs.ts` are tracked: the seeding payloads, the runbook, the job records and the memory contents stay local. `TODO.md` is human notes only; an agent's todo, finding or handover is a board issue, and the file's remaining actionable items were migrated to the board._

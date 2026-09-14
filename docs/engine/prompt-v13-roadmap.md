@@ -63,7 +63,7 @@ Open questions the v12 stages explicitly punted, actionable since the legacy sta
 
 ## Explicitly still deferred beyond v13 (MVP)
 
-- [>] **Death mechanic** — HP 0 stays observable-not-fatal (`hpZero` marker); the real death/consequence design is MVP scope ([[stage-3-combat-spine-plan]], `TODO.md`).
+- [>] **Death mechanic** — HP 0 stays observable-not-fatal (`hpZero` marker); the real death/consequence design is MVP scope ([[stage-3-combat-spine-plan]], #48).
 - [>] **Real graph backend** — scene-state stays SQLite-typed until [[mvp-data-model]] lands.
 - [>] **Free-text trust restoration** — v13 ships revoke-only; the earn-it-back path is MVP.
 

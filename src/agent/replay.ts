@@ -29,7 +29,7 @@
  * weekend copy on another (a Saturday-locally / Friday-UTC instant is the worked example), and a
  * multi-day recording is byte-green only on a host whose local weekday matches the recording's.
  * `hiScreen.ts` is deliberately NOT changed to read UTC here: that copy is player-facing, so it is
- * a game change rather than harness work (TODO.md carries it), which is why the mitigation is the
+ * a game change rather than harness work (issue #142 carries it), which is why the mitigation is the
  * noon-UTC `AGENT_START_DATE` rule in the agent-smoke skill instead of a fix in this file. Neither
  * half is a general fake-timer: timers and intervals are outside the pin entirely (`clock.ts`), so
  * anything scheduled rather than read behaves exactly as it did.

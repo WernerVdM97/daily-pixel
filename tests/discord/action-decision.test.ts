@@ -610,7 +610,7 @@ describe('buildDecisionMessage — last-stand / bail decision screen shows the r
     // The forced options still render — the readout is ADDED above them, not a swap. Both survive
     // the standard convention: the real "Last stand" option is lettered (A) with its label in the
     // body; the terminal "Bail bloodied" keeps a worded button. (Cosmetic styling of these buttons
-    // is a separate tracked item, TODO.md — out of C5's readout scope.)
+    // is a separate tracked follow-up — out of C5's readout scope.)
     expect(desc).toContain('**A.** Last stand');
     expect(buttons(msg).map((b: any) => b.label)).toEqual(['Bail bloodied', 'A']);
   });

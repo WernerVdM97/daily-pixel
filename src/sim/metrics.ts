@@ -9,7 +9,7 @@ export interface SimSummary {
   netWealth: number;
   itemsGained: number;
   avgFinalDc: number;
-  /** N/A until the death track lands (TODO.md: "make wealth/stamina/health spendable,
+  /** N/A until the death track lands (issue #48: "make wealth/stamina/health spendable,
    *  define death / 0 HP"). A `SimSummary.death` field kept as an explicit hook rather
    *  than inventing a mechanic ahead of the design. */
   death: null;
