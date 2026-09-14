@@ -28,11 +28,11 @@ Four actors reach the same OpenRouter account. Two of them share one key today: 
 
 The factory is the omission, and it is the largest spender: a tick can fire five loops and spawn several children, and none of it is separable from your own interactive sessions.
 
-**Per-key accounting already exists**, which is what makes splitting worthwhile rather than cosmetic. `GET https://openrouter.ai/api/v1/key` with a key returns its own `usage`, `usage_daily`, `usage_weekly`, `usage_monthly`, `limit` and `limit_remaining`. Reading the shared key today reports **$10.27 all-time and $3.38 this week** with no attribution beneath it, while every factory loop reaches the same endpoint under the same identity as you.
+**Per-key accounting already exists**, which is what makes splitting worthwhile rather than cosmetic. `GET https://openrouter.ai/api/v1/key` with a key returns its own `usage`, `usage_daily`, `usage_weekly`, `usage_monthly`, `limit` and `limit_remaining`. Reading the shared key on 2026-09-14 reported **$10.27 all-time and $3.38 this week** with no attribution beneath it, while every factory loop reaches the same endpoint under the same identity as you. Those figures are a snapshot, not a budget: they date the split rather than describe it.
 
 `limit` is `null` (no cap) on the shared key and `expires_at` is `null` (nothing forces rotation). Both are available per key, and the split is already using the first of them: **the factory key carries a `$5` cap that resets daily** (`limit: 5`, `limit_reset: daily`, `limit_remaining: 5`, unused so far), which is the runaway case handled rather than discussed. The ceiling is loose against the observed burn, since the shared key's $3.38 covers a week of the factory plus your own sessions, so $5 a day is roughly ten times that and should not bind in normal operation; the daily reset is what makes it safe, because the outage clears itself rather than waiting for a human to raise a limit. The failure itself is worth stating plainly, because it is not a smaller bill but an outage: an exhausted key fails every call, and because the key is passed as `--api-key` there is deliberately no fallback to the shared credential, so the factory stops rather than spending somewhere else. A capped key converts spend into failure, which is the right trade for an unattended loop and the wrong one for anything a player is waiting on.
 
-**The cap is only safe because something reads it.** `scripts/factory-run-due.sh` asks the same `GET /api/v1/key` for `limit_remaining` before it fires, and skips the tick when the answer is a definite zero, so an exhausted key is one log line saying why rather than a 401 per call for the rest of the day (#160). Nothing is mirrored into `.env`: the field is read live, so raising the cap on the dashboard takes effect on the next tick with nothing to re-provision, lowering it mid-window recomputes what is left, and removing it reports `null` and stands the guard down. The polarity matters as much as the check: only a definite zero skips, while a timeout, an unparseable body or a missing field fires the tick anyway, because a guard that cannot read the budget must not become a new way to stop the factory.
+**The cap is only safe because something reads it.** `scripts/factory-run-due.sh` asks the same `GET /api/v1/key` for `limit_remaining` before it fires, and skips the tick when the answer is zero or negative, so an exhausted key is one log line saying why rather than a 401 per call for the rest of the day (#160). Nothing is mirrored into `.env`: the field is read live, so raising the cap on the dashboard takes effect on the next tick with nothing to re-provision, lowering it mid-window recomputes what is left, and removing it reports `null` and stands the guard down. The polarity matters as much as the check: only a spent budget skips, while a timeout, an unparseable body or a missing field fires the tick anyway, because a guard that cannot read the budget must not become a new way to stop the factory.
 
 ### The trap: `auth.json` outranks the environment
 
@@ -55,22 +55,22 @@ $ pi -p --api-key sk-or-v1-BOGUS --model openrouter/deepseek/deepseek-v4.1-flash
 401: {"message":"User not found."}            # the flag beat auth.json
 ```
 
-The lever is therefore `--api-key`, at the two places the factory spawns `pi`:
+The lever is therefore `--api-key`, at the two places the factory spawns `pi`. Both are built in #160, the branch stacked directly above this one, so what follows is the record of what landed there rather than a plan for it:
 
-| Site | What it is | Change |
-| ---- | ---------- | ------ |
-| `scripts/factory-run-due.sh:210` | a schedule fire | add `--api-key "$FACTORY_OPENROUTER_API_KEY"` before `"$ACTION"` |
-| `scripts/factory-jobs.ts:431` | `defaultSpawnStage`, the ledger's per-stage wrapper | add `--api-key` to the args array, read off the injected `env` so it stays testable |
+| Site | What it is | What changed |
+| ---- | ---------- | ------------ |
+| `scripts/factory-run-due.sh`, the `"$PI_BIN" -p … "$ACTION"` line | a schedule fire | `--api-key "$PI_KEY"` passed before `"$ACTION"` |
+| `scripts/factory-jobs.ts`, `defaultSpawnStage` | the ledger's per-stage wrapper | `--api-key` in the args array, read off the injected `env` so it stays testable |
 
-Both are one line, and both must pass the flag only when the key is non-empty: `--api-key ""` is not "no key", it is a broken key, and it would turn the pin's hard-failure behaviour into a factory that cannot reach a model at all. Absent the flag, pi falls back to the shared `auth.json` credential, which is the deliberate degradation the launcher then warns about on the tick it happens.
+Both are one line, and both pass the flag only when the key is non-empty: `--api-key ""` is not "no key", it is a broken key, and it would turn the pin's hard-failure behaviour into a factory that cannot reach a model at all. Absent the flag, pi falls back to the shared `auth.json` credential, which is the deliberate degradation the launcher then warns about on the tick it happens.
 
-A third path deliberately does **not** need this: the agent children themselves are spawned by pi from inside the wrapper process, so they inherit whatever credential the parent resolved. One `--api-key` per factory-launched `pi` covers every agent in the tree under it, which is why the fix is two lines rather than one per agent definition.
+A third path deliberately does **not** need this: the agent children themselves are spawned by pi from inside the wrapper process, so they inherit whatever credential the parent resolved. One `--api-key` per factory-launched `pi` covers every agent in the tree under it, which is why the fix was two lines rather than one per agent definition.
 
 ### Where the factory key is stored
 
-The launcher does **not** source the repo `.env`. It `sed`s `FACTORY_ENABLED` out of it by name (`scripts/factory-run-due.sh:70`), which is deliberate: the file carries a Discord token and, historically, plaintext material, and sourcing it into a systemd-run script buys nothing. So the key needs a home.
+The launcher does **not** source the repo `.env`. It `sed`s `FACTORY_ENABLED` out of it by name (`scripts/factory-run-due.sh:70`), which is deliberate: the file carries a Discord token and, historically, plaintext material, and sourcing it into a systemd-run script buys nothing. So the key needed a home.
 
-**Decided: another named `.env` value, `FACTORY_OPENROUTER_API_KEY`.** The other two candidates were a systemd drop-in and a separate `EnvironmentFile`; `.env` won because it puts every factory knob in the one file a reader already looks in, and the named `sed` read is the mechanism already proven there for `FACTORY_ENABLED`. The process environment is still checked first, so a drop-in remains available to anyone who wants the credential out of the repo tree entirely, and nothing has to change to switch.
+**Decided, and built in #160: another named `.env` value, `FACTORY_OPENROUTER_API_KEY`.** The other two candidates were a systemd drop-in and a separate `EnvironmentFile`; `.env` won because it puts every factory knob in the one file a reader already looks in, and the named `sed` read is the mechanism already proven there for `FACTORY_ENABLED`. The process environment is still checked first, so a drop-in remains available to anyone who wants the credential out of the repo tree entirely, and nothing has to change to switch.
 
 The convention is mirrored in both languages rather than shared: `factory_key()` in `scripts/factory-run-due.sh` for the schedule fire, `factoryApiKey()` in `scripts/factory-jobs.ts` for the ledger's stage wrappers. Both take the process environment first, then the last matching line in `.env`, and both strip optional quoting, surrounding whitespace and a trailing comment. Duplicating a parsing convention across a shell script and a TypeScript one is the same bargain the launcher already makes with its own switch sources. The variable is listed in `.env.example` with the reason it exists, which is the convention #157 set for the bot's and the player's keys. The cap is not in that file: it lives on the key in the dashboard, and the launcher reads it from there rather than holding a copy that could drift.
 
@@ -78,7 +78,7 @@ The convention is mirrored in both languages rather than shared: `factory_key()`
 
 PR #157 pins every call to the DeepSeek host because a host switch means a cold prompt cache on a prefix that is re-read on every call, and the review pass on that PR sharpened it further: DeepSeek is the one endpoint of the model's 17 that OpenRouter flags `supports_implicit_caching`, so a fallback host would not merely be cold at the switch, it would never cache the prefix at all. That reasoning is only worth anything if the cache stays warm, and **nothing currently measures it**.
 
-`llm_calls` records `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_ms` and `finish_reason`. It does not record cached tokens, cost, or which host served the call, so a pin that silently stopped holding would look exactly like a pin that works, at a higher bill.
+`llm_calls` records `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_ms`, `finish_reason` and `reasoning_chars`, the last of those a gauge of how long the model's thinking was rather than an input to any price. It does not record cached tokens, cost, or which host served the call, so a pin that silently stopped holding would look exactly like a pin that works, at a higher bill.
 
 The evidence is already in the response body we receive and throw away:
 
@@ -108,7 +108,7 @@ Five columns on `llm_calls`:
 | `provider` | TEXT | The serving host. `DeepSeek` is the pin holding; anything else is a regression, per call |
 | `cached_tokens` | INTEGER | Numerator of the hit rate; `prompt_tokens` is already recorded, so the rate is derivable |
 | `cost_usd` | REAL | The provider's own figure, which is what a routing decision should be priced on |
-| `reasoning_tokens` | INTEGER | What the reasoning opt-in costs, per call. The review pass on #157 exists because silence was buying a chain-of-thought on stages that never asked for one, so this is the column that prices that decision rather than leaving it in `completion_tokens` as a lump |
+| `reasoning_tokens` | INTEGER | What the reasoning opt-in costs, per call. The review pass on #157 exists because silence was buying a chain-of-thought on stages that never asked for one, so this is the column that prices that decision rather than leaving it in `completion_tokens` as a lump. It complements rather than duplicates `reasoning_chars`, which measures the length of the thinking rather than what that thinking is billed at |
 
 Files it touches, following the house pattern for a schema change:
 
@@ -132,11 +132,11 @@ Files it touches, following the house pattern for a schema change:
 
 ## Acceptance
 
-- One live bot call and one `agent:play` call each write `provider = 'DeepSeek'`, a `response_id` starting `gen-`, and non-null `cached_tokens`, `cost_usd` and `reasoning_tokens`.
-- A `decide` call carries `reasoning_tokens > 0` and a `classify` call carries `0`, which is the check that the explicit `{enabled: false}` from the #157 review pass is reaching the wire on the stages that never opted in.
-- **A second call sharing a prefix reports `cached_tokens > 0`.** This is the actual proof the pin is doing its job, and it is the one number no surface here shows today.
-- `formatLlmCostSummary` prints hit rate and serving host per call kind, with pre-migration rows counted separately rather than as misses.
-- Deliberately breaking the pin makes `provider != 'DeepSeek'` appear on the next call, so the check fails loudly rather than quietly paying full price. `order: ["morph"]` is not how to break it: with `allow_fallbacks: false`, a host that cannot serve the slug is a routing failure rather than a different provider. The executable form is to point `DEFAULT_LLM_MODEL` at `deepseek/deepseek-v4-flash`, which no DeepSeek endpoint serves, and drop the route's `order` with `allow_fallbacks: true`, so the next call is a real non-DeepSeek row and the check has something to fail on.
+- [ ] One live bot call and one `agent:play` call each write `provider = 'DeepSeek'`, a `response_id` starting `gen-`, and non-null `cached_tokens`, `cost_usd` and `reasoning_tokens`.
+- [ ] A `decide` call carries `reasoning_tokens > 0` and a `classify` call carries `0`, which is the check that the explicit `{enabled: false}` from the #157 review pass is reaching the wire on the stages that never opted in.
+- [ ] **A second call sharing a prefix reports `cached_tokens > 0`.** This is the actual proof the pin is doing its job, and it is the one number no surface here shows today.
+- [ ] `formatLlmCostSummary` prints hit rate and serving host per call kind, with pre-migration rows counted separately rather than as misses.
+- [ ] Deliberately breaking the pin makes `provider != 'DeepSeek'` appear on the next call, so the check fails loudly rather than quietly paying full price. `order: ["morph"]` is not how to break it: with `allow_fallbacks: false`, a host that cannot serve the slug is a routing failure rather than a different provider. The executable form is to point `DEFAULT_LLM_MODEL` at `deepseek/deepseek-v4-flash`, which no DeepSeek endpoint serves, and drop the route's `order` with `allow_fallbacks: true`, so the next call is a real non-DeepSeek row and the check has something to fail on.
 
 ## Open questions
 
