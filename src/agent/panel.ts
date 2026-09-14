@@ -49,8 +49,15 @@ import type { CallKindBreakdown } from './llmCostSummary.js';
  * by another's tag (contract §9's refinement), `friction.themes` is the FULL ranked list with the
  * ritual subset beside it, the run length comes from the summary, and the score rows carry `hook`
  * while the series carries the per-day arc notes. Two panels either side of this differ in their
- * numbers, so a diff across the boundary is refused rather than read as a change in the game. */
-export const PANEL_FILE_VERSION = 2;
+ * numbers, so a diff across the boundary is refused rather than read as a change in the game.
+ *
+ * v3: friction reports described in different words collapse into ONE theme
+ * ({@link FRICTION_MERGE_THRESHOLD}), so a defect four personas hit is finally visible as a
+ * cross-persona signal instead of four once-each themes. Every theme carries the raw per-report list
+ * (`reports`) and its distinct `phrasings` count, and the ranking CHANGES: themes merge and their
+ * exposure adds up. A v2 panel and a v3 panel are not comparable, so the boundary is refused rather
+ * than read as the design moving. */
+export const PANEL_FILE_VERSION = 3;
 
 /** The panel's two file outputs, written beside the reviews it reads. */
 export const PANEL_MARKDOWN_FILE = 'panel.md';
@@ -199,9 +206,13 @@ export interface PanelSeriesRow {
 }
 
 export interface FrictionTheme {
-  /** The normalised grouping key (lowercased, whitespace-collapsed, punctuation-stripped). */
+  /** The normalised representative phrasing ({@link normalizePhrase} of {@link label}). Reported for
+   *  a consumer that wants the theme's key; the GROUPING was by {@link FRICTION_MERGE_THRESHOLD}, so
+   *  this is no longer the value every report shares. */
   theme: string;
-  /** The display form: the first `what` seen for this theme, trimmed. */
+  /** The display form: the first `what` seen for this theme, trimmed, in the panel's canonical
+   *  order. See {@link aggregateFrictions} for why the representative is the first rather than the
+   *  longest. */
   label: string;
   /** Distinct personas that reported it, in the panel's canonical row order. */
   personas: string[];
@@ -209,6 +220,15 @@ export interface FrictionTheme {
   /** Total reports, one per friction event — a persona reporting it five times counts five here
    *  and once in {@link personaCount}, which is what stops one grievance dominating the ranking. */
   count: number;
+  /** Distinct WORDINGS that merged into this theme. `1` means exact-text grouping would have
+   *  produced the same theme; anything higher is a merge of differently worded reports of one
+   *  complaint, which is the whole point of {@link FRICTION_MERGE_THRESHOLD} — and the count that
+   *  makes a silent merge visible in `panel.md`. */
+  phrasings: number;
+  /** EVERY report that went into this theme, in the panel's canonical order and in report order
+   *  within a persona (so `reports.length === count`). Nothing is hidden by a merge: the reader can
+   *  always see which sentences were collapsed, and re-check the judgement. */
+  reports: FrictionReportRef[];
   worstSeverity: number;
   /** The tags seen, cheapest first. */
   recurrences: Recurrence[];
@@ -218,6 +238,17 @@ export interface FrictionTheme {
   /** True when ANY report carried the `ritual` tag: met every session by someone is a design
    *  finding, so these are listed apart from the rest however mild the individual reports read. */
   ritual: boolean;
+}
+
+/** One report as it went into a {@link FrictionTheme}: the friction event plus the persona that
+ *  raised it, so a merged theme's provenance is readable straight out of `panel.json`. */
+export interface FrictionReportRef {
+  persona: string;
+  dayNumber: number;
+  /** The phrase as the brain wrote it (trimmed), NOT the normalised form. */
+  what: string;
+  severity: number;
+  recurrence: Recurrence;
 }
 
 export interface VerbHistogramRow {
@@ -313,16 +344,115 @@ export function sparkline(values: readonly number[], min = 1, max = 5): string {
     .join('');
 }
 
-/** The dedupe key for a free-text phrase: lowercased, punctuation stripped, whitespace collapsed
- *  (contract §9). `The menu "re-offers" the same 3 jobs!` and `the menu re offers the same 3 jobs`
- *  are one theme; nothing smarter is attempted, because a linguistic merge would be a judgement the
- *  panel cannot defend. */
+/** The exact-text dedupe key for a free-text phrase: lowercased, punctuation stripped, whitespace
+ *  collapsed (contract §9). `The menu "re-offers" the same 3 jobs!` and `the menu re offers the same
+ *  3 jobs` are one key. This is the right key for the DISTINCTIVENESS tables (`arcNote`,
+ *  `quitTrigger`), where the question is literally "did two personas write the same sentence" — and
+ *  the wrong one for friction themes, where two personas describing one defect in different words is
+ *  the signal ({@link FRICTION_MERGE_THRESHOLD}). */
 export function normalizePhrase(text: string): string {
   return (text ?? '')
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Function words dropped before two friction reports are compared. Standard English function words
+ *  only: dropping a DOMAIN word (menu, roll, day) would be a judgement about what the game's
+ *  complaints mean, and the whole point of the measure is that it makes no such judgement. */
+const FRICTION_STOPWORDS: ReadonlySet<string> = new Set([
+  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'also', 'am', 'an', 'and', 'any', 'are',
+  'as', 'at', 'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by', 'can',
+  'cannot', 'could', 'did', 'do', 'does', 'doing', 'down', 'during', 'each', 'few', 'for', 'from',
+  'further', 'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers', 'herself', 'him', 'himself',
+  'his', 'how', 'i', 'if', 'in', 'into', 'is', 'it', 'its', 'itself', 'just', 'let', 'me', 'more', 'most',
+  'must', 'my', 'myself', 'no', 'nor', 'not', 'of', 'off', 'on', 'once', 'only', 'or', 'other', 'our',
+  'ours', 'ourselves', 'out', 'over', 'own', 'same', 'she', 'should', 'so', 'some', 'such', 'than',
+  'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this',
+  'those', 'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was', 'we', 'were', 'what', 'when',
+  'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'would', 'you', 'your', 'yours', 'yourself',
+  'yourselves',
+]);
+
+/**
+ * The similarity at or above which two friction reports are read as the same complaint.
+ *
+ * The measure is Dice similarity
+ * ({@link frictionSimilarity}) over {@link frictionTokens}: `2 x shared / (|a| + |b|)`, so two reports
+ * are merged when roughly 40% of their combined content vocabulary is the same. Dice rather than
+ * Jaccard because it is gentler on UNEQUAL lengths (a terse report and a long one about one defect
+ * should not be split just because the long one says more), and Dice rather than the
+ * overlap/containment coefficient because containment is 1.0 whenever a short report's words are a
+ * subset of a long one's, which merges "the menu repeats itself" into any sentence that happens to
+ * mention a menu. Under-merging is the safer error here and the whole design leans that way: a
+ * wrongly merged theme HIDES a real finding, while a theme left split only under-ranks one.
+ *
+ * 0.4 is the conservative end of what the real four-persona arc panel supports. On that panel the
+ * pairs that should merge sit at 0.417 or above (two reports of the roll-exhaustion defect, worded
+ * "0 rolls remaining" and "rollsRemaining at 0"), while the highest-scoring pair that must NOT merge
+ * sits at 0.387: the homesteader's roll-exhaustion report against the explorer's location complaint,
+ * which share the boilerplate "the work menu offers ..." and nothing else. So 0.4 is deliberately
+ * just above a KNOWN false-merge candidate rather than at a round number, and the number to watch if
+ * this is ever revisited is that 0.387: drop the threshold below it and the location/thread theme
+ * swallows a roll-exhaustion report (at 0.35 it also swallows the soldier's no-combat-option report,
+ * making one 6-report theme out of three defects), which is the failure this layer exists to prevent.
+ * The cost is visible and accepted: a report that describes a defect with NO vocabulary in common
+ * with the rest of its group stays separate, and that is a finding the panel reports rather than
+ * papers over — on this panel the homesteader's "the work menu still offered gate options after my
+ * rolls were spent" scores only 0.083 to 0.286 against its fellow roll-exhaustion reports (it shares
+ * "work menu"/"offered"/"rolls" and nothing else), so the theme counts 3 personas where a human
+ * reader counts 4.
+ */
+export const FRICTION_MERGE_THRESHOLD = 0.4;
+
+/** A crude English suffix stem, applied only to tokens of five characters or more, so `rolls`,
+ *  `rolling` and `rolled` collapse onto `roll` and `remaining` onto `remain` — the same complaint
+ *  written in another tense should not be a different theme. Deliberately not Porter: a real stemmer
+ *  on a 20-word sentence buys almost nothing and hides its rules from the reader. */
+function stemToken(word: string): string {
+  if (word.length > 4 && word.endsWith('ing')) return word.slice(0, -3);
+  if (word.length > 4 && word.endsWith('ed')) return word.slice(0, -2);
+  if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
+  return word;
+}
+
+/**
+ * A friction report's content tokens: lowercased, punctuation dropped, function words removed and
+ * suffixed stems collapsed ({@link FRICTION_STOPWORDS}, {@link stemToken}).
+ *
+ * Two splits matter. A camelCase join is undone first, because `rollsRemaining` is ONE token to a
+ * plain splitter and that single token is why "rollsRemaining at 0" and "0 rolls remaining" stayed
+ * separate themes. Digits stay (a lone `0` is content here: "0 rolls remaining"), while a single
+ * letter is dropped as noise.
+ */
+export function frictionTokens(text: string): Set<string> {
+  const spaced = (text ?? '')
+    .replace(/(?<=[a-z0-9])(?=[A-Z])/g, ' ')
+    .replace(/(?<=[A-Za-z])(?=\p{N})|(?<=\p{N})(?=[A-Za-z])/gu, ' ')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ');
+  const tokens = new Set<string>();
+  for (const word of spaced.split(/\s+/)) {
+    if (word === '' || FRICTION_STOPWORDS.has(word)) continue;
+    if (/^\p{N}+$/u.test(word)) {
+      tokens.add(word);
+      continue;
+    }
+    if (word.length < 2) continue;
+    tokens.add(stemToken(word));
+  }
+  return tokens;
+}
+
+/** Dice similarity of two token sets: `2 x |A n B| / (|A| + |B|)`, 0 when either side is empty.
+ *  Symmetric, so the merge test cannot depend on which report came first. */
+export function frictionSimilarity(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  let shared = 0;
+  for (const token of small) if (large.has(token)) shared += 1;
+  return (2 * shared) / (a.size + b.size);
 }
 
 /** True when a `building` answer is the prompt's sanctioned "there is nothing" (spec § F). Kept
@@ -507,55 +637,136 @@ export function aggregateSeries(reviews: readonly ReviewFile[]): PanelSeriesRow[
 }
 
 /**
- * Friction themes by exposure (contract §9). Every report of the same normalised `what` collapses
- * into one theme carrying the distinct personas that raised it, the total report count, the worst
- * severity and the tags seen. Dedupe is load-bearing: nothing caps how often a brain reports a
- * grievance, so without it one persona complaining every turn would own the ranking on volume
- * alone. Ordering is exposure descending, ties by persona count then label, so the report is
- * deterministic.
+ * Friction themes by exposure (contract §9). Reports that make the SAME complaint are grouped into
+ * one theme carrying the distinct personas that raised it, the total report count, the worst severity
+ * and the tags seen. Dedupe is load-bearing twice over:
+ *
+ * - nothing caps how often a brain reports a grievance, so without it one persona complaining every
+ *   turn would own the ranking on volume alone;
+ * - and it has to be by SIMILARITY, not by exact text. Contract §9's rule is that "a friction raised
+ *   by one persona is taste; raised by four, or tagged `ritual` by anyone, is a design finding", and
+ *   exact text can never see the first half: four personas describing one defect in their own words
+ *   produced four once-each themes, so the panel's top finding was invisible as a cross-persona
+ *   signal. That is the defect {@link FRICTION_MERGE_THRESHOLD} fixes, on real arc data.
  *
  * Exposure is the SUM over reports of `severity x RECURRENCE_WEIGHT[recurrence]`. The earlier form
  * multiplied the theme's worst severity by its dearest tag by the persona count, which multiplies
  * attributes of DIFFERENT reports: a severity-2 `ritual` from one persona plus a severity-5 `once`
  * from another scored as if a single severity-5 ritual report existed. Severity, tags and persona
- * count stay display columns; only the score is a sum.
+ * count stay display columns; only the score is a sum — which is exactly why a merged theme's
+ * exposure is the sum of its parts and a 5-report theme correctly outranks 5 themes of one.
+ *
+ * The representative (`label`) is the first report seen in the panel's canonical order, and the
+ * normalised form of it is `theme`. The LONGEST phrasing was rejected as the representative even
+ * though it usually carries the most detail: it selects an all-caps report over the identical
+ * complaint written normally ("THE MENU RE-OFFERS THE SAME THREE JOBS" is longer than "The menu
+ * re-offers the same three jobs!"), and a shouted label reads as emphasis the persona did not
+ * intend. First-seen is deterministic, is a real sentence, and keeps the label that exact-text
+ * grouping already printed for a theme written one way.
  */
 export function aggregateFrictions(reviews: readonly ReviewFile[]): FrictionTheme[] {
-  const themes = new Map<string, FrictionTheme>();
+  interface Report {
+    persona: string;
+    dayNumber: number;
+    what: string;
+    severity: number;
+    recurrence: Recurrence;
+    tokens: Set<string>;
+  }
+
+  // Reports in the panel's canonical order (churn horizon, ties by name), so the first report of a
+  // merged theme is deterministic AND `personas` comes out in canonical row order for free.
+  const reports: Report[] = [];
   for (const file of orderReviews(reviews)) {
     for (const friction of file.frictions) {
-      const theme = normalizePhrase(friction.what);
-      if (theme === '') continue;
-      let entry = themes.get(theme);
-      if (!entry) {
-        entry = {
-          theme,
-          label: friction.what.trim(),
-          personas: [],
-          personaCount: 0,
-          count: 0,
-          worstSeverity: 0,
-          recurrences: [],
-          exposure: 0,
-          ritual: false,
-        };
-        themes.set(theme, entry);
-      }
-      entry.count += 1;
-      entry.exposure += friction.severity * RECURRENCE_WEIGHT[friction.recurrence];
-      entry.worstSeverity = Math.max(entry.worstSeverity, friction.severity);
-      if (!entry.recurrences.includes(friction.recurrence)) entry.recurrences.push(friction.recurrence);
-      if (friction.recurrence === 'ritual') entry.ritual = true;
-      if (!entry.personas.includes(file.persona)) entry.personas.push(file.persona);
+      if (normalizePhrase(friction.what) === '') continue;
+      reports.push({
+        persona: file.persona,
+        dayNumber: friction.dayNumber,
+        what: friction.what.trim(),
+        severity: friction.severity,
+        recurrence: friction.recurrence,
+        tokens: frictionTokens(friction.what),
+      });
     }
   }
 
-  for (const entry of themes.values()) {
-    entry.personaCount = entry.personas.length;
-    entry.recurrences = RECURRENCE_ORDER.filter((r) => entry.recurrences.includes(r));
+  // Union-find: a merge is transitive (A~B and B~C puts A, B and C in one theme) and the groups are
+  // the connected components, which is what lets a middle phrasing pull in two ends that resemble
+  // each other less. See FRICTION_MERGE_THRESHOLD for why that is worth the risk and how it is bounded.
+  const parent = reports.map((_, i) => i);
+  const find = (i: number): number => {
+    let root = i;
+    while (parent[root] !== root) root = parent[root];
+    // Path compression: a long chain of similar phrasings would otherwise make this quadratic.
+    while (parent[i] !== root) {
+      const next = parent[i];
+      parent[i] = root;
+      i = next;
+    }
+    return root;
+  };
+  const union = (a: number, b: number): void => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+
+  for (let i = 0; i < reports.length; i++) {
+    for (let j = i + 1; j < reports.length; j++) {
+      const a = reports[i].tokens;
+      const b = reports[j].tokens;
+      // Dice can never exceed 2 x min(|a|,|b|) / (|a|+|b|), so this arithmetic bound skips most pairs
+      // before touching a set: the pairwise pass stays cheap on a panel of hundreds of reports.
+      if ((2 * Math.min(a.size, b.size)) / (a.size + b.size) < FRICTION_MERGE_THRESHOLD) continue;
+      if (frictionSimilarity(a, b) >= FRICTION_MERGE_THRESHOLD) union(i, j);
+    }
   }
 
-  return [...themes.values()].sort(
+  const groups = new Map<number, Report[]>();
+  for (let i = 0; i < reports.length; i++) {
+    const root = find(i);
+    const group = groups.get(root);
+    if (group) group.push(reports[i]);
+    else groups.set(root, [reports[i]]);
+  }
+
+  const themes: FrictionTheme[] = [...groups.values()].map((group) => {
+    let exposure = 0;
+    let worstSeverity = 0;
+    const personas: string[] = [];
+    const recurrences: Recurrence[] = [];
+    const seen = new Set<string>();
+    for (const report of group) {
+      exposure += report.severity * RECURRENCE_WEIGHT[report.recurrence];
+      worstSeverity = Math.max(worstSeverity, report.severity);
+      if (!recurrences.includes(report.recurrence)) recurrences.push(report.recurrence);
+      if (!personas.includes(report.persona)) personas.push(report.persona);
+      seen.add(normalizePhrase(report.what));
+    }
+    const label = group[0].what;
+    return {
+      theme: normalizePhrase(label),
+      label,
+      personas,
+      personaCount: personas.length,
+      count: group.length,
+      phrasings: seen.size,
+      reports: group.map((r) => ({
+        persona: r.persona,
+        dayNumber: r.dayNumber,
+        what: r.what,
+        severity: r.severity,
+        recurrence: r.recurrence,
+      })),
+      worstSeverity,
+      recurrences: RECURRENCE_ORDER.filter((r) => recurrences.includes(r)),
+      exposure,
+      ritual: recurrences.includes('ritual'),
+    };
+  });
+
+  return themes.sort(
     (a, b) => b.exposure - a.exposure || b.personaCount - a.personaCount || a.label.localeCompare(b.label),
   );
 }
@@ -778,8 +989,20 @@ function compositionProse(composition: PanelComposition): string {
   return `This panel is ${composition.personas} persona(s) over ${composition.personaDays} persona-day(s): ${shapes}. Coverage below is the number of personas that could honestly score a criterion, and an \`unobserved\` cell is excluded from the mean rather than scored low: that is what stops a short panel reporting that the game has no aliveness and no memory when it simply had no week three.`;
 }
 
-/** The friction table's columns, shared by the ritual list and the rest so the two read alike. */
-const FRICTION_HEADERS = ['theme', 'personas', 'reports', 'worst sev', 'recurrence', 'exposure', 'raised by'];
+/** The friction table's columns, shared by the ritual list and the rest so the two read alike.
+ *  `phrasings` sits beside `reports` on purpose: the two together are what tells a reader whether a
+ *  big `reports` number is one persona repeating itself (phrasings 1) or several personas wording one
+ *  complaint differently (phrasings > 1), and a merge must never be silent. */
+const FRICTION_HEADERS = [
+  'theme',
+  'personas',
+  'reports',
+  'phrasings',
+  'worst sev',
+  'recurrence',
+  'exposure',
+  'raised by',
+];
 
 const daysEach = (days: number): string => `${days} ${days === 1 ? 'day' : 'days'} each`;
 
@@ -958,11 +1181,16 @@ export function renderPanelMarkdown(report: PanelReport): string {
     'Exposure is the per-report sum described in the caveat above: each report contributes its own severity times its own tag. `worst sev`, `recurrence` and `personas` are display columns and are never multiplied together.',
   );
   out.push('');
+  out.push(
+    'Reports that describe ONE defect in different words are merged into a single theme, because the design rule this section exists to apply ("raised by one persona is taste; raised by four is a design finding") is invisible to exact-text grouping. A `phrasings` count above 1 says the theme merged that many distinct wordings, and `panel.json` keeps every contributing report under `friction.themes[].reports`, so a merge is auditable and never hides a report.',
+  );
+  out.push('');
   const frictionRows = (themes: readonly FrictionTheme[]): (string | number)[][] =>
     themes.map((t) => [
       t.label,
       t.personaCount,
       t.count,
+      t.phrasings,
       t.worstSeverity,
       t.recurrences.join('/'),
       t.exposure,
@@ -982,6 +1210,27 @@ export function renderPanelMarkdown(report: PanelReport): string {
   out.push('');
   out.push(other.length === 0 ? '_None._' : table(FRICTION_HEADERS, frictionRows(other)));
   out.push('');
+  // The merge an exact-text grouping would have hidden: named, with every wording it swallowed, so a
+  // reader can disagree with the judgement instead of having to trust it.
+  const merged = report.friction.themes.filter((t) => t.phrasings > 1);
+  if (merged.length > 0) {
+    out.push('### Merged phrasings');
+    out.push('');
+    out.push(
+      'Themes that collapsed more than one wording. Every contributing report, with its persona, day, severity and tag, is in `panel.json` under `friction.themes[].reports`; the bullets below are the distinct wordings, in the panel\'s canonical order.',
+    );
+    out.push('');
+    for (const theme of merged) {
+      const wordings = new Map<string, FrictionReportRef>();
+      for (const row of theme.reports) {
+        const key = normalizePhrase(row.what);
+        if (!wordings.has(key)) wordings.set(key, row);
+      }
+      out.push(`- ${theme.count} report(s), ${theme.phrasings} phrasing(s), raised by ${theme.personas.join(', ')}:`);
+      for (const row of wordings.values()) out.push(`  - "${row.what}" (${row.persona})`);
+    }
+    out.push('');
+  }
 
   // ── Fulfilment signal ──
   out.push('## Fulfilment signal');
