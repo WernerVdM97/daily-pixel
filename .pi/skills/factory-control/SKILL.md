@@ -10,6 +10,8 @@ The factory writes to GitHub and spends tokens, so it is **off unless something 
 
 **Off is a claim about the tick, not about a file.** A stop is not done until a tick says so out loud, so run one (see Verifying) rather than reporting that the lever is in place.
 
+**The pause file gates the tick, not the schedule runner inside a session.** The switch lives in `scripts/factory-run-due.sh`, so it only stops what that script would have started. A `pi` session opened in this repo runs the project schedules itself and fires any occurrence it finds overdue, pause file and all: on 2026-09-14 a session started at 18:03Z found `factory-triage` overdue (its 17:30Z occurrence, never fired because every tick of the day had logged the off line) and fired it six seconds later, so a triage pass wrote the board as the very account the pause was protecting (`.pi/factory/memory/incidents/`). A stop is therefore **two** levers, the file for the tick and `schedule.pause` per loop for the session path, and neither is sufficient alone.
+
 ## What a tick is
 
 `factory-run-due.timer` (system unit, `/etc/systemd/system/`) fires `factory-run-due.service` every 5 min plus up to 30s jitter. The service runs `/usr/local/bin/factory-run-due`, a copy of `scripts/factory-run-due.sh`, which does three things in order: fire due schedules (one `pi` child each), drain one job stage, then housekeeping (fetch, fast-forward `dev`, prune merged branches). A tick with nothing due still drains and housekeeps — the drain is what advances a job, so "nothing due" is not "nothing happened".
@@ -27,16 +29,18 @@ Ticks are skippable for three reasons besides the switch, and the journal line n
 
 The pause file is the **stop now, with a note** lever; `.env` is the one that reads as intent ("off until further notice"). Stacking both buys nothing except a second place to undo later, since either alone stops the whole tick.
 
+Both of those gates, and the timer below them, only govern the tick. The session door is the per-loop row, and it is the one that is silently open: a schedule left unpaused is fired by any `pi` session in this repo the moment it notices the occurrence is overdue. A stop that means it uses the file **and** all eight loops.
+
 ## Stopping
 
-Whole factory, with a reason for the next reader:
+Whole factory, on both levers, because each one guards a different door. First the tick, with a reason for the next reader:
 
 ```bash
 cd /home/werner/projects/daily-pixel
 printf '%s\n' "owner paused $(date -u +%F): <why>, until <what>" > .pi/factory/PAUSED
 ```
 
-One loop only, from a pi session:
+Then the schedules, since the file cannot stop a session firing one. One loop, or all eight in turn:
 
 ```
 subagent({ action: "schedule.pause", id: "factory-triage" })
@@ -49,7 +53,7 @@ The eight schedule ids: `factory-triage`, `factory-executor`, `factory-sweeper`,
 
 1. Remove the pause file: `rm .pi/factory/PAUSED`.
 2. Check for an explicit on, because `rm` alone starts nothing: `grep -nE '^[[:space:]]*FACTORY_ENABLED' .env` must show a truthy value (`1`/`true`/`yes`/`on`), or the unit must carry one.
-3. Resume paused loops: `subagent({ action: "schedule.resume", id: "<id>" })`.
+3. Resume paused loops: `subagent({ action: "schedule.resume", id: "<id>" })`, one call per loop, for every loop the stop paused rather than only the one you came for. A schedule left paused never fires, and the tick's off line keeps saying the factory is stopped, so the two levers read as one state and can disagree.
 4. Confirm the machinery: `systemctl is-active factory-run-due.timer`.
 5. Run one tick and watch it do the full three steps (Verifying).
 
@@ -68,11 +72,14 @@ systemctl list-timers factory-run-due.timer            # the tick is still sched
 cmp /usr/local/bin/factory-run-due scripts/factory-run-due.sh
 ```
 
+And the door that has no journal: `subagent({ action: "schedule.list" })` must show eight `paused` rows while the factory is stopped. A stopped factory with eight `scheduled` rows is stopped only until someone opens a session here.
+
 A stopped factory reads as: the off line and nothing else. No `draining job stages`, no `housekeeping`, no `{"action":…}` from the ledger. Anything past that line means a stage was already in flight when the switch landed, which is normal and by design.
 
 ## Traps
 
 - **An in-flight stage finishes.** A tick already inside a 50-minute `build` cannot be interrupted safely, and killing it mid-write is what loses work; the next tick sees the switch. Check the ledger before declaring a clean stop.
+- **The file does not stop a session fire.** `.pi/factory/PAUSED` is read by `scripts/factory-run-due.sh`, so it stops that script's schedules, drain and housekeeping and nothing else. pi's own schedule runner fires an overdue project schedule from inside any session in this repo, so a stop that leaves the loops unpaused still writes to GitHub the next time someone opens `pi` here. Pause the schedules too, and read `scheduleOrigin` in the run's `status.json` to tell a scheduled fire from a deliberate `FACTORY_FIRE`.
 - **`FACTORY_FIRE` and `factory-jobs.ts` bypass the switch on purpose.** They are the human path. If the work must stop, do not leave a hand-fired run going and call it paused.
 - **`rm` does not start anything.** Presence of the pause file stops the factory even when enabled; absence still means off. Only an explicit on enables it.
 - **State is local.** `.env`, `.pi/factory/*` and `.pi/subagents/` are gitignored (`project.json` and the memory skeleton excepted), so a clone inherits neither the schedules nor any of this state.
