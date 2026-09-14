@@ -1,5 +1,7 @@
-// DeepSeek: OpenAI-compatible chat completions with Bearer auth + JSON mode.
-// https://api-docs.deepseek.com/
+// The game's LLM gateway: OpenAI-compatible chat completions with Bearer auth + JSON mode,
+// sent to OpenRouter and pinned to the DeepSeek host (the pin lives in openrouter.ts, with the
+// reasoning behind it). The *model* is DeepSeek V4.1 Flash; the *provider* is OpenRouter.
+// https://openrouter.ai/docs/api-reference/overview
 
 import {
   ACTION_CATEGORIES,
@@ -27,11 +29,12 @@ import {
   CRITIC_VERSION,
   PROMPT_SET_VERSION,
 } from './prompt-builder.js';
-import { callDeepseek } from './deepseek-transport.js';
+import { callChatCompletion, buildRequestBody } from './chat-transport.js';
+import { DEFAULT_LLM_MODEL } from './openrouter.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
 
-export interface DeepseekConfig {
+export interface ProdLlmGatewayConfig {
   apiKey: string;
   model?: string;
   temperature?: number;
@@ -89,7 +92,7 @@ Return ONLY valid JSON, no markdown fences:
 
 Keep "highlights" to at most 12 lines, most significant first. Use only events present in the data — never invent.`;
 
-export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, RecapGateway, CriticGateway {
+export class ProdLlmGateway implements LlmGateway, CartographerGateway, RecapGateway, CriticGateway {
   private apiKey: string;
   private model: string;
   private temperature: number;
@@ -98,9 +101,9 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   private recorder?: LlmCallRecorder;
   private capturePolicy: DeepCapturePolicy;
 
-  constructor(config: DeepseekConfig) {
+  constructor(config: ProdLlmGatewayConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model ?? 'deepseek-v4-flash';
+    this.model = config.model ?? DEFAULT_LLM_MODEL;
     this.temperature = config.temperature ?? 0.7;
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.verbose = config.verbose ?? false;
@@ -198,30 +201,28 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     // Report up front so the prompt is captured even if the request throws.
     onProgress({ rawPrompt: userMessage });
 
-    // Verbose logging wants the literal request body — `callDeepseek` builds its own internally,
-    // so reconstruct the same shape here purely for the log line (transport extraction note: T2).
+    // Verbose logging wants the literal request body — build it through the transport's own
+    // builder, so the line can never drift from what is actually sent (it did: it used to
+    // reconstruct the DeepSeek shape by hand and logged a request that no longer existed). The
+    // system prompt is empty on this gateway, so only the user message is passed.
     if (this.verbose) {
-      const requestBody = {
+      const requestBody = buildRequestBody({
         model: this.model,
-        messages: [
-          { role: 'system' as const, content: '' },
-          { role: 'user' as const, content: userMessage },
-        ],
-        response_format: { type: 'json_object' as const },
-        thinking: { type: 'enabled' as const },
         temperature: this.temperature,
-        stream: false,
-      };
+        systemPrompt: '',
+        userMessage,
+        reasoning: true,
+      });
       console.log(c.cyan('[llm:request]'), JSON.stringify(requestBody, null, 2));
     }
 
-    const result = await callDeepseek({
+    const result = await callChatCompletion({
       apiKey: this.apiKey,
       model: this.model,
       temperature: this.temperature,
       systemPrompt: '',
       userMessage,
-      thinking: true,
+      reasoning: true,
       fetchFn: this.fetchFn,
     });
 
@@ -229,10 +230,10 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
 
     if (!result.ok) {
       console.error(c.red('[llm:error]'), result.httpStatus, result.errorText ?? '');
-      throw new Error(`DeepSeek API error ${result.httpStatus}: ${result.errorText ?? ''}`);
+      throw new Error(`OpenRouter API error ${result.httpStatus}: ${result.errorText ?? ''}`);
     }
 
-    const reasoningContent = result.reasoningContent;
+    const reasoningContent = result.reasoning;
     onProgress({
       usage: result.usage,
       finishReason: result.finishReason,
@@ -242,7 +243,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
 
     const content = result.content;
     if (!content) {
-      throw new Error('DeepSeek returned empty response');
+      throw new Error('OpenRouter returned empty response');
     }
 
     if (this.verbose) {
@@ -257,7 +258,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       parsed = JSON.parse(content);
     } catch {
       console.error(c.red('[llm:parse-error]'), content.slice(0, 500));
-      throw new Error(`Failed to parse DeepSeek response: ${content.slice(0, 200)}`);
+      throw new Error(`Failed to parse OpenRouter response: ${content.slice(0, 200)}`);
     }
     onProgress({ responseJson: content, parseOk: true });
 
@@ -284,7 +285,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
       decision.outcomeText === undefined
     ) {
       throw new Error(
-        'DeepSeek returned an empty turn (no decision, no mutations, no outcome_text) — nothing to resolve',
+        'OpenRouter returned an empty turn (no decision, no mutations, no outcome_text) — nothing to resolve',
       );
     }
 
@@ -305,7 +306,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     ].join('\n');
 
     try {
-      const res = await callDeepseek({
+      const res = await callChatCompletion({
         apiKey: this.apiKey,
         model: this.model,
         temperature: this.temperature,
@@ -376,7 +377,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
   async summarizeWeek(actions: RecapActionInput[]): Promise<RecapResult> {
     const userMessage = JSON.stringify(actions);
 
-    const result = await callDeepseek({
+    const result = await callChatCompletion({
       apiKey: this.apiKey,
       model: this.model,
       temperature: this.temperature,
@@ -429,13 +430,13 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
     const userMessage = buildCriticUserMessage(input);
 
     try {
-      const result = await callDeepseek({
+      const result = await callChatCompletion({
         apiKey: this.apiKey,
         model: this.model,
         temperature: this.temperature,
         systemPrompt: buildCriticSystemPrompt(),
         userMessage,
-        thinking: true,
+        reasoning: true,
         fetchFn: this.fetchFn,
       });
 
@@ -444,7 +445,7 @@ export class DeepseekLlmGateway implements LlmGateway, CartographerGateway, Reca
         throw new Error(`critic API error ${result.httpStatus}`);
       }
 
-      const reasoningContent = result.reasoningContent;
+      const reasoningContent = result.reasoning;
       reasoning = reasoningContent;
       reasoningChars = reasoningContent?.length ?? null;
       usage = result.usage;

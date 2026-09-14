@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
   prompt_tokens        INTEGER,                          -- token-waste ground truth
   completion_tokens    INTEGER,
   total_tokens         INTEGER,
-  reasoning_chars      INTEGER,                          -- length of reasoning_content (gauge, not stored noise)
+  reasoning_chars      INTEGER,                          -- length of the model's reasoning (gauge, not stored noise)
   latency_ms           INTEGER,
   finish_reason        TEXT,
   created_at           TEXT    NOT NULL DEFAULT (datetime('now'))

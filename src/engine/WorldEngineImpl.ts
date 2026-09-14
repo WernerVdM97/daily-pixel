@@ -1306,7 +1306,7 @@ export class WorldEngineImpl implements WorldEngine {
     } catch (_err) {
       const err = _err as Error & { name?: string };
       if (isLlmStageFailure(err)) {
-        // Any DeepSeek stage failure on a beat past the first — resolve as timed_out instead of
+        // Any LLM stage failure on a beat past the first — resolve as timed_out instead of
         // re-throwing so the player isn't re-served the same stuck decision (v12 QA §1: each
         // timed-out CONTINUE beat re-presented the identical decision screen).
         //

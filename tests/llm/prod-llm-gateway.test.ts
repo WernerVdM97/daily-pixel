@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { MockedFunction } from 'vitest';
-import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
+import { ProdLlmGateway } from '../../src/llm/ProdLlmGateway.js';
 import { ACTION_CATEGORIES } from '../../src/llm/LlmGateway.js';
 import type { LlmContext } from '../../src/llm/LlmGateway.js';
 import type { LlmCallRecord, LlmCallRecorder } from '../../src/llm/LlmCallRecorder.js';
@@ -28,9 +28,9 @@ const minimalContext: LlmContext = {
 };
 
 
-// ── DeepseekLlmGateway — response parsing & error handling ──
+// ── ProdLlmGateway — response parsing & error handling ──
 
-describe('DeepseekLlmGateway', () => {
+describe('ProdLlmGateway', () => {
   const validApiResponse = {
     choices: [{
       message: {
@@ -60,7 +60,7 @@ describe('DeepseekLlmGateway', () => {
   }
 
   it('parses a valid API response into an LlmDecision', async () => {
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: mockFetch(validApiResponse),
     });
@@ -97,7 +97,7 @@ describe('DeepseekLlmGateway', () => {
         },
       }],
     };
-    const gateway = new DeepseekLlmGateway({ apiKey: 'test-key', fetch: mockFetch(response) });
+    const gateway = new ProdLlmGateway({ apiKey: 'test-key', fetch: mockFetch(response) });
 
     const result = await gateway.decide(minimalContext);
 
@@ -124,7 +124,7 @@ describe('DeepseekLlmGateway', () => {
         },
       }],
     };
-    const gateway = new DeepseekLlmGateway({ apiKey: 'test-key', fetch: mockFetch(response) });
+    const gateway = new ProdLlmGateway({ apiKey: 'test-key', fetch: mockFetch(response) });
 
     const result = await gateway.decide(minimalContext);
 
@@ -134,9 +134,9 @@ describe('DeepseekLlmGateway', () => {
     expect(result.outcomeText).toBe('You arrive.\nThe gate creaks.');
   });
 
-  it('uses the deepseek-v4-flash model', async () => {
+  it('uses the OpenRouter DeepSeek slug by default', async () => {
     const fetchFn = mockFetch(validApiResponse);
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: fetchFn,
     });
@@ -144,12 +144,12 @@ describe('DeepseekLlmGateway', () => {
     await gateway.decide(minimalContext);
 
     const body = JSON.parse(fetchFn.mock.calls[0][1]!.body as string);
-    expect(body.model).toBe('deepseek-v4-flash');
+    expect(body.model).toBe('deepseek/deepseek-v4.1-flash');
   });
 
   it('sends system + user messages', async () => {
     const fetchFn = mockFetch(validApiResponse);
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: fetchFn,
     });
@@ -164,7 +164,7 @@ describe('DeepseekLlmGateway', () => {
 
   it('uses JSON response format', async () => {
     const fetchFn = mockFetch(validApiResponse);
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: fetchFn,
     });
@@ -175,9 +175,9 @@ describe('DeepseekLlmGateway', () => {
     expect(body.response_format).toEqual({ type: 'json_object' });
   });
 
-  it('enables thinking mode', async () => {
+  it('requests reasoning', async () => {
     const fetchFn = mockFetch(validApiResponse);
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: fetchFn,
     });
@@ -185,12 +185,12 @@ describe('DeepseekLlmGateway', () => {
     await gateway.decide(minimalContext);
 
     const body = JSON.parse(fetchFn.mock.calls[0][1]!.body as string);
-    expect(body.thinking).toEqual({ type: 'enabled' });
+    expect(body.reasoning).toEqual({ enabled: true });
   });
 
   it('sets the Authorization header', async () => {
     const fetchFn = mockFetch(validApiResponse);
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: fetchFn,
     });
@@ -204,7 +204,7 @@ describe('DeepseekLlmGateway', () => {
 
   it('uses configurable temperature (default 0.7)', async () => {
     const fetchFn = mockFetch(validApiResponse);
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: fetchFn,
       temperature: 0.3,
@@ -217,16 +217,16 @@ describe('DeepseekLlmGateway', () => {
   });
 
   it('throws on non-OK status', async () => {
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: mockFetch({ error: 'unauthorized' }, 401),
     });
 
-    await expect(gateway.decide(minimalContext)).rejects.toThrow(/DeepSeek API error 401/);
+    await expect(gateway.decide(minimalContext)).rejects.toThrow(/OpenRouter API error 401/);
   });
 
   it('throws on malformed JSON in response', async () => {
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: mockFetch({
         choices: [{ message: { content: 'not valid json {' } }],
@@ -237,7 +237,7 @@ describe('DeepseekLlmGateway', () => {
   });
 
   it('throws when content is empty', async () => {
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: mockFetch({
         choices: [{ message: { content: '' } }],
@@ -248,7 +248,7 @@ describe('DeepseekLlmGateway', () => {
   });
 
   it('throws on network error (fetch rejects)', async () => {
-    const gateway = new DeepseekLlmGateway({
+    const gateway = new ProdLlmGateway({
       apiKey: 'test-key',
       fetch: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
     });
@@ -277,7 +277,7 @@ function capture() {
   return { records, recorder, promoted };
 }
 
-describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
+describe('ProdLlmGateway — reasoning (thinking) capture gating', () => {
   const goodDecision = {
     distilled_type: 'travel', stat: 'physical', base_dc: 10,
     required: false, done: true, decision: [], mutations: [],
@@ -289,7 +289,7 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
       status: 200,
       json: () => Promise.resolve({
         choices: [{
-          message: { content: JSON.stringify(goodDecision), reasoning_content: 'deep thoughts here' },
+          message: { content: JSON.stringify(goodDecision), reasoning: 'deep thoughts here' },
           finish_reason: 'stop',
         }],
         usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
@@ -305,7 +305,7 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
       status: 200,
       json: () => Promise.resolve({
         choices: [{
-          message: { content: 'not json {', reasoning_content: 'deep thoughts here' },
+          message: { content: 'not json {', reasoning: 'deep thoughts here' },
           finish_reason: 'stop',
         }],
       }),
@@ -315,7 +315,7 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
 
   it('does NOT save full reasoning on a clean, well-formed call, but keeps the char count', async () => {
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder });
     await gw.decide(minimalContext);
     expect(records[0].reasoning).toBeNull();
     expect(records[0].reasoningChars).toBe('deep thoughts here'.length);
@@ -323,7 +323,7 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
 
   it('saves full reasoning when the LLM returns malformed format (diagnostic, hardcoded)', async () => {
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: malformedResponse(), recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: malformedResponse(), recorder });
     await gw.decide(minimalContext).catch(() => { /* parse error expected */ });
     expect(records[0].parseOk).toBe(false);
     expect(records[0].reasoning).toBe('deep thoughts here');
@@ -335,13 +335,13 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
     const fetchFn = vi.fn().mockResolvedValue({
       ok: true, status: 200,
       json: () => Promise.resolve({
-        choices: [{ message: { content: JSON.stringify(goodDecision), reasoning_content: spiral }, finish_reason: 'stop' }],
+        choices: [{ message: { content: JSON.stringify(goodDecision), reasoning: spiral }, finish_reason: 'stop' }],
         usage: {},
       }),
       text: () => Promise.resolve(''),
     }) as unknown as typeof fetch;
     // mode defaults to 'spiral'; threshold lowered so the 50-char chain counts as a spiral.
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder, capturePolicy: new DeepCapturePolicy('spiral', 10) });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder, capturePolicy: new DeepCapturePolicy('spiral', 10) });
     await gw.decide(minimalContext);
     expect(records[0].reasoning).toBe(spiral);
     expect(records[0].rawPrompt).toContain('## You');
@@ -349,7 +349,7 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
 
   it('a failed dice verdict alone does NOT trigger reasoning/prompt capture', async () => {
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder });
     await gw.decide({ ...minimalContext, rollOutcome: 'failure' });
     expect(records[0].reasoning).toBeNull();
     expect(records[0].rawPrompt).toBeNull(); // not captured on a clean call by default
@@ -357,14 +357,14 @@ describe('DeepseekLlmGateway — reasoning (thinking) capture gating', () => {
 
   it('saves full reasoning AND the raw prompt on every well-formed call when mode is "all"', async () => {
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder, capturePolicy: new DeepCapturePolicy('all') });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: responseWithThinking(), recorder, capturePolicy: new DeepCapturePolicy('all') });
     await gw.decide(minimalContext);
     expect(records[0].reasoning).toBe('deep thoughts here');
     expect(records[0].rawPrompt).toContain('## You'); // the full v9 markdown prompt is now captured
   });
 });
 
-describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
+describe('ProdLlmGateway — validation warnings (rule 4b)', () => {
   function rewardlessFetch(): typeof fetch {
     return vi.fn().mockResolvedValue({
       ok: true, status: 200,
@@ -375,7 +375,7 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
             required: false, done: true, decision: [],
             mutations: [{ type: 'modify_stamina', amount: -1 }],
             outcome_text: 'You train hard.',
-          }), reasoning_content: '' },
+          }), reasoning: '' },
           finish_reason: 'stop',
         }],
         usage: {},
@@ -397,7 +397,7 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
               { type: 'modify_rolls_remaining', amount: 1 },
             ],
             outcome_text: 'You train hard and feel sharper.',
-          }), reasoning_content: '' },
+          }), reasoning: '' },
           finish_reason: 'stop',
         }],
         usage: {},
@@ -408,7 +408,7 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
 
   it('warns when a resolving turn has only negative stamina/health mutations and no reward', async () => {
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: rewardlessFetch(), recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: rewardlessFetch(), recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
     expect(joined).toContain('resolving turn with only negative stamina/health mutations');
@@ -416,7 +416,7 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
 
   it('does NOT warn when a resolving turn includes a reward mutation (modify_rolls_remaining)', async () => {
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: rewardingFetch(), recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: rewardingFetch(), recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
     expect(joined).not.toContain('resolving turn with only negative stamina/health mutations');
@@ -435,7 +435,7 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
               { type: 'add_item', name: 'Wolf Pelt', emoji: '🐺', stat: 'physical', modifier: 1 },
             ],
             outcome_text: 'You bring down the wolf.',
-          }), reasoning_content: '' },
+          }), reasoning: '' },
           finish_reason: 'stop',
         }],
         usage: {},
@@ -443,7 +443,7 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
       text: () => Promise.resolve(''),
     }) as unknown as typeof fetch;
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
     await gw.decide(minimalContext);
     const joined = records[0].validationWarnings.join(' ');
     expect(joined).not.toContain('resolving turn with only negative stamina/health mutations');
@@ -461,7 +461,7 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
               { label: 'Greet them warmly', dc_modifier: 0 },
               { label: 'Hang back and watch', dc_modifier: -1 },
             ],
-          }), reasoning_content: '' },
+          }), reasoning: '' },
           finish_reason: 'stop',
         }],
         usage: {},
@@ -469,13 +469,13 @@ describe('DeepseekLlmGateway — validation warnings (rule 4b)', () => {
       text: () => Promise.resolve(''),
     }) as unknown as typeof fetch;
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
     await gw.decide(minimalContext);
     expect(records[0].validationWarnings).toEqual([]);
   });
 });
 
-describe('DeepseekLlmGateway — empty-turn rejection (D1)', () => {
+describe('ProdLlmGateway — empty-turn rejection (D1)', () => {
   function emptyTurnFetch(): typeof fetch {
     return vi.fn().mockResolvedValue({
       ok: true, status: 200,
@@ -485,7 +485,7 @@ describe('DeepseekLlmGateway — empty-turn rejection (D1)', () => {
           message: { content: JSON.stringify({
             distilled_type: 'wait', stat: 'wisdom', base_dc: 10,
             required: false, decision: [],
-          }), reasoning_content: '' },
+          }), reasoning: '' },
           finish_reason: 'stop',
         }],
         usage: {},
@@ -496,7 +496,7 @@ describe('DeepseekLlmGateway — empty-turn rejection (D1)', () => {
 
   it('rejects (throws) a completely empty turn so the fallback retries instead of a dead turn', async () => {
     const { records, recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: emptyTurnFetch(), recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: emptyTurnFetch(), recorder });
     await expect(gw.decide(minimalContext)).rejects.toThrow(/empty turn/i);
     // Recorded as a diagnostic failure (carries the error).
     expect(records[0].error).toMatch(/empty turn/i);
@@ -510,7 +510,7 @@ describe('DeepseekLlmGateway — empty-turn rejection (D1)', () => {
           message: { content: JSON.stringify({
             distilled_type: 'wait', stat: 'wisdom', base_dc: 10,
             required: false, decision: [], outcome_text: 'The moment passes.',
-          }), reasoning_content: '' },
+          }), reasoning: '' },
           finish_reason: 'stop',
         }],
         usage: {},
@@ -518,13 +518,13 @@ describe('DeepseekLlmGateway — empty-turn rejection (D1)', () => {
       text: () => Promise.resolve(''),
     }) as unknown as typeof fetch;
     const { recorder } = capture();
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn, recorder });
     const result = await gw.decide(minimalContext);
     expect(result.outcomeText).toBe('The moment passes.');
   });
 });
 
-describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
+describe('ProdLlmGateway — cartographer enrich (D3)', () => {
   function enrichFetch(body: unknown): typeof fetch {
     return vi.fn().mockResolvedValue({
       ok: true, status: 200,
@@ -536,7 +536,7 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
   }
 
   it('parses a structured cartographer result', async () => {
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 0, description: 'A cold ruin.', matchesExisting: '' }),
     });
@@ -547,7 +547,7 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
   });
 
   it('parses geometry fields: region, emoji, node_tier, onwardFrontiers (clamped to 3, bad difficulty → 2)', async () => {
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'x',
       fetch: enrichFetch({
         is_safe: 0, description: 'A reach of ash.', region: 'The Ashen Reach', emoji: '🌋', node_tier: 1,
@@ -572,7 +572,7 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
   });
 
   it('flags a duplicate via matchesExisting', async () => {
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 1, description: 'The shrine.', matchesExisting: 'The Shrine of the First Flame' }),
     });
@@ -582,7 +582,7 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
   });
 
   it('parses tags from a comma-separated string (normalized, deduped, lowercased)', async () => {
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 0, description: 'A drowned hall.', tags: 'Swamp, bog ,bog, WET' }),
     });
@@ -591,7 +591,7 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
   });
 
   it('parses tags from an array form too', async () => {
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 0, description: 'Ruins.', tags: ['ruins', 'ancient', 'stone'] }),
     });
@@ -600,7 +600,7 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
   });
 
   it('omits tags when none are supplied or all are blank', async () => {
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 0, description: 'Nowhere.', tags: ' , ' }),
     });
@@ -610,12 +610,12 @@ describe('DeepseekLlmGateway — cartographer enrich (D3)', () => {
 
   it('returns an empty result (never throws) on a non-200 / malformed response', async () => {
     const bad = vi.fn().mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom'), json: () => Promise.resolve({}) }) as unknown as typeof fetch;
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: bad });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: bad });
     await expect(gw.enrich({ newName: 'X', existingNames: [], narrative: '' })).resolves.toEqual({});
   });
 });
 
-describe('DeepseekLlmGateway — summarizeWeek (weekly recap)', () => {
+describe('ProdLlmGateway — summarizeWeek (weekly recap)', () => {
   function recapFetch(content: unknown): typeof fetch {
     return vi.fn().mockResolvedValue({
       ok: true,
@@ -630,7 +630,7 @@ describe('DeepseekLlmGateway — summarizeWeek (weekly recap)', () => {
       digest: 'A grim week on the eastern road.',
       highlights: ['Bron slew the wraith', 'Aldric claimed the road'],
     });
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn });
     const out = await gw.summarizeWeek([
       { character: 'Bron', type: 'combat', outcome: 'success', narrative: 'The wraith fell.' },
     ]);
@@ -640,20 +640,20 @@ describe('DeepseekLlmGateway — summarizeWeek (weekly recap)', () => {
 
   it('drops non-string / blank highlight entries', async () => {
     const fetchFn = recapFetch({ digest: 'd', highlights: ['kept', '', 42, '  '] });
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn });
     const out = await gw.summarizeWeek([]);
     expect(out.highlights).toEqual(['kept']);
   });
 
   it('throws on a non-200 so the caller uses its deterministic fallback', async () => {
     const bad = vi.fn().mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}), text: () => Promise.resolve('') }) as unknown as typeof fetch;
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: bad });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: bad });
     await expect(gw.summarizeWeek([])).rejects.toThrow();
   });
 
   it('throws when the response has neither digest nor highlights', async () => {
     const fetchFn = recapFetch({ something: 'else' });
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: fetchFn });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn });
     await expect(gw.summarizeWeek([])).rejects.toThrow();
   });
 });
@@ -682,35 +682,35 @@ const baseDecision = {
   outcome_text: 'You head north.',
 };
 
-describe('DeepseekLlmGateway — v11 category field', () => {
+describe('ProdLlmGateway — v11 category field', () => {
   it('parses a valid category value', async () => {
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: 'travel' }) });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: 'travel' }) });
     const result = await gw.decide(minimalContext);
     expect(result.category).toBe('travel');
   });
 
   it('parses all valid category values without error', async () => {
     for (const cat of ACTION_CATEGORIES) {
-      const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: cat }) });
+      const gw = new ProdLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: cat }) });
       const result = await gw.decide(minimalContext);
       expect(result.category).toBe(cat);
     }
   });
 
   it('ignores unknown category values (undefined, not thrown)', async () => {
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: 'teleport' }) });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: decideResponse({ ...baseDecision, category: 'teleport' }) });
     const result = await gw.decide(minimalContext);
     expect(result.category).toBeUndefined();
   });
 
   it('omits category when absent from the response', async () => {
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(baseDecision) });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: decideResponse(baseDecision) });
     const result = await gw.decide(minimalContext);
     expect(result.category).toBeUndefined();
   });
 });
 
-describe('DeepseekLlmGateway — v11 NPC handle resolution', () => {
+describe('ProdLlmGateway — v11 NPC handle resolution', () => {
   const ctxWithNpcs: LlmContext = {
     ...minimalContext,
     nearbyNpcs: [
@@ -724,7 +724,7 @@ describe('DeepseekLlmGateway — v11 NPC handle resolution', () => {
       ...baseDecision,
       mutations: [{ type: 'update_npc', handle: '[N1]', description: 'Crow stiffens.' }],
     };
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
     const result = await gw.decide(ctxWithNpcs);
     const mut = result.mutations![0] as Record<string, unknown>;
     expect(mut.npcId).toBe(7);
@@ -737,7 +737,7 @@ describe('DeepseekLlmGateway — v11 NPC handle resolution', () => {
       ...baseDecision,
       mutations: [{ type: 'remove_npc', handle: '[N2]' }],
     };
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
     const result = await gw.decide(ctxWithNpcs);
     const mut = result.mutations![0] as Record<string, unknown>;
     expect(mut.npcId).toBe(12);
@@ -749,7 +749,7 @@ describe('DeepseekLlmGateway — v11 NPC handle resolution', () => {
       ...baseDecision,
       mutations: [{ type: 'update_npc', handle: '[N3]', description: 'Changed.' }],
     };
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
     const result = await gw.decide(ctxWithNpcs);
     const mut = result.mutations![0] as Record<string, unknown>;
     expect(mut.npcId).toBe(0);
@@ -760,10 +760,56 @@ describe('DeepseekLlmGateway — v11 NPC handle resolution', () => {
       ...baseDecision,
       mutations: [{ type: 'add_npc', name: 'Nikolai', class: 'Ranger', description: 'A hunter.' }],
     };
-    const gw = new DeepseekLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: decideResponse(payload) });
     const result = await gw.decide(ctxWithNpcs);
     const mut = result.mutations![0] as Record<string, unknown>;
     expect(mut.name).toBe('Nikolai');
     expect(mut.npcId).toBeUndefined();
+  });
+});
+
+// ── ProdLlmGateway — verbose request log ──
+
+describe('ProdLlmGateway — verbose request log', () => {
+  it('logs the body it actually sends, pin and reasoning field included', async () => {
+    // The log line used to be a hand-rebuilt copy of the old DeepSeek shape: it printed
+    // `thinking` and no `provider`, so the one artefact an operator reads to confirm the pin was
+    // in place showed a request that no longer existed. It now goes through the transport's own
+    // builder, and this fails if the two ever part company again.
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              distilled_type: 'travel', stat: 'physical', base_dc: 10,
+              required: false, done: true, decision: [], mutations: [], outcome_text: 'You go.',
+            }),
+          },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { logged.push(args.join(' ')); });
+
+    try {
+      const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn, verbose: true });
+      await gw.decide(minimalContext);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const line = logged.find((l) => l.includes('[llm:request]'));
+    expect(line).toBeDefined();
+    const loggedBody = JSON.parse(line!.slice(line!.indexOf('{')));
+    const sentBody = JSON.parse((fetchFn as unknown as { mock: { calls: [string, { body: string }][] } }).mock.calls[0][1].body);
+
+    expect(loggedBody).toEqual(sentBody);
+    expect(loggedBody.provider).toEqual({ order: ['deepseek'], allow_fallbacks: false });
+    expect(loggedBody.reasoning).toEqual({ enabled: true });
   });
 });

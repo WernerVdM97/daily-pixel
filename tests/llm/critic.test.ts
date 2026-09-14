@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DeepseekLlmGateway } from '../../src/llm/DeepseekLlmGateway.js';
+import { ProdLlmGateway } from '../../src/llm/ProdLlmGateway.js';
 import type { CriticInput } from '../../src/llm/LlmGateway.js';
 import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
 import { DeepCapturePolicy } from '../../src/llm/capture-policy.js';
@@ -33,7 +33,7 @@ function mockFetch(verdict: unknown, opts: { status?: number; reasoning?: string
       choices: [{
         message: {
           content: typeof verdict === 'string' ? verdict : JSON.stringify(verdict),
-          ...(opts.reasoning !== undefined ? { reasoning_content: opts.reasoning } : {}),
+          ...(opts.reasoning !== undefined ? { reasoning: opts.reasoning } : {}),
         },
         finish_reason: 'stop',
       }],
@@ -57,15 +57,15 @@ function makeRecorder() {
   };
 }
 
-describe('DeepseekLlmGateway.critique', () => {
+describe('ProdLlmGateway.critique', () => {
   it('parses a clean verdict (ok = pass through)', async () => {
-    const gw = new DeepseekLlmGateway({ apiKey: 'k', fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }) });
+    const gw = new ProdLlmGateway({ apiKey: 'k', fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }) });
     const v = await gw.critique(criticInput);
     expect(v).toEqual({ ok: true, severity: 'minor', issues: [] });
   });
 
   it('parses a minor defect and maps outcome_text → outcomeText in the patch', async () => {
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k',
       fetch: mockFetch({
         ok: false,
@@ -82,7 +82,7 @@ describe('DeepseekLlmGateway.critique', () => {
   });
 
   it('does not attach a patch on a major defect', async () => {
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k',
       fetch: mockFetch({ ok: false, severity: 'major', issues: ['combat silently converted to rest'], patch: { prompt: 'x' } }),
     });
@@ -93,7 +93,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('records the call tagged call_kind=critic / prompt_version=critic-v1', async () => {
     const { records, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({ apiKey: 'k', fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }), recorder });
+    const gw = new ProdLlmGateway({ apiKey: 'k', fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }), recorder });
     await gw.critique(criticInput);
     expect(records).toHaveLength(1);
     expect(records[0].callKind).toBe('critic');
@@ -105,7 +105,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('captures thinking on every call when mode is "all"', async () => {
     const { records, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k',
       recorder,
       capturePolicy: new DeepCapturePolicy('all'),
@@ -118,7 +118,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('omits thinking on a clean call when mode is "spiral" (but still gauges its length)', async () => {
     const { records, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k',
       recorder, // capturePolicy defaults to mode 'spiral'
       fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }, { reasoning: 'some thinking' }),
@@ -130,7 +130,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('captures thinking + raw prompt on a parse failure regardless of the toggle', async () => {
     const { records, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k',
       recorder, // toggle off
       fetch: mockFetch('not valid json', { reasoning: 'i got confused' }),
@@ -145,7 +145,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('records critic_severity = ok and does NOT keep thinking on a clean verdict (toggle off)', async () => {
     const { records, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k', recorder,
       fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }, { reasoning: 'all consistent' }),
     });
@@ -156,7 +156,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('on a flagged verdict, records the severity AND always keeps thinking + raw prompt (toggle off)', async () => {
     const { records, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k', recorder, // capturePolicy defaults to mode 'spiral', not a spiral here
       fetch: mockFetch(
         { ok: false, severity: 'minor', issues: ['win narration on a FAILURE'], patch: { outcome_text: 'fixed' } },
@@ -171,7 +171,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('backfills the critiqued decision row with its prompt + reasoning when flagged', async () => {
     const { promotions, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k', recorder,
       fetch: mockFetch({ ok: false, severity: 'minor', issues: ['mismatch'], patch: { outcome_text: 'fixed' } }),
     });
@@ -186,7 +186,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('does NOT backfill the decision row when the verdict is ok', async () => {
     const { promotions, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k', recorder, fetch: mockFetch({ ok: true, severity: 'minor', issues: [] }),
     });
     await gw.critique({ ...criticInput, decision: { ...criticInput.decision, _llmCallId: 42 } });
@@ -195,7 +195,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('records a major flag severity', async () => {
     const { records, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k', recorder,
       fetch: mockFetch({ ok: false, severity: 'major', issues: ['combat converted to rest'] }),
     });
@@ -205,7 +205,7 @@ describe('DeepseekLlmGateway.critique', () => {
 
   it('fails open and records the error on a transport failure', async () => {
     const { records, recorder } = makeRecorder();
-    const gw = new DeepseekLlmGateway({
+    const gw = new ProdLlmGateway({
       apiKey: 'k',
       recorder,
       fetch: vi.fn().mockRejectedValue(new Error('network down')) as unknown as typeof fetch,

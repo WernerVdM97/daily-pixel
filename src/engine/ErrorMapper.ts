@@ -22,10 +22,12 @@ const ERROR_MAP: Array<[string, string]> = [
   ['Invalid choice:', 'That option is no longer available. Try again.'],
   ['timed out after 30 minutes', 'Your action has expired. The moment has passed. Try `/hi` to start fresh.'],
 
-  // LLM
-  ['DeepSeek API error', 'The warden\'s vision is clouded. Try again shortly.'],
-  ['DeepSeek returned empty response', 'The warden\'s vision is clouded. Try again shortly.'],
-  ['Failed to parse DeepSeek response', 'The warden\'s vision is clouded. Try again shortly.'],
+  // LLM (the message prefixes the gateways throw; see chat-transport.ts). Matched
+  // case-insensitively: the v11 gateway capitalises "Failed to parse", the pipeline and both agent
+  // gateways do not, so an exact-case match silently sent those to the generic fallback.
+  ['OpenRouter API error', 'The warden\'s vision is clouded. Try again shortly.'],
+  ['OpenRouter returned empty response', 'The warden\'s vision is clouded. Try again shortly.'],
+  ['Failed to parse OpenRouter response', 'The warden\'s vision is clouded. Try again shortly.'],
 
   // DB
   ['Database not initialized', 'Something went wrong. The warden has been notified.'],
@@ -39,7 +41,7 @@ const FALLBACK_MESSAGE = 'Something went wrong. The warden has been notified.';
 
 /**
  * Map an unknown error to a user-facing message string.
- * Uses substring matching against a prioritized list of known error patterns.
+ * Uses case-insensitive substring matching against a prioritized list of known error patterns.
  * Unknown errors get a generic fallback message.
  */
 export function mapError(error: unknown): string {
@@ -47,10 +49,10 @@ export function mapError(error: unknown): string {
     return FALLBACK_MESSAGE;
   }
 
-  const message = error.message;
+  const message = error.message.toLowerCase();
 
   for (const [pattern, userMessage] of ERROR_MAP) {
-    if (message.includes(pattern)) {
+    if (message.includes(pattern.toLowerCase())) {
       return userMessage;
     }
   }

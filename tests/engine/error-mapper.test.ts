@@ -46,9 +46,19 @@ describe('ErrorMapper — known errors', () => {
     expect(result).toBe('Your action has expired. The moment has passed. Try `/hi` to start fresh.');
   });
 
-  it('maps DeepSeek API errors', () => {
-    const result = mapError(new Error('DeepSeek API error 401: Unauthorized'));
+  it('maps OpenRouter API errors', () => {
+    const result = mapError(new Error('OpenRouter API error 401: Unauthorized'));
     expect(result).toBe('The warden\'s vision is clouded. Try again shortly.');
+  });
+
+  it('maps a parse failure whichever gateway capitalised it', () => {
+    // v11 throws `Failed to parse OpenRouter response:`, the pipeline and both agent gateways
+    // throw the lower-case form — matching is case-insensitive so neither lands on the generic
+    // fallback.
+    const v11 = mapError(new Error('Failed to parse OpenRouter response: {'));
+    const pipeline = mapError(new Error('ProdPipelineLlmGateway.classify: failed to parse OpenRouter response: {'));
+    expect(v11).toBe('The warden\'s vision is clouded. Try again shortly.');
+    expect(pipeline).toBe(v11);
   });
 
   it('maps generic DB connection errors', () => {

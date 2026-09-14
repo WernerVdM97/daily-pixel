@@ -8,7 +8,7 @@ import type { CritiqueInput, PlaytestReport } from '../../src/agent/PlaytestCrit
 import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
 
 // ── M4.5 — the playtest-critic seam (goal b): the scripted stub returns a fixed report (CI, no
-// network), and the real DeepSeek-backed gateway renders a completed run into a user message,
+// network), and the real OpenRouter-backed gateway renders a completed run into a user message,
 // parses a `{pacing,clarity,fun,difficulty,summary}` report from a canned JSON body via an injected
 // fetch, and records one llm_calls row. The real LLM never runs here — every hit is a mocked fetch. ──
 
@@ -152,7 +152,7 @@ describe('ProdPlaytestCriticGateway — parse', () => {
 
   it('throws on a non-2xx response', async () => {
     const gw = makeGateway(mockFetch({ error: 'boom' }, 500));
-    await expect(gw.critique(sampleRun())).rejects.toThrow(/DeepSeek API error 500/);
+    await expect(gw.critique(sampleRun())).rejects.toThrow(/OpenRouter API error 500/);
   });
 
   it('throws on an unparseable body', async () => {
@@ -182,7 +182,7 @@ describe('ProdPlaytestCriticGateway — audit', () => {
 
     expect(records).toHaveLength(1);
     expect(records[0].parseOk).toBe(false);
-    expect(records[0].error).toMatch(/DeepSeek API error 500/);
+    expect(records[0].error).toMatch(/OpenRouter API error 500/);
     expect(records[0].rawPrompt).toContain('RUN SUMMARY:');
   });
 });

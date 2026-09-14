@@ -1113,7 +1113,7 @@ describe('WorldEngineImpl — RA-3 bounded: mint the foe the world named but nev
 //
 // Two live runs died mid-day: one to a beat-1 `decide` abort thrown straight out of
 // `startAction`, one to a RESOLVE-NARRATE parse failure thrown out of `stepAction`. Both are
-// "DeepSeek didn't answer usefully", and both used to propagate to the adapter as a bare error.
+// "the model didn't answer usefully", and both used to propagate to the adapter as a bare error.
 // They now fail open at the beat that owns the roll: beat 1 → divine intervention (roll never
 // drained), beat 2+ → timed_out (roll refunded).
 
@@ -1234,7 +1234,7 @@ describe('WorldEngineImpl — pipeline stage failures fail open (0.3.4)', () => 
 
   });
 
-  it('resolves start as divine intervention when DeepSeek answers beat-1 with empty content', async () => {
+  it('resolves start as divine intervention when the model answers beat-1 with empty content', async () => {
     const { engine, charRepo, characterId } = makeEngine(
       stageRouter({ decide: () => jsonResponse('') }),
     );

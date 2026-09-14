@@ -9,7 +9,7 @@ import type { ChooseMoveInput, LegalMove } from '../../src/agent/AgentPlayerGate
 import type { LlmCallRecord } from '../../src/llm/LlmCallRecorder.js';
 
 // ── M4.1 — the agent-player brain seam: the scripted stub plays a fixed sequence (used by CI, no
-// network), and the real DeepSeek-backed gateway parses a move-pick from a canned JSON body via an
+// network), and the real OpenRouter-backed gateway parses a move-pick from a canned JSON body via an
 // injected fetch, maps it to a legal AgentMove, and records one llm_calls row. The real LLM never
 // runs here — every network hit is a mocked fetch. ──
 
@@ -187,7 +187,7 @@ describe('ProdAgentPlayerGateway — parse', () => {
 
   it('throws on a non-2xx response', async () => {
     const gw = makeGateway(mockFetch({ error: 'boom' }, 500));
-    await expect(gw.chooseMove(menuInput())).rejects.toThrow(/DeepSeek API error 500/);
+    await expect(gw.chooseMove(menuInput())).rejects.toThrow(/OpenRouter API error 500/);
   });
 
   it('throws on an unparseable body', async () => {
