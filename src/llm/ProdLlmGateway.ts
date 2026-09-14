@@ -29,7 +29,7 @@ import {
   CRITIC_VERSION,
   PROMPT_SET_VERSION,
 } from './prompt-builder.js';
-import { callChatCompletion } from './chat-transport.js';
+import { callChatCompletion, buildRequestBody } from './chat-transport.js';
 import { DEFAULT_LLM_MODEL } from './openrouter.js';
 import { APP_VERSION } from '../version.js';
 import { c } from '../util/colors.js';
@@ -201,20 +201,18 @@ export class ProdLlmGateway implements LlmGateway, CartographerGateway, RecapGat
     // Report up front so the prompt is captured even if the request throws.
     onProgress({ rawPrompt: userMessage });
 
-    // Verbose logging wants the literal request body — `callChatCompletion` builds its own internally,
-    // so reconstruct the same shape here purely for the log line (transport extraction note: T2).
+    // Verbose logging wants the literal request body — build it through the transport's own
+    // builder, so the line can never drift from what is actually sent (it did: it used to
+    // reconstruct the DeepSeek shape by hand and logged a request that no longer existed). The
+    // system prompt is empty on this gateway, so only the user message is passed.
     if (this.verbose) {
-      const requestBody = {
+      const requestBody = buildRequestBody({
         model: this.model,
-        messages: [
-          { role: 'system' as const, content: '' },
-          { role: 'user' as const, content: userMessage },
-        ],
-        response_format: { type: 'json_object' as const },
-        thinking: { type: 'enabled' as const },
         temperature: this.temperature,
-        stream: false,
-      };
+        systemPrompt: '',
+        userMessage,
+        reasoning: true,
+      });
       console.log(c.cyan('[llm:request]'), JSON.stringify(requestBody, null, 2));
     }
 
@@ -224,7 +222,7 @@ export class ProdLlmGateway implements LlmGateway, CartographerGateway, RecapGat
       temperature: this.temperature,
       systemPrompt: '',
       userMessage,
-      thinking: true,
+      reasoning: true,
       fetchFn: this.fetchFn,
     });
 
@@ -438,7 +436,7 @@ export class ProdLlmGateway implements LlmGateway, CartographerGateway, RecapGat
         temperature: this.temperature,
         systemPrompt: buildCriticSystemPrompt(),
         userMessage,
-        thinking: true,
+        reasoning: true,
         fetchFn: this.fetchFn,
       });
 

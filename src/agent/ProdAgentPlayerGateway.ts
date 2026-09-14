@@ -82,7 +82,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
         temperature: this.temperature,
         systemPrompt: this.systemPrompt,
         userMessage,
-        thinking: true,
+        reasoning: true,
         fetchFn: this.fetchFn,
       });
 

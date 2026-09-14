@@ -81,7 +81,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
         temperature: this.temperature,
         systemPrompt: this.systemPrompt,
         userMessage,
-        thinking: true,
+        reasoning: true,
         fetchFn: this.fetchFn,
       });
 

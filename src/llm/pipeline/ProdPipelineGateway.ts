@@ -257,7 +257,7 @@ export class ProdPipelineLlmGateway implements PipelineLlmGateway {
         temperature: this.temperature,
         systemPrompt: req.systemPrompt,
         userMessage: req.userMessage,
-        thinking: req.thinking,
+        reasoning: req.thinking,
         fetchFn: this.fetchFn,
       });
 

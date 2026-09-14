@@ -47,6 +47,7 @@ import type { ClassDef, ModifierDef } from "./engine/StatComputer.js";
 import type { LlmDecision, LlmContext, RecapGateway, CriticGateway } from "./llm/LlmGateway.js";
 import { parseCriticGateMode, type CriticGateMode } from "./engine/action/critic-gate.js";
 import { ProdLlmGateway } from "./llm/ProdLlmGateway.js";
+import { DEFAULT_LLM_MODEL } from "./llm/openrouter.js";
 import { DeepCapturePolicy } from "./llm/capture-policy.js";
 import { readLoggingEnv, staleLoggingEnv } from "./config/env.js";
 import {
@@ -1207,7 +1208,7 @@ async function main() {
     criticGateway = openrouter;
     console.log(
       c.cyan(
-        `[llm] OpenRouter gateway initialized, pinned to the DeepSeek host (model: ${LLM_MODEL ?? "default"})`,
+        `[llm] OpenRouter gateway initialized, pinned to the DeepSeek host (model: ${LLM_MODEL ?? DEFAULT_LLM_MODEL})`,
       ),
     );
   } else {

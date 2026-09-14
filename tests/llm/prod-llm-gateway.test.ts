@@ -767,3 +767,49 @@ describe('ProdLlmGateway — v11 NPC handle resolution', () => {
     expect(mut.npcId).toBeUndefined();
   });
 });
+
+// ── ProdLlmGateway — verbose request log ──
+
+describe('ProdLlmGateway — verbose request log', () => {
+  it('logs the body it actually sends, pin and reasoning field included', async () => {
+    // The log line used to be a hand-rebuilt copy of the old DeepSeek shape: it printed
+    // `thinking` and no `provider`, so the one artefact an operator reads to confirm the pin was
+    // in place showed a request that no longer existed. It now goes through the transport's own
+    // builder, and this fails if the two ever part company again.
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              distilled_type: 'travel', stat: 'physical', base_dc: 10,
+              required: false, done: true, decision: [], mutations: [], outcome_text: 'You go.',
+            }),
+          },
+          finish_reason: 'stop',
+        }],
+        usage: {},
+      }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { logged.push(args.join(' ')); });
+
+    try {
+      const gw = new ProdLlmGateway({ apiKey: 'x', fetch: fetchFn, verbose: true });
+      await gw.decide(minimalContext);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const line = logged.find((l) => l.includes('[llm:request]'));
+    expect(line).toBeDefined();
+    const loggedBody = JSON.parse(line!.slice(line!.indexOf('{')));
+    const sentBody = JSON.parse((fetchFn as unknown as { mock: { calls: [string, { body: string }][] } }).mock.calls[0][1].body);
+
+    expect(loggedBody).toEqual(sentBody);
+    expect(loggedBody.provider).toEqual({ order: ['deepseek'], allow_fallbacks: false });
+    expect(loggedBody.reasoning).toEqual({ enabled: true });
+  });
+});

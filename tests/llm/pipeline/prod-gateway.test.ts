@@ -119,13 +119,17 @@ describe('ProdPipelineLlmGateway — classify', () => {
     await expect(gw.classify('do a thing', minimalContext)).rejects.toThrow(/actionType/i);
   });
 
-  it('does not request reasoning', async () => {
+  it('sends an explicit reasoning-off rather than staying silent', async () => {
+    // Silence is not "off" on this model: it reasons by default (OpenRouter reports
+    // `default_enabled: true` for the pinned slug), so an omitted field buys a chain-of-thought on
+    // every stage. A live probe of a silent body returned 28 reasoning tokens; `{enabled:false}`
+    // returned none. See chat-transport.ts.
     const fetchFn = mockFetch(apiResponse({ actionType: 'combat' }));
     const gw = new ProdPipelineLlmGateway({ apiKey: 'x', fetch: fetchFn, promptSet: fixturePromptSet() });
 
     await gw.classify('attack', minimalContext);
 
-    expect(bodyOf(fetchFn).reasoning).toBeUndefined();
+    expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: false });
   });
 
   it('user message quotes the raw input and includes Location when present', async () => {
@@ -365,7 +369,7 @@ describe('ProdPipelineLlmGateway — resolveMutate', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT SUCCESS SYSTEM');
-    expect(body.reasoning).toBeUndefined();
+    expect(body.reasoning).toEqual({ enabled: false });
     expect(records[0].promptVersion).toBe(`${PROMPT_SET_VERSION}/resolve/combat/success`);
     expect(records[0].callKind).toBe('pipeline-resolve-mutate');
     expect(result.mutations).toEqual([{ type: 'modify_stamina', amount: -2 }]);
@@ -482,7 +486,7 @@ describe('ProdPipelineLlmGateway — resolveNarrate', () => {
 
     const body = bodyOf(fetchFn);
     expect(body.messages[0].content).toBe('COMBAT SUCCESS SYSTEM');
-    expect(body.reasoning).toBeUndefined();
+    expect(body.reasoning).toEqual({ enabled: false });
     const userMessage = body.messages[1].content as string;
     expect(userMessage).toContain('TASK: RESOLVE-NARRATE');
     expect(userMessage).toContain('### Final mutations');
@@ -747,18 +751,20 @@ describe('callChatCompletion — shared transport', () => {
     expect(result.content).toBeNull();
   });
 
-  it('omits the reasoning key by default', async () => {
+  it('asks for reasoning off when the caller does not opt in, rather than omitting the field', async () => {
     const fetchFn = mockFetch({ choices: [{ message: { content: '{}' } }] });
 
     await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', fetchFn });
 
-    expect(bodyOf(fetchFn).reasoning).toBeUndefined();
+    // The key is always present: this model reasons unless told not to, so `undefined` here would
+    // mean "reason on every stage", not "no reasoning".
+    expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: false });
   });
 
   it('includes reasoning:{enabled:true} when requested', async () => {
     const fetchFn = mockFetch({ choices: [{ message: { content: '{}' } }] });
 
-    await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', thinking: true, fetchFn });
+    await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', reasoning: true, fetchFn });
 
     expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: true });
   });
@@ -796,7 +802,7 @@ describe('callChatCompletion — shared transport', () => {
   it('reads chain-of-thought from `reasoning`, the field OpenRouter normalises it into', async () => {
     const fetchFn = mockFetch({ choices: [{ message: { content: '{}', reasoning: 'deep thoughts' } }] });
 
-    const result = await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', thinking: true, fetchFn });
+    const result = await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', reasoning: true, fetchFn });
 
     // DeepSeek's native `reasoning_content` does not survive the hop, so a transport that still
     // read it would silently report no reasoning at all.

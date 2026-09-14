@@ -9,26 +9,38 @@
 // empty `content`; every caller's existing error-handling behaviour is reproduced verbatim on top
 // of this envelope, not folded in here.
 //
-// Two wire details are OpenRouter's rather than DeepSeek's, and both fail *silently* if you get
-// them wrong, so they are called out here:
+// Three wire details are OpenRouter's rather than DeepSeek's, and every one of them fails
+// *silently* if you get it wrong, so they are called out here:
 //
 //  - Chain-of-thought is requested with `reasoning: { enabled: true }`. DeepSeek's native
 //    `thinking: { type: 'enabled' }` is not recognised on this hop: it is accepted, ignored, and
 //    the response comes back without reasoning. No error, no warning.
 //  - It comes back on `message.reasoning`. OpenRouter normalises every vendor's chain-of-thought
 //    into that field, so DeepSeek's native `message.reasoning_content` is absent.
+//  - Omitting the field is NOT "reasoning off". This model reasons unless told otherwise
+//    (OpenRouter reports `default_enabled: true` for `deepseek/deepseek-v4.1-flash`, whose
+//    efforts are max/high/low with no `off`), so silence buys a chain-of-thought on every stage —
+//    billed as completion tokens and emitted before the content. Probed on the live API: a silent
+//    body came back with 28 reasoning tokens, the same body with `{enabled: false}` with none.
+//    So the field is sent on every call, and never conditionally.
 import { OPENROUTER_TITLE, OPENROUTER_URL, OPENROUTER_PROVIDER_ROUTING } from './openrouter.js';
 
-export interface ChatRequest {
-  apiKey: string;
+/** The wire body, minus the per-call plumbing. Split out so the one caller that needs to *log* the
+ *  request (ProdLlmGateway's verbose line) builds it through this function rather than a copy that
+ *  drifts from what is actually sent. */
+export interface ChatRequestBodyInput {
   model: string;
   temperature: number;
   systemPrompt: string;
   userMessage: string;
-  /** Ask for chain-of-thought. Default false — only decide/critic (and the pipeline's decide
-   *  stage) opt in. */
-  thinking?: boolean;
-  /** Abort timeout in ms. Default 15000; the weekly recap uses 30000 (a bigger payload, off the
+  /** Ask for chain-of-thought. Only decide/critic (and the pipeline's decide stage) opt in; every
+   *  other stage sends an explicit off — see the omission trap above. */
+  reasoning?: boolean;
+}
+
+export interface ChatRequest extends ChatRequestBodyInput {
+  apiKey: string;
+  /** Abort timeout in ms. Default 60000; the weekly recap uses 30000 (a bigger payload, off the
    *  hot path). */
   timeoutMs?: number;
   /** Injectable fetch for testing. */
@@ -50,19 +62,23 @@ export interface ChatResponse {
   errorText?: string;
 }
 
-export async function callChatCompletion(req: ChatRequest): Promise<ChatResponse> {
-  const requestBody = {
+export function buildRequestBody(req: ChatRequestBodyInput) {
+  return {
     model: req.model,
     messages: [
       { role: 'system' as const, content: req.systemPrompt },
       { role: 'user' as const, content: req.userMessage },
     ],
     response_format: { type: 'json_object' as const },
-    ...(req.thinking ? { reasoning: { enabled: true as const } } : {}),
+    reasoning: { enabled: req.reasoning === true },
     temperature: req.temperature,
     stream: false,
     provider: OPENROUTER_PROVIDER_ROUTING,
   };
+}
+
+export async function callChatCompletion(req: ChatRequest): Promise<ChatResponse> {
+  const requestBody = buildRequestBody(req);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), req.timeoutMs ?? 60000);
