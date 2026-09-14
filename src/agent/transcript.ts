@@ -99,10 +99,11 @@ export interface ProtocolHeaderEntry {
   brain: 'scripted' | 'prod';
   backend: 'real' | 'stub';
   /** The wall clock the session was recorded against, ISO-8601 (DC-M10.6). Replay pins the
-   *  process clock to it, which is what removes the SF3 same-weekday-class caveat: the
-   *  day-start greeting reads `isWeekend()` and the tick reads `getUTCDay() === 6`, so a
-   *  transcript recorded on a Thursday used to diverge when replayed on a Saturday. Supplied
-   *  by the caller rather than read here, so this module stays env- and clock-free (DC-S1). */
+   *  process clock to it, which removes the SF3 same-weekday-class caveat for the UTC-based reads:
+   *  the tick's `getUTCDay() === 6`, so a transcript recorded on a Thursday no longer diverges when
+   *  replayed on a Saturday. The day-start greeting is the exception: `hiScreen.isWeekend()` reads
+   *  the LOCAL weekday, so a recording and a replay agree on that text only in the same timezone.
+   *  Supplied by the caller rather than read here, so this module stays env- and clock-free (DC-S1). */
   recordedAt: string;
   /** The persona the run played as (spec § H), stamped alongside `brain`/`backend` so a recorded
    *  run is attributable in replay. Absent on a persona-less run — which is what keeps every

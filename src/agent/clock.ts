@@ -3,7 +3,9 @@
  * pins the clock it stamps into the protocol-log header, and replay pins itself to that same
  * stamp. Pinning only the replay half is not enough — the recording would still read the wall
  * clock, so the two would disagree on any weekday branch, which is the SF3 caveat that
- * deferred real-backend corpus entries from M8.5 all the way to here.
+ * deferred real-backend corpus entries from M8.5 all the way to here. What the pin delivers is
+ * spelled out on `pinClock` below: the UTC-based reads everywhere, and the local-weekday greeting
+ * only on hosts that share a timezone.
  *
  * The ADVANCING pin (spec § G "the time axis", contract §10) extends the same doctrine to a
  * multi-day run: the harness's nightly tick moves the process clock one calendar day, so a
@@ -33,6 +35,9 @@ function pinFixedClock(iso: string, offsetMs: () => number): () => void {
       return base + offsetMs();
     }
   }
+  // SAFETY: `PinnedDate` extends the real `Date`, so it carries every static and instance member at
+  // runtime; TypeScript cannot verify that a subclass satisfies the whole `DateConstructor` surface,
+  // which is the only thing this assertion claims. The restore closure puts the real one back.
   globalThis.Date = PinnedDate as unknown as DateConstructor;
   return () => {
     globalThis.Date = RealDate;
@@ -41,10 +46,15 @@ function pinFixedClock(iso: string, offsetMs: () => number): () => void {
 
 /**
  * Pin the process clock to the header's `recordedAt` for the duration of a replay (DC-M10.6),
- * returning the restore function. This is what discharges SF3: the greeting reads
- * `isWeekend()` (hiScreen.ts) and the tick reads `getUTCDay() === 6` (WorldEngineImpl.ts),
- * both straight off the wall clock, so a Thursday recording used to diverge when replayed on
- * a Saturday and real-backend corpus entries had to be deferred for it.
+ * returning the restore function. This is what discharges SF3 for the reads that agree on a form:
+ * the tick's `getUTCDay() === 6` (WorldEngineImpl.ts) and the greeting's `isWeekend()`
+ * (hiScreen.ts) both used to come straight off the wall clock, so a Thursday recording diverged when
+ * replayed on a Saturday and real-backend corpus entries had to be deferred for it. Pinning the
+ * instant fixes every UTC-based read, because the same instant has the same UTC weekday everywhere.
+ * It does NOT fix a read that goes through the LOCAL weekday: `isWeekend()` is `new Date().getDay()`,
+ * so a recording and a replay agree on the greeting only when both run in the same timezone. See
+ * `docs/engine/agent-player-personas.md` (the world-clock bullet) and the noon-UTC start rule in
+ * `.pi/skills/agent-smoke/SKILL.md`.
  *
  * Swapping the global rather than threading a clock dependency through the engine and
  * controller is deliberate: replay is a test instrument, the alternative is a new constructor
