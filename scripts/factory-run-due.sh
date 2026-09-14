@@ -37,6 +37,15 @@ MIN_AVAIL_MB="${FACTORY_MIN_AVAIL_MB:-1000}"
 FIRE_ID="${FACTORY_FIRE:-}"
 LOCK_FILE="${FACTORY_LOCK_FILE:-/tmp/factory-run-due.lock}"
 LOG_TAG="[factory-run-due]"
+# The budget preflight reads the key's own ceiling with this. Overridable so a test can answer
+# for it, exactly as PI_BIN is below.
+CURL_BIN="${CURL_BIN:-curl}"
+# The model this launcher's own fire runs on, mirroring WRAPPER_MODEL in scripts/factory-jobs.ts.
+# The pin is load-bearing, not a preference: with no --model, pi resolves the model from
+# settings and installs --api-key against THAT provider, so the OpenRouter key would land on
+# the settings-default provider and every fire would 401. It also pins the parent whose
+# preferredProvider the children's own model resolution (z-ai/glm-5.3, delegate-judge) follows.
+FACTORY_FIRE_MODEL="openrouter/deepseek/deepseek-v4.1-flash"
 
 log() { echo "$LOG_TAG $*"; }
 
@@ -51,6 +60,65 @@ PAUSE_FILE="${FACTORY_PAUSE_FILE:-$PROJECT_DIR/.pi/factory/PAUSED}"
 
 # bash 3.2 (macOS) has no ${var,,}, so lowercase through tr.
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# The factory's own OpenRouter credential, so a factory run's spend is separable from the shared
+# one every interactive `pi` session uses (`~/.pi/agent/auth.json`). Resolved the same way as
+# FACTORY_ENABLED: the process environment first (where a systemd drop-in would put it), then the
+# repo `.env` by name. Line-oriented config, never sourced.
+#
+# Empty is a valid answer and means "fall back to the shared credential". The caller must then
+# OMIT `--api-key` rather than pass it empty: `--api-key ""` is not "no key", it is a broken
+# key, and it would turn a missing variable into a factory that cannot reach a model at all.
+#
+# `--api-key` and not an exported variable, because pi resolves `--api-key`, then `auth.json`,
+# THEN the environment. An exported FACTORY_OPENROUTER_API_KEY would be silently ignored in
+# favour of the shared auth.json key while looking correctly configured.
+factory_key() {
+  local raw
+  if [ -n "${FACTORY_OPENROUTER_API_KEY:-}" ]; then
+    printf '%s' "$FACTORY_OPENROUTER_API_KEY"
+    return 0
+  fi
+  [ -r "$PROJECT_DIR/.env" ] || return 0
+  raw="$(sed -n 's/^[[:space:]]*FACTORY_OPENROUTER_API_KEY[[:space:]]*=[[:space:]]*//p' "$PROJECT_DIR/.env" | tail -1)"
+  case "$raw" in
+    \"*) raw="${raw#\"}" && raw="${raw%%\"*}" ;;
+    \'*) raw="${raw#\'}" && raw="${raw%%\'*}" ;;
+    *) raw="${raw%%#*}" ;;
+  esac
+  printf '%s' "$raw" | tr -d '[:space:]'
+}
+
+# The factory key's own ceiling, read live rather than trusted to a note. The same
+# GET /api/v1/key that reports the split reports `limit_remaining`, so nothing is mirrored into
+# `.env`: raise the cap on the dashboard and the next tick sees it, lower it mid-window and what
+# is left is recomputed, remove it and the field comes back null.
+#
+# Prints the remaining amount, or nothing when there is no factory key, the request failed, or
+# the answer cannot be read. FAIL OPEN is the point: only a definite answer stops the tick -
+# a zero budget, or an HTTP 401/403, which says the key itself is wrong and every call today
+# would be refused (with --api-key passed there is no fallback to misroute onto). Anything the
+# preflight cannot read - a timeout, a 5xx, an unparsable body - still lets the tick run,
+# because a guard that cannot see the budget must not become a new way to stop the factory.
+# Returns non-zero only for the definite-rejection skip; the reason is already logged.
+factory_key_remaining() {
+  local key body code
+  key="$(factory_key)"
+  [ -n "$key" ] || return 0
+  # -w appends \n<http_code>, so a rejected key is distinguishable from an unreadable answer.
+  body="$("$CURL_BIN" -s --max-time 5 -w '\n%{http_code}' -H "Authorization: Bearer $key" \
+    https://openrouter.ai/api/v1/key 2>/dev/null)" || return 0
+  code="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+  case "$code" in
+    200) ;;
+    401 | 403)
+      log "factory key was rejected by OpenRouter (HTTP ${code}); check FACTORY_OPENROUTER_API_KEY in .env or the unit; skipping this tick" >&2
+      return 1 ;;
+    *) return 0 ;;
+  esac
+  printf '%s' "$body" | sed -n 's/.*"limit_remaining"[: ]*\([0-9][0-9.]*\).*/\1/p' | tail -1
+}
 
 is_off() {
   case "$(lower "$1")" in 0 | false | no | off) return 0 ;; *) return 1 ;; esac
@@ -182,6 +250,20 @@ if [ "$avail_mb" -lt "$MIN_AVAIL_MB" ]; then
   exit 0
 fi
 
+# The cap is not a soft limit: past it OpenRouter refuses every call, and the key is passed as
+# --api-key so there is no fallback to the shared credential. Reading it here turns a spent cap
+# into one skipped tick with a reason, instead of a failed call per agent for the rest of the
+# day. Before the lock, because there is nothing to serialise when nothing will run, and on every
+# tick, because one GET on a free endpoint is nothing beside the ~700MB pi it guards.
+if ! remaining="$(factory_key_remaining)"; then
+  # The definite rejection is already logged by the preflight.
+  exit 0
+fi
+if [ -n "$remaining" ] && awk -v r="$remaining" 'BEGIN { exit !(r <= 0) }'; then
+  log "factory key is out of budget (limit_remaining=${remaining}); skipping this tick; raise the cap on the dashboard to resume"
+  exit 0
+fi
+
 # Non-blocking lock: a tick that lands while a run is in flight is a skip, not a queue
 # entry. The schedules also skip overlap, but that guard lives inside the process we are
 # trying not to start a second time.
@@ -206,8 +288,20 @@ fi
 
 cd "$PROJECT_DIR"
 status=0
+PI_KEY="$(factory_key)"
+if [ -z "$PI_KEY" ]; then
+  # Loud on purpose, and hoisted above both spend paths so the common tick (nothing due, but a
+  # stage ready for the drain) cannot fall back to the shared credential silently. Falling back
+  # is a deliberate degradation, not an ordinary condition: it is the only way a factory run's
+  # spend stops being separable.
+  log "no FACTORY_OPENROUTER_API_KEY (env or .env); this tick spends on the shared ~/.pi/agent/auth.json credential"
+fi
 if [ -n "$ACTION" ]; then
-  "$PI_BIN" -p --approve --tools subagent "$ACTION" || status=$?
+  if [ -n "$PI_KEY" ]; then
+    "$PI_BIN" -p --approve --tools subagent --model "$FACTORY_FIRE_MODEL" --api-key "$PI_KEY" "$ACTION" || status=$?
+  else
+    "$PI_BIN" -p --approve --tools subagent --model "$FACTORY_FIRE_MODEL" "$ACTION" || status=$?
+  fi
 fi
 
 # One action per tick: reap an orphan, block a spent or twice-failed job, or run one ready

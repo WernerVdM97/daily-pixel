@@ -424,12 +424,59 @@ export function wrapperPrompt(agent: string, task: string): string {
   ].join("\n");
 }
 
-const defaultSpawnStage = (env: NodeJS.ProcessEnv = process.env) => async (run: StageRun): Promise<StageOutcome> => {
+/**
+ * The factory's own OpenRouter credential, so factory spend is separable from the shared one
+ * every interactive `pi` session uses (`~/.pi/agent/auth.json`). Same convention as the
+ * launcher's `FACTORY_ENABLED` read: the process environment first (where a systemd drop-in
+ * would put it), then the repo `.env` by name, line-oriented and never sourced. Last match
+ * wins, mirroring the launcher's `tail -1`.
+ *
+ * Returning `""` is a valid answer: it means fall back to the shared `auth.json` credential.
+ * That is why the caller must OMIT `--api-key` rather than pass it empty — `--api-key ""` is
+ * not "no key", it is a broken key, and it would turn a missing variable into a factory that
+ * cannot reach a model at all.
+ */
+export function factoryApiKey(root: string, env: NodeJS.ProcessEnv = process.env): string {
+  const fromEnv = (env.FACTORY_OPENROUTER_API_KEY ?? "").trim();
+  if (fromEnv) return fromEnv;
+  const file = resolve(root, ".env");
+  if (!existsSync(file)) return "";
+  let found = "";
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const m = /^\s*FACTORY_OPENROUTER_API_KEY\s*=\s*(.*)$/.exec(line);
+    if (!m) continue;
+    // Quoting is optional and a trailing comment is not part of a key, exactly as the
+    // launcher treats FACTORY_ENABLED.
+    found = m[1].replace(/^["']/, "").replace(/["']\s*(#.*)?$/, "").replace(/\s*#.*$/, "").trim();
+  }
+  return found;
+}
+
+/** The `pi` argv for one stage wrapper. Extracted so the credential plumbing is testable
+ *  without spawning, and so the key can never be added as an empty `--api-key`. */
+export function stagePiArgs(prompt: string, apiKey = ""): string[] {
+  return [
+    "-p",
+    "--approve",
+    "--tools",
+    "subagent",
+    ...(apiKey ? ["--api-key", apiKey] : []),
+    "--model",
+    WRAPPER_MODEL,
+    "--thinking",
+    "off",
+    prompt,
+  ];
+}
+
+const defaultSpawnStage = (env: NodeJS.ProcessEnv = process.env, root = resolveRepoRoot({ env })) => async (run: StageRun): Promise<StageOutcome> => {
   const pi = piBinary(env);
   if (!pi) throw new Error("pi is not on PATH and no binary at $HOME/.local/bin/pi; set FACTORY_PI_BIN");
+  // `--api-key` and not an exported variable: pi resolves the auth file BEFORE the environment,
+  // so exporting the key here would be silently ignored in favour of the shared `auth.json` one.
   const child = spawn(
     pi,
-    ["-p", "--approve", "--tools", "subagent", "--model", WRAPPER_MODEL, "--thinking", "off", wrapperPrompt(run.agent, run.task)],
+    stagePiArgs(wrapperPrompt(run.agent, run.task), factoryApiKey(root, env)),
     {
       cwd: run.cwd,
       // Its own process group, so a kill takes the grandchildren (bash runs, subagents) too.
@@ -465,11 +512,11 @@ const defaultSpawnStage = (env: NodeJS.ProcessEnv = process.env) => async (run: 
   return { code, timedOut, stdout, stderr };
 };
 
-const defaultDeps = (env: NodeJS.ProcessEnv = process.env): Deps => ({
+const defaultDeps = (env: NodeJS.ProcessEnv = process.env, root = resolveRepoRoot({ env })): Deps => ({
   now: () => Date.now(),
   exec: defaultExec,
   live: liveLiveness,
-  spawnStage: defaultSpawnStage(env),
+  spawnStage: defaultSpawnStage(env, root),
   killGroup: killGroupDefault,
   log: (msg) => process.stdout.write(`${msg}\n`),
   page: (title, body) => {
@@ -2379,7 +2426,7 @@ export function buildCtx(env: NodeJS.ProcessEnv = process.env): Ctx {
     jobsDir: jobsDirFor(root, env),
     worktreeRoot: worktreeRootFor(root, env),
     dryRun: env.FACTORY_DRY_RUN === "1" || env.FACTORY_DRY_RUN === "true",
-    deps: defaultDeps(env),
+    deps: defaultDeps(env, root),
   };
 }
 

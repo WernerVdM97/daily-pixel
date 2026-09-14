@@ -21,7 +21,7 @@ Four actors reach the same OpenRouter account. Two of them share one key today: 
 
 | Actor | Key | Where it comes from | Separated? |
 | ----- | --- | ------------------- | ---------- |
-| Interactive `pi` | the shared key | `~/.pi/agent/auth.json`, provider `openrouter` | n/a, that *is* the shared key |
+| Interactive `pi` | the shared key | `~/.pi/agent/auth.json`, provider `openrouter` | n/a, that _is_ the shared key |
 | The Dark Factory, all 11 agents | **the shared key** | `auth.json`, inherited by each spawned `pi` child | **no** |
 | The bot | `OPENROUTER_API_KEY` | process env; `EnvironmentFile=/home/bot/app/.env` in prod | yes (PR #157) |
 | The agent-player | `AGENT_OPENROUTER_API_KEY` | the shell that sources the repo `.env` | yes (PR #157) |
@@ -32,7 +32,7 @@ The factory is the omission, and it is the largest spender: a tick can fire five
 
 `limit` is `null` (no cap) on the shared key and `expires_at` is `null` (nothing forces rotation). Both are available per key, and the split is already using the first of them: **the factory key carries a `$5` cap that resets daily** (`limit: 5`, `limit_reset: daily`, `limit_remaining: 5`, unused so far), which is the runaway case handled rather than discussed. The ceiling is loose against the observed burn, since the shared key's $3.38 covers a week of the factory plus your own sessions, so $5 a day is roughly ten times that and should not bind in normal operation; the daily reset is what makes it safe, because the outage clears itself rather than waiting for a human to raise a limit. The failure itself is worth stating plainly, because it is not a smaller bill but an outage: an exhausted key fails every call, and because the key is passed as `--api-key` there is deliberately no fallback to the shared credential, so the factory stops rather than spending somewhere else. A capped key converts spend into failure, which is the right trade for an unattended loop and the wrong one for anything a player is waiting on.
 
-**The cap is only safe because something reads it.** `scripts/factory-run-due.sh` asks the same `GET /api/v1/key` for `limit_remaining` before it fires, and skips the tick when the answer is zero or negative, so an exhausted key is one log line saying why rather than a 401 per call for the rest of the day (#160). Nothing is mirrored into `.env`: the field is read live, so raising the cap on the dashboard takes effect on the next tick with nothing to re-provision, lowering it mid-window recomputes what is left, and removing it reports `null` and stands the guard down. The polarity matters as much as the check: only a spent budget skips, while a timeout, an unparseable body or a missing field fires the tick anyway, because a guard that cannot read the budget must not become a new way to stop the factory.
+**The cap is only safe because something reads it.** `scripts/factory-run-due.sh` asks the same `GET /api/v1/key` for `limit_remaining` before it fires, and skips the tick when the answer is zero or negative, so an exhausted key is one log line saying why rather than a 401 per call for the rest of the day (#160). Nothing is mirrored into `.env`: the field is read live, so raising the cap on the dashboard takes effect on the next tick with nothing to re-provision, lowering it mid-window recomputes what is left, and removing it reports `null` and stands the guard down. The polarity matters as much as the check: only a definite answer skips — a spent budget, or an HTTP 401/403, which says the key itself is wrong and, with `--api-key` passed, every call today would be refused — while a timeout, a 5xx, an unparseable body or a missing field fires the tick anyway, because a guard that cannot read the budget must not become a new way to stop the factory.
 
 ### The trap: `auth.json` outranks the environment
 
@@ -59,7 +59,7 @@ The lever is therefore `--api-key`, at the two places the factory spawns `pi`. B
 
 | Site | What it is | What changed |
 | ---- | ---------- | ------------ |
-| `scripts/factory-run-due.sh`, the `"$PI_BIN" -p … "$ACTION"` line | a schedule fire | `--api-key "$PI_KEY"` passed before `"$ACTION"` |
+| `scripts/factory-run-due.sh`, the `"$PI_BIN" -p … "$ACTION"` line | a schedule fire | `--model openrouter/deepseek/deepseek-v4.1-flash` pinned before `--api-key "$PI_KEY"`, both before `"$ACTION"` — a fire with no `--model` resolves the model from settings and installs `--api-key` against _that_ provider |
 | `scripts/factory-jobs.ts`, `defaultSpawnStage` | the ledger's per-stage wrapper | `--api-key` in the args array, read off the injected `env` so it stays testable |
 
 Both are one line, and both pass the flag only when the key is non-empty: `--api-key ""` is not "no key", it is a broken key, and it would turn the pin's hard-failure behaviour into a factory that cannot reach a model at all. Absent the flag, pi falls back to the shared `auth.json` credential, which is the deliberate degradation the launcher then warns about on the tick it happens.
