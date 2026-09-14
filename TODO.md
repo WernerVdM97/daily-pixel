@@ -4,19 +4,19 @@
 
 This file now keeps only the **narrative layer** — the handover context that is documentation, not cards.
 
-## ⏭️ RESUME HERE (newest) - Agent-player persona panel: layer 1 done, layers 2-3 open (2026-09-13)
+## ⏭️ RESUME HERE (newest) - Agent-player persona panel: all three layers built (2026-09-14)
 
-**State.** Three stacked branches, nothing pushed. Refs are unmerged and no PR exists yet; `git log dev..<branch>` on each shows the work.
+**State.** Three stacked branches, nothing pushed. Refs are unmerged and no PR exists yet; `git log dev..<branch>` on each shows the work. All ten tasks are implemented; the decisions they took are recorded in the spec's `## Build log` and the live readings in its `## Panel evidence`, so this section keeps only the handover and the tickets.
 
 | Branch | Covers | State |
 | --- | --- | --- |
 | `feat/agent-panel-1-surface` | T1 recon + working memory, T2 set-based v2 prompts + handbook, T3 ten personas + `AGENT_PERSONA`, T4 friction/day-note parsing, plus a review-fix round | **done**, 6 commits off `dev`, reviewed by two fresh reviewers, tip `5d2ad1f` |
-| `feat/agent-panel-2-feedback` | T5 the `PersonaReview` seam, T6 `panel.ts` + the three-persona smoke (plus an `AGENT_PERSONA`-unset control run on the same commit) | open |
-| `feat/agent-panel-3-panels` | clock pinning for multi-day runs, T7 the arc panel, T8 `skipDays`, T9 the remaining tests, T10 skill/changelog/doc loop | not cut yet |
+| `feat/agent-panel-2-feedback` | T5 the `PersonaReview` seam, T6 `panel.ts` + the three-persona smoke (plus an `AGENT_PERSONA`-unset control run on the same commit) | **done**, 3 commits, tip `f15df6c` |
+| `feat/agent-panel-3-panels` | clock pinning + `AGENT_SKIP_DAYS` (T8), T7's arc panel, the tests T9 asked for by module, and the two fixes the arc panel found | **done**, 3 commits, tip `3297961`; T10's doc loop sits uncommitted in the working tree, with a review-fix round in flight on `panel.ts` |
 
-Each branch's `gh-merge-base` is set (`dev`, then its parent), so the stack is ready for `gh pr create --base`. Spec of record: `docs/engine/agent-player-personas.md` (tasks T1..T10). Gates run before every commit: `npx tsc --noEmit`, `npx tsc -p tsconfig.test.json`, `npx vitest run`. Layer 1 baseline 111 files / 2395 tests, layer 1 tip 114 / 2533.
+Each branch's `gh-merge-base` is set (`dev`, then its parent), so the stack is ready for `gh pr create --base`. Spec of record: `docs/engine/agent-player-personas.md` (T1..T10, all done). Gates run before every commit: `npx tsc --noEmit`, `npx tsc -p tsconfig.test.json`, `npx vitest run`. Layer 1 baseline 111 files / 2395 tests, layer 1 tip 114 / 2533, layer 3 tip 117 / 2669.
 
-**Decisions that diverge from the spec.** These belong in the spec's build log before the PR (T10 owns it).
+**Decisions that diverge from the spec.** All four are now written into the spec's `## Build log`, which owns them from here; kept below as context.
 
 1. **The day note is day-level, not sleep-level.** The spec folds it into the `sleep` pick. But a day usually ends because the rolls ran out: `menu.open` returns `no-rolls` at zero rolls (`SessionController.openActionMenu`), so the brain is never asked again and its last offered turn always has exactly one roll left. No prompt wording could capture a rating that way, and the spec's own baseline table shows all four sampled days ending `no-rolls`, so the series would have lost the common case. `ChooseMoveInput.lastRoll` now tells the brain when its last roll is being spent; a note may ride any turn, the last one wins, and the event is written whatever closed the day. A day that closes unrated logs a warning finding. Still zero extra LLM calls.
 2. **T4 moved into layer 1**, after T2/T3. T2's prompt requests `friction`/`dayNote`, so the parsing had to land in the same PR or layer 1 would ask for fields its own gateway drops.
@@ -27,10 +27,32 @@ Each branch's `gh-merge-base` is set (`dev`, then its parent), so the stack is r
 
 - **Recon is unreachable once the rolls are spent.** `menu.open` returns `no-rolls` at zero rolls, so a day can never end with a look. A persona whose chit trigger is "I could not look something up when it mattered" therefore cannot have it satisfied at end of day, which is a reading the panel must not over-interpret.
 - **A decision-loop failure that interrupts an attempt** means that action's eventual outcome never reaches the day log (the resume path from `menu.open` appends no entry). Harmless for the log's purpose, which is to stop a refused move being repeated, but it is a gap.
-- **The live half of spec A's anti-theatre test needs the paid panel.** The offline half (pairwise distinct `Want`/`Quit condition` per persona) is a test; the per-persona verb histograms are not. T1's own acceptance wording, "verify by hand that a run can read a map, act on it, and not repeat a refused option", also has no live run behind it yet.
+- **The live half of spec A's anti-theatre test is now paid for.** The per-persona verb histograms come from the smoke and the arc panel, and both are recorded in the spec's `## Panel evidence`; T1's own acceptance wording, "verify by hand that a run can read a map, act on it, and not repeat a refused option", now has live runs behind it (the Explorer read the map and acted on it, and no persona repeated a refused move).
 - **`intent` never reaches the transcript.** It persists across turns and is rendered into the next prompt, but no artifact records it, so nothing in a recorded run shows whether a plan held across days.
-- **`actionVerbs` carries model-authored labels, not the classify vocabulary.** `facts.distilledType` is defined as "single lowercase label capturing the action's essence" (`v13/decide/BASE.md`), so it is open-vocabulary free text (`chore`, `patrol`, `haggle`). The classify *kind* is not on the envelope. The panel therefore reads `actionVerbs` as an observed label frequency table, and the anti-theatre comparison runs on move kinds, which is exact.
+- **`actionVerbs` carries model-authored labels, not the classify vocabulary.** `facts.distilledType` is defined as "single lowercase label capturing the action's essence" (`v13/decide/BASE.md`), so it is open-vocabulary free text (`chore`, `patrol`, `haggle`). The classify *kind* is not on the envelope. The panel therefore reads `actionVerbs` as an observed label frequency table, and the anti-theatre comparison runs on move kinds, which is exact. Recorded as a build-log decision too.
 - **The printed LLM cost summary excludes the critique and review calls.** `play.ts` prints it from the play block's `finally`, before either runs, so the operator's total and the reviews file's `cost` disagree. Fixed in layer 2.
+- **The interrupted shape has not been run live, and no ten-persona breadth panel has been paid for.** `AGENT_SKIP_DAYS` and its tests exist; the absence-then-return path itself has only the unit coverage.
+
+**Tickets from the live panels (2026-09-14 / 09-15). None of these belong in the harness PR; all are findings a real run produced.**
+
+Product and design, from the breadth smoke and the arc panel:
+
+- [ ] **The day-job work menu is location and thread blind** — it offers village chores while the player is standing out on the East Road mid-expedition, so a live thread becomes unreachable. Raised by all four arc personas in their own words, and corroborated by the engine's own `travel-gate` and `set_location` warnings in the same transcripts. The panel's lexical clustering collapses two groups (the four "0 rolls remaining" reports into one 3-persona theme, the Explorer's four wordings into one 1-persona theme) but the Homesteader's phrasing of the same defect shares no content word with them and stays separate, so the exposure ranking still understates it. Closing that needs the follow-up below rather than a threshold to tune.
+- [ ] **Menus and decision screens still offer roll-costing options once the rolls are spent**, so the brain has to bail to end the day, and there is no "the day is done" state. Every persona hit it; it is why several days close on a bail.
+- [ ] **Per-action payouts are opaque** — neither the recap nor the day log says what an action paid, so the Grinder cannot optimise and its whole strategy stalls. The Grinder's own review: "map which verb pays best per roll" is impossible when the log names the verb and never the payout.
+- [ ] **Fulfilment flat-lines** — pinned at 3 for all five days for the Grinder and the Homesteader, with the arc note repeating verbatim mid-arc (the Grinder's days 2 to 4, the Homesteader's in pairs).
+- [ ] **Failure outcomes still paid coin on some days** — the Grinder's critic and its own review both flag it (+3 on day 3, +3 on day 4), not independently verified.
+- [ ] **Only one `(favoured)` tag appeared in an entire five-day run** — the Soldier's critic read it as a glitch rather than a system the player can trust.
+- [ ] **Combat renders a multi-round HP bar, then resolves the whole fight on one roll**, so the player cannot tell whether it is winning a fight that never happens.
+- [ ] **A narrative continuity swap**: a failed "Stand the gate" replaced an established male quarry with an unheralded "Caravan Master" mid-outcome.
+- [ ] **A duplicated article in refused-ground copy**: "The The East Road is too dangerous".
+
+Harness-side, found by the panels and owned by the harness rather than the game:
+
+- [ ] **A server-side action timeout is recorded as a completed action**, so it counts toward outcomes and lands in the verb histogram. The envelope carries no flag distinguishing it, so a fix needs a protocol change.
+- [ ] **`hiScreen.isWeekend()` reads the LOCAL weekday while the tick reads UTC**, so they can disagree near midnight. The reproduction is a start instant rather than a code path: `new Date('2026-09-18T23:00:00Z')` is Friday 23:00 UTC but Saturday 00:00 at UTC+2, so the day-start greeting renders the weekend copy while the same day's tick grants the weekday roll allowance (`getUTCDay() === 6` is false). MITIGATED, NOT FIXED, for panels: `.pi/skills/agent-smoke/SKILL.md` now requires an `AGENT_START_DATE` noon-UTC instant, which leaves the local and UTC weekdays agreeing in any plausible host timezone. The defect stays open for anything that runs on the real clock or pins a near-midnight instant (replay of a recording whose `recordedAt` sits near a UTC midnight is still host-timezone dependent), and the fix itself is player-facing copy, so it needs a deliberate game change rather than a harness edit.
+- [ ] **The brain drops its `choice` field more often when a menu carries many options** (the live failure was on an eleven-option weekend menu). Now costs one retry instead of the run, but the prompt still needs work.
+- [ ] **Friction grouping is lexical, so a defect every persona hits can still rank as several themes.** The panel clusters by Dice similarity over content tokens at a deliberately conservative threshold (0.4), because a wrongly merged theme hides a finding while a split one only under-ranks it. On the real arc data that is 14 reports down to 8 themes, and the zero-rolls complaint reaches 3 of 4 personas at exposure 104 while still not topping the table as one finding. A controlled category vocabulary on the friction report (the same move that made recurrence measurable) would make cross-persona clustering exact instead of approximate; it needs a prompt field and a re-run to populate, so it is a follow-up rather than a threshold change. The measured sensitivity table in `tests/agent/panel.test.ts` shows why no threshold fixes it: the two payout reports score 0.31 against each other while a roll-exhaustion report scores 0.39 against the unrelated location theme, so anything that merges the first also merges the second.
 
 **Layer 2 smoke evidence (2026-09-14, one day each, live DeepSeek, commit `508178d`).** Four runs: three personas plus the `AGENT_PERSONA`-unset control the coordinator required, so the persona reading is not confounded with the wider surface. Move kinds counted from each transcript's `turn` events:
 
@@ -45,7 +67,9 @@ This is the spec's acceptance test for the whole layer, and it passes on real da
 
 **All four days ended `no-rolls` and all four still captured a day note**, which is exactly the path that used to lose the rating, so the day-level redesign is validated live rather than only in tests. Zero error findings across all four runs, no crashed or stalled days. The panel over the three reviews reports `aliveness` and `memory` at coverage 0/3 as gaps rather than scoring them low, which is the anti-false-negative rule working on real data, and all 3 personas could name something they were building.
 
-Two real product findings the persona layer surfaced, both independently corroborated by the expert critic in the same runs: a decision screen offers roll-gated options when the player has zero rolls left (forcing a bail to end the day), and a free-text attempt to join the road patrol returned the player to the same work menu because "Beyond the Palisade" is not in the location graph. Both are content or design tickets, not harness defects.
+Two real product findings the persona layer surfaced, both independently corroborated by the expert critic in the same runs: a decision screen offers roll-gated options when the player has zero rolls left (forcing a bail to end the day), and a free-text attempt to join the road patrol returned the player to the same work menu because "Beyond the Palisade" is not in the location graph. Both are content or design tickets, not harness defects, and both are on the ticket list above.
+
+**The arc panel is the layer-3 reading (2026-09-15 to 09-19, four personas × five days, 20 persona-days, 678 LLM calls, ~3.1M tokens).** Its tables (free-text share and recon by persona, the fulfilment series, rubric coverage, the top friction theme) and the two things the instrument still cannot measure (co-play, the year the pitch is about) are recorded once, in the spec's `## Panel evidence`.
 
 ## ⏭️ RESUME HERE - Dark Factory: bulletin live, headless launcher proven, loops fired (2026-09-10)
 

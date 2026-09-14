@@ -88,13 +88,29 @@ function keptIndices(entries: DayLogEntry[]): Set<number> {
 
 /** The day-start block: yesterday's outcome lines in order, then the disposition the day ended on.
  *  Never mentions the arc note or the intent — those ride every turn instead (spec § B), so a
- *  recap cannot go stale against them. */
+ *  recap cannot go stale against them.
+ *
+ *  `lastPlayedDay` is the day the player actually last played, which is NOT always the day before
+ *  this one: the interrupted panel (spec § G) advances the world with no play, so a run resuming on
+ *  day 7 after playing day 1 has five days of world it never saw. The recap has to say so — the
+ *  absence is only perceptible to the brain if the day-start block names it, and re-entry cost is
+ *  exactly what that panel measures. Byte-identical for a normal consecutive day (the
+ *  `dayNumber - 1` boundary, and the absent case, both keep `YESTERDAY` and add nothing). */
 export function buildRecap(input: {
   dayNumber: number; // the day now starting
   yesterdayOutcomes: string[]; // first lines, in order
   yesterdayEnded?: string; // 'slept' | 'no-rolls' | 'stalled' | 'crashed'
+  lastPlayedDay?: number; // the last day actually played; absent = the caller does not know
 }): string {
-  const lines = [`YESTERDAY (day ${input.dayNumber - 1}):`];
+  // The days the world moved with nobody playing. Absent (or the day before this one) is zero.
+  const lastPlayedDay = input.lastPlayedDay ?? input.dayNumber - 1;
+  const missed = input.dayNumber - lastPlayedDay - 1;
+  const lines = [
+    missed > 0 ? `LAST PLAYED (day ${lastPlayedDay}):` : `YESTERDAY (day ${lastPlayedDay}):`,
+  ];
+  // The pitch's own framing ("the world moves on without you"): the gap is named, not apologised
+  // for, and it is one line — the recap is a day-start block, not a chapter.
+  if (missed > 0) lines.push(`${missed} ${missed === 1 ? 'day' : 'days'} passed without you.`);
   input.yesterdayOutcomes.forEach((outcome, i) => {
     lines.push(`${i + 1}. ${outcome}`);
   });

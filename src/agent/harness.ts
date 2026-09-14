@@ -29,6 +29,7 @@ import type {
   AgentPlayerGateway,
   AgentMove,
   BrainTurn,
+  ChooseMoveInput,
   DayNote,
   LegalMove,
   AgentCharView,
@@ -142,6 +143,14 @@ export interface AgentHarnessOptions {
    *  keeps every recording made before personas existed byte-identical. Read from `AGENT_PERSONA`
    *  in `play.ts`, so the library stays env-free (DC-S1). */
   persona?: string;
+  /** The run's pinned clock, when the caller pinned one (spec § G "the time axis", contract §10).
+   *  The harness advances it one day immediately before each nightly tick, so the tick that opens
+   *  day N+1 sees day N+1's calendar date: the tick refills the COMING day's rolls, so the Saturday
+   *  bonus belongs to the coming day, not the one that just ended. Absent = nothing changes at all
+   *  (the pre-clock behaviour, which is what keeps every stub/replay corpus entry byte-identical).
+   *  Prefer `pinAdvancingClock(...)` in the caller — the harness deliberately knows nothing about
+   *  how the clock is implemented, only that it can step. */
+  pinnedClock?: { advanceDays(n: number): void };
 }
 
 /** The disposition of a single game day — the QA/loop signal `playDays` reads. `slept`/`no-rolls`
@@ -167,6 +176,7 @@ export class AgentHarness {
   ) {
     this.recordBeats = options.recordBeats ?? false;
     this.forceFreeActions = options.forceFreeActions ?? false;
+    this.pinnedClock = options.pinnedClock;
     this.freeActionPending = this.forceFreeActions;
     // The protocol-log header (DC-S1): written once at construction so every dispatch entry that
     // follows has the session identity (brain class + backend class) to interpret it against.
@@ -181,6 +191,9 @@ export class AgentHarness {
   }
 
   private readonly recordBeats: boolean;
+
+  /** The caller's pinned clock, when there is one — see {@link AgentHarnessOptions.pinnedClock}. */
+  private readonly pinnedClock?: { advanceDays(n: number): void };
 
   /** `AGENT_FORCE_FREE_ACTIONS` — see {@link AgentHarnessOptions.forceFreeActions}. */
   private readonly forceFreeActions: boolean;
@@ -214,6 +227,12 @@ export class AgentHarness {
   /** The disposition the last closed day ended on (`slept`/`no-rolls`/`stalled`/`crashed`).
    *  Absent until a day has closed, which is what makes the recap absent on day one. */
   private yesterdayEnded?: string;
+
+  /** The game day the player last actually PLAYED, as `closeDay` numbers it. Kept separately from
+   *  `currentDay() - 1` because `skipDays` moves the world with no play: without this the day-start
+   *  recap would call a day the player never played "yesterday", and the gap that the interrupted
+   *  panel exists to measure would be invisible to the brain. */
+  private lastPlayedDay?: number;
 
   /** The rendered recap block for the day in progress, composed once at day start. */
   private recap?: string;
@@ -461,13 +480,14 @@ export class AgentHarness {
             dayNumber: this.currentDay(),
             yesterdayOutcomes: this.yesterdayOutcomes,
             yesterdayEnded: this.yesterdayEnded,
+            lastPlayedDay: this.lastPlayedDay,
           });
   }
 
   /** Close a day: write the day's note (spec § E) — it is day-level, not sleep-level, so it is
-   *  written HERE, when the day closes, whatever closed it — then hand its completed-action lines
-   *  and its disposition to the recap cells (the next day's day-start block), and start today's
-   *  lines over. */
+   *  written HERE, when the day closes, whatever closed it — then hand its completed-action lines,
+   *  its disposition and its own day number (the recap's `lastPlayedDay`) to the recap cells (the
+   *  next day's day-start block), and start today's lines over. */
   private closeDay(dayNumber: number, outcomes: number, ended: DaySummary['ended']): DaySummary {
     if (this.todayDayNote !== undefined) {
       // The closing day's number, whatever the disposition: `slept`, `no-rolls`, `stalled` and
@@ -490,6 +510,9 @@ export class AgentHarness {
 
     this.yesterdayOutcomes = this.todayOutcomes;
     this.yesterdayEnded = ended;
+    // The recap cells' day: `dayNumber` here is the day that just ended, which is by definition
+    // the last day played (and stays so across a `skipDays` gap).
+    this.lastPlayedDay = dayNumber;
     this.todayOutcomes = [];
     return { dayNumber, outcomes, ended };
   }
@@ -498,11 +521,19 @@ export class AgentHarness {
    *  `rest.begin`, M7.1) + the nightly world tick through the observer (the cron mechanism
    *  stays engine-owned).
    *  The run stops early on `no-character` (fatal — nothing left to play) OR `stalled` (the brain
-   *  wedged): a stalled day leaves whatever pending action wedged it untouched, and the nightly
-   *  auto-expiry gates on real wall-clock so it never fires across a harness run's millisecond
-   *  "days" — pressing on would just replay the identical frozen state every remaining day (burning
-   *  a real LLM run with no progress and no fresh signal). Stopping keeps the stall a single, clear
-   *  finding. Returns one summary per day actually played, in order. */
+   *  wedged): a stalled day leaves whatever pending action wedged it untouched, and pressing on
+   *  would just replay the identical frozen state every remaining day (burning a real LLM run with
+   *  no progress and no fresh signal). Stopping keeps the stall a single, clear finding.
+   *  The auto-expiry reasoning that used to sit on that sentence was wrong under the pinned clock:
+   *  `Date.now()` is not real wall-clock any more, it steps a day at every nightly tick, so a
+   *  pending action that survives a day boundary DOES read as stale and `resolveStaleTimeout`
+   *  (WorldEngineImpl.ts — its audit note names this the sharpest site on the live path) resolves it
+   *  as a server-side timeout rather than leaving the frozen state intact. What keeps that off THIS
+   *  path is the early stop, not the clock: a day that ends non-clean breaks the loop below before
+   *  `endDay` (the thing that advances the clock), so no next day exists in which the expiry could
+   *  fire, and the old claim is vacuously true here rather than generally true. Do not reuse it
+   *  elsewhere.
+   *  Returns one summary per day actually played, in order. */
   async playDays(days: number): Promise<DaySummary[]> {
     const summaries: DaySummary[] = [];
     for (let day = 0; day < days; day++) {
@@ -671,6 +702,10 @@ export class AgentHarness {
       // illegal-move (rolls unspent or mid-action) = idler — no finding, no abort.
 
       step = 'nightly tick';
+      // The calendar moves BEFORE the tick, so the world tick that opens day N+1 runs on day N+1's
+      // date — the rolls it refills are the coming day's (a Saturday tick grants Saturday's bonus
+      // roll), and the same ordering is what `replay.ts` reproduces one tick marker at a time.
+      this.pinnedClock?.advanceDays(1);
       const tick = this.observer.tick(true);
       // DC-S1: the nightly-cron marker — recorded only when the tick succeeds (matching the
       // existing flow; a throwing tick is caught below and never logged as a marker).
@@ -684,6 +719,30 @@ export class AgentHarness {
     } catch (e) {
       this.transcript.finding('error', `uncaught exception during ${step}`, formatError(e));
       return false;
+    }
+  }
+
+  /** The interruption (spec § G "Interrupted panel", contract §10): advance the world `n` days
+   *  with NO play dispatches — the player was away, and the world moved on without them. Reuses
+   *  the two pieces `src/sim/driver.ts` already establishes between days: the daily admin-style
+   *  tick (`advanceDays`, `src/sim/time.ts` — a non-admin `tick(false)` no-ops once
+   *  `last_cron_date` matches today, so it could never skip a day) and one calendar day of clock
+   *  movement per tick. The harness drives the tick through the observer seam rather than calling
+   *  `advanceDays` itself: that helper is typed on `WorldEngineImpl`, and importing it here would
+   *  put an engine type on the harness's QA-OBSERVER seam (DC-S4). Same mechanism, one seam.
+   *
+   *  Each skipped day records its nightly tick MARKER (so a replayed recording re-executes the
+   *  skipped ticks and keeps day-number-seeded RNG aligned) and a `day` line naming the skip — a
+   *  run whose world advanced must say so in its own transcript. No dispatch is recorded, which is
+   *  the whole point: the absence is an absence of play. Calling this without `pinnedClock` still
+   *  ticks the world; the calendar just will not follow. */
+  skipDays(n: number): void {
+    for (let i = 0; i < n; i++) {
+      this.pinnedClock?.advanceDays(1);
+      const tick = this.observer.tick(true);
+      this.transcript.recordTick(tick.dayNumber);
+      this.transcript.day(tick.dayNumber, 'skipped — the world advanced with no play (an absence)');
+      this.checkInvariants('skipped day tick');
     }
   }
 
@@ -735,6 +794,7 @@ export class AgentHarness {
     const offer = forced.length > 0 ? freeActionMenuView(view) : view;
     const moves = forced.length > 0 ? forced : menuLegalMoves(view, this.reconUsage);
     const turn = await this.ask(offer, charView, moves);
+    if (turn === null) return this.brainFailed();
     const move = turn.move;
     if (!isLegal(move, moves)) {
       this.transcript.finding('warning', `illegal move on menu screen: ${move.kind}`);
@@ -973,6 +1033,7 @@ export class AgentHarness {
 
       const moves = decisionLegalMoves(current);
       const turn = await this.ask(current, charView, moves);
+      if (turn === null) return this.brainFailed();
       const move = turn.move;
       if (!isLegal(move, moves)) {
         this.transcript.finding('warning', `illegal move on decision screen: ${move.kind}`);
@@ -1044,12 +1105,24 @@ export class AgentHarness {
   /** Render the screen, ask the brain, and log the turn. The character snapshot comes from
    *  `charView` (already extracted from the envelope facts by the caller), not from a direct
    *  engine read — the agent never reads the engine in the action path. The working-memory blocks
-   *  (spec § B) are composed from harness state here, at the one place every turn passes through. */
+   *  (spec § B) are composed from harness state here, at the one place every turn passes through.
+   *
+   *  ONE retry on a failed call, which is the re-prompt the seam's own contract always said lived
+   *  here. A reply the gateway cannot resolve (unparseable JSON, an absent or out-of-range `choice`,
+   *  an empty free-text action) is a stochastic model slip, not an infrastructure failure: losing
+   *  one turn to it is cheap, but letting it reach `playOneAction` as a crash loses the rest of the
+   *  run, and a five-day arc panel costs roughly 750k tokens. A transport or HTTP failure gets the
+   *  same single retry, which is also the cheapest correct answer to a provider timeout. Each
+   *  attempt records its own `llm_calls` row through the gateway, so both stay auditable.
+   *
+   *  Returns null when both attempts fail. Callers treat that as a non-fatal dead-end, so a
+   *  transient slip costs one turn while a persistent fault still trips the stuck counter and ends
+   *  the day rather than killing the run outright. */
   private async ask(
     view: ViewState,
     charView: AgentCharView,
     moves: LegalMove[],
-  ): Promise<BrainTurn> {
+  ): Promise<BrainTurn | null> {
     const text = viewToText(view);
     // The recon screen the brain asked for last turn is delivered for exactly ONE turn: it is
     // cleared here, and stays readable in the day log / on a re-request.
@@ -1060,8 +1133,9 @@ export class AgentHarness {
     // `no-rolls` and the brain is never asked another question. Spread in only when true, so a
     // turn that is not the day's last renders exactly the message it rendered before.
     const lastRoll = charView.rollsRemaining === 1;
+    // One TURN however many attempts answer it — the day-note and day-log accounting counts turns.
     this.todayTurns++;
-    const turn = await this.brain.chooseMove({
+    const input: ChooseMoveInput = {
       screenText: text,
       moves,
       character: charView,
@@ -1071,10 +1145,31 @@ export class AgentHarness {
       ...(this.arcNote !== undefined ? { arcNote: this.arcNote } : {}),
       ...(lastRecon !== undefined ? { lastRecon } : {}),
       ...(lastRoll ? { lastRoll: true } : {}),
-    });
-    this.transcript.turn(view.screen === 'decision' ? 'decision' : 'menu', text, moves, turn.move);
-    this.absorbTurn(turn);
-    return turn;
+    };
+
+    for (const attempt of [1, 2] as const) {
+      try {
+        const turn = await this.brain.chooseMove(input);
+        this.transcript.turn(view.screen === 'decision' ? 'decision' : 'menu', text, moves, turn.move);
+        this.absorbTurn(turn);
+        return turn;
+      } catch (e) {
+        const detail = formatError(e);
+        if (attempt === 2) {
+          this.transcript.finding('error', 'brain call failed on both attempts; abandoning the turn', detail);
+          return null;
+        }
+        this.transcript.finding('warning', 'brain call failed; re-asking once', detail);
+      }
+    }
+    return null;
+  }
+
+  /** A turn the brain could not answer even after a retry. Non-fatal on purpose: the attempt is a
+   *  stumble the day survives, and a persistent fault trips STUCK_LIMIT instead of voiding a
+   *  multi-day run. No day-log line — the day log records moves that were attempted, and none was. */
+  private brainFailed(): PlayResult {
+    return { kind: 'dead-end', reason: 'brain-failed' };
   }
 
   /** Record a completed action: the transcript's outcome event plus the day's own line (its first

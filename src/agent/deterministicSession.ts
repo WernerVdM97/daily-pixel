@@ -29,7 +29,7 @@ import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
 import { ScriptedAgentPlayerGateway } from './ScriptedAgentPlayerGateway.js';
 import { PipelineScriptedGateway } from '../sim/PipelineScriptedGateway.js';
-import { pinClock } from './clock.js';
+import { pinAdvancingClock } from './clock.js';
 import { establishBootParity } from './bootParity.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -118,7 +118,10 @@ export const REAL_DAY_MOVES: AgentMove[] = [
  *  `STUB_RECORDED_AT` is: the committed transcript is pinned by deep-equality against a
  *  fresh run, so anything drawn from the wall clock or a counter would break it on run two.
  *  A Wednesday, so the weekday branches the greeting and the tick read stay off the weekend
- *  path — the Saturday arm is exercised by the tamper in `replay.test.ts`, not here. */
+ *  path — the Saturday arm is exercised by the tamper in `replay.test.ts`, not here. (The
+ *  advancing pin makes the whole multi-day run cross weekdays, but this entry is one day:
+ *  the tick before midnight-tick #1 runs on Thursday in both halves, and the tick marker
+ *  asserts only its dayNumber.) */
 export const REAL_USER_ID = 'agent:real-corpus';
 export const REAL_RECORDED_AT = '2026-07-15T09:00:00.000Z';
 
@@ -131,30 +134,38 @@ export const REAL_RECORDED_AT = '2026-07-15T09:00:00.000Z';
  *
  * Both DC-M10.6 halves apply: the run executes on the same pinned clock it stamps into the
  * header, so the greeting's `isWeekend()` and the tick's Saturday bonus see the day the
- * replay will see.
+ * replay will see. Since spec § G the pin ADVANCES a day per nightly tick (and the harness is
+ * handed the same handle), so a multi-day recording crosses weekdays in-run exactly as its
+ * replay does — without that, `days: 5` would record five days that all think they are
+ * Wednesday. `days` defaults to 1, which is the committed corpus entry's shape.
  */
 export async function recordDeterministicRealSession(
-  opts: { moves?: AgentMove[]; recordBeats?: boolean; recordedAt?: string; userId?: string } = {},
+  opts: { moves?: AgentMove[]; recordBeats?: boolean; recordedAt?: string; userId?: string; days?: number } = {},
 ): Promise<ProtocolEntry[]> {
   const recordedAt = opts.recordedAt ?? REAL_RECORDED_AT;
+  const days = opts.days ?? 1;
   const agentEngine = buildAgentEngine({
     pipelineLlmGateway: new PipelineScriptedGateway(deterministicPipelineScript),
     rollD20: () => 20,
   });
   establishBootParity(agentEngine.db);
+  const clock = pinAdvancingClock(recordedAt);
   const harness = createAgentHarness(
     agentEngine.engine,
     buildDeterministicRouter(agentEngine),
-    new ScriptedAgentPlayerGateway(opts.moves ?? REAL_DAY_MOVES),
+    new ScriptedAgentPlayerGateway(
+      // One day's moves per played day by default: the scripted brain has no idea which day it
+      // is on, so a multi-day run needs the day repeated, exactly as `stubRun` arranges.
+      opts.moves ?? Array.from({ length: days }, () => REAL_DAY_MOVES).flat(),
+    ),
     opts.userId ?? REAL_USER_ID,
-    { recordedAt, backend: 'real', ...(opts.recordBeats ? { recordBeats: true } : {}) },
+    { recordedAt, backend: 'real', pinnedClock: clock, ...(opts.recordBeats ? { recordBeats: true } : {}) },
   );
-  const restoreClock = pinClock(recordedAt);
   try {
     await harness.createCharacter(SEED);
-    await harness.playDays(1);
+    await harness.playDays(days);
   } finally {
-    restoreClock();
+    clock.restore();
   }
   return JSON.parse(JSON.stringify(harness.transcript.protocol)) as ProtocolEntry[];
 }

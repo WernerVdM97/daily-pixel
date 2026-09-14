@@ -10,6 +10,10 @@
  *   NOBODY could score reports coverage 0 with no mean at all — not 0, not NaN (spec § Risks);
  * - friction dedupe collapses one grievance repeated by many personas into one theme WITH a persona
  *   count, and the exposure weights are what make a single daily ritual outrank a panel of once-ons;
+ * - friction grouping is by SIMILARITY, not exact text, because the design rule the section exists to
+ *   apply ("raised by one persona is taste; raised by four is a design finding") is invisible when
+ *   four personas word one defect four ways — and the merge has to stay conservative, because a
+ *   wrongly merged theme HIDES a finding where a split one merely under-ranks it;
  * - `verbs` (move kinds) is the exact table the anti-theatre check reads, and `actionVerbs` is
  *   reported as an observed, model-authored label table — never as a vocabulary comparison.
  */
@@ -23,6 +27,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTION_VERB_NOTE,
   EXPOSURE_NOTE,
+  FRICTION_MERGE_THRESHOLD,
   PANEL_FILE_VERSION,
   PanelInputError,
   RECURRENCE_WEIGHT,
@@ -39,6 +44,8 @@ import {
   aggregateRuns,
   aggregateScores,
   aggregateSeries,
+  frictionSimilarity,
+  frictionTokens,
   isNothingAnswer,
   normalizePhrase,
   orderReviews,
@@ -707,8 +714,307 @@ describe('friction themes by exposure (contract §9)', () => {
 
   it('normalises phrases by case, punctuation and whitespace only', () => {
     expect(normalizePhrase('The menu "re-offers" the same  3 jobs!')).toBe('the menu re offers the same 3 jobs');
-    // A different grievance stays different — the panel does not invent a linguistic merge.
+    // This key stays EXACT, and is still what the distinctiveness tables dedupe on. Friction themes
+    // do not use it: they group by `frictionSimilarity`, a separate thresholded step, because exact
+    // text cannot see that "the menu repeats itself" and "the menu re offers the same 3 jobs" are
+    // the same complaint... or, more to the point, that two differently worded reports are.
     expect(normalizePhrase('the menu repeats itself')).not.toBe(normalizePhrase('the menu re offers the same 3 jobs'));
+    expect(frictionSimilarity(frictionTokens('The menu repeats itself'), frictionTokens('the menu re offers the same 3 jobs')))
+      .toBeLessThan(FRICTION_MERGE_THRESHOLD);
+  });
+});
+
+// ── Friction grouping by similarity (the fix for one defect reported four ways) ──
+
+describe('friction themes grouped by sentence similarity, not exact text', () => {
+  const friction = (what: string, dayNumber = 1): { dayNumber: number; what: string; severity: number; recurrence: Recurrence } => ({
+    dayNumber,
+    what,
+    severity: 2,
+    recurrence: 'periodic',
+  });
+
+  it('merges differently worded reports of one defect and keeps a different complaint apart', () => {
+    const themes = aggregateFrictions([
+      reviewFile({
+        persona: 'explorer',
+        frictions: [friction('The decision screen still offered a door option after my rolls were spent')],
+      }),
+      reviewFile({
+        persona: 'soldier',
+        frictions: [
+          friction('A decision screen offered the same door option after the rolls were spent', 3),
+          // A different defect, one shared word (`menu`), stays its own theme.
+          friction('The menu repeats the same three jobs', 2),
+        ],
+      }),
+    ]);
+    expect(themes).toHaveLength(2);
+    const merged = themes.find((t) => t.personas.length === 2)!;
+    expect(merged).toMatchObject({
+      personaCount: 2,
+      count: 2,
+      phrasings: 2,
+      personas: ['explorer', 'soldier'],
+      exposure: 2 * RECURRENCE_WEIGHT.periodic * 2,
+    });
+    expect(themes.find((t) => t.personas.length === 1)?.label).toBe('The menu repeats the same three jobs');
+  });
+
+  it('unwinds a camelCase join, drops stopwords, and stems, so one defect worded two ways matches', () => {
+    expect([...frictionTokens('The work menu still offered gate options after my rolls were spent')].sort()).toEqual([
+      'gate',
+      'menu',
+      'offer',
+      'option',
+      'roll',
+      'spent',
+      'still',
+      'work',
+    ]);
+    // `rollsRemaining` is ONE word to a plain splitter, which is exactly what used to keep
+    // "rollsRemaining at 0" and "0 rolls remaining" apart.
+    expect([...frictionTokens('rollsRemaining at 0')].sort()).toEqual(['0', 'remain', 'roll']);
+    expect(frictionSimilarity(frictionTokens('rollsRemaining at 0 on the decision prompt'), frictionTokens('0 rolls remaining on the decision prompt'))).toBe(1);
+    // Case/punctuation/whitespace variants of one text are still a perfect match.
+    expect(frictionSimilarity(frictionTokens('The Oak door sticks'), frictionTokens('the oak door sticks!'))).toBe(1);
+    // ...and a subset is NOT a match: Dice (unlike containment, which would score this 1.0) charges
+    // the short report for every word the long one adds, which is what stops a two-word report being
+    // swallowed by any sentence that happens to contain it.
+    expect(
+      frictionSimilarity(
+        frictionTokens('The menu repeats'),
+        frictionTokens(
+          'The menu repeats itself in the tavern on the East Road after a long day of chores and the same three jobs come back every evening without resolution',
+        ),
+      ),
+    ).toBeLessThan(FRICTION_MERGE_THRESHOLD);
+  });
+
+  it('groups transitively, and in a way that does not depend on the order the files arrive in', () => {
+    // One theme per persona, so the panel's canonical order IS the file order: A ~ B and B ~ C, while
+    // A and C share one word. The union-find pass puts all three in one theme, which is the documented
+    // and unavoidable consequence of a transitive merge — see FRICTION_MERGE_THRESHOLD.
+    const a = 'The decision screen offers a door option after the rolls were spent';
+    const b = 'The work menu offers a door option after the rolls were spent';
+    const c = 'The work menu offers a guard post while the night is long';
+    expect(frictionSimilarity(frictionTokens(a), frictionTokens(b))).toBeGreaterThanOrEqual(FRICTION_MERGE_THRESHOLD);
+    expect(frictionSimilarity(frictionTokens(b), frictionTokens(c))).toBeGreaterThanOrEqual(FRICTION_MERGE_THRESHOLD);
+    expect(frictionSimilarity(frictionTokens(a), frictionTokens(c))).toBeLessThan(FRICTION_MERGE_THRESHOLD);
+    const themes = aggregateFrictions([
+      reviewFile({ persona: 'explorer', frictions: [friction(a)] }),
+      reviewFile({ persona: 'grinder', frictions: [friction(b)] }),
+      reviewFile({ persona: 'soldier', frictions: [friction(c)] }),
+    ]);
+    expect(themes).toHaveLength(1);
+    expect(themes[0]).toMatchObject({ count: 3, personaCount: 3, phrasings: 3, exposure: 3 * 2 * RECURRENCE_WEIGHT.periodic });
+    // Same reports, opposite file order: the same three-way merge (the relation is symmetric and the
+    // components of a graph do not depend on the order the edges are visited).
+    const reversed = aggregateFrictions([
+      reviewFile({ persona: 'soldier', quitHorizon: 'week 1', frictions: [friction(c)] }),
+      reviewFile({ persona: 'grinder', frictions: [friction(b)] }),
+      reviewFile({ persona: 'explorer', frictions: [friction(a)] }),
+    ]);
+    expect(reversed).toHaveLength(1);
+    expect(reversed[0].count).toBe(3);
+  });
+
+  it('keeps every report in `reports`, and counts the distinct wordings in `phrasings`', () => {
+    const themes = aggregateFrictions([
+      reviewFile({
+        persona: 'grinder',
+        frictions: [
+          friction('Two day-job buttons gave no visible payout readout in the recap'),
+          // The same wording again (case/punctuation only): two reports, ONE phrasing.
+          friction('two day job buttons gave no visible payout readout in the recap!', 4),
+        ],
+      }),
+      reviewFile({
+        persona: 'explorer',
+        frictions: [friction('The recap gave no visible payout readout for the two day-job buttons', 2)],
+      }),
+    ]);
+    expect(themes).toHaveLength(1);
+    expect(themes[0].count).toBe(3);
+    expect(themes[0].phrasings).toBe(2);
+    expect(themes[0].personaCount).toBe(2);
+    // Nothing is hidden by a merge: every report is listed, with the persona, day, severity and tag
+    // it came from, so `count` is exactly the length of the list a reader can check.
+    expect(themes[0].reports).toEqual([
+      { persona: 'explorer', dayNumber: 2, what: 'The recap gave no visible payout readout for the two day-job buttons', severity: 2, recurrence: 'periodic' },
+      { persona: 'grinder', dayNumber: 1, what: 'Two day-job buttons gave no visible payout readout in the recap', severity: 2, recurrence: 'periodic' },
+      { persona: 'grinder', dayNumber: 4, what: 'two day job buttons gave no visible payout readout in the recap!', severity: 2, recurrence: 'periodic' },
+    ]);
+    expect(themes[0].reports).toHaveLength(themes[0].count);
+  });
+
+  it('still sums each report\'s OWN severity x weight, and still takes the worst severity and the tag set', () => {
+    const themes = aggregateFrictions([
+      reviewFile({
+        persona: 'explorer',
+        frictions: [{ dayNumber: 1, what: 'The unsafe-ground copy doubles the same article', severity: 4, recurrence: 'once' }],
+      }),
+      reviewFile({
+        persona: 'soldier',
+        frictions: [{ dayNumber: 2, what: 'The unsafe ground copy doubles the same article!', severity: 2, recurrence: 'ritual' }],
+      }),
+    ]);
+    expect(themes).toHaveLength(1);
+    // 4 x 1 + 2 x 180, NOT worst severity x dearest tag x personas.
+    expect(themes[0].exposure).toBe(4 * RECURRENCE_WEIGHT.once + 2 * RECURRENCE_WEIGHT.ritual);
+    expect(themes[0]).toMatchObject({ worstSeverity: 4, recurrences: ['once', 'ritual'], ritual: true, personaCount: 2, count: 2 });
+  });
+
+  it('takes its label from the first report in canonical order, and names the merge in panel.md', () => {
+    const reviews = [
+      reviewFile({
+        persona: 'explorer',
+        frictions: [friction('The decision screen still offered a door option after my rolls were spent')],
+      }),
+      reviewFile({
+        persona: 'soldier',
+        frictions: [friction('A decision screen offered the same door option after the rolls were spent', 3)],
+      }),
+    ];
+    const [merged] = aggregateFrictions(reviews);
+    expect(merged.label).toBe('The decision screen still offered a door option after my rolls were spent');
+    expect(merged.theme).toBe(normalizePhrase(merged.label));
+
+    const markdown = renderPanelMarkdown(aggregatePanel(reviews));
+    // The merge is visible in the table (`phrasings`) AND spelled out with every wording it swallowed,
+    // so a reader can disagree with the judgement instead of having to trust it.
+    expect(markdown).toContain('| theme | personas | reports | phrasings | worst sev | recurrence | exposure | raised by |');
+    expect(markdown).toContain('### Merged phrasings');
+    expect(markdown).toContain('- 2 report(s), 2 phrasing(s), raised by explorer, soldier:');
+    expect(markdown).toContain('  - "A decision screen offered the same door option after the rolls were spent" (soldier)');
+    expect(markdown).toContain('`panel.json` under `friction.themes[].reports`');
+
+    // A theme written one way is not a merge, and says nothing about merging.
+    const single = renderPanelMarkdown(
+      aggregatePanel([reviewFile({ persona: 'explorer', frictions: [friction('The map has no edges I cannot see')] })]),
+    );
+    expect(single).not.toContain('### Merged phrasings');
+  });
+});
+
+// ── The real arc panel: the acceptance fixture for similarity merging ──
+
+/** The 14 friction reports of the real four-persona, five-day arc panel (`/tmp/agent-panel/arc-panel`,
+ *  recorded 2026-09-14), copied verbatim. Every one of them is severity 2, `periodic`. This is the
+ *  data the defect was found on: five of these reports are ONE defect (menus still offering
+ *  roll-costing options once the rolls are spent) raised by four personas, which exact-text grouping
+ *  could not see, because no two of the five are worded alike. */
+const ARC_PANEL_FRICTIONS: Record<string, Array<{ dayNumber: number; what: string }>> = {
+  explorer: [
+    { dayNumber: 1, what: "The work menu offers Town Guard chores while I'm standing out on the East Road mid-scout, yanking me back to the same three buttons" },
+    { dayNumber: 1, what: "The day's work menu offered me Town Guard chores while I was standing mid-scouting out on the East Road, funnelling me back to the same local buttons instead of the thread I'm on." },
+    { dayNumber: 3, what: 'Free-text pursuit east along the East Road was answered three times by the Town Guard work menu; the world map never opened or moved.' },
+    { dayNumber: 4, what: "The work menu offers village-guard chores while I'm standing out on the East Road, which doesn't match where the story has me." },
+    { dayNumber: 5, what: 'A decision screen appeared with 0 rolls remaining, so it is unclear whether picking a button can still act or whether the day is simply over.' },
+  ],
+  grinder: [
+    { dayNumber: 2, what: "The day's log records which verb ran but never what each paid, so I cannot tell which day-job action earned the most copper." },
+    { dayNumber: 3, what: "Daily work menu re-lists 'Inspect the lockup' unchanged after I already ran it, so it's unclear whether repeating pays or whether I lose a roll." },
+    { dayNumber: 3, what: 'Two day-job buttons (Inspect the lockup, Haul and load) gave no visible payout readout in the recap, so I cannot tell which verb actually paid best per roll.' },
+    { dayNumber: 3, what: 'A decision prompt with rollsRemaining at 0 — unclear whether resolving it is free or needs a roll I no longer have.' },
+  ],
+  homesteader: [
+    { dayNumber: 1, what: 'The work menu still offered gate options after my rolls were spent, so I had to back out instead of just being told the day was done.' },
+  ],
+  soldier: [
+    { dayNumber: 1, what: 'The hunt decision menu appeared with 0 rolls remaining and no sleep option among the moves, so the fight on offer could not actually be taken.' },
+    { dayNumber: 3, what: 'A scout decision was offered with 0 rolls remaining and no sleep or bail option listed, so the cost of picking is unclear.' },
+    { dayNumber: 5, what: 'Three free-text actions on the same strongbox beat each returned a near-identical variant with no escalation or resolution' },
+    { dayNumber: 5, what: "On the day's final roll, standing on unsafe ground with a live thread, the work menu offered only question-a-stranger, wait tables and help at the market — no combat option at all, so I had to force i…" },
+  ],
+};
+
+const arcPanelReviews = (): ReviewFile[] =>
+  Object.entries(ARC_PANEL_FRICTIONS).map(([persona, frictions]) =>
+    reviewFile({ persona, frictions: frictions.map((f) => ({ ...f, severity: 2, recurrence: 'periodic' })) }),
+  );
+
+describe('the real arc panel (acceptance fixture)', () => {
+  const themes = aggregateFrictions(arcPanelReviews());
+  const byLabel = (label: string): (typeof themes)[number] => {
+    const found = themes.find((t) => t.label === label);
+    expect(found, `no theme labelled ${label}`).toBeDefined();
+    return found!;
+  };
+  const ZERO_ROLLS = 'A decision screen appeared with 0 rolls remaining, so it is unclear whether picking a button can still act or whether the day is simply over.';
+  const LOCATION = "The work menu offers Town Guard chores while I'm standing out on the East Road mid-scout, yanking me back to the same three buttons";
+
+  it('collapses 14 exact-text themes into 8, and the roll-exhaustion defect becomes the top finding', () => {
+    // 14 reports of severity 2 `periodic`, i.e. 14 x 26 = 364 of exposure in, 364 out.
+    expect(themes.reduce((sum, t) => sum + t.count, 0)).toBe(14);
+    expect(themes.reduce((sum, t) => sum + t.exposure, 0)).toBe(14 * 2 * RECURRENCE_WEIGHT.periodic);
+    expect(themes).toHaveLength(8);
+
+    // The defect five reports and four personas raised, now visible as one theme: four of them merge
+    // (`0 rolls remaining`, `rollsRemaining at 0`), and it TOPS the ranking.
+    const zeroRolls = themes[0];
+    expect(themes[0]).toBe(byLabel(ZERO_ROLLS));
+    expect(zeroRolls).toMatchObject({
+      personaCount: 3,
+      count: 4,
+      phrasings: 4,
+      personas: ['explorer', 'grinder', 'soldier'],
+      worstSeverity: 2,
+      recurrences: ['periodic'],
+      exposure: 4 * 2 * RECURRENCE_WEIGHT.periodic,
+    });
+
+    // The explorer's location/thread group: one persona, so taste rather than a design finding — and
+    // the persona count is what separates the two themes tied on 104.
+    const location = byLabel(LOCATION);
+    expect(location).toMatchObject({ personaCount: 1, count: 4, phrasings: 4, personas: ['explorer'], exposure: 104 });
+    expect(location.exposure).toBe(zeroRolls.exposure);
+    expect(themes[1]).toBe(location);
+
+    // Everything else is a once-each report, and nothing was lost or double-counted by the merge.
+    expect(themes.slice(2).map((t) => [t.count, t.personaCount, t.exposure])).toEqual([
+      [1, 1, 26],
+      [1, 1, 26],
+      [1, 1, 26],
+      [1, 1, 26],
+      [1, 1, 26],
+      [1, 1, 26],
+    ]);
+    for (const theme of themes) expect(theme.reports).toHaveLength(theme.count);
+  });
+
+  // ── The two groupings the brief expected and this measure does NOT produce, with the numbers ──
+  // Both are threshold questions, not implementation bugs, and both are decided by the same pair of
+  // scores, quoted here so the next reader can re-open the judgement armed with numbers instead of
+  // prose. 0.3125 (5/16) and 0.3871 are `frictionSimilarity` on the shipped tokeniser.
+  it('records the two groupings a conservative threshold refuses, and why', () => {
+    const payoutA = ARC_PANEL_FRICTIONS.grinder[0].what;
+    const payoutB = ARC_PANEL_FRICTIONS.grinder[2].what;
+    const homesteader = ARC_PANEL_FRICTIONS.homesteader[0].what;
+    const locationExplorer = ARC_PANEL_FRICTIONS.explorer[1].what;
+
+    // (1) The two grinder reports about not being told what each action paid score 0.3125: below the
+    // threshold, so they stay two themes of 26 where the brief expected one of 52.
+    expect(frictionSimilarity(frictionTokens(payoutA), frictionTokens(payoutB))).toBeCloseTo(5 / 16, 6);
+    expect(frictionSimilarity(frictionTokens(payoutA), frictionTokens(payoutB))).toBeLessThan(FRICTION_MERGE_THRESHOLD);
+    expect(themes.filter((t) => t.label === payoutA || t.label === payoutB)).toHaveLength(2);
+
+    // (2) The homesteader's roll-exhaustion report shares only the boilerplate "the work menu offered
+    // ..." with the explorer's location complaint, and scores 0.3871 — the HIGHEST false-merge
+    // candidate in the panel. So any threshold low enough to merge the payout pair (0.3125) sits far
+    // below it, and puts a roll-exhaustion report in the location/thread theme: measured at 0.35, the
+    // location theme swallows the homesteader report AND the soldier's no-combat-option report into
+    // one 6-report theme mixing three defects. Hence 0.4 — under-merging only under-ranks a finding,
+    // over-merging hides one. The consequence, stated plainly: the roll-exhaustion theme counts 3
+    // personas and 4 reports, not the 4 personas and 5 reports the brief expected, because the
+    // homesteader's wording shares NO content word with the other four.
+    expect(frictionSimilarity(frictionTokens(homesteader), frictionTokens(locationExplorer))).toBeCloseTo(0.387, 3);
+    expect(frictionSimilarity(frictionTokens(homesteader), frictionTokens(locationExplorer))).toBeLessThan(FRICTION_MERGE_THRESHOLD);
+    // Its fellow roll-exhaustion reports are no closer, so the one report cannot be rescued from the
+    // other direction either: 0.222 against the theme's own label, 0.083 and 0.286 against the other
+    // two (it shares "work menu", "offered" and "rolls" with them and nothing else).
+    expect(frictionSimilarity(frictionTokens(homesteader), frictionTokens(ZERO_ROLLS))).toBeCloseTo(0.222, 3);
+    expect(byLabel(homesteader)).toMatchObject({ personaCount: 1, count: 1, exposure: 26 });
   });
 });
 

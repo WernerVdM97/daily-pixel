@@ -16,6 +16,17 @@
  * leaves the repro up to the failure point.
  *
  * Env: DEEPSEEK_API_KEY (required), DEEPSEEK_MODEL (optional override), AGENT_DAYS (default 1),
+ * AGENT_START_DATE (the run's start instant, ISO-8601 — an ISO date or a full timestamp; default
+ * the real now. The process clock is pinned to it for the whole run and ADVANCES one day per
+ * nightly tick (spec § G "the time axis"), so a fast multi-day run crosses weekdays like a real
+ * one: the Saturday bonus roll, the weekend greeting and the five-day absence nudge all read the
+ * game's calendar instead of whichever day the process happens to run on. The same value is
+ * stamped into the protocol header's `recordedAt`, so a recording and its replay agree by
+ * construction. An unparseable value is a config error: the run exits 1 before any LLM call.),
+ * AGENT_SKIP_DAYS (default 0 — the interrupted-panel knob, spec § G: after day 1 closes, the world
+ * advances this many days with NO play at all (the absence), and the run then plays the remaining
+ * AGENT_DAYS-1 days. Only reached when day 1 ended cleanly. The day numbers of the resumed days
+ * are the real ones — the world moved on),
  * AGENT_OUT (transcript path; default a timestamped file under the OS temp dir),
  * AGENT_PROTOCOL_OUT (protocol-log path; default `<AGENT_OUT>.protocol.json`),
  * AGENT_PROTOCOL_BEATS (record router beats into the protocol log, default off),
@@ -55,6 +66,7 @@ import type { CharCreateData } from '../engine/WorldEngine.js';
 import { loadYamlFile } from '../assets/yaml-loader.js';
 import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
+import { pinAdvancingClock } from './clock.js';
 import { buildReviewFile, formatPersonaReview, personaReviewInput } from './reviewFile.js';
 import { PERSONA_NAMES } from './agentPrompt.js';
 import { GameRouter } from '../protocol/router.js';
@@ -133,6 +145,24 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // The run's start instant: the pinned clock's base AND the header's recordedAt. `AGENT_START_DATE=`
+  // (empty) reads as unset, like AGENT_PERSONA. Validated here rather than in the pin: an
+  // unparseable stamp would pin the clock to Invalid Date and turn every weekday branch into a
+  // silent NaN comparison, in a run that has already paid for its first LLM call.
+  const startDate = process.env.AGENT_START_DATE || new Date().toISOString();
+  if (Number.isNaN(new Date(startDate).getTime())) {
+    console.error(`agent:play: AGENT_START_DATE must be an ISO-8601 date or timestamp (got "${process.env.AGENT_START_DATE}").`);
+    process.exitCode = 1;
+    return;
+  }
+  // The interrupted-panel knob (spec § G): validated like AGENT_DAYS above — a bad value must cost
+  // a start-up error, not a run that silently skips nothing (or skips the wrong number of days).
+  const skipDays = Number(process.env.AGENT_SKIP_DAYS ?? '0');
+  if (!Number.isFinite(skipDays) || skipDays < 0) {
+    console.error(`agent:play: AGENT_SKIP_DAYS must be a non-negative integer (got "${process.env.AGENT_SKIP_DAYS}").`);
+    process.exitCode = 1;
+    return;
+  }
   const outPath = process.env.AGENT_OUT ?? path.join(os.tmpdir(), `agent-run-${Date.now()}.json`);
   // RA-4 Finding 1: honour the SAME switch and default as prod (`index.ts`'s ENABLE_COHERENCE_CRITIC
   // — default on, the literal string "false" opts out) — without this, a live run always pays
@@ -142,6 +172,13 @@ async function main(): Promise<void> {
   // same env. Default 'narrate-gated' (SL-3); 'always' is the pre-RA-4 baseline arm, 'anomaly'
   // gates both beats. Pick the arm per run, no code edit needed.
   const criticGateMode: CriticGateMode = parseCriticGateMode(process.env.CRITIC_GATE_MODE);
+
+  // Pin BEFORE anything that reads the clock is constructed: the wizard session's TTL stamp, the
+  // engine's per-action stamps and the greeting all read `new Date()`, and a run that pinned after
+  // its first dispatch would straddle two clocks. `outPath` above is deliberately computed first —
+  // the default filename's timestamp must stay real, or two personas of one panel would collide on
+  // one output file. Silent when the run is stopped early by an error after this point.
+  const clock = pinAdvancingClock(startDate);
 
   // Real pipeline gateway (built from apiKey inside buildAgentEngine) + real brain, both DeepSeek.
   // recordLlmCalls persists every pipeline stage; the brain records its own picks into the same DB.
@@ -182,6 +219,10 @@ async function main(): Promise<void> {
   // AGENT_PROTOCOL_BEATS knob — read here, in the runner, so the library stays env-free (DC-S1).
   const harness = createAgentHarness(agentEngine.engine, router, brain, userId, {
     brain: 'prod',
+    // The pinned start is the header stamp too (contract §10), so a recording and its replay agree
+    // by construction rather than by the operator copying a value across runs.
+    recordedAt: startDate,
+    pinnedClock: clock,
     ...(process.env.AGENT_PROTOCOL_BEATS === '1' ? { recordBeats: true } : {}),
     // AGENT_FORCE_FREE_ACTIONS — read here, in the runner: the harness library stays env-free
     // (DC-S1), same as the AGENT_PROTOCOL_BEATS knob above.
@@ -222,7 +263,22 @@ async function main(): Promise<void> {
           console.error(`Seeded ${SEED.name} (${SEED.class}) — playing ${days} day(s)…\n`);
         }
       }
-      summaries = await harness.playDays(days);
+      if (skipDays === 0) {
+        summaries = await harness.playDays(days);
+      } else {
+        // Spec § G's interruption: day 1 as normal, then the world advances `skipDays` days with no
+        // play at all, then the remaining days are played. Only engaged when day 1 ended cleanly —
+        // `playDays` stops the run on a stalled/crashed day, and skipping on into a dead run would
+        // fabricate an interruption that never happened. `days - 1` may be zero (`AGENT_DAYS=1` with
+        // a skip is the absence and nothing to resume from); `playDays(0)` is an empty no-op.
+        summaries = await harness.playDays(1);
+        const firstDay = summaries.at(-1);
+        if (firstDay?.ended === 'slept' || firstDay?.ended === 'no-rolls') {
+          console.error(`Skipping ${skipDays} day(s) — the world advances with no play…\n`);
+          harness.skipDays(skipDays);
+          summaries = summaries.concat(await harness.playDays(days - 1));
+        }
+      }
     } finally {
       // Transcript → a file (always clean JSON, immune to stdout log noise); everything human-readable
       // → stderr. Written in finally so a throwing run still leaves the repro up to the failure point.
@@ -258,6 +314,24 @@ async function main(): Promise<void> {
     // inherit arm must too (smoke-run automation keys on the exit code).
     if (inherit && summaries.some((s) => s.ended === 'no-character')) {
       console.error(`agent:play: no character found for ${userId} (AGENT_INHERIT=1) — nothing played (exit 1).`);
+      process.exitCode = 1;
+    }
+
+    // A run whose day ended on anything but a clean night (`slept`/`no-rolls`) is a TRUNCATED run,
+    // not a finished one, and it must not report success: a five-day arc that died on day 3 still
+    // exits 0 otherwise, and the exit code is the only thing QA automation reads. The disposition
+    // list is the complement of `playDays`' own continue-condition rather than a hand-picked set, so
+    // it cannot go stale as dispositions are added: `stalled` counts because a wedged day stops the
+    // run just as dead as an exception, and `no-character` counts for the same reason (the inherit
+    // guard above already exits 1 for it, in inherit mode only — a fresh-mode run truncated that
+    // way would otherwise report success). The findings carry the detail; this makes the truncation
+    // impossible to miss.
+    const truncated = summaries.filter((s) => s.ended !== 'slept' && s.ended !== 'no-rolls');
+    if (truncated.length > 0) {
+      console.error(
+        `agent:play: run ended early — ${truncated.map((s) => `day ${s.dayNumber} ${s.ended}`).join(', ')} ` +
+          `(played ${summaries.length} day(s); exit 1).`,
+      );
       process.exitCode = 1;
     }
 
@@ -334,6 +408,9 @@ async function main(): Promise<void> {
     // before the process exits and that db (and its llm_calls rows) is gone for good. Printed exactly
     // once, and last, so one cost line covers every LLM call the run made.
     console.error(`\n${formatLlmCostSummary(summarizeLlmCosts(agentEngine.db))}`);
+    // Unconditional, like the stub/replay halves: the pin is process-wide, and a runner that
+    // restored only on its success path would leave the global swapped for anything after it.
+    clock.restore();
   }
 }
 

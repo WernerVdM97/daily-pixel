@@ -11,10 +11,15 @@ import type { WorldEngineImpl } from '../engine/WorldEngineImpl.js';
  * calendar date (WorldEngineImpl.ts:1551-1563) — driving N ticks in one process on the
  * same wall-clock day would silently no-op every tick after the first.
  *
- * [!] Real-clock leak (documented, not fought): the Saturday bonus-roll and 5-day-absence
- * nudge read `new Date()`. Pin it with `vi.useFakeTimers()` + `vi.setSystemTime(...)` in
- * tests (as happy-path.test.ts:131-132 does); from the standalone CLI it tracks the real
- * weekday — a minor, documented variance (a +1 roll on Saturdays), not a blocker.
+ * [!] Real-clock leak: the Saturday bonus-roll and 5-day-absence nudge read `new Date()`.
+ * From a bare CLI run the calendar tracks the real weekday — a +1 roll on Saturdays, and no
+ * absence to nudge unless the process really spans five wall-clock days. In tests either pin it
+ * (`vi.useFakeTimers()` + `vi.setSystemTime(...)`, as happy-path.test.ts:131-132 does) or use
+ * the agent harness's advancing pin (`pinAdvancingClock`, `src/agent/clock.ts`), which moves
+ * the calendar one day per nightly tick and is what makes a fast multi-day agent run see
+ * Saturdays and five-day absences at all. So this is no longer "a minor, documented variance"
+ * for the agent harness specifically: a panel run that did not pin would measure a world whose
+ * clock never moves, which is exactly the gap spec § G's time axis closes.
  */
 export function advanceDays(engine: WorldEngineImpl, n: number): void {
   for (let i = 0; i < n; i++) {
