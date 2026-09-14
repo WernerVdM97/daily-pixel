@@ -317,6 +317,20 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     }
 
+    // A run that ended `crashed` or `stalled` is a TRUNCATED run, not a finished one, and it must not
+    // report success: a five-day arc that died on day 3 still exits 0 otherwise, and the exit code is
+    // the only thing QA automation reads. `stalled` is included because a wedged day stops the run
+    // just as dead as an exception (playDays breaks on both), so a panel silently loses the days after
+    // it. The findings carry the detail; this makes the truncation impossible to miss.
+    const truncated = summaries.filter((s) => s.ended === 'crashed' || s.ended === 'stalled');
+    if (truncated.length > 0) {
+      console.error(
+        `agent:play: run ended early — ${truncated.map((s) => `day ${s.dayNumber} ${s.ended}`).join(', ')} ` +
+          `(played ${summaries.length} day(s); exit 1).`,
+      );
+      process.exitCode = 1;
+    }
+
     // M4.5 feedback pass (goal b): a critic reads the completed transcript and writes a qualitative
     // playtest report. Only reached when the run itself didn't throw (the try above rethrows past
     // here) — a completed run, crashes-captured-as-findings included, is what the critic reviews.

@@ -615,6 +615,28 @@ describe('AgentHarness — forceFreeActions (AGENT_FORCE_FREE_ACTIONS)', () => {
 // ── M4.4 — QA capture, ported to the protocol surface. Arms that can't be reached
 // deterministically through the real engine run against a stub RouterBackend + GameRouter. ──
 
+/** A brain that fails its first `failures` calls and then plays a script — the shape of a
+ *  stochastic model slip (a reply with no usable `choice`) that the harness's once-retry is there
+ *  to absorb. The live arc runs produced exactly one of these, and before the retry existed it
+ *  voided a five-day run on day 3. */
+class FlakyBrain implements AgentPlayerGateway {
+  /** Every input the harness handed the brain, in call order — so a test can count the retries. */
+  readonly calls: ChooseMoveInput[] = [];
+
+  constructor(
+    private readonly failures: number,
+    private readonly inner: ScriptedAgentPlayerGateway,
+  ) {}
+
+  async chooseMove(input: ChooseMoveInput): Promise<BrainTurn> {
+    this.calls.push(input);
+    if (this.calls.length <= this.failures) {
+      throw new Error('ProdAgentPlayerGateway: choice undefined is not a legal move index (0..3)');
+    }
+    return this.inner.chooseMove(input);
+  }
+}
+
 const stubChar = (over: Partial<CharacterData> = {}): CharacterData =>
   ({
     id: 1,
@@ -924,7 +946,7 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
     });
   });
 
-  it('a crash mid-action ends the day as crashed and stops the multi-day run', async () => {
+  it('a permanently failing brain stalls the day instead of voiding the run', async () => {
     const h = stubHarness({
       menu: { kind: 'menu', view: CUSTOM_MENU },
       throwOn: 'runCustomAction',
@@ -933,19 +955,59 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
     const summaries = await h.playDays(2);
 
     // The backend throws → router catches it → returns ok:false 'internal' with message
-    // 'kaboom' → the harness maps it to a dead-end. Then the harness loops back to the
-    // menu, but the brain script is exhausted → ScriptedAgentPlayerGateway throws → the
-    // harness catches that as a crashed disposition (transcript.finding). The run stops.
-    expect(summaries.length).toBe(1);
+    // 'kaboom' → the harness maps it to a dead-end. Then the harness loops back to the menu, but
+    // the brain script is exhausted, so every later turn fails its call twice (the once-retry) and
+    // is abandoned. Five consecutive stumbles end the day `stalled`, which stops the multi-day run
+    // without voiding the whole thing as a crash — a stochastic model slip must cost a turn, not a
+    // five-day arc panel.
+    expect(summaries).toEqual([{ dayNumber: 1, outcomes: 0, ended: 'stalled' }]);
     // The backend throw message was recorded as a dead-end, not a finding (the router
     // returns it as an error envelope, not an exception).
     expect(h.transcript.events.some((e) => e.type === 'dead-end' && e.reason === 'internal')).toBe(true);
-    // The brain-exhaustion crash is logged as a finding.
+    // The first failure re-asks; the second abandons the turn. Both are on the record.
     expect(
       h.transcript.events.some(
-        (e) => e.type === 'finding' && e.severity === 'error' && e.summary.includes('uncaught exception'),
+        (e) => e.type === 'finding' && e.severity === 'warning' && e.summary.includes('re-asking once'),
       ),
     ).toBe(true);
+    expect(
+      h.transcript.events.some(
+        (e) =>
+          e.type === 'finding' &&
+          e.severity === 'error' &&
+          e.summary.includes('failed on both attempts'),
+      ),
+    ).toBe(true);
+  });
+
+  it('re-asks once after a failed brain call, so a model slip costs no turn', async () => {
+    const character = stubChar();
+    const router = new GameRouter(
+      stubBackend(character, { menu: { kind: 'menu', view: SLEEP_ONLY_MENU } }),
+      { idle: () => IDLE },
+    );
+    const observer = {
+      getCharacter: () => character,
+      getMeta: () => '1',
+      tick: () => ({ dayNumber: 2 }),
+    } as unknown as AgentObserver;
+    // Exactly the live shape: the model returns a body with no usable `choice` once, then answers.
+    const brain = new FlakyBrain(1, new ScriptedAgentPlayerGateway([{ kind: 'sleep' }]));
+    const harness = new AgentHarness(observer, router, brain, USER_ID, { backend: 'stub' });
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+
+    // Two calls answered one turn: the slip, then the answer.
+    expect(brain.calls).toHaveLength(2);
+    // A recovered slip is a warning, and nothing reached error severity.
+    expect(
+      harness.transcript.events.some(
+        (e) => e.type === 'finding' && e.severity === 'warning' && e.summary.includes('re-asking once'),
+      ),
+    ).toBe(true);
+    expect(harness.transcript.events.some((e) => e.type === 'finding' && e.severity === 'error')).toBe(false);
+    // The recovered turn is still exactly one turn for the day's accounting.
+    expect(harness.transcript.summary().turns).toBe(1);
   });
 });
 

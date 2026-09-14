@@ -29,6 +29,7 @@ import type {
   AgentPlayerGateway,
   AgentMove,
   BrainTurn,
+  ChooseMoveInput,
   DayNote,
   LegalMove,
   AgentCharView,
@@ -785,6 +786,7 @@ export class AgentHarness {
     const offer = forced.length > 0 ? freeActionMenuView(view) : view;
     const moves = forced.length > 0 ? forced : menuLegalMoves(view, this.reconUsage);
     const turn = await this.ask(offer, charView, moves);
+    if (turn === null) return this.brainFailed();
     const move = turn.move;
     if (!isLegal(move, moves)) {
       this.transcript.finding('warning', `illegal move on menu screen: ${move.kind}`);
@@ -1023,6 +1025,7 @@ export class AgentHarness {
 
       const moves = decisionLegalMoves(current);
       const turn = await this.ask(current, charView, moves);
+      if (turn === null) return this.brainFailed();
       const move = turn.move;
       if (!isLegal(move, moves)) {
         this.transcript.finding('warning', `illegal move on decision screen: ${move.kind}`);
@@ -1094,12 +1097,24 @@ export class AgentHarness {
   /** Render the screen, ask the brain, and log the turn. The character snapshot comes from
    *  `charView` (already extracted from the envelope facts by the caller), not from a direct
    *  engine read — the agent never reads the engine in the action path. The working-memory blocks
-   *  (spec § B) are composed from harness state here, at the one place every turn passes through. */
+   *  (spec § B) are composed from harness state here, at the one place every turn passes through.
+   *
+   *  ONE retry on a failed call, which is the re-prompt the seam's own contract always said lived
+   *  here. A reply the gateway cannot resolve (unparseable JSON, an absent or out-of-range `choice`,
+   *  an empty free-text action) is a stochastic model slip, not an infrastructure failure: losing
+   *  one turn to it is cheap, but letting it reach `playOneAction` as a crash loses the rest of the
+   *  run, and a five-day arc panel costs roughly 750k tokens. A transport or HTTP failure gets the
+   *  same single retry, which is also the cheapest correct answer to a provider timeout. Each
+   *  attempt records its own `llm_calls` row through the gateway, so both stay auditable.
+   *
+   *  Returns null when both attempts fail. Callers treat that as a non-fatal dead-end, so a
+   *  transient slip costs one turn while a persistent fault still trips the stuck counter and ends
+   *  the day rather than killing the run outright. */
   private async ask(
     view: ViewState,
     charView: AgentCharView,
     moves: LegalMove[],
-  ): Promise<BrainTurn> {
+  ): Promise<BrainTurn | null> {
     const text = viewToText(view);
     // The recon screen the brain asked for last turn is delivered for exactly ONE turn: it is
     // cleared here, and stays readable in the day log / on a re-request.
@@ -1110,8 +1125,9 @@ export class AgentHarness {
     // `no-rolls` and the brain is never asked another question. Spread in only when true, so a
     // turn that is not the day's last renders exactly the message it rendered before.
     const lastRoll = charView.rollsRemaining === 1;
+    // One TURN however many attempts answer it — the day-note and day-log accounting counts turns.
     this.todayTurns++;
-    const turn = await this.brain.chooseMove({
+    const input: ChooseMoveInput = {
       screenText: text,
       moves,
       character: charView,
@@ -1121,10 +1137,31 @@ export class AgentHarness {
       ...(this.arcNote !== undefined ? { arcNote: this.arcNote } : {}),
       ...(lastRecon !== undefined ? { lastRecon } : {}),
       ...(lastRoll ? { lastRoll: true } : {}),
-    });
-    this.transcript.turn(view.screen === 'decision' ? 'decision' : 'menu', text, moves, turn.move);
-    this.absorbTurn(turn);
-    return turn;
+    };
+
+    for (const attempt of [1, 2] as const) {
+      try {
+        const turn = await this.brain.chooseMove(input);
+        this.transcript.turn(view.screen === 'decision' ? 'decision' : 'menu', text, moves, turn.move);
+        this.absorbTurn(turn);
+        return turn;
+      } catch (e) {
+        const detail = formatError(e);
+        if (attempt === 2) {
+          this.transcript.finding('error', 'brain call failed on both attempts; abandoning the turn', detail);
+          return null;
+        }
+        this.transcript.finding('warning', 'brain call failed; re-asking once', detail);
+      }
+    }
+    return null;
+  }
+
+  /** A turn the brain could not answer even after a retry. Non-fatal on purpose: the attempt is a
+   *  stumble the day survives, and a persistent fault trips STUCK_LIMIT instead of voiding a
+   *  multi-day run. No day-log line — the day log records moves that were attempted, and none was. */
+  private brainFailed(): PlayResult {
+    return { kind: 'dead-end', reason: 'brain-failed' };
   }
 
   /** Record a completed action: the transcript's outcome event plus the day's own line (its first
