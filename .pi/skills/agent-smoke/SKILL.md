@@ -12,7 +12,7 @@ A single run is the degenerate panel, not the default. Pick a shape, run the fle
 
 ## Two channels, never conflated
 
-A transcript **`finding`** is a harness or engine bug (an error finding is a real bug; flag it). A persona **`friction`** is a design signal, tagged `once` / `periodic` / `ritual`; route it to `TODO.md`, never to the blocker list. Engine anomaly *logs* on stderr (`[category-telemetry]`, `[travel-gate]`, `set_location`) are self-recovered content/tuning notes, also `TODO.md`. Same split the skill has always carried.
+A transcript **`finding`** is a harness or engine bug (an error finding is a real bug; flag it). A persona **`friction`** is a design signal, tagged `once` / `periodic` / `ritual`, not a bug report: file it as an issue, one per item, labelled from `.github/labels.yml` (`area:*` / `type:*`), never on the blocker list. Engine anomaly *logs* on stderr (`[category-telemetry]`, `[travel-gate]`, `set_location`) are self-recovered content or tuning notes, also an issue. Same split the skill has always carried.
 
 ## The three shapes
 
@@ -71,7 +71,7 @@ A run whose day ended `crashed` or `stalled` now **exits 1** and stderr says `ru
 
 ## Cost
 
-Real DeepSeek tokens on every brain move, pipeline stage, critique and review. A five-day arc is roughly **150k tokens per run-day, ~750k per persona**, and a four-persona arc panel is ~3M. Keep the fleet small and shape it deliberately: smoke first, arc second, breadth only when onboarding is the question. Give the whole panel one budget line before you spawn anything.
+Real DeepSeek tokens on every brain move, pipeline stage, critique and review. A five-day arc is roughly **150k tokens per run-day, ~750k per persona**, and a four-persona arc panel is ~3M. Keep the fleet small and shape it deliberately: smoke first, arc second, breadth only when onboarding is the question. Give the whole panel one budget line before you spawn anything. **Run at most two live runs concurrently, and stagger them** — three parallel runs on one key produced three decide-stage DeepSeek timeouts in one 15-minute window, and the four-way fleet of 2026-09-14 produced another; the fail-open paths hold, so this is cost and noise rather than correctness.
 
 ## Subagent prompt template
 

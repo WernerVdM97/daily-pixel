@@ -134,7 +134,8 @@ export interface AgentHarnessOptions {
    *  the free-text slot ONLY until the day holds one completed non-work action, so the brain must
    *  take a free action before it can pick day-job work. Why: day-job work is `kind: 'work'`, whose
    *  positive roll grants `stripWorkInspiration` removes by design, so a run without this switch
-   *  cannot observe the inspiration dial at all (see TODO.md's standing caution). Off by default —
+   *  cannot observe the inspiration dial at all (see issue #95: the unverified ~10% RA-2 target).
+   *  Off by default —
    *  the menu the brain sees is then exactly `menuLegalMoves`, byte-identical to before this
    *  option existed. */
   forceFreeActions?: boolean;

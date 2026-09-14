@@ -220,12 +220,12 @@ export function deriveEnemyMaxHp(baseDc: number, scale = 1): number {
 export type DangerTier = 'easy' | 'medium' | 'hard' | 'risky' | 'fatal';
 
 /**
- * Map a combat DC to a worded encounter-danger tier (POC+ 0.3.2 C1; pulls in
- * the TODO.md "map DC to easy/medium/hard/fatal" item). This is a first-cut,
- * tunable ladder — thresholds anchored so the sim's baseline goblin (baseDc
- * 12) reads "medium". This labels the foe's overall danger for display only;
- * it must never be read as a per-beat pass/fail threshold (that's the margin's
- * job, not the DC's — see `resolveCombatRound`'s doc comment).
+ * Map a combat DC to a worded encounter-danger tier (POC+ 0.3.2 C1). A first-cut,
+ * tunable ladder, not the deferred "map DC to easy/medium/hard/fatal" follow-up:
+ * thresholds are anchored so the sim's baseline goblin (baseDc 12) reads "medium",
+ * and the band describes the foe's overall danger for display only. It must never
+ * be read as a per-beat pass/fail threshold (that's the margin's job, not the
+ * DC's — see `resolveCombatRound`'s doc comment).
  */
 export function dangerTier(dc: number): DangerTier {
   if (dc <= 9) return 'easy';
