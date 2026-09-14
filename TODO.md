@@ -28,4 +28,32 @@ Dropped as superseded, with the reason rather than silently:
 
 ## Human notes
 
-Nothing yet. If you are a human with a thought to park, put it here; if it becomes work, file an issue and delete the line.
+### Invisible PRs: every PR authored by `agent97eth` is withheld (noted 2026-09-14)
+
+Nothing authored by the agent account is visible to anyone but the account itself. This is not about one PR: **all 22 PRs it has opened are withheld**, including the 18 that are already merged, so it is author-scoped and retroactive.
+
+| PR | state | what it carries | visible |
+| --- | --- | --- | --- |
+| #126 | open | layer 1: recon move, working memory, v2 prompts + handbook, ten personas, friction and the day note | no |
+| #127 | open | layer 2: the per-persona review and `npm run agent:panel` | no |
+| #128 | open | layer 3: pinned advancing clock, the arc panel, the docs close-out | no |
+| #154 | open | the `TODO.md` deprecation and the issue migration | no |
+| #101, #102, #107 to #118, #122 to #125 | merged | earlier agent work, already in `dev`, listed only for provenance | no |
+
+The four open ones are the live problem: the stack cannot be reviewed or merged from the web UI.
+
+**How to see it is real, in one glance:** the Pull requests tab badge reads **9**, the list header reads **Open 5**, and only the five dependabot PRs render. The API agrees there are 9 open PRs and that 4 of them are authored by `agent97eth`. Fetching any of the 22 by URL returns 404 while a dependabot PR in the same repo returns 200, and `github.com/agent97eth` itself 404s while `github.com/WernerVdM97` does not.
+
+**What is *not* affected.** Branches and commits are public and fine: `feat/agent-panel-1-surface`, `feat/agent-panel-2-feedback`, `feat/agent-panel-3-panels`, `chore/todo-human-only` and every commit SHA resolve for anyone. Nothing about the code, the tests or the history is at risk, and the four open PRs' bodies are exported so they can be recreated in minutes.
+
+**What the author's view shows, and why it misleads.** Logged in as `agent97eth` the PRs look normal and there is no warning banner, because a withheld item stays visible to its own author. The account also still authenticates and still writes. So "it looks fine to me" is expected and is not evidence that the PRs are published. Check the account's email inbox for a notice from GitHub instead, since that is the usual channel rather than a banner.
+
+**No self-serve fix.** Support is the only remedy that keeps the same identity, at `support.github.com/contact` filed while logged in as `agent97eth`, describing the author-scoped withholding and the date it began (between 2026-09-10 and 2026-09-11). If that stalls or fails, the durable replacement is a GitHub App rather than another user account: it opens PRs as `<app>[bot]`, is built for automation, and is not subject to the new-account heuristics a fresh user account would be.
+
+**Two things to stop doing meanwhile**, because they are the likely triggers and would repeat on any replacement account: writing in bursts (20 issues, 4 PRs and 13 comments inside half an hour from a four-day-old account), and leaving the leaked `gh` OAuth token live, which the handover notes have flagged since it was printed into a session transcript.
+
+This note lives here because you asked for it here and because filing yet more items from the affected account is part of the problem. The actionable follow-up, the appeal or the migration, belongs as an issue once either the account is restored or a replacement identity exists.
+
+---
+
+Human notes go here. If a note becomes work, file an issue and delete the line.
