@@ -776,9 +776,12 @@ const LEDGER_MARKERS = new Set(["skipped", "retried"]);
  * retries beyond that are ledger bugs, not model behaviour); budget burn compares spent
  * wall-clock against `JOB_CAP_MS`, the ceiling the drainer clamps every stage to.
  */
-export function readLedger(jobsDir: string, sinceMs: number): LedgerReport | null {
+export function readLedger(jobsDir: string, sinceMs: number, now = Date.now()): LedgerReport | null {
   if (!existsSync(jobsDir)) return null;
-  const cutoff = Date.now() - sinceMs;
+  // `now` is a parameter rather than a Date.now() call because the window boundary is the
+  // point of the round-trip: a test whose fixtures are dated and whose window is read off
+  // the wall clock passes on the day it is written and fails a week later.
+  const cutoff = now - sinceMs;
   const files: string[] = [];
   for (const dir of [join(jobsDir, "archive"), jobsDir]) {
     try {

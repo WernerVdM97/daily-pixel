@@ -71,6 +71,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **`opts.compact` is gone** — `buildOutcomeView` drops the fifth argument that skipped the story thread and had no production caller since RA-6, so the outcome view always carries one; the DTO keeps `storyThread` optional for the protocol stub's fixed sample (#92).
 - **Factory memory skeleton + `factory-memory` skill** — a tracked topic skeleton under `.pi/factory/memory/` (agent-written contents gitignored) so the fresh-context loops keep durable facts between runs; the `AGENTS.md` skill table gains the `factory-memory` row. A `meta/` topic (`proposals`, `metrics`, `sessions`) and `loops/meta-oil/` were added for the improvement loop.
+- **The friction report's ledger cases stop failing the week after they are written** — `readLedger` read its window off the wall clock while its fixtures were dated, so all 7 `readLedger` cases turned red on 2026-09-20 and took every open dependabot PR's CI with them. `now` is a parameter now, as it already was on `unprocessedOwnerAnswer`, so the fixture clock and the window boundary are the same instant.
 
 ## [0.3.4] - 2026-08-05
 
