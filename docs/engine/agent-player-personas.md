@@ -120,7 +120,7 @@ Forced means `AGENT_FORCE_FREE_ACTIONS=1`; unforced is the same command without 
 
 ## Panel evidence: the 2026-09-14 and 2026-09-15 runs
 
-Live DeepSeek on the persona stack: the breadth smoke against layer 2 (`508178d`), the arc panel against layer 3 (the Homesteader's run repeated after the retry fix `3297961`, whose first attempt is the day-3 crash that fix was written for). Same caveat as the baseline: a live brain, a live action pipeline and a real d20, so read these as one sample of a stochastic instrument and not as a fixture. The artefacts sat under `/tmp/agent-panel/` and are ephemeral.
+Live DeepSeek on the persona stack: the breadth smoke against layer 2 (#127, the review and the aggregator), the arc panel against layer 3 (#128, the Homesteader's run repeated after that layer's retry fix, whose first attempt is the day-3 crash the fix was written for). Same caveat as the baseline: a live brain, a live action pipeline and a real d20, so read these as one sample of a stochastic instrument and not as a fixture. The artefacts sat under `/tmp/agent-panel/` and were not retained, so the tables below are the whole record; re-running the breadth smoke is how to re-derive them against a later build.
 
 ### The breadth smoke (2026-09-14, one day each)
 

@@ -28,44 +28,13 @@ Dropped as superseded, with the reason rather than silently:
 
 ## Human notes
 
-### Invisible PRs: every PR authored by `agent97eth` is missing from every list (noted 2026-09-14)
+### Invisible PRs: every PR authored by `agent97eth` vanished from every list (2026-09-14, resolved 2026-09-22)
 
-None of the agent account's PRs appear in a PR list, for anyone, including the account itself. This is not about one PR: **all 22 it has opened are absent**, including the 18 that are already merged, so it is author-scoped and retroactive.
+**Resolved on 2026-09-22.** Between 2026-09-10 and 09-11 the account was flagged: all 22 of its PRs and all of its comments disappeared from GitHub's lists and from the search index, for everyone including the owner. `pull/126` 404'd in the owner's session and the eight Release A comments on #94 to #97 were unreadable on the pages they were written to explain, while direct object access still worked for the author, which is what made it look like a display bug rather than a withheld account.
 
-| PR | state | what it carries | in a list |
-| --- | --- | --- | --- |
-| #126 | open | layer 1: recon move, working memory, v2 prompts + handbook, ten personas, friction and the day note | no |
-| #127 | open | layer 2: the per-persona review and `npm run agent:panel` | no |
-| #128 | open | layer 3: pinned advancing clock, the arc panel, the docs close-out | no |
-| #154 | open | the `TODO.md` deprecation and the issue migration | no |
-| #101, #102, #107 to #118, #122 to #125 | merged | earlier agent work, already in `dev`, listed only for provenance | no |
+The stack sat unmerged for eight days on this. The code was never affected: the branches, the commits and the compare URLs all stayed readable, and every layer was green.
 
-**What the state actually is, narrowed.** The content is excluded from GitHub's list and search index while the objects still exist and direct access mostly still works. The evidence, all checkable in a glance: logged in as `agent97eth`, the Pull requests tab badge reads **9** while the filtered list header reads **Open 5** and renders only the five dependabot PRs, so the account cannot find its own work in a list either. The same four open PRs are reachable **one at a time by direct URL**, which is what rules out deletion and points at list and search exclusion rather than withheld content. Anonymous fetches 404 for all 22 while a dependabot PR in the same repo returns 200, and `github.com/agent97eth` 404s while `github.com/WernerVdM97` returns 200.
-
-**No warning banner.** GitHub does not banner this, so the account's email inbox is the place to look for a notice, under Settings then Emails to find which address is on it.
-
-**The code is reviewable today, without any PR.** Nothing about the branches is affected, and every layer's full diff renders for anyone logged in or not:
-
-- Layer 1: `https://github.com/WernerVdM97/daily-pixel/compare/dev...feat/agent-panel-1-surface`
-- Layer 2, once layer 1 is in: the same URL with `feat/agent-panel-2-feedback`
-- Layer 3: the same URL with `feat/agent-panel-3-panels`
-- The notes branch: the same URL with `chore/todo-human-only`
-
-Branch and commit views also resolve, so the work can be reviewed and merged locally without a PR object ever being visible. The PR objects are the only broken thing, not the code, the tests or the history.
-
-**The one test that decides how much this matters, and its answer.** Open `https://github.com/WernerVdM97/daily-pixel/pull/126` logged in as the repo owner: it **404s**. So the content is visible to `agent97eth` and to nobody else, which is the withheld state, and the direct-URL access the author found is the author's privilege rather than evidence the objects are reachable more widely. Nothing here can be reviewed or merged through GitHub as it stands.
-
-**The comments are hidden too, and that has a consequence.** The eight comments written onto #94 to #97 to carry the Release A reasoning are invisible as well: #94's page shows no trace of them and never renders `agent97eth`. So the reasoning relocated out of this file is unreadable on the issues it was meant to sit with.
-
-**Nothing textual is lost, because commits are visible.** The pre-deprecation version of this file is reachable at `https://github.com/WernerVdM97/daily-pixel/blob/7dbf4e6/TODO.md`, which still carries both the Release A residuals (RA-1, RA-2, the two P3 decisions) and the dev-line carry-overs, and the deprecation diff itself is readable through the compare URL below. The twenty issue bodies are also exported to `/tmp/agent-panel/export`, though that is a temp directory.
-
-**Do not merge #154 while the account is broken.** It removes the ticket list from this file and leaves it only in issues that nobody else can read, which would turn a visible record into an invisible one. Hold it until either the issues are readable or the findings have a visible home again. The three code layers have no such problem: their diffs are visible and their content is in the commits.
-
-**No self-serve fix.** Support is the only remedy that keeps the same identity, at `support.github.com/contact` filed while logged in as `agent97eth`, describing the list and search exclusion and the date it began (between 2026-09-10 and 2026-09-11). If that stalls or fails, the durable replacement is a GitHub App rather than another user account: it opens PRs as `<app>[bot]`, is built for automation, and is not subject to the new-account heuristics a fresh user account would be.
-
-**Two things to stop doing meanwhile**, because they are the likely triggers and would repeat on any replacement account: writing in bursts (20 issues, 4 PRs and 13 comments inside half an hour from a four-day-old account), and leaving the leaked `gh` OAuth token live, which the handover notes have flagged since it was printed into a session transcript.
-
-This note lives here because you asked for it here and because filing yet more items from the affected account is part of the problem. The actionable follow-up, the appeal or the migration, belongs as an issue once either the account is restored or a replacement identity exists.
+**Two things to avoid on any replacement identity, since both are the likely triggers:** writing in bursts (20 issues, 4 PRs and 13 comments inside half an hour from a four-day-old account), and leaving a leaked `gh` OAuth token live.
 
 ---
 
