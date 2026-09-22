@@ -147,13 +147,13 @@ describe('readLedger', () => {
   }
 
   it('returns null when the ledger dir does not exist', () => {
-    expect(readLedger(join(scratch(), 'nope'), 7 * 86_400_000)).toBeNull();
+    expect(readLedger(join(scratch(), 'nope'), 7 * 86_400_000, NOW)).toBeNull();
   });
 
   it('summarises first-try stages, retries and budget burn', () => {
     const dir = scratch();
     writeFileSync(join(dir, '92.json'), JSON.stringify(jobRecord(92, { pr: 116 })));
-    const report = readLedger(dir, 7 * 86_400_000)!;
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     expect(report.jobs).toHaveLength(1);
     expect(report.jobs[0].item).toBe(92);
     expect(report.jobs[0].pr).toBe(116);
@@ -181,7 +181,7 @@ describe('readLedger', () => {
         }),
       ),
     );
-    const report = readLedger(dir, 7 * 86_400_000)!;
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     expect(report.firstTryOk).toBe(1);
     expect(report.retries).toBe(1);
     expect(report.jobs[0].stages.find((s) => s.stage === 'build')).toMatchObject({ attempts: 2, firstTryOk: false });
@@ -204,7 +204,7 @@ describe('readLedger', () => {
         }),
       ),
     );
-    const report = readLedger(dir, 7 * 86_400_000)!;
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     expect(report.jobs.map((j) => j.item)).toEqual([91]);
   });
 
@@ -225,7 +225,7 @@ describe('readLedger', () => {
         }),
       ),
     );
-    const report = readLedger(dir, 7 * 86_400_000)!;
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     expect(report.jobs[0].stages.map((s) => s.stage)).toEqual(['build', 'review', 'deliver']);
     expect(report.firstTryOk).toBe(3);
     expect(report.retries).toBe(0);
@@ -247,7 +247,7 @@ describe('readLedger', () => {
         }),
       ),
     );
-    const report = readLedger(dir, 7 * 86_400_000)!;
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     expect(report.firstTryOk).toBe(3);
     expect(report.retries).toBe(0);
   });
@@ -267,7 +267,7 @@ describe('readLedger', () => {
         }),
       ),
     );
-    const report = readLedger(dir, 7 * 86_400_000)!;
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     expect(report.jobs[0].stages.find((s) => s.stage === 'build')).toMatchObject({ attempts: 1, firstTryOk: true });
     expect(report.firstTryOk).toBe(2);
     expect(report.retries).toBe(0);
@@ -277,7 +277,7 @@ describe('readLedger', () => {
     const dir = scratch();
     writeFileSync(join(dir, '97.json'), JSON.stringify(jobRecord(97)));
     writeFileSync(join(dir, '98.json'), JSON.stringify(jobRecord(98)));
-    const report = readLedger(dir, 7 * 86_400_000)!;
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     // Two jobs that each spent 400s are 800s of 200 minutes, never 800s of 100.
     expect(report.spentMs).toBe(800_000);
     expect(report.budgetMs).toBe(2 * 100 * 60_000);
@@ -286,7 +286,7 @@ describe('readLedger', () => {
   it('survives an unparseable record by noting it', () => {
     const dir = scratch();
     writeFileSync(join(dir, 'broken.json'), '{not json');
-    const report = readLedger(dir, 7 * 86_400_000)!;
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     expect(report.jobs).toHaveLength(0);
     expect(report.notes.some((n) => n.includes('broken.json'))).toBe(true);
   });
