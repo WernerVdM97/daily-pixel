@@ -12,9 +12,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { stubRun } from '../../src/agent/stub.js';
+import { stubRun, STUB_RECORDED_AT } from '../../src/agent/stub.js';
 import { recordDeterministicRealSession } from '../../src/agent/deterministicSession.js';
 import { replayLog, replayFile } from '../../src/agent/replay.js';
+import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
 import type { ProtocolEntry } from '../../src/agent/transcript.js';
 
 const CORPUS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'protocol-corpus');
@@ -41,6 +42,24 @@ describe('protocol-transcript smoke assertion (M8.5 gate)', () => {
     expect(result.ok).toBe(true);
     expect(result.entries.every((e) => e.ok)).toBe(true);
   });
+
+  // T1 (spec § H): the header gained an OPTIONAL `persona`. A persona-less run must carry no key at
+  // all, or every recording made before personas existed would stop deep-equalling the fresh stream
+  // (and the committed corpus with it) on nothing but an added `undefined`.
+  it('a persona-less run stamps exactly the pre-persona header shape', async () => {
+    const run = await stubRun(1);
+    const header = run.harness.transcript.protocol[0];
+
+    expect(header).toEqual({
+      seq: 0,
+      kind: 'header',
+      v: PROTOCOL_VERSION,
+      userId: 'agent:stub',
+      brain: 'scripted',
+      backend: 'stub',
+      recordedAt: STUB_RECORDED_AT,
+    });
+  });
 });
 
 describe("M8.5 corpus — committed transcripts for M9's replay gate", () => {
@@ -62,9 +81,10 @@ describe("M8.5 corpus — committed transcripts for M9's replay gate", () => {
 
   // M10.1d — the REAL-backend arm of M9's replay gate, which the gate has always claimed
   // ("stub + deterministic real-backend transcripts byte-green") and never had. Deferred
-  // since M8.5 on the SF3 same-weekday-class caveat, which DC-M10.6's clock pin discharges:
-  // the entry stamps a fixed clock and both the recording and the replay run on it. No live
-  // LLM and no API key — the pipeline gateway is scripted and the d20 is fixed.
+  // since M8.5 on the SF3 same-weekday-class caveat, which DC-M10.6's clock pin discharges for the
+  // UTC-based reads: the entry stamps a fixed clock and both the recording and the replay run on
+  // it. (The greeting's local-weekday read is the exception, and both runs here share this host's
+  // timezone.) No live LLM and no API key — the pipeline gateway is scripted and the d20 is fixed.
   it('the committed real-backend transcript replays byte-green', async () => {
     const result = await replayFile(REAL_CORPUS_FILE);
 

@@ -61,7 +61,7 @@ A read-only snapshot of the whole POC+ period (`warden-20260723-201953`; 07-07 �
 
 On any natural 1 or 20, post a short public shout-out to the shared channel, rendered as a fun **ANSI re-enactment frame** of the moment (the crit that felled the boar, the fumble into the ravine). The first genuinely _shared_ event: everyone sees it happen.
 
-- [>] Extends the `TODO.md` "global broadcast on a natural 1 or 20" item and the deferred "richer community feedback — let players show off" MVP item.
+- [>] Extends the #41 "global broadcast on a natural 1 or 20" item and the deferred "richer community feedback — let players show off" MVP item.
 - [p] Crit/fumble detection already exists (`dc.ts:71`, `combat-dc.ts:134`, `OutcomeRenderer.ts:153`); this hooks that signal to a public post. The 0.2.8 public-outcome path (thread posts, `Hi` button) is the posting precedent; what is new is the trigger and the frame.
 - [p] Reuses the `AnsiRenderer` (built in `0.3.1`) for the re-enactment frame; the sprite/floater slots ([[mvp+ansi-art]] §3) are exactly the "one dramatic beat" shape.
 - [!] **Frame authorship (settled 2026-07-09): deterministic.** The frame is composed from fragment slots plus the action's real data (enemy name, roll, damage), and the flavour line is lifted from the already-generated resolve narration. Zero extra LLM calls, so the broadcast is instant and free.

@@ -81,6 +81,11 @@ export async function callChatCompletion(req: ChatRequest): Promise<ChatResponse
   const requestBody = buildRequestBody(req);
 
   const controller = new AbortController();
+  // AUDIT (spec § G's advancing clock): this is the transport's only timeout, and it is a real
+  // `setTimeout` — not a Date-derived deadline — so the pinned/advancing clock does not touch it and
+  // a pinned run cannot make a live request's abort fire early or never. (What the pin does affect
+  // is the latency_ms a caller computes around the call: `Date.now() - startedAt` reads 0 on a
+  // pinned run, which nothing in the QA path consumes.)
   const timeout = setTimeout(() => controller.abort(), req.timeoutMs ?? 60000);
 
   try {

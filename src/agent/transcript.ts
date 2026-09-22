@@ -13,7 +13,7 @@
 
 import { PROTOCOL_VERSION, type GameResponse } from '../protocol/envelope.js';
 import type { GameEvent } from '../protocol/events.js';
-import type { AgentMove, LegalMove } from './AgentPlayerGateway.js';
+import type { AgentMove, LegalMove, Recurrence, ReconScreen } from './AgentPlayerGateway.js';
 
 /** One turn: the screen the brain read, the moves offered, and the move it committed to. */
 export interface TurnEvent {
@@ -29,7 +29,16 @@ export interface TurnEvent {
 }
 
 /** A terminal or noteworthy event closing out an action or a day. */
-export interface OutcomeEvent { type: 'outcome'; text: string }
+export interface OutcomeEvent {
+  type: 'outcome';
+  text: string;
+  /** The action model's own label for the action that produced this outcome — the outcome
+   *  envelope's `facts.distilledType` (a `FACTS_KEYS` fact), recorded verbatim. MODEL-AUTHORED and
+   *  open-vocabulary, NOT the engine's classify kind (which is not on the envelope) and not a
+   *  persona's verb priors (contract §9, the correction found while implementing T5). Never
+   *  keyword-matched from the outcome text. Absent on an envelope that carried no fact. */
+  verb?: string;
+}
 export interface DeadEndEvent { type: 'dead-end'; reason: string; detail?: string }
 export interface DayBoundaryEvent { type: 'day'; dayNumber: number; note: string }
 /** The day-job work flow's transient commute beat (the "you moved to work" screen) — an
@@ -41,6 +50,30 @@ export interface FindingEvent { type: 'finding'; severity: 'error' | 'warning'; 
 /** A scripted day-start greeting (DC-S3, type plumbing only at M8.5 task 1) — the screen text of
  *  the `hi.open` parity beat. Pure derived data, never wired into the play loop here (task 4). */
 export interface GreetingEvent { type: 'greeting'; text: string }
+/** A recon screen the brain asked to read (spec § C) — free, deterministic, and re-readable here
+ *  for the critic, which is why the whole rendered text is kept and not just the screen name. */
+export interface ReconEvent { type: 'recon'; screen: ReconScreen; text: string }
+/** A friction the brain reported this turn (spec § E). The recurrence tag is what a raw count
+ *  cannot express: in a daily ritual a screen read every day costs more than a once-a-session
+ *  clunk, so the panel ranks by projected exposure rather than by how often it happens to appear. */
+export interface FrictionEvent {
+  type: 'friction';
+  dayNumber: number;
+  what: string;
+  severity: number;
+  recurrence: Recurrence;
+}
+/** The day's note (spec § E): the rating pair, one line on the day, and the arc note as it stood at
+ *  the end of it. Written when the day closes, whatever closed it — the note may ride any turn, and
+ *  the last one the brain reported is the one that counts. */
+export interface DayNoteEvent {
+  type: 'day-note';
+  dayNumber: number;
+  engagement: number;
+  fulfilment: number;
+  line: string;
+  arcNote: string;
+}
 
 export type TranscriptEvent =
   | TurnEvent
@@ -49,7 +82,10 @@ export type TranscriptEvent =
   | DayBoundaryEvent
   | CommuteEvent
   | FindingEvent
-  | GreetingEvent;
+  | GreetingEvent
+  | ReconEvent
+  | FrictionEvent
+  | DayNoteEvent;
 
 // ── The parallel protocol log (DC-S1) — plain JSON entries, no timestamps (determinism). ──
 
@@ -63,11 +99,16 @@ export interface ProtocolHeaderEntry {
   brain: 'scripted' | 'prod';
   backend: 'real' | 'stub';
   /** The wall clock the session was recorded against, ISO-8601 (DC-M10.6). Replay pins the
-   *  process clock to it, which is what removes the SF3 same-weekday-class caveat: the
-   *  day-start greeting reads `isWeekend()` and the tick reads `getUTCDay() === 6`, so a
-   *  transcript recorded on a Thursday used to diverge when replayed on a Saturday. Supplied
-   *  by the caller rather than read here, so this module stays env- and clock-free (DC-S1). */
+   *  process clock to it, which removes the SF3 same-weekday-class caveat for the UTC-based reads:
+   *  the tick's `getUTCDay() === 6`, so a transcript recorded on a Thursday no longer diverges when
+   *  replayed on a Saturday. The day-start greeting is the exception: `hiScreen.isWeekend()` reads
+   *  the LOCAL weekday, so a recording and a replay agree on that text only in the same timezone.
+   *  Supplied by the caller rather than read here, so this module stays env- and clock-free (DC-S1). */
   recordedAt: string;
+  /** The persona the run played as (spec § H), stamped alongside `brain`/`backend` so a recorded
+   *  run is attributable in replay. Absent on a persona-less run — which is what keeps every
+   *  pre-persona recording byte-identical. */
+  persona?: string;
 }
 
 /** One raw dispatch: the exact `GameEvent` sent and the final `GameResponse` envelope returned,
@@ -103,6 +144,10 @@ export interface TranscriptSummary {
   dayBoundaries: number;
   /** Scripted day-start greetings (DC-S3). */
   greetings: number;
+  /** Recon screens the brain asked to read (spec § C). */
+  recons: number;
+  /** Frictions the brain reported (spec § E). */
+  frictions: number;
   findings: { error: number; warning: number };
 }
 
@@ -122,8 +167,8 @@ export class Transcript {
     this.events.push({ type: 'turn', screen, text, offered: offered.map((m) => m.label), chosen });
   }
 
-  outcome(text: string): void {
-    this.events.push({ type: 'outcome', text });
+  outcome(text: string, verb?: string): void {
+    this.events.push({ type: 'outcome', text, ...(verb ? { verb } : {}) });
   }
 
   deadEnd(reason: string, detail?: string): void {
@@ -146,6 +191,18 @@ export class Transcript {
     this.events.push({ type: 'greeting', text });
   }
 
+  recon(screen: ReconScreen, text: string): void {
+    this.events.push({ type: 'recon', screen, text });
+  }
+
+  friction(evt: Omit<FrictionEvent, 'type'>): void {
+    this.events.push({ type: 'friction', ...evt });
+  }
+
+  dayNote(evt: Omit<DayNoteEvent, 'type'>): void {
+    this.events.push({ type: 'day-note', ...evt });
+  }
+
   // ── Protocol log (DC-S1) — recorded by the harness's single dispatch point, never here. ──
 
   protocolHeader(
@@ -153,8 +210,18 @@ export class Transcript {
     brain: 'scripted' | 'prod',
     backend: 'real' | 'stub',
     recordedAt: string,
+    persona?: string,
   ): void {
-    this.protocol.push({ seq: 0, kind: 'header', v: PROTOCOL_VERSION, userId, brain, backend, recordedAt });
+    this.protocol.push({
+      seq: 0,
+      kind: 'header',
+      v: PROTOCOL_VERSION,
+      userId,
+      brain,
+      backend,
+      recordedAt,
+      ...(persona !== undefined ? { persona } : {}),
+    });
   }
 
   recordDispatch(event: GameEvent, response: GameResponse, beats?: GameResponse[]): void {
@@ -198,6 +265,28 @@ export class Transcript {
     return days.filter((day) => day.length > 0).map(resolvedFreeActions);
   }
 
+  /** The run's verb histogram on BOTH axes (contract §9), derived on demand like `summary()` so
+   *  there are no cached counters to drift:
+   *
+   *  - `kinds` counts the `turn` events by `AgentMove.kind` — what the brain actually chose
+   *    (`menu-pick`, `custom`, `choice`, `bail`, `sleep`, `recon`). Exact, and independent of the
+   *    engine's reading of the action.
+   *  - `verbs` counts the `outcome` events by the action model's own `distilledType`: a free label,
+   *    open-vocabulary and model-authored, so it is a reading of what a persona reached for in the
+   *    model's own words rather than an exact vocabulary shared with its priors (contract §9).
+   *
+   *  The two can disagree, and that disagreement is a finding of its own: a brain that `custom`-ed its
+   *  way to a `rest` outcome played rest, whatever slot it reached for. */
+  verbHistogram(): { kinds: Record<string, number>; verbs: Record<string, number> } {
+    const kinds: Record<string, number> = {};
+    const verbs: Record<string, number> = {};
+    for (const e of this.events) {
+      if (e.type === 'turn') kinds[e.chosen.kind] = (kinds[e.chosen.kind] ?? 0) + 1;
+      else if (e.type === 'outcome' && e.verb) verbs[e.verb] = (verbs[e.verb] ?? 0) + 1;
+    }
+    return { kinds, verbs };
+  }
+
   /** Roll up the log into a QA scoreboard. Derived on demand — no cached counters to drift. */
   summary(): TranscriptSummary {
     const s: TranscriptSummary = {
@@ -207,6 +296,8 @@ export class Transcript {
       commutes: 0,
       dayBoundaries: 0,
       greetings: 0,
+      recons: 0,
+      frictions: 0,
       findings: { error: 0, warning: 0 },
     };
     for (const e of this.events) {
@@ -218,6 +309,8 @@ export class Transcript {
         case 'day': s.dayBoundaries++; break;
         case 'finding': s.findings[e.severity]++; break;
         case 'greeting': s.greetings++; break;
+        case 'recon': s.recons++; break;
+        case 'friction': s.frictions++; break;
       }
     }
     return s;

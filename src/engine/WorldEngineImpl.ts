@@ -76,11 +76,12 @@ import type {
 } from "./WorldEngine.js";
 import { sanitizeAuthored } from "./authored-text.js";
 
-/** Daily rolls granted at creation and refreshed each tick. */
-const DAILY_ROLL_ALLOWANCE = 3;
+/** Daily rolls granted at creation and refreshed each tick. Exported so the agent-player
+ *  handbook test can pin its copy against the engine's real figures (spec § D). */
+export const DAILY_ROLL_ALLOWANCE = 3;
 
 /** Extra rolls granted on the Saturday tick. */
-const SATURDAY_BONUS_ROLLS = 1;
+export const SATURDAY_BONUS_ROLLS = 1;
 
 // ── Seeded RNG helpers ──
 
@@ -1317,7 +1318,7 @@ export class WorldEngineImpl implements WorldEngine {
         // keeps throwing loudly rather than being dressed up as a timeout card.
         const timeoutState: PipelineInternalActionState = {
           ...internalState,
-          lastActionAt: Date.now(),
+          lastActionAt: Date.now(), // advancing-pin audited: see resolveStaleTimeout's note
         };
         this.charRepo.update(characterId, { last_action_state: null });
         // Stamina cost mirrors bail — applied directly since we bypass applyResolution.
@@ -1439,6 +1440,9 @@ export class WorldEngineImpl implements WorldEngine {
   // ── Last played ──
 
   updateLastPlayed(characterId: number): void {
+    // AUDIT (spec § G's advancing clock): the stamp the five-day absence nudge subtracts, so it must
+    // come off the SAME clock the tick reads — it does, via the pinned `new Date()`. Unpinned this is
+    // the wall clock as before.
     const now = new Date().toISOString().slice(0, 19).replace("T", " ");
     this.charRepo.update(characterId, { last_played_at: now });
   }
@@ -1753,6 +1757,11 @@ export class WorldEngineImpl implements WorldEngine {
   // ── World tick (S5) ──
 
   tick(isAdmin: boolean): TickResult {
+    // AUDIT (spec § G's advancing clock): `new Date()` here is read off the pinned clock and is
+    // MEANT to move — the calendar is the instrument. The harness advances it one day immediately
+    // before this call, so `today` (and the Saturday branch below) describe the day the tick is
+    // opening, and the rolls refilled here are that day's. Unpinned (prod, a bare sim CLI) this is
+    // the real weekday, unchanged.
     const now = new Date();
     const today = now.toISOString().slice(0, 10); // 'YYYY-MM-DD'
     // Saturday (UTC) grants everyone a bonus roll on top of the daily allowance.
@@ -1808,6 +1817,13 @@ export class WorldEngineImpl implements WorldEngine {
         // Five-day absence nudge: on the tick where a player crosses exactly 5 days
         // without interacting, collect their Discord id for a DM warning. No HP penalty —
         // a soft retention nudge that fires once, on day 5, not nightly.
+        //
+        // AUDIT (spec § G's advancing clock): this comparison is the interrupted panel's whole
+        // measurement, and it is calendar-based on purpose — `last_played_at` is stamped off the
+        // same pinned clock (updateLastPlayed), so a skipped day really does count as a day away
+        // and the nudge fires on the tick that crosses day 5. Under the old fixed pin it could
+        // never fire in a fast run (five ticks inside one instant = diffDays 0), which is exactly
+        // why spec § G lists this as something the pin exists to make real.
         if (charRow.last_played_at) {
           const lastDate = charRow.last_played_at.slice(0, 10);
           const diffMs =
@@ -2063,6 +2079,10 @@ export class WorldEngineImpl implements WorldEngine {
    *  Saturday bonus). Used by bail, timeout, and no-op refund paths — the caller still owns
    *  grace-day stamping (`stampRefundDay`) and `rollRefunded` / `rollsDelta` bookkeeping. */
   private refundRoll(characterId: number): void {
+    // AUDIT (spec § G's advancing clock): reads the pinned clock, and should — the cap a refund is
+    // clamped to is the allowance of the day the refund happens on, Saturday bonus included. Under
+    // the advancing pin a refund on a Saturday day therefore caps at 4, matching the tick that
+    // refilled the day.
     const allowance =
       DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
     const row = this.charRepo.findById(characterId)!;
@@ -2078,6 +2098,20 @@ export class WorldEngineImpl implements WorldEngine {
    * that day keep the roll spent. Returns an in-voice `timed_out` ActionOutcome, or null
    * if fresh. This grace is separate from the D1 no-op grace — a server-side timeout
    * must never burn the player's no-op allowance, and vice versa.
+   *
+   * AUDIT (spec § G's advancing clock) — the sharpest site on the live path, and the one whose
+   * behaviour the clock change actually alters. Every `lastActionAt` stamp (this file's
+   * `persistState`, `PipelineActionStateMachine`'s four state constructors) is read off the same
+   * `Date`, so once the harness's pin advances at the nightly tick, an action left pending when a
+   * day closed reads as 24 hours stale on the next day's first `action.choose`/`resume` and resolves
+   * as a server-side timeout (roll refunded on the first such timeout of the day, no mutations).
+   * DECISION: leave it — that IS the right behaviour for an instrument whose night is a real
+   * calendar day, and it matches what prod does to a player who leaves a decision open overnight.
+   * Changing it would be an engine edit to make a number look nicer, which the clock task forbids;
+   * suppressing it instead (a monotonic stamp, a harness-specific exemption) would hide a genuine
+   * overnight-abandonment from the panel. Reachability is not assumed: it is pinned by a test that
+   * opens a decision, advances the pinned clock a day, and asserts the timeout card
+   * (tests/agent/advancing-clock.test.ts).
    *
    * T6: widened to accept the union of legacy and pipeline internal state types — both
    * carry `lastActionAt`, `distilledType`, `accumulatedDc`, `rawInput`, and `decisions`.

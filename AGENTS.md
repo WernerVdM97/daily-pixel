@@ -8,6 +8,10 @@ These hold on every change, regardless of which skill is active:
 - **Keep the changelog current.** Every merge into `dev` adds to `[Unreleased]` (or promotes it on a release).
 - **No manual line wrapping in docs prose** — one paragraph = one line; let the editor soft-wrap.
 
+## Verification
+
+**A green suite is not evidence that a prompt rule is reachable.** Prose that keys off an engine signal (`D20:`, `PHASE:`, `needs_roll`, a category flag, any number a prompt names) must be checked against the message the engine actually builds, not merely read for sense. Two real bugs came of skipping that check: an inspiration grant gated on a natural 20 in a category that never rolls, and a reward instruction keyed to a DC that RESOLVE is never sent.
+
 ## Code comments
 
 Comments explain **why**, NOT **what**! omit echo comments that just narrate the next line; keep genuine rationale (edge cases, gotchas, ordering/idempotency caveats).
@@ -33,6 +37,6 @@ Task- and tool-specific conventions live as auto-discovered skills in [`.pi/skil
 
 | File                                             | What it is                                                                                 |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| [`TODO.md`](./TODO.md)                           | Running scratchpad of pending work.                                                        |
+| [`TODO.md`](./TODO.md)                           | Human notes only — agents file issues on the Dark Factory board.                           |
 | [`docs/README.md`](./docs/README.md)             | Map of content for the design vault — index of every design doc.                           |
 | [`db-backups/README.md`](./db-backups/README.md) | Read-only tooling for pulling & inspecting a prod DB snapshot (snapshots never committed). |
