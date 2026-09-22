@@ -57,6 +57,23 @@ The eight schedule ids: `factory-triage`, `factory-executor`, `factory-sweeper`,
 4. Confirm the machinery: `systemctl is-active factory-run-due.timer`.
 5. Run one tick and watch it do the full three steps (Verifying).
 
+## Resuming after a long stop
+
+**A resume is a burst, by construction.** `schedule.run-due` walks every due schedule and only *attaches* a child run per schedule, so one tick starts every overdue loop within seconds of each other. The launcher does not bound it: its `flock` and `MIN_AVAIL_MB` preflight are released as soon as the children are attached, while the children keep running for up to 50 minutes each. A stop of a week therefore lands eight `pi` children in one tick on a box whose whole budget is under 8 GB.
+
+**The pile is not eight jobs.** `factory-scrumo`, `factory-scrumo-thu` and `factory-scrumo-sun` are one agent on three schedules, and `meta-oil-fri`/`meta-oil-sat` are one agent on two. Firing the whole pile buys three digests and two surveys of a week in which nothing ran, which is the verbosity meta-oil exists to delete.
+
+Two ways to resume, and the second is the one to reach for after a long stop.
+
+1. **Drain it by hand.** Everything stays paused; `FACTORY_FIRE=<id>` one loop at a time, in the order you want the state built (sweeper, then triage, then the digest loops, then the executor). `runManual` sets `nextRunAt = now + everyMs` once the run starts, so a hand-fired loop stops being overdue and the later `rm PAUSED` + `schedule.resume` starts nothing. Costs one tick per loop, and the loop fires off its anchor phase.
+2. **Skip the missed occurrences.** While the schedules are still paused, write each `schedule.json`'s `nextRunAt` to the next anchor-aligned occurrence (`anchorAt + k * everyMs`, the first one after now), then remove the pause file and resume. Nothing is overdue, so the resume tick starts nothing and the loops come back on their own clock. This discards the missed passes rather than paying for them, and preserves the phase that `run-due`'s arithmetic depends on.
+
+The two compose, and the order matters if you want both an immediate pass and the phase: a manual fire sets `nextRunAt = now + everyMs`, so fire first and re-set the anchor afterwards, never the other way round.
+
+**Nothing caps concurrent async runs here.** There is no `.pi/settings.json`, project or user, and `maxActiveAsyncRunsPerSession` is unset (unlimited) by default. If it is ever set, know that an exhausted reservation **fails rather than queues**: `ActiveAsyncCapacityError` is recorded as `failed_launch`, and because `run-due` advances `nextRunAt` before it launches, that loop loses the occurrence instead of waiting for a slot. It is a blast-radius backstop, not a stagger.
+
+**Verify the resume with the tick that follows it.** The line you want is `nothing due at HH:MMZ`, followed by the drain and housekeeping steps. `firing due schedules` on the first tick after a resume means the pile was not cleared and the burst is happening.
+
 ## By hand
 
 A tick, now: `bash scripts/factory-run-due.sh` (uses the repo copy and the same lock, memory preflight and switch). One loop by name, ignoring its due time: `FACTORY_FIRE=factory-triage bash scripts/factory-run-due.sh` — a deliberate fire still runs while the factory is off, but skips the drain and housekeeping so a frozen job stays frozen. The ledger commands (`factory-jobs.ts start|drain|retry|list|show|stale`) are the owner's tools and always work.
