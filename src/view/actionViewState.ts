@@ -1,10 +1,6 @@
 /**
- * View-state builders for the /action decision + outcome screens (JSON-seam M2/M3.2b).
- * `discord.js`-free by construction — only `render/*`, `engine/*`, `view/viewState`, and
- * `discord/format` (for `dayJobEmoji`, itself `discord.js`-free) are imported. Relocated out
- * of `discord/commands/action.ts` (which keeps the medium wrappers `buildDecisionMessage`/
- * `buildOutcomeEmbed` — they weld `discord.js`) — same mechanical, byte-identical move as
- * M3.0's `render/embedText.ts` relocation.
+ * View-state builders for the /action decision + outcome screens: `discord.js`-free by
+ * construction, so all Discord assembly stays in `src/discord/`.
  */
 
 import type { WorldEngine, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../engine/WorldEngine.js';
@@ -53,11 +49,7 @@ function quoteLines(text: string): string {
     .join('\n');
 }
 
-/**
- * Qualitative difficulty arrow for a DC modifier — no raw numbers. Negative
- * lowered the DC (easier → down), positive raised it (harder → up), zero
- * shows nothing.
- */
+/** Qualitative, never a raw number: down is easier, up is harder, zero shows nothing. */
 function dcArrow(mod: number | null | undefined): string {
   if (mod == null || mod === 0) return '';
   return mod < 0 ? '⬇️' : '⬆️';
@@ -71,15 +63,8 @@ function statEmoji(stat: string | undefined): string {
   return info ? info.emoji : '';
 }
 
-/**
- * Render the "story so far" as a gamebook thread: the quest line, then each
- * prior beat as its narration — the consequence of the choice before it,
- * quoted — plus the player's choice (bold). The first beat authors no
- * narration (lean, framed by the player's own input), so that beat renders
- * as choice-only. `collapse` drops narration to a choice-only breadcrumb —
- * the graceful-degradation form for when the full thread overflows the
- * embed cap.
- */
+/** Renders the "story so far" gamebook thread. The first beat authors no narration, so it
+ *  renders choice-only; `collapse` drops narration to a breadcrumb — the overflow degrade form. */
 function buildStoryThread(
   rawInput: string,
   decisions: Array<{ prompt: string; chosen: string; dcModifier?: number; narration?: string }>,
@@ -104,18 +89,15 @@ function buildStoryThread(
   return out.join('\n');
 }
 
-/** Border-escalation rules for the continue card ([[visual-craft]]):
- *  - heavy if the last round's band was HEAVY or the player is bloodied (≤25%)
- *  - standard otherwise */
+/** Border escalation for the continue card — heavy when the last round's band was HEAVY or the
+ *  player is bloodied (≤25% HP), standard otherwise. */
 function chooseContinueBorder(status: CombatStatusData, lastRound?: CombatBeatLog): BorderStyle {
   const playerFrac = status.playerMaxHp > 0 ? status.playerHp / status.playerMaxHp : 0;
   if (lastRound?.band === 'heavy' || playerFrac <= 0.25) return BORDERS.heavy;
   return BORDERS.standard;
 }
 
-/** Frame assembly for a combat continue-screen's status (ANSI-C, redesigned ANSI-D+):
- *  delegates to `renderCombatContinueCard` from CombatCardRenderer, with the border
- *  style chosen by escalation rules. */
+/** Frame for a combat continue-screen, border chosen by escalation rules. */
 function renderCombatStatusFrame(status: CombatStatusData, lastRound?: CombatBeatLog): string {
   const input: ContinueCardInput = {
     enemyName: status.enemyName,
@@ -144,24 +126,20 @@ function renderCombatStatusFrame(status: CombatStatusData, lastRound?: CombatBea
   return renderCombatContinueCard(input, PALETTES.house, chooseContinueBorder(status, lastRound));
 }
 
-/** Tolerant read (ANSI-C): a pre-existing in-flight action's saved state still carries the old
- *  engine-composed ANSI string in `combatStatus` — render either shape without throwing. A
- *  legacy string never carries a round log either (it predates `combatRounds`), so `lastRound`
- *  is simply ignored on that branch rather than threaded through. */
+/** Tolerant read: an action saved before `combatRounds` still carries an engine-composed string
+ *  in `combatStatus`, so render either shape and ignore `lastRound` on that branch. */
 function renderCombatStatus(combatStatus: CombatStatusData | string, lastRound?: CombatBeatLog): string {
   return typeof combatStatus === 'string' ? combatStatus : renderCombatStatusFrame(combatStatus, lastRound);
 }
 
-/** Assemble the decision screen's semantic view-state (JSON-seam M2). Same parameter list as
- *  `buildDecisionMessage`; the medium step (`decisionViewToDiscord`) owns the block join, the
- *  embed-length degradation ladder, and all `discord.js` construction. */
+/** Assembles the decision screen's semantic view-state. The medium step (`decisionViewToDiscord`)
+ *  owns the block join and the embed-length degrade ladder. */
 export function buildDecisionView(
   decision: {
     prompt: string;
     narration?: string;
     combatStatus?: CombatStatusData | string;
-    /** ANSI-D: this beat's round log (accumulated so far), so the continue frame can splice in
-     *  the last round's dice maths — see `renderCombatStatusFrame`'s `lastRound` param. */
+    /** This beat's accumulated round log; the continue frame splices the last round's dice maths from it. */
     combatRounds?: CombatBeatLog[];
     options: Array<{ label: string; dcModifier: number | null; stat?: string }>;
   },
@@ -175,28 +153,23 @@ export function buildDecisionView(
     maxHealth?: number;
     location?: string;
   },
-  /** ANSI-F: the type `classify` routed this action to. Only present on the very first decision
-   *  screen (`decisionIdx === 0`) — that's the sole "post-classify, pre-first-decision" moment
-   *  the OPENING frame belongs to (classification framework §2c); CONTINUE beats never carry it. */
+  /** The type `classify` routed this action to — set only on the first decision screen, the sole
+   *  post-classify moment the opening frame belongs to; CONTINUE beats never carry it. */
   actionType?: ClassifiedActionType,
-  /** ANSI-F: combat enemy name for the opening frame's enemy nameplate. Only passed on the first
-   *  decision of a combat action (surfaced from the pipeline's `combatEnemy` hint). */
+  /** Combat enemy name for the opening frame's nameplate; set only on the first decision of a
+   *  combat action. */
   combatEnemyName?: string,
-  /** ANSI-F re-entry (0.3.2 C4): the foe's BANDED condition (wound word + pip fill, never exact
-   *  HP) when a persisted `in_combat` edge from a prior bail against this same foe exists. Only
-   *  passed on the first decision of a combat action; undefined for a fresh fight. */
+  /** The foe's banded condition (wound word + pip fill, never exact HP) when an `in_combat` edge
+   *  from a prior bail against the same foe exists; first combat decision only, undefined otherwise. */
   combatEnemyCondition?: { woundWord: string; filled: number; total: number },
 ): DecisionViewState {
-  // Raw DCs stay hidden while deciding. Instead, passive insight (10 + WIS,
-  // D&D-style) occasionally lets a perceptive character spot the single safest
-  // route — earned (see INSIGHT_MARGIN), not a constant readout.
+  // Raw DCs stay hidden while deciding; passive insight (10 + WIS) instead lets a perceptive
+  // character occasionally spot the single safest route — earned (see INSIGHT_MARGIN), not a readout.
   const runningDc = state?.accumulatedDc;
   const passiveInsight = char ? 10 + char.stats.wisdom : undefined;
 
-  // ── Gamebook layout: story so far (quest + prior beats, prompts quoted,
-  // choices bold) above the current prompt, also quoted. The lettered options
-  // below are the only unquoted, actionable text — mirrors the outcome recap so
-  // the whole /action flow reads as one continuous gamebook page. ──
+  // ── Gamebook layout: the story so far (narration quoted, choices bold) sits above the quoted
+  // prompt; the lettered options are the only unquoted, actionable text. ──
   const workEmoji = char?.dayJob ? dayJobEmoji(char.dayJob) : '🛠️';
   // Both story-thread variants are pre-rendered here so the medium step can re-run the exact
   // same degrade decision (full → collapsed) against pre-rendered strings, byte-identically.
@@ -206,9 +179,8 @@ export function buildDecisionView(
       collapsed: buildStoryThread(state.rawInput, state.decisions, true, state.kind, workEmoji),
     }
     : undefined;
-  // Narration (the consequence of the last choice) sits quoted above the CTA;
-  // combatStatus is a plain (unquoted) status line between the two on combat
-  // continue-screens. Absent on the first beat — just the quest line + CTA.
+  // Narration sits quoted above the CTA, with combatStatus a plain (unquoted) line between
+  // them on combat continue-screens; both absent on the first beat, leaving just quest line + CTA.
   const narration = decision.narration ? quoteLines(decision.narration) : undefined;
   const combatStatus = decision.combatStatus
     ? renderCombatStatus(decision.combatStatus, decision.combatRounds?.at(-1))
@@ -221,9 +193,8 @@ export function buildDecisionView(
     ? decision.options
     : [{ label: 'Continue', dcModifier: 0 }];
 
-  // Hint fires only when ALL hold: DCs known, passive insight ≥ the easiest
-  // option's DC, and that option is clearly safer than the next-best
-  // (≥ INSIGHT_MARGIN). Otherwise no hint — rare and earned, never always-on.
+  // Hint fires only when ALL hold: two or more real options, DCs known, passive insight ≥ the
+  // easiest option's DC, and that option ≥ INSIGHT_MARGIN safer than the next-best. Rare and earned.
   let favouredIdx = -1;
   if (passiveInsight != null && runningDc != null) {
     const real = options
@@ -267,14 +238,8 @@ export function buildDecisionView(
     ? 'a safer path catches your eye'
     : (decisionIdx === 0 ? 'What do you do?' : `Decision ${decisionIdx + 1}`);
 
-  // ANSI-F: the OPENING frame (art post) leads the message, the decision embed above IS the
-  // "reply" body (§2b) — narration, options, and the interactive buttons. The delivery convention
-  // calls for the frame as its OWN Discord message with the body as a genuine reply beneath it,
-  // but every /action call site defers/replies ephemeral, and an ephemeral interaction response
-  // cannot be the target of a separate message's reply (Discord never exposes it as a normal,
-  // referenceable channel message). Leading embed in the SAME message is the sanctioned fallback
-  // for that case — a deliberate deviation from the literal two-message convention, flagged for
-  // lead review rather than expanding this task into an ephemeral->public flow redesign.
+  // Deliberate deviation: the opening frame leads as an embed in the same message rather than a
+  // separate message the body replies to, because an ephemeral /action response cannot be a reply's target.
   const openingFrameSlots: OpeningFrameSlots = {
     pcName: char?.name,
     pcHp: char?.health,
@@ -306,9 +271,8 @@ function shortLabel(label: string, maxLen: number): string {
   return label.length > maxLen ? label.slice(0, maxLen - 1) + '…' : label;
 }
 
-/** Assemble the outcome screen's semantic view-state (JSON-seam M2). Same parameter list as
- *  `buildOutcomeEmbed`; the medium step (`outcomeViewToDiscord`) owns the assemble/degrade
- *  ladder and all `discord.js` construction. */
+/** Assembles the outcome screen's semantic view-state; the medium step (`outcomeViewToDiscord`)
+ *  owns the assemble/degrade ladder. */
 export function buildOutcomeView(
   outcome: ActionOutcome,
   character: CharacterData | null | undefined,
@@ -338,16 +302,13 @@ export function buildOutcomeView(
   const breadcrumb = types.map(distilledActionEmoji).join(' → ');
 
   const sceneBlock = scene ? '```\n' + scene + '\n```' : undefined;
-  // 0.3.2 P2: combat outcomes show the combat opening frame (with enemy nameplate + HP bars)
-  // instead of the bare location scene — the terminal card already covers the dice reveal,
-  // so pairing it with the combat frame gives a coherent visual story: scene-to-dice.
+  // Combat outcomes show the combat opening frame (nameplate + HP bars) instead of the bare
+  // location scene; the terminal card already covers the dice reveal, so the pair reads scene-to-dice.
   let combatSceneBlock: string | undefined;
   if (outcome.combatBeat && character) {
     const lastBeat = outcome.combatRounds?.at(-1) ?? outcome.combatBeat;
-    // Band against the foe's max HP, not the round-opening HP (`enemyHpBefore`) — the latter
-    // makes a worn-down foe read healthier than it is on the final round (e.g. 8/10 'Healthy'
-    // for a 20-max-HP foe actually at 40%, 'Bloodied'). Only fall back to the round-opening
-    // fraction if the outcome carries no usable max (absent or non-positive).
+    // Band against the foe's max HP, not the round-opening `enemyHpBefore` — the latter reads a
+    // worn-down foe healthier than it is. Fall back to the round-opening fraction only with no usable max.
     const enemyMaxHp = outcome.combatFrame?.enemyMaxHp;
     const enemyFraction = enemyMaxHp != null && enemyMaxHp > 0
       ? lastBeat.enemyHpAfter / enemyMaxHp
@@ -361,7 +322,7 @@ export function buildOutcomeView(
       enemyCondition: { filled, total: 5, woundWord },
     });
   }
-  // Terminal-card escalation ([[visual-craft]]): crit border for nat-20, heavy for nat-1.
+  // Terminal-card escalation: crit border for nat-20, heavy for nat-1.
   const terminalRenderer = (card: CombatTerminalCard) => {
     const style = card.playerD20 === 20 ? BORDERS.crit
       : card.playerD20 === 1 ? BORDERS.heavy
