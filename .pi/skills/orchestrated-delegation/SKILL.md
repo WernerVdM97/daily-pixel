@@ -22,6 +22,7 @@ This repo runs the skill as the Dark Factory's build loop, which puts one hard g
 - **Approval is not readiness.** The ledger also holds back an approved item that carries `needs-human-decision`, that has an open native `blockedBy` dependency, or that sits outside the focus milestone (the open milestone with the earliest due date). `start` names every held item and the reason; treat that list as the answer to "why is nothing running", and never clear a label, a dependency or a milestone to force an item through.
 - **Worktrees fork off `dev`.** Every stream builds in an isolated worktree cut from `dev` (`baseRef: 'dev'`), never on `dev` or `main` directly.
 - **Agents never merge or push.** The executor opens a PR targeting `dev`. Merging, releases, and pushes to `dev`/`main` stay with the owner.
+- **A child gets only the tools its own definition can resolve.** Children are spawned foreground, which never loads this session's ambient extensions, and pi-subagents enforces `tools` as a strict allowlist that aborts the launch over a name it cannot resolve. Builtins need nothing; an extension tool needs the provider in that agent's `subagentOnlyExtensions` (which is how `delegate-judge` gets `web_search`). A ledger stage runs unattended, so its stage agents stay on builtins.
 
 The role definitions live in `.pi/agents/`: `factory-executor` leads the loop, the `delegate-*` agents are its children. Board, gate, and loops are specified in [docs/engine/dark-factory.md](../../../docs/engine/dark-factory.md).
 
