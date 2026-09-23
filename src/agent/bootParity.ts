@@ -1,14 +1,6 @@
 /**
- * The boot state a deterministic recording and its replay must BOTH establish (M10.1d).
- *
- * Neither is `index.ts`, so neither inherits the bot's boot, and the two environments they
- * run in disagree by design: the vitest setup file seeds the emoji registry while the CLI
- * does not, and `migrate()` seeds the world for real runs but deliberately skips it under
- * VITEST. Left implicit, that produces a recording and a replay that differ for reasons
- * having nothing to do with the transcript — the failure mode is quiet, too: glyphs fall
- * back to placeholders and locations resolve to null rather than anything throwing.
- *
- * Both ends call this, so there is one definition of "booted" rather than two that drift.
+ * The boot state a recording and its replay must BOTH establish — neither is `index.ts`, so neither
+ * inherits the bot's boot, and left implicit the two differ quietly (placeholder glyphs, null locations).
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

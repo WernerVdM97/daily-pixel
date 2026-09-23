@@ -1,9 +1,6 @@
 /**
- * RA-4a: LLM-cost summary derived from the `llm_calls` audit table an agent-player run writes
- * (`recordLlmCalls: true`, `engineHarness.ts`, exposed as `.db`). Before this, nothing ever
- * queried that table — it lived and died with the run's `:memory:` DB the moment the process
- * exited. A small DB-in/data-out helper (no formatting) so it's unit-testable against
- * hand-inserted rows with no network — see `formatLlmCostSummary` below for the print half.
+ * LLM-cost summary over the `llm_calls` rows a run writes with `recordLlmCalls: true` — rows that
+ * otherwise live and die with the run's `:memory:` DB. DB-in/data-out; the print half is below.
  */
 
 import type Database from 'better-sqlite3';
@@ -25,9 +22,8 @@ export interface CriticVerdictCount {
   count: number;
 }
 
-/** Critic spend split by which beat it reviewed — the decide half and the narrate half have very
- *  different value, since a `major` verdict fires a bounded re-decide on a decide beat but is
- *  logged and discarded on a narrate one. */
+/** Critic spend split by which beat it reviewed: a `major` verdict fires a bounded re-decide on a
+ *  decide beat but is discarded on a narrate one, so the two halves' value differs. */
 export interface CriticBeatBreakdown {
   /** `'decision'` | `'resolution'`, or null for rows predating the `beat` column. */
   beat: string | null;
@@ -44,17 +40,11 @@ export interface LlmCostSummary {
   criticVerdicts: CriticVerdictCount[];
   /** Critic calls/tokens split by reviewed beat — see `CriticBeatBreakdown`. */
   criticByBeat: CriticBeatBreakdown[];
-  /** Critic calls that could have changed something: (beat='decision' AND severity='major') OR
-   *  (beat='resolution' AND severity='minor') — see `ACTIONABLE_CRITIC_NOTE` for the 2-of-6
-   *  rationale. Exact on the decide arm; a TIGHT UPPER BOUND on the narrate arm, which
-   *  additionally requires the verdict to carry a `patch.outcomeText` that `llm_calls` does not
-   *  record. Rows with no recorded beat are NOT folded in — see `actionableCriticLegacyCount`. */
+  /** Critic calls that could have changed something (see `ACTIONABLE_CRITIC_NOTE`). Exact on the
+   *  decide arm, a tight upper bound on the narrate arm; beat-less rows are counted separately. */
   actionableCritic: number;
-  /** Critic rows with `beat IS NULL` — pre-migration (202607281200_llm_call_beat) rows that
-   *  predate the `beat` column, or any future critic call that somehow skips stamping it. Kept
-   *  separate from `actionableCritic` deliberately: "no beat recorded" is a data gap, not proof
-   *  the verdict was inert, so folding it into (or silently dropping it from) the exact count
-   *  would misrepresent an old DB's numbers as more precise than they are. */
+  /** Critic rows with `beat IS NULL` — rows predating the `beat` column. Kept apart from
+   *  `actionableCritic` deliberately: "no beat recorded" is a data gap, not proof of inertness. */
   actionableCriticLegacyCount: number;
   /** Explains the 2-of-6 rationale behind `actionableCritic` and what `actionableCriticLegacyCount`
    *  means for a DB that predates the `beat` column. */
@@ -75,9 +65,8 @@ const ACTIONABLE_CRITIC_NOTE =
   '`actionableCriticLegacyCount` is critic rows with no `beat` recorded (pre-migration) — ' +
   'excluded rather than guessed at, so an old DB degrades honestly instead of under-counting.';
 
-/** Queries `llm_calls` for the RA-4a summary. Pure read — no writes, no formatting (that's
- *  `formatLlmCostSummary` below), so a caller that only wants the numbers (e.g. a future
- *  dashboard) never pays for string-building it won't use. */
+/** Query `llm_calls` for the summary. Pure read, no formatting — a caller that only wants numbers
+ *  never pays for the string-building `formatLlmCostSummary` does. */
 export function summarizeLlmCosts(db: Database.Database): LlmCostSummary {
   const totals = db
     .prepare(`SELECT COUNT(*) AS calls, COALESCE(SUM(total_tokens), 0) AS tokens FROM llm_calls`)
@@ -107,9 +96,8 @@ export function summarizeLlmCosts(db: Database.Database): LlmCostSummary {
     )
     .all() as Array<{ severity: 'ok' | 'minor' | 'major' | null; count: number }>;
 
-  // Exact actionable count (the 2-of-6 rule, see ACTIONABLE_CRITIC_NOTE): only these two
-  // beat×severity combinations can change anything. Rows with beat IS NULL (pre-migration) are
-  // deliberately excluded here, not guessed at — they land in actionableCriticLegacyCount instead.
+  // The 2-of-6 rule (see ACTIONABLE_CRITIC_NOTE): only these two beat×severity combinations can
+  // change anything. Beat-less rows are excluded here and counted by actionableCriticLegacyCount.
   const { actionableCritic } = db
     .prepare(
       `SELECT COUNT(*) AS actionableCritic
@@ -128,11 +116,8 @@ export function summarizeLlmCosts(db: Database.Database): LlmCostSummary {
     )
     .get() as { actionableCriticLegacyCount: number };
 
-  // Per-beat spend split. The first RA-4 A/B could only infer this: it saw 6 major + 0 minor and
-  // an actionable count of 6, which forces all 6 onto decide beats and proves every narrate critic
-  // call that run was inert — but it could not say how many narrate calls were paid for. Reporting
-  // the split directly makes the decide-vs-narrate value gap legible in one read, which is the
-  // comparison that actually decides whether either half of the critic earns its keep.
+  // The per-beat split the actionable count alone cannot give: it says how many narrate critic calls
+  // were paid for, which is the comparison that decides whether either half of the critic earns its keep.
   const beatRows = db
     .prepare(
       `SELECT beat, COUNT(*) AS calls, COALESCE(SUM(total_tokens), 0) AS tokens,
@@ -162,9 +147,8 @@ export function summarizeLlmCosts(db: Database.Database): LlmCostSummary {
   };
 }
 
-/** Human-readable block matching the existing run-summary / playtest-critique print style in
- *  `play.ts` (a labelled header, indented lines, printed to stderr — never stdout, see that
- *  file's header comment on why). */
+/** Human-readable block matching the run-summary / playtest-critique print style in `play.ts`: a
+ *  labelled header and indented lines, printed to stderr — never stdout. */
 export function formatLlmCostSummary(summary: LlmCostSummary): string {
   const pct = (share: number): string => `${(share * 100).toFixed(1)}%`;
   const lines: string[] = [

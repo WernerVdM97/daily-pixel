@@ -1,15 +1,6 @@
 /**
- * Discord-free `WorldEngineImpl` construction for the agent-player harness (JSON-seam M4.2, DA-1).
- *
- * This is the prod-faithful engine the agent plays against: a real `:memory:` DB + full migration,
- * the five repos, and REAL char-creation/scene assets (so `createCharacter` derives real stats and
- * outcomes carry real scene text) — the pieces `sim/engine-factory.ts` deliberately omits because
- * `PipelineSimEngine` never ticks. "All features on" (decision 6) means the real day/tick economy
- * is available, which is why this uses `WorldEngineImpl`, not the sim engine.
- *
- * The action LLM is pluggable: a real `ProdPipelineLlmGateway` on an opt-in harness run (built from
- * `apiKey`), or an injected scripted `PipelineLlmGateway` in tests (fully deterministic, no
- * network). Same split as prod (`index.ts`) vs sim.
+ * Discord-free `WorldEngineImpl` construction for the agent-player harness: a real `:memory:` DB, full
+ * migration, the five repos and the real assets. The action LLM is pluggable, as in prod vs sim.
  */
 
 import path from 'node:path';
@@ -57,19 +48,13 @@ export interface AgentEngineConfig {
   /** If true, records an `llm_calls` row per pipeline stage on the real path (into the same
    *  in-memory DB). Off by default — the harness DB is ephemeral. */
   recordLlmCalls?: boolean;
-  /** RA-4: pre-built coherence-critic gateway for deterministic tests — bypasses the real
-   *  OpenRouter transport, mirroring the `pipelineLlmGateway` split above. Omit on a live
-   *  (apiKey) run to get the real `ProdLlmGateway` critic wired below; omit everywhere
-   *  else (as every existing caller does) to run with no critic at all, exactly as before RA-4. */
+  /** Pre-built coherence-critic gateway for deterministic tests — bypasses the real OpenRouter
+   *  transport. Omit on a live (apiKey) run for the real `ProdLlmGateway`; omit otherwise for none. */
   criticGateway?: CriticGateway;
-  /** RA-4c: WHEN the critic (if any) fires. Absent → machine default ('always'). */
+  /** WHEN the critic (if any) fires. Absent → machine default (`'narrate-gated'`). */
   criticGateMode?: CriticGateMode;
-  /** RA-4 Finding 1: mirrors prod's `ENABLE_COHERENCE_CRITIC` opt-out (index.ts) — the caller
-   *  resolves the env var and passes the resulting boolean in; this function never reads
-   *  `process.env` itself (it's a library used by tests, which must stay environment-independent).
-   *  Default (absent) is `true`, matching prod's default-on. `false` wires NO critic at all, even
-   *  if `criticGateway`/`apiKey` would otherwise supply one — the run then takes the machine's
-   *  no-critic path, giving the A/B its third ("critic off") arm. */
+  /** Mirrors prod's `ENABLE_COHERENCE_CRITIC` opt-out (`index.ts`), resolved by the caller — this
+   *  library never reads `process.env`. `false` wires NO critic, even over an injected gateway. */
   criticEnabled?: boolean;
 }
 
@@ -80,10 +65,8 @@ export interface AgentEngine {
   /** The `getCurrentScene` closure the controller needs — real scene text via the tag resolver,
    *  reproducing `index.ts`'s definition exactly. */
   getCurrentScene: (userId: string) => string;
-  /** M8.1 (DC-M8.5): the real tag→scene resolver — the 7th `SessionController` constructor
-   *  arg (openLook's scene renderer). Built from the same scenes + TagResolver as
-   *  `getCurrentScene`, the `index.ts` closure shape; `play.ts` passes it so a live run's
-   *  `screen.look` renders real art, unlike the test harnesses' fixed stub. */
+  /** The real tag→scene resolver (`screen.look`'s scene renderer). Built from the same scenes +
+   *  TagResolver as `getCurrentScene`; `play.ts` passes it so a live run renders real art. */
   resolveScene: (tags: string[]) => { sceneName: string; ascii: string };
   /** The engine's `:memory:` DB — exposed so a harness can inspect state for QA invariants. */
   db: Database.Database;
@@ -100,10 +83,8 @@ function loadAssets() {
   };
 }
 
-/** Build the prod-faithful, Discord-free engine (DA-1). Mirrors `sim/engine-factory.ts`'s
- *  `:memory:`+migrate+repos setup, plus the real assets `index.ts` injects (`classDefs`/…/
- *  `dayJobIncome`/`itemSets`) that sim omits. `closeDb()` first defends against a leaked
- *  singleton connection from a prior harness/test in the same process (same reason as sim). */
+/** Build the prod-faithful, Discord-free engine, mirroring `sim/engine-factory.ts`'s setup plus the
+ *  real assets. `closeDb()` first defends against a leaked singleton connection in the same process. */
 export function buildAgentEngine(config: AgentEngineConfig): AgentEngine {
   if (!config.pipelineLlmGateway && !config.apiKey) {
     throw new Error('buildAgentEngine: provide either a pipelineLlmGateway (tests) or an apiKey (real run)');
@@ -118,14 +99,8 @@ export function buildAgentEngine(config: AgentEngineConfig): AgentEngine {
   const dayJobIncome: Record<string, number> = {};
   for (const job of dayJobs) dayJobIncome[job.name] = job.base_income;
 
-  // RA-4: the coherence critic was never wired into this harness before — every agent-player run
-  // took the machine's no-critic path regardless of prod's ENABLE_COHERENCE_CRITIC. A test injects
-  // `criticGateway` (a scripted double, no network); a live (apiKey) run with none injected gets
-  // the real `ProdLlmGateway`, same transport `pipelineLlm` uses below, so the A/B this harness
-  // exists to run actually has a critic to gate.
-  // RA-4 Finding 1: `criticEnabled: false` (the caller's resolved ENABLE_COHERENCE_CRITIC opt-out)
-  // short-circuits to no critic at all, even over an injected `criticGateway` — otherwise a test
-  // double would defeat the opt-out it exists to prove.
+  // A live (apiKey) run with no injected gateway gets the real `ProdLlmGateway`, so the A/B this
+  // harness exists to run has a critic to gate; `criticEnabled: false` wins even over an injected one.
   const critic = config.criticEnabled === false
     ? undefined
     : (config.criticGateway ?? (config.apiKey

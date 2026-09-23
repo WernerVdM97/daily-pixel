@@ -1,13 +1,6 @@
 /**
- * The deterministic real-backend session wiring (M8.5 stage 7, DC-S2) — the shared src-side
- * source of the deterministic pipeline script, the seed character profile, and the
- * SessionController→router construction that BOTH the harness tests and the replay runner
- * use. Before this module the deterministic `buildHarness` wiring existed as per-file copies
- * in tests/agent/harness.test.ts + tests/agent/protocol-log.test.ts; the replay runner needs
- * a src-side source (tests are not importable from src), so the copies moved here and the
- * test files import them — one source of truth. A drift between what the tests drive and
- * what byte-replay proves would otherwise change what the deterministic class's
- * byte-for-byte reproducer actually reproduces.
+ * The deterministic real-backend session wiring, shared by the harness tests and the replay runner:
+ * tests are not importable from src, so one src-side source keeps the two from drifting apart.
  */
 
 import path from 'node:path';
@@ -35,8 +28,8 @@ import { establishBootParity } from './bootParity.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CC_DIR = path.join(__dirname, '..', '..', 'assets', 'char-creation');
 
-/** The real char-creation defs the controller's wizard renders from (DC-M7.3.10) — the same
- *  YAMLs the engine harness loads for its day jobs. */
+/** The real char-creation defs the controller's wizard renders from — the same YAMLs the engine
+ *  harness loads. */
 export function loadRealDefs(): CharDefs {
   const load = <T>(file: string): T[] => loadYamlFile(path.join(CC_DIR, file)) as T[];
   return {
@@ -71,10 +64,8 @@ export const deterministicPipelineScript: PipelineScript = {
   resolveNarrate: () => ({ outcomeText: 'Your blade finds its mark; the goblin falls.' }),
 };
 
-/** The deterministic seed character (DC-S7 fresh arm) — the same profile the harness tests
- *  and the replay corpus use: real first-option def values the wizard validates against. The
- *  wizard persists step-5 values lowercase and the controller validates the value against the
- *  defs (DC-M7.3.9); the walk can't reach step 8 without the step-7 kit (DC-S3). */
+/** The deterministic seed character, shared by the harness tests and the replay corpus: real
+ *  first-option def values, which the wizard validates against the defs. */
 export const SEED: CharCreateData = {
   name: 'Bram',
   class: 'Warrior',
@@ -85,10 +76,8 @@ export const SEED: CharCreateData = {
   itemSetName: "Soldier's Kit",
 };
 
-/** The SessionController→router wiring the deterministic real-backend sessions share — the
- *  same construction the harness tests' `buildHarness` used (real SessionController over the
- *  harness engine with the real defs + resolveScene + a deterministic idle), lifted to src so
- *  the replay runner and future corpus recorders build the identical backend. */
+/** The SessionController→router wiring every deterministic real-backend session shares: the real
+ *  controller over the harness engine, with the real defs, `resolveScene` and a deterministic idle. */
 export function buildDeterministicRouter(engine: AgentEngine): GameRouter {
   const controller = new SessionController(
     engine.engine,
@@ -102,11 +91,10 @@ export function buildDeterministicRouter(engine: AgentEngine): GameRouter {
   return new GameRouter(controller as RouterBackend, { idle: () => '' });
 }
 
-// ── Deterministic real-backend recorder (M10.1d / DC-M10.6) ──
+// ── Deterministic real-backend recorder ──
 
-/** The canned day the real-backend corpus entry records: open the menu, take the first
- *  option twice, then sleep through the nightly tick. Small on purpose — the entry exists to
- *  prove the REAL backend replays byte-green, not to exercise breadth. */
+/** The canned day the real-backend corpus entry records: open the menu, take the first option twice,
+ *  then sleep through the nightly tick. Small on purpose — the entry proves byte-green replay. */
 export const REAL_DAY_MOVES: AgentMove[] = [
   { kind: 'menu-pick', index: 0 },
   { kind: 'choice', index: 0 },
@@ -114,30 +102,14 @@ export const REAL_DAY_MOVES: AgentMove[] = [
   { kind: 'sleep' },
 ];
 
-/** The corpus entry's session id and recording clock. Both fixed, for the same reason
- *  `STUB_RECORDED_AT` is: the committed transcript is pinned by deep-equality against a
- *  fresh run, so anything drawn from the wall clock or a counter would break it on run two.
- *  A Wednesday, so the weekday branches the greeting and the tick read stay off the weekend
- *  path — the Saturday arm is exercised by the tamper in `replay.test.ts`, not here. (The
- *  advancing pin makes the whole multi-day run cross weekdays, but this entry is one day:
- *  the tick before midnight-tick #1 runs on Thursday in both halves, and the tick marker
- *  asserts only its dayNumber.) */
+/** The corpus entry's session id and clock, both fixed so the deep-equality-pinned transcript does not
+ *  break on run two. A Wednesday keeps the greeting's and the tick's weekday branches off the weekend. */
 export const REAL_USER_ID = 'agent:real-corpus';
 export const REAL_RECORDED_AT = '2026-07-15T09:00:00.000Z';
 
 /**
- * Record a deterministic real-backend session and return its protocol log.
- *
- * "Real backend" means the real `SessionController` over a real `WorldEngineImpl` — the LLM
- * is a scripted pipeline gateway and the d20 is fixed, so this costs no tokens and needs no
- * API key. That is what makes a committed real-backend corpus entry possible at all.
- *
- * Both DC-M10.6 halves apply: the run executes on the same pinned clock it stamps into the
- * header, so the greeting's `isWeekend()` and the tick's Saturday bonus see the day the
- * replay will see. Since spec § G the pin ADVANCES a day per nightly tick (and the harness is
- * handed the same handle), so a multi-day recording crosses weekdays in-run exactly as its
- * replay does — without that, `days: 5` would record five days that all think they are
- * Wednesday. `days` defaults to 1, which is the committed corpus entry's shape.
+ * Record a deterministic real-backend session: the real `SessionController` over `WorldEngineImpl`,
+ * scripted pipeline and fixed d20, so it costs no tokens — run on the clock it stamps into the header.
  */
 export async function recordDeterministicRealSession(
   opts: { moves?: AgentMove[]; recordBeats?: boolean; recordedAt?: string; userId?: string; days?: number } = {},
@@ -170,10 +142,8 @@ export async function recordDeterministicRealSession(
   return JSON.parse(JSON.stringify(harness.transcript.protocol)) as ProtocolEntry[];
 }
 
-/** CLI: write the deterministic real-backend corpus entry (M10.1d). Deliberately writes to a
- *  caller-named path rather than defaulting into the corpus, so regenerating the committed
- *  fixture is always an explicit act. Runs only when executed directly — importing this
- *  module (the corpus test, replay's real arm) must not trigger it. */
+/** CLI: write the deterministic real-backend corpus entry to a caller-named path, so regenerating the
+ *  committed fixture is always explicit. Runs only when executed directly, never on import. */
 async function main(): Promise<void> {
   const out = process.argv[2];
   if (!out) {
