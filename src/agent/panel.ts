@@ -1,29 +1,6 @@
 #!/usr/bin/env node
-/**
- * T6 — the panel aggregation (spec § G/§ H, contract §9), `npm run agent:panel -- <dir>`.
- *
- * A panel is N processes: each persona is its own `agent:play` run with its own `:memory:` DB, and
- * the engine has no cross-process continuation (spec § Instrument limits). So the aggregate can
- * never be something one run prints — this is an OFFLINE reader that takes a directory of
- * `<AGENT_OUT>.reviews.json` files (T5's self-sufficient payload) and writes `panel.md` + `panel.json`
- * beside them.
- *
- * The split that matters: {@link aggregatePanel} and {@link renderPanelMarkdown} are PURE functions
- * over an array of parsed review files, and every number the panel reports is produced there. The
- * file IO below them is thin enough to read in one screen, so T9 can unit-test the aggregation,
- * exposure ranking and sparkline without ever touching a filesystem.
- *
- * Two things the panel must never do, both from spec § Risks:
- *
- * - **Read a day-one run as a verdict on month three.** A breadth panel is an onboarding instrument:
- *   day one has no memory, no co-play and no content exhaustion, so the rubric cells for `aliveness`
- *   and `memory` are `unobserved` by construction. Coverage is what stops a short run reading as a
- *   design failure, and the panel's own header says so before any number.
- * - **Present model-authored labels as a vocabulary.** `actionVerbs` counts the outcome envelope's
- *   `distilledType`, which is free text the action model writes ("one word preferred"), NOT the
- *   engine's classify families (contract §9, the correction found while implementing T5). The
- *   priors-versus-behaviour comparison therefore runs on `verbs` (move kinds), which is exact.
- */
+/** The panel aggregation (`npm run agent:panel -- <dir>`): an OFFLINE reader over a directory of `<AGENT_OUT>.reviews.json` files, writing `panel.md` + `panel.json` beside them. A panel is N processes with
+ *  no cross-process continuation, so no single run could print this. It must never read a day-one run as a verdict on month three, nor present the model-authored `distilledType` labels as a vocabulary. */
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -40,37 +17,16 @@ import {
 import type { Recurrence } from './AgentPlayerGateway.js';
 import type { CallKindBreakdown } from './llmCostSummary.js';
 
-/** The `panel.json` FORMAT version. Bumped when the aggregated shape changes incompatibly, so a
- *  later comparison against the 2026-09-13 baseline can refuse a report it cannot read rather than
- *  diff two different things. Not tied to {@link REVIEW_FILE_VERSION}: this is the panel's own
- *  output, and the panel can be re-run from the same review files at any time.
- *
- * v2: exposure sums each report's own severity x weight instead of multiplying one report's severity
- * by another's tag (contract §9's refinement), `friction.themes` is the FULL ranked list with the
- * ritual subset beside it, the run length comes from the summary, and the score rows carry `hook`
- * while the series carries the per-day arc notes. Two panels either side of this differ in their
- * numbers, so a diff across the boundary is refused rather than read as a change in the game.
- *
- * v3: friction reports described in different words collapse into ONE theme
- * ({@link FRICTION_MERGE_THRESHOLD}), so a defect four personas hit is finally visible as a
- * cross-persona signal instead of four once-each themes. Every theme carries the raw per-report list
- * (`reports`) and its distinct `phrasings` count, and the ranking CHANGES: themes merge and their
- * exposure adds up. A v2 panel and a v3 panel are not comparable, so the boundary is refused rather
- * than read as the design moving. */
+/** The `panel.json` FORMAT version: bumped when the aggregated shape changes incompatibly, so a later
+ *  comparison refuses a report it cannot read rather than diffing two different things. Not tied to {@link REVIEW_FILE_VERSION} — the panel re-runs from the same review files at any time. */
 export const PANEL_FILE_VERSION = 3;
 
 /** The panel's two file outputs, written beside the reviews it reads. */
 export const PANEL_MARKDOWN_FILE = 'panel.md';
 export const PANEL_JSON_FILE = 'panel.json';
 
-/**
- * Projected exposure per REPORTED friction over a six-month campaign (contract §9): how many sessions
- * a player is expected to meet it in. `once` is trivia, `periodic` reads as roughly fortnightly,
- * `ritual` as every single session — this is the documented ASSUMPTION behind the ranking, not a
- * measurement. Each weight multiplies the severity of the report it came from, and a theme's exposure
- * is the sum of those per-report products ({@link aggregateFrictions}): the weights are the whole
- * reason one persona meeting a daily defect outranks the panel meeting a milder one once.
- */
+/** Projected exposure per REPORTED friction over a six-month campaign: how many sessions a player is
+ *  expected to meet it in. `once` is trivia, `periodic` roughly fortnightly, `ritual` every session. Each weight multiplies the severity of the report it came from and a theme's exposure sums those products, so one persona meeting a daily defect outranks the panel meeting a milder one once. */
 export const RECURRENCE_WEIGHT: Record<Recurrence, number> = { once: 1, periodic: 13, ritual: 180 };
 
 /** The tag order used wherever recurrences are listed, cheapest first. */
@@ -84,7 +40,7 @@ export const EXPOSURE_NOTE =
   'multiplied together: that would charge one report for another report\'s severity. It is an ' +
   'assumption, not a measurement: it exists so a daily grievance outranks a once-only clunk.';
 
-/** The caveat that must ride with `actionVerbs` (contract §9). */
+/** The caveat that must ride with `actionVerbs`. */
 export const ACTION_VERB_NOTE =
   'These are MODEL-AUTHORED labels: the count is by the outcome envelope\'s `facts.distilledType`, ' +
   'which the action model writes as "a single lowercase label capturing the action\'s essence, one ' +
@@ -105,14 +61,12 @@ export type RubricCriterion = (typeof RUBRIC_CRITERIA)[number];
 /** The `summary` fields the panel adds up or prints as a figure. */
 const SUMMARY_COUNTS = ['turns', 'outcomes', 'deadEnds', 'dayBoundaries', 'greetings'] as const;
 
-/** The move kinds the histogram table always carries a column for, in the contract's §1.1 order —
- *  the panel's core read is the split between them, so a kind nobody used must still be visible as
- *  a column of zeroes rather than absent. */
+/** The move kinds the histogram table always carries a column for, in a fixed order — the panel's core
+ *  read is the split between them, so a kind nobody used must still be visible as a column of zeroes. */
 const MOVE_KINDS = ['menu-pick', 'custom', 'choice', 'bail', 'sleep', 'recon'] as const;
 
-/** A bad input file. Loud by design (contract §9): a missing directory, an unreadable file or a
- *  version mismatch is an error, never a silent skip — a panel that quietly drops a persona reads
- *  exactly like a panel where that persona had nothing to say. */
+/** A bad input file. Loud by design: a missing directory, an unreadable file or a version mismatch is an
+ *  error, never a silent skip — a panel that quietly drops a persona reads like one where that persona said nothing. */
 export class PanelInputError extends Error {
   constructor(message: string) {
     super(message);
@@ -159,11 +113,10 @@ export interface PanelRunSummary {
 export interface PanelScoreRow {
   persona: string;
   scores: Record<ScoreDimension, number>;
-  /** Would I come back tomorrow? Spec § F's benchmark question 1. */
+  /** Would I come back tomorrow? */
   returnTomorrow: string;
-  /** The one thing that would bring me back — the retention answer that goes with the churn
-   *  trigger printed in the distinctiveness table (spec § F: `quitHorizon`, `hook` and `building`
-   *  are the fields the design goal actually needs). */
+  /** The one thing that would bring me back — the retention answer that goes with the churn trigger
+   *  printed in the distinctiveness table. */
   hook: string;
   verdict: PersonaVerdict;
   quitHorizon: QuitHorizon;
@@ -175,9 +128,8 @@ export interface RubricCriterionSummary {
   coverage: number;
   /** Personas that returned `unobserved` for it. */
   unobserved: number;
-  /** Mean of the scored values, null when nobody could score it. Never 0, never NaN: a criterion
-   *  no session could reach has no mean, and printing one would be the false negative the
-   *  `unobserved` rule exists to prevent (spec § Risks). */
+  /** Mean of the scored values, null when nobody could score it. Never 0, never NaN: a criterion no
+   *  session could reach has no mean, and printing one would be the false negative `unobserved` prevents. */
   mean: number | null;
 }
 
@@ -199,20 +151,17 @@ export interface PanelSeriesRow {
   fulfilment: number[];
   engagementSpark: string;
   fulfilmentSpark: string;
-  /** The arc note each rated day ended on, paired with its day, in day order. Spec § G's read is
-   *  *the day the arc note stops growing*: once the note repeats verbatim the run had nothing new
-   *  to build, and the closing note alone cannot show when that happened. */
+  /** The arc note each rated day ended on, paired with its day, in day order. The read is the day the
+   *  arc note stops growing: once it repeats verbatim the run had nothing new to build, and the closing note alone cannot show when that happened. */
   arcNotes: Array<{ day: number; note: string }>;
 }
 
 export interface FrictionTheme {
-  /** The normalised representative phrasing ({@link normalizePhrase} of {@link label}). Reported for
-   *  a consumer that wants the theme's key; the GROUPING was by {@link FRICTION_MERGE_THRESHOLD}, so
-   *  this is no longer the value every report shares. */
+  /** The normalised representative phrasing ({@link normalizePhrase} of {@link label}). The GROUPING was
+   *  by {@link FRICTION_MERGE_THRESHOLD}, so this is no longer the value every report shares. */
   theme: string;
-  /** The display form: the first `what` seen for this theme, trimmed, in the panel's canonical
-   *  order. See {@link aggregateFrictions} for why the representative is the first rather than the
-   *  longest. */
+  /** The display form: the first `what` seen for this theme, trimmed — deterministic, a real sentence,
+   *  and never the all-caps report that the LONGEST phrasing would have selected. */
   label: string;
   /** Distinct personas that reported it, in the panel's canonical row order. */
   personas: string[];
@@ -220,14 +169,11 @@ export interface FrictionTheme {
   /** Total reports, one per friction event — a persona reporting it five times counts five here
    *  and once in {@link personaCount}, which is what stops one grievance dominating the ranking. */
   count: number;
-  /** Distinct WORDINGS that merged into this theme. `1` means exact-text grouping would have
-   *  produced the same theme; anything higher is a merge of differently worded reports of one
-   *  complaint, which is the whole point of {@link FRICTION_MERGE_THRESHOLD} — and the count that
-   *  makes a silent merge visible in `panel.md`. */
+  /** Distinct WORDINGS that merged into this theme: `1` means exact-text grouping would have produced
+   *  the same theme, higher means differently worded reports of one complaint collapsed — the count that makes a merge visible in `panel.md` rather than silent. */
   phrasings: number;
-  /** EVERY report that went into this theme, in the panel's canonical order and in report order
-   *  within a persona (so `reports.length === count`). Nothing is hidden by a merge: the reader can
-   *  always see which sentences were collapsed, and re-check the judgement. */
+  /** EVERY report that went into this theme, in the panel's canonical order and in report order within
+   *  a persona (so `reports.length === count`). Nothing is hidden by a merge. */
   reports: FrictionReportRef[];
   worstSeverity: number;
   /** The tags seen, cheapest first. */
@@ -329,9 +275,8 @@ export interface PanelReport {
   cost: PanelCost;
 }
 
-/** Map a value series onto {@link SPARK_GLYPHS} over its 1-5 scale. Empty in, empty out — the
- *  caller decides how to say "no day notes", because a blank sparkline and a flat one must not
- *  look alike. */
+/** Map a value series onto {@link SPARK_GLYPHS} over its 1-5 scale. Empty in, empty out: the caller
+ *  decides how to say "no day notes", because a blank sparkline and a flat one must not look alike. */
 export function sparkline(values: readonly number[], min = 1, max = 5): string {
   if (values.length === 0) return '';
   const span = max - min || 1;
@@ -345,11 +290,7 @@ export function sparkline(values: readonly number[], min = 1, max = 5): string {
 }
 
 /** The exact-text dedupe key for a free-text phrase: lowercased, punctuation stripped, whitespace
- *  collapsed (contract §9). `The menu "re-offers" the same 3 jobs!` and `the menu re offers the same
- *  3 jobs` are one key. This is the right key for the DISTINCTIVENESS tables (`arcNote`,
- *  `quitTrigger`), where the question is literally "did two personas write the same sentence" — and
- *  the wrong one for friction themes, where two personas describing one defect in different words is
- *  the signal ({@link FRICTION_MERGE_THRESHOLD}). */
+ *  collapsed. Right for the DISTINCTIVENESS tables (`arcNote`, `quitTrigger`), where the question is whether two personas wrote the same sentence, and wrong for friction themes, where different words for one defect are the signal. */
 export function normalizePhrase(text: string): string {
   return (text ?? '')
     .toLowerCase()
@@ -358,9 +299,8 @@ export function normalizePhrase(text: string): string {
     .trim();
 }
 
-/** Function words dropped before two friction reports are compared. Standard English function words
- *  only: dropping a DOMAIN word (menu, roll, day) would be a judgement about what the game's
- *  complaints mean, and the whole point of the measure is that it makes no such judgement. */
+/** Function words dropped before two friction reports are compared — standard English function words
+ *  only: dropping a DOMAIN word (menu, roll, day) would be a judgement the measure avoids making. */
 const FRICTION_STOPWORDS: ReadonlySet<string> = new Set([
   'a', 'about', 'above', 'after', 'again', 'against', 'all', 'also', 'am', 'an', 'and', 'any', 'are',
   'as', 'at', 'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by', 'can',
@@ -375,41 +315,12 @@ const FRICTION_STOPWORDS: ReadonlySet<string> = new Set([
   'yourselves',
 ]);
 
-/**
- * The similarity at or above which two friction reports are read as the same complaint.
- *
- * The measure is Dice similarity
- * ({@link frictionSimilarity}) over {@link frictionTokens}: `2 x shared / (|a| + |b|)`, so two reports
- * are merged when roughly 40% of their combined content vocabulary is the same. Dice rather than
- * Jaccard because it is gentler on UNEQUAL lengths (a terse report and a long one about one defect
- * should not be split just because the long one says more), and Dice rather than the
- * overlap/containment coefficient because containment is 1.0 whenever a short report's words are a
- * subset of a long one's, which merges "the menu repeats itself" into any sentence that happens to
- * mention a menu. Under-merging is the safer error here and the whole design leans that way: a
- * wrongly merged theme HIDES a real finding, while a theme left split only under-ranks one.
- *
- * 0.4 is the conservative end of what the real four-persona arc panel supports. On that panel the
- * pairs that should merge sit at 0.417 or above (two reports of the roll-exhaustion defect, worded
- * "0 rolls remaining" and "rollsRemaining at 0"), while the highest-scoring pair that must NOT merge
- * sits at 0.387: the homesteader's roll-exhaustion report against the explorer's location complaint,
- * which share the boilerplate "the work menu offers ..." and nothing else. So 0.4 is deliberately
- * just above a KNOWN false-merge candidate rather than at a round number, and the number to watch if
- * this is ever revisited is that 0.387: drop the threshold below it and the location/thread theme
- * swallows a roll-exhaustion report (at 0.35 it also swallows the soldier's no-combat-option report,
- * making one 6-report theme out of three defects), which is the failure this layer exists to prevent.
- * The cost is visible and accepted: a report that describes a defect with NO vocabulary in common
- * with the rest of its group stays separate, and that is a finding the panel reports rather than
- * papers over — on this panel the homesteader's "the work menu still offered gate options after my
- * rolls were spent" scores only 0.083 to 0.286 against its fellow roll-exhaustion reports (it shares
- * "work menu"/"offered"/"rolls" and nothing else), so the theme counts 3 personas where a human
- * reader counts 4.
- */
+/** Dice similarity over {@link frictionTokens} (`2 x shared / (|a| + |b|)`): gentler on UNEQUAL lengths
+ *  than Jaccard, and unlike the overlap/containment coefficient it never reads a short report's words as a subset of a long one's. 0.4 sits deliberately just above the highest known false-merge candidate (0.387, pinned in `panel.test.ts`); at 0.35 a roll-exhaustion report merges into a location complaint, and under-merging only under-ranks a finding while an over-merged theme HIDES one. A report sharing no vocabulary with its group stays its own theme. */
 export const FRICTION_MERGE_THRESHOLD = 0.4;
 
-/** A crude English suffix stem, applied only to tokens of five characters or more, so `rolls`,
- *  `rolling` and `rolled` collapse onto `roll` and `remaining` onto `remain` — the same complaint
- *  written in another tense should not be a different theme. Deliberately not Porter: a real stemmer
- *  on a 20-word sentence buys almost nothing and hides its rules from the reader. */
+/** A crude English suffix stem, applied to tokens of four characters or more (`-ing`/`-ed` from five), so
+ *  `rolls` and `rolling` collapse onto `roll`. Deliberately not Porter: a real stemmer on a 20-word sentence buys little. */
 function stemToken(word: string): string {
   if (word.length > 4 && word.endsWith('ing')) return word.slice(0, -3);
   if (word.length > 4 && word.endsWith('ed')) return word.slice(0, -2);
@@ -417,15 +328,8 @@ function stemToken(word: string): string {
   return word;
 }
 
-/**
- * A friction report's content tokens: lowercased, punctuation dropped, function words removed and
- * suffixed stems collapsed ({@link FRICTION_STOPWORDS}, {@link stemToken}).
- *
- * Two splits matter. A camelCase join is undone first, because `rollsRemaining` is ONE token to a
- * plain splitter and that single token is why "rollsRemaining at 0" and "0 rolls remaining" stayed
- * separate themes. Digits stay (a lone `0` is content here: "0 rolls remaining"), while a single
- * letter is dropped as noise.
- */
+/** A friction report's content tokens: lowercased, punctuation stripped, function words removed and
+ *  stems collapsed. A camelCase join is undone FIRST — `rollsRemaining` is ONE token to a plain splitter, which is what kept "rollsRemaining at 0" and "0 rolls remaining" apart. Digits stay (a lone `0` is content here); a single letter is dropped as noise. */
 export function frictionTokens(text: string): Set<string> {
   const spaced = (text ?? '')
     .replace(/(?<=[a-z0-9])(?=[A-Z])/g, ' ')
@@ -455,23 +359,18 @@ export function frictionSimilarity(a: ReadonlySet<string>, b: ReadonlySet<string
   return (2 * shared) / (a.size + b.size);
 }
 
-/** True when a `building` answer is the prompt's sanctioned "there is nothing" (spec § F). Kept
- *  deliberately narrow: only a `nothing`/`none`/`nil`/`n/a` answer counts, because counting
- *  "no thread yet, but the Warden's charge nags me" as nothing would inflate the very number the
- *  panel treats as a verdict on the long arc. */
+/** True when a `building` answer is the prompt's sanctioned "there is nothing". Deliberately narrow:
+ *  only a `nothing`/`none`/`nil`/`n/a` answer counts, because counting "no thread yet, but the Warden's charge nags me" as nothing would inflate the very number the panel treats as a verdict. */
 export function isNothingAnswer(building: string): boolean {
   const text = normalizePhrase(building);
   return text === '' || /^(nothing|none|nil|n a|na)\b/.test(text);
 }
 
-/** How long a run is, and which of its days carry a note. `dayNotes` is the series, so a hole (the
- *  harness's own warning finding) shows here as an unrated day rather than being back-filled — and
- *  the run's own LENGTH comes from the transcript summary, so a lost note cannot shrink it. */
+/** How long a run is, and which of its days carry a note. `dayNotes` is the series, so a hole shows
+ *  here as an unrated day rather than being back-filled, and the LENGTH comes from the transcript summary — a lost note cannot shrink it. */
 export interface PanelRunLength {
-  /** Days the run played: `max(summary.greetings, summary.dayBoundaries)`. `greetings` counts the
-   *  day starts, `dayBoundaries` the nightly ticks; a clean N-day run writes N of each, and a run
-   *  whose last day ended non-clean (`stalled`/`crashed`/`no-character`) never ticks into the next
-   *  day, so it writes N greetings and N-1 boundaries. */
+  /** Days the run played: `max(summary.greetings, summary.dayBoundaries)`. A clean N-day run writes N of
+   *  each; a run whose last day ended non-clean (`stalled`/`crashed`/`no-character`) never ticks into the next, so it writes N greetings and N-1 boundaries. */
   played: number;
   /** The distinct day numbers that DO have a note, ascending. */
   rated: number[];
@@ -483,9 +382,8 @@ export function runLength(file: ReviewFile): PanelRunLength {
   const summary = file.summary as Partial<Record<(typeof SUMMARY_COUNTS)[number], number>>;
   const notes = file.dayNotes.map((d) => d.dayNumber).filter((n) => Number.isFinite(n));
   const rated = [...new Set(notes)].sort((a, b) => a - b);
-  // The summary is authoritative for how long the run was. The highest rated day is only a FLOOR:
-  // a file whose notes outrun its own summary would otherwise be reported as a run shorter than its
-  // own series, which is the same lie in the other direction.
+  // The summary is authoritative for how long the run was; the highest rated day is only a FLOOR, or a
+  // file whose notes outrun its own summary would be reported as a run shorter than its own series.
   const played = Math.max(summary.greetings ?? 0, summary.dayBoundaries ?? 0, rated[rated.length - 1] ?? 0);
   const has = new Set(rated);
   const unrated: number[] = [];
@@ -493,13 +391,8 @@ export function runLength(file: ReviewFile): PanelRunLength {
   return { played, rated, unrated };
 }
 
-/**
- * The panel's ONE canonical row order: soonest churn horizon first, ties by persona name. Every
- * section is rendered in it, so row 1 of the score matrix is row 1 of the rubric matrix, the series
- * and the cost table, and a reader can follow a single persona down the whole report. Unreadable
- * horizons sort FIRST ({@link compareQuitHorizons}): a phrase the parser could not read is not
- * evidence of a long horizon, so it must not be shown as the most loyal persona.
- */
+/** The panel's ONE canonical row order: soonest churn horizon first, ties by persona name. Every section
+ *  is rendered in it, so a reader can follow one persona down the whole report; unreadable horizons sort first. */
 export function orderReviews(reviews: readonly ReviewFile[]): ReviewFile[] {
   return [...reviews].sort(
     (a, b) =>
@@ -519,10 +412,8 @@ export function aggregateComposition(reviews: readonly ReviewFile[]): PanelCompo
   const shapes: PanelShapeGroup[] = [...byDays.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([days, personas]) => ({
-      // One day is the breadth/onboarding shape; anything longer is the arc shape that can speak to
-      // decay (spec § G). The interrupted shape is not derivable from a review file — nothing in T5's
-      // payload records a skipped stretch — so the panel never guesses at it. Note this label is the
-      // run's LENGTH, not its rated days: a five-day run that rated one of them is still an arc run.
+      // One day is the breadth/onboarding shape, anything longer the arc shape that can speak to decay.
+      // The interrupted shape is not derivable from a review file, and this label is the run's LENGTH, not its rated days.
       label: days > 1 ? 'arc' : 'breadth',
       personas: personas.length,
       days: personas.map(() => days),
@@ -553,8 +444,7 @@ export function aggregateRuns(reviews: readonly ReviewFile[]): PanelRunSummary[]
   });
 }
 
-/** The score matrix, in {@link orderReviews}'s canonical order (churn horizon, ties by name) — the
- *  order the spec's third benchmark question is actually asked in. */
+/** The score matrix, in {@link orderReviews}'s canonical order. */
 export function aggregateScores(reviews: readonly ReviewFile[]): PanelScoreRow[] {
   return orderReviews(reviews).map((file) => ({
     persona: file.persona,
@@ -572,10 +462,8 @@ export function aggregateScores(reviews: readonly ReviewFile[]): PanelScoreRow[]
   }));
 }
 
-/** One rubric cell per persona plus the per-criterion mean and coverage. `unobserved` is excluded
- *  from the mean and counted as a gap, which is the whole point of the rule: a criterion no run
- *  could reach must report coverage 0 and NO mean, not a zero and not a NaN (spec § Risks). Rows in
- *  {@link orderReviews}'s canonical order, so row N is the same persona as row N of the matrix. */
+/** One rubric cell per persona plus the per-criterion mean and coverage. `unobserved` is excluded from
+ *  the mean and counted as a gap: a criterion no run could reach must report coverage 0 and NO mean, not a zero and not a NaN. Rows in {@link orderReviews}'s canonical order. */
 export function aggregateRubric(reviews: readonly ReviewFile[]): PanelReport['rubric'] {
   const rows: PanelRubricRow[] = orderReviews(reviews).map((file) => ({
     persona: file.persona,
@@ -603,14 +491,12 @@ export function aggregateRubric(reviews: readonly ReviewFile[]): PanelReport['ru
   return { rows, criteria };
 }
 
-/** The per-day engagement/fulfilment series (spec § G), with the arc note each day ended on. Rows in
- *  {@link orderReviews}'s canonical order, and the series is printed in that order so a reader can
- *  follow one persona down the report. */
+/** The per-day engagement/fulfilment series, with the arc note each day ended on. Rows in
+ *  {@link orderReviews}'s canonical order, and printed in it. */
 export function aggregateSeries(reviews: readonly ReviewFile[]): PanelSeriesRow[] {
   return orderReviews(reviews).map((file) => {
-    // `buildReviewFile` derives `arcNotes` FROM `dayNotes`, so the two arrays are index-aligned; pair
-    // by index before sorting by day, which is the only mapping that survives a file whose notes
-    // arrived out of day order.
+    // `buildReviewFile` derives `arcNotes` FROM `dayNotes`, so the two arrays are index-aligned; pair by
+    // index before sorting by day, which is the only mapping that survives notes that arrived out of order.
     const notes = file.dayNotes
       .map((note, i) => ({
         day: note.dayNumber,
@@ -636,34 +522,8 @@ export function aggregateSeries(reviews: readonly ReviewFile[]): PanelSeriesRow[
   });
 }
 
-/**
- * Friction themes by exposure (contract §9). Reports that make the SAME complaint are grouped into
- * one theme carrying the distinct personas that raised it, the total report count, the worst severity
- * and the tags seen. Dedupe is load-bearing twice over:
- *
- * - nothing caps how often a brain reports a grievance, so without it one persona complaining every
- *   turn would own the ranking on volume alone;
- * - and it has to be by SIMILARITY, not by exact text. Contract §9's rule is that "a friction raised
- *   by one persona is taste; raised by four, or tagged `ritual` by anyone, is a design finding", and
- *   exact text can never see the first half: four personas describing one defect in their own words
- *   produced four once-each themes, so the panel's top finding was invisible as a cross-persona
- *   signal. That is the defect {@link FRICTION_MERGE_THRESHOLD} fixes, on real arc data.
- *
- * Exposure is the SUM over reports of `severity x RECURRENCE_WEIGHT[recurrence]`. The earlier form
- * multiplied the theme's worst severity by its dearest tag by the persona count, which multiplies
- * attributes of DIFFERENT reports: a severity-2 `ritual` from one persona plus a severity-5 `once`
- * from another scored as if a single severity-5 ritual report existed. Severity, tags and persona
- * count stay display columns; only the score is a sum — which is exactly why a merged theme's
- * exposure is the sum of its parts and a 5-report theme correctly outranks 5 themes of one.
- *
- * The representative (`label`) is the first report seen in the panel's canonical order, and the
- * normalised form of it is `theme`. The LONGEST phrasing was rejected as the representative even
- * though it usually carries the most detail: it selects an all-caps report over the identical
- * complaint written normally ("THE MENU RE-OFFERS THE SAME THREE JOBS" is longer than "The menu
- * re-offers the same three jobs!"), and a shouted label reads as emphasis the persona did not
- * intend. First-seen is deterministic, is a real sentence, and keeps the label that exact-text
- * grouping already printed for a theme written one way.
- */
+/** Friction themes by exposure. Reports making the SAME complaint group into one theme by SIMILARITY,
+ *  not exact text: the design rule counts personas, and exact text cannot see four personas wording one defect differently. */
 export function aggregateFrictions(reviews: readonly ReviewFile[]): FrictionTheme[] {
   interface Report {
     persona: string;
@@ -675,7 +535,7 @@ export function aggregateFrictions(reviews: readonly ReviewFile[]): FrictionThem
   }
 
   // Reports in the panel's canonical order (churn horizon, ties by name), so the first report of a
-  // merged theme is deterministic AND `personas` comes out in canonical row order for free.
+  // merged theme is deterministic and `personas` comes out in canonical row order for free.
   const reports: Report[] = [];
   for (const file of orderReviews(reviews)) {
     for (const friction of file.frictions) {
@@ -691,9 +551,8 @@ export function aggregateFrictions(reviews: readonly ReviewFile[]): FrictionThem
     }
   }
 
-  // Union-find: a merge is transitive (A~B and B~C puts A, B and C in one theme) and the groups are
-  // the connected components, which is what lets a middle phrasing pull in two ends that resemble
-  // each other less. See FRICTION_MERGE_THRESHOLD for why that is worth the risk and how it is bounded.
+  // Union-find: a merge is transitive (A~B and B~C puts A, B and C in one theme) and each group is a
+  // connected component bounded by FRICTION_MERGE_THRESHOLD, so a middle phrasing pulls in two ends.
   const parent = reports.map((_, i) => i);
   const find = (i: number): number => {
     let root = i;
@@ -772,7 +631,7 @@ export function aggregateFrictions(reviews: readonly ReviewFile[]): FrictionThem
 }
 
 /** Split the ranked themes: `ritual`-tagged items stand apart from the rest, because one persona
- *  meeting a defect every session outranks many meeting it once (contract §9). */
+ *  meeting a defect every session outranks many meeting it once. */
 export function partitionFrictions(themes: readonly FrictionTheme[]): { ritual: FrictionTheme[]; other: FrictionTheme[] } {
   return {
     ritual: themes.filter((t) => t.ritual),
@@ -780,9 +639,8 @@ export function partitionFrictions(themes: readonly FrictionTheme[]): { ritual: 
   };
 }
 
-/** How many personas could name something they were building, and how many answered `nothing`
- *  (spec § F/§ G). Eight nothings is a verdict on the game's long arc, so the count is promoted into
- *  the panel's header as well as its own section. */
+/** How many personas could name something they were building, and how many answered `nothing` — eight
+ *  nothings is a verdict on the long arc, so the count is promoted into the panel's header too. */
 export function aggregateFulfilment(reviews: readonly ReviewFile[]): FulfilmentSignal {
   const named: Array<{ persona: string; building: string }> = [];
   const nothing: string[] = [];
@@ -793,9 +651,8 @@ export function aggregateFulfilment(reviews: readonly ReviewFile[]): FulfilmentS
   return { named, nothing, namedCount: named.length, nothingCount: nothing.length };
 }
 
-/** The `verbs` histogram, counts by move kind (exact, contract §9). The column set is the union of
- *  the six known kinds and anything else the run recorded, so an unexpected kind is visible rather
- *  than dropped. */
+/** The `verbs` histogram, counts by move kind (exact). The column set is the six known kinds plus
+ *  anything else the run recorded, so an unexpected kind is visible rather than dropped. */
 export function aggregateHistogram(reviews: readonly ReviewFile[]): PanelReport['histogram'] {
   const ordered = orderReviews(reviews);
   const extra = new Set<string>();
@@ -824,8 +681,8 @@ export function aggregateHistogram(reviews: readonly ReviewFile[]): PanelReport[
   return { kinds, rows };
 }
 
-/** The observed label frequency table (contract §9's correction). Reported, never compared against
- *  a vocabulary — see {@link ACTION_VERB_NOTE}. */
+/** The observed label frequency table. Reported, never compared against a vocabulary — see
+ *  {@link ACTION_VERB_NOTE}. */
 export function aggregateActionVerbs(reviews: readonly ReviewFile[]): ActionVerbRow[] {
   return orderReviews(reviews).map((file) => {
     const labels = Object.entries(file.actionVerbs)
@@ -835,12 +692,8 @@ export function aggregateActionVerbs(reviews: readonly ReviewFile[]): ActionVerb
   });
 }
 
-/** The anti-theatre half that a single run cannot print: across personas, are the arc note and the
- *  quit trigger actually different answers, or the same sentence ten times? Duplicates are reported
- *  by normalised value; a missing arc note is not a duplicate (nothing to compare) but is counted
- *  separately, because a run whose arc never got a note is its own finding. Rows in
- *  {@link orderReviews}'s canonical order; the closing arc note is the LAST entry of the per-day
- *  series the panel prints in its own section (spec § G). */
+/** The anti-theatre half a single run cannot print: are the arc note and the quit trigger actually
+ *  different answers across personas? Duplicates are reported by normalised value, while a missing arc note is counted separately rather than as a duplicate (nothing to compare, and a run whose arc never got a note is its own finding). Rows in {@link orderReviews}'s canonical order. */
 export function aggregateDistinctiveness(reviews: readonly ReviewFile[]): PanelDistinctiveness {
   const seenArc = new Map<string, string[]>();
   const seenQuit = new Map<string, string[]>();
@@ -890,10 +743,8 @@ function duplicates(seen: Map<string, string[]>): DistinctivenessDuplicate[] {
     .sort((a, b) => a.value.localeCompare(b.value));
 }
 
-/** Total the per-run LLM spend each review file carries (the `:memory:` DB that held `llm_calls`
- *  died with its run, so this is the only place the panel can read it). Call kinds are merged across
- *  runs with their shares recomputed over the panel, which is the comparison the next panel needs.
- *  Rows in canonical order, like every other section. */
+/** Total the per-run LLM spend each review file carries — the `:memory:` DB that held `llm_calls` died
+ *  with its run, so this is the only place the panel can read it. Call kinds merge across runs with their shares recomputed over the panel, and rows are in canonical order. */
 export function aggregateCost(reviews: readonly ReviewFile[]): PanelCost {
   const byKind = new Map<string, { calls: number; tokens: number }>();
   for (const file of reviews) {
@@ -930,8 +781,7 @@ export function aggregatePanel(reviews: readonly ReviewFile[]): PanelReport {
   if (reviews.length === 0) throw new PanelInputError('no review files to aggregate');
   const themes = aggregateFrictions(reviews);
   // `themes` is EVERY ranked theme and `ritual` marks the tagged subset in place, so a consumer that
-  // sums `themes` gets the whole panel; the ritual list is a lens on it, not the other half of a
-  // partition that a reader could forget to add back in.
+  // sums `themes` gets the whole panel; the ritual list is a lens on it, not a partition to add back in.
   const { ritual } = partitionFrictions(themes);
   return {
     v: PANEL_FILE_VERSION,
@@ -990,9 +840,7 @@ function compositionProse(composition: PanelComposition): string {
 }
 
 /** The friction table's columns, shared by the ritual list and the rest so the two read alike.
- *  `phrasings` sits beside `reports` on purpose: the two together are what tells a reader whether a
- *  big `reports` number is one persona repeating itself (phrasings 1) or several personas wording one
- *  complaint differently (phrasings > 1), and a merge must never be silent. */
+ *  `phrasings` sits beside `reports` on purpose: together they say whether a big `reports` number is one persona repeating itself or several wording one complaint differently, so a merge is never silent. */
 const FRICTION_HEADERS = [
   'theme',
   'personas',
@@ -1006,9 +854,8 @@ const FRICTION_HEADERS = [
 
 const daysEach = (days: number): string => `${days} ${days === 1 ? 'day' : 'days'} each`;
 
-/** `days 1-5` when the series is unbroken, the day numbers listed when it is not — a gap in the
- *  series is a finding (the harness warns for a day that closed with no note), and an invented
- *  range would hide it. */
+/** `days 1-5` when the series is unbroken, the day numbers listed when it is not: a gap is a finding
+ *  (the harness warns for a day that closed with no note) and an invented range would hide it. */
 function daysLabel(days: readonly number[]): string {
   if (days.length === 0) return '—';
   if (days.length === 1) return `day ${days[0]}`;
@@ -1016,10 +863,8 @@ function daysLabel(days: readonly number[]): string {
   return contiguous ? `days ${days[0]}-${days[days.length - 1]}` : `days ${days.join(', ')}`;
 }
 
-/** `3 of 5 days rated (no note: days 4, 5)`. The run's length is the SUMMARY's, and the unrated day
- *  numbers are printed by name: a hole that only shrinks a count is a hole nobody looks at, and a
- *  five-day run that lost a note is still a five-day run. `no days rated` is its own phrase so a run
- *  with no notes at all can never be read as a 0-day breadth run (spec § G). */
+/** `3 of 5 days rated (no note: days 4, 5)`. The length is the SUMMARY's and the unrated days are named:
+ *  a hole that only shrinks a count is a hole nobody looks at. `no days rated` is its own phrase, so a run with no notes cannot read as a 0-day breadth run. */
 function ratedLabel(row: PanelSeriesRow): string {
   const rated = row.played - row.unrated.length;
   const word = row.played === 1 ? 'day' : 'days';
@@ -1374,9 +1219,8 @@ function requireScoreValue(value: unknown, source: string, field: string): numbe
   return value as number;
 }
 
-/** A rubric cell: the same 1-5 integer, or the exact string `unobserved` (spec § F). A mistyped
- *  `unobserved` is an error rather than a silent hole, because an absent cell and an unobserved one
- *  read alike and only one of them is honest. */
+/** A rubric cell: the same 1-5 integer, or the exact string `unobserved`. A mistyped cell is an error
+ *  rather than a silent hole, because an absent cell and an unobserved one read alike. */
 function requireRubricValue(value: unknown, source: string, field: string): RubricValue {
   if (value === 'unobserved') return value;
   require(
@@ -1398,15 +1242,8 @@ function requireCount(value: unknown, source: string, field: string): number {
   return value as number;
 }
 
-/**
- * Validate one parsed `<AGENT_OUT>.reviews.json` (T5's `buildReviewFile` payload). Every field the
- * panel reads is checked for the shape its use requires, not merely for presence: this boundary is
- * the panel's whole defence against a file it does not understand, and a mistyped cell aggregated
- * anyway becomes a WRONG PUBLISHED NUMBER — a rubric `7` in a 1-5 mean, a `"high"` in a numeric
- * column, a `"four"` in the series, a missing rubric key counted as `unobserved` (which silently
- * drops coverage, the exact reading that rule exists to prevent) or an out-of-vocabulary recurrence
- * scoring 0 and vanishing from the rank. So a bad cell throws, naming the file and the field.
- */
+/** Validate one parsed `<AGENT_OUT>.reviews.json`. Every field the panel reads is checked for the shape its use requires, not merely for presence: a mistyped cell aggregated anyway becomes a WRONG PUBLISHED NUMBER —
+ *  a rubric `7` in a 1-5 mean, a `"high"` in a numeric column, a missing rubric key counted as `unobserved`. So a bad cell throws, naming the file and the field. */
 export function parseReviewFile(raw: unknown, source: string): ReviewFile {
   require(isRecord(raw), source, 'not a JSON object');
   const record = raw as Record<string, unknown>;
@@ -1491,7 +1328,7 @@ export function parseReviewFile(raw: unknown, source: string): ReviewFile {
 }
 
 /** Every `*.reviews.json` in a directory, parsed and version-checked, in filename order. Loud on a
- *  missing/empty directory or an unreadable file (contract §9). */
+ *  missing or empty directory, or an unreadable file. */
 export function readReviewDirectory(dir: string): ReviewFile[] {
   let names: string[];
   try {
@@ -1578,14 +1415,14 @@ export function main(argv: readonly string[] = process.argv.slice(2)): number {
     return 1;
   }
 
-  // The aggregate prints its own report: spec § H's "one aggregation step prints one matrix", and the
-  // operator reading a panel should not have to cat a file to see what it says.
+  // The aggregate prints its own report: one aggregation step prints one matrix, and the operator
+  // should not have to cat a file to see what it says.
   console.error(`\n${renderPanelMarkdown(report)}`);
   return 0;
 }
 
-// Run only when executed directly (npm run agent:panel) — importing the module in-process (T9's
-// panel tests) must not aggregate anything or exit the test process.
+// Run only when executed directly (npm run agent:panel) — importing the module in-process (the panel
+// tests) must not aggregate anything or exit the test process.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = main();
 }
