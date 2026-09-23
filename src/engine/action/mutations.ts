@@ -252,12 +252,13 @@ function validateTypedRelationProps(
     // in_combat delta (round would double-sum through updateProps, see combatRoundUpdate),
     // and the LLM never authors in_combat ops (engine-owned, decision 3). A future partial
     // in_combat delta writer would need to relax this by opType.
-    const { enemyName, enemyHp, enemyMaxHp, round, mintName } = props as {
+    const { enemyName, enemyHp, enemyMaxHp, round, mintName, baseDc } = props as {
       enemyName?: unknown;
       enemyHp?: unknown;
       enemyMaxHp?: unknown;
       round?: unknown;
       mintName?: unknown;
+      baseDc?: unknown;
     };
     if (typeof enemyName !== 'string' || enemyName.trim() === '') {
       return `${opType} "in_combat" requires a non-empty "enemyName" string`;
@@ -285,6 +286,9 @@ function validateTypedRelationProps(
     // must be a non-empty string, same shape as `enemyName`.
     if (mintName !== undefined && (typeof mintName !== 'string' || mintName.trim() === '')) {
       return `${opType} "in_combat" prop "mintName" must be a non-empty string when present`;
+    }
+    if (baseDc !== undefined && (typeof baseDc !== 'number' || !Number.isFinite(baseDc) || baseDc < 0)) {
+      return `${opType} "in_combat" prop "baseDc" must be a finite non-negative number when present`;
     }
     return null;
   }

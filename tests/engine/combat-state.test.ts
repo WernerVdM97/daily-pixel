@@ -62,6 +62,54 @@ describe('readCombatState / combatStateToSetRelation round-trip', () => {
     expect(readCombatState([edge])).toEqual(state);
   });
 
+  it('round-trips the pinned fight dc (#97) — the fight\'s baseDc travels on the edge', () => {
+    const state: CombatState = {
+      enemyName: 'Wild Boar',
+      enemyHp: 8,
+      enemyMaxHp: 12,
+      round: 1,
+      anchor: { node: 'location', name: 'Darkwood Clearing' },
+      baseDc: 12,
+    };
+    const authored = combatStateToSetRelation(state);
+    expect(authored.props).toEqual({
+      enemyName: 'Wild Boar', enemyHp: 8, enemyMaxHp: 12, round: 1, baseDc: 12,
+    });
+
+    const edge = edgeFromAuthored(
+      { type: 'pc', ref: '7' },
+      { type: 'location', ref: 'Darkwood Clearing' },
+      'in_combat',
+      authored.props,
+    );
+    expect(readCombatState([edge])?.baseDc).toBe(12);
+  });
+
+  it('reads an edge persisted before the baseDc prop existed tolerantly (undefined, not a null read)', () => {
+    const edge = edgeFromAuthored({ type: 'pc', ref: '7' }, { type: 'location', ref: 'X' }, 'in_combat', {
+      enemyName: 'x',
+      enemyHp: 1,
+      enemyMaxHp: 5,
+      round: 1,
+    });
+    const cs = readCombatState([edge]);
+    expect(cs).not.toBeNull();
+    expect(cs?.baseDc).toBeUndefined();
+  });
+
+  it('ignores a malformed baseDc rather than invalidating the whole read', () => {
+    for (const bad of ['twelve', -1, Number.NaN]) {
+      const edge = edgeFromAuthored({ type: 'pc', ref: '7' }, { type: 'location', ref: 'X' }, 'in_combat', {
+        enemyName: 'x',
+        enemyHp: 1,
+        enemyMaxHp: 5,
+        round: 1,
+        baseDc: bad as unknown as number,
+      });
+      expect(readCombatState([edge])?.baseDc).toBeUndefined();
+    }
+  });
+
   it('returns null when no in_combat edge is present', () => {
     expect(readCombatState([])).toBeNull();
   });
@@ -161,6 +209,11 @@ describe('combatRoundUpdate', () => {
       update.props,
     );
     expect(readCombatState([edge])).toEqual({ ...state, enemyHp: 5, round: 2 });
+  });
+
+  it('carries the pinned fight dc through a round advance (#97)', () => {
+    const update = combatRoundUpdate({ ...state, baseDc: 12 }, -3, 2);
+    expect(update.props.baseDc).toBe(12);
   });
 });
 

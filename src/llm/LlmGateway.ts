@@ -57,6 +57,8 @@ export interface LlmContext {
     band: 'clean' | 'glanced' | 'trade' | 'heavy';
     playerHpDelta: number;
     enemyHpDelta: number;
+    /** The fight's pinned dc; CONTINUE is told it rather than allowed to move it. */
+    dc: number;
     /** The option the player chose to trigger this round, so narration can acknowledge it. */
     chosenOption: { label: string; stat?: string };
   };

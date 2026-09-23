@@ -24,6 +24,9 @@ export interface CombatState {
    *  rather than re-running establish. Optional so edges persisted before this prop existed
    *  still read cleanly. */
   mintName?: string;
+  /** The fight's authored `baseDc`, pinned at establish and read back every round after (see
+   *  `handleCombatStep`). Optional for edges persisted before the prop existed. */
+  baseDc?: number;
 }
 
 /**
@@ -82,7 +85,12 @@ export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
   const rawMintName = (edge.props as Record<string, unknown>).mintName;
   const mintName = typeof rawMintName === 'string' && rawMintName.trim() !== '' ? rawMintName : undefined;
 
-  return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName };
+  const rawBaseDc = (edge.props as Record<string, unknown>).baseDc;
+  const baseDc = typeof rawBaseDc === 'number' && Number.isFinite(rawBaseDc) && rawBaseDc >= 0
+    ? rawBaseDc
+    : undefined;
+
+  return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName, baseDc };
 }
 
 /** The initial (or any full-state) `set_relation` for the `in_combat` edge — `set` upserts by
@@ -101,6 +109,7 @@ export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
       // members, and omitting the key leaves a non-mint fight's edge exactly as it was before
       // this prop existed.
       ...(state.mintName ? { mintName: state.mintName } : {}),
+      ...(state.baseDc !== undefined ? { baseDc: state.baseDc } : {}),
     },
   };
 }
@@ -121,9 +130,8 @@ export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
  * anchor, is threaded through as input rather than the anchor-only shape the plan sketched).
  * `enemyHpDelta` is applied and clamped to `[0, state.enemyMaxHp]` here so the emitted op is
  * always a valid absolute value; `nextRound` is written as-is (callers pass `round + 1`).
- * The same full-state spread is what carries `mintName` through unchanged from the caller's
- * `cs`, so once set at establish it survives every subsequent round write without any caller
- * having to thread it through explicitly.
+ * The same full-state spread is what carries `mintName` and `baseDc` through unchanged from the
+ * caller's `cs`, so once set at establish they survive every subsequent round write.
  */
 export function combatRoundUpdate(
   state: CombatState,

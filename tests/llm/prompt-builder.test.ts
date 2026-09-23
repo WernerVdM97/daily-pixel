@@ -160,6 +160,7 @@ describe('buildUserMessage — v9 markdown briefing', () => {
         band: 'glanced',
         playerHpDelta: 0,
         enemyHpDelta: -3,
+        dc: 12,
         chosenOption: { label: 'Press the attack', stat: 'physical' },
       },
     }));
@@ -171,6 +172,8 @@ describe('buildUserMessage — v9 markdown briefing', () => {
     expect(msg).toContain('- Player HP change: 0');
     expect(msg).toContain('- Enemy HP change: -3');
     expect(msg).toContain('- Approach: Press the attack (physical)');
+    // "ignored", not "do not change it": every beat must still author a legal `baseDc`.
+    expect(msg).toContain('- Fight DC: 12 (the fight\'s own DC, fixed when it opened; any baseDc you author this round is ignored)');
   });
 
   it('appends a Reviewer note (not a blockquote) when a criticNote is present', () => {
