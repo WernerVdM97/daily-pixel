@@ -1,7 +1,7 @@
 import type { DiscoveredGraph, DiscoveredNode } from "../engine/WorldEngine.js";
 import { SEPARATOR, directionArrow, directionRank, oppositeDirection } from "./format.js";
 
-/** Effort glyph from an incoming edge's difficulty band (§5). */
+/** Effort glyph per difficulty band, indexed 1-3. */
 const EFFORT = ["", "🚶", "🏃", "🧗"] as const;
 const HOME_REGION = "The Vale";
 /** Per-region node cap before the tail collapses into a "+K more" line. */
@@ -43,11 +43,8 @@ function levenshtein(a: string, b: string): number {
 const MATCH_FLOOR = 30;
 
 /**
- * Forgiving match of a query against one candidate name. Tiered so an exact/prefix hit always
- * beats a fuzzy one: exact 100 · whole-string prefix 90 · any-word prefix 80 · substring 70 ·
- * all multi-word tokens present 65 · else a Levenshtein-similarity score (≤50) against the whole
- * string or any single word, floored at 0.6 similarity. So `town`→`Town Square` (90), `vale`→
- * `The Vale` (80 word-prefix), and the typo `twn`→`Town Square` (~38) all land; noise scores 0.
+ * Forgiving match of a query against one candidate name, tiered so any exact, prefix or substring
+ * hit beats a fuzzy one; the Levenshtein fallback only counts at ≥0.6 similarity.
  */
 function matchScore(query: string, candidate: string): number {
   const c = candidate.trim().toLowerCase();
@@ -67,17 +64,15 @@ function matchScore(query: string, candidate: string): number {
 }
 
 /**
- * Resolve a `/map <arg>` against the discovered graph's region labels and place names. Returns the
- * single best match (ties: region before node, then shorter/alphabetical name — deterministic), or
- * `{ kind: "none" }` when nothing clears the floor.
+ * Resolve a `/map <arg>` against the graph's region labels and place names: the single best match,
+ * ties broken region-before-node then shorter/alphabetical, or `{ kind: "none" }` under the floor.
  */
 export function resolveMapFocus(query: string, graph: DiscoveredGraph): MapFocus {
   const q = query.trim().toLowerCase();
   if (!q) return { kind: "none" };
 
-  // Use effective regions (same BFS-parent fallback as renderMap) so the candidate list
-  // matches what the renderer actually groups — a null-region node won't contribute a
-  // spurious "Elsewhere" that resolves to an empty drill-in.
+  // Effective regions, same BFS-parent fallback as renderMap, so a null-region node can't
+  // contribute a spurious "Elsewhere" candidate that resolves to an empty drill-in.
   const rTree = buildTree(graph);
   const rByName = new Map(graph.nodes.map((n) => [n.name, n]));
   const regions = [...new Set(graph.nodes.map((n) => effectiveRegion(n.name, rByName, rTree)))];
@@ -100,11 +95,8 @@ export function resolveMapFocus(query: string, graph: DiscoveredGraph): MapFocus
   return best ? { kind: best.kind, name: best.name } : { kind: "none" };
 }
 
-/**
- * Zoom to one place: the node, the charted roads that touch it (both edge directions — the heading
- * is reversed when the focused node sits on an edge's `to` side, since edges store one canonical
- * direction), and its own uncharted frontier exits. Headings sort clockwise from north.
- */
+/** Zoom to one place: the node, the charted roads touching it in either direction, and its own
+ *  uncharted exits, headings sorted clockwise from north. */
 function renderNodeFocus(
   header: string,
   graph: DiscoveredGraph,
@@ -156,11 +148,8 @@ interface TreeInfo {
   childrenOf: Map<string, string[]>;
 }
 
-/**
- * BFS the discovered subgraph from the lowest-tier node (the Oak, tier 0) to assign
- * each node a parent, depth, and the difficulty of the edge it was reached by — the
- * hub-and-spoke tree the render walks. Disconnected nodes become their own roots.
- */
+/** BFS from the lowest-tier node (the Oak, tier 0), assigning each node a parent, depth and
+ *  incoming difficulty — the hub-and-spoke tree the render walks. Disconnected nodes are roots. */
 function buildTree(graph: DiscoveredGraph): TreeInfo {
   const byName = new Map(graph.nodes.map((n) => [n.name, n]));
   const adj = new Map<string, { to: string; difficulty: number }[]>();
@@ -210,9 +199,8 @@ function regionOrder(regions: string[], currentRegion: string | null): string[] 
   return [...new Set([...head, ...rest])];
 }
 
-/** Effective region for a node: its own region if set, else the nearest BFS ancestor's region,
- *  then "Elsewhere" if nothing in the chain has one. Handles legacy/unenriched null-region nodes
- *  so they group with their geographic neighbours rather than orphaning to a catch-all bucket. */
+/** Effective region for a node: its own if set, else its nearest BFS ancestor's, else "Elsewhere" —
+ *  so a legacy null-region node groups with its neighbours instead of a catch-all bucket. */
 function effectiveRegion(name: string, byName: Map<string, DiscoveredNode>, tree: TreeInfo): string {
   let cur: string | undefined = name;
   while (cur !== undefined) {
@@ -238,13 +226,8 @@ function continuation(connector: string): string {
   return ""; // root
 }
 
-/**
- * Render a player's discovered subgraph as an indented hub-and-spoke tree grouped by region,
- * with frontier exits as the hook (§5). Deterministic; siblings render most-recently-visited
- * first; an over-cap region tail collapses into "+K more" on the full map; the whole thing
- * stays under Discord's char cap — never a silent truncation. An optional `focus` fuzzily
- * resolves to a region (drill in, uncapped) or a place (zoom to that node's own roads).
- */
+/** Render a player's discovered subgraph: an indented hub-and-spoke tree grouped by region,
+ *  siblings most-recently-visited first, frontier exits as the hook. Deterministic per graph. */
 export function renderMap(characterName: string, graph: DiscoveredGraph, focus?: string): string {
   const tree = buildTree(graph);
   const byName = new Map(graph.nodes.map((n) => [n.name, n]));
@@ -254,9 +237,8 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
   const out: string[] = [];
   out.push(`🗺️ **${characterName}'s Map** — ${charted} charted · ${roads} ${roads === 1 ? "road" : "roads"} into the unknown`);
 
-  // Resolve an optional focus fuzzily — it may name a region OR a place (typos/casing
-  // tolerated; see resolveMapFocus). A place focus zooms to that node's own roads; a
-  // region focus drills into the region (uncapped — the user asked for it).
+  // Focus may name a region OR a place (typos/casing tolerated, see resolveMapFocus). A region
+  // drill is uncapped — the cap below applies to the full map only.
   const focusRes = focus?.trim() ? resolveMapFocus(focus, graph) : undefined;
   if (focusRes?.kind === "none") {
     // Wrap the user's raw query in an inline-code span so markdown in it (e.g. `/map **x**`)
@@ -271,8 +253,6 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
 
   const currentRegion = byName.get(graph.current)?.region ?? null;
 
-  // Group discovered nodes by region. A node with region = null inherits its nearest
-  // BFS ancestor's region so it doesn't orphan to "Elsewhere" (decision: edge-bearing-inversion-and-region-reconciliation).
   const byRegion = new Map<string, DiscoveredNode[]>();
   for (const n of graph.nodes) {
     const r = effectiveRegion(n.name, byName, tree);
@@ -289,13 +269,11 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
 
   for (const region of regions) {
     const nodes = byRegion.get(region) ?? [];
-    // Discord separator between sections (buildComponentPayload turns the SEPARATOR
-    // line into a real divider component); then a bold region label.
+    // buildComponentPayload turns a SEPARATOR line into a real divider component.
     out.push(SEPARATOR);
     out.push(`**${region}**${region === HOME_REGION ? " (home)" : ""}`);
 
-    // Render as a tree with box-drawing connectors (├─ │ └─) so levels read on
-    // mobile: region roots first, DFS, siblings by recency.
+    // Box-drawing connectors so levels read on mobile; region roots first, DFS, siblings by recency.
     const inRegion = new Set(nodes.map((n) => n.name));
     const rendered = new Set<string>();
     const renderSubtree = (name: string, prefix: string, connector: string, isRoot: boolean, lines: string[]) => {
@@ -323,8 +301,8 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
     // Any node not reached from a region root (odd disconnections) — append by recency.
     for (const n of [...nodes].sort(recency)) if (!rendered.has(n.name)) renderSubtree(n.name, "", "", true, regionLines);
 
-    // Collapse an over-cap tail only on the full map — the drill target (/map <region>)
-    // then shows the region uncapped, so it's a real next step, not a self-loop (Finding 3).
+    // Collapse an over-cap tail on the full map only: the drill target shows the region uncapped,
+    // so it is a real next step rather than a self-loop.
     if (!focusedRegion && regionLines.length > REGION_CAP) {
       const shown = regionLines.slice(0, REGION_CAP);
       const hidden = regionLines.length - REGION_CAP;
@@ -335,8 +313,7 @@ export function renderMap(characterName: string, graph: DiscoveredGraph, focus?:
     }
   }
 
-  // Unexplored paths — the invitation to explore, grouped by the place they leave
-  // from (only when not drilled into a region).
+  // Unexplored paths, grouped by the place they leave from (full map only).
   if (graph.frontiers.length > 0 && !focusedRegion) {
     out.push(SEPARATOR);
     out.push("**Unexplored paths**");
