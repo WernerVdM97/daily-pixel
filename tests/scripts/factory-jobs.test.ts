@@ -17,6 +17,7 @@ import {
   JOB_CAP_MS,
   type Liveness,
   SCHEMA_VERSION,
+  STAGES,
   type StageName,
   type StageRun,
   acquireLock,
@@ -1641,5 +1642,62 @@ describe('the stage wrapper argv', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('openrouter/deepseek/deepseek-v4.1-flash');
     expect(args[args.indexOf('--thinking') + 1]).toBe('off');
     expect(args).toEqual(expect.arrayContaining(['-p', '--approve', '--tools', 'subagent']));
+  });
+});
+
+/**
+ * The wrapper spawns a stage's child foreground (`async: false`) and a foreground child never
+ * loads the parent's ambient extensions, while pi-subagents enforces the `tools` field as a
+ * strict allowlist and aborts the launch at `agent_start` over a name it cannot resolve. An
+ * agent that names an extension tool it has not loaded therefore costs the job a stage
+ * attempt and writes no report to show for it: #97 lost both of its review attempts in 37ms.
+ */
+const BUILTIN_CHILD_TOOLS = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'subagent', 'write']);
+
+function agentFrontmatter(name: string): { tools: string[]; subagentOnlyExtensions: string[] } {
+  const text = readFileSync(join(REPO_ROOT, '.pi/agents', `${name}.md`), 'utf8');
+  const block = text.slice(3, text.indexOf('\n---', 3)).split('\n');
+  const list = (key: string): string[] => {
+    const at = block.findIndex((line) => line.startsWith(`${key}:`));
+    if (at === -1) return [];
+    const inline = block[at].slice(key.length + 1).trim();
+    if (inline) return inline.split(',').map((entry) => entry.trim()).filter(Boolean);
+    // The block form: one `- item` per line, which is how the docs say a list may be written.
+    const items: string[] = [];
+    for (const line of block.slice(at + 1)) {
+      const match = /^\s+-\s+(.+)$/.exec(line);
+      if (!match) break;
+      items.push(match[1]!.trim());
+    }
+    return items;
+  };
+  return { tools: list('tools'), subagentOnlyExtensions: list('subagentOnlyExtensions') };
+}
+
+describe('an agent definition names only tools its child can resolve', () => {
+  it('loads every non-builtin tool through subagentOnlyExtensions', () => {
+    for (const file of readdirSync(join(REPO_ROOT, '.pi/agents')).filter((entry) => entry.endsWith('.md'))) {
+      const name = file.replace(/\.md$/, '');
+      const { tools, subagentOnlyExtensions } = agentFrontmatter(name);
+      const unloaded = tools.filter((tool) => !BUILTIN_CHILD_TOOLS.has(tool));
+      if (unloaded.length === 0) continue;
+      expect(
+        subagentOnlyExtensions.length,
+        `${name} names ${unloaded.join(', ')} with no loader of its own`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps a ledger stage agent on builtins, so no stage depends on the machine', () => {
+    // The stage wrapper configures no extensions at all, and a stage runs unattended in a
+    // worktree, so it must launch with nothing from this box's global `~/.pi` packages.
+    const stageAgents = Object.values(STAGES)
+      .filter((spec) => spec.kind === 'model')
+      .map((spec) => spec.agent!);
+    expect(stageAgents.length).toBeGreaterThan(0);
+    for (const name of stageAgents) {
+      const { tools } = agentFrontmatter(name);
+      expect(tools.filter((tool) => !BUILTIN_CHILD_TOOLS.has(tool)), `${name} is a ledger stage agent`).toEqual([]);
+    }
   });
 });
