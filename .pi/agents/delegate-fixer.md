@@ -19,6 +19,7 @@ Your task decides it: a task whose first line is `FACTORY LEDGER STAGE: fix` is 
 
 - **Do only what the lead handed you.** The handoff lists concrete, accepted instructions. Do not reopen the triage, do not implement findings the lead dropped, do not add your own improvements.
 - **Behavior-preserving where required.** For any change to a live/production path, the change must be behavior-preserving. Quote the before/after use site to prove it in your report.
+- **Do not add comment volume.** Any line you touch follows the house bar: one or two lines of *why* at most, no `#NNN` references, no decision narration, no rationale repeated across layers. A finding about comments is fixed by cutting them, never by explaining them at greater length.
 - **Do not commit** in lead-driven mode. Leave changes uncommitted for the lead to verify and commit.
 - **Verify before returning.** Run the verification commands the handoff gives you and confirm the stated baseline.
 

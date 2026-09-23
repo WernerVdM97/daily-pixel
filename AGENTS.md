@@ -14,7 +14,24 @@ These hold on every change, regardless of which skill is active:
 
 ## Code comments
 
-Comments explain **why**, NOT **what**! omit echo comments that just narrate the next line; keep genuine rationale (edge cases, gotchas, ordering/idempotency caveats).
+Code is the source of truth for **what** it does. Source should read as art: intuitive, self-explanatory, unnarrated. A comment earns its place only by saying what the code cannot, in **1 or 2 lines at most**. If it wants three, the rest belongs in the commit body, the PR or a doc.
+
+**Never:**
+
+- Issue or board references (`#97`, "fixed in #123", decision dates). Git blame, the PR and `CHANGELOG.md` own that history, and it rots the moment the code is read out of context.
+- The same rationale stolen across layers. Say it once, where a reader would look. Copying it into the type, the producer, the validator, the prompt builder and the test is bloat, not defence in depth.
+- Echo comments restating the next line, or line-number citations into other files (`combat-state.ts:118`), which go stale silently.
+
+**Worth a line:**
+
+- A non-obvious constant or threshold, and where the number came from.
+- A broken convention, or a deliberate exception to a pattern.
+- An ordering, idempotency or persistence caveat that bites if missed.
+- A silent edge case the code handles without saying so.
+
+**Carve-outs**, warranted but still brief: the usage doc on an exported helper, and a test or fixture note describing the scenario it builds (dice, HP, what authors what).
+
+Worked examples, good and bad: the `code-comments` skill.
 
 ## Skills
 
@@ -24,6 +41,7 @@ Task- and tool-specific conventions live as auto-discovered skills in [`.pi/skil
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `releasing`         | committing/branching,<br>merging (feat->dev or dev->main)                                                                        |
 | `changelog`         | editing `CHANGELOG.md`                                                                                                           |
+| `code-comments`     | writing or reviewing any comment/JSDoc in `src/` or `tests/`                                                                      |
 | `prompt-versioning` | editing any LLM prompt under `assets/prompts/` (decision, critic, …) or a `*_VERSION` constant                                   |
 | `docs-authoring`    | creating/editing anything under `docs/`<br>(wraps [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md))                                |
 | `game-development`  | building game systems: orchestrator routing to `game-design`, `multiplayer`, `game-art-static`, `game-art-dynamic`, `game-audio` |
