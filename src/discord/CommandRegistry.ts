@@ -1,6 +1,6 @@
 /**
- * The nav-button facts a handler hands back for the dispatcher's nav-bar weld (DC-M9.6).
- * Structurally the `facts.nav` the router puts on every view-bearing envelope.
+ * The nav-button facts a handler hands back for the dispatcher's nav-bar weld — structurally
+ * the `facts.nav` the router puts on a character's view-bearing envelope.
  */
 export type NavFacts = {
   rollsRemaining: number;
@@ -9,11 +9,8 @@ export type NavFacts = {
 };
 
 /**
- * DC-M9.6: `onNav` is how a handler's `facts.nav` reaches the dispatcher, which paints the
- * nav bar a moment after the handler returns and must not read the engine itself. A handler
- * that takes fewer parameters stays assignable to this type, so every direct caller (tests,
- * the join-confirm `/hi` render, the nav leaves) compiles unchanged and only the handlers
- * that actually cross the seam opt in.
+ * `onNav` is optional: a handler that takes fewer parameters stays assignable to this type, so
+ * only the ones that hand `facts.nav` back opt in.
  */
 export type CommandHandler = (
   interaction: unknown,
