@@ -270,7 +270,7 @@ interface WorldEngineConfig {
     }>;
   }>;
   /** Pre-constructed pipeline gateway for tests/sim, used directly when present; otherwise
-   *  one of `pipelineLlm` or `pipelineLlmGateway` must be provided. */
+   *  `pipelineLlm` builds one. One of the two must be provided. */
   pipelineLlmGateway?: PipelineLlmGateway;
 }
 
@@ -540,7 +540,7 @@ export class WorldEngineImpl implements WorldEngine {
       this.charLocRepo.recordVisit(characterId, applied.location);
     }
 
-    // The no-op refund's test: health/stamina/wealth/location/item/NPC deltas and gained rolls
+    // The no-op refund's test: health/max-stamina/wealth/location/item/NPC deltas and gained rolls
     // count; spent stamina or rolls do not, and an item counts only if it really moved.
     const ownedNames = new Set(this.itemRepo.findByCharacterId(characterId).map((i) => i.name));
     const itemsAdded = applied.itemsToAdd.filter((i) => i.quantity > 0);
@@ -641,8 +641,8 @@ export class WorldEngineImpl implements WorldEngine {
       }
     }
 
-    // Hard delete: provenance survives because the action row already carries the npc's
-    // `created_by_action_id`.
+    // Hard delete: the row's `created_by_action_id` goes with it; the removal is recorded in this
+    // action's `applied_mutations`.
     for (const rem of applied.npcsToRemove) {
       this.db.prepare('DELETE FROM npcs WHERE id = ?').run(rem.npcId);
     }
@@ -1076,8 +1076,8 @@ export class WorldEngineImpl implements WorldEngine {
             result.state.decisions,
           );
 
-          // `systemRefund` is the machine's degenerate-shape no-op; a bail refund is granted once
-          // per day (`last_bail_refund_day`).
+          // `systemRefund` is never set on a beat that reaches here — only the timeout return below
+          // sets it — so this refunds a bail, once per day (`last_bail_refund_day`).
           const today = this.currentDayNumber();
           const systemRefund = result.outcome.systemRefund === true;
           const bailRefunded =
