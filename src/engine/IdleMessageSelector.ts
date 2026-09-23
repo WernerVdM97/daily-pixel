@@ -1,5 +1,5 @@
 // ── IdleMessageSelector ── pure function, no dependencies
-// Random atmospheric messages shown while waiting for LLM (<5s).
+// Random atmospheric messages shown while the LLM call is in flight.
 
 const IDLE_MESSAGES: readonly string[] = [
   'The warden tends the fire.',
@@ -10,8 +10,7 @@ const IDLE_MESSAGES: readonly string[] = [
 ];
 
 /**
- * Return a random idle message.
- * Accepts an optional RNG function for deterministic testing (defaults to Math.random).
+ * RNG injectable for deterministic tests (defaults to Math.random).
  */
 export function randomIdleMessage(rng: () => number = Math.random): string {
   const index = Math.floor(rng() * IDLE_MESSAGES.length);

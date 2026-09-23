@@ -1,5 +1,5 @@
 // ── ErrorMapper ── pure function, no dependencies
-// Maps errors to user-facing Discord messages per S4 spec.
+// Maps errors to user-facing Discord messages.
 
 const ERROR_MAP: Array<[string, string]> = [
   // Rolls
@@ -22,9 +22,8 @@ const ERROR_MAP: Array<[string, string]> = [
   ['Invalid choice:', 'That option is no longer available. Try again.'],
   ['timed out after 30 minutes', 'Your action has expired. The moment has passed. Try `/hi` to start fresh.'],
 
-  // LLM (the message prefixes the gateways throw; see chat-transport.ts). Matched
-  // case-insensitively: the v11 gateway capitalises "Failed to parse", the pipeline and both agent
-  // gateways do not, so an exact-case match silently sent those to the generic fallback.
+  // LLM (the message prefixes the gateways throw; see chat-transport.ts). Matched case-insensitively:
+  // `ProdLlmGateway` capitalises "Failed to parse" while the pipeline and both agent gateways lowercase it.
   ['OpenRouter API error', 'The warden\'s vision is clouded. Try again shortly.'],
   ['OpenRouter returned empty response', 'The warden\'s vision is clouded. Try again shortly.'],
   ['Failed to parse OpenRouter response', 'The warden\'s vision is clouded. Try again shortly.'],
@@ -40,9 +39,8 @@ const ERROR_MAP: Array<[string, string]> = [
 const FALLBACK_MESSAGE = 'Something went wrong. The warden has been notified.';
 
 /**
- * Map an unknown error to a user-facing message string.
- * Uses case-insensitive substring matching against a prioritized list of known error patterns.
- * Unknown errors get a generic fallback message.
+ * Map an unknown error to a user-facing message string: case-insensitive substring match against
+ * the priority-ordered patterns, generic fallback when none match.
  */
 export function mapError(error: unknown): string {
   if (!(error instanceof Error)) {
