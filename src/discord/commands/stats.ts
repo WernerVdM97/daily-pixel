@@ -1,9 +1,6 @@
 /**
- * /stats — the character sheet crosses the JSON seam as `screen.stats` (M8.1, DC-M8.4): the
- * composition (`formatStats` + the gear breakdown) moved into the controller layer
- * (src/controller/statsScreen.ts). This handler is translate + paint only — the router's
- * error.message IS the string the dispatcher paints, and the view maps through
- * `noticeViewToDiscord`.
+ * /stats crosses the JSON seam as `screen.stats`; `formatStats` and the gear breakdown live in
+ * `src/controller/statsScreen.ts`.
  */
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
@@ -20,9 +17,8 @@ export function makeStatsCommand(router: GameRouter) {
       playerId: interaction.user.id,
     });
 
-    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
-    // Reported before the ok check because the read it replaces was outcome-independent;
-    // absent when there is no character, which is today's `if (char)` gate.
+    // Reported before the ok check because the read it replaces was outcome-independent; `nav` is
+    // absent on the no-character arm.
     onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {

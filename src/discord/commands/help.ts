@@ -1,9 +1,6 @@
 /**
- * /help — the command list + Economy block crosses the JSON seam as `screen.help` (M8.1,
- * DC-M8.3/4): the copy moved into the controller layer (src/controller/helpScreen.ts) and
- * the event has NO no-character arm (help works charless today — gating it would be a
- * behaviour change). This handler is translate + paint only; the view maps through
- * `noticeViewToDiscord`.
+ * /help crosses the JSON seam as `screen.help`; the copy is `src/controller/helpScreen.ts`. The
+ * event has no no-character arm — help works charless, and gating it would be a behaviour change.
  */
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
@@ -20,9 +17,8 @@ export function makeHelpCommand(router: GameRouter) {
       playerId: interaction.user.id,
     });
 
-    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
-    // Reported before the ok check because the read it replaces was outcome-independent;
-    // absent when there is no character, which is today's `if (char)` gate.
+    // Reported before the ok check because the read it replaces was outcome-independent; `/help`
+    // works charless, so its facts still follow the router's own character read.
     onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {
