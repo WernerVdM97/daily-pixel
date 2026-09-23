@@ -30,7 +30,7 @@ export interface CharacterData {
   location: string;
   wealth: number;
   lastActionState: ActionState | null;
-  /** Already rested at the Oak today (last_rested_day === day_number). Drives Rest button visibility. */
+  /** Already rested at the Oak today (`last_rested_day === day_number`). Drives Rest button visibility. */
   hasRestedToday: boolean;
   createdAt: string;
 }
@@ -42,16 +42,13 @@ export interface StatBlock {
   charisma: number;
 }
 
-/** Structured combat-continue status (ANSI-C): the engine emits only the banding maths (never
- *  exact enemy HP); the presentation layer composes the frame from this data. Screen-only —
- *  never persisted onto `ActionDecisionRecord`. */
+/** Banded enemy condition plus the player's HP movement, for a combat continue-screen. */
 export interface CombatStatusData {
   enemyName: string;
   woundWord: string;
   pips: { filled: number; total: number };
-  /** DISPLAY value only — already has playerHpDelta applied and is clamped >= 0 so a lethal
-   *  round never displays negative HP mid-resolution. A future consumer must render this as-is
-   *  and must NOT add playerHpDelta again. */
+  /** DISPLAY value only: `playerHpDelta` is already applied and clamped >= 0 so a lethal round never
+   *  shows negative HP. A consumer must render this as-is, never adding the delta again. */
   playerHp: number;
   playerMaxHp: number;
   playerHpDelta: number;
@@ -60,35 +57,26 @@ export interface CombatStatusData {
 export interface ActionDecision {
   prompt: string;
   options: ActionOption[];
-  /** decide-scene-narration follow-up: DECIDE's scene-framing prose for this beat, authored on
-   *  CONTINUE only — absent on the first beat, so it stays lean. Threaded onto the record too
-   *  (`ActionDecisionRecord.narration`) so the story-thread can render it per beat. */
+  /** DECIDE's scene-framing prose for this beat, authored on CONTINUE only (absent on the first
+   *  beat). Threaded onto the record too, so the story-thread renders it per beat. */
   narration?: string;
-  /** Engine-composed status for a combat continue-screen (banded enemy condition plus exact
-   *  player HP movement). Screen-only — never persisted onto the record. `string` is the legacy
-   *  in-flight shape (a pre-composed ANSI frame, persisted by the engine before ANSI-C) — an
-   *  action mid-flight across the deploy still carries it in its saved state JSON, so the
-   *  presentation layer's read must tolerate both shapes. */
+  /** Banding maths only, never exact enemy HP, and never persisted onto `ActionDecisionRecord`.
+   *  `string` is the legacy in-flight shape (a pre-composed frame an older action still carries), so tolerate both. */
   combatStatus?: CombatStatusData | string;
-  /** Every `CombatBeatLog` fought so far this encounter, in order (ANSI-D). Lives beside
-   *  `combatStatus` on the seam per the same pattern (ANSI-C, commit 62cc332): this type is
-   *  `PipelineInternalActionState.pendingDecision`'s shape, and that field IS what's serialized
-   *  to the action's JSON state column each beat, so accumulating here is what makes the list
-   *  survive between decisions of a multi-round fight. Missing (not just empty) on any in-flight
-   *  fight saved before this field existed — read it as `?? []`, never assume presence. */
+  /** Every `CombatBeatLog` fought so far this encounter, in order. Lives on the decision shape
+   *  serialized to the action's JSON state column each beat. Missing (not just empty) on older fights: read `?? []`. */
   combatRounds?: CombatBeatLog[];
 }
 
 export interface ActionOption {
   label: string;
   dcModifier: number | null; // signed -5..+5; null = bail
-  /** Per-option override of the roll stat; absent = inherit the action's top-level stat.
-   *  See ADR [[per-option-stat-and-ability-checks]]. */
+  /** Per-option override of the roll stat; absent = inherit the action's top-level stat. */
   stat?: string;
 }
 
-/** Selects which pending-decision option a player clicked, for `resolvePendingChoice`
- *  (M3.2 DC-A) — 'option' picks by button index, 'bail' asks for the bail option's label. */
+/** Selects which pending-decision option a player clicked, for `resolvePendingChoice` — 'option'
+ *  picks by button index, 'bail' asks for the bail option's label. */
 export type PendingChoiceSelector = { kind: 'option'; index: number } | { kind: 'bail' };
 
 export interface ActionDecisionRecord {
@@ -96,23 +84,17 @@ export interface ActionDecisionRecord {
   options: ActionOption[];
   chosen: string;
   dcModifier: number;
-  /** The LLM's distilled_type for the beat this choice was made on — the breadcrumb trail. */
+  /** The LLM's `distilled_type` for the beat this choice was made on. */
   distilledType?: string;
-  /** The scene-framing narration shown alongside this beat's prompt (see `ActionDecision.narration`),
-   *  carried onto the record so the story-thread can render it per beat. Absent on the first beat. */
+  /** The scene-framing narration shown alongside this beat's prompt (see `ActionDecision.narration`). */
   narration?: string;
 }
 
 /** Drives the story-thread label ("Work:" vs "Quest:"). Defaults to 'quest' when unset. */
 export type ActionKind = 'work' | 'quest';
 
-/** The seven `classify`-routed action types (ANSI-F). Duplicated here rather than importing
- *  `ActionCategory` from `llm/LlmGateway.ts` — this seam file takes no llm/ imports (same
- *  reasoning as `ActionKind` above); the two are kept in lockstep by construction since both are
- *  the closed enum the classifier itself owns. Exposed on `ActionStartResult` only (not
- *  persisted `ActionState`) so presentation can pick the OPENING register (classification
- *  framework §3.0) without engine internals (`PipelineInternalActionState.actionType`) leaking
- *  into the public seam. */
+/** The seven `classify`-routed action types. Duplicated rather than importing `ActionCategory` from `llm/LlmGateway.ts`,
+ *  and kept in lockstep with the classifier's own enum. Exposed on `ActionStartResult` only, never persisted onto `ActionState`. */
 export type ClassifiedActionType = 'combat' | 'travel' | 'social' | 'skill' | 'search' | 'rest' | 'other';
 
 export interface ActionState {
@@ -121,16 +103,13 @@ export interface ActionState {
   accumulatedDc: number;
   /** How the action was initiated. Set at start, carried through every beat. */
   kind?: ActionKind;
-  /** Day-job wage paid on RESOLVE, added after the failure-strip so it survives a failed roll.
-   *  Set at start; not paid if the player bails. */
+  /** Day-job wage paid on RESOLVE, added after the failure-strip so it survives a failed roll; not
+   *  paid if the player bails. */
   wage?: number;
 }
 
 // Canonical list — the SINGLE source of truth for the mutation-op-name set. `WorldMutation.type`
-// below is TYPE-DERIVED from this array (never a hand-copied literal union), and
-// `mutations.ts`'s runtime `MUTATION_TYPES` Set imports this same array, so a new op can't be
-// added to one without the other silently drifting (mirrors the `ACTION_CATEGORIES` pattern,
-// commit 62b102b).
+// below is TYPE-DERIVED from it, and `mutations.ts` imports this same array, so the two cannot drift.
 export const WORLD_MUTATION_TYPES = [
   'move_to', 'set_location', 'cross_frontier',
   'modify_health', 'modify_stamina', 'modify_wealth',
@@ -138,9 +117,7 @@ export const WORLD_MUTATION_TYPES = [
   'add_item', 'remove_item',
   'add_npc', 'update_npc', 'remove_npc', 'spawn_npc',
   'reveal_location',
-  // Stage 2 T2 — edge-shaped relation ops (scene-state graph). Op name (`type`) vs
-  // relationship kind (`relType`) is deliberate — see the doc-to-code mapping note beside
-  // `RelationEndpoint` in `action/mutations.ts` (design doc's `op`/`type` → code's `type`/`relType`).
+  // Edge-shaped relation ops — op name (`type`) vs relationship kind (`relType`) is deliberate.
   'set_relation', 'update_relation',
 ] as const;
 
@@ -155,19 +132,14 @@ export interface ActionStartResult {
   /** Present on auto-finish (LLM resolved immediately): mutations already applied and
    *  action row written; caller renders the outcome instead of showing buttons. */
   outcome?: ActionOutcome;
-  /** The type `classify` routed this action to (ANSI-F) — pinned once at CLASSIFY, so it's
-   *  stable for the whole action even though it's only surfaced here, at start. Presentation
-   *  uses it to pick the OPENING frame register (classification framework §3.0); never
-   *  persisted onto `ActionState` (unlike `kind`), since nothing downstream of the first
-   *  decision needs it. */
+  /** The type `classify` routed this action to — pinned once at CLASSIFY. Presentation picks the
+   *  OPENING register with it; never persisted onto `ActionState`, unlike `kind`. */
   actionType: ClassifiedActionType;
-  /** ANSI-F: combat enemy name for the opening frame's enemy nameplate. Surfaced from the
-   *  pipeline's `combatEnemy` hint when the LLM signalled one. Undefined when not combat or
-   *  when the LLM didn't name a specific foe. */
+  /** Combat enemy name for the opening frame's enemy nameplate, surfaced from the pipeline's
+   *  `combatEnemy` hint when the LLM signalled one; undefined when not combat or unnamed. */
   combatEnemyName?: string;
-  /** ANSI-F re-entry (0.3.2 C4): a persisted in_combat edge from a prior bail means the foe is
-   *  already damaged. The enemy's BANDED condition (wound word + pip fill, never exact HP) for the
-   *  opening frame. Undefined for a fresh fight, a non-combat action, or when no persisted edge matches. */
+  /** The enemy's BANDED condition (wound word + pip fill, never exact HP) for the opening frame,
+   *  when a persisted `in_combat` edge from a prior bail is re-entered; undefined for a fresh fight. */
   combatEnemyCondition?: { woundWord: string; filled: number; total: number };
 }
 
@@ -177,8 +149,8 @@ export type ActionStepResult =
 
 export interface ActionOutcome {
   distilledType: string;
-  /** v11 closed category enum — machine key for mutation-map deviation telemetry. Optional: absent
-   *  pre-v11 or when the LLM omits it. Typed as string here; validated as ActionCategory by the engine. */
+  /** Machine key for mutation-map deviation telemetry; optional (absent pre-v11 or when omitted),
+   *  typed as string here and validated by the engine. */
   category?: string;
   finalDc: number;
   playerRolled: number | null;
@@ -191,45 +163,34 @@ export interface ActionOutcome {
   outcomeText: string;
   /** Id of the llm_calls audit row this outcome's resolution came from. Linked after insert. */
   llmCallId?: number;
-  /** Every llm_calls row id across this action (decisions, narration, critics), linked at
-   *  resolution so the full call chain is mineable. */
+  /** Every llm_calls row id across this action (decisions, narration, critics), linked at resolution. */
   llmCallIds?: number[];
-  /** Id of the persisted `actions` row this outcome wrote — set by the engine after insert,
-   *  so the Feedback/Bug buttons on this outcome can attribute a report to its action.
-   *  Undefined when no row is written (e.g. divine intervention). */
+  /** Id of the persisted `actions` row this outcome wrote, set by the engine after insert so the
+   *  Feedback/Bug buttons can attribute a report; undefined when no row is written. */
   actionId?: number;
-  /** Actual net change to rollsRemaining the engine applied, set where the renderer can't infer
-   *  it (the auto-finish no-op refund/charge). Undefined elsewhere — the renderer then infers
-   *  −1 per resolved roll plus any modify_rolls_remaining mutation. */
+  /** Net change to `rollsRemaining` the engine applied, set where the renderer cannot infer it
+   *  (the auto-finish refund/charge). */
   rollsDelta?: number;
-  /** True when a no-op refund returned the roll (nothing changed, so the action was free). Drives
-   *  the footer's "(refunded)" tag so an unchanged roll count isn't mistaken for a bug. */
+  /** A no-op refund returned the roll. Drives the footer's "(refunded)" tag, so an unchanged roll
+   *  count is not read as a bug. */
   rollRefunded?: boolean;
-  /** True when the engine must ALWAYS hand the roll back regardless of the per-day no-op/timeout/bail
-   *  graces — a system-side fault, not a player choice. Set by the degenerate decision-shape guard
-   *  (≤1 real option after a retry): the player never got a real choice, so the roll is free. */
+  /** True when the engine must hand the roll back regardless of the per-day no-op/timeout/bail
+   *  graces — a system-side fault, not a player choice. The timeout return is its only producer. */
   systemRefund?: boolean;
-  /** True when the pipeline machine's classify-fallback exhausted (heuristic miss + LLM fallback
-   *  rejection) and the action resolved as a canned divine-intervention outcome. Typed replacement
-   *  for the legacy `distilledType === '__divine__'` sentinel (Stage 1 Thread D backbone plan,
-   *  Task 2) — legacy code never sets this field. */
+  /** The classify-fallback exhausted (heuristic miss + LLM fallback rejection) and the action
+   *  resolved as a canned divine-intervention outcome; legacy code never sets it. */
   isDivineIntervention?: boolean;
-  /** True when this outcome involved player HP reaching 0 (the hp_zero trace marker,
-   *  Stage 3 decision 10). Always undefined (absent) in legacy/v11 outcomes — set only
-   *  by the pipeline's combat spine. */
+  /** This outcome involved player HP reaching 0. Set only by the pipeline's combat spine; always
+   *  absent in legacy/v11 outcomes. */
   hpZero?: boolean;
-  /** Per-round combat telemetry beat (T5) — set only by the pipeline combat spine's terminal
-   *  path (win / loss / cap-derive). Always undefined (absent) in legacy/v11 outcomes and on
-   *  non-combat pipeline outcomes. */
+  /** Per-round combat telemetry beat, set only by the pipeline combat spine's terminal path
+   *  (win / loss / cap-derive); absent in legacy/v11 and on non-combat outcomes. */
   combatBeat?: CombatBeatLog;
-  /** Combat-frame display data for the terminal AnsiRenderer reveal — set only by the pipeline
-   *  combat spine's terminal path, alongside combatBeat. enemyMaxHp + margin aren't on the
-   *  telemetry CombatBeatLog; enemyName is nowhere else on the outcome. Absent on non-combat. */
+  /** Display data for the terminal combat-frame reveal, set alongside `combatBeat`. `enemyMaxHp`
+   *  and `margin` are not on the telemetry log, and `enemyName` is nowhere else on the outcome. */
   combatFrame?: { enemyName: string; enemyMaxHp: number; margin: number };
-  /** Full per-fight round log (ANSI-D), terminal round inclusive — the same accumulation as
-   *  `ActionDecision.combatRounds`, surfaced here too so the terminal presentation layer reads
-   *  the whole fight off the outcome without reaching into engine state. Absent on non-combat
-   *  outcomes. */
+  /** Full per-fight round log, terminal round inclusive — surfaced so the terminal presentation
+   *  layer reads the whole fight off the outcome. Absent on non-combat outcomes. */
   combatRounds?: CombatBeatLog[];
 }
 
@@ -281,16 +242,15 @@ export interface JournalAction {
   outcome: string;
   createdAt: string;
   narrative?: string | null;
-  /** Where the action happened (origin snapshot, §6) + its map glyph, for the chronicle. */
+  /** Where the action happened (origin snapshot) + its map glyph, for the chronicle. */
   location?: string | null;
   locationEmoji?: string | null;
-  /** Player-facing "intel gathered" facts derived from this action's applied mutations
-   *  (a location revealed, an NPC met) — read-only intel already sitting on the action
-   *  row, surfaced for the journal rather than tracked separately (F#6). */
+  /** Player-facing "intel gathered" facts derived from this action's applied mutations (a location
+   *  revealed, an NPC met); read-only intel already on the action row, surfaced for the journal. */
   discoveries?: string[];
 }
 
-/** A discovered node in a player's fog-of-war view of the shared graph (§5). */
+/** A discovered node in a player's fog-of-war view of the shared graph. */
 export interface DiscoveredNode {
   name: string;
   emoji: string | null;
@@ -317,7 +277,7 @@ export interface DiscoveredFrontier {
   difficulty: number;
 }
 
-/** A player's discovered subgraph — the masked view `/map` renders (§5). */
+/** A player's discovered subgraph — the masked view `/map` renders. */
 export interface DiscoveredGraph {
   current: string;
   nodes: DiscoveredNode[];
@@ -325,7 +285,7 @@ export interface DiscoveredGraph {
   frontiers: DiscoveredFrontier[];
 }
 
-/** Result of routing between two charted nodes (§2). */
+/** Result of routing between two charted nodes. */
 export interface TravelRoute {
   path: string[];
   cost: number;
@@ -381,8 +341,8 @@ export interface WeeklyActionSummary {
   narrative: string;
 }
 
-/** Result of a nightly rest at the Oak (M7.1, DC-M7.1.1) — the unsafe-rest −1 HP rule now
- *  lives inside `restAtOak`, so the caller learns whether the rest was unsafe and from where. */
+/** Result of a nightly rest at the Oak — the unsafe-rest penalty lives inside `restAtOak`, so the
+ *  caller learns whether the rest was unsafe and from where. */
 export interface RestAtOakResult {
   /** Post-rest, post-penalty character — null when the user/character is missing. */
   character: CharacterData | null;
@@ -399,7 +359,7 @@ export interface WorldEngine {
   getCharacter(discordUserId: string): CharacterData | null;
   characterExists(discordUserId: string): boolean;
 
-  // Action state machine (S3)
+  // Action state machine
   startAction(characterId: number, rawInput: string, opts?: { kind?: ActionKind; wage?: number }): Promise<ActionStartResult>;
   stepAction(characterId: number, choice: string): Promise<ActionStepResult>;
   resumeAction(characterId: number): ActionResumeResult;
@@ -416,61 +376,49 @@ export interface WorldEngine {
   /** Stamp the current time as the player's last interaction. */
   updateLastPlayed(characterId: number): void;
 
-  /** Player characters currently at unsafe locations. Read live by the evening
-   *  "goodnight" announcement (souls still out as night falls). */
+  /** Player characters currently at unsafe locations. Read live by the evening "goodnight"
+   *  announcement. */
   countSoulsInUnsafe(): number;
 
-  /** Count player characters who engaged at/after `startIso` (lexical compare of
-   *  `last_played_at` >= `startIso`; 'YYYY-MM-DD' boundaries include that day). Read
-   *  live by the evening "goodnight" announcement to decide whether anything changed
-   *  for player characters today. */
+  /** Characters who engaged at/after `startIso` (lexical compare of `last_played_at`, so a
+   *  'YYYY-MM-DD' boundary includes that day). Read live by the evening "goodnight" announcement. */
   countActivePlayersSince(startIso: string): number;
 
   // Journal
   getJournal(characterId: number): JournalData;
 
-  // Map — the player's fog-of-war view of the shared graph (§5).
+  // Map — the player's fog-of-war view of the shared graph.
   getDiscoveredGraph(characterId: number): DiscoveredGraph;
 
-  /** The edges leaving a location (charted neighbours + frontier exits) — what
-   *  /look shows: the roads you can see from where you stand. */
+  /** The edges leaving a location (charted neighbours + frontier exits) — what /look shows. */
   getExits(location: string): LocationExits;
 
-  /** Least-cost route (Dijkstra over edge difficulty) between two charted nodes; null
-   *  when unreachable (§2). Used today to validate movement reachability — the cost is
-   *  computed but not yet charged as stamina (deferred to fast-travel, §9). */
+  /** Least-cost route (Dijkstra over edge difficulty) between two charted nodes, or null when
+   *  unreachable. The cost is computed but not yet charged as stamina. */
   routeBetween(from: string, to: string): TravelRoute | null;
 
-  /** The day-job commute rule: a character standing at The Warden's Oak whose
-   *  workplace is elsewhere moves there for −1 stamina (floored at 0), and the
-   *  visit is recorded (fog-of-war). Returns the applied move, or null when no
-   *  commute applies (not at the Oak, no/unknown workplace, or already there). */
+  /** The day-job commute rule: a character at The Warden's Oak whose workplace is elsewhere moves
+   *  there for −1 stamina (floored at 0). Null when no commute applies: not at the Oak, no/unknown workplace, or already there. */
   commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null;
 
-  /** Resolves a clicked decision button to its option label, replicating the deleted
-   *  Discord `pendingDecisions` map (M3.2 DC-A) so `stepAction` stays label-based. Reads
-   *  `last_action_state.pendingDecision.options` fresh off the row rather than trusting
-   *  client-held state — same "engine re-reads" spirit as `commuteToWorkplace` (M0). */
+  /** Resolves a clicked decision button to its option label, re-reading
+   *  `last_action_state.pendingDecision.options` off the row rather than trusting client-held state. */
   resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null;
 
-  // Feedback & bugs — actionId links the report to the action whose outcome the button was
-  // on (undefined for the /feedback, /bug slash commands and the nightly/release prompts).
+  // Feedback & bugs — actionId links the report to the action whose outcome the button was on.
   submitFeedback(characterId: number, text: string, actionId?: number): void;
   submitBug(characterId: number, text: string, actionId?: number): void;
 
   // Rest & recovery
-  /** Nightly rest at the Oak (M7.1, DC-M7.1.1). The unsafe-rest −1 HP rule lives HERE —
-   *  condition (current location unsafe, not already at the Oak, not the passed workplace)
-   *  and the −1 penalty, applied via this.modifyHealth so the clamp is shared — moved from
-   *  the Discord sleep command (M0-style leak fix). `opts.workplace` is the H1 exemption the
-   *  controller computes from its dayJobs roster; `unsafeFromName` is the pre-rest location. */
+  /** Nightly rest at the Oak. The unsafe-rest −1 HP rule lives HERE: unsafe ground that is not the
+   *  Oak and not `opts.workplace` costs 1 HP through `this.modifyHealth`, so the clamp is shared. */
   restAtOak(discordUserId: string, opts?: { workplace?: string | null }): RestAtOakResult;
 
   /** Apply a flat health delta (signed, clamped 0..max). Returns updated char or null. */
   modifyHealth(discordUserId: string, amount: number): CharacterData | null;
 
-  /** Introduce an NPC from engine-driven events (scheduled threats, not the LLM
-   *  mutation path). The NPC has no `created_by_action_id`. */
+  /** Introduce an NPC from engine-driven events (scheduled threats, not the LLM mutation path);
+   *  the row has no `created_by_action_id`. */
   spawnNpc(data: {
     name: string;
     class?: string;
@@ -483,12 +431,11 @@ export interface WorldEngine {
    *  Used by the Wed/Sun announcements. */
   getLeaderboards(limit: number): Leaderboards;
 
-  /** Resolved actions in the half-open window [startIso, endIso), joined to character
-   *  name, oldest first; feeds the weekly recap. Bounds compare lexically against
-   *  `actions.created_at` ('YYYY-MM-DD HH:MM:SS' UTC), so 'YYYY-MM-DD' boundaries work. */
+  /** Resolved actions in the half-open window [startIso, endIso), joined to character name, oldest
+   *  first. Bounds compare lexically against `actions.created_at`, so 'YYYY-MM-DD' boundaries work. */
   getActionsBetween(startIso: string, endIso: string): WeeklyActionSummary[];
 
-  // World tick (S5)
+  // World tick
   tick(isAdmin: boolean): TickResult;
 
   // Meta

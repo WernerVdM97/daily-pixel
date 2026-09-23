@@ -1,27 +1,14 @@
 import { WORLD_MUTATION_TYPES, type WorldMutation } from '../WorldEngine.js';
 import { ENEMY_HP_MAX } from './combat-dc.js';
 
-/**
- * Stage 2 T2 — edge-shaped relation mutation vocabulary (scene-state graph, D2).
- *
- * Doc-to-code mapping (decision 6): the design doc ([[prompt-v12-scene-state]] D2) writes
- * `{ op, from, to, type, props }`; the codebase's `WorldMutation` already uses `type` for the
- * OP NAME (`WorldEngine.ts`). So in code the op name is `type: 'set_relation' | 'update_relation'`
- * and the *relationship* kind is carried as `relType` (doc's `type` → code's `relType`; doc's
- * `op` → code's `type`).
- *
- * `node identity is polymorphic (type, ref)` (decision 4): `pc` has no name (there is exactly
- * one PC per action context); `npc`/`location` carry the name AS AUTHORED by the LLM — this pure
- * layer does no DB lookups and no npc-name→id resolution, exactly like `update_npc`/`remove_npc`
- * receiving a pre-resolved `npcId` from upstream (see the comment above). Resolution + drop of
- * unresolvable endpoints is deferred to T3's engine wiring.
- */
+/** Edge-shaped relation mutation vocabulary. The design doc writes `{ op, from, to, type, props }`;
+ *  in code the op name is `type` and the relationship kind is `relType`. */
 export type RelationEndpoint =
   | { node: 'pc' }
   | { node: 'npc'; name: string }
   | { node: 'location'; name: string };
 
-/** A relation mutation, edges as authored by the LLM — endpoints unresolved (see above). */
+/** A relation edge as authored — endpoints unresolved. */
 export interface AuthoredRelation {
   from: RelationEndpoint;
   to: RelationEndpoint;
@@ -29,11 +16,8 @@ export interface AuthoredRelation {
   props: Record<string, number | string | boolean>;
 }
 
-/** Seed whitelist of relationship kinds (`relType`) — extensible; writers add theirs (Stage 3+).
- *  Stage 3 T2 adds `combat_save` (the once-per-day no-one-shot floor edge, decision 5); `in_combat`
- *  was already seeded here in Stage 2. Per-`relType` prop schemas (combat's `enemyHp`/`enemyMaxHp`/
- *  `round`/`savedDay`) are filled in below by `validateTypedRelationProps` — the first writer of
- *  the schemas Stage 2 deferred (see that function's doc comment). */
+/** Seed whitelist of `relType`s — writers extend it. `validateTypedRelationProps` layers
+ *  per-`relType` prop schemas on top of the generic shape check. */
 const RELATION_TYPE_WHITELIST = new Set([
   'in_combat',
   'combat_save',
@@ -45,8 +29,7 @@ const RELATION_TYPE_WHITELIST = new Set([
   'puzzle',
 ]);
 
-/** Global clamp on any numeric relation prop value (±). Per-`relType` bounds are a Stage 3+
- *  concern; this is only the generic "no absurd number" guard for the edge-shape validator. */
+/** Global clamp on any numeric relation prop value (±); per-`relType` bounds layer on top. */
 const RELATION_NUM_CLAMP = 9999;
 
 export interface MutationContext {
@@ -57,9 +40,8 @@ export interface MutationContext {
   wealth: number;
   rollsRemaining: number;
   location: string;
-  /** Known location names. When provided and non-empty, move_to is
-   *  rejected unless its name matches one of these exactly (case-insensitive).
-   *  Omit to skip the check (e.g. in unit tests with synthetic locations). */
+  /** Known location names. When provided and non-empty, move_to is rejected unless its name matches
+   *  one case-insensitively; omit to skip the check. */
   knownLocations?: string[];
 }
 
@@ -76,66 +58,39 @@ export interface ValidationResult {
 export interface AppliedState extends MutationContext {
   itemsToAdd: Array<{ name: string; emoji: string; stat: string; modifier: number; quantity: number }>;
   itemsToRemove: Array<{ name: string; quantity: number }>;
-  /** v11: add_npc (create-only). Legacy spawn_npc maps here. `health` added by RA-3 bounded —
-   *  `npcRepo.create` always accepted it, the gap was only ever in this applier. An explicit
-   *  `location` lets a caller (the combat mint) pin the row to the FIGHT's location instead of
-   *  the applier's `applied.location` fallback, which is POST-mutation and can diverge from it
-   *  when the same resolution also relocates the player — see the create-loop comment in
-   *  `WorldEngineImpl.ts`. Omitting it keeps the pre-existing behaviour every LLM-authored
-   *  `add_npc` relies on. */
+  /** `add_npc` (create-only; legacy `spawn_npc` maps here). An explicit `location` pins the row to
+   *  the caller's location rather than the applier's POST-mutation `applied.location` fallback. */
   npcsToAdd: Array<{ name: string; class?: string; description?: string; race?: string; homeLocation?: string; health?: number; location?: string }>;
-  /** v11: update_npc — handle already resolved to npcId by the gateway. */
+  /** `update_npc` — handle already resolved to npcId by the gateway. */
   npcsToUpdate: Array<{ npcId: number; description?: string; location?: string; class?: string; race?: string }>;
-  /** v11: remove_npc — handle already resolved to npcId by the gateway. */
+  /** `remove_npc` — handle already resolved to npcId by the gateway. */
   npcsToRemove: Array<{ npcId: number }>;
-  /** v11: reveal_location — authors a frontier exit at the current location. */
+  /** `reveal_location` — authors a frontier exit at the current location. */
   locationsToReveal: Array<{ name: string; direction?: string; isSafe?: number; description?: string }>;
-  /**
-   * Stage 2 T2 — `set_relation` edges, endpoints AS AUTHORED (unresolved). Intentionally
-   * dangling this pass: nothing reads this field yet — T3 wires it through
-   * `RelationRepository.set` after resolving npc-name→id upstream. Not dead code.
-   */
+  /** `set_relation` edges, endpoints as authored (unresolved). */
   relationsToSet: AuthoredRelation[];
-  /**
-   * Stage 2 T2 — `update_relation` edges, endpoints AS AUTHORED (unresolved). Intentionally
-   * dangling this pass: nothing reads this field yet — T3 wires it through
-   * `RelationRepository.updateProps` after resolving npc-name→id upstream. Not dead code.
-   */
+  /** `update_relation` edges, endpoints as authored (unresolved). */
   relationsToUpdate: AuthoredRelation[];
 }
 
-/** Active types accepted by the validator — derived from the canonical `WORLD_MUTATION_TYPES`
- *  array (`WorldEngine.ts`) so this set can never drift from the `WorldMutation.type` union
- *  (mirrors the `ACTION_CATEGORIES` drift-proofing pattern, commit 62b102b). `set_location` and
- *  `spawn_npc` are legacy aliases, treated identically to `move_to`/`add_npc` respectively. */
+/** Accepted mutation types, derived from `WORLD_MUTATION_TYPES`; `set_location` and `spawn_npc`
+ *  are legacy aliases of `move_to`/`add_npc`. */
 const MUTATION_TYPES: Set<string> = new Set(WORLD_MUTATION_TYPES);
 
-/** The three ops that all converge onto `state.location` (see the relocate switch cases in
- *  `validateOne`/`applyMutations` below) — the single shared source for anything that needs to
- *  know "is this mutation a relocate?" without re-deriving its own copy of the list
- *  (`travel-gate.ts`'s `RELOCATE_MUTATION_TYPES` usage). */
+/** The three ops that converge onto `state.location` — the shared list for anything asking "is this a relocate?"
+ *  e.g. `travel-gate.ts`. A new relocate alias means updating the `validateOne` and `applyMutations` switches together. */
 export const RELOCATE_MUTATION_TYPES = new Set<string>(['set_location', 'move_to', 'cross_frontier']);
 
-/** Per-axis stacked-delta caps (§5a guard 1). Applied by collapseStackedDeltas. */
+/** Per-axis stacked-delta caps, applied by `collapseStackedDeltas`. */
 const STAMINA_DELTA_CAP = -5;
 const HEALTH_DELTA_CAP = -4;
 
-/** RA-1 Stage 1 — ceiling on the generic LLM-authored `add_item` channel. Base stats are set once
- *  at character creation and never change (no `modify_stat` mutation exists anywhere), so items
- *  are the only growth channel for `abilityCheckBonus` (`dc.ts`); item count is uncapped and the
- *  sum is monotonic, so an unbounded per-item modifier would decay RA-1's DC retune within a week
- *  of play. This is a TIER ceiling, not a design limit: a future named/legendary item tier is
- *  expected to exceed it through its own channel, and must not be read as a permanent cap on item
- *  power. See `clampAuthoredItemModifiers` below for where it's enforced. */
+/** Ceiling on the generic LLM-authored `add_item` modifier. Items are the only growth channel for
+ *  `abilityCheckBonus` and the sum is monotonic, so this is a TIER ceiling, not a design limit. */
 export const LLM_ITEM_MODIFIER_MAX = 2;
 
-/**
- * Collapse same-axis scalar deltas into a single mutation (§5a stacked-delta guard).
- * Multiple modify_stamina mutations in one resolution are summed and capped so a bad
- * LLM pass can't stack unlimited costs. Non-scalar mutations pass through unchanged.
- *
- * Call this BEFORE validateMutations so the validator sees already-collapsed input.
- */
+/** Collapse same-axis scalar deltas into one mutation, summed and capped so a bad LLM pass cannot
+ *  stack unlimited costs. Must run BEFORE `validateMutations`, so the validator sees collapsed input. */
 export function collapseStackedDeltas(mutations: WorldMutation[]): WorldMutation[] {
   const COLLAPSIBLE = ['modify_stamina', 'modify_health', 'modify_wealth', 'modify_rolls_remaining', 'modify_max_stamina'] as const;
   type CollapsibleType = typeof COLLAPSIBLE[number];
@@ -163,30 +118,8 @@ export function collapseStackedDeltas(mutations: WorldMutation[]): WorldMutation
   return pass;
 }
 
-/**
- * RA-1 Stage 1 — bounds `add_item.modifier` at `LLM_ITEM_MODIFIER_MAX`, upper-bound only. Clamps
- * rather than rejects: `finalizeMutations` (`geography-finalize.ts`) drops every mutation the
- * validator reports, so rejecting an over-limit `add_item` would delete the reward outright and
- * leave a SUCCESS carrying only a stamina cost — `resolve/BASE.md` names that in bold as "a
- * failure reward - never do this". A negative modifier passes through untouched: no prompt
- * mentions one today, but a cursed or burdensome item is a legitimate future authoring, and
- * flooring it at 0 would silently strip a deliberate drawback. Tests with `Number.isFinite`
- * rather than a bare `<=` comparison so a non-finite `modifier` is handled by decision, not by
- * accident of comparison semantics: `NaN <= LLM_ITEM_MODIFIER_MAX` is false (a bare comparison
- * would clamp `NaN` to the ceiling — the maximum bonus for garbage input), and
- * `-Infinity <= LLM_ITEM_MODIFIER_MAX` is true (it would reach the `items.modifier` SQLite column
- * untouched). A non-finite numeric `modifier` (`NaN`, `Infinity`, `-Infinity`) coerces to `0`
- * instead: still a sanctioned value ("Can be 0 for purely narrative items" in the prompt
- * contract), so the item is still granted and the SUCCESS still carries a reward, but no bonus is
- * invented from a malformed number — and dropping the mutation instead would hit the same
- * "SUCCESS with only a stamina cost" problem noted above. Non-numeric/absent `modifier` also
- * passes through untouched — that shape is the validator's job (`validateOne`'s `add_item` case),
- * not this normaliser's.
- *
- * Call this from `finalizeMutations`, immediately before `collapseStackedDeltas` — the seam where
- * every `add_item` arrives via resolve → finalize (see `applyMutations`'s `add_item` case for why
- * this is the single home of the ceiling, not a second clamp there).
- */
+/** Bound `add_item.modifier` at `LLM_ITEM_MODIFIER_MAX`, upper-bound only. Clamps rather than rejects: finalize drops what
+ *  the validator rejects, leaving a SUCCESS with only a stamina cost. Runs in `finalizeMutations`, before `collapseStackedDeltas`. */
 export function clampAuthoredItemModifiers(mutations: WorldMutation[]): WorldMutation[] {
   return mutations.map((m) => {
     if (m.type !== 'add_item' || typeof m.modifier !== 'number') {
@@ -202,8 +135,7 @@ export function clampAuthoredItemModifiers(mutations: WorldMutation[]): WorldMut
   });
 }
 
-/** Shape-only check for a `RelationEndpoint` — no DB lookup, no name resolution (T2 scope fence;
- *  see the `AuthoredRelation` doc comment above). `pc` carries no name (one PC per action ctx). */
+/** Shape-only check for a `RelationEndpoint`; `pc` carries no name. */
 function isValidEndpoint(v: unknown): v is RelationEndpoint {
   if (typeof v !== 'object' || v === null) return false;
   const node = (v as { node?: unknown }).node;
@@ -215,9 +147,8 @@ function isValidEndpoint(v: unknown): v is RelationEndpoint {
   return false;
 }
 
-/** Validate the generic edge-shape `props` bag: a flat record of scalars, numbers within the
- *  global clamp. Rejects out-of-range/non-scalar values rather than silently clamping them —
- *  clamp-and-write is a T3/persistence concern (decision 5), this pass only gates the shape. */
+/** Validate the generic edge-shape `props` bag. Rejects out-of-range/non-scalar values rather than
+ *  clamping them — clamp-and-write belongs to the persistence layer. */
 function validateRelationProps(opType: string, props: unknown): string | null {
   if (typeof props !== 'object' || props === null || Array.isArray(props)) {
     return `${opType} requires a "props" object (flat record of scalars)`;
@@ -234,24 +165,16 @@ function validateRelationProps(opType: string, props: unknown): string | null {
   return null;
 }
 
-/** Per-`relType` prop schemas (Stage 3 T2) — layered ON TOP of the generic edge-shape check
- *  above (`validateRelationProps`), never replacing it. This is the first writer of the schemas
- *  Stage 2 deferred ("per-`relType` prop schemas... are OUT of scope for this pass", now in
- *  scope): `in_combat` (engine-owned enemy numbers, decision 3) and `combat_save` (the
- *  once-per-day floor, decision 5). Every other whitelisted relType (trust, disposition, ...)
- *  falls through unchanged — only the generic scalar/clamp check applies to them, exactly as
- *  before this stage. */
+/** Per-`relType` prop schemas, layered ON TOP of the generic edge-shape check in
+ *  `validateRelationProps`, never replacing it. Only `in_combat` and `combat_save` have one. */
 function validateTypedRelationProps(
   opType: string,
   relType: string,
   props: Record<string, unknown>,
 ): string | null {
   if (relType === 'in_combat') {
-    // Deliberately requires the FULL prop set even for update_relation: combat writers
-    // (combat-state.ts) always emit the absolute set_relation shape, never a partial
-    // in_combat delta (round would double-sum through updateProps, see combatRoundUpdate),
-    // and the LLM never authors in_combat ops (engine-owned, decision 3). A future partial
-    // in_combat delta writer would need to relax this by opType.
+    // Requires the FULL prop set even for update_relation: the combat writers always emit the
+    // absolute set, a partial delta would double-sum `round`, and the LLM never authors in_combat.
     const { enemyName, enemyHp, enemyMaxHp, round, mintName, baseDc } = props as {
       enemyName?: unknown;
       enemyHp?: unknown;
@@ -281,9 +204,7 @@ function validateTypedRelationProps(
     if (round < 1) {
       return `${opType} "in_combat" prop "round" (${round}) must be >= 1`;
     }
-    // `mintName` (RA-3 bounded, see `CombatState.mintName`) is the one optional prop here:
-    // absent is legal, so edges already persisted in a live DB keep validating. When present it
-    // must be a non-empty string, same shape as `enemyName`.
+    // The one optional prop here: absent is legal, so edges already persisted keep validating.
     if (mintName !== undefined && (typeof mintName !== 'string' || mintName.trim() === '')) {
       return `${opType} "in_combat" prop "mintName" must be a non-empty string when present`;
     }
@@ -329,16 +250,13 @@ function validateOne(
   }
 
   switch (m.type) {
-    // Relocate ops — see RELOCATE_MUTATION_TYPES above for the shared list; update both if a
-    // future alias joins this trio.
     case 'move_to':
     case 'set_location': {
       const name = m.name;
       if (typeof name !== 'string' || name.trim() === '') {
         return { index, message: `${m.type} requires a non-empty "name" string` };
       }
-      // Reject locations the world doesn't know about — moving the player to a
-      // phantom location leaves /hi and scene lookup with nothing to render.
+      // An unknown location leaves /hi and scene lookup with nothing to render.
       if (ctx.knownLocations && ctx.knownLocations.length > 0) {
         const target = name.trim().toLowerCase();
         const match = ctx.knownLocations.some(l => l.trim().toLowerCase() === target);
@@ -447,9 +365,8 @@ function validateOne(
       return null;
     }
     case 'cross_frontier': {
-      // Shape only — the engine (applyGeography) does the graph-level validation
-      // (that this direction is a real unbound frontier on the current node) and
-      // mints/binds before this runs, normalizing name/direction.
+      // Shape only: the engine does the graph-level validation (a real unbound frontier on the
+      // current node) and mints/binds before this runs.
       if (typeof m.direction !== 'string' || m.direction.trim() === '') {
         return { index, message: 'cross_frontier requires a non-empty "direction" string' };
       }
@@ -498,16 +415,13 @@ export function applyMutations(
 
   for (const m of mutations) {
     switch (m.type) {
-      // Relocate ops — see RELOCATE_MUTATION_TYPES above for the shared list.
       case 'move_to':
       case 'set_location':
       case 'cross_frontier': {
-        // All three relocate the character. By the time this runs, the engine
-        // (applyGeography) has already minted + bound any frontier destination and
-        // normalized the name, so cross_frontier resolves identically to move_to.
+        // By the time this runs the engine has already minted + bound any frontier destination
+        // and normalised the name, so cross_frontier resolves identically to move_to.
         const requested = String(m.name ?? ctx.location);
-        // Snap to the canonical casing of a known location so the (case-sensitive)
-        // DB lookup in getLocation resolves. Falls back to the requested string.
+        // Snap to a known location's canonical casing: the getLocation lookup is case-sensitive.
         const canonical = ctx.knownLocations?.find(
           l => l.trim().toLowerCase() === requested.trim().toLowerCase(),
         );
@@ -520,7 +434,6 @@ export function applyMutations(
         break;
       case 'modify_max_stamina':
         state.maxStamina = Math.max(1, state.maxStamina + Number(m.amount ?? 0));
-        // Clamp current stamina to the new ceiling
         state.stamina = Math.min(state.stamina, state.maxStamina);
         break;
       case 'modify_stamina':
@@ -533,11 +446,8 @@ export function applyMutations(
         state.rollsRemaining = Math.max(0, state.rollsRemaining + Number(m.amount ?? 0));
         break;
       case 'add_item':
-        // RA-1 Stage 1: the ceiling is enforced in `finalizeMutations` (`clampAuthoredItemModifiers`),
-        // not here. The terminal resolve path is the only route that currently produces `add_item`,
-        // and it does go through finalize; the non-terminal beat branch calls this applier directly,
-        // with no finalize in between. Anything that adds `add_item` to a non-terminal beat must
-        // route it through the clamp first. Do not add a second clamp here.
+        // The non-terminal beat branch calls this applier with no finalize in between, so anything
+        // adding `add_item` on that path must clamp first. Do not add a second clamp here.
         state.itemsToAdd.push({
           name: String(m.name ?? ''),
           emoji: String(m.emoji ?? ''),
@@ -560,11 +470,7 @@ export function applyMutations(
           ...(m.description !== undefined ? { description: String(m.description) } : {}),
           ...(m.race !== undefined ? { race: String(m.race) } : {}),
           ...(m.homeLocation !== undefined ? { homeLocation: String(m.homeLocation) } : {}),
-          // RA-3 bounded: carries the surviving foe's HP for the engine-authored mint.
-          // `npcRepo.create` already accepted `health`; only this copy was missing.
           ...(m.health !== undefined ? { health: Number(m.health) } : {}),
-          // Honoured by the applier ahead of its `applied.location` fallback — see the
-          // `npcsToAdd` shape comment above.
           ...(m.location !== undefined ? { location: String(m.location) } : {}),
         });
         break;
@@ -600,9 +506,7 @@ export function applyMutations(
   return state;
 }
 
-/** Carry a `set_relation`/`update_relation` mutation into `AuthoredRelation` shape, endpoints AS
- *  AUTHORED (no DB lookup, no npc-name→id resolution — mirrors `update_npc`/`remove_npc` trusting
- *  their already-validated/pre-resolved input; see the doc comment above `AuthoredRelation`). */
+/** Carry a relation mutation into `AuthoredRelation` shape, endpoints as authored. */
 function toAuthoredRelation(m: WorldMutation): AuthoredRelation {
   return {
     from: m.from as RelationEndpoint,

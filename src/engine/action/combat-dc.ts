@@ -1,12 +1,5 @@
-/**
- * Combat's contested-roll -> severity-band math (Stage 3 Thread C, T1).
- *
- * Pure math only: no machine/repo/DB imports, no relations, no I/O. The
- * engine rolls both dice (decision 6, stage-3-combat-spine-plan.md) so the
- * signed margin stays fully deterministic for the sim's seeded roll source.
- * `resolveRoll` in `dc.ts` stays untouched and binary — combat bands are a
- * separate layer on top, not a replacement.
- */
+/** Combat's contested-roll -> severity-band math. Pure math: no machine/repo/DB imports, no I/O. The engine rolls
+ *  both dice, so the margin stays deterministic; `dc.ts`'s `resolveRoll` stays binary — bands are a layer on top, not a replacement. */
 
 export type CombatBand = 'clean' | 'glanced' | 'trade' | 'heavy';
 
@@ -19,41 +12,33 @@ export interface CombatRoundOutcome {
   margin: number;
 }
 
-/**
- * One combat round's telemetry beat — the data that later settles the parked prose-critic
- * trigger (prompt-v12-pipeline §D7): the trigger question is whether a "material-change-only"
- * heuristic collapses into "always" in combat. `materialMutationFired` is computed semantically
- * (did enemyHp/player-HP actually move, or loot drop) — NOT `ops.length > 0` — so the telemetry
- * can genuinely answer that, rather than being trivially true.
- */
+/** One combat round's telemetry beat. */
 export interface CombatBeatLog {
-  /** 1-based in-fight round this beat fought (the floor beat + its last-stand retry can share a round number — see the machine note). */
+  /** 1-based in-fight round this beat fought; the floor beat and its last-stand retry can share one. */
   round: number;
   band: CombatBand;
   enemyHpBefore: number;
   enemyHpAfter: number;
-  /** ACTUAL applied signed player-HP delta this round (floored/clamped to real HP where a
-   *  nominal band delta would overshoot 0 or the floor-save's 1 HP) — symmetric with the
-   *  enemy's `enemyHpAfter - enemyHpBefore`. NOT the raw band nominal from `CombatRoundOutcome`;
-   *  those diverge on lethal blows and the desperate-choice floor. */
+  /** ACTUAL applied signed player-HP delta (floored/clamped where a band nominal would overshoot
+   *  0 or the floor save's 1 HP), symmetric with `enemyHpAfter - enemyHpBefore`; never the nominal. */
   playerHpDelta: number;
-  /** Player's raw d20 this round (ANSI-D) — lifted from the transient `CombatRoundOutcome`
-   *  the round already computed, never re-rolled or re-derived. */
+  /** Player's raw d20 this round — lifted from the `CombatRoundOutcome` the round already computed,
+   *  never re-rolled or re-derived. */
   playerD20: number;
   /** Player's total ability-check bonus applied to `playerD20` this round. */
   playerBonus: number;
-  /** The base DC this round's `enemyBonus` was derived from (`clamp(dc - 10, 0, ENEMY_BONUS_MAX)`)
-   *  — NOT a pass/fail threshold; a combat round is a contested roll (`resolveCombatRound`),
-   *  not a `resolveRoll` check against a DC. Carried for the maths-visibility card only. */
+  /** The base this round's `enemyBonus` was derived from (`clamp(dc - 10, 0, ENEMY_BONUS_MAX)`), NOT
+   *  a pass/fail threshold — a combat round is a contested roll, not a `resolveRoll` check. */
   dc: number;
   /** Enemy's raw d20 this round — lifted alongside `playerD20`, same source. */
   enemyD20: number;
   /** Enemy's total bonus applied to `enemyD20` this round. */
   enemyBonus: number;
-  /** `(playerD20 + playerBonus) - (enemyD20 + enemyBonus)` — lifted from `CombatRoundOutcome`,
-   *  the same margin that picked this round's `band`. */
+  /** `(playerD20 + playerBonus) - (enemyD20 + enemyBonus)`, the same margin that picked this
+   *  round's `band`. */
   margin: number;
-  /** Did a state-changing (narratable) mutation fire this beat? enemyHp always moves in combat, so this is expected ~always true — that IS the §D7 signal. */
+  /** Computed semantically (did HP move, or did an op beyond the always-present `set_relation` fire)
+   *  rather than as `ops.length > 0`, so the telemetry can answer whether a material-change-only critic trigger collapses into "always". */
   materialMutationFired: boolean;
   /** The mutation op `type` names emitted this beat, in emission order (e.g. ['set_relation', 'modify_health']). */
   ops: string[];
@@ -61,46 +46,37 @@ export interface CombatBeatLog {
   marker: 'combat_round';
   /** Set only on the beat where the once-per-day survive-at-1 floor fired (the desperate-choice beat). */
   floorSave?: boolean;
-  /** Set only on the beat where the combat empty-decision backstop fired (decide-scene-narration
-   *  spec): the fresh continue-decide returned zero real options and the engine injected the two
-   *  deterministic fallback options, so a flee-only screen never reaches the player. Telemetry. */
+  /** Set on the beat where the combat empty-decision backstop fired: the fresh continue-decide
+   *  returned no real options and the engine injected two deterministic ones. */
   emptyDecisionFallback?: boolean;
-  /** Set only on the terminal beat that followed a WIN's fatal-blow interstitial (SL-6): which
-   *  way the player resolved it. Smallest signal the render layer needs to vary the terminal
-   *  card's label between the two identical-verdict endings — a plain win/loss/cap-derive beat
-   *  never carries this. */
+  /** Set on the terminal beat after a WIN's fatal-blow interstitial: which way the player resolved
+   *  it. The smallest signal the render needs to label the two identical-verdict endings. */
   fatalBlow?: 'finish' | 'spare';
 }
 
 /** Enemy `d20` bonus ceiling: `clamp(baseDc - 10, 0, ENEMY_BONUS_MAX)`. */
 export const ENEMY_BONUS_MAX = 10;
 
-/** `enemyMaxHp` derivation bounds (no world tier yet — decision 7's `scale` seam). */
+/** `enemyMaxHp` derivation bounds. */
 export const ENEMY_HP_MIN = 6;
 export const ENEMY_HP_MAX = 40;
 
 /** Extra magnitude a crit die adds on top of its forced band, before `scale`. */
 export const CRIT_AMPLIFY_BONUS = 2;
 
-/** Combat sub-mode cap: max rounds fought after the initiating decision (decision 6).
- *  A fight at the cap derives its winner from the HP fraction instead of another roll.
- *  Non-combat actions keep `MAX_DECISIONS_PER_ACTION = 2`. */
+/** Max rounds fought after the initiating decision. At the cap the winner derives from the HP
+ *  fraction instead of another roll; non-combat actions keep `MAX_DECISIONS_PER_ACTION = 2`. */
 export const MAX_COMBAT_ROUNDS = 4;
 
 interface CombatBandDef {
   band: CombatBand;
-  /** Inclusive lower bound on margin; `-Infinity` for the catch-all band. */
   minMargin: number;
   enemyHpDelta: number;
   playerHpDelta: number;
 }
 
-/**
- * Band table — starting values, sim-tuned later (T5). Kept as one constant
- * so magnitudes are trivially retunable without touching the resolution
- * logic. Ordered highest-margin-first; `resolveCombatRound` picks the first
- * band whose `minMargin` the actual margin clears.
- */
+/** Starting magnitudes, one constant so they retune without touching resolution logic. Ordered
+ *  highest-margin-first with an `-Infinity` catch-all; `find` picks the first band the margin clears. */
 export const COMBAT_BAND_TABLE: readonly CombatBandDef[] = [
   { band: 'clean', minMargin: 8, enemyHpDelta: -6, playerHpDelta: 0 },
   { band: 'glanced', minMargin: 2, enemyHpDelta: -3, playerHpDelta: 0 },
@@ -109,8 +85,6 @@ export const COMBAT_BAND_TABLE: readonly CombatBandDef[] = [
 ];
 
 function bandForMargin(margin: number): CombatBandDef {
-  // COMBAT_BAND_TABLE is ordered highest-threshold-first with a -Infinity
-  // catch-all, so `find` always resolves.
   return COMBAT_BAND_TABLE.find(def => margin >= def.minMargin) as CombatBandDef;
 }
 
@@ -118,28 +92,8 @@ function bandDef(band: CombatBand): CombatBandDef {
   return COMBAT_BAND_TABLE.find(def => def.band === band) as CombatBandDef;
 }
 
-/**
- * Contested combat roll -> severity band -> signed HP deltas.
- *
- * `margin = (playerD20 + playerBonus) - (enemyD20 + enemyBonus)` maps to a
- * band via `COMBAT_BAND_TABLE`. Crits override the band outright (they do
- * not shift the margin's own thresholds):
- *  - player nat-20 forces `clean` and amplifies `enemyHpDelta` by another
- *    `-CRIT_AMPLIFY_BONUS`.
- *  - player nat-1 forces `heavy` and amplifies `playerHpDelta` by another
- *    `-CRIT_AMPLIFY_BONUS`.
- *  - enemy nat-20 forces `heavy` (no extra amplification — the player's own
- *    nat-1 already covers the "extra bad" case).
- *  - enemy nat-1 forces `clean` (symmetric, no extra amplification).
- *
- * Precedence when both dice crit and disagree (e.g. player nat-20 AND enemy
- * nat-20): the player's own die always wins the band, so player crits are
- * checked before enemy crits below. This also means a player nat-1 beats an
- * opposing enemy nat-1 for the same reason (heavy, amplified, not clean).
- *
- * `scale` (default 1) multiplies the final deltas only — including crit
- * amplification — and never changes which band is chosen (decision 7).
- */
+/** A crit overrides the band without shifting the margin's thresholds: a player's natural 20 amplifies the enemy delta, a natural 1
+ *  the player's own; an enemy crit amplifies nothing, and on a double crit the player's die wins. `scale` multiplies the final deltas only. */
 export function resolveCombatRound(
   playerD20: number,
   playerBonus: number,
@@ -181,19 +135,15 @@ export function resolveCombatRound(
     enemyHpDelta = def.enemyHpDelta;
     playerHpDelta = def.playerHpDelta;
 
-    // POC+ 0.3.2 C2 — signed-off, bounded exception to the "no combat re-tune" fence
-    // (scope-lock section of the 0.3.2 plan): the `trade` band's flat -2/-2 read as
-    // "I rolled higher yet we both lost 2 HP" (grievance, not a display bug), so the margin's
-    // own sign now decides who takes the lighter hit. Contained to this margin-decided branch
-    // and the `trade` band only — no crit path routes here (they all force `clean`/`heavy`
-    // above), and `clean`/`glanced`/`heavy` deltas are untouched.
+    // Bounded exception to the flat trade band, whose -2/-2 read as "I rolled higher yet we both
+    // lost 2 HP": the margin's sign decides who takes the lighter hit, and no crit path routes here.
     if (band === 'trade') {
       if (margin > 0) {
         playerHpDelta = -1; // player edged the contest — takes the lighter hit
       } else if (margin < 0) {
         enemyHpDelta = -1; // enemy edged the contest — takes the lighter hit
       }
-      // margin === 0: dead tie, symmetric -2/-2 stands (keeps combatCapScenario green).
+      // margin === 0: dead tie, symmetric -2/-2 stands.
     }
   }
 
@@ -207,11 +157,7 @@ export function resolveCombatRound(
   };
 }
 
-/**
- * `enemyMaxHp` derivation from the encounter's existing `baseDc` (no world
- * tier — decision 7). `scale` is the seam Thread B later multiplies through;
- * starting rule: `clamp(Math.round(baseDc * scale), ENEMY_HP_MIN, ENEMY_HP_MAX)`.
- */
+/** `enemyMaxHp` from the encounter's `baseDc`; `scale` is the seam a world tier multiplies through. */
 export function deriveEnemyMaxHp(baseDc: number, scale = 1): number {
   const raw = Math.round(baseDc * scale);
   return Math.max(ENEMY_HP_MIN, Math.min(ENEMY_HP_MAX, raw));
@@ -219,14 +165,8 @@ export function deriveEnemyMaxHp(baseDc: number, scale = 1): number {
 
 export type DangerTier = 'easy' | 'medium' | 'hard' | 'risky' | 'fatal';
 
-/**
- * Map a combat DC to a worded encounter-danger tier (POC+ 0.3.2 C1). A first-cut,
- * tunable ladder, not the deferred "map DC to easy/medium/hard/fatal" follow-up:
- * thresholds are anchored so the sim's baseline goblin (baseDc 12) reads "medium",
- * and the band describes the foe's overall danger for display only. It must never
- * be read as a per-beat pass/fail threshold (that's the margin's job, not the
- * DC's — see `resolveCombatRound`'s doc comment).
- */
+/** Worded encounter-danger tier for display only — a first-cut, tunable ladder anchored so the
+ *  baseline goblin (baseDc 12) reads "medium"; never a per-beat pass/fail threshold. */
 export function dangerTier(dc: number): DangerTier {
   if (dc <= 9) return 'easy';
   if (dc <= 13) return 'medium';
