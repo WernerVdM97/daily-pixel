@@ -1,11 +1,6 @@
 /**
- * Production, OpenRouter-backed `PlaytestCriticGateway` (JSON-seam M4.5). Renders a completed run into
- * a user message, asks the model for a qualitative playtest report, and validates the reply.
- *
- * Mirrors `ProdAgentPlayerGateway` deliberately: reuses `callChatCompletion` verbatim (JSON mode, single
- * attempt, no retry/fallback at this layer), throws loudly on transport/parse/validation failure so
- * the caller sees it, and records ONE `llm_calls` audit row in `finally` regardless of outcome. A
- * recorder error is logged, never rethrown.
+ * Production, OpenRouter-backed `PlaytestCriticGateway`: renders a completed run into a user message, asks
+ * the model for a playtest report and validates it. ONE `llm_calls` row in `finally`, however it ends.
  */
 
 import { callChatCompletion, type ChatResponse } from '../llm/chat-transport.js';
@@ -40,15 +35,14 @@ export interface ProdPlaytestCriticGatewayConfig {
   recorder?: LlmCallRecorder;
   /** Injectable system prompt for tests. Defaults to the versioned file on disk. */
   systemPrompt?: string;
-  /** Injectable BASE for the persona review's system prompt, for tests. The persona's own fragment
-   *  is appended to whatever this is (see `composePersonaReviewPrompt`), so a test that injects a
-   *  base still exercises the real voice composition. Defaults to `persona-review.md` on disk. */
+  /** Injectable BASE for the persona review's system prompt, for tests: the persona's own fragment is
+   *  appended to it, so an injected base still exercises the real voice composition. */
   personaReviewSystemPrompt?: string;
   /** If true, console-log a one-line summary of the call (model, latency, tokens). */
   verbose?: boolean;
 }
 
-/** The shape the critic must return (see critic-v1.md) — the four dimensions plus an overall read. */
+/** The shape the critic must return: the four dimensions plus an overall read. */
 interface RawReport {
   pacing?: unknown;
   clarity?: unknown;
@@ -86,10 +80,8 @@ const SCORE_FIELDS = ['engagement', 'fulfilment', 'clarity', 'challenge', 'varie
 const RETURN_TOMORROW_VALUES: readonly ReturnTomorrow[] = ['yes', 'probably', 'no'];
 const VERDICT_VALUES: readonly PersonaVerdict[] = ['would play again tomorrow', 'would drift off', 'would churn'];
 
-/** Compose the persona review's system prompt: the `persona-review.md` template plus the persona's
- *  own fragment (spec § A) — the same fragment the brain played as. That fragment's **Voice** and
- *  **Quit condition** sections are what make ten reviews ten voices rather than one reviewer wearing
- *  ten names; without it every review would answer the third benchmark question from nowhere. */
+/** Compose the persona review's system prompt: the `persona-review.md` template plus the persona's own
+ *  fragment. That fragment's Voice and Quit-condition sections are what make ten reviews ten voices. */
 export function composePersonaReviewPrompt(base: string, persona: string): string {
   return `${base}\n\n${loadPersonaFragment(persona)}`;
 }
@@ -213,17 +205,15 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
     }
 
     if (report === undefined) {
-      // Unreachable: the try block leaves only via a return-assigned `report` or a throw that
-      // propagates past here. Compile-time defence against a future early return.
+      // Unreachable: the try above either throws past here or falls through with `report` set. The guard
+      // is compile-time defence against a future early return.
       throw new Error('unreachable: report was never set');
     }
     return report;
   }
 
-  /** The persona review (spec § F): the SECOND voice, one model call over a completed run, as the
-   *  persona that played it. Structured exactly like `critique` — same transport, same JSON mode,
-   *  one `llm_calls` row in `finally`, throws loudly on anything unusable — with its own template and
-   *  its own stamp, so the two artefacts are attributable apart. */
+  /** The persona review: the SECOND voice, one model call over a completed run, as the persona that played
+   *  it. Structured exactly like `critique`, with its own template, its own stamp and its own call kind. */
   async review(input: PersonaReviewInput): Promise<PersonaReview> {
     const userMessage = buildReviewMessage(input);
     const systemPrompt = composePersonaReviewPrompt(this.personaReviewPromptBase, input.persona);
@@ -345,18 +335,8 @@ function resolveReport(raw: RawReport): PlaytestReport {
 }
 
 /**
- * Validate a persona review's reply against the spec's § F JSON block. EVERY field is required and
- * every closed vocabulary is checked: this is the measurement itself, so a missing field, a string
- * where a number belongs, a rubric value outside 1..5 and `'unobserved'`, or a `returnTomorrow`
- * outside `yes|probably|no` throws rather than being dropped or defaulted. A silently dropped cell
- * would read in the panel exactly like a criterion nobody had an opinion about, which is the one
- * failure mode the `unobserved` rule exists to prevent. Text is trimmed; the closed vocabularies are
- * normalised first (case, spacing, a trailing sentence stop), so `"would  drift off."` is read
- * rather than thrown away over punctuation.
- *
- * Exported for the prompt-agreement test: `tests/agent/persona-review.test.ts` round-trips the
- * prompt's own JSON block through this resolver, so a prompt edit that drops or moves a field
- * breaks the suite rather than a paid run.
+ * Validate a persona review's reply against the prompt's JSON block: every field required, every closed
+ * vocabulary checked and normalised, anything unusable throwing. Exported for the prompt-agreement test.
  */
 export function resolvePersonaReview(raw: RawReview): PersonaReview {
   if (!isRecord(raw.rubric)) {
@@ -384,9 +364,8 @@ export function resolvePersonaReview(raw: RawReview): PersonaReview {
     hook: requireText(raw.hook, 'hook'),
     building: requireText(raw.building, 'building'),
     quitTrigger: requireText(raw.quitTrigger, 'quitTrigger'),
-    // Free text on purpose: the prompt constrains the SHAPE, and the panel buckets what it gets
-    // with `parseQuitHorizon`. Rejecting an unparseable phrasing here would throw away a whole paid
-    // run over a wording, and the panel can still sequence an `unknown` honestly.
+    // Free text on purpose: the prompt constrains the SHAPE and the panel buckets what it gets with
+    // `parseQuitHorizon`. Rejecting a phrasing would throw away a paid run over a wording.
     quitHorizon: requireText(raw.quitHorizon, 'quitHorizon'),
     engaging: requireTextList(raw.engaging, 'engaging'),
     boring: requireTextList(raw.boring, 'boring'),
@@ -437,9 +416,8 @@ function requireTextList(v: unknown, field: string): string[] {
   return v.map((item, i) => requireText(item, `${field}[${i}]`));
 }
 
-/** One of a closed vocabulary. Normalised first — lowercased, whitespace-collapsed, and a trailing
- *  sentence stop dropped — so `"Would  play again tomorrow."` is read rather than treated as a
- *  different answer. The word still has to be the right one: only a different WORD is a hard failure. */
+/** One of a closed vocabulary. Normalised first — lowercased, whitespace-collapsed, a trailing
+ *  sentence stop dropped — so `"Would  play again tomorrow."` is read, not thrown away. */
 function requireVocab<T extends string>(v: unknown, field: string, allowed: readonly T[]): T {
   const norm = typeof v === 'string' ? v.toLowerCase().replace(/\s+/g, ' ').trim().replace(/[.,;:!]+$/, '').trim() : '';
   if ((allowed as readonly string[]).includes(norm)) return norm as T;
@@ -448,8 +426,8 @@ function requireVocab<T extends string>(v: unknown, field: string, allowed: read
   );
 }
 
-/** The completed run rendered as the critic's user message: the scoreboard, then the play log in order. Kept
- *  a free function (not a method) so tests can assert the exact wire text. */
+/** The completed run rendered as the critic's user message: the scoreboard, then the play log in order.
+ *  Kept a free function (not a method) so tests can assert the exact wire text. */
 export function buildCritiqueMessage(input: CritiqueInput): string {
   return [
     'RUN SUMMARY:',
@@ -493,15 +471,8 @@ function oneLine(text: string): string {
 }
 
 /**
- * The completed run rendered for the PERSONA REVIEWER (spec § F): the scoreboard, then the distilled
- * series the reviewer is actually asked to judge — the per-day rating pair, the frictions with their
- * recurrence, the recon screens it consulted — and finally the play log in order. The series come
- * first on purpose: the review's whole job is the shape across days, and last week's play log is
- * exactly the detail the per-day note exists to spare the reviewer (spec § Risks, context).
- *
- * A series the run did not produce is printed as `(none)` rather than dropped: an absent section
- * would read as "the harness forgot", and a reviewer that cannot tell "no frictions" from "frictions
- * withheld" would write a confident review of its own blind spot.
+ * The completed run rendered for the PERSONA REVIEWER: the per-day ratings, frictions with their recurrence
+ * and recon screens first — the shape across days is the review's job. An absent series prints as `(none)`.
  */
 export function buildReviewMessage(input: PersonaReviewInput): string {
   const lines: string[] = ['RUN SUMMARY:', JSON.stringify(input.summary), ''];

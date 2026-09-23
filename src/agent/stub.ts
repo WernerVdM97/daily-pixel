@@ -1,34 +1,7 @@
 #!/usr/bin/env node
 /**
- * The stub-backed deterministic agent-player run (M8.5 stage 6, DC-S2) — `npm run
- * agent:stub -- <days> [--inherit]`. Runs the harness loop with the SCRIPTED brain against
- * the contract suite's StubBackend (the canned scripted RouterBackend the seam's
- * interchangeability contract asserts — see src/protocol/stubBackend.ts), smokes the agent
- * side of the seam (event vocabulary, facts consumption, the DC-S3 parity beats) independent
- * of the engine: deterministic, token-free, CI-runnable. The recorded transcript is stage
- * 9's replay dogfood corpus (replays byte-equal).
- *
- * The CANNED FULL-LIFECYCLE SCRIPT: a fresh creation walk (join.open → wizard.answer →
- * wizard.choose ×6 → character.create, successive step views via the wizardViews record),
- * the day-job flow (dayjob.start → action.choose ×2 → outcome), the custom-action flow
- * (action.custom → action.choose ×2 → outcome), sleep, and the scripted day-start beats
- * (hi.open greeting + screen.stats) + the look-after-outcome screen.look — the DC-S3 real
- * views so the beats succeed (the stub's no-character defaults would make them silent).
- * The inherit arm (`--inherit`) skips the creation walk entirely.
- *
- * Env: AGENT_OUT (transcript path; default a timestamped file under the OS temp dir),
- * AGENT_PROTOCOL_OUT (protocol-log path; default `<AGENT_OUT>.protocol.json`),
- * AGENT_PROTOCOL_BEATS (record router beats into the protocol log, default off). No API
- * key — this run is network-free by construction.
- *
- * `AGENT_FORCE_FREE_ACTIONS` is deliberately NOT read here: the scripted day-loop opens with a
- * day-job pick, so the switch would only stall the run, and the canned script is a bytes-pinned
- * replay corpus, not a measurement arm. Its RA-2 free-action forcing belongs to `agent:play`
- * (where a live brain reads the restricted menu).
- *
- * The CLI is a thin wrapper over the exported `stubRun` — the in-process driver stage 9's
- * dogfood test uses — so the scripted move list and the canned stub script are defined
- * here once and the CLI and the test drive the same flow.
+ * The stub-backed deterministic agent-player run — `npm run agent:stub -- <days> [--inherit]` — plays the harness
+ * loop with the SCRIPTED brain against `StubBackend` (see `src/protocol/stubBackend.ts`); its transcript is the replay corpus. Env: `.pi/skills/agent-smoke/SKILL.md`.
  */
 
 import { writeFileSync } from 'node:fs';
@@ -55,26 +28,26 @@ import type { AgentMove } from './AgentPlayerGateway.js';
 import type { StepChoiceResult, WizardOptionResult } from '../controller/SessionController.js';
 import type { MenuViewState, NoticeViewState } from '../view/viewState.js';
 
-/** The session id the stub run plays as. The stub ignores it (its character is not keyed
- *  by userId), but the protocol header must be honest — a stable id is fine (DC-S7). */
+/** The session id the stub run plays as. The stub ignores it (its character is not keyed by userId),
+ *  but the protocol header must be honest, and a stable id is fine. */
 const DEFAULT_USER_ID = 'agent:stub';
 
-/** The canned full-lifecycle character (DC-S7 fresh arm) — the real first-option def values
- *  the wizard validates against, the same profile the contract suite + the harness tests use. */
+/** The canned full-lifecycle character (the fresh arm): the real first-option def values the wizard
+ *  validates against, the same profile the contract suite and the harness tests use. */
 const CHAR_DATA: CharCreateData = {
   name: 'Rowan',
   class: 'Warrior',
   upbringing: 'Soldier',
   race: 'Human',
-  // The wizard persists step-5 values lowercase and validates against the defs (DC-M7.3.9).
+  // The wizard persists step-5 values lowercase and validates against the defs.
   alignment: 'lawful good',
   dayJob: 'Town Guard',
   // Step 7 (Starting Kit) is MANDATORY — the walk can't reach the confirm without it.
   itemSetName: "Soldier's Kit",
 };
 
-/** The day-job action menu — one day-job button (index 0) + the Custom… slot, the contract
- *  suite's canonical menu shape (its fixture stays local there; this is the runner's copy). */
+/** The day-job action menu — one day-job button (index 0) + the Custom… slot, the contract suite's
+ *  canonical menu shape (its fixture stays local there; this is the runner's copy). */
 const MENU_VIEW: MenuViewState = {
   screen: 'menu',
   title: { emoji: '🛠️', text: 'Town Guard — Daily Work' },
@@ -85,9 +58,8 @@ const MENU_VIEW: MenuViewState = {
   ],
 };
 
-/** The stub's character.create created arm — a notice observably equivalent to the real
- *  post-confirm hi greeting (the walk only checks the envelope's ok, so the view is
- *  presentation-only copy). */
+/** The stub's character.create created arm. The walk checks only the envelope's `ok`, so this view is
+ *  presentation-only copy — no code reads its text. */
 const CREATED_VIEW: NoticeViewState = {
   screen: 'notice',
   text: [
@@ -103,11 +75,8 @@ const CREATED_VIEW: NoticeViewState = {
   ephemeral: true,
 };
 
-/** One day of the scripted brain: the day-job flow (menu-pick 0 → choice ×2 → outcome),
- *  then the custom-action flow (custom → choice ×2 → outcome), then sleep — the exact moves
- *  the canned stub results consume per day (a mismatch surfaces loudly via the harness's
- *  STUCK_LIMIT/MAX_BEATS, or a thrown script-exhausted brain). The inherit arm reuses the
- *  same day-loop moves; only the creation walk is skipped. */
+/** One day of the scripted brain: the day-job flow (menu-pick 0 → choice ×2 → outcome), then the
+ *  custom-action flow (custom → choice ×2 → outcome), then sleep — exactly the moves the canned stub consumes. */
 const DAY_MOVES: AgentMove[] = [
   { kind: 'menu-pick', index: 0 },
   { kind: 'choice', index: 0 },
@@ -118,21 +87,15 @@ const DAY_MOVES: AgentMove[] = [
   { kind: 'sleep' },
 ];
 
-/** The canned full-lifecycle script's two stateful bits, layered over the contract
- *  StubBackend (the base class stays untouched — it is the RouterBackend double; this
- *  subclass lives with the runner). (1) The wizard walk: each wizard.choose returns the
- *  NEXT step's view from the wizardViews record (DC-M7.3.11), so the fresh arm's
- *  createCharacter walks step 1 → 2 → … → 7 → confirm. (2) The decision loop: the first
- *  action.choose on a decision view returns another decision (the loop deliberates twice
- *  per flow — the brain script's choice ×2), the second resolves to the outcome. The base's
- *  single static chooseResult/stepResult fields can't express either alternation. */
+/** The canned full-lifecycle script's two stateful bits, layered over the contract `StubBackend` (the base
+ *  stays untouched). Wizard chooses walk step N → N+1; decision views alternate — the base's static fields cannot. */
 export class CannedStubBackend extends StubBackend {
   private chooseBeats = 0;
 
   override chooseWizardOption(_userId: string, step: number, _value: string): WizardOptionResult {
     this.calls.push('chooseWizardOption');
-    // Choosing step N advances the wizard to step N+1 (the real controller's progression) —
-    // the response view mirrors what a real walk would return after each choose.
+    // Choosing step N advances the wizard to step N+1 (the real controller's progression), so the
+    // response view mirrors what a real walk would return after each choose.
     return { kind: 'view', view: this.wizardViews[step + 1] ?? wizardStepNView(step + 1) };
   }
 
@@ -144,10 +107,8 @@ export class CannedStubBackend extends StubBackend {
   }
 }
 
-/** The observer adapter (DC-S4): a stateful AgentObserver over the stub backend. The
- *  StubBackend is the RouterBackend double — getMeta/tick are NOT part of it, so the
- *  harness's day label + the nightly world cron read through this small adapter instead
- *  (advancing the day number so multi-day runs report real day labels + tick markers). */
+/** The observer adapter: a stateful AgentObserver over the stub backend. `getMeta`/`tick` are not part
+ *  of the RouterBackend double, so the harness reads the day label and the nightly cron through here. */
 class StubObserver implements AgentObserver {
   private current = 1;
 
@@ -166,10 +127,8 @@ class StubObserver implements AgentObserver {
   }
 }
 
-/** Wire the canned full-lifecycle script onto a fresh backend instance. Everything static
- *  lives here; the two stateful alternations live in CannedStubBackend. Exported for the
- *  replay runner (stage 7, DC-S2): a stub-class replay builds a FRESH CannedStubBackend +
- *  configureCannedScript so the replayed stream hits the same canned script the recording ran. */
+/** Wire the canned full-lifecycle script onto a fresh backend instance — the static half, the two stateful
+ *  alternations living in `CannedStubBackend`. Exported for the replay runner's fresh-backend rebuild. */
 export function configureCannedScript(backend: StubBackend): void {
   // Day loop: the day-job start and the custom slot both open the decision flow, which
   // resolves through TWO action.choose beats (see CannedStubBackend.stepChoice).
@@ -187,9 +146,8 @@ export function configureCannedScript(backend: StubBackend): void {
   backend.choiceResult = { kind: 'ok', character: stubChar };
   backend.resolveResult = 'Advance carefully';
 
-  // The rested arm — safe at the Oak (alreadyThere, no unsafe), so sleep ends the day
-  // cleanly with no unsafe-rest finding (the contract suite's RESTED_SAFE, rebuilt here —
-  // it stayed local there).
+  // Safe at the Oak (alreadyThere, no unsafe), so sleep ends the day cleanly with no unsafe-rest
+  // finding — the contract suite's RESTED_SAFE, rebuilt here (it stayed local there).
   backend.restResult = {
     kind: 'rested',
     alreadyThere: true,
@@ -199,13 +157,13 @@ export function configureCannedScript(backend: StubBackend): void {
     unsafeFromName: "The Warden's Oak",
   };
 
-  // DC-S3 parity beats: REAL views so the beats succeed (the stub's no-character defaults
-  // would make them silent). hi.open's greeting arm fires the semantic greeting event.
+  // REAL views so the beats succeed (the stub's no-character defaults would make them silent);
+  // hi.open's greeting arm fires the semantic greeting event.
   backend.hiResult = { kind: 'greeting', view: noticeView };
   backend.lookResult = { kind: 'view', view: noticeView };
   backend.statsResult = { kind: 'view', view: noticeView };
 
-  // The fresh creation walk (DC-M7.3.11): successive step views + the created arm.
+  // The fresh creation walk: successive step views + the created arm.
   backend.wizardViews = {
     2: wizardStepNView(2),
     3: wizardStepNView(3),
@@ -219,18 +177,16 @@ export function configureCannedScript(backend: StubBackend): void {
   backend.confirmResult = { kind: 'created', view: CREATED_VIEW, created: CHAR_DATA };
 }
 
-/** The canned run's recording clock (DC-M10.6) — a Wednesday, so the weekday branches the
- *  greeting and the tick read stay on the weekday side. Fixed rather than `now` because the
- *  stub run's contract is byte-reproducibility: the committed corpus is pinned by deep-equal
- *  against a fresh run, and a live stamp would break that on the second run. */
+/** The canned run's recording clock — a Wednesday, so the greeting and the tick's weekday branches stay on
+ *  the weekday side. Fixed rather than `now`: the committed corpus is deep-equalled against a fresh run. */
 export const STUB_RECORDED_AT = '2026-07-15T09:00:00.000Z';
 
 export interface StubRunOptions {
-  /** The DC-S7 inherit arm: no creation walk — the session starts at menu.open as the player. */
+  /** The inherit arm: no creation walk — the session starts at menu.open as the player. */
   inherit?: boolean;
   outPath?: string;
   protocolOut?: string;
-  /** Override the recording clock stamped into the protocol-log header (DC-M10.6). */
+  /** Override the recording clock stamped into the protocol-log header. */
   recordedAt?: string;
 }
 
@@ -242,12 +198,11 @@ export interface StubRunResult {
   backend: StubBackend;
 }
 
-/** Run the stub-backed scripted session in-process (stage 9's dogfood drives this). Both
- *  files land in `finally` (the play.ts convention): a throwing run still leaves the repro
- *  up to the failure point. Deterministic — the protocol log deep-equals across fresh runs. */
+/** Run the stub-backed scripted session in-process (the dogfood test drives this). Both files land in
+ *  `finally`, as in `play.ts`, and the protocol log deep-equals across fresh runs. */
 export async function stubRun(days: number, opts: StubRunOptions = {}): Promise<StubRunResult> {
-  // DC-M10.6, the RECORD half: the header stamps a fixed clock, so the run itself must
-  // execute on that clock or the recording and its replay disagree on every weekday branch.
+  // The RECORD half: the header stamps a fixed clock, so the run must execute on that clock or the
+  // recording and its replay disagree on every weekday branch.
   const restoreClock = pinClock(opts.recordedAt ?? STUB_RECORDED_AT);
   try {
     return await stubRunPinned(days, opts);
@@ -269,10 +224,8 @@ async function stubRunPinned(days: number, opts: StubRunOptions = {}): Promise<S
   const harness = createAgentHarness(new StubObserver(backend), router, brain, DEFAULT_USER_ID, {
     brain: 'scripted',
     backend: 'stub',
-    // Fixed by default, not `now` (DC-M10.6): the stub run is a canned deterministic script
-    // whose whole value is byte-reproducibility, and a wall-clock stamp in the header would
-    // make every fresh run differ from the committed corpus. Overridable so a caller can
-    // record a different weekday deliberately.
+    // Fixed by default, not `now`: the run's whole value is byte-reproducibility, and a wall-clock stamp
+    // would make every fresh run differ from the committed corpus. Overridable to pick another weekday.
     recordedAt: opts.recordedAt ?? STUB_RECORDED_AT,
     ...(process.env.AGENT_PROTOCOL_BEATS === '1' ? { recordBeats: true } : {}),
   });
@@ -280,8 +233,8 @@ async function stubRunPinned(days: number, opts: StubRunOptions = {}): Promise<S
   let summaries: DaySummary[] = [];
   try {
     if (!opts.inherit) {
-      // DC-S7 fresh spawn: the full join wizard walk through the harness's recorded dispatch
-      // (any ok:false throws — the fresh arm must reach the created state for the run to play).
+      // The full join wizard walk through the harness's recorded dispatch (any ok:false throws —
+      // the fresh arm must reach the created state for the run to play).
       await harness.createCharacter(CHAR_DATA);
     }
     summaries = await harness.playDays(days);
@@ -359,8 +312,8 @@ async function main(): Promise<void> {
   }
 }
 
-// Run only when executed directly (npm run agent:stub) — importing the module in-process
-// (the stub test, stage 9's dogfood) must not trigger the CLI.
+// Run only when executed directly (npm run agent:stub) — importing the module in-process (the stub test,
+// the corpus dogfood) must not trigger the CLI.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error(err);

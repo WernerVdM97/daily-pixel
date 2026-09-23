@@ -1,75 +1,7 @@
 #!/usr/bin/env node
 /**
- * The protocol-log replay runner (M8.5 stage 7, DC-S2 + DC-S5) — `npm run agent:replay --
- * <protocol.json> [--stub|--real]`. Replays a recorded protocol log (DC-S1) against a
- * backend, asserting every event validates (`validateGameEvent`), every final envelope
- * validates (`validateGameResponse`) and deep-equals the recorded response (beats when the
- * recording carries them), tick markers re-execute via `engine.tick(true)` on the real
- * backend, and the DC-S5 choice-fidelity stream invariants hold. Zero LLM tokens, no
- * network, fully deterministic.
- *
- * The deterministic class (scripted-brain runs, stub runs) replays BYTE-FOR-BYTE: the
- * verify-first probe (stage 7 Task A) confirmed characterId assignment IS reproducible on a
- * fresh engine (the fresh DB's first created character is again id 1, and mulberry32 is
- * keyed by characterId/dayNumber, so day-job actions/workplaces/rolls re-seed identically).
- * The determinism caveat that used to sit here was the same-weekday-class one, and the clock pin
- * now discharges PART of it. What IS discharged is the TICK's calendar-dependent behaviour, which
- * reads UTC on both sides: the Saturday tick grants the bonus roll and runs the Saturday NPC
- * script (`getUTCDay() === 6`, WorldEngineImpl.ts) and the 5-day absence nudge fires on the tick
- * crossing five idle days, and the replay half re-ticks on the SAME weekdays because it steps the
- * clock one day per tick marker exactly as the recording half did (harness.ts calls
- * `advanceDays(1)` immediately before each `tick(true)`). So a multi-day recording is green on any
- * calendar day the suite runs on, and the day-N+1 Saturday bonus and the five-day absence nudge
- * are reproducible rather than accidentally-matching. The envelope-visible effect lands in the
- * action hints keyed off rollsRemaining — those are what a wrong-dated replay still diverges on.
- * What is NOT discharged is any TEXT that reads a LOCAL weekday, and the day-start greeting is
- * exactly that: it is rendered by `isWeekend()` (hiScreen.ts), which is `new Date().getDay()` — the
- * HOST's weekday, straight off the process clock's local offset. The pin fixes the instant, not the
- * host's offset from it, so the same pinned epoch instant renders weekday copy on one host and
- * weekend copy on another (a Saturday-locally / Friday-UTC instant is the worked example), and a
- * multi-day recording is byte-green only on a host whose local weekday matches the recording's.
- * `hiScreen.ts` is deliberately NOT changed to read UTC here: that copy is player-facing, so it is
- * a game change rather than harness work (issue #142 carries it), which is why the mitigation is the
- * noon-UTC `AGENT_START_DATE` rule in the agent-smoke skill instead of a fix in this file. Neither
- * half is a general fake-timer: timers and intervals are outside the pin entirely (`clock.ts`), so
- * anything scheduled rather than read behaves exactly as it did.
- * (The one-day corpus entries committed before the stepping half existed are unaffected: their
- * tick is the last entry, and a tick marker asserts only its dayNumber. The greeting caveat applies
- * to them too — their mid-week `recordedAt` is what keeps the two halves' weekday classes equal.)
- * The real-backend arm rebuilds a fresh deterministic engine (scripted pipeline gateway +
- * rollD20:()=>20) and re-seeds by REPLAYING the recorded creation walk (the stream's
- * join.open → wizard.* → character.create dispatches run on the fresh engine as-is); a
- * real-backend replay of a stream WITHOUT a creation walk (an inherit-class transcript)
- * fails loudly — the caller must pre-seed the engine instead (DC-S2). Tick markers
- * re-execute via `engine.tick(true)` with a dayNumber assert, each one advancing the pinned
- * clock a day first.
- *
- * Backend selection defaults to the header's recorded `backend` class; `--stub`/`--real`
- * override (a header/flags disagreement is warned, never silently honoured).
- *
- * DC-S5 sequence sanity (the stale-rule carve): every event validates; the FIRST dispatch is
- * the creation walk's join.open, hi.open (inherit/beats) or menu.open (mid-session); per
- * action.choose the selector's index is within the PRECEDING decision view's buttons; per
- * dayjob.start the jobIndex within the preceding menu view's buttons; the scripted beats
- * (hi.open / screen.stats / screen.look) are chrome — legal at their stream positions with
- * NO preceding-view check (the stale "each event legal given the preceding envelope's view"
- * rule does not apply to them); wizard.* events only appear inside the creation walk prefix.
- * Sequence-sanity failures are validation failures (exit non-zero).
- *
- * Spec § C's recon screens are chrome in the same sense: a brain-chosen `screen.look` /
- * `screen.map` / `screen.stats` / `screen.backpack` / `screen.journal` / `screen.help` dispatch
- * reads a screen rather than acting on a button (it costs no roll and opens no decision), so it
- * is legal after a menu view with no preceding-view check — the same carve-out the scripted
- * `screen.stats` / `screen.look` beats already get. The move KIND is `recon`, and `isLegal`
- * matches it by screen, so the harness's offer and the brain's pick cannot drift.
- *
- * D2 tolerance: an 'internal' greeting envelope (the stale-/hi inherit edge — hi.open →
- * resumeAction throw) is a RECORDED envelope like any other and the replay deep-equals it
- * with no special handling: it either matches its recorded bytes or it is reported as a
- * mismatch like any drift. Nothing here tries to be clever about the edge.
- *
- * Exit 0 only when every entry validated AND matched; non-zero otherwise, with a diff
- * report. Malformed/missing entries are validation failures, never silent skips.
+ * The protocol-log replay runner — `npm run agent:replay -- <protocol.json> [--stub|--real]`. The clock pins to the
+ * header's `recordedAt` and steps a day per tick marker, so a multi-day recording is byte-green only where the host's local weekday matches (the committed corpus is mid-week, a weekday at every offset).
  */
 
 import { readFileSync } from 'node:fs';
@@ -94,18 +26,16 @@ import type { WorldEngineImpl } from '../engine/WorldEngineImpl.js';
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-// ── Deep equality + diff — a REAL recursive structural comparison (not a JSON.stringify
-// string compare). Both sides are compared in their JSON FORM: the recorded log IS JSON by
-// construction (DC-S1 "All entries are plain JSON-serialisable data"), and the live envelope
-// is normalized through a JSON round trip before comparing. The one loss this introduces is
-// JSON's: undefined-valued optional view fields (e.g. `narration` on a decision view that
-// has no narration) drop — a field that is present-with-undefined on the live object and
-// absent in the recorded JSON carries zero information, and the contract suite's own
-// round-trip convention (`JSON.parse(JSON.stringify(view))` toEqual-ing the view) already
-// blesses exactly this equivalence. The comparison is structural and order-independent over
-// the JSON forms: two envelopes are equal here iff their JSON forms deep-equal — equal
-// envelopes can stringify to different bytes (key order is irrelevant, pinned by the
-// key-reordering test). ──
+// ── Deep equality + diff: a real recursive structural comparison, not a JSON.stringify ──
+
+// Both sides are compared in their JSON FORM: the recorded log IS JSON by construction, and the live
+// envelope is normalized through a JSON round trip before comparing.
+
+// The one loss is JSON's: undefined-valued optional view fields drop — a field present-with-undefined on
+// the live object and absent in the recorded JSON carries zero information (the contract suite agrees).
+
+// The comparison is structural and order-independent over the JSON forms: two envelopes are equal here
+// iff their JSON forms deep-equal, and equal envelopes can stringify to different bytes (key order is irrelevant, pinned by a test).
 
 /** Deep-compare two plain-JSON values. */
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -153,10 +83,10 @@ function diffObjects(a: unknown, b: unknown, path: string, out: string[]): void 
   }
 }
 
-// ── File structural validation (DC-S2: malformed/missing → validation failure, never a
-// silent skip). Shape-level only — event/response DEEP validation runs per entry in the
-// replay loop (an entry's event that fails validateGameEvent is a per-entry validation
-// failure, and the loop still replays the rest of the stream so the report is complete). ──
+// ── File structural validation: malformed/missing → validation failure, never a silent skip ──
+
+// Shape-level only: event/response DEEP validation runs per entry in the replay loop, so one bad entry is
+// a per-entry failure and the loop still replays the rest of the stream to complete the report.
 
 function validateProtocolFile(raw: unknown): { ok: true; entries: ProtocolEntry[] } | { ok: false; message: string } {
   if (!Array.isArray(raw)) return { ok: false, message: 'protocol log must be a JSON array' };
@@ -183,14 +113,13 @@ function validateProtocolFile(raw: unknown): { ok: true; entries: ProtocolEntry[
   if (head.backend !== 'real' && head.backend !== 'stub') {
     return { ok: false, message: "header.backend must be 'real' | 'stub'" };
   }
-  // DC-M10.6: required, and required to PARSE — a header carrying an unparseable stamp would
-  // otherwise pin the clock to Invalid Date and turn every weekday branch into a silent
-  // NaN comparison, which is a worse failure than refusing the transcript outright.
+  // Required, and required to PARSE — a header carrying an unparseable stamp would otherwise pin the
+  // clock to Invalid Date and turn every weekday branch into a silent NaN comparison.
   if (typeof head.recordedAt !== 'string' || Number.isNaN(new Date(head.recordedAt).getTime())) {
     return { ok: false, message: 'header.recordedAt must be an ISO-8601 timestamp (DC-M10.6)' };
   }
-  // Optional (spec § H): a pre-persona recording carries no key at all, so absence is legal —
-  // a present-but-non-string key is malformed and would otherwise be silently dropped here.
+  // Optional: a pre-persona recording carries no key at all, so absence is legal — a present-but-non-string
+  // key is malformed and would otherwise be silently dropped here.
   if (head.persona !== undefined && typeof head.persona !== 'string') {
     return { ok: false, message: 'header.persona must be a string when present' };
   }
@@ -230,9 +159,8 @@ function validateProtocolFile(raw: unknown): { ok: true; entries: ProtocolEntry[
         ...(Array.isArray(entry.beats) ? { beats: entry.beats as GameResponse[] } : {}),
       });
     } else if (entry.kind === 'tick') {
-      // Tick markers only follow a day's dispatches — a tick-led stream is structurally
-      // malformed (SF2: entries.length counts ticks, so the first-dispatch invariant would
-      // otherwise be evadable by a leading tick marker).
+      // Tick markers only follow a day's dispatches: a tick-led stream is structurally malformed, or the
+      // first-dispatch invariant below would be evadable by a leading tick marker.
       if (!sawDispatch) {
         return { ok: false, message: `tick entry ${seq}: tick marker precedes the first dispatch` };
       }
@@ -280,18 +208,15 @@ export interface ReplayResult {
   entries: ReplayEntryResult[];
 }
 
-/** Replay an in-process protocol log (the CLI's engine; tests drive this directly). The log is
- *  consumed in its JSON form: in-process callers passing live transcript objects are normalized
- *  through a JSON round trip up front (undefined-valued optional view fields drop — exactly what
- *  a recorded file holds), so a live object and its recorded twin compare equal. */
+/** Replay an in-process protocol log (the CLI's engine; tests drive this directly). The log is consumed
+ *  in its JSON form, so a live transcript object and its recorded twin compare equal. */
 
 export async function replayLog(protocol: ProtocolEntry[], opts: ReplayOptions = {}): Promise<ReplayResult> {
-  // DC-M10.6 + spec § G: pin before anything runs, restore unconditionally. A malformed or absent
-  // stamp replays unpinned rather than throwing — parseProtocolFile already rejects those, so this
-  // only forgives a hand-built in-process log, and the header is normalized below anyway. The pin
-  // ADVANCES one day per tick marker (see the tick branch): the recording half stepped the clock a
-  // day per nightly tick, so a multi-day stream only re-ticks on the right calendar date if the
-  // replay steps with it.
+  // Pin before anything runs, restore unconditionally. The pin ADVANCES one day per tick marker: the
+  // recording half stepped a day per nightly tick, so only a stepping replay re-ticks on the right date.
+
+  // A malformed or absent stamp replays unpinned rather than throwing — `validateProtocolFile` already
+  // rejects those, so this only forgives a hand-built in-process log, and the header is normalized below.
   const head = protocol[0];
   const stamp = head?.kind === 'header' ? head.recordedAt : undefined;
   const clock = typeof stamp === 'string' && !Number.isNaN(new Date(stamp).getTime())
@@ -320,8 +245,8 @@ async function replayLogPinned(
     };
   }
 
-  // The JSON-form contract (see the JSDoc): normalize before any comparison. A no-op for JSON
-  // callers (the CLI, file-loaded logs) — live transcript objects gain the same form.
+  // The JSON-form contract (see the JSDoc): normalize before any comparison. A no-op for JSON callers
+  // (the CLI, file-loaded logs) — live transcript objects gain the same form.
   protocol = JSON.parse(JSON.stringify(protocol)) as ProtocolEntry[];
 
   const backend = opts.backend ?? header.backend;
@@ -335,9 +260,8 @@ async function replayLogPinned(
   let router: GameRouter;
   let engine: WorldEngineImpl | undefined;
   if (backend === 'real') {
-    // DC-S2: re-seeding happens by REPLAYING the recorded creation walk on the fresh engine.
-    // A real-backend replay of a stream without the walk (an inherit-class transcript) cannot
-    // re-seed itself — error out; the caller must pre-seed the engine instead.
+    // Re-seeding happens by REPLAYING the recorded creation walk on the fresh engine. A stream without
+    // the walk (an inherit-class transcript) cannot re-seed itself — error out; the caller must pre-seed.
     if (!firstDispatch || firstDispatch.event.type !== 'join.open') {
       return {
         ok: false,
@@ -366,25 +290,23 @@ async function replayLogPinned(
 
   const entries: ReplayEntryResult[] = [];
 
-  // DC-S5 stream state. `lastView` is the preceding recorded envelope's view (the artifact
-  // invariant reads the RECORDED stream); `walkActive` tracks the leading creation-walk prefix.
+  // Stream state. `lastView` is the preceding recorded envelope's view (the artifact invariant reads the
+  // RECORDED stream); `walkActive` tracks the leading creation-walk prefix.
   let lastView: ViewState | undefined;
   let walkActive = firstDispatch?.event.type === 'join.open';
-  // Dispatch-only counter for the first-dispatch invariant — tick markers are not dispatches
-  // (a tick-led stream's first dispatch would otherwise dodge the check; validateProtocolFile
-  // rejects tick-led files, this is the in-process belt-and-braces).
+  // Dispatch-only counter for the first-dispatch invariant: tick markers are not dispatches, so a
+  // tick-led in-process stream's first dispatch cannot dodge the check.
   let dispatchCount = 0;
 
   for (const entry of protocol) {
     if (entry.kind === 'header') continue;
 
     if (entry.kind === 'tick') {
-      // One calendar day per tick marker (spec § G): the recording half stepped the clock inside
-      // `endDay` before each `tick(true)`, so the replay must step identically or a multi-day
-      // stream re-ticks on the wrong weekday and the Saturday bonus / absence nudge diverge from
-      // the recorded bytes. Ahead of both arms for symmetry: the canned stub observer owns no
-      // world, so the step is inert there, but the clock state a stream implies should not depend
-      // on which backend read it.
+      // One calendar day per tick marker: the recording half stepped the clock inside `endDay` before
+      // each `tick(true)`, so the replay must step identically or the re-ticks land on wrong weekdays.
+
+      // The step sits AHEAD of both arms for symmetry: the canned stub observer owns no world, so it is
+      // inert there, but the clock state a stream implies should not depend on which backend read it.
       clock?.advanceDays(1);
       if (backend === 'real' && engine) {
         const tick = engine.tick(true);
@@ -396,8 +318,7 @@ async function replayLogPinned(
           ...(ok ? {} : { diff: [`tick dayNumber ${tick.dayNumber} !== recorded ${entry.dayNumber}`] }),
         });
       } else {
-        // Stub replay: the stub has no world to tick — the marker validated structurally is
-        // all it asserts (its dayNumber came from the stub observer's counter, not a world).
+        // Stub replay: the stub has no world to tick — the marker validated structurally is all it asserts.
         entries.push({ seq: entry.seq, kind: 'tick', ok: true });
       }
       continue;
@@ -406,20 +327,16 @@ async function replayLogPinned(
     const event = entry.event;
     const type = event.type;
 
-    // DC-S5: every event validates (validateGameEvent) — FIRST, so the sequence-sanity block
-    // below may deref the validated event's fields unguarded (SF1: an action.choose without a
-    // selector is an event-invalid validation failure, never a TypeError crash).
+    // Every event validates FIRST, so the sequence-sanity block below may deref the validated event's
+    // fields unguarded: an action.choose without a selector is a validation failure, never a TypeError.
     const ev = validateGameEvent(event);
 
-    // ── DC-S5 sequence sanity (the stale-rule carve: the scripted beats hi.open /
-    // screen.stats / screen.look AND a brain-chosen recon `screen.*` dispatch are chrome —
-    // no preceding-view check; only action.choose and dayjob.start are checked against the
-    // preceding envelope's view). ──
+    // ── Sequence sanity: the scripted beats hi.open / screen.stats / screen.look AND a brain-chosen
+    // recon `screen.*` dispatch are chrome, with no preceding-view check. ──
     const sanityFailures: string[] = [];
 
-    // wizard.* events only appear inside the creation walk prefix. The prefix starts at the
-    // stream's join.open and ends at character.create (the confirm) or the first non-walk
-    // dispatch.
+    // wizard.* events only appear inside the creation walk prefix. The prefix starts at the stream's
+    // join.open and ends at character.create (the confirm) or the first non-walk dispatch.
     if (type === 'character.create') {
       walkActive = false;
     } else if (type.startsWith('wizard.')) {
@@ -428,9 +345,8 @@ async function replayLogPinned(
       walkActive = false;
     }
 
-    // The first dispatch must be the creation walk's join.open, hi.open (inherit/beats) or
-    // menu.open (mid-session) — counted in dispatches only, so a leading tick marker cannot
-    // swallow the check (SF2).
+    // The first dispatch must be the creation walk's join.open, hi.open (inherit/beats) or menu.open
+    // (mid-session) — counted in dispatches only, so a leading tick marker cannot swallow the check.
     if (dispatchCount === 0) {
       if (type !== 'join.open' && type !== 'hi.open' && type !== 'menu.open') {
         sanityFailures.push(`first dispatch is ${type} — must be join.open (creation walk), hi.open (inherit) or menu.open (mid-session)`);
@@ -438,8 +354,8 @@ async function replayLogPinned(
     }
     dispatchCount++;
 
-    // The two preceding-view legality rules (DC-S5) — shape-dependent, so they only run on a
-    // validated event (the shape guarantees selector/jobIndex exist).
+    // The two preceding-view legality rules — shape-dependent, so they only run on a validated event
+    // (the shape guarantees selector/jobIndex exist).
     if (ev.ok && type === 'action.choose') {
       const view = lastView;
       if (!view || view.screen !== 'decision') {
@@ -472,8 +388,8 @@ async function replayLogPinned(
       continue;
     }
 
-    // ── Dispatch + assert (DC-S2). Beats are collected only when the recording carries them
-    // (DC-S1's knob — a recording without beats never asserted them; advisory chrome). ──
+    // ── Dispatch + assert. Beats are collected only when the recording carries them: a recording
+    // without beats never asserted them, and beats are advisory chrome. ──
     const recordedBeats = entry.beats;
     const liveBeats: GameResponse[] = [];
     const response = await router.dispatch(
@@ -643,8 +559,8 @@ async function main(): Promise<void> {
   process.exitCode = result.ok ? 0 : 1;
 }
 
-// Run only when executed directly (npm run agent:replay) — importing the module in-process
-// (the replay tests, future corpus recorders) must not trigger the CLI.
+// Run only when executed directly (npm run agent:replay) — importing the module in-process (the replay
+// tests, future corpus recorders) must not trigger the CLI.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error(err);
