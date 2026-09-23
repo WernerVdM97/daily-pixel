@@ -5,33 +5,20 @@ import type { NodeType } from '../../db/repositories/relation.js';
 import type { RelationRow } from '../../db/repositories/types.js';
 import { itemStatModifier } from './dc.js';
 
-/** The four ability stats, in display order. Duplicated from `machine.ts` (module-private
- *  there) — see file-level rationale below. */
+/** The four ability stats, used to build the item-bonus hint. */
 const ALL_STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
 
 /**
- * Stage 2 T3 — a pipeline-local resolver extending the legacy `WorldContextResolver` (declared
- * in `machine.ts`, frozen per decision 1) with an optional scene-state read-back hook (D1
- * "graph → markdown at ~0 tokens" — this only opens the structured data channel; rendering is a
- * v12-template concern, out of scope). Lives here rather than in `machine.ts` for the same
- * duplication rationale as this file's header comment. Optional so every existing no-op default
- * resolver (that has no relations backing) stays a valid `PipelineContextResolver` unchanged.
+ * A pipeline-local `WorldContextResolver` plus an optional scene-state read-back hook — optional so
+ * every existing resolver with no relations backing stays a valid `PipelineContextResolver`.
  */
 export interface PipelineContextResolver extends WorldContextResolver {
   getSceneRelations?(node: { type: NodeType; ref: string }): RelationRow[];
-  /** Optional hook for the per-day combat floor (iteration 2). Returns the current in-game
-   *  day number, or 0 (default) when absent — iteration 1's tests use a high-HP character so
-   *  the floor is never triggered, and the wiring is just plumbing. */
+  /** Optional per-day combat floor hook: the in-game day number, or 0 (the default) when absent. */
   getCurrentDay?(): number;
 }
 
-/**
- * Pipeline's own context builder — a deliberate duplicate of `ActionStateMachine`'s private
- * `buildContext`, not an extraction of it. Stage 1's core constraint is zero risk to the live
- * v11 path, so `machine.ts` is never touched (not even to export a shared helper); this
- * duplication is the intentional trade-off. A later stage can de-duplicate once the pipeline
- * machine is proven (see stage-1-thread-d-backbone-plan.md, Task 2).
- */
+/** The pipeline's LLM context: the character sheet, nearby actors, geography, scene relations and the item-bonus hints. */
 export function buildPipelineContext(
   resolver: PipelineContextResolver,
   char: CharacterData,
@@ -42,7 +29,7 @@ export function buildPipelineContext(
   const hintParts: string[] = [];
 
   // Item bonuses per stat — the LLM authors per-option stats and needs to see which approaches
-  // the player's gear favours. Ability scores are already in the CHARACTER line.
+  // the player's gear favours. Ability scores are already in the `## You` block.
   const itemBonuses = ALL_STATS
     .map(s => ({ s, b: itemStatModifier(items, s) }))
     .filter(x => x.b !== 0)
@@ -55,7 +42,7 @@ export function buildPipelineContext(
   }
 
   // Known locations: retained for the digest + stripped retry. The PROMPT renders the local
-  // "here + exits" block (v10) from localGeography instead of this global list.
+  // "here + exits" block from localGeography instead of this global list.
   const knownLocations = resolver.getKnownLocations();
   const localGeography = resolver.getLocalGeography(char.location);
 
@@ -68,10 +55,8 @@ export function buildPipelineContext(
     charisma: itemStatModifier(items, 'charisma'),
   };
 
-  // Stage 2 T3 — D1's "graph → markdown at ~0 tokens" read-back: the persisted subgraph
-  // touching this PC, as structured data only (rendering is a v12-template concern, deferred).
-  // `getSceneRelations` is optional so every existing no-op resolver (nothing backing the
-  // relations table) stays valid without change.
+  // The persisted subgraph touching this PC, as structured data only — rendering is the template's
+  // concern.
   const sceneRelationRows = resolver.getSceneRelations?.({ type: 'pc', ref: String(char.id) }) ?? [];
   const sceneState: SceneStateEdge[] = sceneRelationRows.map((row) => ({
     from: { type: row.from_type as NodeType, ref: row.from_ref },
@@ -93,7 +78,7 @@ export function buildPipelineContext(
     },
     location: { name: char.location, isSafe: resolver.isLocationSafe(char.location), region: localGeography.region },
     // Project to the LLM-facing shape explicitly — `getNearbyNpcs` now also carries `health`
-    // (combat max-HP, C3), which the prompt never uses and must not leak into the context.
+    // (combat max-HP), which the prompt never uses and must not leak into the context.
     nearbyNpcs: resolver.getNearbyNpcs(char.location).map((n) => ({ id: n.id, name: n.name, description: n.description })),
     nearbyPcs: resolver.getNearbyPcs(char.location, char.id),
     recentActions: resolver.getRecentActions(char.id),

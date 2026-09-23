@@ -1,9 +1,8 @@
 import type { RelationRepository, RelationKey, NodeType } from '../../db/repositories/relation.js';
 import type { AuthoredRelation, RelationEndpoint } from './mutations.js';
 
-/** The shape `WorldContextResolver.getNearbyNpcs` returns — duplicated locally rather than
- *  imported from `machine.ts` (frozen, decision 1) so this pure helper has zero dependency on
- *  that file. */
+/** The shape `WorldContextResolver.getNearbyNpcs` returns — duplicated locally rather than imported
+ *  from `machine.ts`, so this pure helper has zero dependency on that file. */
 export interface NearbyNpc {
   id: number;
   name: string;
@@ -12,15 +11,8 @@ export interface NearbyNpc {
 }
 
 /**
- * Stage 2 T3 — the "T3 wiring layer" decision 4 defers endpoint resolution to. Maps a single
- * authored `RelationEndpoint` to a graph node `(type, ref)`. Pure: takes the data it needs as
- * params (the acting character, a nearby-npc list scoped by the caller) and does no DB I/O
- * itself — the caller (`PipelineSimEngine`) owns fetching `nearbyNpcs` from its resolver.
- *
- * `npc` name resolution is case-insensitive against `nearbyNpcs`; `location` is name-keyed with
- * no lookup (matches `location_edges`'s existing convention). An unresolvable endpoint returns
- * `null` and warns — mirrors `applyGeography`'s drop-with-warn (`WorldEngineImpl.ts`) — never a
- * throw.
+ * Maps one authored endpoint to a graph node, pure and DB-free: `npc` resolves case-insensitively by
+ * name, `location` is name-keyed. An unresolvable endpoint returns `null` and warns, never a throw.
  */
 export function resolveRelationEndpoint(
   endpoint: RelationEndpoint,
@@ -43,7 +35,6 @@ export function resolveRelationEndpoint(
     return { type: 'npc', ref: String(match.id) };
   }
 
-  // location — name-keyed, no lookup (decision 4).
   const name = endpoint.name.trim();
   if (name === '') {
     console.warn('[relation-wiring] dropping relation edge — empty location endpoint name');
@@ -53,11 +44,8 @@ export function resolveRelationEndpoint(
 }
 
 /**
- * Resolve a full authored relation (both endpoints) to a `RelationKey` the repository can
- * persist against, or `null` if either endpoint drops (see `resolveRelationEndpoint`).
- * Resolution order is npc-first then location per endpoint (risk table) — moot in practice
- * since `RelationEndpoint` already discriminates by `node`, but the switch order in
- * `resolveRelationEndpoint` above mirrors it for the settled-design contract.
+ * Resolve a full authored relation to a `RelationKey` the repository can persist against, or `null`
+ * if either endpoint drops.
  */
 export function resolveAuthoredRelation(
   relation: AuthoredRelation,
@@ -78,10 +66,8 @@ export function resolveAuthoredRelation(
 }
 
 /**
- * Resolve + persist authored relation mutations against a RelationRepository. Shared by the
- * prod engine (WorldEngineImpl.applyResolution) and the sim host (PipelineSimEngine). Endpoints
- * are resolved via resolveAuthoredRelation against `nearbyNpcs`; an unresolvable edge is
- * dropped-with-warn (never throws). `update_relation` on a missing edge warns and is skipped.
+ * Resolve and persist authored relations; shared by the prod engine and the sim host. Unresolvable
+ * edges drop with a warning (never a throw), and an `update_relation` on a missing edge warns and is skipped.
  */
 export function persistAuthoredRelations(
   repo: RelationRepository,
