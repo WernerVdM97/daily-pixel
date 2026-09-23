@@ -1009,8 +1009,6 @@ describe('Mutation v12 T2 (Stage 3) — per-relType prop schemas: in_combat / co
     expect(result.errors[0].message).toContain('enemyMaxHp');
   });
 
-  // #97: the fight's pinned `baseDc` is optional on the edge — an edge written before the prop
-  // existed must keep validating, and a malformed one is rejected like every other prop.
   it('accepts an in_combat edge carrying the optional pinned baseDc', () => {
     const result = validateMutations([inCombat({ ...combatProps, baseDc: 12 })], ctx());
     expect(result.valid).toBe(true);

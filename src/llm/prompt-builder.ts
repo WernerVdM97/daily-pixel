@@ -359,11 +359,6 @@ export function buildUserMessage(ctx: LlmContext): string {
     out.push(`- Result band: ${band}`);
     out.push(`- Player HP change: ${playerHpDelta}`);
     out.push(`- Enemy HP change: ${enemyHpDelta}`);
-    // #97: the fight's dc is fixed when the fight opens, so a continue round is told the number
-    // rather than invited to move it. Wording matters here: `decide/BASE.md` still requires an
-    // authored `baseDc` on every beat with a legal 10-24 range, so "do not change it" would
-    // contradict the output contract whenever the pin sits outside that band (or the engine
-    // defaulted it). Saying the authored value is ignored states what the engine does.
     out.push(`- Fight DC: ${dc} (the fight's own DC, fixed when it opened; any baseDc you author this round is ignored)`);
     out.push('Narrate this round faithfully to the numbers above — do not invent a different outcome.');
   }

@@ -1455,7 +1455,7 @@ describe('PipelineActionStateMachine — decide-scene-narration: combat continue
       band: 'glanced',
       playerHpDelta: 0,
       enemyHpDelta: -3,
-      dc: 10, // the fight's pinned dc (#97) — baseDc 10, so the continue beat is told the number
+      dc: 10, // the fight's pinned dc
       chosenOption: { label: 'Press the attack' },
     });
 
@@ -2656,13 +2656,6 @@ describe('PipelineActionStateMachine — C3: npc-anchored combat seeds real HP/n
   });
 });
 
-/**
- * Issue #97: the fight's dc is a property of the FOE, not of the round. The opening round authors
- * `baseDc`; the `in_combat` edge pins it; every CONTINUE round reads it back from there. Before
- * this, each CONTINUE round's fresh decide result supplied it instead, so a model that re-authored
- * `baseDc` mid-fight moved the foe's `enemyBonus` (the contested roll) and the card's `dangerTier`
- * under the player's feet for no in-world reason.
- */
 describe('PipelineActionStateMachine — #97: the fight dc is pinned per fight, not per round', () => {
   function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
     return {
@@ -2677,18 +2670,16 @@ describe('PipelineActionStateMachine — #97: the fight dc is pinned per fight, 
   }
 
   it('a fight whose decide beats author baseDc 12 then 20 keeps one dangerTier, one enemyBonus and one CombatBeatLog.dc', async () => {
-    // A real RelationRepository, persisted round by round — a static resolver can't round-trip
-    // `in_combat` between step() calls, so it would re-establish the fight (and re-author the dc)
-    // instead of continuing it.
+    // Persisted round by round on purpose: a static resolver cannot round-trip `in_combat`
+    // between step() calls, so the fight would re-establish and re-author the dc instead.
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     runMigrations(db);
     const relationRepo = new RelationRepository(db);
 
     const llm = new MockPipelineLlmGateway();
-    // Round 2's decide beat authors baseDc 20 — the exact mid-fight drift this card is about (the
-    // third entry is the follow-on continue beat, which authors 24). Omitted `combatEnemy` on a
-    // continuation round, per `decide/combat.md` Rule 4.
+    // Round 2's decide beat authors baseDc 20 (the third entry is the follow-on continue beat,
+    // which authors 24). `combatEnemy` is omitted on a continuation round, per `decide/combat.md`.
     llm.decideResultQueue = [
       combatEnemyDecideResult({ baseDc: 12 }),
       combatEnemyDecideResult({ baseDc: 20, combatEnemy: undefined }),
@@ -2770,20 +2761,15 @@ describe('PipelineActionStateMachine — #97: the fight dc is pinned per fight, 
   });
 
   it('an edge persisted before the prop existed takes the fallback for exactly ONE round, then pins it', async () => {
-    // The pre-deploy case: a fight in flight when #97 shipped has an `in_combat` edge with no
-    // `baseDc`, so `readCombatState` yields `undefined`. The fallback alone would NOT be a
-    // one-round transition — every round write spreads `cs`, whose `undefined` `baseDc` omits the
-    // prop (`combat-state.ts:118`), so the edge would never acquire a pin and every later round
-    // of that fight would silently re-read its own authored value. Folding the resolved value
-    // back into the state is what bounds the fallback to the one round it promises.
+    // A fight in flight when the prop landed: round 2, foe at 12/12, no `baseDc`. The fold in
+    // `handleCombatStep` is what keeps the fallback to one round rather than every round after.
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     runMigrations(db);
     const relationRepo = new RelationRepository(db);
 
     const char = testChar();
-    // A fight already running at round 2, foe at 12/12, and NO `baseDc` prop — the exact prop set
-    // `RelationRepository.set` wrote before this change.
+    // The exact prop set `RelationRepository.set` wrote before this change.
     relationRepo.set({
       fromType: 'pc', fromRef: String(char.id),
       toType: 'location', toRef: char.location,
@@ -2854,10 +2840,8 @@ describe('PipelineActionStateMachine — #97: the fight dc is pinned per fight, 
   });
 
   it('a fight that reaches RESOLVE on a later round hands it the pinned tier, not that round\'s re-authored baseDc', async () => {
-    // Coverage for the terminal handoff (the P3 fixture below only pins `foeDanger` off a
-    // single-round fight): the resume path carries `saved.dc` through the fatal-blow interstitial
-    // and into `resolveCombat`, so the tier the narration is given is the one the card showed all
-    // fight.
+    // The existing P3 fixture only pins `foeDanger` off a single-round fight; this covers the
+    // terminal handoff, where the resumed fight carries its pinned dc into `resolveCombat`.
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     runMigrations(db);

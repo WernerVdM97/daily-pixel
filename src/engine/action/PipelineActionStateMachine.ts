@@ -613,8 +613,6 @@ export class PipelineActionStateMachine {
           enemyMaxHp,
           round: 1,
           anchor,
-          // #97: the opening round authors the fight's `baseDc`, and the edge pins it from here
-          // on — see `fightDc` below.
           baseDc: state.lastDecideResult.baseDc,
           // Persist the mint intent on the edge, not only on the per-action marker above, so it
           // survives a bail — `combatRoundUpdate`'s spread then carries it through every
@@ -645,17 +643,8 @@ export class PipelineActionStateMachine {
       unresolvedNpcMint = { name: cs.mintName };
     }
 
-    // The fight's OWN dc (#97): authored by the opening round's decide beat and pinned on the
-    // `in_combat` edge from then on, so `enemyBonus`, the combat card's `dangerTier` and the
-    // `foeDanger` RESOLVE is handed all describe the same foe in every round of one fight. The
-    // decide model is free to re-author `baseDc` on a CONTINUE round (nothing clamps it), and
-    // reading it here lets the foe's to-hit bonus and its displayed tier drift mid-fight for no
-    // in-world reason. The `?? state.lastDecideResult.baseDc` fallback covers an edge persisted
-    // before this prop existed: that round keeps the old per-round read rather than falling to 0,
-    // and the fold below is what keeps it to ONE round — every write path spreads `cs`, whose
-    // `undefined` `baseDc` omits the prop (`combat-state.ts:118`), so without the fold the edge
-    // would never acquire the pin and every later round of that same fight would take the
-    // fallback again.
+    // Pinned on the first write for this fight, so a continue round's re-authored `baseDc` is
+    // ignored. The fold below is what bounds the pre-pin fallback to a single round.
     const fightDc = cs.baseDc ?? state.lastDecideResult.baseDc;
     if (cs.baseDc === undefined) cs = { ...cs, baseDc: fightDc };
 
@@ -839,8 +828,6 @@ export class PipelineActionStateMachine {
     // narration can acknowledge the approach the player took and stay faithful to the dice.
     // Deliberately `combatRoundSummary`, not `rollOutcome` — that field switches the phase to
     // RESOLVE_ROLL, which this call is not.
-    // #97: `dc` is the fight's pinned value, so the continue beat is TOLD the number rather than
-    // invited to re-author it (nothing the model returns can move it now).
     const updatedContext = {
       ...context,
       sceneState: updatedSceneState,

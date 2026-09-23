@@ -57,9 +57,7 @@ export interface LlmContext {
     band: 'clean' | 'glanced' | 'trade' | 'heavy';
     playerHpDelta: number;
     enemyHpDelta: number;
-    /** The fight's pinned dc (#97) — authored by the opening round and held on the `in_combat`
-     *  edge for the whole fight, so CONTINUE is TOLD the number instead of being invited to
-     *  re-author `baseDc` (which the engine now ignores on this path). */
+    /** The fight's pinned dc; CONTINUE is told it rather than allowed to move it. */
     dc: number;
     /** The option the player chose to trigger this round, so narration can acknowledge it. */
     chosenOption: { label: string; stat?: string };

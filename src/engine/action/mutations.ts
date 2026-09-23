@@ -287,9 +287,6 @@ function validateTypedRelationProps(
     if (mintName !== undefined && (typeof mintName !== 'string' || mintName.trim() === '')) {
       return `${opType} "in_combat" prop "mintName" must be a non-empty string when present`;
     }
-    // `baseDc` (the fight's pinned DC, #97) is optional on the same terms — an edge written before
-    // the prop existed must keep validating. Negative is rejected rather than clamped: it would
-    // only ever come from a malformed writer, and `enemyBonus` floors at 0 anyway.
     if (baseDc !== undefined && (typeof baseDc !== 'number' || !Number.isFinite(baseDc) || baseDc < 0)) {
       return `${opType} "in_combat" prop "baseDc" must be a finite non-negative number when present`;
     }

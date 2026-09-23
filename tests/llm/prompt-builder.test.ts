@@ -172,10 +172,7 @@ describe('buildUserMessage — v9 markdown briefing', () => {
     expect(msg).toContain('- Player HP change: 0');
     expect(msg).toContain('- Enemy HP change: -3');
     expect(msg).toContain('- Approach: Press the attack (physical)');
-    // #97: the fight's pinned dc, so CONTINUE is told the number rather than invited to re-author
-    // `baseDc` (which the engine ignores on this path either way). The parenthetical says the
-    // authored value is ignored rather than forbidden, so it does not contradict
-    // `decide/BASE.md`'s requirement that every beat still author a legal `baseDc`.
+    // "ignored", not "do not change it": every beat must still author a legal `baseDc`.
     expect(msg).toContain('- Fight DC: 12 (the fight\'s own DC, fixed when it opened; any baseDc you author this round is ignored)');
   });
 
