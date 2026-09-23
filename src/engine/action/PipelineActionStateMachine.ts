@@ -46,8 +46,7 @@ import {
 import { resolveRelationEndpoint, type NearbyNpc } from './relation-wiring.js';
 import { criticShouldFire, type CriticGateMode } from './critic-gate.js';
 
-/** ActionState plus the pipeline's internal fields, stored in the JSON column. Mirrors
- *  `InternalActionState` in machine.ts, except `actionType`/`flags` are pinned at classify. */
+/** ActionState plus the pipeline's internal fields, stored in the JSON column. */
 export interface PipelineInternalActionState extends ActionState {
   /** Pinned once at CLASSIFY (NEW_ACTION only); a CONTINUE beat has already been routed. */
   actionType: ActionType;
@@ -57,8 +56,8 @@ export interface PipelineInternalActionState extends ActionState {
   /** Free-text narrative/display label, decoupled from routing. */
   distilledType: string;
   rollStat: string;
-  /** The real `PipelineDecideResult` the last `decide()` returned, carried to the resolve handoff
-   *  unchanged: rebuilding it from pinned fields would lose the bail option and the dcModifier clamps. */
+  /** The raw `PipelineDecideResult` the last `decide()` returned, handed to the resolve handoff
+   *  unchanged: pinned fields have drifted (`accumulatedDc`) and been bail-padded and clamped. */
   lastDecideResult: PipelineDecideResult;
   /** Reactive action — bail not allowed. */
   required: boolean;
@@ -87,8 +86,8 @@ export interface PipelineInternalActionState extends ActionState {
   /** Epoch ms last persisted. Used by the 30-min timeout hook. Under the agent harness's advancing
    *  clock a pending action left overnight reads as a day stale and times out on the next step. */
   lastActionAt: number;
-  /** Every llm_calls id in this action. Nothing records one yet, so read sites tolerate it
-   *  being absent (`state.llmCallIds ?? []`). */
+  /** Every llm_calls id in this action. A call with no recorder wired contributes callId 0, the
+   *  sentinel the filters drop; a state persisted before the field existed reads absent (`?? []`). */
   llmCallIds?: number[];
 }
 
@@ -139,8 +138,8 @@ export class PipelineActionStateMachine {
       isLocationSafe: () => true,
       getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
     },
-    // Identity pass-through by default: nothing wires a mutation-aware closure in, so proposed
-    // mutations pass through as final.
+    // Identity pass-through by default: production and the sim both inject their own finalize, so
+    // proposed mutations only land as final when the caller omits the argument.
     private finalize: (
       proposed: WorldMutation[],
       ctx: MutationContext,
@@ -208,7 +207,7 @@ export class PipelineActionStateMachine {
     // player branching, so go straight to resolve rather than serving a bail-only screen.
     if (decideResult.decision.length === 0) {
       // Guard: combat must never auto-resolve on an empty decision[] — it must fight at least one
-      // contested round — so synthesise a single required option that routes step() to handleCombatStep.
+      // contested round, so synthesise one required option that routes step() to handleCombatStep.
       if (actionType === 'combat') {
         const allCallIds = [...gatewayCallIds, ...criticCallIds, ...validatorCallIds];
         const combatFirstDecision: ActionDecision = {
@@ -515,8 +514,8 @@ export class PipelineActionStateMachine {
           anchor = { node: 'location', name: char.location };
         }
 
-        // Max-HP priority: the resolved NPC's real health, else an `enemy.maxHp` hint (unpopulated
-        // in production), else derived from baseDc. A non-positive max falls through.
+        // Max-HP priority: the resolved NPC's real health if positive, else any non-null `enemy.maxHp`
+        // hint (unpopulated in production), else derived from baseDc; a 0 hint clamps to ENEMY_HP_MIN.
         const rawMaxHp = resolvedNpc?.health != null && resolvedNpc.health > 0
           ? resolvedNpc.health
           : enemy.maxHp != null
@@ -579,8 +578,8 @@ export class PipelineActionStateMachine {
     const hpZeroReached = playerHpDelta < 0 && (char.health + playerHpDelta) <= 0;
 
     // ── Termination ladder ──
-    // 1. WIN: offer the finish/spare interstitial rather than resolving straight through — no LLM
-    // call, no roll, no beat, and the computed result rides on `fatalBlow` for the resume.
+    // 1. WIN: offer the finish/spare interstitial, not a straight resolve; the result rides on
+    // `fatalBlow`. A beat here breaks the one-entry `combatRounds` invariant and `roundsFought`.
     if (newEnemyHp <= 0) {
       // Display-only nominal HP: the foe is still alive until the player answers, so banding on the
       // real 0 would read 'Slain' beside the prompt asking whether to kill it. Nothing else changes.
@@ -937,8 +936,8 @@ export class PipelineActionStateMachine {
       knownLocations: this.resolver.getKnownLocations(),
     };
     const { mutations: finalisedMutations } = this.finalize(mutationsWithCombat, mutationCtx);
-    // Strip after finalize but before the RESOLVE-NARRATE handoff below: the narration must never
-    // describe an inspiration the player did not receive. Post-collapse is deliberate, see the helper.
+    // Before the RESOLVE-NARRATE handoff below: the narration must never describe an inspiration
+    // the player did not receive.
     const finalMutations = stripWorkInspiration(finalisedMutations, state.kind);
 
     // RESOLVE-NARRATE.
@@ -967,7 +966,7 @@ export class PipelineActionStateMachine {
     }
 
     // Built after `mutations` is fully assembled, so the beat's `ops` matches what the outcome reports.
-    // Clamp to the delta that actually applied: a nominal -5 from 3 HP lands as -3, not the band nominal.
+    // Clamp to the delta that applied: a nominal -5 from 3 HP lands as -3, not the band nominal.
     const appliedPlayerHpDelta = Math.max(playerHpDelta, -char.health);
     const combatBeat = this.buildCombatBeat(
       cs,
@@ -1081,8 +1080,7 @@ export class PipelineActionStateMachine {
       knownLocations: this.resolver.getKnownLocations(),
     };
     const { mutations: finalisedMutations } = this.finalize(gatedMutations, mutationCtx);
-    // Stripped after finalize but before the RESOLVE-NARRATE handoff, so the strip reads one net,
-    // type-coerced amount per axis. See `stripWorkInspiration`.
+    // Same ordering as in `resolveCombat`: stripped after finalize, before the RESOLVE-NARRATE handoff.
     const finalMutations = stripWorkInspiration(finalisedMutations, state.kind);
 
     const { result: narrateResult, callId: resolveNarrateCallId } = await this.llm.resolveNarrate({
@@ -1290,7 +1288,7 @@ export class PipelineActionStateMachine {
 
   /**
    * The beat-1 system-fault path, typed rather than a `distilledType` sentinel:
-   * `isDivineIntervention` on the outcome is the only signal, and the rejection never escapes `start()`.
+   * `isDivineIntervention` on the outcome is the only signal; the rejection never escapes `start()`.
    */
   private resolveDivineIntervention(
     rawInput: string,
@@ -1332,15 +1330,13 @@ export class PipelineActionStateMachine {
 
 // ── Module-level helpers ──
 
-/** Drops the `modify_rolls_remaining` grant on `kind: 'work'`: the day job pays coin, not cadence,
- *  and routing can't gate it (it never sees `kind`). Expects the POST-collapse set. */
+/** Drops the `modify_rolls_remaining` grant on `kind: 'work'`: the day job pays coin, not cadence, and
+ *  routing never sees `kind`. Expects the POST-collapse set (deltas netted, amounts coerced). */
 function stripWorkInspiration(mutations: WorldMutation[], kind: ActionKind | undefined): WorldMutation[] {
   if (kind !== 'work') return mutations;
   return mutations.filter(m => !(m.type === 'modify_rolls_remaining' && Number(m.amount ?? 0) > 0));
 }
 
-/** Local reimplementation of legacy's private `ensureBail`: generic shape logic, duplicated
- *  rather than imported to keep this file self-contained. */
 function ensureBail(options: ActionOption[], required: boolean): ActionOption[] {
   if (required) return options;
   if (options.some(o => o.dcModifier === null)) return options;
@@ -1374,7 +1370,7 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
 }
 
 /** Enemy HP fraction -> a 5-pip fill count + wound word. Banded only, never the exact HP, so the
- *  hidden number keeps tension. Returns the fill count, not glyphs: the presentation layer draws them. */
+ *  hidden number keeps tension. Returns the fill count, not glyphs; presentation draws them. */
 export function enemyConditionBand(hpFraction: number): { filled: number; woundWord: string } {
   // `NaN <= 0` is false, so unguarded NaN would fall through every tier and return `filled: NaN`,
   // a broken pip bar. Non-finite means unknown, not dead, so the wound word stays 'Critical'.
