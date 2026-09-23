@@ -1,31 +1,15 @@
 /**
- * The agent-player brain seam (JSON-seam M4.1, see docs/engine/json-seam-build-plans.md, DA-6).
- *
- * `AgentPlayerGateway` is the agent-player's peer to the pipeline's `PipelineLlmGateway`: a single
- * `chooseMove` method the harness calls once per turn. It has a real implementation
- * (`ProdAgentPlayerGateway`, a real LLM call) and a deterministic stub
- * (`ScriptedAgentPlayerGateway`) — exactly the split `ProdPipelineLlmGateway` /
- * `PipelineScriptedGateway` established, so the real brain is opt-in on a harness run and CI never
- * touches the network.
- *
- * This module imports NOTHING from `discord.js` or the engine's runtime — only the small value
- * types below — so the seam stays transport-neutral (parent decision 3).
+ * The agent-player brain seam, peer to `PipelineLlmGateway`: one `chooseMove` per turn, real LLM or
+ * stub. Imports nothing from `discord.js` or the engine runtime.
  */
 
-/** The recon screens a brain can consult for free (spec § C). Order is the offer order. */
+/** The recon screens a brain can consult for free. Order is the offer order. */
 export const RECON_SCREENS = ['look', 'map', 'stats', 'backpack', 'journal', 'help'] as const;
 export type ReconScreen = (typeof RECON_SCREENS)[number];
 
 /**
- * A move the brain can commit to. The discriminated union feeds a controller/engine call directly
- * (DA-6): the harness maps each kind to the right seam call.
- *
- * - `menu-pick` / `choice` carry the VIEW's positional button index (from `viewMoves`), not the
- *   list position in `ChooseMoveInput.moves` — so the harness acts on the real button.
- * - `custom` is a free-text action (no screen enumerates it — the harness offers it as a slot).
- * - `bail` abandons the current decision; `sleep` ends the day.
- * - `recon` consults a read-only screen (spec § C): free, deterministic, no roll and no day
- *   advance, but still a TURN — the rendered screen comes back as the next turn's `lastRecon`.
+ * A move the brain can commit to. `menu-pick`/`choice` carry the VIEW's positional button index,
+ * not the list position; `recon` is free but still costs a TURN; `custom` is free text.
  */
 export type AgentMove =
   | { kind: 'menu-pick'; index: number }
@@ -35,7 +19,7 @@ export type AgentMove =
   | { kind: 'sleep' }
   | { kind: 'recon'; screen: ReconScreen };
 
-/** How often a player would meet a friction over a campaign (spec § E). */
+/** How often a player would meet a friction over a campaign. */
 export type Recurrence = 'once' | 'periodic' | 'ritual';
 
 /** A friction the brain hit this turn. */
@@ -45,15 +29,12 @@ export interface FrictionReport {
   recurrence: Recurrence;
 }
 
-/** The end-of-day note (spec § E). It may ride ANY turn: the LAST one captured in a day is the one
- *  that counts, and the harness writes it when the day closes, whatever its disposition. A
- *  `sleep`-only rule loses it on the commonest day end — `menu.open` returns `no-rolls` at zero
- *  rolls, so a day that spends its rolls is never offered a turn it could rate. */
+/** The end-of-day note: the two ratings, a one-line summary and the updated arc note. */
 export interface DayNote {
   engagement: 1 | 2 | 3 | 4 | 5;
   fulfilment: 1 | 2 | 3 | 4 | 5;
   line: string; // one line on the day
-  arcNote: string; // the updated arc note (spec § B/§ E)
+  arcNote: string; // the updated arc note
 }
 
 /** One turn of brain output. Replaces the old bare `AgentMove` return. */
@@ -65,16 +46,14 @@ export interface BrainTurn {
   arcNote?: string;
   friction?: FrictionReport;
   /** The day's rating. May ride ANY turn; the harness keeps the LAST one seen in the day and
-   *  writes the `day-note` event when the day closes (see {@link ChooseMoveInput.lastRoll}). */
+   *  writes the `day-note` event when the day closes. */
   dayNote?: DayNote;
   /** Reasons a malformed note field was dropped. The harness logs each as a warning finding. */
   droppedNotes?: string[];
 }
 
-/** A legal move for the current turn, paired with the label the brain reads. The harness builds
- *  this list from `viewMoves(view)` (choice/bail/menu buttons) plus the contextual moves a screen
- *  never enumerates (`custom`, `sleep`, `recon`). A `custom` entry is a SLOT: its `move.text` is a
- *  placeholder the brain fills in by returning free text. */
+/** A legal move for the current turn, paired with the label the brain reads: the view's buttons plus
+ *  the contextual moves no screen enumerates. A `custom` entry's `move.text` is a fillable SLOT. */
 export interface LegalMove {
   move: AgentMove;
   label: string;
@@ -94,10 +73,8 @@ export interface AgentCharView {
   location: string;
 }
 
-/** One turn of input to the brain: the rendered screen (from `viewToText`), the legal moves, the
- *  character state, and the working memory a player carries (spec § B). Every working-memory field
- *  is optional and omitted at the source, so a first turn — and every turn of a pre-rework call
- *  site — carries exactly the three keys the seam carried before. */
+/** One turn of input to the brain: the rendered screen, the legal moves, the character state and the
+ *  working-memory fields below, each optional and omitted at its source. */
 export interface ChooseMoveInput {
   screenText: string;
   moves: LegalMove[];
@@ -114,20 +91,13 @@ export interface ChooseMoveInput {
   /** The recon screen rendered on the PREVIOUS turn because the brain asked for it. Delivered
    *  for exactly one turn, then cleared (it stays readable in the day log / on re-request). */
   lastRecon?: { screen: ReconScreen; text: string };
-  /** True when the character has exactly ONE roll left, so this turn's action is the day's last.
-   *  The day note rides this turn because the brain is otherwise never asked again:
-   *  `SessionController.openActionMenu` returns `no-rolls` at zero rolls, so a day that spends its
-   *  rolls is never offered a turn it could rate. Spread in only when true, so a turn that is not
-   *  the day's last renders exactly the message it rendered before this field existed. */
+  /** True when the character has exactly ONE roll left, so this turn's action is the day's last and
+   *  the day note rides it. Spread in only when true, so any other turn renders exactly as before. */
   lastRoll?: boolean;
 }
 
 export interface AgentPlayerGateway {
-  /** Pick one of `input.moves` for the current screen, plus the notes that ride with the pick.
-   *  Returns a {@link BrainTurn} (a `custom` slot is returned with the brain's free text filled
-   *  in). Implementations THROW on an unresolvable MOVE (unparseable response, out-of-range
-   *  choice, empty custom text) — the harness owns re-prompt-vs-log (M4.4), not the gateway. A
-   *  malformed NOTE never throws: it is dropped and reported on `BrainTurn.droppedNotes`, so a lost
-   *  data point stays visible without killing a run that has already spent tokens. */
+  /** Pick one of `input.moves` for the current screen, returning the notes that ride with the pick.
+   *  THROWS on an unresolvable MOVE; a malformed NOTE is dropped onto `droppedNotes` instead. */
   chooseMove(input: ChooseMoveInput): Promise<BrainTurn>;
 }

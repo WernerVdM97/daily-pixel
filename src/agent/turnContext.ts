@@ -1,10 +1,6 @@
 /**
- * The brain's working memory, as text (spec § B, `docs/engine/agent-player-personas.md`).
- *
- * The harness owns the cells (today's lines, yesterday's lines, the disposition it ended on);
- * this module owns the shaping — pure functions over plain data, so the recap block, the day log
- * and the outcome digest can be unit-tested without a run. Deliberately no harness state and no
- * clock: the same inputs always render the same bytes.
+ * The brain's working memory, as text (`docs/engine/agent-player-personas.md`). The harness owns the
+ * cells; this module owns the shaping — pure functions, no harness state and no clock.
  */
 
 /** One line of the day log: what was attempted, what came back, and whether it was refused. */
@@ -28,15 +24,12 @@ const DAY_LOG_RECENT_WINDOW = 4;
 /** Default cap on a single outcome digest — enough to identify the action, not a data dump. */
 const OUTCOME_MAX_LEN = 100;
 
-/** A render's opening chrome: a markdown code fence (bare or language-tagged) or heading marks
- *  with no text. `/look` opens with a bare ``` fence and `menuToText` opens with a title, so a
- *  first line matching either says nothing about what happened. */
+/** A render's opening chrome: a markdown code fence (bare or language-tagged) or heading marks with no
+ *  text. A first line matching either says nothing about what happened. */
 const OPENING_CHROME = [/^`{3,}[\sA-Za-z]*$/, /^#{1,6}\s*$/];
 
-/** The first line of an outcome that actually says something, whitespace-collapsed, truncated with
- *  a trailing `…` when it is longer than `maxLen`. Empty text has no such line and summarises to
- *  ''. Opening chrome is skipped rather than summarised: `/look`'s first line is a fence, and a
- *  day-log line of `recon: /look → ``` ` tells the brain nothing. */
+/** The first line of an outcome that actually says something, whitespace-collapsed and truncated with
+ *  a trailing `…` past `maxLen`; empty text summarises to ''. Opening chrome is skipped, not summarised. */
 export function summarizeOutcome(text: string, maxLen = OUTCOME_MAX_LEN): string {
   const first = text.split('\n').find((line) => isContent(line));
   if (first === undefined) return '';
@@ -52,9 +45,8 @@ function isContent(line: string): boolean {
   return !OPENING_CHROME.some((chrome) => chrome.test(trimmed));
 }
 
-/** Today's attempts as a numbered block — the context that stops the brain repeating a rejected
- *  option (the baseline's five-identical-picks stall). '' when nothing has been attempted yet, so
- *  the caller can omit the whole section. */
+/** Today's attempts as a numbered block — the context that stops the brain repeating a rejected option.
+ *  '' when nothing has been attempted yet, so the caller can omit the section. */
 export function buildDayLog(entries: DayLogEntry[]): string {
   if (entries.length === 0) return '';
   const kept = keptIndices(entries);
@@ -69,11 +61,8 @@ export function buildDayLog(entries: DayLogEntry[]): string {
   return lines.join('\n');
 }
 
-/** The attempts that survive the line cap, as indices into `entries`. In order: EVERY refusal
- *  (they are the whole point — a refused option is what the brain must not pick again), then the
- *  most recent `DAY_LOG_RECENT_WINDOW` attempts whatever their kind, then the most recent remaining
- *  non-refusals until the kept set reaches `DAY_LOG_MAX_LINES`. Original order is preserved by the
- *  caller, and only entries older than the kept window can be omitted. */
+/** The attempts that survive the line cap, as indices into `entries`: EVERY refusal, then the most
+ *  recent `DAY_LOG_RECENT_WINDOW`, then non-refusals up to `DAY_LOG_MAX_LINES`. */
 function keptIndices(entries: DayLogEntry[]): Set<number> {
   const keep = new Set<number>();
   entries.forEach((entry, i) => {
@@ -87,29 +76,21 @@ function keptIndices(entries: DayLogEntry[]): Set<number> {
 }
 
 /** The day-start block: yesterday's outcome lines in order, then the disposition the day ended on.
- *  Never mentions the arc note or the intent — those ride every turn instead (spec § B), so a
- *  recap cannot go stale against them.
- *
- *  `lastPlayedDay` is the day the player actually last played, which is NOT always the day before
- *  this one: the interrupted panel (spec § G) advances the world with no play, so a run resuming on
- *  day 7 after playing day 1 has five days of world it never saw. The recap has to say so — the
- *  absence is only perceptible to the brain if the day-start block names it, and re-entry cost is
- *  exactly what that panel measures. Byte-identical for a normal consecutive day (the
- *  `dayNumber - 1` boundary, and the absent case, both keep `YESTERDAY` and add nothing). */
+ *  Deliberately silent on the intent and arc note — those ride every turn, so it cannot go stale. */
 export function buildRecap(input: {
   dayNumber: number; // the day now starting
   yesterdayOutcomes: string[]; // first lines, in order
   yesterdayEnded?: string; // 'slept' | 'no-rolls' | 'stalled' | 'crashed'
   lastPlayedDay?: number; // the last day actually played; absent = the caller does not know
 }): string {
-  // The days the world moved with nobody playing. Absent (or the day before this one) is zero.
+  // `lastPlayedDay` is not always the day before this one: a panel-interrupted run resumes after days
+  // of world it never saw. Absent (or the day before) means no days passed without a player.
   const lastPlayedDay = input.lastPlayedDay ?? input.dayNumber - 1;
   const missed = input.dayNumber - lastPlayedDay - 1;
   const lines = [
     missed > 0 ? `LAST PLAYED (day ${lastPlayedDay}):` : `YESTERDAY (day ${lastPlayedDay}):`,
   ];
-  // The pitch's own framing ("the world moves on without you"): the gap is named, not apologised
-  // for, and it is one line — the recap is a day-start block, not a chapter.
+  // The gap is named, not apologised for, and it is one line — the recap is a day-start block.
   if (missed > 0) lines.push(`${missed} ${missed === 1 ? 'day' : 'days'} passed without you.`);
   input.yesterdayOutcomes.forEach((outcome, i) => {
     lines.push(`${i + 1}. ${outcome}`);

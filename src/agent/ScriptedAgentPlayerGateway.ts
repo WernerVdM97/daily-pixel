@@ -1,24 +1,14 @@
 import type { AgentMove, AgentPlayerGateway, BrainTurn, ChooseMoveInput } from './AgentPlayerGateway.js';
 
 /**
- * Deterministic, network-free `AgentPlayerGateway` for tests + CI (JSON-seam M4.1) — the
- * agent-player's counterpart to `PipelineScriptedGateway`. It plays back a scripted move
- * sequence in order, so a harness test drives a fully-determined playthrough with no LLM call.
- *
- * The script is either a list of bare moves (each wrapped into a single-move {@link BrainTurn},
- * so every pre-recon scenario reads as it always did) or a list of whole turns when the scenario
- * exercises the brain's own notes (intent, arc note, day note, dropped notes).
- *
- * Like `PipelineScriptedGateway`, it does NOT reinterpret or soften the script: running past the
- * end of the sequence throws loudly rather than looping or idling, so a scenario that under-runs
- * fails the test visibly instead of hanging the harness on a silently-repeated move.
+ * Deterministic, network-free `AgentPlayerGateway` for tests + CI, the agent-player's counterpart to
+ * `PipelineScriptedGateway`: a scripted sequence of bare moves or whole turns, replayed in order.
  */
 export class ScriptedAgentPlayerGateway implements AgentPlayerGateway {
   private cursor = 0;
 
-  /** Every input the harness handed the brain, in call order — for test assertions on what the
-   *  agent actually saw (screen text, legal moves, character state, and the working-memory block
-   *  the turn carried). */
+  /** Every input the harness handed the brain, in call order — for test assertions on what the agent
+   *  actually saw. */
   readonly calls: ChooseMoveInput[] = [];
 
   private readonly turns: BrainTurn[];

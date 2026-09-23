@@ -7,15 +7,8 @@ import type {
 } from './PlaytestCriticGateway.js';
 
 /**
- * Deterministic, network-free `PlaytestCriticGateway` for tests + CI (JSON-seam M4.5) — the
- * critic's counterpart to `ScriptedAgentPlayerGateway`. Returns a fixed `PlaytestReport` and
- * records every input it was handed, so a test can drive the full feedback plumbing (render →
- * critique → report) and assert on what the critic actually read, with no LLM call.
- *
- * It is also the persona review's stub (T5): `review()` returns a constructed `PersonaReview` and
- * records its input the same way. Without a review of its constructor's own, the gateway answers in
- * a canned single-day voice — the honest shape for a scripted run, with the two criteria a session
- * cannot reach marked `unobserved` rather than scored low (spec § Risks).
+ * Deterministic, network-free `PlaytestCriticGateway` for tests + CI, the critic's counterpart to
+ * `ScriptedAgentPlayerGateway`: a fixed report, and every input recorded for a test to assert on.
  */
 export class ScriptedPlaytestCriticGateway implements PlaytestCriticGateway {
   /** Every input the critic was handed, in call order — for assertions on what it read. */
@@ -43,11 +36,8 @@ export class ScriptedPlaytestCriticGateway implements PlaytestCriticGateway {
 }
 
 /**
- * The canned review a scripted run gets. A scripted harness run plays no dice and no content, so the
- * two criteria it cannot have exercised — `aliveness` (the world moving without you is a week-3
- * event by design) and `memory` (nothing has had time to be remembered) — are `unobserved`, and the
- * rest sit at the middle of the scale. Anything cleverer here would be the test fixture inventing
- * the measurement it is meant to carry through the plumbing.
+ * The canned review a scripted run gets: the criteria a scripted session cannot have exercised are
+ * `unobserved` rather than scored low, and a cleverer fixture would invent the measurement.
  */
 export function scriptedPersonaReview(persona: string): PersonaReview {
   return {

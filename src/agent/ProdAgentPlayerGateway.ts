@@ -1,17 +1,6 @@
 /**
- * Production, OpenRouter-backed `AgentPlayerGateway` (JSON-seam M4.1). The agent-player's brain: it
- * renders the current turn into a user message, asks the model to pick a move, and maps the reply
- * back to one of the legal `AgentMove`s, wrapped in the `BrainTurn` the harness reads. Both halves
- * of the reply are resolved here: the MOVE (`resolveMove`, fail-loud) and the NOTES (`resolveNotes`,
- * fail-soft — spec § E).
- *
- * Mirrors `ProdPipelineLlmGateway` deliberately: reuses `callChatCompletion` verbatim (JSON mode,
- * single attempt, no retry/fallback at this layer), throws loudly on transport/parse/validation
- * failure so the harness sees the failure, and records ONE `llm_calls` audit row in `finally`
- * regardless of outcome. A recorder error is logged, never rethrown.
- *
- * This is the ONLY agent module that reaches into `src/llm/` — the seam types stay clean; only the
- * concrete brain depends on the transport.
+ * Production, OpenRouter-backed `AgentPlayerGateway`: renders the turn into a user message, asks the model
+ * for a move and maps the reply back — the MOVE half fails loud (`resolveMove`), the NOTES half fails soft.
  */
 
 import { callChatCompletion, type ChatResponse } from '../llm/chat-transport.js';
@@ -40,17 +29,15 @@ export interface ProdAgentPlayerGatewayConfig {
   recorder?: LlmCallRecorder;
   /** Injectable system prompt for tests. Defaults to the versioned file on disk. */
   systemPrompt?: string;
-  /** The persona this brain plays as (spec § A/§ Versioning and wiring). Joins the system prompt
-   *  after `brain.md` and `handbook.md`, and is stamped into every `llm_calls` row. Unset = the
-   *  pre-persona brain (`agent-v2`), which is the baseline arm. */
+  /** The persona this brain plays as. Joins the system prompt after `brain.md` and `handbook.md`, and
+   *  is stamped into every `llm_calls` row. Unset = the pre-persona brain, which is the baseline arm. */
   persona?: string;
   /** If true, console-log a one-line summary per call (model, latency, tokens, snippet). */
   verbose?: boolean;
 }
 
-/** The shape the brain must return (see `brain.md`). `choice` indexes into the turn's MOVES
- *  list; `text` is present only for a free-text move. The four note fields are optional and typed
- *  `unknown` on purpose: they arrive from a model, so they are validated rather than trusted. */
+/** The shape the brain must return (see `brain.md`). `choice` indexes into the turn's MOVES list;
+ *  `text` is present only for a free-text move. The note fields are `unknown` on purpose: validated, not trusted. */
 interface RawBrainReply {
   thought?: unknown;
   choice?: unknown;
@@ -68,29 +55,22 @@ interface ResolvedNotes {
   friction?: FrictionReport;
   dayNote?: DayNote;
   /** One reason per dropped field, in reply-field order. Also the audit row's `validationWarnings`,
-   *  so a lost data point leaves a trace even when the run carries on. Truncation is NOT a drop and
-   *  is not reported here: see `checkLine`. */
+   *  so a lost data point leaves a trace even when the run carries on. Truncation is not a drop. */
   droppedNotes: string[];
 }
 
 const CALL_KIND = 'agent-player';
 
-/** Cap on every free-text value that is re-sent to the model every turn (`intent`, `arcNote`,
- *  `friction.what`, the day note's persisted `arcNote`, a custom action's text). All of them are
- *  re-rendered into a later prompt, so an unbounded reply could grow the prompt every turn. 200 is
- *  comfortably more than the one short line the prompt asks for. */
+/** Cap on every free-text value re-rendered into a later prompt (`intent`, `arcNote`, `friction.what`,
+ *  the day note's persisted `arcNote`, a custom action's text). 200 is well above the one line asked for. */
 const TEXT_MAX_LEN = 200;
 
-/** A wider cap for the day note's `line` alone. It is rendered ONCE, into the day-note event and
- *  then the panel's series, and never re-sent as context — unlike the fields `TEXT_MAX_LEN` guards.
- *  The prompt asks for "one line on the day" and models write a sentence (a live run's line ran to
- *  151 characters against the old 200 ceiling), so the backstop against runaway growth sits at 400.
- *  The day note's `arcNote` stays at `TEXT_MAX_LEN`: it becomes the persisted `arcNote`, which IS
- *  re-rendered every following turn. */
+/** A wider cap for the day note's `line` alone: it is rendered ONCE, into the day-note event and then
+ *  the panel's series, and is never re-sent as context. Models write a sentence, so the backstop is 400. */
 const DAY_NOTE_LINE_MAX_LEN = 400;
 
-/** The recurrence vocabulary (spec § E, contract §1.2) as a runtime list, so the parser checks the
- *  same three tags the type names. Order is the prompt's order. */
+/** The recurrence vocabulary as a runtime list, so the parser checks the same three tags the type
+ *  names. Order is the prompt's order (`brain.md`). */
 const RECURRENCE_TAGS: readonly Recurrence[] = ['once', 'periodic', 'ritual'];
 
 export class ProdAgentPlayerGateway implements AgentPlayerGateway {
@@ -111,10 +91,10 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
     this.persona = config.persona;
-    // The v2 set fires as a unit: the move-picker's instruction, the first-time-player handbook
-    // every brain carries, and (when a persona is set) its fragment. Unset adds nothing at all, so
-    // the persona-less prompt stays exactly what T2 shipped. `loadPersonaFragment` also validates
-    // the name, so a bad one fails here rather than as a stamped row nobody can attribute.
+    // The move-picker's instruction, the handbook every brain carries, and (when a persona is set) its
+    // fragment fire as a unit; unset adds nothing, so the persona-less prompt is unchanged.
+
+    // `loadPersonaFragment` validates the name, so a bad one fails here, not as a row nobody can attribute.
     this.systemPrompt =
       config.systemPrompt ?? [loadBrainPrompt(), loadHandbookPrompt(), ...personaFragments(config.persona)].join('\n\n');
     this.verbose = config.verbose ?? false;
@@ -162,17 +142,16 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
       let raw: RawBrainReply;
       try {
         const parsed: unknown = JSON.parse(content);
-        // A body that parses but is not an object (`null`, a bare number, an array) is not a reply
-        // at all: the note half must not be asked to read fields off it, and the move half's own
-        // failure is the accurate diagnosis (`choice undefined is not a legal move index`).
+        // A body that parses but is not an object (`null`, a bare number, an array) is not a reply at
+        // all; the move half's own failure is the accurate diagnosis.
         raw = isPlainObject(parsed) ? (parsed as RawBrainReply) : {};
       } catch {
         throw new Error(`ProdAgentPlayerGateway: failed to parse OpenRouter response: ${content.slice(0, 200)}`);
       }
       parseOk = true;
 
-      // Notes first: a turn whose MOVE then throws still reports the notes it dropped in the
-      // audit row, which is the only trace of that reply (the turn itself is discarded).
+      // Notes first: a turn whose MOVE then throws still reports the notes it dropped in the audit
+      // row, which is the only trace of that reply (the turn itself is discarded).
       notes = resolveNotes(raw);
 
       move = resolveMove(raw, input);
@@ -227,15 +206,14 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     }
 
     if (move === undefined) {
-      // Unreachable: the try block leaves only via a return-assigned `move` or a throw that
-      // propagates past this point. Guard is compile-time defence against a future early return.
+      // Unreachable: the try above either throws past here or falls through with `move` set. The guard
+      // is compile-time defence against a future early return.
       throw new Error('unreachable: move was never set');
     }
     return {
       move,
-      // Each note is spread in only when it survived: an omitted or dropped field stays ABSENT
-      // (never an explicit `undefined`), so a turn with no notes serialises as the bare `{ move }`
-      // every pre-persona call site and test expects.
+      // Each note is spread in only when it survived: an omitted or dropped field stays ABSENT (never
+      // an explicit `undefined`), so a note-less turn serialises as the bare `{ move }` callers expect.
       ...(notes.intent !== undefined ? { intent: notes.intent } : {}),
       ...(notes.arcNote !== undefined ? { arcNote: notes.arcNote } : {}),
       ...(notes.friction !== undefined ? { friction: notes.friction } : {}),
@@ -246,14 +224,13 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
 }
 
 /** The persona fragment as a zero-or-one-element list, so the system prompt is assembled from one
- *  spread instead of a branch. No persona = no extra text, which is the baseline arm's prompt. */
+ *  spread instead of a branch. No persona = no extra text. */
 function personaFragments(persona?: string): string[] {
   return persona ? [loadPersonaFragment(persona)] : [];
 }
 
 /** Map the brain's `{ choice, text }` reply to a concrete legal `AgentMove`. Throws loudly on an
- *  out-of-range choice or a free-text move with no text — the same "fail visibly" contract as the
- *  pipeline gateway's parse step. */
+ *  out-of-range choice or a free-text move with no text, the same "fail visibly" contract as the pipeline gateway's parse step. */
 function resolveMove(raw: RawBrainReply, input: ChooseMoveInput): AgentMove {
   const choice = Number(raw.choice);
   if (!Number.isInteger(choice) || choice < 0 || choice >= input.moves.length) {
@@ -273,14 +250,8 @@ function resolveMove(raw: RawBrainReply, input: ChooseMoveInput): AgentMove {
   return picked;
 }
 
-/**
- * Resolve the reply's NOTE half (spec § E, contract §1.2). The degrade rule is the whole point: a
- * malformed MOVE throws (see `resolveMove`), a malformed NOTE never does — that one field is
- * dropped, a one-line reason naming it is pushed onto `droppedNotes`, and the turn comes back with
- * its move intact. A live run has already spent tokens by the time this runs, so a lost data point
- * must be visible in the transcript without killing the run. An ABSENT field is not a drop: omitted
- * means "unchanged" (intent/arc note) or "nothing to report" (friction/day note).
- */
+/** Resolve the reply's NOTE half: THE degrade rule — a malformed MOVE throws, a malformed NOTE never does.
+ *  The field is dropped and a one-line reason lands on `droppedNotes`; an ABSENT field is not a drop. */
 function resolveNotes(raw: RawBrainReply): ResolvedNotes {
   const droppedNotes: string[] = [];
   /** Collect one field: absent (undefined check) means unchanged, a failed check pushes its one
@@ -302,18 +273,12 @@ function resolveNotes(raw: RawBrainReply): ResolvedNotes {
   };
 }
 
-/** A validated field: either the value, or the single one-line reason it was rejected. `undefined`
- *  (returned by the checkers instead of a `Checked`) means the field was absent, not malformed. */
+/** A validated field: the value, or the single one-line reason it was rejected. `undefined`
+ *  (returned instead of a `Checked`) means the field was absent, not malformed. */
 type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
 
-/** A one-line note (`intent`, `arcNote`, `friction.what`, a day note's strings): a present,
- *  non-empty string, whitespace-collapsed and length-capped. Collapsing is not cosmetic — these
- *  lines are re-rendered into the next turn's prompt, so un-collapsed multi-line text lets a reply
- *  inject its own section headers and grow the prompt every turn. The cap is the second half of that
- *  protection, aimed at runaway growth rather than at prose: like trimming, it is NORMALISATION, so
- *  a cut value is still the brain's note and is reported as nothing. `maxLen` is a parameter only so
- *  the day note's `line` can take `DAY_NOTE_LINE_MAX_LEN`; the value still has to pass the same
- *  checks, so a malformed line still drops and is still named. */
+/** A one-line note (`intent`, `arcNote`, `friction.what`, a day note's strings): a present, non-empty string,
+ *  whitespace-collapsed and capped. Collapsing is not cosmetic — the line is re-rendered into the next prompt. */
 function checkLine(value: unknown, field: string, maxLen: number = TEXT_MAX_LEN): Checked<string> | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') return { ok: false, reason: `${field}: expected a string, got ${preview(value)}` };
@@ -335,17 +300,14 @@ function collapseText(value: unknown): string {
   return typeof value === 'string' ? collapse(value) : '';
 }
 
-/** Inside `friction`/`dayNote` a MISSING key is not "absent, leave it alone" (that only holds for
- *  the four top-level note fields) — there is no shape the harness can honour without it, so it is
- *  dropped like any other bad value. */
+/** Inside `friction`/`dayNote` a MISSING key is not "absent, leave it alone" (that only holds for the
+ *  four top-level note fields) — there is no shape the harness can honour without it. */
 function missingLine(field: string): Checked<string> {
   return { ok: false, reason: `${field}: expected a string, got nothing` };
 }
 
-/** A friction report (spec § E): `what` a non-empty string, `severity` a whole number 1..5, and
- *  `recurrence` one of the three tags. The recurrence tag is the measurement, not metadata — the
- *  panel weights a friction by projected exposure over a campaign — so an unknown tag drops the
- *  report rather than being coerced into a tag it is not. */
+/** A friction report: `what` a non-empty string, `severity` a whole number 1..5, `recurrence` one of the three
+ *  tags. An unknown tag drops the report rather than being coerced — the tag IS the measurement. */
 function checkFriction(value: unknown, field: string): Checked<FrictionReport> | undefined {
   if (value === undefined) return undefined;
   if (!isPlainObject(value)) {
@@ -367,10 +329,8 @@ function checkFriction(value: unknown, field: string): Checked<FrictionReport> |
   return { ok: true, value: { what: what.value, severity, recurrence } };
 }
 
-/** The end-of-day note (spec § E): the rating pair plus the day's line and the updated arc note.
- *  Held to the `brain.md` shape exactly — a half-filled note is dropped whole, because the panel
- *  reads the rating pair and the arc note together. `line` is the one field that gets the wider cap
- *  (see `DAY_NOTE_LINE_MAX_LEN`); `arcNote` is a per-turn field and stays at `TEXT_MAX_LEN`. */
+/** The end-of-day note: the rating pair plus the day's line and the updated arc note, held to the `brain.md`
+ *  shape. A half-filled note is dropped whole; `line` alone takes the wider `DAY_NOTE_LINE_MAX_LEN` cap. */
 function checkDayNote(value: unknown, field: string): Checked<DayNote> | undefined {
   if (value === undefined) return undefined;
   if (!isPlainObject(value)) {
@@ -398,8 +358,7 @@ function checkDayNote(value: unknown, field: string): Checked<DayNote> | undefin
 }
 
 /** A 1..5 rating: a whole number in range, or `undefined` (the caller names the field it dropped).
- *  A stringified number is NOT accepted — `brain.md` asks for a number, JSON mode can deliver one,
- *  and coercing here would hide a prompt the model keeps misreading. */
+ *  A stringified number is NOT accepted — `brain.md` asks for a number, and coercing hides a misread. */
 function rating(value: unknown): 1 | 2 | 3 | 4 | 5 | undefined {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 5) return undefined;
   return value as 1 | 2 | 3 | 4 | 5;
@@ -419,9 +378,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** The offending value, one line, for a drop reason — truncated so a whole reply pasted into the
- *  wrong field cannot blow up the transcript. A string keeps its quotes so `"3"` (a string) reads
- *  differently from `3` (a number) in a reason that rejects one of them. */
+/** The offending value, one line, for a drop reason — truncated so a whole reply pasted into the wrong
+ *  field cannot blow up the transcript. A string keeps its quotes, so `"3"` reads unlike `3`. */
 function preview(value: unknown): string {
   if (value === undefined) return 'nothing';
   const text = typeof value === 'string' ? `"${value}"` : (JSON.stringify(value) ?? String(value));
@@ -429,9 +387,8 @@ function preview(value: unknown): string {
   return flat.length > 40 ? `${flat.slice(0, 40)}...` : flat;
 }
 
-/** The turn rendered as the user message: the working memory a player carries (only the blocks
- *  that exist this turn — spec § B), then the screen, numbered legal moves and character state.
- *  Kept a free function (not a method) so tests can assert the exact wire text. */
+/** The turn rendered as the user message: the working memory that exists this turn, then the screen, the
+ *  numbered legal moves and the character state. A free function, so tests assert the exact wire text. */
 export function buildUserMessage(input: ChooseMoveInput): string {
   const sections: string[] = [];
   // Each memory block is appended only when its field is present, so a first turn (and every turn
