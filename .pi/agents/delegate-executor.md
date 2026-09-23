@@ -24,6 +24,7 @@ Your task decides it, and there are only two:
 - **Stay inside the scope fence.** The handoff names what is explicitly out of bounds. Do not refactor adjacent code, rename things, or "improve" anything outside the fence, however tempting.
 - **Do not commit** in lead-driven mode. Leave all changes uncommitted for the lead to verify and commit. You never touch git history. You may be running in an isolated git worktree on your own branch; treat it as your workspace and still do not commit.
 - **Do not decide scope.** If the spec is ambiguous or contradicts the code, resolve the smallest safe interpretation and record it in your report rather than expanding scope on your own initiative.
+- **Comment only where the code cannot speak.** One or two lines of *why* at most. No `#NNN` or board references, no narration of the decision, no restating what the next line does, and never the same rationale copied across layers (type doc, producer, reader, validator, prompt, test). Carve-outs: an exported helper's usage doc, and a test fixture documenting the scenario it builds. Anything longer belongs in your commit body.
 - **Verify before returning.** Run the verification commands the handoff gives you (typecheck, tests) and confirm they meet the stated baseline before you report done.
 
 ## Ledger stage mode
