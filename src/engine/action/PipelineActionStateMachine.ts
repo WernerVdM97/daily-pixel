@@ -651,9 +651,13 @@ export class PipelineActionStateMachine {
     // decide model is free to re-author `baseDc` on a CONTINUE round (nothing clamps it), and
     // reading it here lets the foe's to-hit bonus and its displayed tier drift mid-fight for no
     // in-world reason. The `?? state.lastDecideResult.baseDc` fallback covers an edge persisted
-    // before this prop existed: that one round keeps the old per-round read rather than falling
-    // to 0.
+    // before this prop existed: that round keeps the old per-round read rather than falling to 0,
+    // and the fold below is what keeps it to ONE round — every write path spreads `cs`, whose
+    // `undefined` `baseDc` omits the prop (`combat-state.ts:118`), so without the fold the edge
+    // would never acquire the pin and every later round of that same fight would take the
+    // fallback again.
     const fightDc = cs.baseDc ?? state.lastDecideResult.baseDc;
+    if (cs.baseDc === undefined) cs = { ...cs, baseDc: fightDc };
 
     // Resolve the anchor to use for edge writes: prefer the state-held anchor (across rounds),
     // fall back to the current CombatState's anchor (which for npc fights carries the id-as-name
