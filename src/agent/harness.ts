@@ -945,8 +945,8 @@ export class AgentHarness {
     const lastRecon = this.lastRecon;
     this.lastRecon = undefined;
     const dayLog = buildDayLog(this.dayLog);
-    // The day's last turn is the one the day note has to ride: at zero rolls `menu.open` returns
-    // `no-rolls` and the brain is never asked again. Spread in only when true, so any other turn renders exactly the message it rendered before.
+    // The day's last turn is the one the day note has to ride: with one roll left, the next turn
+    // would spend the last of them. Spread in only when true, so any other turn renders exactly what it rendered before.
     const lastRoll = charView.rollsRemaining === 1;
     // One TURN however many attempts answer it — the day-note and day-log accounting counts turns.
     this.todayTurns++;
