@@ -46,51 +46,35 @@ import {
 import { resolveRelationEndpoint, type NearbyNpc } from './relation-wiring.js';
 import { criticShouldFire, type CriticGateMode } from './critic-gate.js';
 
-/** ActionState plus the pipeline's internal fields, stored in the JSON column (mirrors
- *  `InternalActionState` in machine.ts, but with `actionType`/`flags` pinned at classify
- *  instead of re-derived per beat — settled decision #4). */
+/** ActionState plus the pipeline's internal fields, stored in the JSON column. */
 export interface PipelineInternalActionState extends ActionState {
   /** Pinned once at CLASSIFY (NEW_ACTION only); a CONTINUE beat has already been routed. */
   actionType: ActionType;
   flags: RoutingFlags;
   /** Current pending decision, for resume. */
   pendingDecision: ActionDecision;
-  /** Free-text narrative/display label (settled decision #5) — decoupled from routing. */
+  /** Free-text narrative/display label, decoupled from routing. */
   distilledType: string;
-  /** Stat tested by this action's roll. */
   rollStat: string;
-  /** The actual `PipelineDecideResult` the last `decide()` call returned — threaded through to
-   *  `resolve()`'s RESOLVE-MUTATE/RESOLVE-NARRATE handoff unchanged. Deliberately NOT
-   *  reconstructed from pinned fields at handoff time: `accumulatedDc` drifts from decide's raw
-   *  `baseDc` once dcModifiers accumulate, and `pendingDecision.options` may carry
-   *  `ensureBail`'s synthetic bail option plus clamped `dcModifier` values decide() never
-   *  actually returned. */
+  /** The raw `PipelineDecideResult` the last `decide()` returned, handed to the resolve handoff
+   *  unchanged: pinned fields have drifted (`accumulatedDc`) and been bail-padded and clamped. */
   lastDecideResult: PipelineDecideResult;
   /** Reactive action — bail not allowed. */
   required: boolean;
-  /** The authored relation endpoint resolved on combat establishment, held across rounds
-   *  so the npc-name→id resolution gap doesn't force re-resolution every beat (T3 decision 4).
-   *  Undefined when no combat is in progress. */
+  /** The authored relation endpoint resolved on combat establishment, held across rounds so the
+   *  npc-name→id resolution gap isn't paid every beat. Undefined when no combat is in progress. */
   combatAnchor?: { node: 'npc' | 'location'; name: string };
-  /** RA-3 bounded: set at establish when `combatEnemy.anchor === 'npc'` but
-   *  `resolveRelationEndpoint` failed to match a nearby NPC — the model named a specific foe
-   *  the DB doesn't have (the F#1 vanishing-caravan case). Held across rounds for the same
-   *  reason as `combatAnchor` (the fallback only runs once, at establish); undefined for a
-   *  resolved NPC, a genuinely ambient `anchor: 'location'` foe, or no `combatEnemy` signal at
-   *  all. Consumed by `resolveCombat` to mint the foe as a real NPC if it survives. */
+  /** Set at establish when an `anchor: 'npc'` foe failed to match a nearby NPC: the model named a
+   *  specific foe the DB doesn't have. `resolveCombat` mints it as a real NPC if it survives. */
   unresolvedNpcMint?: { name: string };
   /** Set when a would-be-lethal blow lands after the once-per-day survive-at-1 floor
    *  has already been spent — the hp_zero trace marker on the resolved outcome. */
   hpZero?: boolean;
-  /** Set when a desperate-choice beat is pending (iteration 2 floor + loss ladder).
-   *  The next step() clears it before falling through to normal combat flow — only
-   *  `last stand` reaches handleCombatStep; `bail bloodied` is caught by step()'s bail check. */
+  /** Set when a desperate-choice beat is pending. The next step() clears it before falling
+   *  through: only `last stand` reaches handleCombatStep, `bail bloodied` never gets that far. */
   desperateChoice?: boolean;
-  /** Set when a fatal-blow beat is pending (SL-6: finish/spare the broken foe). Carries the
-   *  already-computed round result so the resume short-circuits straight to `resolveCombat`
-   *  instead of re-entering the roll/establish logic above it — replaying that logic would
-   *  re-roll `this.rollD20()` twice and exhaust the exactly-sized roll fixtures the win
-   *  scenarios rely on (see the RA-5c spec's trap #1). Undefined once resolved either way. */
+  /** Set when the finish/spare fatal-blow beat is pending, carrying the round result computed
+   *  before it: the resume must not re-enter the roll logic above and re-roll `rollD20()` twice. */
   fatalBlow?: {
     cs: CombatState;
     roundResult: CombatRoundOutcome;
@@ -99,18 +83,11 @@ export interface PipelineInternalActionState extends ActionState {
     enemyBonus: number;
     dc: number;
   };
-  /** Epoch ms last persisted. Used by the 30-min timeout hook.
-   *
-   *  AUDIT (spec § G's advancing clock): stamped from `Date.now()` at all four state constructors
-   *  below, so under the agent harness's advancing pin a pending action left over a night reads as
-   *  24 hours stale and resolves as a server-side timeout on the next day's first step. DECISION:
-   *  intentional and unchanged — the full reasoning (and the test that pins it) is at
-   *  `WorldEngineImpl.resolveStaleTimeout`, the one place these stamps are compared. */
+  /** Epoch ms last persisted. Used by the 30-min timeout hook. Under the agent harness's advancing
+   *  clock a pending action left overnight reads as a day stale and times out on the next step. */
   lastActionAt: number;
-  /** All llm_calls ids in this action. Task 5 built the per-stage stamp/callKind derivation
-   *  (`src/llm/pipeline/stamping.ts`) but nothing wires it into an actual `LlmCallRecorder` call
-   *  yet — no live gateway/persistence exists for the pipeline machine in Stage 1 (scope fence).
-   *  Stays empty (`state.llmCallIds ?? []` at every read site) until that wiring lands. */
+  /** Every llm_calls id in this action. A call with no recorder wired contributes callId 0, the
+   *  sentinel the filters drop; a state persisted before the field existed reads absent (`?? []`). */
   llmCallIds?: number[];
 }
 
@@ -124,16 +101,14 @@ export type PipelineStepResult =
       state: PipelineInternalActionState;
       nextDecision: ActionDecision;
       mutations?: WorldMutation[];
-      /** Per-round combat telemetry beat (T5) — set on every fought CONTINUE/desperate-choice
-       *  round, never on the generic (non-combat) beat flow or the voluntary bail path. */
+      /** Per-round combat telemetry beat, set on every fought round: never on the generic
+       *  (non-combat) beat flow or the voluntary bail path. */
       combatBeat?: CombatBeatLog;
     }
   | { resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome };
 
-/** Canned fallback text for the classify-fallback-total-failure path (heuristic miss AND the
- *  LLM fallback call rejects). Self-contained by design — mirrors the flavour of
- *  `FallbackLlmGateway.ts`'s divine intervention message without importing it, since that
- *  module belongs to the legacy string-sentinel path this machine deliberately does not use. */
+/** Canned text for the classify-heuristic miss whose LLM fallback also rejects. The voice is
+ *  copied from the legacy sentinel path's divine message rather than imported from it. */
 const PIPELINE_DIVINE_MESSAGE =
   '⚙️ The world stutters. Your action could not be processed and your action roll ' +
   'has been refunded.';
@@ -142,15 +117,12 @@ const PIPELINE_DIVINE_MESSAGE =
  *  private `BAIL_STAMINA_COST` — duplicated locally since that constant isn't exported. */
 const BAIL_STAMINA_COST = 1;
 
-/** Label of the engine-appended voluntary combat flee option — must stay unique so `step()`'s
- *  `options.find(o => o.label === choice)` lookup always resolves to the guaranteed-null bail,
- *  never a wayward LLM-authored option sharing the same label. */
+/** Label of the engine-appended voluntary flee — must stay unique, or `step()`'s label lookup
+ *  could land on a wayward LLM-authored option instead of the guaranteed-null bail. */
 const COMBAT_FLEE_LABEL = 'Flee the fight';
 
-/** SL-6 fatal-blow interstitial option labels. Order matters: `combatWinScenario` uses
- *  `choicePolicy: 'first-real'`, which auto-picks the first non-bail option, so the lethal
- *  option must be listed first for the existing win scenario to keep exercising the kill path
- *  unchanged. */
+/** Fatal-blow interstitial labels. Order matters: `combatWinScenario`'s `choicePolicy: 'first-real'`
+ *  auto-picks the first non-bail option, so the lethal one must stay listed first. */
 const FATAL_BLOW_FINISH_LABEL = 'Finish it';
 const FATAL_BLOW_SPARE_LABEL = 'Show mercy';
 
@@ -166,21 +138,17 @@ export class PipelineActionStateMachine {
       isLocationSafe: () => true,
       getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
     },
-    // Defaults to an identity pass-through: this machine never touches a repo or knows about
-    // geography itself, so with nobody injecting a real closure (prod wiring is Stage 1
-    // out-of-scope — see PipelineActionStateMachine.ts header/plan doc Task 3) proposed
-    // mutations pass straight through as final, matching Task 2's prior inline behaviour.
+    // Identity pass-through by default: production and the sim both inject their own finalize, so
+    // proposed mutations only land as final when the caller omits the argument.
     private finalize: (
       proposed: WorldMutation[],
       ctx: MutationContext,
     ) => { mutations: WorldMutation[]; minted: string[] } = (proposed) => ({ mutations: proposed, minted: [] }),
-    // Optional (D7): absent by default, so every existing caller (and the sim, which never
-    // injects one) takes the no-critic path through `critiqueDecide`/`critiqueNarration` below —
-    // both are unconditional no-ops without a critic, keeping this the zero-risk default.
+    // Optional: absent by default, and both critic helpers below are unconditional no-ops
+    // without one.
     private critic?: CriticGateway,
-    // RA-4c: defaults to 'narrate-gated' per decision SL-3, settled on the A/B numbers — the decide
-    // critic keeps firing on every beat (it earned real catches), the narrate critic is gated
-    // (structurally near-inert). Pass 'always' for the pre-RA-4 baseline; see `critic-gate.ts`.
+    // 'narrate-gated' by default: the decide critic earns its calls on every beat, the narrate
+    // critic is structurally near-inert. Pass 'always' for the previous behaviour.
     private criticGateMode: CriticGateMode = 'narrate-gated',
   ) {}
 
@@ -197,11 +165,8 @@ export class PipelineActionStateMachine {
 
     const context = buildPipelineContext(this.resolver, char, rawInput, [], items);
 
-    // CLASSIFY fires once per action (settled decision #4): heuristic first, LLM fallback only
-    // on a miss. A fallback rejection resolves outright. DECIDE itself never authors
-    // mutations/outcome_text (D5b split), but when the LLM returns `decision: []` on beat 1,
-    // the resolve pipeline runs inside start() and returns `resolved: true` — the auto-resolve
-    // path restored per §2 v12 QA.
+    // CLASSIFY fires once per action: heuristic first, LLM fallback only on a miss, and a
+    // fallback rejection resolves outright. DECIDE itself never authors mutations or outcome text.
     const classifyResult = heuristicClassify(rawInput);
     let actionType: ActionType;
     let flags: RoutingFlags;
@@ -220,14 +185,8 @@ export class PipelineActionStateMachine {
       }
     }
 
-    // Every LLM call on beat 1 fails open the same way classify does (0.3.4). Before this, only
-    // classify was covered: a decide that timed out or came back unparseable threw straight out
-    // of `startAction` and killed the whole interaction — the roll was never drained, so the
-    // player wasn't charged, but nothing resolved it either and the adapter had only a bare
-    // error to show. Divine intervention is the shape this exact situation already has (system
-    // fault, pre-roll, nothing authored, roll refunded by `WorldEngineImpl`'s F#21 branch), so
-    // it is reused rather than given a second, near-identical outcome type. Beat 2+ can't use it
-    // — the roll IS spent by then — and resolves as `timed_out` one level up instead.
+    // Every LLM stage failure on beat 1 fails open as divine intervention, the shape this situation
+    // already has: a system fault with the roll unspent. Beat 2+, where the roll IS spent, cannot.
     let decideResult: PipelineDecideResult;
     let criticCallIds: number[];
     let validatorCallIds: number[];
@@ -244,15 +203,11 @@ export class PipelineActionStateMachine {
       return this.divineOnStageFailure(rawInput, kind, wage, err, 'decide');
     }
 
-    // §2 v12 QA: auto-resolve on first-beat `decision: []` — the LLM returned an empty
-    // decision array, signalling this action needs no player branching. Jump straight to
-    // the resolve pipeline instead of serving a bail-only screen.
+    // Auto-resolve on an empty first-beat decision: the model signalled this action needs no
+    // player branching, so go straight to resolve rather than serving a bail-only screen.
     if (decideResult.decision.length === 0) {
-      // C6 guard: combat must never auto-resolve on an empty decision[] — it must run at
-      // least one contested round. Synthesise a first decision with a single required
-      // option so step() always routes to handleCombatStep. The mis-classification
-      // (combat read as skill/rest) is a classify-prompt-template concern → deferred to
-      // v13 via prompt-versioning ([[prompt-v13-roadmap]]).
+      // Guard: combat must never auto-resolve on an empty decision[] — it must fight at least one
+      // contested round, so synthesise one required option that routes step() to handleCombatStep.
       if (actionType === 'combat') {
         const allCallIds = [...gatewayCallIds, ...criticCallIds, ...validatorCallIds];
         const combatFirstDecision: ActionDecision = {
@@ -276,7 +231,7 @@ export class PipelineActionStateMachine {
           rollStat: decideResult.stat,
           required: decideResult.required,
           lastDecideResult: decideResult,
-          lastActionAt: Date.now(), // advancing-pin audited: see the field note above
+          lastActionAt: Date.now(),
           ...(allCallIds.length > 0 ? { llmCallIds: allCallIds } : {}),
         };
         return { resolved: false, state: combatState, firstDecision: combatFirstDecision };
@@ -297,12 +252,9 @@ export class PipelineActionStateMachine {
         rollStat: decideResult.stat,
         required: decideResult.required,
         lastDecideResult: decideResult,
-        lastActionAt: Date.now(), // advancing-pin audited: see the field note above
+        lastActionAt: Date.now(),
         ...(allCallIds.length > 0 ? { llmCallIds: allCallIds } : {}),
       };
-      // Same fail-open as the decide beat above: the auto-resolve path runs RESOLVE-MUTATE and
-      // RESOLVE-NARRATE inside start(), so a narrate parse failure here is still a beat-1 fault
-      // with the roll unspent.
       let resolved: { state: PipelineInternalActionState; outcome: ActionOutcome };
       try {
         resolved = await this.resolve(preState, char, items, decideResult.baseDc, [], syntheticOption);
@@ -328,9 +280,8 @@ export class PipelineActionStateMachine {
       rollStat: decideResult.stat,
       required: decideResult.required,
       lastDecideResult: decideResult,
-      lastActionAt: Date.now(), // advancing-pin audited: see the field note above
-      // llmCallIds accumulates every recorded LLM call in this action (gateway stages +
-      // critic). Filter zeros: callId===0 means no recorder was wired for that call.
+      lastActionAt: Date.now(),
+      // Filter zeros: callId === 0 means no recorder was wired for that call.
       ...([...gatewayCallIds, ...criticCallIds, ...validatorCallIds].length > 0
         ? { llmCallIds: [...gatewayCallIds, ...criticCallIds, ...validatorCallIds] }
         : {}),
@@ -395,16 +346,14 @@ export class PipelineActionStateMachine {
     const stateWithStat: PipelineInternalActionState = { ...state, rollStat: chosenStat };
 
     // ─── COMBAT SUB-MODE GATE ───
-    // Reactive combat actions short-circuit the generic beat-cap/decide/resolve flow.
-    // The combat handler owns the entire round: contested roll, band application,
-    // mutation persistence, and termination ladder (win/cap-derive/hpZero→failure/continue).
+    // Reactive combat actions short-circuit the generic beat-cap/decide/resolve flow;
+    // `handleCombatStep` owns everything about the round from here.
     if (state.actionType === 'combat' && state.required) {
       return this.handleCombatStep(stateWithStat, char, items, newDc, newDecisions, option);
     }
 
-    // Beat cap: after MAX_DECISIONS_PER_ACTION - 1 prior beats, the current one is the last.
-    // `PipelineDecideResult` has no `done` flag (options-only, by design) so this cap plus the
-    // zero-real-options check below are the ONLY resolve-trigger signals available here.
+    // Beat cap: `PipelineDecideResult` has no `done` flag, so this cap plus the zero-real-options
+    // check below are the ONLY resolve-trigger signals available here.
     const isLastDecision = state.decisions.length >= MAX_DECISIONS_PER_ACTION - 1;
     if (isLastDecision) {
       return this.resolve(stateWithStat, char, items, newDc, newDecisions, option);
@@ -412,9 +361,8 @@ export class PipelineActionStateMachine {
 
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
     const { result: rawDecideResult, callId: stepDecideCallId } = await this.llm.decide({ actionType: state.actionType, flags: state.flags, context });
-    // Gate runs on the fresh decideResult BEFORE the realOptions split below, so a major re-decide
-    // (or a pass-through) feeds BOTH the zero-real-options resolve-trigger check and the normal
-    // continue branch from the same single critic pass — no second gate call for either branch.
+    // The gate runs on the fresh decideResult BEFORE the realOptions split below, so one critic
+    // pass feeds both the zero-real-options resolve trigger and the normal continue branch.
     const { result: afterCritic, criticCallIds } = await this.critiqueDecide(
       rawDecideResult, state.actionType, state.flags, context,
     );
@@ -423,10 +371,8 @@ export class PipelineActionStateMachine {
     const realOptions = decideResult.decision.filter(o => o.dcModifier !== null);
 
     if (realOptions.length === 0) {
-      // The terminating decide (zero real options -> resolve now) can still declare a fresh
-      // scene_location even though its options are empty. Refresh ONLY sceneLocation for the
-      // travel gate; the resolveMutate/narrate handoff intentionally keeps the prior decide's
-      // real options/baseDc (see the beat-cap handoff test), so we do not wholesale-replace it.
+      // A terminating decide can still declare a fresh scene_location even with no options, so
+      // refresh ONLY that for the travel gate; the handoff keeps the prior decide's real options.
       const stateForResolve: PipelineInternalActionState = {
         ...stateWithStat,
         lastDecideResult: {
@@ -461,23 +407,8 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * Builds this round's telemetry beat (T5) — the single choke point all four
-   * beat-emitting paths in `handleCombatStep`/`resolveCombat` go through, so the shape stays
-   * honest across CONTINUE, desperate-choice, and the terminal win/loss/cap paths.
-   *
-   * `materialMutationFired` is computed from the semantic HP deltas + a non-`set_relation` op,
-   * NOT `ops.length > 0` — `set_relation` alone (a round-counter-only bump) is bookkeeping, not
-   * material; enemyHp/player-HP deltas and any loot op ARE material.
-   *
-   * Round-numbering caveat: the floor beat persists `combatRoundUpdate(cs, ..., cs.round)` (same
-   * round number, not incremented — see the desperate-choice branch below), so the floor beat and
-   * the subsequent last-stand beat can share a `round` value. This is intended: `round` is the
-   * in-fight round LABEL, not a unique beat id — "rounds fought" is the beat COUNT
-   * (`combatBeats.length` in `PipelineSimEngine`), not the max round label.
-   *
-   * `playerBonus`/`enemyBonus`/`dc` (ANSI-D) are threaded in by every caller rather than
-   * recomputed here — they're already local values at each call site (the same ones that fed
-   * `resolveCombatRound`), so re-deriving them a second time would risk the two copies drifting.
+   * Builds this round's telemetry beat: the single choke point every beat-emitting path goes
+   * through. The bonuses and dc arrive from the caller, so they match what fed `resolveCombatRound`.
    */
   private buildCombatBeat(
     cs: CombatState,
@@ -490,6 +421,7 @@ export class PipelineActionStateMachine {
     dc: number,
     opts: { floorSave?: boolean; emptyDecisionFallback?: boolean; fatalBlow?: 'finish' | 'spare' } = {},
   ): CombatBeatLog {
+    // `set_relation` alone (a round-counter bump) is bookkeeping, not material; HP deltas and loot are.
     const materialMutationFired =
       roundResult.enemyHpDelta !== 0 || roundResult.playerHpDelta !== 0 || ops.some(o => o !== 'set_relation');
     return {
@@ -514,9 +446,8 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * Combat sub-mode handler — owns the contested roll, band application, persistence, and
-   * termination ladder (win / cap-derive / hpZero→failure / continue). Replaces the generic
-   * beat-cap/decide/resolve flow for reactive combat actions.
+   * Combat sub-mode handler: owns the contested roll, band application, persistence and the
+   * termination ladder (win / cap-derive / hpZero→failure / continue).
    */
   private async handleCombatStep(
     state: PipelineInternalActionState,
@@ -530,19 +461,15 @@ export class PipelineActionStateMachine {
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
 
     // ── Desperate-choice clear ──
-    // If returning from a desperate-choice beat via `last stand`, clear the flag and fall
-    // through to the normal combat continue flow. `bail bloodied` is caught by step()'s bail
-    // check and never reaches here.
+    // `bail bloodied` is caught by step()'s bail check and never reaches here, so a set flag
+    // means `last stand`: clear it and fall through to the normal continue flow.
     if (state.desperateChoice) {
       state = { ...state, desperateChoice: undefined };
     }
 
-    // ── Fatal-blow resume (SL-6) ──
-    // The player has chosen finish/spare on a beat that fought no round of its own — resolve
-    // straight through on the round result computed BEFORE the interstitial. Must come before
-    // any establish/roll logic below: re-entering that logic would roll again and desync from
-    // the exactly-sized roll fixtures (`combatWinScenario` et al.) that assume one roll pair per
-    // fought round.
+    // ── Fatal-blow resume ──
+    // The interstitial fought no round of its own, so resolve on the result computed before it.
+    // Rolling again below would break the one-roll-pair-per-fought-round fixture assumption.
     if (state.fatalBlow) {
       const saved = state.fatalBlow;
       const lethal = chosenOption.label === FATAL_BLOW_FINISH_LABEL;
@@ -558,12 +485,8 @@ export class PipelineActionStateMachine {
     // ── Establish or read combat state ──
     let cs = readCombatState(context.sceneState ?? []);
 
-    // RA-3 bounded: reset on every fresh establish, since the new fight's foe is not the old
-    // one's. Reachable within a SINGLE action — a fight that ends (kill, cap-derive, hpZero
-    // failure) can be followed by a fresh establish later in the same action. A bail can't reach
-    // it, being terminal for the whole action; the edge-prop fallback below covers that
-    // cross-action case instead. Held unchanged across rounds otherwise — set below only in the
-    // npc-resolution-failed branch.
+    // Reset on every fresh establish: a new fight's foe is not the old one's, and one action can
+    // hold several fights. The `cs.mintName` fallback below covers the cross-action case instead.
     let unresolvedNpcMint: { name: string } | undefined = state.unresolvedNpcMint;
 
     if (!cs || cs.enemyHp <= 0) {
@@ -580,27 +503,19 @@ export class PipelineActionStateMachine {
             anchor = { node: 'npc', name: resolved.ref };
             resolvedNpc = nearbyNpcs.find((n) => String(n.id) === resolved.ref);
           } else {
-            // NPC resolution failed — default to location-anchored minion (decision 4 fallback).
-            // SL-4 refinement: this is the ONE case RA-3 bounded mints — the model named a
-            // specific NPC the DB doesn't have, not a genuinely ambient encounter — so remember
-            // the intended name for resolveCombat to mint if the foe survives.
+            // NPC resolution failed, so fall back to a location-anchored minion. This is the one
+            // case that mints, so remember the name: the model named an NPC the DB doesn't have.
             anchor = { node: 'location', name: char.location };
             unresolvedNpcMint = { name: enemy.name };
           }
         } else {
-          // Ambient/wildlife foe (anchor: 'location') — may still carry a name (e.g. "a wolf"),
-          // but SL-4 gates the mint on the anchor signal, not name-presence, so this never mints.
+          // Ambient/wildlife foe: may still carry a name, but the mint is gated on the anchor
+          // signal rather than on name-presence, so this branch never mints.
           anchor = { node: 'location', name: char.location };
         }
 
-        // Enemy max-HP priority — only two rungs are live in production: the resolved NPC's real
-        // health (so a known 24-HP stag reads as 24, not a DC-derived guess), else
-        // deriveEnemyMaxHp(baseDc) for the location-anchored/ambient minion path. The middle
-        // rung, `enemy.maxHp`, is dead in production — ProdPipelineGateway never parses a maxHp
-        // hint off the decide payload, so it stays wired here (and exercised directly by tests
-        // that hand-build a PipelineDecideResult) for the pending prompt-set bump that adds a
-        // health vocab slot. A non-positive health isn't a valid combat max, so it falls through
-        // rather than seeding a dead-on-arrival foe.
+        // Max-HP priority: the resolved NPC's real health if positive, else any non-null `enemy.maxHp`
+        // hint (unpopulated in production), else derived from baseDc; a 0 hint clamps to ENEMY_HP_MIN.
         const rawMaxHp = resolvedNpc?.health != null && resolvedNpc.health > 0
           ? resolvedNpc.health
           : enemy.maxHp != null
@@ -614,9 +529,8 @@ export class PipelineActionStateMachine {
           round: 1,
           anchor,
           baseDc: state.lastDecideResult.baseDc,
-          // Persist the mint intent on the edge, not only on the per-action marker above, so it
-          // survives a bail — `combatRoundUpdate`'s spread then carries it through every
-          // subsequent round write for this fight, in this action or a later one.
+          // Also persist the intent on the edge, not just on the per-action marker: the marker
+          // dies when the action resolves, and `combatRoundUpdate`'s spread carries this prop on.
           ...(unresolvedNpcMint ? { mintName: unresolvedNpcMint.name } : {}),
         };
       } else {
@@ -633,12 +547,8 @@ export class PipelineActionStateMachine {
       }
     }
 
-    // Cross-action fallback for the mint intent. `PipelineInternalActionState` (and its marker)
-    // is discarded whenever an action resolves, bails included, so a bailed-then-re-engaged
-    // unresolved-npc fight starts its next action with no marker — yet the `in_combat` edge is
-    // still at positive HP, so the establish branch above never re-runs and never re-sets it.
-    // The edge prop is the only place that intent survives. Ordering matters: the per-action
-    // marker wins when set (the common single-action case), so this is strictly a fallback.
+    // Cross-action fallback: the per-action marker is gone once an action resolves (a bail
+    // included), so the edge prop is the only carrier left. The marker wins when it is set.
     if (unresolvedNpcMint === undefined && cs.mintName) {
       unresolvedNpcMint = { name: cs.mintName };
     }
@@ -648,9 +558,8 @@ export class PipelineActionStateMachine {
     const fightDc = cs.baseDc ?? state.lastDecideResult.baseDc;
     if (cs.baseDc === undefined) cs = { ...cs, baseDc: fightDc };
 
-    // Resolve the anchor to use for edge writes: prefer the state-held anchor (across rounds),
-    // fall back to the current CombatState's anchor (which for npc fights carries the id-as-name
-    // that would fail re-resolution — T3 decision 4).
+    // Prefer the state-held anchor: for npc fights `cs.anchor` carries the id-as-name that would
+    // fail re-resolution.
     const heldAnchor: { node: 'npc' | 'location'; name: string } =
       state.combatAnchor ?? (cs.anchor as { node: 'npc' | 'location'; name: string });
 
@@ -665,23 +574,15 @@ export class PipelineActionStateMachine {
     const newEnemyHp = Math.max(0, Math.min(cs.enemyMaxHp, cs.enemyHp + roundResult.enemyHpDelta));
     const playerHpDelta = roundResult.playerHpDelta;
 
-    // hpZero detection: player HP would drop to ≤0 (deferred to iteration 2 for the save floor).
+    // hpZero detection: player HP would drop to ≤0 (the save floor is applied below).
     const hpZeroReached = playerHpDelta < 0 && (char.health + playerHpDelta) <= 0;
 
     // ── Termination ladder ──
-    // 1. WIN: enemy HP depleted — SL-6 offers a fatal-blow interstitial (finish/spare) rather
-    // than resolving straight through. No LLM call, no extra roll, no mutation: this round's
-    // result is already fully computed above and carried on `fatalBlow` for the resume (which
-    // short-circuits straight to `resolveCombat`, see the block near the top of this method).
-    // No `combatBeat` here and `combatRounds` is passed through unchanged — an extra entry would
-    // break the "exactly one combatRounds entry" invariant on a first-round kill, and a
-    // `combatBeat` on this non-terminal arm would inflate the sim's `roundsFought` count.
+    // 1. WIN: offer the finish/spare interstitial, not a straight resolve; the result rides on
+    // `fatalBlow`. A beat here breaks the one-entry `combatRounds` invariant and `roundsFought`.
     if (newEnemyHp <= 0) {
-      // Display-only nominal HP: the foe is genuinely still alive at this instant — the player
-      // hasn't chosen finish/spare yet — so banding on the real `newEnemyHp` (0) would read
-      // 'Slain' beside the very prompt asking whether to kill it, pre-empting the choice. `1`
-      // bands as a last-gasp survivor ('Critical', or 'Battered' at the ENEMY_HP_MIN end)
-      // instead. Does not touch `newEnemyHp`, `state.fatalBlow`, or what `resolveCombat` receives.
+      // Display-only nominal HP: the foe is still alive until the player answers, so banding on the
+      // real 0 would read 'Slain' beside the prompt asking whether to kill it. Nothing else changes.
       const fatalStatus = composeCombatStatus(
         cs.enemyName, 1, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
       );
@@ -710,16 +611,15 @@ export class PipelineActionStateMachine {
       };
     }
 
-    // 2. hpZero → floor + save ladder (iteration 2: survive-at-1 once per day).
+    // 2. hpZero → floor + save ladder: survive at 1 HP, once per day.
     if (hpZeroReached) {
       const currentDay = this.resolver.getCurrentDay?.() ?? 0;
       const savedDay = readCombatSave(context.sceneState ?? []);
 
       if (savedDay === null || savedDay !== currentDay) {
         // ── Desperate-choice beat (first lethal blow today) ──
-        // Floor player to 1 HP, author the combat_save edge, keep the combat edge at the
-        // band-depleted enemyHp (same round — player hasn't survived yet in a way that
-        // advances the fight). Return forced options: bail bloodied / last stand.
+        // Floor the player to 1 HP and author the combat_save edge. The combat edge keeps this
+        // round's number: `round` is a label, not a unique beat id, so the last-stand beat shares it.
         const floorPlayerHpDelta = 1 - char.health;
         const saveRelation = combatSaveUpdate(currentDay);
         const combatEdge = combatRoundUpdate(cs, roundResult.enemyHpDelta, cs.round);
@@ -734,16 +634,8 @@ export class PipelineActionStateMachine {
           playerBonus, enemyBonus, fightDc, { floorSave: true },
         );
 
-        // ANSI-D: carry the fight's accumulated round log forward off the PREVIOUS
-        // pendingDecision (tolerant read — `?? []` covers both a fresh fight and any
-        // in-flight state saved before this field existed).
-        // B#19: also set combatStatus so the player sees the enemy/player HP bars and
-        // the last round's damage — without this, the desperate-choice screen shows
-        // only "last stand or bail" with no combat context.
-        // The floor absorbs the lethal blow: the player survives at exactly 1 HP.
-        // Showing `char.health + roundResult.playerHpDelta` (which is ≤0) would display
-        // 0 HP — misleading when the floor guarantees survival. Pass HP=1, delta=0 so
-        // the status frame reflects the truth, not the would-be-lethal math.
+        // HP=1/delta=0, not the raw math: the floor guarantees survival, so showing the raw (≤0)
+        // would put 0 HP beside a live player. The round log appends to the previous decision's.
         const desperateStatus = composeCombatStatus(
           cs.enemyName, newEnemyHp, cs.enemyMaxHp, 0, 1, char.maxHealth,
         );
@@ -776,9 +668,8 @@ export class PipelineActionStateMachine {
         };
       } else {
         // ── Second lethal blow today → HP-zero, resolve failure ──
-        // `unresolvedNpcMint`/`heldAnchor` may have just been computed THIS call (a fresh
-        // establish that immediately hits the same-day floor) — `state` alone can be stale, so
-        // merge them in rather than relying on `state`'s own (possibly pre-establish) fields.
+        // A fresh establish this same call may have just set `unresolvedNpcMint`/`heldAnchor`, so
+        // `state` alone can be stale — merge them in.
         return this.resolveCombat(
           cs, roundResult, playerHpDelta, newEnemyHp, 'failure',
           { ...state, combatAnchor: heldAnchor, unresolvedNpcMint }, char, items, newDc, newDecisions, chosenOption,
@@ -824,10 +715,8 @@ export class PipelineActionStateMachine {
       },
     ];
 
-    // decide-scene-narration: hand the just-resolved round's mechanical truth to DECIDE so its
-    // narration can acknowledge the approach the player took and stay faithful to the dice.
-    // Deliberately `combatRoundSummary`, not `rollOutcome` — that field switches the phase to
-    // RESOLVE_ROLL, which this call is not.
+    // Hand DECIDE the just-resolved round's mechanical truth. `combatRoundSummary`, not `rollOutcome`:
+    // the latter switches the phase to RESOLVE_ROLL, which this call is not.
     const updatedContext = {
       ...context,
       sceneState: updatedSceneState,
@@ -842,8 +731,8 @@ export class PipelineActionStateMachine {
         },
       },
     };
-    // T4: NOT gated — combat truth is engine-owned (the contested roll + band already decided
-    // this round), so there is no authored decision content here for the coherence critic to check.
+    // Deliberately ungated: combat truth is engine-owned (the roll and band already decided this
+    // round), so there is nothing authored here for a coherence critic to check.
     const { result: decideResult, callId: combatDecideCallId } = await this.llm.decide({
       actionType: state.actionType,
       flags: state.flags,
@@ -852,10 +741,8 @@ export class PipelineActionStateMachine {
 
     const nextDecision = toActionDecision(decideResult, state.required);
 
-    // Mechanical-diversity check (decide-scene-narration spec): a combat round needs a genuine
-    // trade-off — at least two options differing on stat or dcModifier. Telemetry only (no
-    // retry), in the `validateSingleOption` console.warn style: icons over a non-choice is this
-    // spec's quiet failure mode, so make it measurable.
+    // A round needs a genuine trade-off: two options differing on stat or dcModifier. Telemetry
+    // only, no retry — icons over a non-choice is this path's quiet failure mode.
     if (nextDecision.options.length > 1) {
       const resolvedStat = (o: ActionOption) => o.stat ?? decideResult.stat;
       const [first, ...rest] = nextDecision.options;
@@ -871,17 +758,12 @@ export class PipelineActionStateMachine {
       }
     }
 
-    // Strip any same-labelled decide option first, BEFORE the emptiness backstop below — a
-    // wayward LLM could author a real 'Flee the fight' despite BASE Rule 3, and counting it as a
-    // "real" option would let the backstop skip while the flee-dedup then strips it anyway,
-    // leaving a silent flee-only screen. The engine's guaranteed-null flee is appended after the
-    // backstop instead, so it always wins step()'s label lookup.
+    // Strip a stray LLM-authored flee BEFORE the emptiness backstop: counting it as real would let
+    // the backstop skip, leaving a flee-only screen once it is stripped.
     nextDecision.options = nextDecision.options.filter(o => o.label !== COMBAT_FLEE_LABEL);
 
-    // Combat empty-decision backstop (decide-scene-narration spec, belt-and-braces): the fresh
-    // continue-decide returned zero real (non-flee) options — never present a flee-only screen
-    // mid-fight. Injected BEFORE the guaranteed flee append below, so even the degraded path is a
-    // real choice, not a screen with no decision in miniature.
+    // Backstop: never present a flee-only screen mid-fight. Inject before the guaranteed flee is
+    // appended below, so even this degraded path stays a real choice.
     let emptyDecisionFallback = false;
     if (nextDecision.options.length === 0) {
       console.warn(
@@ -895,15 +777,12 @@ export class PipelineActionStateMachine {
       emptyDecisionFallback = true;
     }
 
-    // Engaged combat always offers a voluntary flee (dcModifier: null), caught by step()'s bail
-    // path — which leaves the in_combat edge persisted, so the enemy is remembered (plan decision 4).
-    // ensureBail can't add this — it returns early for required actions, which combat always is.
+    // Engaged combat always offers a voluntary flee (dcModifier: null → step()'s bail path), which
+    // leaves the in_combat edge persisted. `ensureBail` can't add it: it skips required actions.
     nextDecision.options = [
       ...nextDecision.options,
       { label: COMBAT_FLEE_LABEL, dcModifier: null },
     ];
-    // Engine-composed status frame (decide-scene-narration spec, B#5/B#6): banded enemy
-    // condition (never exact enemy HP) plus the player's own exact, clamped HP.
     nextDecision.combatStatus = composeCombatStatus(
       cs.enemyName, newEnemyHp, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
     );
@@ -919,9 +798,6 @@ export class PipelineActionStateMachine {
       playerBonus, enemyBonus, fightDc,
       emptyDecisionFallback ? { emptyDecisionFallback: true } : {},
     );
-    // ANSI-D: carry the fight's accumulated round log forward off the PREVIOUS pendingDecision
-    // (tolerant read — `?? []` covers both a fresh fight and any in-flight state saved before
-    // this field existed).
     nextDecision.combatRounds = [...(state.pendingDecision.combatRounds ?? []), continueBeat];
 
     const nextState: PipelineInternalActionState = {
@@ -948,9 +824,8 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * Terminal combat beat: verdict is pre-determined (no resolveRoll). RESOLVE-MUTATE still
-   * runs for ancillary loot; the engine-authored combat mutations (set_relation + modify_health)
-   * are injected into the outcome alongside the LLM-authored ones, then finalize + RESOLVE-NARRATE.
+   * Terminal combat beat: the verdict is pre-determined (no resolveRoll), but RESOLVE-MUTATE still
+   * runs for ancillary loot, and the engine's own combat mutations are merged in before finalize.
    */
   private async resolveCombat(
     cs: CombatState,
@@ -967,38 +842,25 @@ export class PipelineActionStateMachine {
     playerBonus: number,
     enemyBonus: number,
     dc: number,
-    // SL-6/SL-7: set only by the fatal-blow resume. Selects which of the two divergent
-    // terminal-write paths below fires: `'finish'` takes the normal surviving-HP edge write (a
-    // dead foe's edge is re-established from scratch on the next encounter regardless of what it
-    // holds); `'spare'` selects the CLOSED-edge write (`edgeEnemyHp` forced to 0, SL-7) instead of
-    // persisting a 1-HP survivor, and is also the signal `resolveCombat`'s mint check reads as
-    // "the foe survived" — a resolved-NPC spare closes the fight with no health write, while an
-    // unresolved-npc spare (`state.unresolvedNpcMint` set) mints the foe (RA-3 bounded).
+    // Set only by the fatal-blow resume: `'finish'` writes the surviving-HP edge, `'spare'` forces
+    // that edge to 0 (closing the fight) and tells the mint check below the foe survived.
     fatalBlowMarker?: 'finish' | 'spare',
   ): Promise<{ resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome }> {
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
 
     const d20Roll = roundResult.playerD20;
-    // playerBonus is the same abilityCheckBonus the caller already computed to feed
-    // resolveCombatRound — reused here (not re-derived) for both the outcome's rollBonus and
-    // the terminal combatBeat's playerBonus.
     const rollBonus = playerBonus;
     const decisionForHandoff = state.lastDecideResult;
     const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
 
-    // Stage 2: only the fatal-blow resume can supply either field — `state.pendingDecision` is
-    // the SL-6 interstitial at that point, so its `prompt` is the real "Finish it, or let it
-    // live?" text. On an ordinary beat the generic reconstruction and `pendingDecision.prompt`
-    // already agree, so threading it there would be churn with a drift risk and no gain.
+    // Only the fatal-blow resume supplies either field: `state.pendingDecision` is the interstitial
+    // then, so its prompt is the real question. On an ordinary beat the two already agree.
     const fatalBlowHandoff = fatalBlowMarker
       ? { fatalBlow: fatalBlowMarker, decisionPrompt: state.pendingDecision.prompt }
       : {};
 
-    // Combat's difficulty signal (resolve-difficulty-signal.md): `dc` here is the fight's own
-    // baseDc (the same value `buildCombatBeat`'s `dc` param carries into the combat card the
-    // player already sees), NOT the accumulated `newDc` this method also receives — that one
-    // only threads the non-combat DC ladder through combat so it survives to a later non-combat
-    // action, and would name a fight the player never saw the number for.
+    // `dc` is the fight's own baseDc, the number the player saw on the combat card, NOT the
+    // accumulated `newDc` this method also receives, which only threads the non-combat ladder through.
     const foeDangerHandoff = { foeDanger: dangerTier(dc) };
 
     // RESOLVE-MUTATE for ancillary loot only (the LLM never authors enemyHp/core damage).
@@ -1015,36 +877,24 @@ export class PipelineActionStateMachine {
     const proposedMutations = combatMutate.mutations;
     const combatResolveCallIds: number[] = combatMutateCallId !== 0 ? [combatMutateCallId] : [];
 
-    // D6 travel-coherence gate.
+    // Travel-coherence gate: structural backstop, injects intent only.
     const gatedMutations = applyTravelCoherenceGate(
       proposedMutations as WorldMutation[],
       decisionForHandoff.sceneLocation,
       char.location,
     );
 
-    // Inject engine-authored combat mutations: the final combat edge + player HP delta.
-    // SL-7: the round always advances normally now — RA-5c's `fatalBlowMarker === 'spare' ? 1 :`
-    // override is gone. It existed only to keep a spared foe's edge at round 1; now sparing
-    // CLOSES the edge instead (below), so the round label on a closed edge is moot — the next
-    // establish rebuilds `CombatState` from scratch regardless of what round it last held.
+    // Inject the engine-authored combat mutations: the final combat edge plus the player HP delta.
     const finalRound = cs.round + 1;
-    // Use the state-held anchor (decision 4) — for npc fights, cs.anchor carries the
-    // id-as-name that would fail re-resolution; the held anchor is the originally authored one.
+    // The state-held anchor: for npc fights `cs.anchor` carries the id-as-name that won't re-resolve.
     const finalCsAnchor = state.combatAnchor ?? (cs.anchor as { node: 'npc' | 'location'; name: string });
     const finalEdge = combatRoundUpdate({ ...cs, enemyHp: cs.enemyHp, anchor: finalCsAnchor }, 0, finalRound);
     const survivingHp = Math.max(0, finalEnemyHp);
-    // SL-7: sparing must CLOSE the edge (enemyHp: 0), not persist the survivor at 1 HP — every
-    // band in COMBAT_BAND_TABLE deals strictly negative enemy HP, so a re-engaged 1-HP edge was a
-    // guaranteed-win farm (`handleCombatStep`'s `!cs || cs.enemyHp <= 0` check re-establishes a
-    // fresh fight the instant the edge reads 0, the same signal a genuine kill already relies on).
-    // The terminal beat below still reports the foe at `survivingHp` (1 for a spare) so the
-    // outcome frame bands a wounded tier and never 'Slain' — the beat is the narrative record of
-    // the round, the edge is combat bookkeeping, and after a spare those two deliberately diverge.
+    // Sparing CLOSES the edge rather than persisting a 1-HP survivor: every band deals strictly
+    // negative enemy HP, so that survivor was a guaranteed-win farm. The beat reports `survivingHp`.
     const edgeEnemyHp = fatalBlowMarker === 'spare' ? 0 : survivingHp;
-    // `type: 'set_relation'` is required — combatRoundUpdate returns a bare AuthoredRelation (no
-    // op `type`), so without it validateMutations drops the edge as an unknown type and the
-    // terminal in_combat write is lost (a defeated enemy's edge would linger at positive HP → the
-    // next fight resumes the dead foe). The CONTINUE/floor paths add it the same way.
+    // `type: 'set_relation'` is required: combatRoundUpdate returns a bare AuthoredRelation, and
+    // without it validateMutations drops the edge, leaving a defeated enemy at positive HP.
     const clampedFinalEdge = { ...finalEdge, type: 'set_relation', props: { ...finalEdge.props, enemyHp: edgeEnemyHp } };
     const engineMutations: WorldMutation[] = [
       clampedFinalEdge as unknown as WorldMutation,
@@ -1053,40 +903,20 @@ export class PipelineActionStateMachine {
         : []),
     ];
 
-    // RA-3 bounded (SL-4 refinement + SL-7): the model named a specific NPC the DB didn't have
-    // (`state.unresolvedNpcMint`, set at establish when `anchor: 'npc'` resolution failed), and
-    // the foe walked away from the fight — mint it as a real NPC so the world stops narrating
-    // someone it never persists (F#1). Keyed off NOTIONAL survival, not `edgeEnemyHp` — SL-7
-    // closes the edge on a spare, so the edge can no longer answer "did the foe survive?".
-    // `fatalBlowMarker === 'finish'` is the only dead outcome; `'spare'` always survives; the two
-    // non-fatal-blow callers (hpZero's second-lethal-blow failure, and cap-derive) only ever
-    // reach `resolveCombat` with `finalEnemyHp > 0` — the `newEnemyHp <= 0` win branch in
-    // `handleCombatStep` always routes through the fatal-blow interstitial instead, never here
-    // directly — but the `> 0` check is kept explicit rather than assumed, since a mint on a kill
-    // would be the exact incoherence (minting a foe the player just killed) RA-3 exists to avoid.
-    // A resolved NPC's spare (no `unresolvedNpcMint`) or a genuinely ambient `anchor: 'location'`
-    // foe (also no marker, even though DECIDE still supplies a name for wildlife per SL-4) mint
-    // nothing here — the marker is the only gate.
+    // Mint the named-but-unresolved foe if it notionally survived. Keyed off survival rather than
+    // `edgeEnemyHp` (already 0 on a spare), and never on a kill: `'finish'` is the only dead outcome.
     const foeSurvived = fatalBlowMarker === 'spare'
       || (fatalBlowMarker === undefined && finalEnemyHp > 0);
     if (state.unresolvedNpcMint && foeSurvived) {
       engineMutations.push({
         type: 'add_npc',
         name: state.unresolvedNpcMint.name,
-        // Non-empty `description` is mandatory, not cosmetic: `WorldEngineImpl.nearbyNpcsAt`
-        // filters out any NPC whose description is falsy, so a null one would make the mint
-        // invisible to `getNearbyNpcs` and unable to ever be re-resolved as `anchor: 'npc'` on a
-        // later encounter — the mint would silently fail to achieve its whole purpose. This prose
-        // is an engine-authored placeholder; the full mint-on-narration half (prompt-set bump)
-        // is what lets the LLM author a real one.
+        // Non-empty `description` is mandatory, not cosmetic: `nearbyNpcsAt` filters out an NPC
+        // with a falsy one, so the mint would be invisible to `getNearbyNpcs` and never re-resolve.
         description: 'A foe from a recent fight, left alive and wounded.',
         health: survivingHp,
-        // `char.location` is the fight's location, captured BEFORE this resolution's own
-        // mutations run. Both are set from it so they agree: the applier honours an explicit
-        // `location` ahead of its POST-mutation `applied.location` fallback precisely so this
-        // mint can't drift from its own `homeLocation` when the same resolution also relocates
-        // the player. They must match or the nightly wander-skip (`home_location === location`)
-        // never fires and the foe wanders off before the next encounter here can resolve it.
+        // Both taken from the fight's location, captured before this resolution's own mutations:
+        // they must agree or the nightly wander-skip (`home_location === location`) never fires.
         location: char.location,
         homeLocation: char.location,
       } as WorldMutation);
@@ -1106,13 +936,8 @@ export class PipelineActionStateMachine {
       knownLocations: this.resolver.getKnownLocations(),
     };
     const { mutations: finalisedMutations } = this.finalize(mutationsWithCombat, mutationCtx);
-    // F#12: strip after finalize but BEFORE the RESOLVE-NARRATE handoff below, which is what the
-    // coherence requirement actually needs — the narration must never describe an inspiration the
-    // player did not receive. Post-collapse specifically: `collapseStackedDeltas` has already
-    // coerced the amount to a real number (so a quoted `"1"` cannot slip past a `typeof` guard and
-    // then be coerced back inside finalize) and has netted same-axis deltas into one entry (so a
-    // competing `+2`/`-1` pair is removed as a single net grant instead of leaving behind a roll
-    // cost the model never intended as one).
+    // Before the RESOLVE-NARRATE handoff below: the narration must never describe an inspiration
+    // the player did not receive.
     const finalMutations = stripWorkInspiration(finalisedMutations, state.kind);
 
     // RESOLVE-NARRATE.
@@ -1130,8 +955,7 @@ export class PipelineActionStateMachine {
     const rawOutcomeText = combatNarrate.outcomeText;
     if (combatNarrateCallId !== 0) combatResolveCallIds.push(combatNarrateCallId);
 
-    // Faithfulness prose critic (D7): may only patch outcomeText. `finalMutations` is already
-    // finalized above and never handed back for modification — see critiqueNarration's contract.
+    // The prose critic may only patch outcomeText; `finalMutations` is never handed back for edits.
     const { outcomeText, criticCallIds } = await this.critiqueNarration(
       rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context, state.actionType,
     );
@@ -1141,10 +965,8 @@ export class PipelineActionStateMachine {
       mutations.push({ type: 'modify_wealth', amount: state.wage });
     }
 
-    // Terminal beat (T5): built here, after `mutations` is fully assembled (incl. the wage
-    // append), so `ops` matches exactly what the outcome reports.
-    // Clamp to the actual applied change — a lethal nominal delta (e.g. -5 from 3 HP) can't
-    // drop the player below 0, so the beat log must record -3, not the raw band nominal.
+    // Built after `mutations` is fully assembled, so the beat's `ops` matches what the outcome reports.
+    // Clamp to the delta that applied: a nominal -5 from 3 HP lands as -3, not the band nominal.
     const appliedPlayerHpDelta = Math.max(playerHpDelta, -char.health);
     const combatBeat = this.buildCombatBeat(
       cs,
@@ -1157,9 +979,7 @@ export class PipelineActionStateMachine {
       dc,
       fatalBlowMarker ? { fatalBlow: fatalBlowMarker } : {},
     );
-    // ANSI-D: close out the fight's round log — prior rounds off the last pendingDecision
-    // (tolerant read) plus this terminal beat, surfaced on the outcome for the terminal
-    // presentation layer.
+    // Close out the fight's round log: prior rounds off the last pendingDecision plus this beat.
     const combatRounds = [...(state.pendingDecision.combatRounds ?? []), combatBeat];
 
     const finalState: PipelineInternalActionState = {
@@ -1193,9 +1013,8 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * DICE → RESOLVE-MUTATE → [Task 3's finalize slots in here] → RESOLVE-NARRATE. The D5b
-   * inversion this pipeline exists to deliver: mutation-authoring is split from text-authoring
-   * so narration can (once Task 3 lands) be written against FINAL, not proposed, mutations.
+   * DICE → RESOLVE-MUTATE → finalize → RESOLVE-NARRATE. Mutation-authoring is split from
+   * text-authoring so narration is written against FINAL, not proposed, mutations.
    */
   private async resolve(
     state: PipelineInternalActionState,
@@ -1221,18 +1040,11 @@ export class PipelineActionStateMachine {
       verdict = 'success';
     }
 
-    // Structured, typed handoff (Task 2 acceptance criterion) — the actual `PipelineDecideResult`
-    // the last `decide()` call returned, carried forward on `state.lastDecideResult`. `decision`
-    // is a fresh session per the pipeline contract, so this is what RESOLVE-MUTATE is told was
-    // decided, not a shared object.
     const decisionForHandoff = state.lastDecideResult;
     const chosenOptionForHandoff = chosenOption as LlmDecisionOption;
 
-    // Gate on the same condition the roll stage above used (`state.flags.needs_roll`), not a
-    // truthiness check of `d20Roll` — rest/travel's auto-resolve leaves `d20Roll` at its literal
-    // `0` default, which reads falsy either way, so a truthiness check would happen to work here
-    // too; gating on the roll flag directly is what actually says "a roll happened" instead of
-    // relying on that coincidence (resolve-difficulty-signal.md).
+    // Gate on `needs_roll`, the same condition the roll stage used, rather than on `d20Roll`
+    // truthiness: rest/travel leaves the literal `0` there, which reads falsy by coincidence.
     const finalDcHandoff = state.flags.needs_roll ? { finalDc: newDc } : {};
 
     const { result: mutateResult, callId: resolveMutateCallId } = await this.llm.resolveMutate({
@@ -1247,20 +1059,16 @@ export class PipelineActionStateMachine {
     const proposedMutations = mutateResult.mutations;
     const resolveCallIds: number[] = resolveMutateCallId !== 0 ? [resolveMutateCallId] : [];
 
-    // D6 travel-coherence gate: structural backstop against a scene that narrated elsewhere with
-    // no relocate mutation (the forge→forest teleport). Injects intent only — geography enforces
-    // feasibility once the augmented list flows through finalize below.
+    // Travel-coherence gate: backstop against a scene narrated elsewhere with no relocate
+    // mutation. It injects intent only; geography enforces feasibility in finalize below.
     const gatedMutations = applyTravelCoherenceGate(
       proposedMutations as WorldMutation[],
       decisionForHandoff.sceneLocation,
       char.location,
     );
 
-    // The D5b inversion point: engine finalize (geography → collapse → validate) runs here,
-    // between mutation-authoring and text-authoring, so RESOLVE-NARRATE below sees what
-    // actually landed rather than what RESOLVE-MUTATE proposed. `this.finalize` defaults to an
-    // identity pass-through (see constructor) — nobody wires the real WorldEngineImpl-bound
-    // closure into a live call site in Stage 1; only this class's own tests inject one.
+    // The inversion point: finalize (geography → collapse → validate) runs between
+    // mutation-authoring and text-authoring, so RESOLVE-NARRATE sees what actually landed.
     const mutationCtx: MutationContext = {
       currentHealth: char.health,
       maxHealth: char.maxHealth,
@@ -1272,8 +1080,7 @@ export class PipelineActionStateMachine {
       knownLocations: this.resolver.getKnownLocations(),
     };
     const { mutations: finalisedMutations } = this.finalize(gatedMutations, mutationCtx);
-    // F#12: see the matching comment in `resolveCombat` — stripped after finalize but before the
-    // RESOLVE-NARRATE handoff, so the strip reads one net, type-coerced amount per axis.
+    // Same ordering as in `resolveCombat`: stripped after finalize, before the RESOLVE-NARRATE handoff.
     const finalMutations = stripWorkInspiration(finalisedMutations, state.kind);
 
     const { result: narrateResult, callId: resolveNarrateCallId } = await this.llm.resolveNarrate({
@@ -1289,8 +1096,6 @@ export class PipelineActionStateMachine {
     const rawOutcomeText = narrateResult.outcomeText;
     if (resolveNarrateCallId !== 0) resolveCallIds.push(resolveNarrateCallId);
 
-    // Faithfulness prose critic (D7): may only patch outcomeText. `finalMutations` is already
-    // finalized above and never handed back for modification — see critiqueNarration's contract.
     const { outcomeText, criticCallIds } = await this.critiqueNarration(
       rawOutcomeText, verdict, decisionForHandoff, finalMutations as unknown[], context, state.actionType,
     );
@@ -1326,18 +1131,8 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * D7 two-critic-split resolution (settled by the lead): a SINGLE `CriticGateway.critique`
-   * interface (the critic-v1 prompt, branching on `beat`) is invoked at two pipeline sites — a
-   * gated coherence critic over DECIDE (major → one bounded re-decide, below) and a faithfulness
-   * prose critic over RESOLVE-NARRATE (patches `outcome_text` only, see `critiqueNarration`). Not
-   * two prompts/interfaces: the D5b split already structurally prevents the prose critic from
-   * altering mutations (the machine applies only `patch.outcomeText`; the finalized mutation array
-   * is never handed to the critic for modification), so a separate "prose-only" interface would
-   * add versioning + wiring for zero behavioural gain.
-   *
-   * No critic injected → unconditional no-op (`{ result: decideResult, criticCallIds: [] }`), so
-   * every caller that doesn't wire one in (all existing tests + the sim) is byte-identical to
-   * pre-T4 behaviour.
+   * Coherence critic over DECIDE; an injected critic is required, so without one this is
+   * an unconditional no-op (as is `critiqueNarration`).
    */
   private async critiqueDecide(
     decideResult: PipelineDecideResult,
@@ -1347,12 +1142,7 @@ export class PipelineActionStateMachine {
   ): Promise<{ result: PipelineDecideResult; criticCallIds: number[] }> {
     if (!this.critic) return { result: decideResult, criticCallIds: [] };
 
-    // §3 v12 QA: removed the `required` gate — the decision critic now fires on
-    // every decide beat, catching single-option and other LLM quality issues that
-    // would otherwise pass through unchecked (e.g. add_item on a travel action).
-    // RA-4c: the anomaly-based gating this TODO asked for now exists (`critic-gate.ts`), opt-in
-    // via `criticGateMode`. A clean beat under 'anomaly' skips the critic call entirely — no
-    // verdict, no criticCallIds, byte-identical to the beat never having a critic at all.
+    // A clean beat under the gate skips the critic call entirely: no verdict, no criticCallIds.
     if (
       !criticShouldFire(this.criticGateMode, 'decision', {
         baseDc: decideResult.baseDc,
@@ -1379,8 +1169,8 @@ export class PipelineActionStateMachine {
     // to land, so treat minor the same as ok (pass through unchanged).
     if (verdict.severity === 'minor') return { result: decideResult, criticCallIds };
 
-    // Major: ONE bounded re-decide with the critic's issues as guidance. NOT re-critiqued —
-    // a correction is not itself subject to correction (mirrors CritiquedLlmGateway's ladder).
+    // One bounded re-decide with the critic's issues as guidance, not itself re-critiqued: a
+    // correction is not subject to correction.
     const note = verdict.issues.join('; ') || 'incoherent with the scene';
     try {
       const { result: redecided, callId: redecideCallId } = await this.llm.decide({ actionType, flags, context: { ...context, criticNote: note } });
@@ -1393,10 +1183,8 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * §2 v12 QA: deterministic single-option validator. After the critic pass, if the final
-   * decision has exactly one option, trigger ONE bounded re-decide with guidance to produce
-   * real choices or return []. The re-decide output is NOT re-critiqued (mirrors the critic's
-   * own re-decide ladder — a correction is not itself subject to correction).
+   * Deterministic single-option validator: exactly one option triggers one bounded re-decide
+   * asking for real choices or `[]`.
    */
   private async validateSingleOption(
     decideResult: PipelineDecideResult,
@@ -1408,8 +1196,7 @@ export class PipelineActionStateMachine {
       return { result: decideResult, validatorCallIds: [] };
     }
 
-    // Combat beats are linear per round — single-option "Press the attack" is expected
-    // and the combat sub-mode handler owns the entire round flow. Skip the validator.
+    // Combat beats are linear per round, where a single-option "Press the attack" is expected.
     if (actionType === 'combat') {
       return { result: decideResult, validatorCallIds: [] };
     }
@@ -1435,11 +1222,8 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * Faithfulness prose critic over RESOLVE-NARRATE. Returns ONLY a (possibly patched) string —
-   * it never receives or returns mutations, so the caller's `finalMutations` array is untouched
-   * by construction: the prose critic structurally cannot alter a finalized mutation.
-   *
-   * No critic injected → unconditional no-op, matching `critiqueDecide`.
+   * Faithfulness prose critic over RESOLVE-NARRATE. Returns only a (possibly patched) string, so it
+   * cannot alter the caller's already-finalized mutations.
    */
   private async critiqueNarration(
     outcomeText: string,
@@ -1451,11 +1235,8 @@ export class PipelineActionStateMachine {
   ): Promise<{ outcomeText: string; criticCallIds: number[] }> {
     if (!this.critic) return { outcomeText, criticCallIds: [] };
 
-    // RA-4c/SL-3: gated under BOTH 'anomaly' and the default 'narrate-gated' — the A/B found every
-    // narrate critic call inert, which follows from this method's own contract (a `major` here is
-    // discarded because dice and mutations are already final, so only a patched `minor` can act).
-    // Keyed off the decide result this narration resolves against: that is the only anomaly signal
-    // available at this beat.
+    // Gated because a `major` verdict here is discarded, with the dice and mutations already final,
+    // so in practice only a patched `minor` can change anything.
     if (
       !criticShouldFire(this.criticGateMode, 'resolution', {
         baseDc: decideResult.baseDc,
@@ -1481,18 +1262,16 @@ export class PipelineActionStateMachine {
     if (!v.ok && v.severity === 'minor' && v.patch?.outcomeText) {
       outcomeText = v.patch.outcomeText;
     } else if (!v.ok && v.severity === 'major') {
-      // Dice + mutations are already finalized; a structural defect can't be safely re-narrated,
-      // so keep the original text (mirrors legacy machine.ts's resolveWithRoll critic hook).
+      // Dice and mutations are already final, so a structural defect can't be safely re-narrated.
+      // Keep the original text and log it.
       console.warn('[critic] major defect on resolution beat — keeping original text:', v.issues.join('; '));
     }
 
     return { outcomeText, criticCallIds };
   }
 
-  /** Beat-1 LLM fault → the divine intervention below. The card the player gets is deliberately
-   *  in-voice and says nothing about the model, so this console line is the only place the real
-   *  cause survives — without it a run of stage failures is indistinguishable from a run of
-   *  ordinary refunds. */
+  /** Beat-1 LLM fault → the divine intervention below. The card says nothing about the model, so
+   *  this console line is the only place a run of stage failures is distinguishable. */
   private divineOnStageFailure(
     rawInput: string,
     kind: ActionKind,
@@ -1508,12 +1287,8 @@ export class PipelineActionStateMachine {
   }
 
   /**
-   * The beat-1 system-fault path. Originally just classify-fallback-total-failure (heuristic
-   * missed AND the LLM fallback call rejected); since 0.3.4 any LLM stage failure inside
-   * `start()` lands here too, via `divineOnStageFailure`. Typed, not string-sentinel (risk
-   * table: don't overload `distilledType` with `'__divine__'` the way `FallbackLlmGateway.ts`
-   * does) — `isDivineIntervention: true` on the outcome is the only signal. Never lets the
-   * rejection escape `start()`.
+   * The beat-1 system-fault path, typed rather than a `distilledType` sentinel:
+   * `isDivineIntervention` on the outcome is the only signal; the rejection never escapes `start()`.
    */
   private resolveDivineIntervention(
     rawInput: string,
@@ -1532,11 +1307,9 @@ export class PipelineActionStateMachine {
       distilledType: 'divine_intervention',
       rollStat: 'physical',
       required: false,
-      // No real decide() call happens on this path (classify itself failed) — this mirrors the
-      // other hardcoded fields above rather than being read by anything, since divine
-      // intervention resolves outright and never reaches resolve()'s handoff.
+      // Mirrors the other hardcoded fields above: this path resolves outright, so nothing reads it.
       lastDecideResult: { distilledType: 'divine_intervention', stat: 'physical', baseDc: 0, required: false, decision: [] },
-      lastActionAt: Date.now(), // advancing-pin audited: see the field note above
+      lastActionAt: Date.now(),
     };
     return {
       resolved: true,
@@ -1557,26 +1330,13 @@ export class PipelineActionStateMachine {
 
 // ── Module-level helpers ──
 
-/** F#12: the day job pays coin, not cadence. Work is the reliable floor of the daily loop;
- *  `modify_rolls_remaining` is meant to be the exceptional reward for an ambitious attempt, so
- *  granting it on guaranteed-income work is a leak, not a bonus. Routing can't see `kind` (it's
- *  pure free-text classification — see the plan's F#12 correction), so RESOLVE-MUTATE's prose
- *  has no seam to gate this on and the strip must happen here, deterministically, keyed on the
- *  persisted `state.kind` rather than `state.wage` (a zero-income job action is still work).
- *  Only the positive direction is stripped — a cost (negative or zero amount) is untouched.
- *
- *  Expects the POST-collapse set (both callers strip the finalize output, not its input): a
- *  pre-collapse set can carry a quoted amount and several competing entries for the same axis,
- *  which is why the position matters. `Number(...)` rather than a `typeof` guard regardless, since
- *  this is module-level and a future caller should not have to know collapse ran first. */
+/** Drops the `modify_rolls_remaining` grant on `kind: 'work'`: the day job pays coin, not cadence, and
+ *  routing never sees `kind`. Expects the POST-collapse set (deltas netted, amounts coerced). */
 function stripWorkInspiration(mutations: WorldMutation[], kind: ActionKind | undefined): WorldMutation[] {
   if (kind !== 'work') return mutations;
   return mutations.filter(m => !(m.type === 'modify_rolls_remaining' && Number(m.amount ?? 0) > 0));
 }
 
-/** Small local reimplementation of legacy's private `ensureBail` — generic shape logic, not
- *  legacy-machine-owned, so duplicating it here (rather than importing the private helper)
- *  keeps this file self-contained per the Stage 1 zero-risk-to-v11 constraint. */
 function ensureBail(options: ActionOption[], required: boolean): ActionOption[] {
   if (required) return options;
   if (options.some(o => o.dcModifier === null)) return options;
@@ -1587,10 +1347,8 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** DECIDE authors options only (no `prompt` — settled decision), so the beat's prompt is always
- *  the generic CTA, never derived from LLM prose. decide-scene-narration amendment: DECIDE now
- *  also authors `narration` on CONTINUE beats (scene-framing prose, not outcome-authoring) —
- *  passed through here unchanged; absent on NEW_ACTION, so the first beat stays lean. */
+/** DECIDE authors options only, so the prompt is always the generic CTA. `narration` (CONTINUE
+ *  beats only) passes through unchanged; it is absent on NEW_ACTION, so the first beat stays lean. */
 function toActionDecision(result: PipelineDecideResult, required: boolean): ActionDecision {
   let options: ActionOption[] = required
     ? result.decision.filter(o => o.dcModifier !== null)
@@ -1611,18 +1369,11 @@ function toActionDecision(result: PipelineDecideResult, required: boolean): Acti
   };
 }
 
-/** Enemy HP fraction -> a 5-pip fill count + wound word (decide-scene-narration spec). Banded
- *  only — never the exact HP number — so hidden exact HP keeps tension while still reading as
- *  progress. Returns the fill count (not glyphs); the presentation layer renders the pips. */
+/** Enemy HP fraction -> a 5-pip fill count + wound word. Banded only, never the exact HP, so the
+ *  hidden number keeps tension. Returns the fill count, not glyphs; presentation draws them. */
 export function enemyConditionBand(hpFraction: number): { filled: number; woundWord: string } {
-  // Total over its domain (RA-5c review nit, folded in here since this task adds a new caller):
-  // `NaN <= 0` is `false`, so an unguarded NaN would fall through every tier to 'Critical' and
-  // return `filled: NaN` — a broken pip bar. No live path feeds NaN today (`readCombatState`
-  // rejects non-finite HP at source), but the function is exported, so guard it anyway.
-  // Non-finite input means "unknown", not "dead" — defaulting unknown to a false 'Slain' claim
-  // is the wrong direction, so only the broken `filled: NaN` is fixed here; the pre-guard
-  // wound word ('Critical') is preserved. A genuinely negative fraction is over-kill, not
-  // unknown, and still reads 'Slain' below.
+  // `NaN <= 0` is false, so unguarded NaN would fall through every tier and return `filled: NaN`,
+  // a broken pip bar. Non-finite means unknown, not dead, so the wound word stays 'Critical'.
   const filled = Number.isFinite(hpFraction)
     ? Math.max(0, Math.min(5, Math.round(hpFraction * 5)))
     : 0;
@@ -1636,12 +1387,8 @@ export function enemyConditionBand(hpFraction: number): { filled: number; woundW
   return { filled, woundWord };
 }
 
-/** Engine-composed combat-status DATA for a continue-screen (B#5/B#6, ANSI-C): the engine keeps
- *  the banding maths only — enemy stays BANDED (never exact HP — hidden exact HP keeps tension);
- *  the player is EXACT, it's their own information, clamped to >=0 so a lethal round never
- *  displays negative HP mid-resolution (0/dead is resolved by the terminal outcome, not this
- *  continue screen). Frame assembly (glyphs, AnsiRenderer) moves to the presentation layer
- *  (`buildDecisionMessage`) so `src/render/` is never imported engine-side. */
+/** Combat-status data for a continue screen: the enemy stays banded, the player is exact and
+ *  clamped at 0. Frame assembly lives in the presentation layer, never imported engine-side. */
 function composeCombatStatus(
   enemyName: string,
   enemyHp: number,
@@ -1670,8 +1417,7 @@ function recordToPrev(records: ActionDecisionRecord[]): { prompt: string; chosen
   }));
 }
 
-/** Adapts a DECIDE-beat result into the single `LlmDecision` shape the critic-v1 prompt expects
- *  (it reads a `decision`/`prompt`/`mutations`/`outcome_text`-shaped object regardless of beat). */
+/** Adapts a DECIDE-beat result into the `LlmDecision` shape the critic-v1 prompt expects. */
 function adaptDecideToLlmDecision(r: PipelineDecideResult): LlmDecision {
   return {
     distilledType: r.distilledType,
@@ -1683,9 +1429,8 @@ function adaptDecideToLlmDecision(r: PipelineDecideResult): LlmDecision {
   };
 }
 
-/** Adapts a finalized RESOLVE-NARRATE beat (verdict-shaped, `done: true`) into the same
- *  `LlmDecision` shape — `mutations`/`outcomeText` carried through for the critic's context only,
- *  never fed back into the machine's own mutation handling. */
+/** Adapts a finalized RESOLVE-NARRATE beat into that same `LlmDecision` shape; the mutations and
+ *  text ride along for the critic's context only, never back into the machine's own handling. */
 function adaptNarrationToLlmDecision(r: PipelineDecideResult, outcomeText: string, finalMutations: unknown[]): LlmDecision {
   return {
     distilledType: r.distilledType,
