@@ -1,8 +1,8 @@
 /** Mid-action state auto-times out after this (30 min). */
 const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** Map §4 spoke cap: a node never sprouts more than this many outgoing spokes
- *  (charted edges + frontier exits), so the graph can't fan out without bound. */
+/** A node never holds more than this many outgoing spokes (charted edges + frontier
+ *  exits), so the map can't fan out without bound. */
 const SPOKE_CAP = 5;
 
 import type Database from "better-sqlite3";
@@ -77,7 +77,7 @@ import type {
 import { sanitizeAuthored } from "./authored-text.js";
 
 /** Daily rolls granted at creation and refreshed each tick. Exported so the agent-player
- *  handbook test can pin its copy against the engine's real figures (spec § D). */
+ *  handbook test can pin its copy against the engine's real figures. */
 export const DAILY_ROLL_ALLOWANCE = 3;
 
 /** Extra rolls granted on the Saturday tick. */
@@ -85,7 +85,6 @@ export const SATURDAY_BONUS_ROLLS = 1;
 
 // ── Seeded RNG helpers ──
 
-/** mulberry32 PRNG — deterministic, seedable. */
 function mulberry32(seed: number): () => number {
   let s = seed | 0;
   return () => {
@@ -102,7 +101,6 @@ function seededRandomRange(seed: number, min: number, max: number): number {
   return Math.floor(rng() * (max - min + 1)) + min;
 }
 
-/** Check if a comma-separated tags string contains the given tag. */
 function locationTagsContain(tags: string | null, tag: string): boolean {
   if (!tags) return false;
   return tags
@@ -123,8 +121,8 @@ type AppliedStateView = {
   location: string;
 };
 
-/** Render a relation endpoint for the compact mutation summary, e.g. `pc`, `npc:Greta`. Shape
- *  only — no resolution (mirrors mutations.ts's `isValidEndpoint`; endpoints are unresolved here). */
+/** Render a relation endpoint for the compact mutation summary, e.g. `pc`, `npc:Greta`.
+ *  Shape only, never resolved — the endpoint carries no id at this point. */
 function describeRelationEndpoint(v: unknown): string {
   if (typeof v !== "object" || v === null) return "?";
   const node = (v as { node?: unknown }).node;
@@ -170,10 +168,7 @@ function summariseMutation(m: WorldMutation): string {
   }
 }
 
-/** Player-facing "intel gathered" lines for the journal chronicle (F#6) — parses the same
- *  `applied_mutations` JSON already sitting on the action row (no new tracking) and surfaces
- *  only the two mutation kinds that read as intel: a location revealed, an NPC met. Other
- *  mutation kinds (stat/item churn) aren't narratively "intel" so stay out of the journal. */
+/** The two mutation kinds that read as player-facing journal intel: a location revealed, an NPC met. */
 function journalDiscoveries(appliedMutationsJson: string | null): string[] {
   if (!appliedMutationsJson) return [];
   let mutations: WorldMutation[];
@@ -245,15 +240,15 @@ interface WorldEngineConfig {
   actionRepo: ActionRepository;
   npcRepo: NpcRepository;
   rollD20?: () => number;
-  /** D3 async world-builder: enriches new provisional locations (is_safe + description)
-   *  off the critical path. Absent in tests / without an LLM key — row stays provisional. */
+  /** Enriches new provisional locations (is_safe + description) off the critical path.
+   *  Absent in tests / without an LLM key — the row stays provisional. */
   cartographer?: CartographerGateway;
-  /** Coherence critic (Thread 2, opt-in): decision beats critiqued via CritiquedLlmGateway,
-   *  resolution beats via the machine hook. Absent = disabled. */
+  /** Coherence critic: decision beats via CritiquedLlmGateway, resolution beats via the machine
+   *  hook. Absent = disabled. */
   critic?: CriticGateway;
-  /** RA-4c: WHEN the critic above fires. Absent → machine default ('always', today's behaviour). */
+  /** When the critic above fires. Absent → machine default ('narrate-gated'). */
   criticGateMode?: CriticGateMode;
-  /** v12 pipeline config. Not used when pipelineLlmGateway is present. */
+  /** Pipeline config; unused when `pipelineLlmGateway` is present. */
   pipelineLlm?: ProdPipelineGatewayConfig;
 
   /** YAML asset data for stat computation. Injected so engine stays presentation-free. */
@@ -274,9 +269,8 @@ interface WorldEngineConfig {
       quantity?: number;
     }>;
   }>;
-  /** Pre-constructed pipeline gateway for tests/sim. When present, used directly
-   *  instead of constructing ProdPipelineLlmGateway from pipelineLlm config.
-   *  At least one of pipelineLlm or pipelineLlmGateway must be provided. */
+  /** Pre-constructed pipeline gateway for tests/sim, used directly when present; otherwise
+   *  `pipelineLlm` builds one. One of the two must be provided. */
   pipelineLlmGateway?: PipelineLlmGateway;
 }
 
@@ -289,18 +283,14 @@ export class WorldEngineImpl implements WorldEngine {
   private npcRepo: NpcRepository;
   private locationRepo: LocationRepository;
   private edgeRepo: LocationEdgeRepository;
-  /** Stage 5 Task 0 — the prod host's scene-state repo, dormant under the legacy machine (which
-   *  emits no relation mutations) but live the moment T6 installs the pipeline machine. */
+  /** Scene-state relation spine: projected into the decision context, read back for combat. */
   private relationRepo: RelationRepository;
-  /** T5a: the shared geography-finalize closure (mint/route/collapse/validate), extracted so the
-   *  pipeline sim can reuse the SAME logic over its own seeded repos — see geography-finalize.ts.
-   *  Built in the constructor body (not a field initializer) since it closes over
-   *  `this.locationRepo`/`this.edgeRepo`, which are themselves assigned in the constructor body. */
+  /** The shared geography-finalize closure (mint/route/collapse/validate), built in the
+   *  constructor body because it closes over `locationRepo`/`edgeRepo`, assigned there. */
   private geographyFinalize: ReturnType<typeof createGeographyFinalize>;
   private charLocRepo: CharacterLocationRepository;
   private metaRepo: MetaRepository;
   private llmCallRepo: LlmCallRepository;
-  /** Pipeline machine (v12). */
   private machine: PipelineActionStateMachine;
   private cartographer?: CartographerGateway;
   private classDefs: ClassDef[];
@@ -319,10 +309,7 @@ export class WorldEngineImpl implements WorldEngine {
     }>;
   }>;
 
-  /** Guards against concurrent action starts for the same character. */
   private processingActions = new Set<number>();
-  /** Guards against concurrent step() calls for the same action — T6 serialises step()
-   *  per action so concurrent Discord interactions can't interleave combat state. */
   private steppingActions = new Set<number>();
 
   constructor(config: WorldEngineConfig) {
@@ -397,9 +384,8 @@ export class WorldEngineImpl implements WorldEngine {
     );
   }
 
-  /** Extracted out of `contextResolver.getNearbyNpcs` (Stage 5 Task 0) so the relation-persist
-   *  call in `applyResolution` resolves `npc` endpoints against the SAME source, rather than a
-   *  second copy of this npc-mapping. */
+  /** `npc` endpoints in `applyResolution`'s relation-persist call resolve against the same
+   *  mapping the decision context uses, rather than a second copy of it. */
   private nearbyNpcsAt(location: string): NearbyNpc[] {
     return this.npcRepo
       .findByLocation(location)
@@ -465,9 +451,8 @@ export class WorldEngineImpl implements WorldEngine {
     return this.rowToCharacterData(row);
   }
 
-  /** Every new player starts already knowing the home Vale — nobody "discovers"
-   *  their own workplace (§1, §3). The home cluster is the seeded home region;
-   *  new ground (other regions) stays fogged until explored. */
+  /** New players start knowing the home Vale rather than "discovering" their own workplace;
+   *  every other region stays fogged until explored. */
   private seedHomeClusterDiscovery(characterId: number): void {
     const home = this.locationRepo
       .findAll()
@@ -491,15 +476,10 @@ export class WorldEngineImpl implements WorldEngine {
     return !!this.charRepo.findByUserId(user.id);
   }
 
-  // ── Action state machine (S3) ──
+  // ── Action state machine ──
 
-  /**
-   * Apply a resolved outcome: drop invalid mutations, apply char/item changes,
-   * write the action row (+ link the LLM audit row), spawn NPCs, clear mid-action
-   * state. Shared by stepAction and the startAction auto-finish path. Caller wraps
-   * this in a transaction. Mutates `outcome.mutations` to drop invalid entries so the
-   * renderer sees only what was applied (per spec).
-   */
+  /** Applies a resolved outcome, dropping invalid mutations from `outcome.mutations` so the
+   *  renderer sees only what was applied. The caller wraps this in a transaction. */
   private applyResolution(
     characterId: number,
     row: CharacterRow,
@@ -507,15 +487,11 @@ export class WorldEngineImpl implements WorldEngine {
     rawInput: string,
     decisions: ActionDecisionRecord[],
   ): { worldChanged: boolean; provisionalLocations: string[]; actionId: number; rollsMutationDelta: number } {
-    // Clear mid-action state (no-op for auto-finish, which never persisted)
     console.log(`[engine] applyResolution start char=${characterId} type=${outcome.distilledType} outcome=${outcome.outcome}`);
     this.charRepo.update(characterId, { last_action_state: null });
 
-    // Geographic resolution (per-player-map-exploration §2): movement is now
-    // engine-validated against the shared graph. `move_to`/`set_location` must reach a
-    // charted node; `cross_frontier` mints new ground ONLY by crossing a real frontier exit.
-    // Illegal moves are dropped (no lazy-create-from-thin-air). Returns the names
-    // minted this turn — fed to the async cartographer to chart their geometry.
+    // Movement is engine-validated: an illegal move is dropped rather than lazily created, and
+    // `cross_frontier` mints ground only through a real exit. Minted names feed the cartographer.
     const knownLocations = this.locationRepo.findAll().map((l) => l.name);
     const baseCtx: MutationContext = {
       currentHealth: row.health,
@@ -535,8 +511,8 @@ export class WorldEngineImpl implements WorldEngine {
     );
     outcome.mutations = finalMutations;
 
-    // Include just-minted names so applyMutations' move_to/cross_frontier snap-to-canonical
-    // sees the same known set finalizeMutations validated against.
+    // Just-minted names are added so the applier snaps moves against the same known set
+    // `finalizeMutations` validated against.
     const ctx: MutationContext = {
       ...baseCtx,
       knownLocations: [...knownLocations, ...provisionalLocations],
@@ -558,21 +534,14 @@ export class WorldEngineImpl implements WorldEngine {
       this.charRepo.update(characterId, updates);
     }
 
-    // Fog-of-war: discovering (or revisiting) the place you end up. Recency on a
-    // revisit drives the /map ordering (§5). The ORIGIN was already discovered.
+    // Fog-of-war: record where you end up. A revisit refreshes the recency that orders /map;
+    // the origin was already discovered.
     if (updates.location !== undefined) {
       this.charLocRepo.recordVisit(characterId, applied.location);
     }
 
-    // D1: did this resolution change the world? Drives the no-op roll refund in
-    // startAction. Health/max_stamina/wealth/location/item/NPC deltas count. Spending stamina or
-    // rolls does NOT — those are the costs of effort/turns, so a "shrug" that only tires you or
-    // burns rolls is still a refundable no-op (you got nothing for it). But GAINING rolls is
-    // getting something: the action is charged like any other, so a granted roll nets against the
-    // action's own cost instead of stacking free on top of the refund.
-    // Item changes count only if they REALLY touch inventory: an add of a real (qty>0) item, or
-    // a remove of an item the character actually owns. A hallucinated remove_item for an unowned
-    // item is a repo no-op, so it must NOT flag worldChanged and deny the no-op roll refund.
+    // The no-op refund's test: health/max-stamina/wealth/location/item/NPC deltas and gained rolls
+    // count; spent stamina or rolls do not, and an item counts only if it really moved.
     const ownedNames = new Set(this.itemRepo.findByCharacterId(characterId).map((i) => i.name));
     const itemsAdded = applied.itemsToAdd.filter((i) => i.quantity > 0);
     const itemsRemoved = applied.itemsToRemove.filter((r) => ownedNames.has(r.name));
@@ -600,14 +569,6 @@ export class WorldEngineImpl implements WorldEngine {
       this.itemRepo.decrementByName(characterId, name, quantity);
     }
 
-    // Stage 5 Task 0 — host wiring for the scene-state spine. The legacy machine never
-    // constructs relation mutations, so in practice applied.relationsToSet/Update are always
-    // empty here and this call is inert — not live until T6 installs the pipeline machine. The
-    // only way a row could be written under v11 today is a malformed/injected LLM relation
-    // mutation (set_relation/update_relation are in the global WORLD_MUTATION_TYPES), which
-    // nothing in the v11 read path consumes (getSceneRelations is pipeline-only) and which the
-    // T7 cutover wipe clears — so it's observably inert, not structurally gated.
-    // Inside the caller's existing db.transaction (both callers wrap applyResolution in one).
     persistAuthoredRelations(
       this.relationRepo,
       applied.relationsToSet,
@@ -631,41 +592,30 @@ export class WorldEngineImpl implements WorldEngine {
       appliedMutations:
         outcome.mutations.length > 0 ? JSON.stringify(outcome.mutations) : null,
       narrative: (outcome.outcomeText ?? "").slice(0, 500) || null,
-      // Origin snapshot: where the character stood when they acted (§6). For
-      // travel this is the start, not the destination — the narrative carries
-      // the destination, and "from the Oak, set out east" reads naturally.
+      // Origin snapshot, not the destination: for travel it is where the character set out from,
+      // which is what "from the Oak, set out east" reads as.
       locationName: row.location,
     });
 
-    // Link every audit row this action produced (decision/narration/critic) so the full
-    // call chain is mineable. Falls back to the single resolution call id for older states
-    // predating llmCallIds. De-duped to avoid double links.
+    // Link every audit row this action produced (decision/narration/critic). Falls back to the
+    // single resolution call id for states predating `llmCallIds`, de-duped to avoid double links.
     const callIdsToLink = new Set<number>(outcome.llmCallIds ?? []);
     if (outcome.llmCallId !== undefined) callIdsToLink.add(outcome.llmCallId);
     for (const callId of callIdsToLink) {
       this.llmCallRepo.linkAction(callId, actionRow.id);
     }
 
-    // add_npc: create-only + collision detection (§2a). Never auto-merge — a duplicate
-    // name at the same location is almost certainly an LLM accident; flag it and still create,
-    // so the auditable world-state change is recorded even when we know it's a dup.
+    // add_npc is create-only with collision detection: never auto-merge — flag the duplicate and
+    // still create it, so the world-state change stays auditable.
     for (const npc of applied.npcsToAdd) {
-      // An explicit `npc.location` wins over `applied.location`, which is the POST-mutation
-      // location and so is wrong for RA-3's combat mint whenever the same resolution also
-      // relocates the player (the D6 travel-coherence gate injecting a `set_location`). On that
-      // mismatch the minted row's `location` and its `homeLocation` (pinned to the fight's
-      // pre-mutation location) disagree, which defeats the nightly wander-skip
-      // (`home_location === location`) and lets the foe drift off on the 80% wander — after
-      // which the next encounter at the fight's location can't resolve it and mints a duplicate,
-      // since the collision check below only looks within one location.
+      // An explicit `npc.location` wins: `applied.location` is the post-mutation location, and
+      // using it desyncs the row from its wander anchor and lets a duplicate be minted later.
       const atLocation = npc.location ?? applied.location;
       const collision = this.npcRepo.findByLocation(atLocation)
         .find(existing => existing.name.trim().toLowerCase() === npc.name.trim().toLowerCase());
       if (collision) {
         const warn = `add_npc collision: "${npc.name}" already exists at "${atLocation}" (id=${collision.id}) — creating duplicate`;
         console.warn(`[engine] ${warn}`);
-        // Append to validation_warnings on the LLM call if we can — telemetry for §5a.
-        // (Best-effort; the call may not exist yet when add_npc comes from a test fixture.)
       }
       this.npcRepo.create({
         name: npc.name,
@@ -679,8 +629,7 @@ export class WorldEngineImpl implements WorldEngine {
       });
     }
 
-    // update_npc: apply field changes via resolved npcId (§2a). class and race are included
-    // because the repo's allowed-list already gates which DB columns can be written.
+    // Field changes go through the resolved npcId; the repo's allowed-list gates the columns.
     for (const upd of applied.npcsToUpdate) {
       const fields: Record<string, unknown> = {};
       if (upd.description !== undefined) fields.description = upd.description;
@@ -692,29 +641,24 @@ export class WorldEngineImpl implements WorldEngine {
       }
     }
 
-    // remove_npc: hard delete — the action audit row (created_by_action_id on the npc) is
-    // already persisted, so provenance is preserved even after the row is gone.
+    // Hard delete: the row's `created_by_action_id` goes with it; the removal is recorded in this
+    // action's `applied_mutations`.
     for (const rem of applied.npcsToRemove) {
       this.db.prepare('DELETE FROM npcs WHERE id = ?').run(rem.npcId);
     }
 
-    // reveal_location: author a frontier exit at the current location (§3). The destination
-    // is NOT created yet — it's minted when cross_frontier binds it later. direction is
-    // auto-assigned from the first unused cardinal if not provided in the mutation.
     for (const reveal of applied.locationsToReveal) {
       this.applyRevealLocation(row.location, reveal, actionRow.id);
     }
 
-    // Stamp provenance on any place minted this turn (which action grew the world).
-    // Done post-create because the action id doesn't exist until the row is written.
+    // Stamped after the action row exists — the id is what provenance is written with.
     for (const name of provisionalLocations) {
       this.db
         .prepare('UPDATE locations SET created_by_action_id = ? WHERE name = ? AND created_by_action_id IS NULL')
         .run(actionRow.id, name);
     }
 
-    // Net roll change from this resolution's mutations alone (excludes the start-drain, which the
-    // caller folds in). Lets stepAction report a true rolls delta instead of the renderer guessing.
+    // Rolls changed by this resolution's mutations alone; the caller folds in the start-drain.
     console.log(`[engine] applyResolution done char=${characterId} actionId=${actionRow.id} worldChanged=${worldChanged}`);
     return {
       worldChanged,
@@ -724,14 +668,8 @@ export class WorldEngineImpl implements WorldEngine {
     };
   }
 
-  /**
-   * Deterministic mutation finalize: geography → collapse → validate (Thread D Task 3's
-   * extraction of `applyResolution`'s inline steps, so the pipeline machine's D5b inversion can
-   * call the same logic ahead of narration). "Pure" is read narrowly here — it never persists an
-   * action's health/wealth/rolls/action-row — but `applyGeography`/`resolveCrossFrontier`'s
-   * pre-existing frontier-mint DB write (a `locations` row + a bound `location_edges` row on a
-   * first crossing) is untouched live behaviour, not a resolution-level persist, so it stays.
-   */
+  /** Geography → collapse → validate. "Pure" only in that it never persists an action's
+   *  health/wealth/rolls/row; the frontier-mint write it calls is live and stays. */
   private finalizeMutations(
     proposed: WorldMutation[],
     ctx: MutationContext,
@@ -740,26 +678,14 @@ export class WorldEngineImpl implements WorldEngine {
     return this.geographyFinalize(proposed, ctx, category);
   }
 
-  /**
-   * Async cartographer (fire-and-forget). For each freshly-minted location, ask the
-   * LLM to chart it: fill is_safe + description + tags AND the geometry — region,
-   * emoji, node_tier — then author 1–3 onward frontier exits so exploration
-   * continues. Only writes while the row is STILL provisional (enrichProvisional
-   * guards on the flag → double-fire/settled-row safe). The engine validates the
-   * structural fields (never trusts the LLM for hierarchy — map §4): emoji falls
-   * back to 📍, region to the crossing region, tier to 2. Never awaited/throws.
-   */
-  /** Names of every location still awaiting cartographer enrichment. */
   private pendingEnrichmentNames(): Set<string> {
     return new Set(
       this.locationRepo.findAll().filter((l) => l.enrichment_pending === 1).map((l) => l.name),
     );
   }
 
-  /** Provisional rows that became enrichment-pending across an action (i.e. minted by it).
-   *  The mint happens inside the machine's finalize, and `applyResolution` re-runs finalize
-   *  against an already-bound frontier edge — so it reports no minted names (N2). Diffing the
-   *  pending set around the machine call is how the engine recovers what was actually minted. */
+  /** Provisional rows minted by this action, recovered by diffing the pending set around the
+   *  machine call — `applyResolution`'s re-finalize against a bound edge reports none. */
   private mintedSince(before: Set<string>): string[] {
     return [...this.pendingEnrichmentNames()].filter((name) => !before.has(name));
   }
@@ -827,12 +753,8 @@ export class WorldEngineImpl implements WorldEngine {
     }
   }
 
-  /**
-   * Author the cartographer's onward frontier exits from a newly-charted node,
-   * each on a free cardinal direction. SPOKE CAP (map §4): a node never sprouts
-   * more than SPOKE_CAP total spokes (charted edges + frontier exits) — once it's
-   * full, further onward exits are dropped so the map can't fan out without bound.
-   */
+  /** Author the cartographer's onward exits, one per free cardinal. A node stops growing once
+   *  it holds `SPOKE_CAP` total spokes (charted edges + frontier exits). */
   private authorOnwardFrontiers(
     from: string,
     frontiers: Array<{ teaser: string; difficulty: 1 | 2 | 3 }>,
@@ -843,19 +765,15 @@ export class WorldEngineImpl implements WorldEngine {
       if (used.size >= SPOKE_CAP) break; // node is full — stop growing it
       const dir = CARDINALS.find((c) => !used.has(c));
       if (!dir) break;
-      // Sanitize + cap the teaser: it's shown on /map and re-injected into every future
-      // decision prompt from this node, so an unbounded or markdown-laden one bloats both.
+      // The teaser is shown on /map and re-injected into every future decision from this node,
+      // so it is sanitised and capped.
       const teaser = sanitizeAuthored(f.teaser, 120);
       this.edgeRepo.recordEdge({ from, to: null, direction: dir, difficulty: f.difficulty, teaser });
     }
   }
 
-  /**
-   * Author a frontier exit for a `reveal_location` mutation (§3). Creates a `location_edges`
-   * row with `to_location=NULL` at `fromLocation`. `direction` is auto-assigned from the first
-   * unused cardinal/ordinal if not provided in the mutation. Does NOT create a location row —
-   * the destination is minted when the player later `cross_frontier`s this exit.
-   */
+  /** Author a frontier exit (`to_location=NULL`) for a `reveal_location`; the destination is
+   *  minted only when a later `cross_frontier` binds it. `direction` defaults to a free cardinal. */
   private applyRevealLocation(
     fromLocation: string,
     reveal: { name: string; direction?: string; isSafe?: number; description?: string },
@@ -872,7 +790,6 @@ export class WorldEngineImpl implements WorldEngine {
       CARDINALS.find(d => !usedDirections.has(d)) ||
       "N"; // last-resort fallback when all directions occupied
 
-    // Skip if this direction already has an outbound edge from this location
     if (usedDirections.has(direction)) {
       console.warn(
         `[engine] reveal_location: direction "${direction}" already occupied at "${fromLocation}" — skipping`,
@@ -899,7 +816,6 @@ export class WorldEngineImpl implements WorldEngine {
     rawInput: string,
     opts: { kind?: ActionKind; wage?: number } = {},
   ): Promise<ActionStartResult> {
-    // Guard: concurrent/duplicate action starts
     if (this.processingActions.has(characterId)) {
       throw new Error(
         "An action is already being processed. Finish your current action first.",
@@ -913,11 +829,6 @@ export class WorldEngineImpl implements WorldEngine {
       throw new Error("Character not found");
     }
 
-    // Guard: character already mid-action (stale state in DB).
-    // v12 QA §4: if the state is a resolved-but-unpersisted action (options: [], e.g.
-    // an auto-resolve whose transaction threw and whose last_action_state was restored
-    // by an external write), clear it silently and let the player start fresh — don't
-    // trap them in an unrecoverable stale screen.
     if (row.last_action_state) {
       const isStaleResolved = this.isStaleResolvedState(row.last_action_state);
       if (isStaleResolved) {
@@ -926,7 +837,6 @@ export class WorldEngineImpl implements WorldEngine {
           `options were empty, action never persisted`,
         );
         this.charRepo.update(characterId, { last_action_state: null });
-        // Fall through — start a fresh action.
       } else {
         this.processingActions.delete(characterId);
         throw new Error(
@@ -947,13 +857,8 @@ export class WorldEngineImpl implements WorldEngine {
     }
   }
 
-  /**
-   * §4 v12 QA: detect a resolved-but-unpersisted stale state. When `last_action_state`
-   * has `pendingDecision.options.length === 0` and carries a narrative prompt, the action
-   * was resolved by the pipeline machine but the persistence transaction threw. The state
-   * is unrecoverable (no options to choose, nothing to step) — clear it so the player can
-   * start fresh instead of being stuck on an empty decision screen.
-   */
+  /** A state the machine resolved whose persistence transaction threw: no options to choose and
+   *  nothing to step, so it is unrecoverable and gets cleared for a fresh start. */
   private isStaleResolvedState(stateJson: string): boolean {
     try {
       const parsed = JSON.parse(stateJson);
@@ -965,7 +870,7 @@ export class WorldEngineImpl implements WorldEngine {
     }
   }
 
-  /** Pipeline (v12) startAction — classifies, decides, auto-finishes or drains roll. */
+  /** Classifies, decides, then auto-finishes or drains a roll. */
   private async startActionPipeline(
     characterId: number,
     row: CharacterRow,
@@ -974,48 +879,34 @@ export class WorldEngineImpl implements WorldEngine {
     items: ItemData[],
     opts: { kind?: ActionKind; wage?: number },
   ): Promise<ActionStartResult> {
-    // No LLM catch here, by design: `PipelineActionStateMachine.start` owns beat-1 resilience
-    // and converts any stage failure (timeout, transport, unparseable response) into a divine
-    // intervention, which arrives below as an ordinary `startResult.resolved` with
-    // `isDivineIntervention: true` — already the no-drain refund path. That keeps the
-    // roll-drain transaction and `ActionStartResult`'s outcome slot untouched, which is what
-    // made a catch at this level awkward when the beat-1 timeout was still hypothetical. The
-    // 0.3.3 smoke run made it real: a first-turn decide abort crashed the whole day.
+    // No LLM catch here by design: the machine owns beat-1 resilience and turns any stage
+    // failure into a divine intervention, which arrives below as an ordinary resolved outcome.
     const machine = this.machine as PipelineActionStateMachine;
-    // Snapshot before the machine finalizes: a frontier crossed inside start() mints its
-    // provisional row here, so the diff after resolution is what it minted (N2).
     const pendingBefore = this.pendingEnrichmentNames();
     const startResult = await machine.start(char, rawInput, items, opts.kind, opts.wage);
     const internalState = startResult.state;
 
-    // Pipeline divine intervention or auto-resolve (§2 v12 QA): both paths resolve outright
-    // inside start(). Drain the roll (unless divine intervention — refund it), apply the
-    // outcome, and return directly.
+    // Both resolving paths, divine intervention and auto-resolve, land here: drain the roll
+    // (refunded for divine intervention), apply the outcome, return directly.
     if (startResult.resolved) {
       let res: ReturnType<typeof this.applyResolution>;
       try {
         this.db.transaction(() => {
-          // F#21: divine intervention is a system fault, not a real action — don't drain the
-          // roll (same philosophy as the timeout refund in stepActionPipeline).
+          // A divine intervention is a system fault, not a real action, so its roll is not drained.
           const rollsRemaining = startResult.outcome.isDivineIntervention
             ? row.rolls_remaining
             : Math.max(0, row.rolls_remaining - 1);
           this.charRepo.update(characterId, {
             rolls_remaining: rollsRemaining,
           });
-          // B#3: mutate row in place so applyResolution's baseCtx — and its returned
-          // rollsMutationDelta — are computed off the drained value, not the stale pre-drain
-          // count. Otherwise a same-resolution modify_rolls_remaining grant clobbers the drain
-          // instead of stacking with it (mirrors the post-drain row the step path re-reads).
+          // Mutate the row in place so `applyResolution`'s baseCtx and the rolls delta read the
+          // drained value; otherwise a same-resolution grant clobbers the drain instead of stacking.
           row.rolls_remaining = rollsRemaining;
           res = this.applyResolution(characterId, row, startResult.outcome, rawInput, internalState.decisions);
         })();
       } catch (err) {
-        // The transaction rolled back — roll not drained, action row not inserted.
-        // `last_action_state` may have been set by an external code path (e.g. admin
-        // sleep, a mid-action health update) between when this action started and when
-        // the transaction threw. Clear it explicitly so the character isn't left stuck
-        // in an unrecoverable stale-action screen (v12 QA §4).
+        // The transaction rolled back, so the roll was not drained and no action row exists. Clear
+        // any `last_action_state` an external write set meanwhile so the character isn't stuck.
         const msg = err instanceof Error ? err.message : String(err);
         console.error(
           `[engine] auto-resolve transaction failed for character ${characterId} ` +
@@ -1025,19 +916,15 @@ export class WorldEngineImpl implements WorldEngine {
         this.charRepo.update(characterId, { last_action_state: null });
         throw err;
       }
-      // F#21: divine intervention refunds the roll (the DB count is deliberately left untouched
-      // above), so it must NOT report a −1 spend. Every other resolved path drained exactly one roll.
+      // The DB count was left untouched, so this path must not report a −1 spend.
       if (startResult.outcome.isDivineIntervention) {
         startResult.outcome.rollsDelta = 0;
         startResult.outcome.rollRefunded = true;
       } else {
         startResult.outcome.rollsDelta = -1 + res!.rollsMutationDelta;
       }
-      // A single-beat frontier crossing (e.g. a simple "cross north into the woods" travel
-      // that auto-resolves in start()) mints a provisional location — schedule its async
-      // enrichment. Omitting it left crossed frontiers stuck on the placeholder scene forever
-      // (N2). Fired after the transaction commits so the cartographer's own async read sees the
-      // minted row.
+      // A crossing that auto-resolves inside start() still mints a provisional row, so its
+      // enrichment is scheduled here, after the transaction commits.
       this.fireCartographer(this.mintedSince(pendingBefore), startResult.outcome.outcomeText);
       return {
         state: this.toPublicState(internalState),
@@ -1048,12 +935,10 @@ export class WorldEngineImpl implements WorldEngine {
       };
     }
 
-    // No resolved path taken — the decide beat produced real options. Persist state and
-    // return the first decision screen for the player.
+    // The decide beat produced real options — persist the state and hand back the first decision.
 
-    // Normal path: drain a roll + persist state atomically.
-    // Pipeline no-op refund path is accepted scope reduction from T2 review — every pipeline
-    // action costs exactly 1 roll unconditionally.
+    // Drain a roll and persist atomically. No no-op refund on this path: every pipeline action
+    // costs exactly one roll.
     this.db.transaction(() => {
       this.charRepo.update(characterId, {
         rolls_remaining: Math.max(0, row.rolls_remaining - 1),
@@ -1061,8 +946,7 @@ export class WorldEngineImpl implements WorldEngine {
       this.persistState(characterId, internalState);
     })();
 
-    // At this point startResult is resolved: false (the divine-intervention branch returned
-    // early), so firstDecision is guaranteed.
+    // The resolving branch returned early, so `firstDecision` is guaranteed present here.
     const firstDecision = (startResult as Extract<typeof startResult, { resolved: false }>).firstDecision;
     const remembered = this.readPersistedCombatFoe(characterId, internalState, row.location);
     const llmName = internalState.lastDecideResult.combatEnemy?.name;
@@ -1075,33 +959,8 @@ export class WorldEngineImpl implements WorldEngine {
     };
   }
 
-  /**
-   * ANSI-F re-entry (0.3.2 C4, extended for the C4 follow-up): a prior bail leaves the
-   * `in_combat` edge persisted (`PipelineActionStateMachine.ts` handleBail), so a re-engaging
-   * combat action can read the foe's name and damage back and surface a BANDED condition on the
-   * opening frame instead of the empty "unknown" placeholder. Only called from the non-resolved
-   * `startActionPipeline` return (no opening frame renders on the auto-resolve path, so it's
-   * never worth computing there).
-   *
-   * Guarded so a stale/mismatched edge never leaks onto a fresh or different fight: the action
-   * must be `combat`, a sane persisted `CombatState` must exist, the enemy must still be alive,
-   * genuinely damaged (not full HP — a full-HP edge reads identically to a fresh fight, so
-   * banding it would show a "condition" that isn't actually new information). The remembered foe
-   * is then trusted only when it's provably THIS fight: if the LLM named a foe, its name must
-   * match case-insensitively (a differently-named leftover edge from a previous, unrelated
-   * encounter must not be attributed to this one); if the LLM stayed silent (e.g. vague re-engage
-   * text like "resume fight"), the edge is the only source of the foe's identity, so fall back to
-   * an anchor check — the remembered foe must still be located HERE.
-   *
-   * Caveat: the LLM-named branch gates on NAME ONLY, with no location/anchor check, so a
-   * coincidentally same-named foe anchored elsewhere would still match. The anchor check is the
-   * sole guard, and it applies only to the LLM-silent fallback.
-   *
-   * Under SL-7 a spare closes the `in_combat` edge, so this returns `undefined` after one — by
-   * design, not a regression: the fight is genuinely over, and a spared foe's wound now surfaces
-   * on the next establish via its minted NPC row (RA-3 bounded) rather than through this
-   * re-entry path. Don't re-open the edge to bring the banner back.
-   */
+  /** Reads a prior bail's persisted `in_combat` edge to band the foe's condition on the opening
+   *  frame. A spare closes that edge, so the `undefined` after one is by design — don't re-open it. */
   private readPersistedCombatFoe(
     characterId: number,
     internalState: PipelineInternalActionState,
@@ -1109,8 +968,8 @@ export class WorldEngineImpl implements WorldEngine {
   ): { name: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
     if (internalState.actionType !== 'combat') return undefined;
 
-    // Mirrors `pipeline-context.ts`'s scene-relations projection (buildPipelineContext) —
-    // the DB row shape back into the `SceneStateEdge` shape `readCombatState` expects.
+    // The DB row shape back into the `SceneStateEdge` shape `readCombatState` expects, mirroring
+    // `pipeline-context.ts`'s scene-relations projection.
     const rows = this.relationRepo.forNode('pc', String(characterId));
     const edges: SceneStateEdge[] = rows.map((row) => ({
       from: { type: row.from_type as NodeType, ref: row.from_ref },
@@ -1134,10 +993,8 @@ export class WorldEngineImpl implements WorldEngine {
     return { name: cs.enemyName, condition: { woundWord, filled, total: 5 } };
   }
 
-  /** Is the remembered foe's anchor still at the player's current position? location anchor ->
-   *  name match; npc anchor -> the id-as-name (combat-state.ts caveat) is among the current
-   *  location's npcs. Only reached when the LLM stayed silent on the foe's name, so this is the
-   *  sole discriminator against a stale edge leaking onto an unrelated re-engage. */
+  /** Is the remembered foe's anchor still here? Reached only when the LLM stayed silent on the
+   *  foe's name, so it is the sole discriminator against a stale edge leaking onto this fight. */
   private combatAnchorIsHere(cs: CombatState, currentLocation: string): boolean {
     const anchor = cs.anchor;
     if (anchor.node === 'location') return anchor.name === currentLocation;
@@ -1157,8 +1014,7 @@ export class WorldEngineImpl implements WorldEngine {
 
     const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
 
-    // D2 30-min timeout: resolve stale state as an in-voice server-side timeout (refund
-    // once/day) so the UI renders a grey card instead of a bare error.
+    // A stale state resolves as an in-voice server-side timeout rather than a bare error.
     const timeout = this.resolveStaleTimeout(internalState, characterId);
     if (timeout) {
       return {
@@ -1176,9 +1032,7 @@ export class WorldEngineImpl implements WorldEngine {
     return await this.stepActionPipeline(characterId, row, char, internalState, choice, items);
   }
 
-  /** Pipeline (v12) stepAction — handles divine intervention, multi-beat persist, and
-   *  serialised step() per action (guards against concurrent Discord interactions
-   *  interleaving one action's combat state). */
+  /** Handles divine intervention, multi-beat persist, and serialised step() per action. */
   private async stepActionPipeline(
     characterId: number,
     row: CharacterRow,
@@ -1187,9 +1041,8 @@ export class WorldEngineImpl implements WorldEngine {
     choice: string,
     items: ItemData[],
   ): Promise<ActionStepResult> {
-    // T6 serialisation: guard against concurrent step() calls for the same action.
-    // Two Discord interactions (e.g. combat round + explore choice) must not interleave
-    // one action's combat state — round N is persisted before round N+1 begins.
+    // Serialised per action: two Discord interactions must not interleave one action's state, and
+    // round N is persisted before round N+1 begins.
     if (this.steppingActions.has(characterId)) {
       throw new Error(
         "A step is already being processed for this action. Wait for the result before choosing again.",
@@ -1199,14 +1052,11 @@ export class WorldEngineImpl implements WorldEngine {
 
     try {
       const machine = this.machine as PipelineActionStateMachine;
-      // Snapshot before the machine finalizes so a frontier crossed on this beat is recovered
-      // by diff — applyResolution's re-finalize can't report it (N2, see mintedSince).
       const pendingBefore = this.pendingEnrichmentNames();
       const result = await machine.step(internalState, choice, char, items);
 
       if (result.resolved) {
-        // Pipeline divine intervention — the outcome carries `isDivineIntervention: true`,
-        // not a legacy string sentinel. Clear state, skip refund (the roll was drained at start).
+        // Divine intervention: the roll was drained at start, so clearing the state resolves it.
         if (result.outcome.isDivineIntervention) {
           this.charRepo.update(characterId, { last_action_state: null });
           result.outcome.rollsDelta = -1;
@@ -1226,11 +1076,8 @@ export class WorldEngineImpl implements WorldEngine {
             result.state.decisions,
           );
 
-          // T6 — refund calls: confirm the refund-day logic (bail/timeout/systemRefund)
-          // still fires on the pipeline path, not just the legacy path. The pipeline machine
-          // emits `systemRefund` for degenerate-shape no-ops (accepted scope reduction from
-          // T2: no no-op refund path in startAction, but stepAction's bail path still
-          // propagates). The bail-refund grace is once-per-day, same as legacy.
+          // `systemRefund` is never set on a beat that reaches here — only the timeout return below
+          // sets it — so this refunds a bail, once per day (`last_bail_refund_day`).
           const today = this.currentDayNumber();
           const systemRefund = result.outcome.systemRefund === true;
           const bailRefunded =
@@ -1258,14 +1105,10 @@ export class WorldEngineImpl implements WorldEngine {
       }
 
       // ── Non-terminal branch — multi-beat scene-state persist ──
-      // The pipeline machine returns mutations on non-terminal beats (e.g. combat rounds).
-      // Apply them and persist relations before the next beat's context is built, so
-      // scene-state read-back works across beats. Mirrors PipelineSimEngine.stepAction
-      // :195-221, reusing the Task 0 persistAuthoredRelations helper. Round N is persisted
-      // before round N+1 begins (ordering asserted by the serialisation guard above).
+      // Non-terminal beats (combat rounds) return mutations: apply them and persist relations
+      // before the next beat's context is built, so scene-state reads back across beats.
       if (result.mutations && result.mutations.length > 0) {
-        // Capture location as of action START — combat beats never move the character, but
-        // keeping the same capture-then-pass shape as the terminal path avoids divergence.
+        // Location at action start; combat beats don't move, but the terminal path captures here.
         const preMoveLocation = char.location;
         const ctx: MutationContext = {
           currentHealth: char.health,
@@ -1278,7 +1121,6 @@ export class WorldEngineImpl implements WorldEngine {
         };
         const applied = applyMutations(result.mutations, ctx);
 
-        // Apply HP/stamina changes to the character in DB before the next beat.
         const charUpdates: Record<string, unknown> = {};
         if (applied.currentHealth !== char.health) charUpdates.health = applied.currentHealth;
         if (applied.stamina !== char.stamina) charUpdates.stamina = applied.stamina;
@@ -1287,7 +1129,6 @@ export class WorldEngineImpl implements WorldEngine {
           this.charRepo.update(characterId, charUpdates);
         }
 
-        // Persist scene-state relations authored this beat.
         persistAuthoredRelations(
           this.relationRepo,
           applied.relationsToSet,
@@ -1307,15 +1148,8 @@ export class WorldEngineImpl implements WorldEngine {
     } catch (_err) {
       const err = _err as Error & { name?: string };
       if (isLlmStageFailure(err)) {
-        // Any LLM stage failure on a beat past the first — resolve as timed_out instead of
-        // re-throwing so the player isn't re-served the same stuck decision (v12 QA §1: each
-        // timed-out CONTINUE beat re-presented the identical decision screen).
-        //
-        // Widened from abort-only in 0.3.4: the 0.3.3 smoke run lost a day to a RESOLVE-NARRATE
-        // parse failure, which is the same fault from the player's side (the Warden didn't
-        // answer) but used to propagate and crash the session. Deliberately still narrow — the
-        // predicate matches only faults raised at the LLM boundary, so an engine bug behind it
-        // keeps throwing loudly rather than being dressed up as a timeout card.
+        // An LLM stage failure past the first beat resolves as timed_out instead of re-serving the
+        // same stuck decision. Narrow by design: only faults raised at the LLM boundary qualify.
         const timeoutState: PipelineInternalActionState = {
           ...internalState,
           lastActionAt: Date.now(), // advancing-pin audited: see resolveStaleTimeout's note
@@ -1361,8 +1195,7 @@ export class WorldEngineImpl implements WorldEngine {
       row.last_action_state,
     ) as PipelineInternalActionState;
 
-    // D2 30-min timeout: resolve stale state (refund once/day, no mutations). Resume
-    // can't return an outcome, so throw the player-facing message for the caller.
+    // The same timeout, but resume can't return an outcome — throw the player-facing message.
     const timeout = this.resolveStaleTimeout(internalState, characterId);
     if (timeout) {
       throw new Error(timeout.outcomeText);
@@ -1410,7 +1243,6 @@ export class WorldEngineImpl implements WorldEngine {
 
     const entities: NearbyEntity[] = [];
 
-    // NPCs at this location
     const npcs = this.npcRepo.findByLocation(char.location);
     for (const npc of npcs) {
       entities.push({
@@ -1421,7 +1253,6 @@ export class WorldEngineImpl implements WorldEngine {
       });
     }
 
-    // Other player characters at this location
     const allChars = this.charRepo.findAll();
     for (const pc of allChars) {
       if (pc.id === characterId) continue;
@@ -1440,9 +1271,6 @@ export class WorldEngineImpl implements WorldEngine {
   // ── Last played ──
 
   updateLastPlayed(characterId: number): void {
-    // AUDIT (spec § G's advancing clock): the stamp the five-day absence nudge subtracts, so it must
-    // come off the SAME clock the tick reads — it does, via the pinned `new Date()`. Unpinned this is
-    // the wall clock as before.
     const now = new Date().toISOString().slice(0, 19).replace("T", " ");
     this.charRepo.update(characterId, { last_played_at: now });
   }
@@ -1495,9 +1323,7 @@ export class WorldEngineImpl implements WorldEngine {
 
   // ── Map: fog-of-war over the shared graph ──
 
-  /** The player's discovered subgraph: discovered nodes, charted edges between
-   *  them, and frontier exits radiating from them. Adjacency is shared truth; the
-   *  mask is per-player (§1). */
+  /** The player's discovered subgraph — adjacency is shared truth, the mask is per-player. */
   getDiscoveredGraph(characterId: number): DiscoveredGraph {
     const charRow = this.charRepo.findById(characterId);
     const current = charRow?.location ?? "The Warden's Oak";
@@ -1505,10 +1331,8 @@ export class WorldEngineImpl implements WorldEngine {
     const visits = this.charLocRepo.findByCharacter(characterId);
     const lastVisited = new Map(visits.map((v) => [v.location_name, v.last_visited_at]));
     const discovered = new Set(lastVisited.keys());
-    // The current location is always part of your own view, even pre-record. If it has no
-    // visit row yet, the player is standing there now — stamp it with a DB-formatted "now"
-    // (matches the stored format) so it sorts most-recent and never breaks the non-null
-    // lastVisitedAt contract with an empty string.
+    // The current location is always in view, even pre-record: stamp a DB-formatted "now" so it
+    // sorts most-recent and `lastVisitedAt` stays non-null rather than an empty string.
     discovered.add(current);
     if (!lastVisited.has(current)) {
       const now = (this.db.prepare("SELECT datetime('now') AS now").get() as { now: string }).now;
@@ -1543,16 +1367,13 @@ export class WorldEngineImpl implements WorldEngine {
     return { current, nodes, edges, frontiers };
   }
 
-  /** Least-cost route over the shared graph (Dijkstra on edge difficulty); null when
-   *  unreachable (§2). The cost is computed but not charged as stamina yet — that's
-   *  deferred to fast-travel (§9). Used today to validate movement reachability.
-   *  Body lives in `geography-finalize.ts` (T5a) — shared with the pipeline sim. */
+  /** Least-cost route over the shared graph (Dijkstra on edge difficulty); null when unreachable.
+   *  The cost is computed but not yet charged as stamina. Body lives in `geography-finalize.ts`. */
   routeBetween(from: string, to: string): TravelRoute | null {
     return geographyRouteBetween(this.edgeRepo, from, to);
   }
 
-  /** The day-job commute rule. Previously a Discord-layer direct DB write (`src/index.ts`);
-   *  the rule lives here so every frontend (agent-player, future clients) gets it for free. */
+  /** The day-job commute rule lives in the engine, not a frontend, so every client gets it. */
   commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null {
     const row = this.charRepo.findById(characterId);
     if (!row) return null;
@@ -1572,9 +1393,7 @@ export class WorldEngineImpl implements WorldEngine {
       return selector.kind === 'bail' ? 'Bail' : null;
     }
 
-    // Same normalise-then-resolve shape as the deleted Discord `setPendingDecision` +
-    // `getChoiceLabel`/bail-find pair (M3.2 DC-A) — an empty option list stands in for
-    // a bare Continue button, so both selectors resolve against it identically.
+    // An empty option list stands in for a bare Continue button, so both selectors resolve against it.
     const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
     const rawOptions = internalState.pendingDecision?.options ?? [];
     const options: ActionOption[] = rawOptions.length > 0
@@ -1611,14 +1430,11 @@ export class WorldEngineImpl implements WorldEngine {
 
     this.updateLastPlayed(row.id);
 
-    // Stamp the rest on the current game day so the Rest nav button hides until the
-    // next tick (day_number advances and resting is possible again).
+    // Stamped on the current game day, which hides the Rest nav button until the next tick.
     const currentDay = Number(this.metaRepo.get("day_number") ?? "1");
 
-    // The unsafe-rest rule (M7.1, moved from the Discord sleep command — value and
-    // conditions unchanged): resting away from the Oak's protection on unsafe ground
-    // costs 1 HP. H1: the passed workplace is exempt (doing your job is never the leak
-    // the penalty exists for); `opts.workplace` is always provided by the controller.
+    // Resting away from the Oak on unsafe ground costs 1 HP; the passed workplace is exempt,
+    // since doing your job is not the leak the penalty exists for.
     const oakName = "The Warden's Oak";
     const alreadyThere = row.location === oakName;
     const atWorkplace = opts?.workplace != null && row.location === opts.workplace;
@@ -1627,7 +1443,6 @@ export class WorldEngineImpl implements WorldEngine {
     const unsafeFromName = row.location;
 
     if (alreadyThere) {
-      // Already at the Oak — still record the rest and return the character.
       this.charRepo.update(row.id, { last_rested_day: currentDay });
       return {
         character: this.rowToCharacterData({ ...row, last_rested_day: currentDay }),
@@ -1646,8 +1461,7 @@ export class WorldEngineImpl implements WorldEngine {
       last_rested_day: currentDay,
     });
 
-    // The −1 penalty, applied through modifyHealth so the clamp (0..max) is shared and the
-    // returned character reflects the HP movement the caller announces.
+    // Applied through modifyHealth so the clamp is shared and the returned character reflects it.
     if (wasUnsafe) {
       const updated = this.modifyHealth(discordUserId, -1);
       if (updated) character = updated;
@@ -1663,8 +1477,8 @@ export class WorldEngineImpl implements WorldEngine {
     description?: string;
     location: string;
   }): void {
-    // Idempotent: the weekly threat rotation can land the same foe back at a spot it still
-    // occupies (an un-killed threat from a prior cycle), so don't stack a duplicate mob.
+    // Idempotent: the threat rotation can land the same foe back at a spot it still occupies,
+    // so don't stack a duplicate mob.
     const alreadyHere = this.npcRepo
       .findByLocation(data.location)
       .some((n) => n.name.trim().toLowerCase() === data.name.trim().toLowerCase());
@@ -1676,9 +1490,8 @@ export class WorldEngineImpl implements WorldEngine {
       race: data.race,
       description: data.description,
       location: data.location,
-      // Anchor the placed threat to its announced location: the nightly NPC wander below
-      // holds any NPC standing at its home_location in place, so async players arriving over
-      // the following days still find the foe where the world announced it (N1).
+      // Anchored to its announced location: the nightly wander holds any NPC standing at its
+      // `home_location` in place, so async players still find the foe where it was announced.
       homeLocation: data.location,
     });
   }
@@ -1729,7 +1542,6 @@ export class WorldEngineImpl implements WorldEngine {
     let count = 0;
     for (const charRow of this.charRepo.findAll()) {
       const isSafe = safeByName.get(charRow.location);
-      // Unknown location (no row) counts as unsafe — "out in the wilds".
       if (isSafe === undefined || isSafe === false) count++;
     }
     return count;
@@ -1754,14 +1566,10 @@ export class WorldEngineImpl implements WorldEngine {
     return this.rowToCharacterData({ ...row, health: newHealth });
   }
 
-  // ── World tick (S5) ──
+  // ── World tick ──
 
   tick(isAdmin: boolean): TickResult {
-    // AUDIT (spec § G's advancing clock): `new Date()` here is read off the pinned clock and is
-    // MEANT to move — the calendar is the instrument. The harness advances it one day immediately
-    // before this call, so `today` (and the Saturday branch below) describe the day the tick is
-    // opening, and the rolls refilled here are that day's. Unpinned (prod, a bare sim CLI) this is
-    // the real weekday, unchanged.
+    // Meant to move: the harness ticks the pinned clock a day before this call, so `today` is that day.
     const now = new Date();
     const today = now.toISOString().slice(0, 10); // 'YYYY-MM-DD'
     // Saturday (UTC) grants everyone a bonus roll on top of the daily allowance.
@@ -1814,16 +1622,7 @@ export class WorldEngineImpl implements WorldEngine {
           collapsedNames.push(charRow.name);
         }
 
-        // Five-day absence nudge: on the tick where a player crosses exactly 5 days
-        // without interacting, collect their Discord id for a DM warning. No HP penalty —
-        // a soft retention nudge that fires once, on day 5, not nightly.
-        //
-        // AUDIT (spec § G's advancing clock): this comparison is the interrupted panel's whole
-        // measurement, and it is calendar-based on purpose — `last_played_at` is stamped off the
-        // same pinned clock (updateLastPlayed), so a skipped day really does count as a day away
-        // and the nudge fires on the tick that crosses day 5. Under the old fixed pin it could
-        // never fire in a fast run (five ticks inside one instant = diffDays 0), which is exactly
-        // why spec § G lists this as something the pin exists to make real.
+        // Fires once, on the tick that crosses day 5: calendar-based on purpose, no HP penalty.
         if (charRow.last_played_at) {
           const lastDate = charRow.last_played_at.slice(0, 10);
           const diffMs =
@@ -1866,9 +1665,8 @@ export class WorldEngineImpl implements WorldEngine {
           continue;
         }
 
-        // Anchored NPCs (scripted Saturday threats — see spawnNpc) hold their post at their
-        // home_location instead of wandering, so a threat announced at a location stays there
-        // for the whole weekend rather than drifting off on the next tick (N1).
+        // Anchored NPCs (see `spawnNpc`) hold their post at `home_location` instead of wandering,
+        // so an announced threat stays put for the weekend.
         if (npc.home_location && npc.location === npc.home_location) continue;
 
         // 80% chance to move; multiplier in seed avoids collisions across NPCs.
@@ -1886,7 +1684,6 @@ export class WorldEngineImpl implements WorldEngine {
           continue;
         }
 
-        // Determine destination by class
         let candidates: string[] = [];
 
         if (cls === "Hunter") {
@@ -2075,14 +1872,9 @@ export class WorldEngineImpl implements WorldEngine {
     this.charRepo.update(characterId, { [column]: day });
   }
 
-  /** Refund one roll (add 1 to `rolls_remaining`, capped at today's total allowance including
-   *  Saturday bonus). Used by bail, timeout, and no-op refund paths — the caller still owns
-   *  grace-day stamping (`stampRefundDay`) and `rollRefunded` / `rollsDelta` bookkeeping. */
+  /** Refund one roll, capped at today's allowance (Saturday bonus included). Used by the bail,
+   *  timeout and no-op paths; the caller owns grace-day stamping and the rolls bookkeeping. */
   private refundRoll(characterId: number): void {
-    // AUDIT (spec § G's advancing clock): reads the pinned clock, and should — the cap a refund is
-    // clamped to is the allowance of the day the refund happens on, Saturday bonus included. Under
-    // the advancing pin a refund on a Saturday day therefore caps at 4, matching the tick that
-    // refilled the day.
     const allowance =
       DAILY_ROLL_ALLOWANCE + (new Date().getUTCDay() === 6 ? SATURDAY_BONUS_ROLLS : 0);
     const row = this.charRepo.findById(characterId)!;
@@ -2091,37 +1883,16 @@ export class WorldEngineImpl implements WorldEngine {
     });
   }
 
-  /**
-   * D2 timeout. If the state has been idle past the 30-min timeout, atomically clear
-   * it, write a `timed_out` action row (no mutations — the intended travel does NOT
-   * occur), and refund the roll for the FIRST timeout per char per day; later timeouts
-   * that day keep the roll spent. Returns an in-voice `timed_out` ActionOutcome, or null
-   * if fresh. This grace is separate from the D1 no-op grace — a server-side timeout
-   * must never burn the player's no-op allowance, and vice versa.
-   *
-   * AUDIT (spec § G's advancing clock) — the sharpest site on the live path, and the one whose
-   * behaviour the clock change actually alters. Every `lastActionAt` stamp (this file's
-   * `persistState`, `PipelineActionStateMachine`'s four state constructors) is read off the same
-   * `Date`, so once the harness's pin advances at the nightly tick, an action left pending when a
-   * day closed reads as 24 hours stale on the next day's first `action.choose`/`resume` and resolves
-   * as a server-side timeout (roll refunded on the first such timeout of the day, no mutations).
-   * DECISION: leave it — that IS the right behaviour for an instrument whose night is a real
-   * calendar day, and it matches what prod does to a player who leaves a decision open overnight.
-   * Changing it would be an engine edit to make a number look nicer, which the clock task forbids;
-   * suppressing it instead (a monotonic stamp, a harness-specific exemption) would hide a genuine
-   * overnight-abandonment from the panel. Reachability is not assumed: it is pinned by a test that
-   * opens a decision, advances the pinned clock a day, and asserts the timeout card
-   * (tests/agent/advancing-clock.test.ts).
-   *
-   * T6: widened to accept the union of legacy and pipeline internal state types — both
-   * carry `lastActionAt`, `distilledType`, `accumulatedDc`, `rawInput`, and `decisions`.
-   */
+  /** An idle action past the 30-minute timeout resolves as `timed_out` with no mutations, and its
+   *  once-a-day roll refund is a separate grace from the no-op refund's. */
   private resolveStaleTimeout(
     state: PipelineInternalActionState,
     characterId: number,
   ): ActionOutcome | null {
-    // Pre-S7 state (no lastActionAt) is treated as not stale.
+    // State without `lastActionAt` predates the field and is treated as not stale.
     if (!state.lastActionAt) return null;
+    // An action left pending overnight reads a day stale here: `lastActionAt` comes off the same
+    // pinned clock the harness advances nightly. Pinned by tests/agent/advancing-clock.test.ts.
     if (Date.now() - state.lastActionAt < ACTION_TIMEOUT_MS) return null;
 
     const today = this.currentDayNumber();
@@ -2145,8 +1916,7 @@ export class WorldEngineImpl implements WorldEngine {
       rollRefunded: refunded,
     };
 
-    // Transaction so a partial failure can't orphan a timed_out row while
-    // last_action_state survives.
+    // Transaction: a partial failure must not orphan a timed_out row while the state survives.
     this.db.transaction(() => {
       this.actionRepo.create({
         characterId,
@@ -2162,7 +1932,6 @@ export class WorldEngineImpl implements WorldEngine {
       });
       this.charRepo.update(characterId, { last_action_state: null });
       if (refunded && row) {
-        // Hand the spent roll back and stamp the day.
         this.refundRoll(characterId);
         this.stampRefundDay(characterId, "last_timeout_refund_day", today);
       }

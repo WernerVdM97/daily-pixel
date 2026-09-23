@@ -1,11 +1,5 @@
-/**
- * combatState — the `in_combat`/`combat_save` scene-state model (Stage 3 Thread C, T2).
- *
- * Pure model only: no DB/repo/machine imports, no I/O. Endpoints are carried AS AUTHORED
- * (`RelationEndpoint`, name-keyed) exactly like the rest of the T2 relation vocabulary
- * (`mutations.ts`) — npc-name/location-name -> id resolution stays in `relation-wiring.ts`
- * (Stage 2 decision 4), wired by T3, not here.
- */
+/** The `in_combat`/`combat_save` scene-state model. Pure model: no DB/repo/machine imports, no I/O.
+ *  Endpoints are carried AS AUTHORED; name -> id resolution lives in `relation-wiring.ts`. */
 import type { AuthoredRelation, RelationEndpoint } from './mutations.js';
 import type { SceneStateEdge } from '../../llm/LlmGateway.js';
 import { ENEMY_HP_MAX } from './combat-dc.js';
@@ -16,48 +10,27 @@ export interface CombatState {
   enemyMaxHp: number;
   round: number;
   anchor: RelationEndpoint;
-  /** RA-3 bounded: the intended name of an `anchor: 'npc'` foe whose resolution failed at
-   *  establish, held on the edge rather than only on
-   *  `PipelineInternalActionState.unresolvedNpcMint`. The per-action marker dies with the action
-   *  (bails included), so without this the mint intent is lost the moment a bailed fight is
-   *  re-engaged in a later action — the edge still reads positive HP, so the re-engage continues
-   *  rather than re-running establish. Optional so edges persisted before this prop existed
-   *  still read cleanly. */
+  /** The intended name of an `anchor: 'npc'` foe. Held on the edge because the per-action marker dies
+   *  with the action, bails included: a re-engaged fight would otherwise continue the edge's positive HP instead of re-running establish. */
   mintName?: string;
-  /** The fight's authored `baseDc`, pinned at establish and read back every round after (see
-   *  `handleCombatStep`). Optional for edges persisted before the prop existed. */
+  /** The fight's authored `baseDc`, pinned at establish and read back on every later round.
+   *  Optional for edges persisted before the prop existed. */
   baseDc?: number;
 }
 
-/**
- * Map a resolved scene-state node back to the authored `RelationEndpoint` shape so it can be
- * fed straight back into `combatStateToSetRelation`/`combatRoundUpdate`.
- *
- * CAVEAT (flagged for T3 review): for an `npc` anchor, `SceneStateEdge.to.ref` is the resolved
- * numeric npc id (see `relation-wiring.ts:resolveRelationEndpoint` — npc refs are ids, not
- * names), not a display name. `RelationEndpoint`'s `npc` variant only carries a `name` used for
- * case-insensitive lookup against `nearbyNpcs`. This helper does a structural passthrough (it has
- * no npc-id->name lookup available, nor should it per decision 4) — round-tripping a *real*
- * npc-anchored edge back through `resolveAuthoredRelation` would fail to re-match by id-as-name.
- * Harmless for this pass's pure round-trip tests (location anchors round-trip correctly; npc
- * anchors round-trip structurally); T3 must either resolve npc anchors once and hold the
- * resolved `RelationKey` across rounds (skipping re-resolution) or thread the npc's name through
- * separately. Out of scope for T2 (endpoint resolution is explicitly a T3 concern).
- */
+/** CAVEAT: an `npc`'s `SceneStateEdge.to.ref` is the resolved numeric id, which
+ *  `resolveAuthoredRelation` cannot re-match by id-as-name — hold the anchor resolved once instead of re-resolving. */
 function toAnchor(node: SceneStateEdge['to']): RelationEndpoint {
   if (node.type === 'pc') return { node: 'pc' };
   if (node.type === 'npc') return { node: 'npc', name: node.ref };
   return { node: 'location', name: node.ref };
 }
 
-/** Basic numeric/shape sanity beyond typeof — mirrors the write-time clamps (`mutations.ts`)
- *  closely enough to reject obviously-corrupt persisted props, without re-importing the
- *  validator (this module stays pure/dependency-free of `mutations.ts`'s runtime code).
- *  `mintName` is deliberately absent: unlike every field checked here, a bad value drops the
- *  prop rather than invalidating the whole read — see `readCombatState`. */
+/** Shape sanity that rejects corrupt persisted props without importing the validator. `mintName`
+ *  is deliberately absent: a bad value on it drops the prop rather than invalidating the whole read. */
 function isSaneCombatProps(enemyHp: number, enemyMaxHp: number, round: number): boolean {
-  // Must mirror validateTypedRelationProps' clamps exactly (incl. the enemyMaxHp
-  // upper bound) so the read guard never accepts a bag the write path rejects.
+  // Must mirror validateTypedRelationProps' clamps exactly (incl. the enemyMaxHp upper bound) so
+  // the read guard never accepts a bag the write path rejects.
   return (
     enemyMaxHp >= 1 &&
     enemyMaxHp <= ENEMY_HP_MAX &&
@@ -67,8 +40,8 @@ function isSaneCombatProps(enemyHp: number, enemyMaxHp: number, round: number): 
   );
 }
 
-/** Find the `in_combat` edge authored BY the pc (`from.type === 'pc'`) and parse its props into
- *  a `CombatState`, or `null` if absent or malformed (missing/wrong-typed/out-of-range props). */
+/** Find the `in_combat` edge authored BY the pc and parse its props into a `CombatState`, or
+ *  `null` if absent or malformed. */
 export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
   const edge = edges.find((e) => e.relType === 'in_combat' && e.from.type === 'pc');
   if (!edge) return null;
@@ -80,8 +53,8 @@ export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
   if (typeof round !== 'number' || !Number.isFinite(round)) return null;
   if (!isSaneCombatProps(enemyHp, enemyMaxHp, round)) return null;
 
-  // Read tolerantly: an edge predating this prop (or a malformed value) yields `undefined`
-  // rather than invalidating the whole read, unlike the required fields above.
+  // Read tolerantly: an edge predating this prop (or a malformed value) yields `undefined` rather
+  // than invalidating the whole read, unlike the required fields above.
   const rawMintName = (edge.props as Record<string, unknown>).mintName;
   const mintName = typeof rawMintName === 'string' && rawMintName.trim() !== '' ? rawMintName : undefined;
 
@@ -93,8 +66,8 @@ export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
   return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName, baseDc };
 }
 
-/** The initial (or any full-state) `set_relation` for the `in_combat` edge — `set` upserts by
- *  overwriting props wholesale (`relation.ts:set`), so this always carries the FULL prop set. */
+/** The initial (or any full-state) `set_relation` for the `in_combat` edge — `set` overwrites props
+ *  wholesale, so this always carries the FULL prop set. The caller tags it `type: 'set_relation'`. */
 export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
   return {
     from: { node: 'pc' },
@@ -105,34 +78,16 @@ export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
       enemyHp: state.enemyHp,
       enemyMaxHp: state.enemyMaxHp,
       round: state.round,
-      // Written only when set: `props` is a flat scalar record that admits no `undefined`
-      // members, and omitting the key leaves a non-mint fight's edge exactly as it was before
-      // this prop existed.
+      // Omitted rather than written undefined: `props` admits no undefined members, and a fight
+      // with no mint leaves the edge's prop bag as it was before this prop existed.
       ...(state.mintName ? { mintName: state.mintName } : {}),
       ...(state.baseDc !== undefined ? { baseDc: state.baseDc } : {}),
     },
   };
 }
 
-/**
- * Advance combat by one round.
- *
- * NOTE on the round/delta-vs-set ambiguity (spec-flagged, resolved here): `RelationRepository
- * .updateProps` (`relation.ts:64-90`) SUMS any prop key already numeric on the edge — correct
- * for `enemyHp` (it only ever moves by a signed delta) but wrong for `round`, which is ALSO
- * already numeric on the edge, so an `update_relation` delta would double-sum it instead of
- * setting the next absolute value. Splitting into two ops (a delta `update_relation` for
- * `enemyHp` + a separate absolute write for `round`) would need two round-trips and extra T3
- * bookkeeping for one op that's conceptually a single "advance the round" step. Per the plan's
- * own fallback, this instead returns a SINGLE `set_relation` carrying the full, already-absolute
- * prop set (`relation.ts:set` overwrites props wholesale, so a *partial* `set_relation` here
- * would silently drop `enemyName`/`enemyMaxHp` — this is why the full `CombatState`, not a bare
- * anchor, is threaded through as input rather than the anchor-only shape the plan sketched).
- * `enemyHpDelta` is applied and clamped to `[0, state.enemyMaxHp]` here so the emitted op is
- * always a valid absolute value; `nextRound` is written as-is (callers pass `round + 1`).
- * The same full-state spread is what carries `mintName` and `baseDc` through unchanged from the
- * caller's `cs`, so once set at establish they survive every subsequent round write.
- */
+/** Advance combat by one round: a single `set_relation` with the full absolute prop set. `updateProps` SUMS an already-numeric prop,
+ *  right for `enemyHp` and wrong for `round`; a partial `set` would drop `enemyName`/`enemyMaxHp`. The caller tags it `type: 'set_relation'`. */
 export function combatRoundUpdate(
   state: CombatState,
   enemyHpDelta: number,
@@ -142,8 +97,7 @@ export function combatRoundUpdate(
   return combatStateToSetRelation({ ...state, enemyHp, round: nextRound });
 }
 
-/** Read the once-per-day floor's `savedDay` off the pc's `combat_save` self-edge, or `null` if
- *  absent/malformed. */
+/** The pc's `combat_save` self-edge's `savedDay`, or `null` if absent/malformed. */
 export function readCombatSave(edges: SceneStateEdge[]): number | null {
   const edge = edges.find(
     (e) => e.relType === 'combat_save' && e.from.type === 'pc' && e.to.type === 'pc',

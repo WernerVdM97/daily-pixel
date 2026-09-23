@@ -12,7 +12,7 @@ export interface WorldContextResolver {
   getKnownLocations(): string[];
   /** Whether the named location is safe (true) or wild (false). Drives the scene safety tag. */
   isLocationSafe(location: string): boolean;
-  /** v10 "here + exits": the current node's region + charted exits (move targets) and frontier
+  /** "here + exits": the current node's region + charted exits (move targets) and frontier
    *  exits (cross_frontier invitations), so travel is local and geographic. */
   getLocalGeography(location: string): {
     region: string | null;
@@ -27,13 +27,8 @@ export interface WorldContextResolver {
 const FAILURE_STAMINA_PENALTY = 2;
 
 /**
- * Shape an outcome's mutations to its roll result. On failure: drop beneficial mutations (positive
- * stat/wealth/roll deltas, gained items), keep costs and world changes (move_to/set_location,
- * remove_item, add_npc/spawn_npc, update_npc, remove_npc), add a flat stamina penalty.
- * Success passes through unchanged.
- *
- * NOTE: outcome_text is still written before the roll, so on failure the narration may read as a
- * partial success — the deeper fix is rolling before flavour (see [[mvp-llm-prompt-architecture]]).
+ * Shape an outcome's mutations to its roll result: a failure keeps costs and world changes, drops
+ * rewards and `cross_frontier`/`reveal_location`, and adds the flat stamina penalty.
  */
 export function applyOutcomeToMutations(outcome: string, mutations: WorldMutation[]): WorldMutation[] {
   if (outcome !== 'failure') return mutations;

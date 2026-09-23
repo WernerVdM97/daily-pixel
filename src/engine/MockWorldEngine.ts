@@ -64,9 +64,8 @@ export class MockWorldEngine implements WorldEngine {
     getItems: number[];
     getNearbyEntities: number[];
     getJournal: number[];
-    // M8.1 (obligation O3): `getExits`/`getDiscoveredGraph` log like every other read — the
-    // M8.0 residual that left the screens-oracle zero-read assertions byte-proven instead of
-    // log-proven. The oracle transcripts 1/3/6/7 now assert these logs.
+    // Logs like every other read, so the oracle's zero-read assertions are log-proven rather
+    // than byte-proven.
     getExits: string[];
     getDiscoveredGraph: number[];
     submitFeedback: { characterId: number; text: string; actionId?: number }[];
@@ -165,7 +164,7 @@ export class MockWorldEngine implements WorldEngine {
   }
 
   /** Stashes the option list `resolvePendingChoice` resolves against, standing in for the
-   *  real engine's `last_action_state.pendingDecision.options` (M3.2 DC-F). */
+   *  real engine's `last_action_state.pendingDecision.options`. */
   setPendingChoiceOptions(options: ActionOption[]): void {
     this._pendingChoiceOptions = options;
   }
@@ -220,10 +219,8 @@ export class MockWorldEngine implements WorldEngine {
 
   // ── Interface methods ──
 
-  /** Replicates the real engine's M7.1 restAtOak: records the FIRST ARG ONLY (so the call
-   *  log stays `[userId]`, the shape the M7.0 transcripts assert) and applies the unsafe-rest
-   *  −1 penalty through its own `modifyHealth` (so `calls.modifyHealth` records the same
-   *  `{ discordUserId, amount: -1 }`), mirroring the real engine's internal call. */
+  /** Mirrors the real engine's `restAtOak`: records the FIRST ARG ONLY so the call log stays
+   *  `[userId]`, and applies the unsafe-rest −1 through `modifyHealth`, so that call records it. */
   restAtOak(discordUserId: string, opts?: { workplace?: string | null }): RestAtOakResult {
     this.calls.restAtOak.push(discordUserId);
     if (!this._character) return { character: null, wasUnsafe: false, unsafeFromName: "" };
@@ -346,9 +343,8 @@ export class MockWorldEngine implements WorldEngine {
 
   commuteToWorkplace(characterId: number, workplace: string | null): { to: string; stamina: number } | null {
     this.calls.commuteToWorkplace.push({ characterId, workplace });
-    // Mirror WorldEngineImpl's persist-then-reread semantics (M3.4): the real engine writes
-    // the commute onto the character row, so a later `getCharacter` re-read reflects it —
-    // callers no longer patch a locally-held snapshot themselves.
+    // Mirrors WorldEngineImpl's persist-then-reread: the commute is written onto the character, so
+    // a later `getCharacter` reflects the move.
     if (this._commuteResult && this._character) {
       this._character = { ...this._character, stamina: this._commuteResult.stamina, location: this._commuteResult.to };
     }
@@ -358,7 +354,7 @@ export class MockWorldEngine implements WorldEngine {
   resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null {
     this.calls.resolvePendingChoice.push({ characterId, selector });
     // An empty/unset stash mirrors "no last_action_state" — the mock has no separate
-    // flag for "state exists but options is empty", so it collapses the two (M3.2 DC-F).
+    // flag for "state exists but options is empty", so it collapses the two.
     if (this._pendingChoiceOptions.length === 0) {
       return selector.kind === 'bail' ? 'Bail' : null;
     }

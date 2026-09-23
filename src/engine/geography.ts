@@ -1,10 +1,6 @@
 /**
- * Pure routing over the shared world graph (docs/engine/per-player-map-exploration.md
- * §2) — no DB, no LLM. Today this gates movement: a `set_location` is legal only if a
- * route exists (reachability). The `Σ(edge difficulty)` cost is computed too, but is NOT
- * yet charged as stamina — automatic travel-stamina is deferred to the future fast-travel
- * feature (§9); travel stamina stays LLM-authored for now. The cost is the foundation that
- * feature plugs into.
+ * Pure routing over the shared world graph — no DB, no LLM. Movement is gated on reachability:
+ * a `set_location` is legal only if a route exists.
  */
 
 /** A traversable neighbour and the difficulty (weight) of the edge to it. */
@@ -18,15 +14,14 @@ export type NeighboursOf = (name: string) => WeightedNeighbour[];
 export interface RouteResult {
   /** Ordered nodes from origin to destination, inclusive. */
   path: string[];
-  /** Σ(edge difficulty) along the path. The intended travel-stamina cost — computed
-   *  now, charged later (deferred to fast-travel, §9). Used today only to prove a route exists. */
+  /** Σ(edge difficulty) along the path — the intended travel-stamina cost, computed now but charged
+   *  only once fast-travel lands. Today it proves a route exists; travel stamina is LLM-authored. */
   cost: number;
 }
 
 /**
- * Least-cost route over edge `difficulty` weights (Dijkstra; trivial at this node
- * count). Returns null when the destination is unreachable from the origin.
- * Same-node trips cost 0.
+ * Least-cost route over edge `difficulty` weights (Dijkstra; trivial at this node count). Null
+ * when the destination is unreachable from the origin; same-node trips cost 0.
  */
 export function findRoute(from: string, to: string, neighboursOf: NeighboursOf): RouteResult | null {
   if (from === to) return { path: [from], cost: 0 };
