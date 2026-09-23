@@ -476,7 +476,7 @@ export class WorldEngineImpl implements WorldEngine {
     return !!this.charRepo.findByUserId(user.id);
   }
 
-  // ── Action state machine (S3) ──
+  // ── Action state machine ──
 
   /** Applies a resolved outcome, dropping invalid mutations from `outcome.mutations` so the
    *  renderer sees only what was applied. The caller wraps this in a transaction. */
@@ -1566,7 +1566,7 @@ export class WorldEngineImpl implements WorldEngine {
     return this.rowToCharacterData({ ...row, health: newHealth });
   }
 
-  // ── World tick (S5) ──
+  // ── World tick ──
 
   tick(isAdmin: boolean): TickResult {
     // Meant to move: the harness ticks the pinned clock a day before this call, so `today` is that day.
