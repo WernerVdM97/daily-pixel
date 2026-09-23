@@ -613,6 +613,9 @@ export class PipelineActionStateMachine {
           enemyMaxHp,
           round: 1,
           anchor,
+          // #97: the opening round authors the fight's `baseDc`, and the edge pins it from here
+          // on — see `fightDc` below.
+          baseDc: state.lastDecideResult.baseDc,
           // Persist the mint intent on the edge, not only on the per-action marker above, so it
           // survives a bail — `combatRoundUpdate`'s spread then carries it through every
           // subsequent round write for this fight, in this action or a later one.
@@ -627,6 +630,7 @@ export class PipelineActionStateMachine {
           enemyMaxHp,
           round: 1,
           anchor: { node: 'location', name: char.location },
+          baseDc: state.lastDecideResult.baseDc,
         };
       }
     }
@@ -641,6 +645,16 @@ export class PipelineActionStateMachine {
       unresolvedNpcMint = { name: cs.mintName };
     }
 
+    // The fight's OWN dc (#97): authored by the opening round's decide beat and pinned on the
+    // `in_combat` edge from then on, so `enemyBonus`, the combat card's `dangerTier` and the
+    // `foeDanger` RESOLVE is handed all describe the same foe in every round of one fight. The
+    // decide model is free to re-author `baseDc` on a CONTINUE round (nothing clamps it), and
+    // reading it here lets the foe's to-hit bonus and its displayed tier drift mid-fight for no
+    // in-world reason. The `?? state.lastDecideResult.baseDc` fallback covers an edge persisted
+    // before this prop existed: that one round keeps the old per-round read rather than falling
+    // to 0.
+    const fightDc = cs.baseDc ?? state.lastDecideResult.baseDc;
+
     // Resolve the anchor to use for edge writes: prefer the state-held anchor (across rounds),
     // fall back to the current CombatState's anchor (which for npc fights carries the id-as-name
     // that would fail re-resolution — T3 decision 4).
@@ -651,7 +665,7 @@ export class PipelineActionStateMachine {
     const playerD20 = this.rollD20();
     const enemyD20 = this.rollD20();
     const playerBonus = abilityCheckBonus(char.stats, items, state.rollStat);
-    const enemyBonus = Math.max(0, Math.min(ENEMY_BONUS_MAX, state.lastDecideResult.baseDc - 10));
+    const enemyBonus = Math.max(0, Math.min(ENEMY_BONUS_MAX, fightDc - 10));
     const roundResult = resolveCombatRound(playerD20, playerBonus, enemyD20, enemyBonus, 1);
 
     // ── Apply the band ──
@@ -694,7 +708,7 @@ export class PipelineActionStateMachine {
         pendingDecision: nextDecision,
         combatAnchor: heldAnchor,
         unresolvedNpcMint,
-        fatalBlow: { cs, roundResult, playerHpDelta, playerBonus, enemyBonus, dc: state.lastDecideResult.baseDc },
+        fatalBlow: { cs, roundResult, playerHpDelta, playerBonus, enemyBonus, dc: fightDc },
       };
       return {
         resolved: false,
@@ -724,7 +738,7 @@ export class PipelineActionStateMachine {
         ];
         const floorBeat = this.buildCombatBeat(
           cs, roundResult, newEnemyHp, floorPlayerHpDelta, floorMutations.map(m => m.type),
-          playerBonus, enemyBonus, state.lastDecideResult.baseDc, { floorSave: true },
+          playerBonus, enemyBonus, fightDc, { floorSave: true },
         );
 
         // ANSI-D: carry the fight's accumulated round log forward off the PREVIOUS
@@ -775,7 +789,7 @@ export class PipelineActionStateMachine {
         return this.resolveCombat(
           cs, roundResult, playerHpDelta, newEnemyHp, 'failure',
           { ...state, combatAnchor: heldAnchor, unresolvedNpcMint }, char, items, newDc, newDecisions, chosenOption,
-          playerBonus, enemyBonus, state.lastDecideResult.baseDc,
+          playerBonus, enemyBonus, fightDc,
         );
       }
     }
@@ -788,7 +802,7 @@ export class PipelineActionStateMachine {
       return this.resolveCombat(
         cs, roundResult, playerHpDelta, newEnemyHp, capVerdict,
         { ...state, combatAnchor: heldAnchor, unresolvedNpcMint }, char, items, newDc, newDecisions, chosenOption,
-        playerBonus, enemyBonus, state.lastDecideResult.baseDc,
+        playerBonus, enemyBonus, fightDc,
       );
     }
 
@@ -821,6 +835,8 @@ export class PipelineActionStateMachine {
     // narration can acknowledge the approach the player took and stay faithful to the dice.
     // Deliberately `combatRoundSummary`, not `rollOutcome` — that field switches the phase to
     // RESOLVE_ROLL, which this call is not.
+    // #97: `dc` is the fight's pinned value, so the continue beat is TOLD the number rather than
+    // invited to re-author it (nothing the model returns can move it now).
     const updatedContext = {
       ...context,
       sceneState: updatedSceneState,
@@ -828,6 +844,7 @@ export class PipelineActionStateMachine {
         band: roundResult.band,
         playerHpDelta: roundResult.playerHpDelta,
         enemyHpDelta: roundResult.enemyHpDelta,
+        dc: fightDc,
         chosenOption: {
           label: chosenOption.label,
           ...(chosenOption.stat ? { stat: chosenOption.stat } : {}),
@@ -908,7 +925,7 @@ export class PipelineActionStateMachine {
     ];
     const continueBeat = this.buildCombatBeat(
       cs, roundResult, newEnemyHp, playerHpDelta, continueMutations.map(m => m.type),
-      playerBonus, enemyBonus, state.lastDecideResult.baseDc,
+      playerBonus, enemyBonus, fightDc,
       emptyDecisionFallback ? { emptyDecisionFallback: true } : {},
     );
     // ANSI-D: carry the fight's accumulated round log forward off the PREVIOUS pendingDecision

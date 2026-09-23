@@ -24,6 +24,13 @@ export interface CombatState {
    *  rather than re-running establish. Optional so edges persisted before this prop existed
    *  still read cleanly. */
   mintName?: string;
+  /** The fight's authored `baseDc`, pinned when the fight opened (#97) — the tier is a property
+   *  of the foe, not of the round. `enemyBonus = clamp(baseDc - 10, 0, ENEMY_BONUS_MAX)` and the
+   *  card's `dangerTier` are both derived from it, so reading it fresh off every CONTINUE round's
+   *  decide result let the foe's to-hit bonus and its displayed tier move mid-fight for no
+   *  in-world reason. Optional so an edge persisted before this prop existed still reads cleanly:
+   *  the machine then falls back to the beat's own authored value for that one round. */
+  baseDc?: number;
 }
 
 /**
@@ -82,7 +89,14 @@ export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
   const rawMintName = (edge.props as Record<string, unknown>).mintName;
   const mintName = typeof rawMintName === 'string' && rawMintName.trim() !== '' ? rawMintName : undefined;
 
-  return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName };
+  // Same tolerant treatment for the pinned fight DC (#97): absent on an edge written before this
+  // prop existed, so the caller falls back to the beat's own authored `baseDc`.
+  const rawBaseDc = (edge.props as Record<string, unknown>).baseDc;
+  const baseDc = typeof rawBaseDc === 'number' && Number.isFinite(rawBaseDc) && rawBaseDc >= 0
+    ? rawBaseDc
+    : undefined;
+
+  return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName, baseDc };
 }
 
 /** The initial (or any full-state) `set_relation` for the `in_combat` edge — `set` upserts by
@@ -101,6 +115,7 @@ export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
       // members, and omitting the key leaves a non-mint fight's edge exactly as it was before
       // this prop existed.
       ...(state.mintName ? { mintName: state.mintName } : {}),
+      ...(state.baseDc !== undefined ? { baseDc: state.baseDc } : {}),
     },
   };
 }
@@ -121,9 +136,9 @@ export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
  * anchor, is threaded through as input rather than the anchor-only shape the plan sketched).
  * `enemyHpDelta` is applied and clamped to `[0, state.enemyMaxHp]` here so the emitted op is
  * always a valid absolute value; `nextRound` is written as-is (callers pass `round + 1`).
- * The same full-state spread is what carries `mintName` through unchanged from the caller's
- * `cs`, so once set at establish it survives every subsequent round write without any caller
- * having to thread it through explicitly.
+ * The same full-state spread is what carries `mintName` and the pinned fight `baseDc` through
+ * unchanged from the caller's `cs`, so once set at establish they survive every subsequent round
+ * write without any caller having to thread them through explicitly.
  */
 export function combatRoundUpdate(
   state: CombatState,

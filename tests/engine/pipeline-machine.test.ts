@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { deriveEnemyMaxHp } from '../../src/engine/action/combat-dc.js';
+import { deriveEnemyMaxHp, dangerTier } from '../../src/engine/action/combat-dc.js';
 import Database from 'better-sqlite3';
 import { PipelineActionStateMachine, enemyConditionBand } from '../../src/engine/action/PipelineActionStateMachine.js';
 import { PipelineStageError } from '../../src/llm/pipeline/PipelineStageError.js';
@@ -1455,6 +1455,7 @@ describe('PipelineActionStateMachine — decide-scene-narration: combat continue
       band: 'glanced',
       playerHpDelta: 0,
       enemyHpDelta: -3,
+      dc: 10, // the fight's pinned dc (#97) — baseDc 10, so the continue beat is told the number
       chosenOption: { label: 'Press the attack' },
     });
 
@@ -2650,6 +2651,120 @@ describe('PipelineActionStateMachine — C3: npc-anchored combat seeds real HP/n
     expect(edge2.props.enemyMaxHp).toBe(30); // constant — not re-derived, not grown
     expect(edge2.props.enemyHp).toBeLessThanOrEqual(edge1.props.enemyHp); // monotonically non-increasing
     expect(edge2.props.enemyName).toBe('Stag');
+
+    db.close();
+  });
+});
+
+/**
+ * Issue #97: the fight's dc is a property of the FOE, not of the round. The opening round authors
+ * `baseDc`; the `in_combat` edge pins it; every CONTINUE round reads it back from there. Before
+ * this, each CONTINUE round's fresh decide result supplied it instead, so a model that re-authored
+ * `baseDc` mid-fight moved the foe's `enemyBonus` (the contested roll) and the card's `dangerTier`
+ * under the player's feet for no in-world reason.
+ */
+describe('PipelineActionStateMachine — #97: the fight dc is pinned per fight, not per round', () => {
+  function combatEnemyDecideResult(overrides?: Partial<PipelineDecideResult>): PipelineDecideResult {
+    return {
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 12,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+      ...overrides,
+    };
+  }
+
+  it('a fight whose decide beats author baseDc 12 then 20 keeps one dangerTier, one enemyBonus and one CombatBeatLog.dc', async () => {
+    // A real RelationRepository, persisted round by round — a static resolver can't round-trip
+    // `in_combat` between step() calls, so it would re-establish the fight (and re-author the dc)
+    // instead of continuing it.
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    const relationRepo = new RelationRepository(db);
+
+    const llm = new MockPipelineLlmGateway();
+    // Round 2's decide beat authors baseDc 20 — the exact mid-fight drift this card is about (the
+    // third entry is the follow-on continue beat, which authors 24). Omitted `combatEnemy` on a
+    // continuation round, per `decide/combat.md` Rule 4.
+    llm.decideResultQueue = [
+      combatEnemyDecideResult({ baseDc: 12 }),
+      combatEnemyDecideResult({ baseDc: 20, combatEnemy: undefined }),
+      combatEnemyDecideResult({ baseDc: 24, combatEnemy: undefined }),
+    ];
+
+    const char = testChar();
+    const resolver: PipelineContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+      getSceneRelations: (node) => relationRepo.forNode(node.type, node.ref),
+    };
+
+    // Both rounds: player d20=10, enemy d20=10, playerBonus=5 (physical 3 + Iron Sword 2).
+    // Pinned dc 12 -> enemyBonus=clamp(2,0,10)=2 -> margin=3 -> 'glanced' (-3 enemy HP), enemyMaxHp
+    // 12 -> 9 -> 6 — never a win, a floor or the round cap.
+    const rolls = [10, 10, 10, 10];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++], resolver);
+
+    const started = await machine.start(char, 'attack the goblin', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    // ── Round 1 — the opening round authors the dc ──
+    const round1 = await machine.step(started.state, 'Press the attack', char, testItems);
+    expect(round1.resolved).toBe(false);
+    if (round1.resolved) throw new Error('expected unresolved round 1');
+    expect(round1.combatBeat?.dc).toBe(12);
+    expect(round1.combatBeat?.enemyBonus).toBe(2);
+    expect(round1.combatBeat?.band).toBe('glanced');
+
+    // Persist round 1's edge for real (mirrors `WorldEngineImpl.applyResolution`), so round 2
+    // CONTINUES this fight instead of establishing a fresh one.
+    const edge1 = round1.mutations?.find((m) => m.type === 'set_relation') as unknown as {
+      props: Record<string, number | string | boolean>;
+    };
+    expect(edge1.props.baseDc).toBe(12); // pinned at establish
+    relationRepo.set({
+      fromType: 'pc', fromRef: String(char.id),
+      toType: 'location', toRef: char.location,
+      relType: 'in_combat',
+      props: edge1.props,
+    });
+
+    // ── Round 2 — the decide beat authors baseDc 20; the round must ignore it ──
+    const round2 = await machine.step(round1.state, 'Press the attack', char, testItems);
+    expect(round2.resolved).toBe(false);
+    if (round2.resolved) throw new Error('expected unresolved round 2');
+
+    expect(round2.combatBeat?.dc).toBe(12);          // NOT the 20 the decide beat authored
+    expect(round2.combatBeat?.enemyBonus).toBe(2);   // so the foe's to-hit bonus can't drift
+    expect(round2.combatBeat?.band).toBe('glanced');
+    expect(round2.combatBeat?.enemyHpAfter).toBe(6); // 12 - 3 - 3, off the pinned bonus
+
+    // One tier and one bonus across the whole fight, and one `dc` on every round log the card
+    // renders (`actionViewState` reads `lastRound.dc` -> `dangerTier`).
+    expect(dangerTier(round1.combatBeat!.dc)).toBe('medium');
+    expect(dangerTier(round2.combatBeat!.dc)).toBe('medium');
+    expect(dangerTier(round2.combatBeat!.dc)).toBe(dangerTier(round1.combatBeat!.dc));
+    const fightLog = round2.nextDecision.combatRounds ?? [];
+    expect(fightLog).toHaveLength(2);
+    expect(fightLog.map(b => b.dc)).toEqual([12, 12]);
+    expect(fightLog.map(b => b.enemyBonus)).toEqual([2, 2]);
+
+    // The continue beat is TOLD the pinned number rather than invited to re-author it.
+    expect(llm.decideCalls[1].context.combatRoundSummary?.dc).toBe(12);
+
+    // And the pin survives the next edge write.
+    const edge2 = round2.mutations?.find((m) => m.type === 'set_relation') as unknown as {
+      props: Record<string, number | string | boolean>;
+    };
+    expect(edge2.props.baseDc).toBe(12);
 
     db.close();
   });

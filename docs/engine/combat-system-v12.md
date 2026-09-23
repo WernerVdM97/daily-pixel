@@ -45,7 +45,7 @@ the [[action-engine-framework]]'s three-zone model.
 | 1 | **Classify** | `start()` | Heuristic first; LLM fallback on a miss. Pins `actionType: 'combat'`. | 🗣️ Generative |
 | 2 | **Decide (initial)** | `start()` | Authors the first decision + `combatEnemy` signal (name, anchor, optional maxHp). | 🗣️ Generative |
 | 3 | **Critic (decision)** | `start()` | Gated coherence critic over the initial decide output. Major → one bounded re-decide. | 🗣️ Generative |
-| — | **Engine: combat-state establish** | `handleCombatStep()` | Reads or creates the `in_combat` scene-state edge. Resolves enemy name + maxHp from the NPC if known, falls back to `deriveEnemyMaxHp(baseDc)` for ambient foes. | ⚙️ Deterministic |
+| — | **Engine: combat-state establish** | `handleCombatStep()` | Reads or creates the `in_combat` scene-state edge. Resolves enemy name + maxHp from the NPC if known, falls back to `deriveEnemyMaxHp(baseDc)` for ambient foes, and pins the fight's `baseDc` on the edge so every later round reads it back rather than re-authoring it (#97). | ⚙️ Deterministic |
 | — | **Engine: contested roll + band** | `handleCombatStep()` | Rolls both `d20`s from the same injected `rollD20`. Resolves margin → band → signed HP deltas. Crits (nat-1/20) override the band outright. | 🎲 Stochastic → ⚙️ Deterministic |
 | 4 | **Decide (continue, per round)** | `handleCombatStep()` → CONTINUE | Called every non-terminal round. Given the just-resolved round's `combatRoundSummary`, authors next round's options + `narration`. | 🗣️ Generative |
 | 5 | **Critic (decision, per round)** | `handleCombatStep()` → CONTINUE | Same gated coherence critic as the initial beat. | 🗣️ Generative |
@@ -155,6 +155,9 @@ Dead tie (margin = 0): symmetric −2/−2. Crits never route to `trade`.
 enemyBonus = clamp(baseDc - 10, 0, ENEMY_BONUS_MAX=10)
 enemyMaxHp  = clamp(round(baseDc * scale), ENEMY_HP_MIN=6, ENEMY_HP_MAX=40)
 ```
+
+`baseDc` here is the fight's own value, authored by its opening round and carried on the
+`in_combat` edge for the rest of the fight (#97) — a continue round cannot move it.
 
 When the foe is a known NPC with a real `health` value, `enemyMaxHp` is seeded from that instead
 (0.3.2 C3). `scale` is the Thread B world-tier seam; currently hardcoded to 1.

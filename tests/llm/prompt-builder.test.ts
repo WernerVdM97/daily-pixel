@@ -160,6 +160,7 @@ describe('buildUserMessage — v9 markdown briefing', () => {
         band: 'glanced',
         playerHpDelta: 0,
         enemyHpDelta: -3,
+        dc: 12,
         chosenOption: { label: 'Press the attack', stat: 'physical' },
       },
     }));
@@ -171,6 +172,9 @@ describe('buildUserMessage — v9 markdown briefing', () => {
     expect(msg).toContain('- Player HP change: 0');
     expect(msg).toContain('- Enemy HP change: -3');
     expect(msg).toContain('- Approach: Press the attack (physical)');
+    // #97: the fight's pinned dc, so CONTINUE is told the number rather than invited to re-author
+    // `baseDc` (which the engine ignores on this path either way).
+    expect(msg).toContain('- Fight DC: 12 (fixed when the fight opened — do not change it)');
   });
 
   it('appends a Reviewer note (not a blockquote) when a criticNote is present', () => {

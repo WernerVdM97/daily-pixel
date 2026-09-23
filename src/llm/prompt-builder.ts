@@ -352,13 +352,16 @@ export function buildUserMessage(ctx: LlmContext): string {
   // so hand DECIDE the mechanical truth to narrate faithfully. Deliberately not folded into the
   // ROLL RESULT block below — that phase is RESOLVE_ROLL, this stays CONTINUE.
   if (ctx.combatRoundSummary) {
-    const { band, playerHpDelta, enemyHpDelta, chosenOption } = ctx.combatRoundSummary;
+    const { band, playerHpDelta, enemyHpDelta, dc, chosenOption } = ctx.combatRoundSummary;
     out.push('');
     out.push('### This round (just resolved)');
     out.push(`- Approach: ${chosenOption.label}${chosenOption.stat ? ` (${chosenOption.stat})` : ''}`);
     out.push(`- Result band: ${band}`);
     out.push(`- Player HP change: ${playerHpDelta}`);
     out.push(`- Enemy HP change: ${enemyHpDelta}`);
+    // #97: the fight's dc is fixed when the fight opens, so a continue round is told the number
+    // rather than invited to move it. The engine ignores a re-authored `baseDc` here either way.
+    out.push(`- Fight DC: ${dc} (fixed when the fight opened — do not change it)`);
     out.push('Narrate this round faithfully to the numbers above — do not invent a different outcome.');
   }
 
