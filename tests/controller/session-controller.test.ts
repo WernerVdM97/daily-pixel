@@ -4,6 +4,7 @@ import { SessionController } from '../../src/controller/SessionController.js';
 import { MockWorldEngine } from '../../src/engine/MockWorldEngine.js';
 import { WizardSession } from '../../src/controller/WizardSession.js';
 import type { CharDefs } from '../../src/controller/joinWizard.js';
+import type { ActionStartResult } from '../../src/engine/WorldEngine.js';
 
 // M7.3: the controller requires the wizard deps at every construction site — this suite
 // never touches the wizard, so the store is fresh and the defs empty.
@@ -139,5 +140,72 @@ describe('SessionController — recordFeedback', () => {
 
     expect(engine.calls.submitFeedback).toEqual([]);
     expect(engine.calls.submitBug).toEqual([]);
+  });
+});
+
+// ── Opening frame on the auto-resolved outcome: `_startActionResult` is the shape
+// `startAction` returns on the beat-1 auto-resolve branch (outcome populated, state.decisions
+// empty), which is what both out-of-band start paths hand the controller — so this pins the
+// call site that renders the frame the decision screen never got to show. ──
+
+describe('SessionController — opening frame on the auto-resolved outcome', () => {
+  const TRAVEL_AUTO_RESOLVE: ActionStartResult = {
+    state: { rawInput: 'walk the road to Oakhollow', decisions: [], accumulatedDc: 12, kind: 'quest' },
+    firstDecision: { prompt: '', options: [] },
+    outcome: {
+      distilledType: 'travel',
+      finalDc: 12,
+      playerRolled: 15,
+      outcome: 'success',
+      mutations: [{ type: 'move_to', name: 'Oakhollow' }],
+      outcomeText: 'You arrive at Oakhollow.',
+    },
+    actionType: 'travel',
+  };
+
+  const REST_AUTO_RESOLVE: ActionStartResult = {
+    state: { rawInput: 'Keep the gate — Walk the rounds', decisions: [], accumulatedDc: 11, kind: 'work', wage: 5 },
+    firstDecision: { prompt: '', options: [] },
+    outcome: {
+      distilledType: 'rest',
+      finalDc: 11,
+      playerRolled: 14,
+      outcome: 'success',
+      mutations: [],
+      outcomeText: 'You steal an hour by the fire.',
+    },
+    actionType: 'rest',
+  };
+
+  function makeController(engine: MockWorldEngine): SessionController {
+    return new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+  }
+
+  it('carries the travel frame (origin filled) onto both arms of a beat-1 auto-resolved free-text action', async () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1, location: "The Warden's Oak" }));
+    engine.setStartActionResult(TRAVEL_AUTO_RESOLVE);
+
+    const result = await makeController(engine).runCustomAction('user-1', 'walk the road to Oakhollow');
+
+    expect(result.kind).toBe('outcome');
+    if (result.kind !== 'outcome') throw new Error('unreachable');
+    expect(result.viewPrivate.openingFrame).toContain('```ansi');
+    expect(result.viewPrivate.openingFrame).toContain('TRAVEL');
+    expect(result.viewPrivate.openingFrame).toContain("The Warden's Oak");
+    // RA-6: one build shared by both arms, so the public broadcast carries the frame too.
+    expect(result.viewPublic).toBe(result.viewPrivate);
+  });
+
+  it('carries the rest frame onto a day-job auto-resolve (runWork)', async () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1 }));
+    engine.setStartActionResult(REST_AUTO_RESOLVE);
+
+    const result = await makeController(engine).runWork('user-1', 'Keep the gate — Walk the rounds', 5);
+
+    expect(result.kind).toBe('outcome');
+    if (result.kind !== 'outcome') throw new Error('unreachable');
+    expect(result.viewPrivate.openingFrame).toContain('REST');
   });
 });

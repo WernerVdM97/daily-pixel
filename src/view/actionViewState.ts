@@ -308,13 +308,18 @@ function shortLabel(label: string, maxLen: number): string {
 
 /** Assemble the outcome screen's semantic view-state (JSON-seam M2). Same parameter list as
  *  `buildOutcomeEmbed`; the medium step (`outcomeViewToDiscord`) owns the assemble/degrade
- *  ladder and all `discord.js` construction. */
+ *  ladder and all `discord.js` construction.
+ *
+ *  `classified` carries CLASSIFY's type and the pre-action location for the auto-resolve arm:
+ *  an action that resolved inside `start()` never rendered a decision screen, so its opening
+ *  frame has nowhere else to go. Callers that arrived here through a decision beat omit it. */
 export function buildOutcomeView(
   outcome: ActionOutcome,
   character: CharacterData | null | undefined,
   scene: string | null | undefined,
   state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string; narration?: string }>; kind?: ActionKind },
   engine?: WorldEngine,
+  classified?: { type: ClassifiedActionType; originLocation?: string },
 ): OutcomeViewState {
   const ctx: OutcomeRenderContext = {
     stamina: character?.stamina ?? 10,
@@ -361,6 +366,17 @@ export function buildOutcomeView(
       enemyCondition: { filled, total: 5, woundWord },
     });
   }
+  // Drawn only for the auto-resolved arm (no decisions to have shown it) and never for combat,
+  // whose outcome already carries its own frame above.
+  const openingFrame = classified && state.decisions.length === 0 && !outcome.combatBeat
+    ? renderOpeningFrame(classified.type, {
+        pcName: character?.name,
+        pcHp: character?.health,
+        pcMaxHp: character?.maxHealth,
+        locationName: classified.originLocation,
+      })
+    : undefined;
+
   // Terminal-card escalation ([[visual-craft]]): crit border for nat-20, heavy for nat-1.
   const terminalRenderer = (card: CombatTerminalCard) => {
     const style = card.playerD20 === 20 ? BORDERS.crit
@@ -386,6 +402,7 @@ export function buildOutcomeView(
     breadcrumb,
     sceneBlock,
     combatSceneBlock,
+    openingFrame,
     isCombat: !!outcome.combatBeat,
     storyThread,
     outcomeBlock,
