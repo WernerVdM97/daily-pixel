@@ -141,13 +141,14 @@ const RESOLVED_OUTCOME: ActionOutcome = {
   actionId: 88,
 };
 
-// A resolved `ActionStartResult` (LLM auto-finished at start) — no `actionType` (same
-// determinism-scope reasoning as DECISION_RESULT; `firstDecision` is never read once
-// `outcome` is present).
+// A resolved `ActionStartResult` (LLM auto-finished at start) — `actionType` is 'search' because
+// the outcome now carries the auto-resolved opening frame (the auto-finish path never showed a
+// decision screen to hang it on).
 const RESOLVED_START_RESULT = {
   state: { rawInput: "scout the northern ridge", decisions: [], accumulatedDc: 11, kind: "quest" },
   firstDecision: { prompt: "", options: [] },
   outcome: RESOLVED_OUTCOME,
+  actionType: "search",
 };
 
 const DIVINE_OUTCOME: ActionOutcome = {

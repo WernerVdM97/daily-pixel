@@ -100,8 +100,9 @@ export function outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBu
     if (includeScene) {
       if (view.isCombat) {
         if (view.combatSceneBlock) parts.push(view.combatSceneBlock);
-      } else if (view.sceneBlock) {
-        parts.push(view.sceneBlock);
+      } else {
+        if (view.openingFrame) parts.push(view.openingFrame);
+        if (view.sceneBlock) parts.push(view.sceneBlock);
       }
     }
     if (view.storyThread) {

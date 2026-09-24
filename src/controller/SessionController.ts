@@ -608,7 +608,10 @@ export class SessionController {
       // was strictly missing the gamebook trail. One build shared by both arms: the view is a
       // plain DTO and `outcomeViewToDiscord` only reads it, so aliasing is safe and avoids
       // rendering the identical frames twice.
-      const view = buildOutcomeView(result.outcome, char, scene, result.state, this.engine);
+      const view = buildOutcomeView(result.outcome, char, scene, result.state, this.engine, {
+        type: result.actionType,
+        originLocation: prevChar.location,
+      });
       return {
         kind: 'outcome',
         viewPrivate: view,

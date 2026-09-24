@@ -289,6 +289,42 @@ describe("OpeningFrameRenderer", () => {
     });
   });
 
+  describe("outcome-path call sites (an action that auto-resolved with no decision beat)", () => {
+    // The outcome screen renders the frame from the pre-action slots only: the PC's name/HP and,
+    // for travel, the origin location. Everything else the decision screen could fill (enemy,
+    // NPC, task rig) has no data here and must stay a deliberate placeholder.
+    const outcomeSlots = (origin?: string): OpeningFrameSlots => ({
+      pcName: "Aldric",
+      pcHp: 9,
+      pcMaxHp: 12,
+      locationName: origin,
+    });
+
+    for (const type of TYPES) {
+      it(`keeps the width invariant for '${type}' on the outcome path's slot subset`, () => {
+        const rendered = renderOpeningFrame(type, outcomeSlots("Oakhollow"));
+        for (const line of rendered.split("\n")) {
+          if (line === "```ansi" || line === "```") continue;
+          expect(stripSgr(line).length).toBe(FRAME_WIDTH);
+        }
+      });
+    }
+
+    it("travel draws the origin it was given, never the destination the action just reached", () => {
+      const mono = stripSgr(renderOpeningFrame("travel", outcomeSlots("Dark Forest")));
+      expect(mono).toContain("Dark Forest");
+      expect(mono).toContain("????");
+      expect(mono).not.toContain("Oakhollow");
+    });
+
+    it("rest draws the campfire register for a rest-classified auto-resolve", () => {
+      const mono = stripSgr(renderOpeningFrame("rest", outcomeSlots()));
+      expect(mono).toContain("REST");
+      expect(mono).toContain("z Z");
+      expect(mono).toContain(",@@@,");
+    });
+  });
+
   describe("colour role usage (palette-first — house is the default and only palette needed)", () => {
     it("rest's sleep glyphs use the 'status' role (magenta 35), distinct from chrome/player/warmth", () => {
       const rendered = renderOpeningFrame("rest", undefined, PALETTES.house);

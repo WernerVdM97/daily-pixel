@@ -315,6 +315,7 @@ export function buildOutcomeView(
   scene: string | null | undefined,
   state: { rawInput: string; decisions: Array<{ prompt: string; chosen: string; dcModifier: number; distilledType?: string; narration?: string }>; kind?: ActionKind },
   engine?: WorldEngine,
+  classified?: { type: ClassifiedActionType; originLocation?: string },
 ): OutcomeViewState {
   const ctx: OutcomeRenderContext = {
     stamina: character?.stamina ?? 10,
@@ -361,6 +362,16 @@ export function buildOutcomeView(
       enemyCondition: { filled, total: 5, woundWord },
     });
   }
+  // `classified` arrives only from the auto-resolved arm; combat draws its own frame above.
+  const openingFrame = classified && !outcome.combatBeat
+    ? renderOpeningFrame(classified.type, {
+        pcName: character?.name,
+        pcHp: character?.health,
+        pcMaxHp: character?.maxHealth,
+        locationName: classified.originLocation,
+      })
+    : undefined;
+
   // Terminal-card escalation ([[visual-craft]]): crit border for nat-20, heavy for nat-1.
   const terminalRenderer = (card: CombatTerminalCard) => {
     const style = card.playerD20 === 20 ? BORDERS.crit
@@ -386,6 +397,7 @@ export function buildOutcomeView(
     breadcrumb,
     sceneBlock,
     combatSceneBlock,
+    openingFrame,
     isCombat: !!outcome.combatBeat,
     storyThread,
     outcomeBlock,

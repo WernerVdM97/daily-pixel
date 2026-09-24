@@ -168,6 +168,66 @@ describe('buildOutcomeView — semantic shape', () => {
       expect(view.combatSceneBlock).not.toContain('Healthy');
     });
   });
+
+  describe('auto-resolved outcome — opening frame', () => {
+    // travel from the Forest to Oakhollow, already applied: `character.location` has moved, so
+    // the register's origin slot must come from the caller's pre-action location.
+    const travelOutcome: ActionOutcome = {
+      distilledType: 'travel',
+      finalDc: 12,
+      playerRolled: 15,
+      outcome: 'success',
+      outcomeText: 'You arrive at Oakhollow.',
+      mutations: [{ type: 'move_to', name: 'Oakhollow' }],
+    };
+    const arrivedChar = {
+      name: 'Aldric', health: 12, maxHealth: 12, stamina: 10, maxStamina: 10,
+      rollsRemaining: 1, wealth: 5, location: 'Oakhollow',
+    } as any;
+
+    it('renders the classified type\'s frame, keeps the destination scene, and fills the origin slot from the pre-action location', () => {
+      const view = buildOutcomeView(travelOutcome, arrivedChar, '🌲 Oakhollow scene art', state, undefined, {
+        type: 'travel',
+        originLocation: 'Dark Forest',
+      });
+
+      expect(view.openingFrame).toContain('```ansi');
+      expect(view.openingFrame).toContain('TRAVEL');
+      expect(view.openingFrame).toContain('Dark Forest');
+      // The destination is the wireframe's own rumoured "????", never the place just reached.
+      expect(view.openingFrame).toContain('????');
+      expect(view.openingFrame).not.toContain('Oakhollow');
+      expect(view.sceneBlock).toBe('```\n🌲 Oakhollow scene art\n```');
+    });
+
+    it('renders the rest frame for a rest-classified auto-resolve', () => {
+      const restOutcome: ActionOutcome = { ...travelOutcome, distilledType: 'rest', outcomeText: 'You bed down.' };
+      const view = buildOutcomeView(restOutcome, arrivedChar, null, state, undefined, { type: 'rest' });
+
+      expect(view.openingFrame).toContain('REST');
+    });
+
+    it('draws no frame for combat, whose outcome already carries its own', () => {
+      // Combat's outcome already carries its own frame, so the register must not double up.
+      const combatBeat: CombatBeatLog = {
+        round: 2, band: 'clean', enemyHpBefore: 6, enemyHpAfter: 0, playerHpDelta: 0,
+        playerD20: 18, playerBonus: 5, dc: 10, enemyD20: 7, enemyBonus: 0, margin: 16,
+        materialMutationFired: true, ops: ['set_relation'], marker: 'combat_round',
+      };
+      const combatOutcome: ActionOutcome = {
+        ...travelOutcome,
+        combatBeat,
+        combatFrame: { enemyName: 'Shadow Stag', enemyMaxHp: 24, margin: 16 },
+        combatRounds: [combatBeat],
+      };
+      expect(buildOutcomeView(combatOutcome, arrivedChar, null, state, undefined, { type: 'combat' }).openingFrame)
+        .toBeUndefined();
+    });
+
+    it('omits the frame when the caller passes no classified type (backward-compatible default)', () => {
+      expect(buildOutcomeView(travelOutcome, arrivedChar, null, state).openingFrame).toBeUndefined();
+    });
+  });
 });
 
 // ── Medium step, pinned directly: hand-built DTOs exercise decisionViewToDiscord/
@@ -267,6 +327,15 @@ describe('outcomeViewToDiscord — medium step', () => {
   it('maps colorIntent to the outcome hex, including the unknown-intent fallback', () => {
     expect(outcomeViewToDiscord({ ...baseView, colorIntent: 'failure' }).color).toBe(0xe74c3c);
     expect(outcomeViewToDiscord({ ...baseView, colorIntent: 'default' }).color).toBe(0x3498db);
+  });
+
+  it('draws the auto-resolved opening frame ahead of the scene, inside the one embed both arms share', () => {
+    const framed: OutcomeViewState = { ...baseView, openingFrame: '```ansi\nTRAVEL-FRAME\n```' };
+    const result = outcomeViewToDiscord(framed);
+
+    expect(result.description).toBe(
+      [baseView.locationLine, baseView.breadcrumb, framed.openingFrame, baseView.sceneBlock, baseView.storyThread!.full, baseView.outcomeBlock].join('\n\n'),
+    );
   });
 
   it('shows the combat scene block instead of the plain scene block when isCombat is true', () => {

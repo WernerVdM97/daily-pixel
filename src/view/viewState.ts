@@ -47,6 +47,9 @@ export interface OutcomeViewState {
   breadcrumb?: string;
   sceneBlock?: string;
   combatSceneBlock?: string;
+  /** The opening frame for an action that auto-resolved before any decision beat. The medium step
+   *  draws it ahead of `sceneBlock`; combat has its own, `combatSceneBlock`. */
+  openingFrame?: string;
   /** Selects `combatSceneBlock` over `sceneBlock` when the medium step includes the scene. */
   isCombat: boolean;
   /** Optional on the wire (`buildOutcomeView` always renders it; the protocol stub's fixed

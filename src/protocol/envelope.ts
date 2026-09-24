@@ -112,6 +112,7 @@ const validateView = (view: unknown): boolean => {
         && isOptionalString(view.breadcrumb)
         && isOptionalString(view.sceneBlock)
         && isOptionalString(view.combatSceneBlock)
+        && isOptionalString(view.openingFrame)
         && isOptionalStoryThread(view.storyThread);
     case 'notice':
       return isString(view.text) && typeof view.ephemeral === 'boolean';
