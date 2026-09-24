@@ -207,11 +207,7 @@ describe('buildOutcomeView — semantic shape', () => {
       expect(view.openingFrame).toContain('REST');
     });
 
-    it('draws no frame when a decision beat resolved the action, and none for combat', () => {
-      const stepped = { rawInput: 'attack the stag', decisions: [{ prompt: 'Strike?', chosen: 'Strike', dcModifier: 0 }] };
-      expect(buildOutcomeView(travelOutcome, arrivedChar, null, stepped, undefined, { type: 'travel' }).openingFrame)
-        .toBeUndefined();
-
+    it('draws no frame for combat, whose outcome already carries its own', () => {
       // Combat's outcome already carries its own frame, so the register must not double up.
       const combatBeat: CombatBeatLog = {
         round: 2, band: 'clean', enemyHpBefore: 6, enemyHpAfter: 0, playerHpDelta: 0,

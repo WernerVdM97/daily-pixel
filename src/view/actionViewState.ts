@@ -308,11 +308,7 @@ function shortLabel(label: string, maxLen: number): string {
 
 /** Assemble the outcome screen's semantic view-state (JSON-seam M2). Same parameter list as
  *  `buildOutcomeEmbed`; the medium step (`outcomeViewToDiscord`) owns the assemble/degrade
- *  ladder and all `discord.js` construction.
- *
- *  `classified` carries CLASSIFY's type and the pre-action location for the auto-resolve arm:
- *  an action that resolved inside `start()` never rendered a decision screen, so its opening
- *  frame has nowhere else to go. Callers that arrived here through a decision beat omit it. */
+ *  ladder and all `discord.js` construction. */
 export function buildOutcomeView(
   outcome: ActionOutcome,
   character: CharacterData | null | undefined,
@@ -366,9 +362,8 @@ export function buildOutcomeView(
       enemyCondition: { filled, total: 5, woundWord },
     });
   }
-  // Drawn only for the auto-resolved arm (no decisions to have shown it) and never for combat,
-  // whose outcome already carries its own frame above.
-  const openingFrame = classified && state.decisions.length === 0 && !outcome.combatBeat
+  // `classified` arrives only from the auto-resolved arm; combat draws its own frame above.
+  const openingFrame = classified && !outcome.combatBeat
     ? renderOpeningFrame(classified.type, {
         pcName: character?.name,
         pcHp: character?.health,

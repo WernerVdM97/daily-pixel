@@ -97,8 +97,6 @@ export function outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBu
     // Combat outcomes show the combat opening frame (enemy nameplate + HP bars) instead of
     // the plain location scene — the terminal card already covers the dice reveal, so the
     // combat frame provides visual context without duplicating information. (0.3.2 P2)
-    // Other auto-resolved actions keep their scene and gain the frame the decision screen
-    // never showed: the frame announces the action, the scene says where it happened.
     if (includeScene) {
       if (view.isCombat) {
         if (view.combatSceneBlock) parts.push(view.combatSceneBlock);

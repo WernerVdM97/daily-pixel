@@ -47,9 +47,8 @@ export interface OutcomeViewState {
   breadcrumb?: string;
   sceneBlock?: string;
   combatSceneBlock?: string;
-  /** The OPENING frame for an action that auto-resolved before any decision beat — no classify →
-   *  frame → options screen ever happened, so the outcome screen carries it instead. The medium
-   *  step draws it ahead of `sceneBlock` (combat has its own, `combatSceneBlock`). */
+  /** The opening frame for an action that auto-resolved before any decision beat. The medium step
+   *  draws it ahead of `sceneBlock`; combat has its own, `combatSceneBlock`. */
   openingFrame?: string;
   /** Selects `combatSceneBlock` over `sceneBlock` when the medium step includes the scene. */
   isCombat: boolean;
