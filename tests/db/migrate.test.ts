@@ -115,11 +115,36 @@ describe('migrate', () => {
     expect(row.enrichment_pending).toBe(0);
   });
 
+  it('adds the enrichment_attempts column to locations (default 0)', () => {
+    const cols = db.prepare("PRAGMA table_info('locations')").all() as { name: string }[];
+    expect(cols.map((c) => c.name)).toContain('enrichment_attempts');
+    const row = db.prepare("SELECT enrichment_attempts FROM locations WHERE name = ?").get("The Warden's Oak") as { enrichment_attempts: number };
+    expect(row.enrichment_attempts).toBe(0);
+  });
+
   it('adds the app_version column to feedback and bug_reports', () => {
     for (const table of ['feedback', 'bug_reports']) {
       const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
       expect(cols).toContain('app_version');
     }
+  });
+});
+
+describe('enrichment-attempts migration — existing DB backfill', () => {
+  it('adds enrichment_attempts to a DB that predates it, idempotently (guarded ALTER)', async () => {
+    const old = new Database(':memory:');
+    runMigrations(old);
+    old.exec('ALTER TABLE locations DROP COLUMN enrichment_attempts');
+
+    const { migration } = await import('../../src/db/migrations/202609250400_enrichment_attempts.js');
+    migration.up(old);
+
+    const cols = (old.prepare("PRAGMA table_info('locations')").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain('enrichment_attempts');
+    // Re-running is a clean no-op (the guard swallows "duplicate column name").
+    expect(() => migration.up(old)).not.toThrow();
+
+    old.close();
   });
 });
 

@@ -467,7 +467,198 @@ describe('WorldEngineImpl — cartographer fires on the auto-resolve frontier-cr
 
     closeDb();
   });
+
+  it('leaves the minted row provisional when the cartographer reports failure', async () => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const locationRepo = new LocationRepository(getDb());
+
+    const user = userRepo.create('888888889');
+    const characterId = charRepo.create(user.id, {
+      name: 'Mira',
+      class: 'Ranger',
+      upbringing: 'Village',
+      race: 'Human',
+      alignment: 'neutral good',
+      day_job: 'Hunter',
+      stats: JSON.stringify({ physical: 2, wisdom: 2, intelligence: 0, charisma: 0 }),
+      health: 10,
+      max_health: 10,
+      max_stamina: 10,
+      stamina: 10,
+      rolls_remaining: 3,
+      location: 'The East Road',
+      wealth: 0,
+      last_action_state: null,
+    }).id;
+
+    const cartographer: CartographerGateway = { enrich: async () => undefined };
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: 'travel', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new AutoResolveMockGateway([{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }]),
+      cartographer,
+      rollD20: () => 15,
+    });
+
+    await engine.startAction(characterId, 'cross the frontier to the north-east');
+    await flush();
+
+    // Pre-fix the gateway returned {} here, which settled the row with the fallback text.
+    const row = locationRepo.findByName('Eastvale');
+    expect(row).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 1 });
+    // Still the mint placeholder — the fallback text is only written once the cap is reached.
+    expect(row?.description).toContain('Mapping');
+
+    closeDb();
+  });
 });
+describe('WorldEngineImpl — bounded enrichment retry sweep (#46)', () => {
+  afterEach(closeDb);
+
+  async function flush(times = 5): Promise<void> {
+    for (let i = 0; i < times; i++) await new Promise((r) => setImmediate(r));
+  }
+
+  /** Engine with a scripted cartographer, seated over `pending` provisional rows (insertion
+   *  order = id order = the sweep's oldest-first order). */
+  function setup(config: {
+    pending: string[];
+    enrich: (name: string) => CartographerResult | undefined;
+    maxAttempts?: number;
+    sweepLimit?: number;
+  }) {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const locationRepo = new LocationRepository(getDb());
+    for (const name of config.pending) locationRepo.create({ name, enrichmentPending: 1, emoji: '📍' });
+
+    const calls: string[] = [];
+    const cartographer: CartographerGateway = {
+      enrich: async (input) => {
+        calls.push(input.newName);
+        return config.enrich(input.newName);
+      },
+    };
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      userRepo: new UserRepository(getDb()),
+      charRepo: new CharacterRepository(getDb()),
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new AutoResolveMockGateway([]),
+      cartographer,
+      ...(config.maxAttempts !== undefined ? { enrichmentMaxAttempts: config.maxAttempts } : {}),
+      ...(config.sweepLimit !== undefined ? { enrichmentSweepLimit: config.sweepLimit } : {}),
+    });
+    return { engine, locationRepo, calls };
+  }
+
+  it('a failed attempt leaves the row pending and counts the attempt', async () => {
+    const { engine, locationRepo, calls } = setup({ pending: ['Wolf Hollow'], enrich: () => undefined });
+
+    engine.tick(true);
+    await flush();
+
+    expect(calls).toEqual(['Wolf Hollow']);
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({
+      enrichment_pending: 1,
+      enrichment_attempts: 1,
+      description: null,
+    });
+
+    closeDb();
+  });
+
+  it('a later success settles the row and clears the flag', async () => {
+    let attempt = 0;
+    const { engine, locationRepo, calls } = setup({
+      pending: ['Wolf Hollow'],
+      enrich: () =>
+        ++attempt === 1
+          ? undefined
+          : { is_safe: 1, description: 'A blood-soaked clearing.', region: 'The Ashen Reach', emoji: '🐺' },
+    });
+
+    engine.tick(true);
+    await flush();
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 1 });
+
+    engine.tick(true);
+    await flush();
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({
+      enrichment_pending: 0,
+      is_safe: 1,
+      description: 'A blood-soaked clearing.',
+      region: 'The Ashen Reach',
+      emoji: '🐺',
+      node_tier: 2,
+    });
+
+    // A settled row is never re-enriched by a later sweep.
+    engine.tick(true);
+    await flush();
+    expect(calls).toEqual(['Wolf Hollow', 'Wolf Hollow']);
+
+    closeDb();
+  });
+
+  it('gives up at the cap, settling with the placeholder instead of retrying for ever', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { engine, locationRepo, calls } = setup({ pending: ['Nowhere'], enrich: () => undefined });
+
+    for (let i = 0; i < 3; i++) {
+      engine.tick(true);
+      await flush();
+    }
+
+    expect(locationRepo.findByName('Nowhere')).toMatchObject({
+      enrichment_pending: 0,
+      enrichment_attempts: 3,
+      is_safe: 0,
+      description: 'An uncharted place beyond the known map.',
+      region: 'The Vale',
+      emoji: '📍',
+      node_tier: 2,
+    });
+    // Exactly one warn per failed attempt, the last naming the give-up.
+    expect(warn.mock.calls.length).toBe(3);
+    expect(String(warn.mock.calls[2][0])).toContain('giving up on "Nowhere"');
+
+    engine.tick(true);
+    await flush();
+    expect(calls.length).toBe(3);
+
+    warn.mockRestore();
+    closeDb();
+  });
+
+  it('sweeps at most the per-tick limit, oldest first', async () => {
+    const { engine, locationRepo, calls } = setup({
+      pending: ['One', 'Two', 'Three', 'Four'],
+      enrich: () => undefined,
+    });
+
+    engine.tick(true);
+    await flush();
+
+    expect(calls).toEqual(['One', 'Two', 'Three']);
+    expect(locationRepo.findByName('Four')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+
+    closeDb();
+  });
+});
+
 describe('WorldEngineImpl — startAction surfaces a persisted enemy condition on re-entry (0.3.2 C4)', () => {
   /** Scripted decide() with a fixed non-empty option, so start() always lands on the
    *  non-resolved (real firstDecision) return path — the only one `combatEnemyCondition` is

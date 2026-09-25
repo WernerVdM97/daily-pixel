@@ -123,6 +123,8 @@ export interface LocationRow {
   is_safe: number;            // 0|1
   /** 1 while a provisional (D3) location awaits async cartographer enrichment. */
   enrichment_pending: number; // 0|1
+  /** Failed enrichment attempts so far; the sweep settles the row once this hits the engine's cap. */
+  enrichment_attempts: number;
   /** 0 = the Oak root · 1 = district hub · 2 = leaf. Defaults 2 for legacy rows. */
   node_tier: number;
   region: string | null;      // flat grouping label ("The Vale"); cartographer-assigned
