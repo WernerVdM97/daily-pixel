@@ -170,4 +170,13 @@ describe('LocationRepository — geometry columns', () => {
     expect(locs.incrementEnrichmentAttempts('Wolf Hollow')).toBe(2);
     expect(locs.findByName('Wolf Hollow')?.enrichment_attempts).toBe(2);
   });
+
+  it('incrementEnrichmentAttempts counts nothing for a row that has already settled', () => {
+    locs.create({ name: 'Wolf Hollow', enrichmentPending: 1 });
+    locs.enrichProvisional('Wolf Hollow', { isSafe: 1, description: 'A blood-soaked clearing.' });
+
+    expect(locs.incrementEnrichmentAttempts('Wolf Hollow')).toBeNull();
+    expect(locs.findByName('Wolf Hollow')?.enrichment_attempts).toBe(0);
+    expect(locs.incrementEnrichmentAttempts('Nowhere')).toBeNull();
+  });
 });

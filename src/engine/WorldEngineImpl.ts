@@ -249,9 +249,7 @@ interface WorldEngineConfig {
   /** Enriches new provisional locations (is_safe + description) off the critical path.
    *  Absent in tests / without an LLM key — the row stays provisional. */
   cartographer?: CartographerGateway;
-  /** Failed enrichment attempts before a row settles with the placeholder (default 3). */
   enrichmentMaxAttempts?: number;
-  /** Pending rows the nightly sweep re-fires, oldest first (default 3). */
   enrichmentSweepLimit?: number;
   /** Coherence critic: decision beats via CritiquedLlmGateway, resolution beats via the machine
    *  hook. Absent = disabled. */
@@ -303,6 +301,8 @@ export class WorldEngineImpl implements WorldEngine {
   private llmCallRepo: LlmCallRepository;
   private machine: PipelineActionStateMachine;
   private cartographer?: CartographerGateway;
+  /** Names with an attempt awaiting the LLM, so one row is never enriched twice at once. */
+  private enrichmentInFlight = new Set<string>();
   private enrichmentMaxAttempts: number;
   private enrichmentSweepLimit: number;
   private classDefs: ClassDef[];
@@ -721,77 +721,91 @@ export class WorldEngineImpl implements WorldEngine {
     }
   }
 
-  /** One enrichment attempt — the validate + default path shared by the mint-time fire and the
-   *  nightly sweep. A failure leaves the row provisional and counts the attempt; at the cap the
-   *  row settles with the placeholder instead, so an unmappable name cannot retry for ever. */
+  /** One attempt, shared by the mint-time fire and the nightly sweep: a failure leaves the row
+   *  provisional and counts it, and at the cap the row settles rather than retry for ever. */
   private async enrichProvisionalLocation(name: string, narrative: string): Promise<void> {
     const cartographer = this.cartographer;
-    if (!cartographer) return;
+    // One attempt per name at a time: a row minted seconds before a tick would otherwise be
+    // enriched twice at once, and one outage would cost it two of its attempts.
+    if (!cartographer || this.enrichmentInFlight.has(name)) return;
+    this.enrichmentInFlight.add(name);
 
-    // Existing names excluding this fresh row, so the LLM can flag it as a synonym.
-    const existingNames = this.locationRepo
-      .findAll()
-      .map((l) => l.name)
-      .filter((n) => n !== name);
-    const knownRegions = [
-      ...new Set(
-        this.locationRepo
-          .findAll()
-          .map((l) => l.region)
-          .filter((r): r is string => !!r),
-      ),
-    ];
-    // The node it was crossed from is its parent on the graph (the inbound edge).
-    const inbound = this.edgeRepo.all().find((e) => e.to_location === name);
-    const fromLocation = inbound?.from_location;
-    const fromRegion = fromLocation ? this.locationRepo.findByName(fromLocation)?.region ?? null : null;
-
-    let result: CartographerResult | undefined;
-    let failure = "";
     try {
-      result = await cartographer.enrich({
-        newName: name,
-        existingNames,
-        narrative,
-        knownRegions,
-        fromLocation,
-        fromRegion,
-      });
-    } catch (err) {
-      failure = ` (${err instanceof Error ? err.message : String(err)})`;
-    }
+      // Existing names excluding this fresh row, so the LLM can flag it as a synonym.
+      const existingNames = this.locationRepo
+        .findAll()
+        .map((l) => l.name)
+        .filter((n) => n !== name);
+      const knownRegions = [
+        ...new Set(
+          this.locationRepo
+            .findAll()
+            .map((l) => l.region)
+            .filter((r): r is string => !!r),
+        ),
+      ];
+      // The node it was crossed from is its parent on the graph (the inbound edge).
+      const inbound = this.edgeRepo.all().find((e) => e.to_location === name);
+      const fromLocation = inbound?.from_location;
+      const fromRegion = fromLocation ? this.locationRepo.findByName(fromLocation)?.region ?? null : null;
 
-    if (result === undefined) {
-      const attempts = this.locationRepo.incrementEnrichmentAttempts(name);
-      if (attempts < this.enrichmentMaxAttempts) {
-        console.warn(
-          `[cartographer] enrichment attempt ${attempts}/${this.enrichmentMaxAttempts} failed for "${name}"${failure} — the nightly sweep will retry`,
-        );
-        return;
+      let result: CartographerResult | undefined;
+      let failure = "";
+      try {
+        result = await cartographer.enrich({
+          newName: name,
+          existingNames,
+          narrative,
+          knownRegions,
+          fromLocation,
+          fromRegion,
+        });
+      } catch (err) {
+        failure = ` (${err instanceof Error ? err.message : String(err)})`;
       }
-      console.warn(
-        `[cartographer] giving up on "${name}" after ${attempts} attempts${failure} — settling with the placeholder`,
-      );
-      result = {};
-    }
 
-    const description = result.description ?? "An uncharted place beyond the known map.";
-    const isSafe = result.is_safe ?? 0;
-    const updated = this.locationRepo.enrichProvisional(name, {
-      isSafe,
-      description,
-      tags: result.tags ?? null,
-      // Geometry — validated/defaulted here, never trusted blind. The region is
-      // sanitized: it lands in /map headers and the prompt's region labels.
-      region: (result.region ? sanitizeAuthored(result.region, 40) : "") || fromRegion || HOME_REGION,
-      emoji: result.emoji?.trim() || "📍",
-      nodeTier: result.node_tier === 1 ? 1 : 2,
-    });
-    if (updated) {
-      this.authorOnwardFrontiers(name, result.onwardFrontiers ?? []);
-      console.log(
-        `[cartographer] charted "${name}" (is_safe=${isSafe}, tier=${result.node_tier ?? 2}, region=${result.region ?? fromRegion ?? HOME_REGION}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
+      if (result === undefined) {
+        const attempts = this.locationRepo.incrementEnrichmentAttempts(name);
+        // Settled under us by a concurrent attempt: nothing to count, and no give-up to announce.
+        if (attempts === null) return;
+        if (attempts < this.enrichmentMaxAttempts) {
+          console.warn(
+            `[cartographer] enrichment attempt ${attempts}/${this.enrichmentMaxAttempts} failed for "${name}"${failure} — the nightly sweep will retry`,
+          );
+          return;
+        }
+        console.warn(
+          `[cartographer] giving up on "${name}" after ${attempts} attempts${failure} — settling with the placeholder`,
+        );
+        result = {};
+      }
+
+      const description = result.description ?? "An uncharted place beyond the known map.";
+      const isSafe = result.is_safe ?? 0;
+      const updated = this.locationRepo.enrichProvisional(name, {
+        isSafe,
+        description,
+        tags: result.tags ?? null,
+        // Geometry — validated/defaulted here, never trusted blind. The region is
+        // sanitized: it lands in /map headers and the prompt's region labels.
+        region: (result.region ? sanitizeAuthored(result.region, 40) : "") || fromRegion || HOME_REGION,
+        emoji: result.emoji?.trim() || "📍",
+        nodeTier: result.node_tier === 1 ? 1 : 2,
+      });
+      if (updated) {
+        this.authorOnwardFrontiers(name, result.onwardFrontiers ?? []);
+        console.log(
+          `[cartographer] charted "${name}" (is_safe=${isSafe}, tier=${result.node_tier ?? 2}, region=${result.region ?? fromRegion ?? HOME_REGION}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
+        );
+      }
+    } catch (err) {
+      // The promise is voided by both callers, so a throw after the LLM call stays a warning
+      // here instead of paging the operator as an unhandled rejection.
+      console.warn(
+        `[cartographer] enrichment failed for "${name}" (${err instanceof Error ? err.message : String(err)})`,
       );
+    } finally {
+      this.enrichmentInFlight.delete(name);
     }
   }
 

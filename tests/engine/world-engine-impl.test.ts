@@ -529,10 +529,12 @@ describe('WorldEngineImpl — bounded enrichment retry sweep (#46)', () => {
   }
 
   /** Engine with a scripted cartographer, seated over `pending` provisional rows (insertion
-   *  order = id order = the sweep's oldest-first order). */
+   *  order = id order = the sweep's oldest-first order). `block` keeps an attempt awaiting the
+   *  LLM so a second tick can be fired against a still-in-flight row. */
   function setup(config: {
     pending: string[];
     enrich: (name: string) => CartographerResult | undefined;
+    block?: Promise<void>;
     maxAttempts?: number;
     sweepLimit?: number;
   }) {
@@ -546,6 +548,7 @@ describe('WorldEngineImpl — bounded enrichment retry sweep (#46)', () => {
     const cartographer: CartographerGateway = {
       enrich: async (input) => {
         calls.push(input.newName);
+        if (config.block) await config.block;
         return config.enrich(input.newName);
       },
     };
@@ -654,6 +657,105 @@ describe('WorldEngineImpl — bounded enrichment retry sweep (#46)', () => {
 
     expect(calls).toEqual(['One', 'Two', 'Three']);
     expect(locationRepo.findByName('Four')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+
+    closeDb();
+  });
+
+  it('honours an overridden per-tick limit and per-row cap', async () => {
+    const { engine, locationRepo, calls } = setup({
+      pending: ['One', 'Two', 'Three'],
+      enrich: () => undefined,
+      maxAttempts: 1,
+      sweepLimit: 2,
+    });
+
+    engine.tick(true);
+    await flush();
+
+    expect(calls).toEqual(['One', 'Two']);
+    // Cap 1: the first failure settles, so neither row is swept again.
+    expect(locationRepo.findByName('One')).toMatchObject({ enrichment_pending: 0, enrichment_attempts: 1 });
+    expect(locationRepo.findByName('Two')).toMatchObject({ enrichment_pending: 0, enrichment_attempts: 1 });
+    expect(locationRepo.findByName('Three')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+
+    closeDb();
+  });
+
+  it('counts a throwing enrich() as one attempt, warning instead of rejecting unhandled', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown): void => void rejections.push(err);
+    process.on('unhandledRejection', onRejection);
+
+    const { engine, locationRepo, calls } = setup({
+      pending: ['Nowhere'],
+      enrich: () => {
+        throw new Error('gateway exploded');
+      },
+    });
+
+    engine.tick(true);
+    await flush();
+
+    expect(calls).toEqual(['Nowhere']);
+    // Still provisional with the attempt counted — the same path a non-conforming gateway takes.
+    expect(locationRepo.findByName('Nowhere')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 1 });
+    expect(String(warn.mock.calls[0][0])).toContain('gateway exploded');
+    expect(rejections).toEqual([]);
+
+    process.off('unhandledRejection', onRejection);
+    warn.mockRestore();
+    closeDb();
+  });
+
+  it('keeps a post-await write failure a warning, not an unhandled rejection', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown): void => void rejections.push(err);
+    process.on('unhandledRejection', onRejection);
+    // The settle write is the thing that fails here, after the await: the attempt's promise is
+    // voided by both callers, so this is what used to escape as an operator-paging rejection.
+    const boom = vi.spyOn(LocationRepository.prototype, 'enrichProvisional').mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+    const { engine, locationRepo } = setup({
+      pending: ['Wolf Hollow'],
+      enrich: () => ({ is_safe: 1, description: 'A blood-soaked clearing.' }),
+    });
+
+    engine.tick(true);
+    await flush();
+
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+    expect(String(warn.mock.calls[0][0])).toContain('enrichment failed for "Wolf Hollow"');
+    expect(rejections).toEqual([]);
+
+    boom.mockRestore();
+    process.off('unhandledRejection', onRejection);
+    warn.mockRestore();
+    closeDb();
+  });
+
+  it('skips a row whose attempt is still awaiting the LLM', async () => {
+    let release: () => void = () => {};
+    const block = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { engine, locationRepo, calls } = setup({ pending: ['Wolf Hollow'], enrich: () => undefined, block });
+
+    engine.tick(true);
+    await flush();
+    expect(calls).toEqual(['Wolf Hollow']);
+
+    // Second tick inside the in-flight window: the sweep must not stack a second attempt.
+    engine.tick(true);
+    await flush();
+    expect(calls).toEqual(['Wolf Hollow']);
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+
+    release();
+    await flush();
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 1 });
 
     closeDb();
   });

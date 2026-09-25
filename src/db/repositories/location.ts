@@ -57,11 +57,15 @@ export class LocationRepository {
       .all(limit) as LocationRow[];
   }
 
-  /** Count one failed enrichment attempt and return the running total. */
-  incrementEnrichmentAttempts(name: string): number {
-    this.db
-      .prepare('UPDATE locations SET enrichment_attempts = enrichment_attempts + 1 WHERE name = ?')
+  /** Count one failed enrichment attempt and return the running total, or `null` when the row is
+   *  no longer provisional — a late loser must not bump the cap or log a give-up it did not earn. */
+  incrementEnrichmentAttempts(name: string): number | null {
+    const updated = this.db
+      .prepare(
+        'UPDATE locations SET enrichment_attempts = enrichment_attempts + 1 WHERE name = ? AND enrichment_pending = 1',
+      )
       .run(name);
+    if (updated.changes === 0) return null;
     const row = this.db
       .prepare('SELECT enrichment_attempts FROM locations WHERE name = ?')
       .get(name) as { enrichment_attempts: number } | undefined;

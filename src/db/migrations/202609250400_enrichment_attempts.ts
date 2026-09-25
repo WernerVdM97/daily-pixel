@@ -1,10 +1,8 @@
 import type { Migration } from './types.js';
 
 /**
- * `locations.enrichment_attempts` (INTEGER, default 0): failed cartographer `enrich()`
- * attempts on a still-provisional row. The nightly sweep re-fires such rows, and the
- * engine gives up at its cap by settling the row with the placeholder text — without
- * the counter an unmappable name would be retried on every tick for ever.
+ * `locations.enrichment_attempts` (INTEGER, default 0): failed cartographer `enrich()` attempts
+ * on a still-provisional row, so an unmappable name cannot be retried on every tick.
  */
 export const migration: Migration = {
   id: '202609250400_enrichment_attempts',
