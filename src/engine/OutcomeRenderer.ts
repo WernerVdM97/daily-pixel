@@ -308,7 +308,7 @@ export function formatOutcome(
   // "(refunded)" or the unchanged count reads as a bug; that suffix is for a net-zero refund only.
   const rollsSuffix = outcome.rollRefunded && rollsDelta === 0 ? ' (refunded)' : formatDelta(rollsDelta);
   // The bail refund is once per game day, so a refunded step-back and a charged one otherwise read
-  // as the same event. Derived from the outcome alone, which keeps the wording on the bail path only.
+  // as the same event.
   const bailGraceNote = outcome.outcome === 'bailed'
     ? outcome.rollRefunded
       ? ' · first step-back today is free'

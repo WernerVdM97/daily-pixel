@@ -1293,9 +1293,6 @@ describe('WorldEngineImpl — pipeline stage failures fail open (0.3.4)', () => 
 });
 
 // ── Bail refund grace: once per game day ──
-//
-// `OutcomeRenderer` picks its wording off `outcome === 'bailed'` + `rollRefunded`, so those two
-// signals are what has to stay honest here.
 
 describe('WorldEngineImpl — bail refund grace is once per game day', () => {
   afterEach(closeDb);
