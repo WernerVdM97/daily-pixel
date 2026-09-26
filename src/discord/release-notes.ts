@@ -1,15 +1,6 @@
 /**
- * Player-facing release notes.
- *
- * One YAML file per release tag lives in `assets/release-notes/<tag>.yml`
- * (e.g. `v0.2.3.yml`). When the bot boots on a tag it hasn't announced before
- * (see the `last_release_announced` meta key), it posts the matching notes to
- * the announcement channel with a feedback/request button — so players, not
- * just the changelog, hear what changed. Keep the content **non-technical**:
- * what's new and fun, not migrations and refactors.
- *
- * No file for the current tag → nothing is announced (and the meta is left
- * untouched, so dropping a notes file in later still fires on the next boot).
+ * Player-facing release notes: one YAML file per release tag in `assets/release-notes/<tag>.yml`, posted
+ * once per tag at boot with a feedback button. Keep the content non-technical: what's new and fun.
  */
 import yaml from "js-yaml";
 import fs from "node:fs";
@@ -27,9 +18,8 @@ export interface ReleaseNotes {
 }
 
 /**
- * Load the release-notes for a tag, or null when there's no (valid) file for
- * it. Never throws — a missing or malformed file degrades to "no notes" (and is
- * logged) so a bad file can't crash boot.
+ * Load the release-notes for a tag, or null when there is no valid file for it. Never throws: a missing
+ * or malformed file degrades to "no notes" rather than crashing boot.
  */
 export function loadReleaseNotes(tag: string, dir: string): ReleaseNotes | null {
   const file = path.join(dir, `${tag}.yml`);

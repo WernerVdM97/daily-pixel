@@ -1,13 +1,6 @@
 /**
- * Content + formatting for the midday (12:00 UTC) afternoon announcements:
- *
- * - **Saturday** — a wilderness threat. One of the unsafe locations is named,
- *   a themed hostile NPC is spawned there, and players are nudged to go engage.
- *   The location rotates week-by-week so the same spot isn't always "hot".
- * - **Wednesday & Sunday** — wealth + might leaderboards.
- *
- * All functions here are pure (data + string building) so they can be unit
- * tested; the scheduler in index.ts wires them to the engine and Discord.
+ * The midday (12:00 UTC) announcements: a wilderness threat on Saturday, and the wealth/might
+ * leaderboards on Wednesday and Sunday. Pure string builders; the scheduler in index.ts drives them.
  */
 import type { Leaderboards } from "../engine/WorldEngine.js";
 
@@ -20,8 +13,8 @@ export interface WildernessThreat {
 }
 
 /**
- * Themed threats, one per seeded unsafe ("wilderness") location. The Saturday
- * beat rotates through these in order, one per week.
+ * Themed threats, one per seeded unsafe ("wilderness") location; the Saturday beat rotates through
+ * them in order, one per week.
  */
 export const WILDERNESS_THREATS: WildernessThreat[] = [
   {
@@ -91,10 +84,8 @@ export function pickWeeklyThreat(now: Date): WildernessThreat {
 }
 
 /**
- * The dawn (05:30) heads-up that a wilderness threat looms this Saturday — the early warning
- * that precedes the midday reveal (which names the foe and spawns it). Deterministic per week
- * via `pickWeeklyThreat`, so the warning matches the noon announcement. Names the place + hint
- * but holds back the foe's name, so the midday beat still lands.
+ * The dawn heads-up that a threat looms this Saturday, ahead of the midday reveal. Deterministic via
+ * `pickWeeklyThreat`, so it matches the noon announcement; names the place and hint but not the foe.
  */
 export function buildThreatHeadsUp(threat: WildernessThreat): string {
   return [

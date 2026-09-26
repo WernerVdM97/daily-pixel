@@ -1,15 +1,6 @@
 /**
- * "A soul has bottomed out" notices — fired when an action, rest, or nightly
- * tick drops a character's health or stamina to 0.
- *
- * There is no death mechanic: 0 is a floor, not a game-over. The notice is a
- * *public* world event — posted to the announcement channel so the whole table
- * sees who fell — and fires only on the *transition* to 0 (was above, now
- * at/below) so a character already at 0 isn't re-announced every action.
- *
- * The actual posting is delegated to a broadcaster the bot wires up at startup
- * (see `setCollapseBroadcaster`), so this module stays free of discord.js and
- * the channel plumbing.
+ * Collapse notices fire only on the transition to 0 (was above, now at/below) — 0 is a floor, not a
+ * game-over, so a character already there is not re-announced.
  */
 
 interface Vitals {
@@ -26,11 +17,7 @@ export function setCollapseBroadcaster(fn: CollapseBroadcaster | null): void {
   _broadcast = fn;
 }
 
-/**
- * Build the public collapse notice for a vitals transition, or null if nothing
- * crossed to 0 this step. Both health and stamina can fire at once. Written in
- * third person — this is broadcast for everyone to read.
- */
+/** Both health and stamina can cross on one step, so the notice can carry two lines. */
 export function collapseNotice(
   name: string,
   prev: Vitals | null | undefined,
@@ -53,11 +40,8 @@ export function collapseNotice(
   return lines.length > 0 ? lines.join("\n\n") : null;
 }
 
-/**
- * Broadcast the collapse notice (if any) to the world. Best-effort — never
- * throws, so it can't break the surrounding outcome flow. No-op if no
- * broadcaster is registered (e.g. a channel-less dev setup).
- */
+/** Posts the notice to the world, best-effort: a throw cannot break the outcome flow, and with no
+ *  broadcaster registered this is a no-op (a channel-less dev setup). */
 export async function announceCollapse(
   name: string,
   prev: Vitals | null | undefined,

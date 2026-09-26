@@ -1,11 +1,6 @@
 /**
- * /bug — crosses the JSON seam as `bug.submit` with the `slash-bug` surface (M9.2,
- * DC-M9.2.1/DC-M9.5): the confirmation copy and the persist routing already live
- * controller-side byte-identically (`feedbackConfirmation`/`recordFeedback`), and the
- * no-character guard lives in the router (`dispatchFeedback`). This handler is translate +
- * paint only, the `hi.ts`/`look.ts` shape — the router's error.message IS the string the
- * dispatcher paints, and the view maps through `noticeViewToDiscord`. No `actionId`: the
- * slash command registry never supplies one.
+ * /bug crosses the JSON seam as `bug.submit` with the `slash-bug` surface; the router owns the guard
+ * and the confirmation copy. No `actionId` is read: the slash-command registry never supplies one.
  */
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
@@ -27,14 +22,10 @@ export function makeBugCommand(
       surface: "slash-bug",
     });
 
-    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
-    // Only the two slash surfaces carry `nav` (the router builds it off the character read
-    // its own guard already performs); the two in-message surfaces never reach here.
+    // Absent on the no-character arm: the router builds `nav` off the character read its own guard already performs.
     onNav?.(response.facts?.nav as NavFacts | undefined);
 
-    // DC-M9.3.10: the two in-message bug leaves page the admin on this fact already — before
-    // the seam crossing a throwing recordFeedback propagated out of this handler into the
-    // dispatcher's error net, which did page. Without this the slash path lost that signal.
+    // Preserves the pre-seam page: a throwing `recordFeedback` used to reach the dispatcher's error net.
     if (response.facts?.persistFailed) {
       void notifyAdmin("Slash bug report failed", new Error("recordFeedback failed"));
     }

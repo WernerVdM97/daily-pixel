@@ -1,19 +1,6 @@
 /**
- * Content + formatting for the twice-daily morning (05:30 UTC) and evening
- * (18:30 UTC "goodnight") announcements.
- *
- * Prose rotates through a small pool keyed deterministically on the day
- * number (NOT `Math.random`), so the same day always renders the same
- * flavour line everywhere it's built — the live cron post, a boot-time
- * catch-up, and the admin `/sleep` tick echo all agree.
- *
- * The data lines (Day N, souls-stirred/NPC-movement counts, the
- * unsafe-souls warning, the Saturday threat heads-up) are untouched by the
- * rotation — only the scene-setting flavour sentence varies.
- *
- * All functions here are pure (data + string building) so they can be unit
- * tested; index.ts and the admin `/sleep` tick both call these builders
- * instead of duplicating the prose.
+ * The twice-daily morning (05:30 UTC) and evening (18:30 UTC "goodnight") announcement bodies. The prose
+ * rotates on the day number, not `Math.random`, so every caller renders the same day the same way.
  */
 
 export interface MorningAnnouncementData {
@@ -104,10 +91,8 @@ export function buildEveningAnnouncement(data: EveningAnnouncementData): string 
 }
 
 /**
- * True when the morning (05:30) slot is suppressed because the midday (12:00) beat
- * already owns the day: Sat (wilderness threat) and Wed/Sun (leaderboards). Must stay
- * in lockstep with `runAfternoonBeat`'s weekday checks in src/index.ts — that function's
- * comment cross-references this one so the two can't drift.
+ * True when the midday (12:00) beat already owns the day: Sat (wilderness threat) and Wed/Sun
+ * (leaderboards). Must stay in lockstep with `runAfternoonBeat`'s weekday checks in src/index.ts.
  */
 export function isMorningSuppressedDay(now: Date): boolean {
   const weekday = now.getUTCDay(); // 0 = Sunday … 6 = Saturday
@@ -115,9 +100,8 @@ export function isMorningSuppressedDay(now: Date): boolean {
 }
 
 /**
- * Why the morning announcement should be skipped, in priority order:
- * already-posted → tick-incomplete → suppressed-weekday. Null = post normally.
- * The 0/3/6 weekday set must stay in lockstep with `isMorningSuppressedDay` (same set).
+ * Why the morning announcement should be skipped, in priority order: already-posted → tick-incomplete →
+ * suppressed-weekday. Null = post normally. The 0/3/6 set must stay in lockstep with `isMorningSuppressedDay`.
  */
 export function morningSkipReason(input: {
   alreadyPosted: boolean;

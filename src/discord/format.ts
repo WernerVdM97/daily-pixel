@@ -1,25 +1,8 @@
-/**
- * Discord transport formatting: Components V2 payload assembly and the button rows.
- *
- * Builds Components V2 payloads using the native Separator component ({ type: 14 })
- * rather than text separator lines, plus optional nav buttons. Text is split on the
- * SEPARATOR line into TextDisplay sections (Separators between) inside one Container;
- * nav buttons become Action Rows below.
- *
- * The display vocabulary this used to carry (SEPARATOR, direction helpers, the emoji
- * lookups) moved to `src/render/format.ts` at M10.1 — it was read by the controller,
- * view and render layers, which had no business importing from an adapter. Nothing is
- * re-exported from here: a compat re-export would leave the inverted path resolving and
- * quietly defeat the point (the DC-M9.4.3 rule, applied again).
- *
- * Usage:
- *   const payload = buildComponentPayload(`section 1 text`, { navButtons: getNavButtons(char) });
- *   await interaction.reply(payload);
- */
+/** Discord transport formatting: Components V2 payload assembly and the button rows.
+ *  The display vocabulary moved to `src/render/format.ts` and is deliberately not re-exported here. */
 
 import { SEPARATOR } from '../render/format.js';
 
-/** Components V2 type constants. */
 const CT = {
   ACTION_ROW: 1,
   BUTTON: 2,
@@ -29,7 +12,6 @@ const CT = {
   CONTAINER: 17,
 } as const;
 
-/** Button style constants. */
 const BS = {
   SECONDARY: 2,
 } as const;
@@ -40,18 +22,13 @@ export const IS_COMPONENTS_V2 = 1 << 15; // 32768
 /** MessageFlags.Ephemeral. Set via `flags` (the `ephemeral` reply option is deprecated). */
 const EPHEMERAL = 1 << 6; // 64
 
-/** Navigation button definition. */
 interface NavButtonDef {
   id: string;
   label: string;
   emoji: string;
   /** Returns false to omit the button. Default: always shown. */
   showIf?: (ctx: { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean }) => boolean;
-  /**
-   * Restricts the button to these pages — used by the "view" buttons (look/stats/backpack)
-   * to cross-link among info pages instead of cluttering every screen. Buttons without
-   * `showOnPages` are global (every page minus the current one).
-   */
+  /** Restricts the button to these pages; without it the button is global (every page bar the current one). */
   showOnPages?: string[];
 }
 
@@ -63,7 +40,7 @@ const NAV_BUTTONS: NavButtonDef[] = [
     id: 'action',
     label: 'Action',
     emoji: '⚔️',
-    // Hidden exactly when Rest takes its place — out of rolls and not mid-action.
+    // Hidden out of rolls and not mid-action.
     showIf: (ctx) => ctx.rollsRemaining > 0 || ctx.hasPendingAction,
   },
   {
@@ -82,16 +59,14 @@ const NAV_BUTTONS: NavButtonDef[] = [
   { id: 'map',      label: 'Map',      emoji: '🗺️', showOnPages: ['hi', 'journal', 'backpack', 'stats', 'look'] },
 ];
 
-/** Either the raw character shape (`lastActionState`, `hasPendingAction` derived) or the
- *  protocol's `facts.nav` shape (`hasPendingAction` already computed) — DC-M9.6. */
+/** Either the raw character shape (`lastActionState`) or the protocol's `facts.nav` shape. */
 type NavButtonsChar =
   | { rollsRemaining: number; lastActionState: unknown; hasRestedToday?: boolean }
   | { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean };
 
 /**
- * Build nav Action Row(s) — up to 2 rows, 5 buttons max each. Omits buttons whose
- * `showIf` returns false and the button matching `currentCommand` (so a view never
- * shows its own nav button).
+ * Build nav Action Row(s): up to 2 rows of 5, dropping `showIf`-false buttons and the one matching
+ * `currentCommand`, so a view never shows its own nav button.
  */
 export function getNavButtons(
   char: NavButtonsChar,
@@ -124,7 +99,7 @@ export function getNavButtons(
 
   if (buttons.length === 0) return [];
 
-  // Split into rows of max 5.
+  // 5 is Discord's cap on buttons per Action Row.
   const rows: Array<{
     type: number;
     components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }>;
@@ -139,9 +114,8 @@ export function getNavButtons(
 }
 
 /**
- * Extract the trailing numeric action id from an outcome custom_id — works for both the button
- * (`outcome:bug:42`) and modal (`outcome:bug:modal:42`) forms, and returns undefined when absent
- * (`outcome:bug`, `outcome:bug:modal`). Inverse of the suffix `getOutcomeServiceButtons` appends.
+ * Trailing numeric action id from an outcome custom_id, in both the button (`outcome:bug:42`) and modal
+ * (`outcome:bug:modal:42`) forms; undefined when absent. Inverse of the suffix the service buttons append.
  */
 export function parseOutcomeActionId(customId: string): number | undefined {
   const last = customId.split(':').pop();
@@ -150,10 +124,8 @@ export function parseOutcomeActionId(customId: string): number | undefined {
 }
 
 /**
- * Service buttons for action outcomes: feedback + bug report. When `actionId` is given it's
- * appended to each custom_id (`outcome:feedback:<id>` / `outcome:bug:<id>`) so a report can be
- * attributed to the action whose outcome the button was on. Omitted → bare `outcome:feedback`
- * (off-action surfaces, or older messages the handlers still accept).
+ * Feedback + bug-report buttons for an outcome. A given `actionId` is appended to each custom_id so a
+ * report can be attributed; omitting it yields the bare ids off-action surfaces and older messages use.
  */
 export function getOutcomeServiceButtons(actionId?: number): Array<{
   type: number;
@@ -170,11 +142,8 @@ export function getOutcomeServiceButtons(actionId?: number): Array<{
 }
 
 /**
- * Buttons for the PUBLIC outcome copy posted to the weekly thread: a "Hi" re-entry
- * button (`nav:hi`) ahead of the feedback/bug-report service buttons, so a reader can
- * jump straight into play from the thread. The private reply already carries the full
- * nav bar, so Hi is added here only for the thread copy. The `nav:hi` handler already
- * spawns a fresh per-clicker ephemeral on public messages (see navResponseMode).
+ * The weekly-thread copy of an outcome gets a `nav:hi` re-entry button ahead of the service buttons; the
+ * private reply already carries the full nav bar. `nav:hi` on a public message opens a fresh ephemeral.
  */
 export function getPublicOutcomeButtons(actionId?: number): ReturnType<typeof getOutcomeServiceButtons> {
   const [serviceRow] = getOutcomeServiceButtons(actionId);
@@ -188,11 +157,8 @@ export function getPublicOutcomeButtons(actionId?: number): ReturnType<typeof ge
 }
 
 /**
- * How a nav-button click should respond, given the source message's flags. Edit in place
- * ONLY when the source is itself a Components-V2 ephemeral: `update()` is a partial edit,
- * so on a legacy embed message (the action outcome) it would preserve the embeds and clash
- * with the V2 flag — and a legacy message can't be toggled into V2 anyway (Discord 50035).
- * Legacy-ephemeral and public messages both spawn a fresh per-clicker ephemeral instead.
+ * Edit in place only for a Components-V2 ephemeral: `update()` is a partial edit, so on the legacy embed
+ * it would keep the embeds and clash with the V2 flag (50035). Everything else replies per clicker.
  */
 export function navResponseMode(source: { ephemeral: boolean; componentsV2: boolean }): 'update' | 'reply' {
   return source.ephemeral && source.componentsV2 ? 'update' : 'reply';
@@ -209,9 +175,8 @@ export function buildComponentPayload(
       components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }>;
     }>;
     /**
-     * Filename of a banner image (MediaGallery at top of container). Caller MUST also
-     * pass the matching attachment in the reply's `files` (see ./images); referenced
-     * as `attachment://<image>`.
+     * Filename of a banner image (MediaGallery at top of container). The caller MUST also pass the matching
+     * attachment in the reply's `files` (see ./images), referenced as `attachment://<image>`.
      */
     image?: string;
   },
@@ -222,7 +187,6 @@ export function buildComponentPayload(
     | { type: number; components: Array<{ type: number; custom_id: string; label: string; emoji: { name: string }; style: number }> }
   >;
 } {
-  // Split on SEPARATOR lines into sections.
   const sections = text
     .split(new RegExp(`\\n?${escapeRegex(SEPARATOR)}\\n?`))
     .map(s => s.trim())
@@ -230,7 +194,6 @@ export function buildComponentPayload(
 
   const contentComponents: Array<{ type: number; content?: string; items?: Array<{ media: { url: string } }> }> = [];
 
-  // Optional banner image at top of container.
   if (opts?.image) {
     contentComponents.push({
       type: CT.MEDIA_GALLERY,
@@ -241,7 +204,6 @@ export function buildComponentPayload(
   if (sections.length === 0) {
     contentComponents.push({ type: CT.TEXT_DISPLAY, content: text });
   } else {
-    // Interleave TextDisplay and Separator components.
     for (let i = 0; i < sections.length; i++) {
       if (i > 0) contentComponents.push({ type: CT.SEPARATOR });
       contentComponents.push({ type: CT.TEXT_DISPLAY, content: sections[i] });
@@ -252,8 +214,7 @@ export function buildComponentPayload(
     flags: number;
     components: Array<unknown>;
   } = {
-    // Ephemeral folded into flags — the `ephemeral` reply option is deprecated and a
-    // V2 message can't mix `flags` with a separate `ephemeral`.
+    // Folded into flags: the `ephemeral` reply option is deprecated and a V2 message can't mix the two.
     flags: IS_COMPONENTS_V2 | (opts?.ephemeral ? EPHEMERAL : 0),
     components: [{ type: CT.CONTAINER, components: contentComponents }],
   };
@@ -270,7 +231,6 @@ export function buildComponentPayload(
   };
 }
 
-/** Escape special regex chars in a string. */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
