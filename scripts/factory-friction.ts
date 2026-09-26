@@ -277,13 +277,17 @@ interface SessionStats {
   editedFiles: string[];
   correctionTurns: number;
   shipped: boolean;
+  /** Whether a commit was owed at all; false for a lead-driven child, whose contract forbids one. */
+  commitExpected: boolean;
   signals: Record<string, number>;
   /** Per label, how many times this session itself hit it: an offender is session-scoped. */
   offenders: Record<string, Record<string, number>>;
 }
 
 const CORRECTION = /^\s*(no\b|nope|not\b|actually|wait\b|stop\b|wrong|that'?s (not|wrong)|still (broken|failing)|didn'?t work|revert|undo|again\b)/i;
-const SHIPPED = /git commit|gh pr create|gh pr merge/i;
+// A wrapped `git -c … commit` (the ledger's stage children write one) counts, so the flags between
+// `git` and `commit` are skipped rather than making a shipped session read as unshipped.
+const SHIPPED = /\bgit\b[^\n;&|]*\bcommit\b|gh pr (?:create|merge)/i;
 
 /** A scheduled loop's launcher brief: the headless session that fires `schedule.run-due`. */
 const SCHEDULE_LAUNCHER = /schedule\.run-due/;
@@ -371,6 +375,7 @@ function readSession(file: string, ancestorIds: Set<string>): SessionStats {
     editedFiles: [],
     correctionTurns: 0,
     shipped: false,
+    commitExpected: true,
     signals: {},
     offenders: {},
   };
@@ -484,6 +489,10 @@ function readSession(file: string, ancestorIds: Set<string>): SessionStats {
   // the session header's uuid is the real id (meta/sessions 2026-09-11).
   if (stats.id === "session" && headerId) stats.id = headerId;
   stats.agent = agentOf(subagentName, firstUserText);
+  // A lead-driven delegate child never commits (the lead commits for it), so "edited and did not
+  // ship" is compliance, not friction; a ledger stage owes a commit and is named as a child too.
+  stats.commitExpected =
+    /FACTORY LEDGER STAGE/.test(firstUserText) || !/^subagent-delegate-(executor|fixer)-/.test(subagentName ?? "");
 
   deriveSignals(stats);
   return stats;
@@ -532,7 +541,7 @@ function deriveSignals(s: SessionStats): void {
   // failure mode: the tokens are gone and nothing landed. Editing is required precisely so
   // the read-only loops (triage, sweeper, scrumo, every reviewer child) are not flagged for
   // behaving as designed, and 15 tool calls is the floor below which a session was a question.
-  if (s.toolCalls >= 15 && s.editedFiles.length > 0 && !s.shipped) {
+  if (s.toolCalls >= 15 && s.editedFiles.length > 0 && !s.shipped && s.commitExpected) {
     add("dead-end", `${s.toolCalls} tool calls, ${s.editedFiles.length} edits, no commit or PR`);
   }
 }
