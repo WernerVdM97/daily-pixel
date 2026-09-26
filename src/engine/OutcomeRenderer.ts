@@ -307,7 +307,14 @@ export function formatOutcome(
   // Rolls — no fixed denominator, because the daily allowance varies. A no-op refund shows
   // "(refunded)" or the unchanged count reads as a bug; that suffix is for a net-zero refund only.
   const rollsSuffix = outcome.rollRefunded && rollsDelta === 0 ? ' (refunded)' : formatDelta(rollsDelta);
-  stats.push(`🎲 ${ctx.rollsRemaining}${rollsSuffix}`);
+  // The bail refund is once per game day, so a refunded step-back and a charged one otherwise read
+  // as the same event. Derived from the outcome alone, which keeps the wording on the bail path only.
+  const bailGraceNote = outcome.outcome === 'bailed'
+    ? outcome.rollRefunded
+      ? ' · first step-back today is free'
+      : ' · the free step-back is already used today'
+    : '';
+  stats.push(`🎲 ${ctx.rollsRemaining}${rollsSuffix}${bailGraceNote}`);
   // Wealth — only when changed
   if (d.wealthDelta !== 0) {
     stats.push(`💰 ${ctx.wealth}${formatDelta(d.wealthDelta)}`);
