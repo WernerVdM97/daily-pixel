@@ -1291,3 +1291,91 @@ describe('WorldEngineImpl — pipeline stage failures fail open (0.3.4)', () => 
 
   });
 });
+
+// ── Bail refund grace: once per game day ──
+
+describe('WorldEngineImpl — bail refund grace is once per game day', () => {
+  afterEach(closeDb);
+
+  const CHAR = {
+    name: 'Garrick',
+    class: 'Fighter',
+    upbringing: 'Village',
+    race: 'Human',
+    alignment: 'lawful good',
+    day_job: 'Guard',
+    stats: JSON.stringify({ physical: 3, wisdom: -1, intelligence: 0, charisma: 0 }),
+    health: 10,
+    max_health: 10,
+    max_stamina: 10,
+    stamina: 10,
+    rolls_remaining: 3,
+    location: "The Warden's Oak",
+    wealth: 5,
+    last_action_state: null,
+  };
+
+  /** `required: false` is what lets `ensureBail` append the synthetic "Step back"; the bail path
+   *  never reaches resolve-mutate or resolve-narrate, so one option payload serves every stage. */
+  const withOptionalOptions = {
+    distilledType: 'inspection',
+    stat: 'physical',
+    baseDc: 12,
+    required: false,
+    decision: [
+      { label: 'Look closer', dcModifier: 0, stat: 'physical' },
+      { label: 'Force the hasp', dcModifier: 3, stat: 'physical' },
+    ],
+  };
+
+  function makeEngine() {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const user = userRepo.create('999999999');
+    const characterId = charRepo.create(user.id, CHAR).id;
+
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: '__divine__', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlm: {
+        apiKey: 'test-key',
+        model: 'test-model',
+        fetch: (async () => new Response(
+          JSON.stringify({ choices: [{ message: { content: JSON.stringify(withOptionalOptions) }, finish_reason: 'stop' }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )) as unknown as typeof fetch,
+      },
+      rollD20: () => 15,
+    });
+    return { engine, charRepo, characterId };
+  }
+
+  it('hands the roll back on the first step-back of the day and keeps it spent on the second', async () => {
+    const { engine, charRepo, characterId } = makeEngine();
+
+    await engine.startAction(characterId, 'inspect the lockup');
+    const first = await engine.stepAction(characterId, 'Step back');
+    if (!first.resolved) throw new Error('expected a resolved bail');
+    expect(first.outcome.outcome).toBe('bailed');
+    expect(first.outcome.rollRefunded).toBe(true);
+    expect(first.outcome.rollsDelta).toBe(0);
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+
+    await engine.startAction(characterId, 'inspect the lockup');
+    const second = await engine.stepAction(characterId, 'Step back');
+    if (!second.resolved) throw new Error('expected a resolved bail');
+    expect(second.outcome.outcome).toBe('bailed');
+    // Unset is the renderer's cue to name the rule rather than a refund, so it stays unset.
+    expect(second.outcome.rollRefunded).toBeUndefined();
+    expect(second.outcome.rollsDelta).toBe(-1);
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(2);
+  });
+});
