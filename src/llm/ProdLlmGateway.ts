@@ -293,10 +293,10 @@ export class ProdLlmGateway implements LlmGateway, CartographerGateway, RecapGat
   }
 
   /**
-   * D3 cartographer call. Best-effort: never throws on parse/transport failure — returns an empty
-   * result so the caller leaves the provisional row as-is. Not audited (off-critical-path).
+   * D3 cartographer call — a transport, empty-response or parse failure reports `undefined`
+   * (see `CartographerGateway.enrich`). Not audited (off-critical-path).
    */
-  async enrich(input: CartographerInput): Promise<CartographerResult> {
+  async enrich(input: CartographerInput): Promise<CartographerResult | undefined> {
     const userMessage = [
       `NEW LOCATION NAME: ${input.newName}`,
       `KNOWN LOCATIONS: ${input.existingNames.join(', ') || 'none'}`,
@@ -317,11 +317,11 @@ export class ProdLlmGateway implements LlmGateway, CartographerGateway, RecapGat
 
       if (!res.ok) {
         console.warn(c.yellow('[cartographer] non-200'), res.httpStatus);
-        return {};
+        return undefined;
       }
 
       const content = res.content;
-      if (!content) return {};
+      if (!content) return undefined;
 
       const parsed = JSON.parse(content) as Record<string, unknown>;
       const result: CartographerResult = {};
@@ -366,7 +366,7 @@ export class ProdLlmGateway implements LlmGateway, CartographerGateway, RecapGat
       return result;
     } catch (err) {
       console.warn(c.yellow('[cartographer] enrich failed'), err instanceof Error ? err.message : String(err));
-      return {};
+      return undefined;
     }
   }
 

@@ -152,4 +152,31 @@ describe('LocationRepository — geometry columns', () => {
     // A second enrich is a no-op — the row is no longer provisional.
     expect(locs.enrichProvisional('Wolf Hollow', { isSafe: 1, description: 'changed' })).toBe(false);
   });
+
+  it('findPendingEnrichment returns only provisional rows, oldest first, capped by the limit', () => {
+    locs.create({ name: 'First', enrichmentPending: 1 });
+    locs.create({ name: 'Second' });
+    locs.create({ name: 'Third', enrichmentPending: 1 });
+    locs.create({ name: 'Fourth', enrichmentPending: 1 });
+
+    expect(locs.findPendingEnrichment(2).map((r) => r.name)).toEqual(['First', 'Third']);
+    expect(locs.findPendingEnrichment(10).map((r) => r.name)).toEqual(['First', 'Third', 'Fourth']);
+  });
+
+  it('incrementEnrichmentAttempts counts up and starts from zero', () => {
+    const row = locs.create({ name: 'Wolf Hollow', enrichmentPending: 1 });
+    expect(row.enrichment_attempts).toBe(0);
+    expect(locs.incrementEnrichmentAttempts('Wolf Hollow')).toBe(1);
+    expect(locs.incrementEnrichmentAttempts('Wolf Hollow')).toBe(2);
+    expect(locs.findByName('Wolf Hollow')?.enrichment_attempts).toBe(2);
+  });
+
+  it('incrementEnrichmentAttempts counts nothing for a row that has already settled', () => {
+    locs.create({ name: 'Wolf Hollow', enrichmentPending: 1 });
+    locs.enrichProvisional('Wolf Hollow', { isSafe: 1, description: 'A blood-soaked clearing.' });
+
+    expect(locs.incrementEnrichmentAttempts('Wolf Hollow')).toBeNull();
+    expect(locs.findByName('Wolf Hollow')?.enrichment_attempts).toBe(0);
+    expect(locs.incrementEnrichmentAttempts('Nowhere')).toBeNull();
+  });
 });

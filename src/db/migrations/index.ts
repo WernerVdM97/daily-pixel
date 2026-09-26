@@ -15,6 +15,7 @@ import { migration as npcHomeLocation } from './202606300001_npc_home_location.j
 import { migration as sceneRelations } from './202607041000_scene_relations.js';
 import { migration as npcCombatHealth } from './202607112100_npc_combat_health.js';
 import { migration as llmCallBeat } from './202607281200_llm_call_beat.js';
+import { migration as enrichmentAttempts } from './202609250400_enrichment_attempts.js';
 
 /**
  * All migrations in apply order. Append new ones at the end — the runner applies
@@ -38,4 +39,5 @@ export const MIGRATIONS: Migration[] = [
   sceneRelations,
   npcCombatHealth,
   llmCallBeat,
+  enrichmentAttempts,
 ];
