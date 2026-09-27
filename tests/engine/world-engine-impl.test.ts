@@ -1034,6 +1034,63 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
 
     closeDb();
   });
+
+  // ── C4 follow-up: the resume half. `resumeAction` rebuilds the decision screen from the
+  // persisted state, so it must carry the same two rendering inputs the first beat gets — without
+  // them a resumed fight has no frame to open with. ──
+
+  it('carries the action type and the remembered foe on a mid-fight resume', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+
+    await engine.startAction(characterId, 'attack the goblin');
+    // Two contested rounds: enemyMaxHp 12 (baseDc), both dice 15, player +3 vs enemy +2 → margin 1,
+    // the trade band's lighter player hit (−1 HP) against −2 enemy HP each round.
+    await engine.stepAction(characterId, 'Attack');
+    await engine.stepAction(characterId, 'Attack');
+
+    const resumed = engine.resumeAction(characterId);
+
+    expect(resumed.actionType).toBe('combat');
+    // The whole point: the opener gate can no longer read the beat index as "not the first beat".
+    expect(resumed.state.decisions).toHaveLength(2);
+    expect(resumed.combatEnemyName).toBe('Goblin');
+    // 8/12 = 0.667 → filled = round(0.667*5) = 3, 'Bloodied'.
+    expect(resumed.combatEnemyCondition).toEqual({ woundWord: 'Bloodied', filled: 3, total: 5 });
+
+    closeDb();
+  });
+
+  it('names the DECIDE-hinted foe on a resume that never reached a round, with no condition to band', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+
+    // Abandoned on the first decision screen: no `in_combat` edge is written until the first
+    // choice, so the name can only come off the persisted decide result.
+    await engine.startAction(characterId, 'attack the goblin');
+    const resumed = engine.resumeAction(characterId);
+
+    expect(resumed.actionType).toBe('combat');
+    expect(resumed.state.decisions).toHaveLength(0);
+    expect(resumed.combatEnemyName).toBe('Goblin');
+    expect(resumed.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('carries the action type and no foe on a non-combat resume', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('rest'));
+
+    await engine.startAction(characterId, 'rest by the fire');
+    const resumed = engine.resumeAction(characterId);
+
+    expect(resumed.actionType).toBe('rest');
+    expect(resumed.combatEnemyName).toBeUndefined();
+    expect(resumed.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
 });
 
 describe('WorldEngineImpl — RA-3 bounded: mint the foe the world named but never had (SL-4/SL-7)', () => {

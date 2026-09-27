@@ -104,6 +104,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
     engine.setCharacter(baseChar({ rollsRemaining: 0, lastActionState: "{...}" }));
     engine.setResumeResult({
       state: { rawInput: "scout the ridge", decisions: [], accumulatedDc: 12 } as never,
+      actionType: "other",
       nextDecision: {
         prompt: "The ridge forks ahead.",
         options: [
@@ -125,6 +126,7 @@ describe("action entry-point routing (nav:action / /action)", () => {
     engine.setCharacter(baseChar({ lastActionState: "{...}" }));
     engine.setResumeResult({
       state: { rawInput: "x", decisions: [], accumulatedDc: 12 } as never,
+      actionType: "other",
       nextDecision: { prompt: "Could not recover.", options: [] },
     });
     const handler = makeHandler(engine);

@@ -197,6 +197,13 @@ export interface ActionOutcome {
 export interface ActionResumeResult {
   state: ActionState;
   nextDecision: ActionDecision;
+  /** The type `classify` pinned at CLASSIFY, read back off the persisted state: the resumed
+   *  screen selects its opening frame with it exactly as the first beat does. */
+  actionType: ClassifiedActionType;
+  /** Same two slots `ActionStartResult` carries, read the same way (the DECIDE hint, else the
+   *  persisted `in_combat` foe) — a resumed mid-fight shows its foe as the fresh one would. */
+  combatEnemyName?: string;
+  combatEnemyCondition?: { woundWord: string; filled: number; total: number };
 }
 
 export interface LocationInfo {

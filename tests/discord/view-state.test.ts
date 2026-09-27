@@ -56,9 +56,13 @@ describe('buildDecisionView — semantic shape', () => {
     expect(view.openingFrame).toBeUndefined();
   });
 
-  it('carries the rendered opening-frame ANSI string only on the first decision when actionType is given', () => {
-    const withFrame = buildDecisionView(decision, 0, state, char, 'travel');
+  it('carries the rendered opening-frame ANSI string when the opener is asked for, whatever the beat index', () => {
+    const withFrame = buildDecisionView(decision, 0, state, char, 'travel', undefined, undefined, true);
     expect(withFrame.openingFrame).toContain('```ansi');
+
+    // The flag, not `decisionIdx`, is the gate: a resumed fight shows its opener at a later beat.
+    const resumed = buildDecisionView(decision, 1, state, char, 'combat', 'Goblin', undefined, true);
+    expect(resumed.openingFrame).toContain('```ansi');
 
     const continueBeat = buildDecisionView(decision, 1, state, char, 'travel');
     expect(continueBeat.openingFrame).toBeUndefined();
