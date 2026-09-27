@@ -309,11 +309,7 @@ export function formatOutcome(
   const rollsSuffix = outcome.rollRefunded && rollsDelta === 0 ? ' (refunded)' : formatDelta(rollsDelta);
   // The bail refund is once per game day, so a refunded step-back and a charged one otherwise read
   // as the same event.
-  const bailGraceNote = outcome.outcome === 'bailed'
-    ? outcome.rollRefunded
-      ? ' · first step-back today is free'
-      : ' · the free step-back is already used today'
-    : '';
+  const bailGraceNote = outcome.outcome === 'bailed' && outcome.rollRefunded ? ' · free step-back' : '';
   stats.push(`🎲 ${ctx.rollsRemaining}${rollsSuffix}${bailGraceNote}`);
   // Wealth — only when changed
   if (d.wealthDelta !== 0) {

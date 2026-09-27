@@ -613,16 +613,17 @@ describe('OutcomeRenderer — bail refund grace', () => {
     mutations: [{ type: 'modify_stamina', amount: -1 }],
   };
 
-  it('names the first step-back of the day as free when the roll came back', () => {
+  it('names the refunded step-back when the roll came back', () => {
     const outcome: ActionOutcome = { ...bail, rollsDelta: 0, rollRefunded: true };
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 3 }));
-    expect(result).toContain('🎲 3 (refunded) · first step-back today is free');
+    expect(result).toContain('🎲 3 (refunded) · free step-back');
   });
 
-  it('names the rule and never a refund on a second same-day step-back', () => {
+  it('says nothing extra on a second same-day step-back that kept the roll', () => {
     const outcome: ActionOutcome = { ...bail, rollsDelta: -1 };
     const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
-    expect(result).toContain('🎲 2 (-1) · the free step-back is already used today');
+    expect(result).toContain('🎲 2 (-1)');
+    expect(result).not.toContain('step-back');
     expect(result).not.toContain('refunded');
   });
 

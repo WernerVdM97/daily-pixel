@@ -1748,7 +1748,7 @@ describe('WorldEngineImpl — bail refund grace is once per game day', () => {
     const second = await engine.stepAction(characterId, 'Step back');
     if (!second.resolved) throw new Error('expected a resolved bail');
     expect(second.outcome.outcome).toBe('bailed');
-    // Unset is the renderer's cue to name the rule rather than a refund, so it stays unset.
+    // Unset keeps the renderer from claiming a refund, so it stays unset.
     expect(second.outcome.rollRefunded).toBeUndefined();
     expect(second.outcome.rollsDelta).toBe(-1);
     expect(charRepo.findById(characterId)!.rolls_remaining).toBe(2);
