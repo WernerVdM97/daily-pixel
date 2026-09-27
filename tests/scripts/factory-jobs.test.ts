@@ -16,6 +16,7 @@ import {
   type JobRecord,
   JOB_CAP_MS,
   type Liveness,
+  MAX_REVISIONS,
   SCHEMA_VERSION,
   STAGES,
   type StageName,
@@ -28,6 +29,7 @@ import {
   decide,
   deliverCommands,
   drainOnce,
+  feedbackPath,
   findAdoptable,
   focusWindow,
   focusCachePath,
@@ -39,6 +41,7 @@ import {
   isGated,
   listJobs,
   loadJobs,
+  nextStage,
   parseVerdict,
   pickCandidate,
   probeClaim,
@@ -47,6 +50,7 @@ import {
   resolveFocus,
   resolveRepoRoot,
   retryPass,
+  reviewerLogins,
   stagePiArgs,
   staleReport,
   worktreePathFor,
@@ -98,6 +102,8 @@ function job(over: Partial<JobRecord> = {}): JobRecord {
 interface Call {
   cmd: string;
   args: string[];
+  /** What was piped to the command, so a comment body can be asserted. */
+  input?: string;
 }
 
 type Handler = (cmd: string, args: string[]) => ExecResult | null;
@@ -167,12 +173,12 @@ class Harness {
   /** A well-behaved fake child: writes its report, then exits. */
   readonly deps = (): Deps => ({
     now: () => this.nowMs,
-    exec: ((cmd, args) => this.execSync(cmd, args)) as Exec,
+    exec: ((cmd, args, opts) => this.execSync(cmd, args, opts?.input)) as Exec,
     live: { startTime: (pid) => this.live.startTime(pid) },
     spawnStage: async (run) => {
       this.spawns.push(run);
       this.nowMs += this.stageDurationMs;
-      if ((run.stage === 'build' || run.stage === 'fix') && this.stageCommits) this.branchSha = 'bbbbbbb';
+      if (['build', 'fix', 'revise'].includes(run.stage) && this.stageCommits) this.branchSha = 'bbbbbbb';
       this.afterSpawn?.(run);
       const report = this.reports[run.stage];
       if (report !== undefined) {
@@ -193,8 +199,8 @@ class Harness {
     },
   });
 
-  private execSync(cmd: string, args: string[]): ExecResult {
-    this.calls.push({ cmd, args });
+  private execSync(cmd: string, args: string[], input?: string): ExecResult {
+    this.calls.push({ cmd, args, input });
     if (cmd === 'gh' && args.join(' ').startsWith('project item-list')) {
       return ok(JSON.stringify({ items: this.board.map(toRawItem) }));
     }
@@ -282,6 +288,14 @@ class Harness {
 
 function ok(stdout = ''): ExecResult {
   return { code: 0, stdout, stderr: '' };
+}
+
+/** The item comment the drainer posted, so its wording is asserted rather than its existence. */
+function commentBody(h: Harness, itemNumber: number): string {
+  return (
+    h.calls.find((call) => call.cmd === 'gh' && call.args.join(' ').startsWith(`issue comment ${itemNumber}`))
+      ?.input ?? ''
+  );
 }
 
 function toRawItem(entry: BoardItem): unknown {
@@ -983,8 +997,11 @@ describe('deliver is code', () => {
     const after = h.read(34);
     expect(after.pr).toBe(117);
     expect(after.stage).toBe('reconcile');
+    expect(after.lastPushAt).toBeDefined();
+    expect(h.called('git', 'push -u origin feat/34-last-stand')).toBe(true);
     expect(h.called('gh', 'project item-edit')).toBe(true);
     expect(h.logs.join('\n')).toContain('PR opened for review');
+    expect(commentBody(h, 34)).toContain('factory: PR opened for review');
   });
 
   it('reuses the branch\'s open PR instead of creating a second one', async () => {
@@ -1105,6 +1122,376 @@ describe('reconcile', () => {
     h.write(job({ stage: 'reconcile', stageState: 'waiting', pr: 117 }));
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
     expect(h.read(34).attempts).toEqual({});
+  });
+});
+
+// ── The revise cycle ──────────────────────────────────────────────────────
+
+describe('the revise cycle', () => {
+  const PR = 117;
+  const WORKTREE = 'feat-34-last-stand';
+
+  interface Fixture {
+    /** The reviewing account, so a drive-by reviewer can stand in for the owner. */
+    login?: string;
+    /** The PR's `reviewDecision`: the cheap gate on fetching the reviews at all. */
+    decision?: string | null;
+    /** Reviews listed beside the change request, e.g. an owner approval. */
+    extraReviews?: Record<string, unknown>[];
+  }
+
+  /** The owner has asked for changes on PR 117: one review, one inline comment, one reply. */
+  function changeRequests(h: Harness, over: Fixture = {}): Harness {
+    const repo = readProjectConfig(h.root).repo;
+    const login = over.login ?? 'WernerVdM97';
+    h.when(
+      'gh',
+      ['pr', 'view'],
+      ok(
+        JSON.stringify({
+          state: 'OPEN',
+          mergedAt: null,
+          reviewDecision: over.decision === undefined ? 'CHANGES_REQUESTED' : over.decision,
+        }),
+      ),
+    );
+    h.when(
+      'gh',
+      ['api', `repos/${repo}/pulls/${PR}/reviews`],
+      ok(
+        JSON.stringify([
+          {
+            id: 9001,
+            user: { login },
+            state: 'CHANGES_REQUESTED',
+            submitted_at: '2026-09-12T09:00:00Z',
+            body: 'Please drop the emoji from the caption.',
+          },
+          ...(over.extraReviews ?? []),
+        ]),
+      ),
+    );
+    h.when(
+      'gh',
+      ['api', `repos/${repo}/pulls/${PR}/comments`],
+      ok(
+        JSON.stringify([
+          {
+            id: 41,
+            review_id: 9001,
+            user: { login },
+            path: 'src/render/caption.ts',
+            line: 42,
+            body: 'This reads oddly.',
+          },
+        ]),
+      ),
+    );
+    h.when(
+      'gh',
+      ['api', `repos/${repo}/issues/${PR}/comments`],
+      ok(
+        JSON.stringify([
+          { id: 40, user: { login }, created_at: '2026-09-11T08:00:00Z', body: 'A note from before the push.' },
+          { id: 42, user: { login }, created_at: '2026-09-12T09:05:00Z', body: 'And the frame is a column short.' },
+        ]),
+      ),
+    );
+    return h;
+  }
+
+  /** That PR in the state the ledger leaves it: open, reviewed, and waiting on the merge. */
+  function reviewing(over: Partial<JobRecord> = {}, fixture: Fixture = {}): Harness {
+    const h = changeRequests(new Harness(), fixture);
+    const worktree = join(h.worktreeRoot, WORKTREE);
+    mkdirSync(worktree, { recursive: true });
+    h.when('git', ['rev-parse', 'origin/dev'], ok('d3f557b\n'));
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(
+      job({
+        stage: 'reconcile',
+        stageState: 'waiting',
+        waitingSince: '2026-09-11T13:00:00.000Z',
+        pr: PR,
+        worktree,
+        lastPushAt: '2026-09-11T12:30:00.000Z',
+        ...over,
+      }),
+    );
+    return h;
+  }
+
+  it('enters revise on the owner\'s change requests, snapshotting them and merging dev in', async () => {
+    const h = reviewing({ spentMs: 40 * MIN, attempts: { build: 1 } });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34, detail: 'change requests \u2192 revise' });
+
+    const after = h.read(34);
+    expect(after.stage).toBe('revise');
+    expect(after.stageState).toBe('ready');
+    expect(after.revisions).toBe(1);
+    expect(after.consumedReviews).toEqual([9001]);
+    expect(after.spentMs).toBe(0);
+    expect(after.attempts).toEqual({});
+    expect(after.waitingSince).toBeUndefined();
+    expect(after.history.at(-1)).toMatchObject({ stage: 'reconcile', result: 'retried', exit: null, spentMs: 0 });
+    expect(h.called('git', 'merge --no-edit origin/dev')).toBe(true);
+    // The whole PR is read, not its first GitHub page: the newest request is the one that matters.
+    const repo = readProjectConfig(h.root).repo;
+    expect(h.called('gh', `api repos/${repo}/pulls/${PR}/reviews?per_page=100`)).toBe(true);
+    expect(h.called('gh', `api repos/${repo}/pulls/${PR}/comments?per_page=100`)).toBe(true);
+    expect(h.called('gh', `api repos/${repo}/issues/${PR}/comments?per_page=100`)).toBe(true);
+
+    const text = readFileSync(feedbackPath(h.ctx(), 34), 'utf8');
+    expect(text).toContain('Change requests on PR #117');
+    expect(text).toContain('#9001 by WernerVdM97, 2026-09-12T09:00:00Z');
+    expect(text).toContain('Please drop the emoji from the caption.');
+    expect(text).toContain('- src/render/caption.ts:42 \u2014 This reads oddly.');
+    expect(text).toContain('And the frame is a column short.');
+    // A comment from before the last push is history, not part of the request.
+    expect(text).not.toContain('A note from before the push.');
+    expect(text.trimEnd().endsWith('Address exactly these requests; anything else is out of scope.')).toBe(true);
+
+    expect(commentBody(h, 34)).toContain('change requests on PR #117');
+    expect(commentBody(h, 34)).toContain(`revise cycle 1 of ${MAX_REVISIONS}`);
+    expect(commentBody(h, 34)).toContain('reviews 9001');
+    // The status is the owner's review surface, so it stays where the deliver left it.
+    expect(h.called('gh', 'project item-edit')).toBe(false);
+  });
+
+  it('does not re-trigger on a review it has already actioned', async () => {
+    const h = reviewing();
+    await drainOnce(h.ctx());
+    // The cycle ran; the review is consumed and GitHub still reports the same decision.
+    h.write({ ...h.read(34), stage: 'reconcile', stageState: 'waiting' });
+    const before = h.calls.filter((call) => call.cmd === 'gh' && call.args.join(' ').startsWith('issue comment')).length;
+
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    const after = h.read(34);
+    expect(after).toMatchObject({ stage: 'reconcile', stageState: 'waiting', revisions: 1 });
+    expect(h.calls.filter((call) => call.cmd === 'gh' && call.args.join(' ').startsWith('issue comment')).length).toBe(before);
+  });
+
+  it('ignores a change request from a login that is not the owner', async () => {
+    const h = reviewing({}, {
+      login: 'drive-by-reviewer',
+      // A standing approval must not open a cycle while the decision is still changes-requested.
+      extraReviews: [
+        { id: 9002, user: { login: 'WernerVdM97' }, state: 'APPROVED', submitted_at: '2026-09-12T10:00:00Z', body: 'Looks good.' },
+      ],
+    });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    const after = h.read(34);
+    expect(after).toMatchObject({ stage: 'reconcile', stageState: 'waiting' });
+    expect(after.revisions).toBeUndefined();
+    expect(after.consumedReviews).toBeUndefined();
+    expect(existsSync(feedbackPath(h.ctx(), 34))).toBe(false);
+    expect(h.calls.some((call) => call.cmd === 'gh' && call.args.join(' ').startsWith('issue comment'))).toBe(false);
+  });
+
+  it('honours FACTORY_REVIEWER_LOGINS over the repo default', () => {
+    expect(reviewerLogins({})).toEqual(['WernerVdM97']);
+    expect(reviewerLogins({ FACTORY_REVIEWER_LOGINS: ' alice , bob ,' })).toEqual(['alice', 'bob']);
+    expect(reviewerLogins({ FACTORY_REVIEWER_LOGINS: '   ' })).toEqual(['WernerVdM97']);
+    expect(reviewerLogins({ FACTORY_REVIEWER_LOGINS: ',,' })).toEqual(['WernerVdM97']);
+  });
+
+  it('keeps a conversation comment made in the push\'s own second', async () => {
+    const h = new Harness();
+    const repo = readProjectConfig(h.root).repo;
+    const worktree = join(h.worktreeRoot, WORKTREE);
+    mkdirSync(worktree, { recursive: true });
+    h.when('gh', ['pr', 'view'], ok('{"state":"OPEN","mergedAt":null,"reviewDecision":"CHANGES_REQUESTED"}'));
+    h.when(
+      'gh',
+      ['api', `repos/${repo}/pulls/${PR}/reviews`],
+      ok(
+        JSON.stringify([
+          { id: 9001, user: { login: 'WernerVdM97' }, state: 'CHANGES_REQUESTED', submitted_at: '2026-09-12T09:00:00Z', body: 'Fix the caption.' },
+        ]),
+      ),
+    );
+    h.when('gh', ['api', `repos/${repo}/pulls/${PR}/comments`], ok('[]'));
+    h.when(
+      'gh',
+      ['api', `repos/${repo}/issues/${PR}/comments`],
+      ok(
+        JSON.stringify([
+          { id: 43, user: { login: 'WernerVdM97' }, created_at: '2026-09-11T12:30:00Z', body: 'Made in the push second.' },
+          { id: 44, user: { login: 'WernerVdM97' }, created_at: '2026-09-11T12:29:58Z', body: 'Made two seconds earlier.' },
+        ]),
+      ),
+    );
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(job({ stage: 'reconcile', stageState: 'waiting', pr: PR, worktree, lastPushAt: '2026-09-11T12:30:00.000Z' }));
+
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34 });
+    const text = readFileSync(feedbackPath(h.ctx(), 34), 'utf8');
+    expect(text).toContain('Made in the push second.');
+    expect(text).not.toContain('Made two seconds earlier.');
+  });
+
+  it('blocks rather than revising when the worktree has uncommitted changes', async () => {
+    const h = reviewing();
+    h.dirtyWorktree = '?? scratch.txt\n';
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+    const after = h.read(34);
+    expect(after).toMatchObject({ stage: 'reconcile', stageState: 'blocked' });
+    expect(after.consumedReviews).toBeUndefined();
+    expect(h.pages[0]).toContain('uncommitted changes');
+    expect(h.pages[0]).toContain('scratch.txt');
+    expect(h.called('git', 'merge --no-edit')).toBe(false);
+    expect(existsSync(feedbackPath(h.ctx(), 34))).toBe(false);
+  });
+
+  it('resets the cycle count when the owner approves instead of requesting changes', async () => {
+    const h = reviewing({ revisions: 1 }, { decision: 'APPROVED' });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.read(34)).toMatchObject({ stage: 'reconcile', stageState: 'waiting', revisions: 0 });
+  });
+
+  it('reads no review data on an ordinary waiting tick', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"OPEN","mergedAt":null,"reviewDecision":null}'));
+    h.write(job({ stage: 'reconcile', stageState: 'waiting', pr: PR }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.called('gh', 'api ')).toBe(false);
+  });
+
+  it('blocks and pages once the cycles are exhausted, leaving the review unconsumed', async () => {
+    const h = reviewing({ revisions: MAX_REVISIONS, consumedReviews: [1, 2, 3] });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+    const after = h.read(34);
+    expect(after).toMatchObject({ stage: 'reconcile', stageState: 'blocked', revisions: MAX_REVISIONS });
+    expect(after.consumedReviews).toEqual([1, 2, 3]);
+    expect(h.pages).toHaveLength(1);
+    expect(h.pages[0]).toContain('revise cycles exhausted');
+    expect(h.called('gh', 'project item-edit')).toBe(true);
+  });
+
+  it('blocks rather than revising when dev will not merge into the branch', async () => {
+    const h = reviewing();
+    h.when('git', ['merge', '--no-edit'], { code: 1, stdout: '', stderr: 'CONFLICT (content)' });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+    const after = h.read(34);
+    expect(after).toMatchObject({ stage: 'reconcile', stageState: 'blocked' });
+    expect(after.consumedReviews).toBeUndefined();
+    expect(h.called('git', 'merge --abort')).toBe(true);
+    expect(existsSync(feedbackPath(h.ctx(), 34))).toBe(false);
+    expect(h.pages[0]).toContain('conflicts');
+  });
+
+  it('blocks rather than revising when the worktree is gone', async () => {
+    const h = reviewing();
+    rmSync(join(h.worktreeRoot, WORKTREE), { recursive: true, force: true });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+    expect(h.pages[0]).toContain('worktree');
+    expect(h.called('git', 'merge --no-edit')).toBe(false);
+  });
+
+  it('keeps a waiting job alive when its own reconcile enters revise', async () => {
+    const h = reviewing();
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34 });
+    expect(h.has(34)).toBe(true);
+    expect(h.called('git', 'worktree remove')).toBe(false);
+    expect(h.called('gh', 'issue close')).toBe(false);
+  });
+
+  it('keeps a ready reconcile alive when it enters revise', async () => {
+    const h = reviewing({ stageState: 'ready' });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34, detail: 'change requests \u2192 revise' });
+    expect(h.read(34).stage).toBe('revise');
+    expect(h.has(34)).toBe(true);
+    expect(h.called('git', 'worktree remove')).toBe(false);
+  });
+
+  it('runs the fixer on the feedback file, needing a commit unless it reports nochange', async () => {
+    const h = new Harness();
+    h.reports = { revise: 'VERDICT: ok' };
+    h.write(job({ stage: 'revise', revisions: 1 }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'revise ok' });
+    const after = h.read(34);
+    expect(after.stage).toBe('deliver');
+    expect(after.artifacts.revise).toContain(join('artifacts', '34', 'revise.md'));
+    expect(h.spawns[0]).toMatchObject({ agent: 'delegate-fixer', stage: 'revise', timeoutMs: 30 * MIN });
+    expect(h.spawns[0]?.task).toContain(join('artifacts', '34', 'feedback.md'));
+
+    const stuck = new Harness();
+    stuck.stageCommits = false;
+    stuck.reports = { revise: 'VERDICT: ok' };
+    stuck.write(job({ stage: 'revise', revisions: 1 }));
+    await drainOnce(stuck.ctx());
+    expect(stuck.read(34)).toMatchObject({ stage: 'revise', attempts: { revise: 1 } });
+    expect(stuck.logs.join('\n')).toContain('committed nothing');
+
+    const nothing = new Harness();
+    nothing.stageCommits = false;
+    nothing.reports = { revise: 'VERDICT: nochange' };
+    nothing.write(job({ stage: 'revise', revisions: 1 }));
+    await drainOnce(nothing.ctx());
+    expect(nothing.read(34).stage).toBe('deliver');
+
+    expect(nextStage('revise')).toBe('deliver');
+    expect(attemptTimeoutMs(job({ stage: 'revise' }))).toBe(30 * MIN);
+  });
+
+  it('re-pushes an existing PR after a revise cycle instead of opening a second one', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"OPEN"}'));
+    h.when('gh', ['pr', 'list'], ok(`[{"number":${PR},"url":"https://example.test/pull/117"}]`));
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(job({ stage: 'deliver', revisions: 1, pr: PR }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
+
+    const after = h.read(34);
+    expect(after).toMatchObject({ pr: PR, stage: 'reconcile', revisions: 1 });
+    expect(after.lastPushAt).toBeDefined();
+    expect(h.called('git', 'push -u origin feat/34-last-stand')).toBe(true);
+    expect(h.called('gh', 'pr create')).toBe(false);
+    expect(commentBody(h, 34)).toContain("factory: revised per the owner's change requests on PR #117");
+    expect(commentBody(h, 34)).not.toContain('PR opened');
+    expect(h.logs.join('\n')).not.toContain('PR opened for review');
+  });
+
+  it('does not push to or re-create a recorded PR that is no longer open', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"MERGED"}'));
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(job({ stage: 'deliver', revisions: 1, pr: PR }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
+
+    // `reconcile` reads the same state and finishes the job; deliver neither pushes nor comments.
+    expect(h.read(34)).toMatchObject({ pr: PR, stage: 'reconcile' });
+    expect(h.called('git', 'push')).toBe(false);
+    expect(h.called('gh', 'pr create')).toBe(false);
+    expect(h.called('gh', 'pr list')).toBe(false);
+    expect(commentBody(h, 34)).toBe('');
+    expect(h.logs.join('\n')).toContain('MERGED');
+  });
+
+  it('does not claim a revision when the revise stage reported nochange', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"OPEN"}'));
+    h.when('gh', ['pr', 'list'], ok(`[{"number":${PR},"url":"https://example.test/pull/117"}]`));
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(job({ stage: 'deliver', revisions: 1, pr: PR }));
+    const report = join(h.jobsDir, 'artifacts', '34', 'revise.md');
+    mkdirSync(dirname(report), { recursive: true });
+    writeFileSync(report, 'VERDICT: nochange');
+
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
+    expect(h.read(34).stage).toBe('reconcile');
+    expect(h.called('git', 'push -u origin feat/34-last-stand')).toBe(true);
+    expect(commentBody(h, 34)).toContain('need no code change');
+    expect(commentBody(h, 34)).not.toContain('revised per');
+    expect(h.logs.join('\n')).toContain('no code change');
+  });
+
+  it('clears the revise bookkeeping on an owner retry', () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'Blocked' })];
+    h.write(job({ stage: 'reconcile', stageState: 'blocked', revisions: MAX_REVISIONS, consumedReviews: [9001] }));
+    expect(retryPass(h.ctx(), 34).ok).toBe(true);
+    expect(h.read(34)).toMatchObject({ revisions: 0, consumedReviews: [] });
   });
 });
 

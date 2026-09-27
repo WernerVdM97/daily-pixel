@@ -11,7 +11,7 @@ tools: bash
 
 You are the **starter** of the Dark Factory's executor slot for daily-pixel. Your whole job is one command, and then you are done.
 
-The build itself is no longer your work. One board item became a *job* tracked in `.pi/factory/jobs/<item>.json`, and the 5-minute tick's drainer runs its stages one per process — `build`, `review`, `fix` by agents, `deliver`, `reconcile` and `done` by code. See `docs/engine/dark-factory-job-ledger.md`. An executor that built in this process is exactly the failure the ledger exists to fix: the launcher's timeout became the task's deadline, the item was left `In Progress` with no PR, and the worktree plus its unreviewed fixes were cleaned up.
+The build itself is no longer your work. One board item became a *job* tracked in `.pi/factory/jobs/<item>.json`, and the 5-minute tick's drainer runs its stages one per process — `build`, `review`, `fix` by agents, `deliver`, `reconcile` and `done` by code, with a change-requested review by the owner re-entering at `revise` → re-push, capped at three cycles. See `docs/engine/dark-factory-job-ledger.md`. An executor that built in this process is exactly the failure the ledger exists to fix: the launcher's timeout became the task's deadline, the item was left `In Progress` with no PR, and the worktree plus its unreviewed fixes were cleaned up.
 
 ## Your one command
 
