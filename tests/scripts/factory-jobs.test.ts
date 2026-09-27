@@ -165,9 +165,11 @@ class Harness {
     );
   }
 
-  when(cmd: string, argsPrefix: string[], result: ExecResult): this {
+  when(cmd: string, argsPrefix: string[], result: ExecResult | (() => ExecResult)): this {
     const prefix = argsPrefix.join(' ');
-    this.handlers.push((seen, args) => (seen === cmd && args.join(' ').startsWith(prefix) ? result : null));
+    this.handlers.push((seen, args) =>
+      seen === cmd && args.join(' ').startsWith(prefix) ? (typeof result === 'function' ? result() : result) : null,
+    );
     return this;
   }
 
@@ -551,6 +553,7 @@ describe('adoption', () => {
       commentsFor: () => comments('factory: claimed (branch feat/34-last-stand)'),
       hasCommits: () => true,
       headOf: () => '31eb9e3',
+      log: () => {},
     });
     expect(withCommits).toMatchObject({ stage: 'review', commit: '31eb9e3', branch: 'feat/34-last-stand' });
 
@@ -559,6 +562,7 @@ describe('adoption', () => {
       commentsFor: () => comments('factory: claimed (branch feat/34-last-stand)'),
       hasCommits: () => false,
       headOf: () => null,
+      log: () => {},
     });
     expect(withoutCommits).toMatchObject({ stage: 'build', commit: null });
   });
@@ -569,8 +573,23 @@ describe('adoption', () => {
       commentsFor: () => [],
       hasCommits: () => true,
       headOf: () => 'abc',
+      log: () => {},
     });
     expect(adopt).toBeNull();
+  });
+
+  it('logs a claim comment naming a branch that no longer exists, and adopts nothing', () => {
+    const logs: string[] = [];
+    const adopt = findAdoptable([item({ number: 34, status: 'In Progress' })], [], {
+      branches: ['dev', 'main'],
+      commentsFor: () => comments('factory: claimed (branch feat/34-last-stand)'),
+      hasCommits: () => true,
+      headOf: () => 'abc',
+      log: (msg) => logs.push(msg),
+    });
+    expect(adopt).toBeNull();
+    expect(logs.join('\n')).toContain('#34');
+    expect(logs.join('\n')).toContain('feat/34-last-stand');
   });
 
   it('never takes an item that already has a record', () => {
@@ -579,6 +598,7 @@ describe('adoption', () => {
       commentsFor: () => comments('factory: claimed (branch feat/34-last-stand)'),
       hasCommits: () => true,
       headOf: () => 'abc',
+      log: () => {},
     });
     expect(adopt).toBeNull();
   });
@@ -1370,7 +1390,7 @@ describe('the revise cycle', () => {
   });
 
   it('enters resolve when dev will not merge into the branch, instead of blocking', async () => {
-    const h = reviewing();
+    const h = reviewing({ spentMs: 40 * MIN, attempts: { build: 1 } });
     h.when('git', ['merge', '--no-edit'], { code: 1, stdout: '', stderr: 'CONFLICT (content)' });
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34, detail: 'change requests \u2192 resolve' });
 
@@ -1388,6 +1408,25 @@ describe('the revise cycle', () => {
     expect(readFileSync(feedbackPath(h.ctx(), 34), 'utf8')).toContain('Change requests on PR #117');
     expect(commentBody(h, 34)).toContain(`the branch conflicts with \`${UPSTREAM_REF}\`, so it enters at \`resolve\` first`);
     expect(h.pages).toEqual([]);
+  });
+
+  it('blocks when the failed merge left unmerged files behind, leaving the review unconsumed', async () => {
+    const h = reviewing();
+    h.when('git', ['merge', '--no-edit'], { code: 1, stdout: '', stderr: 'CONFLICT (content)' });
+    h.when('git', ['merge', '--abort'], () => {
+      h.dirtyWorktree = 'UU src/render/caption.ts\n';
+      return { code: 1, stdout: '', stderr: 'error: could not abort' };
+    });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+
+    const after = h.read(34);
+    expect(after).toMatchObject({ stage: 'reconcile', stageState: 'blocked' });
+    expect(after.consumedReviews).toBeUndefined();
+    expect(after.revisions).toBeUndefined();
+    expect(h.pages[0]).toContain('unmerged files');
+    expect(h.pages[0]).toContain('src/render/caption.ts');
+    expect(h.logs.join('\n')).toContain('could not abort the failed merge');
+    expect(existsSync(feedbackPath(h.ctx(), 34))).toBe(false);
   });
 
   it('blocks rather than revising when the worktree is gone', async () => {
@@ -1521,6 +1560,7 @@ describe('the resolve stage', () => {
   it('is revise\'s first half: ok plus a merge commit advances to revise', async () => {
     const h = new Harness();
     h.reports = { resolve: 'VERDICT: ok' };
+    h.ancestors.add(UPSTREAM_REF);
     h.write(job({ stage: 'resolve', revisions: 1 }));
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve ok' });
     expect(h.read(34).stage).toBe('revise');
@@ -1530,6 +1570,17 @@ describe('the resolve stage', () => {
     expect(attemptTimeoutMs(job({ stage: 'resolve' }))).toBe(20 * MIN);
   });
 
+  it('passes a second attempt whose merge is already in place, with nothing new to commit', async () => {
+    const h = new Harness();
+    h.stageCommits = false;
+    h.reports = { resolve: 'VERDICT: ok' };
+    h.ancestors.add(UPSTREAM_REF);
+    h.write(job({ stage: 'resolve', revisions: 1, attempts: { resolve: 1 } }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve ok' });
+    expect(h.read(34)).toMatchObject({ stage: 'revise', attempts: { resolve: 1 } });
+    expect(h.called('git', 'merge --abort')).toBe(false);
+  });
+
   it('fails a resolve reporting unresolved, and blocks on the second one', async () => {
     const h = new Harness();
     h.reports = { resolve: 'VERDICT: unresolved\n\nTwo sides disagree on the frame ordering.' };
@@ -1537,6 +1588,8 @@ describe('the resolve stage', () => {
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve failed' });
     expect(h.read(34)).toMatchObject({ stage: 'resolve', stageState: 'ready', attempts: { resolve: 1 } });
     expect(h.pages).toEqual([]);
+    // A failed attempt leaves no half-merge for the requeue to inherit.
+    expect(h.called('git', 'merge --abort')).toBe(true);
 
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve failed' });
     expect(h.read(34).attempts.resolve).toBe(2);
@@ -1546,14 +1599,24 @@ describe('the resolve stage', () => {
     expect(h.pages[0]).toContain('resolve failed twice');
   });
 
-  it('fails a resolve that claims ok without a merge commit', async () => {
+  it('fails a resolve that claims ok without the merge landing', async () => {
     const h = new Harness();
     h.stageCommits = false;
     h.reports = { resolve: 'VERDICT: ok' };
     h.write(job({ stage: 'resolve', revisions: 1 }));
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve failed' });
     expect(h.read(34)).toMatchObject({ stage: 'resolve', attempts: { resolve: 1 } });
-    expect(h.logs.join('\n')).toContain('committed nothing');
+    expect(h.logs.join('\n')).toContain(`not contained in feat/34-last-stand`);
+  });
+
+  it('fails a resolve that moved the tip without containing dev', async () => {
+    const h = new Harness();
+    h.reports = { resolve: 'VERDICT: ok' };
+    h.write(job({ stage: 'resolve', revisions: 1 }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve failed' });
+    expect(h.read(34)).toMatchObject({ stage: 'resolve', attempts: { resolve: 1 } });
+    expect(h.logs.join('\n')).toContain(`resolve stage reported ok, but ${UPSTREAM_REF} is not contained`);
+    expect(h.called('git', 'merge --abort')).toBe(true);
   });
 
   it('fails a resolve whose report carries no verdict at all', async () => {
@@ -1575,6 +1638,7 @@ describe('the resolve stage', () => {
     expect(task).toContain('VERDICT: unresolved');
     expect(task).toContain('commit the merge on `feat/34-last-stand`');
     expect(task).toContain('full test suite and typecheck');
+    expect(task).toContain('no new commit is required');
   });
 });
 
@@ -1657,6 +1721,21 @@ describe('start', () => {
     expect(h.has(34)).toBe(false);
     // Nothing was claimed on the board either, so the item stays for the owner.
     expect(h.calls.some((call) => call.cmd === 'gh' && call.args.includes('bfbe5d7d'))).toBe(false);
+  });
+
+  it('starts other work when one orphan conflicts with the base ref', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'In Progress' }), item({ number: 40, status: 'Approved', title: 'Frames' })];
+    h.when('gh', ['issue view 34'], ok('{"comments":[{"author":{"login":"agent97eth"},"body":"factory: claimed (branch feat/34-last-stand)"}]}'));
+    h.when('git', ['branch', '-a'], ok('dev\nfeat/34-last-stand\n'));
+    h.when('git', ['rev-list', '--count'], ok('1\n'));
+    h.when('git', ['rev-parse', '--short'], ok('31eb9e3\n'));
+    h.when('git', ['merge --no-edit origin/dev'], { code: 1, stdout: '', stderr: 'CONFLICT' });
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({ action: 'started', item: 40, branch: 'feat/40-frames' });
+    expect(h.has(34)).toBe(false);
+    expect(h.has(40)).toBe(true);
+    expect(h.logs.join('\n')).toContain('does not merge cleanly into feat/34-last-stand');
   });
 
   it('reports a worktree it cannot create instead of throwing, and claims nothing', async () => {
