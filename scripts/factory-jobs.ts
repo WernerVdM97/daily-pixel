@@ -53,7 +53,7 @@ const SCRIPT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const SCHEMA_VERSION = 1;
 
-export type StageName = "build" | "review" | "fix" | "deliver" | "reconcile" | "revise" | "done";
+export type StageName = "build" | "review" | "fix" | "deliver" | "reconcile" | "revise" | "resolve" | "done";
 export type StageKind = "model" | "code";
 /** `waiting` is a reconcile whose PR is still open: re-runnable, but charged nothing. */
 export type StageState = "ready" | "running" | "blocked" | "waiting";
@@ -75,6 +75,7 @@ export const STAGES: Record<StageName, StageSpec> = {
   deliver: { kind: "code", budgetMs: MIN },
   reconcile: { kind: "code", budgetMs: MIN },
   revise: { kind: "model", agent: "delegate-fixer", budgetMs: 30 * MIN },
+  resolve: { kind: "model", agent: "delegate-fixer", budgetMs: 20 * MIN },
   done: { kind: "code", budgetMs: MIN },
 };
 
@@ -175,6 +176,8 @@ export function nextStage(stage: StageName): StageName | null {
   // The one non-linear edge: the owner's change requests re-enter at `revise` and go back
   // out through `deliver`, because the fix has to be pushed to the PR they were made on.
   if (stage === "revise") return "deliver";
+  // The other: `resolve` is revise's first half, for a branch that has to be merged first.
+  if (stage === "resolve") return "revise";
   const idx = STAGE_ORDER.indexOf(stage);
   return idx === -1 || idx === STAGE_ORDER.length - 1 ? null : STAGE_ORDER[idx + 1];
 }
@@ -262,13 +265,16 @@ export function decide(job: JobRecord, live: Liveness): Action {
   return { kind: "run", timeoutMs: attemptTimeoutMs(job) };
 }
 
-/** The verdict line a review stage must start its findings file with. */
-export function parseVerdict(text: string): "clean" | "findings" | "ok" | "nochange" {
+/**
+ * The verdict line a review or resolve stage must start its report with. The meaningful set is
+ * per stage: only `resolve` reports `unresolved`, and only `fix`/`revise` may report `nochange`.
+ */
+export function parseVerdict(text: string): "clean" | "findings" | "ok" | "nochange" | "unresolved" {
   const first = text.trimStart().split("\n", 1)[0] ?? "";
-  const match = /VERDICT:\s*(clean|findings|ok|nochange)\b/i.exec(first);
+  const match = /VERDICT:\s*(clean|findings|ok|nochange|unresolved)\b/i.exec(first);
   // Anything else reads as `findings`: the safe default is to assume there is work to do.
   if (!match) return "findings";
-  return match[1]!.toLowerCase() as "clean" | "findings" | "ok" | "nochange";
+  return match[1]!.toLowerCase() as "clean" | "findings" | "ok" | "nochange" | "unresolved";
 }
 
 // ── Paths and root resolution ──────────────────────────────────────────────
@@ -1021,6 +1027,11 @@ export function claimedBranch(comments: { body: string }[], number: number, bran
   return branches.find((b) => /(^|\/)\d+-/.test(b) && b.includes(`/${number}-`))?.replace(/^origin\//, "") ?? null;
 }
 
+/** The branch a claim comment names, whether or not that branch still exists. */
+function claimedBranchName(comments: { body: string }[]): string | null {
+  return comments.map((comment) => CLAIM_COMMENT.exec(comment.body)?.[1]).find((branch) => branch) ?? null;
+}
+
 /**
  * An orphan is an `In Progress` item with no job record and evidence a run got there first:
  * a factory claim comment naming the branch, a branch whose name carries the item number and
@@ -1031,7 +1042,13 @@ export function claimedBranch(comments: { body: string }[], number: number, bran
 export function findAdoptable(
   items: BoardItem[],
   jobs: JobRecord[],
-  ctx: { branches: string[]; commentsFor(number: number): { body: string }[]; hasCommits(branch: string): boolean; headOf(branch: string): string | null },
+  ctx: {
+    branches: string[];
+    commentsFor(number: number): { body: string }[];
+    hasCommits(branch: string): boolean;
+    headOf(branch: string): string | null;
+    log(msg: string): void;
+  },
   readiness: Readiness = {},
 ): AdoptionProposal | null {
   const orphans = items
@@ -1039,8 +1056,17 @@ export function findAdoptable(
     .sort((a, b) => a.number - b.number);
   for (const item of orphans) {
     if (holdReason(item, readiness)) continue;
-    const branch = claimedBranch(ctx.commentsFor(item.number), item.number, ctx.branches);
-    if (!branch) continue;
+    const comments = ctx.commentsFor(item.number);
+    const branch = claimedBranch(comments, item.number, ctx.branches);
+    if (!branch) {
+      // A claim whose branch is gone is otherwise an invisible skip: `In Progress` with neither
+      // a job record nor an adoptable branch.
+      const named = claimedBranchName(comments);
+      if (named) {
+        ctx.log(`[factory-jobs] #${item.number} is claimed by branch ${named}, which no longer exists; nothing to adopt`);
+      }
+      continue;
+    }
     const hasCommits = ctx.hasCommits(branch);
     return { item, branch, stage: hasCommits ? "review" : "build", commit: hasCommits ? ctx.headOf(branch) : null };
   }
@@ -1260,6 +1286,14 @@ export function stageTask(ctx: Ctx, job: JobRecord, stage: StageName, artifact: 
       `Write your report to ${artifact}. Its first line is \`VERDICT: ok\`, or \`VERDICT: nochange\` when a request genuinely needs no code change.`,
       `Map each request to the work you did, so the report says what answered what.`,
     );
+  } else if (stage === "resolve") {
+    head.push(
+      `You are resolving merge conflicts so the owner's change requests can be applied. Run \`git merge --no-edit ${UPSTREAM_REF}\` in the worktree.`,
+      `Resolve every conflict so BOTH intents survive: never delete a side wholesale; where both sides changed the same lines, keep \`${UPSTREAM_REF}\`'s version and re-apply this branch's intent on top of it; in \`CHANGELOG.md\`, keep both entries.`,
+      `If any conflict needs a judgement call you cannot ground in the code, stop, leave it unresolved, and write \`VERDICT: unresolved\`.`,
+      `Run the full test suite and typecheck, and commit the merge on \`${job.branch}\` when both are green. If a previous attempt already landed the merge, verify it and report \`VERDICT: ok\`: no new commit is required.`,
+      `Write your report to ${artifact}. Its first line is \`VERDICT: ok\`, or \`VERDICT: unresolved\` if you had to stop.`,
+    );
   }
   return head.join("\n");
 }
@@ -1410,7 +1444,22 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
   const branchAfter = git(ctx, ["rev-parse", job.branch], job.worktree).stdout.trim();
   job.artifacts[stage] = artifact;
 
-  if (stage === "build" || stage === "fix" || stage === "revise") {
+  if (stage === "resolve") {
+    // Resolve passes on `ok` plus `dev` contained, not on a moved tip: an attempt that landed the
+    // merge and then failed to report leaves the next one nothing to commit. `unresolved` is a
+    // judgement call the code could not ground, and an absent verdict is not a claim to trust.
+    const verdict = parseVerdict(text);
+    if (verdict !== "ok") {
+      ctx.deps.log(`[factory-jobs] resolve stage reported ${verdict}, so the merge is still unresolved`);
+      abortFailedMerge(ctx, job);
+      return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
+    }
+    if (git(ctx, ["merge-base", "--is-ancestor", UPSTREAM_REF, job.branch], job.worktree).code !== 0) {
+      ctx.deps.log(`[factory-jobs] resolve stage reported ok, but ${UPSTREAM_REF} is not contained in ${job.branch}`);
+      abortFailedMerge(ctx, job);
+      return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
+    }
+  } else if (stage === "build" || stage === "fix" || stage === "revise") {
     // A build that claims `nochange` has implemented nothing and still fails the branch
     // check below; the fixer and the revise stage may accept a request without a commit.
     if (stage !== "build" && parseVerdict(text) === "nochange") {
@@ -1574,9 +1623,15 @@ interface ConversationComment {
   body?: string | null;
 }
 
+/** `revise` and `resolve`, its first half: a live re-entry, never a merge that finished a job. */
+function reEntered(job: JobRecord): boolean {
+  return job.stage === "revise" || job.stage === "resolve";
+}
+
 /**
  * Action the owner's change requests: snapshot their words as the revise stage's input and
- * re-enter the pipeline at `revise`. False when there is nothing to action, so the caller waits.
+ * re-enter the pipeline at `revise` (or at `resolve` first, when the branch needs a merge it
+ * cannot make itself). False when there is nothing to action, so the caller waits.
  */
 function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumber: number): boolean {
   // GitHub pages at 30 by default, so a long-lived PR's newest change request can fall off the end.
@@ -1620,17 +1675,25 @@ function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumb
     );
     return true;
   }
-  if (!ctx.dryRun && mergeBaseRef(ctx, job.worktree) === null) {
-    blockJob(
-      ctx,
-      config,
-      job,
-      boardItem(ctx, config, job),
-      `merging ${UPSTREAM_REF} into ${job.branch} conflicts, so the owner's change requests cannot be applied`,
-    );
-    return true;
+  // Merging `dev` in is the precondition for applying the requests, and a conflict there is
+  // usually mechanical: the cycle enters at `resolve` for one bounded attempt first.
+  const conflicted = !ctx.dryRun && mergeBaseRef(ctx, job.worktree) === null;
+  if (conflicted) {
+    // A failed abort leaves unmerged files a stage child would inherit and no clean tree to
+    // apply anything to, which is the owner's call rather than a resolve attempt.
+    const leftover = porcelain(ctx, job.worktree);
+    if (leftover) {
+      blockJob(
+        ctx,
+        config,
+        job,
+        boardItem(ctx, config, job),
+        `the failed merge of \`${UPSTREAM_REF}\` left unmerged files in ${job.worktree} (\`git merge --abort\` did not clean it), ` +
+          `so the owner's change requests cannot be applied there:\n${leftover}`,
+      );
+      return true;
+    }
   }
-
   const inline = ghJson<ReviewComment[]>(ctx, ["api", `repos/${config.repo}/pulls/${prNumber}/comments?per_page=100`]);
   const conversation = ghJson<ConversationComment[]>(ctx, ["api", `repos/${config.repo}/issues/${prNumber}/comments?per_page=100`]);
   const pushedAt = job.lastPushAt ? Date.parse(job.lastPushAt) : Number.NaN;
@@ -1664,7 +1727,7 @@ function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumb
     exit: null,
     spentMs: 0,
   });
-  job.stage = "revise";
+  job.stage = conflicted ? "resolve" : "revise";
   job.stageState = "ready";
   job.claim = null;
   job.stageStartedAt = undefined;
@@ -1677,11 +1740,15 @@ function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumb
         config,
         job.item,
         `factory: change requests on PR #${prNumber} — revise cycle ${revisions} of ${MAX_REVISIONS} opened ` +
-          `(reviews ${triggers.map((review) => review.id).join(", ")}); the ledger will implement them and re-push for re-review.`,
+          `(reviews ${triggers.map((review) => review.id).join(", ")})` +
+          (conflicted ? `; the branch conflicts with \`${UPSTREAM_REF}\`, so it enters at \`resolve\` first` : "") +
+          `; the ledger will implement them and re-push for re-review.`,
       ),
     "revise-cycle comment",
   );
-  ctx.deps.log(`[factory-jobs] #${job.item}: PR #${prNumber} carries change requests → revise ${revisions}/${MAX_REVISIONS}`);
+  ctx.deps.log(
+    `[factory-jobs] #${job.item}: PR #${prNumber} carries change requests → ${job.stage} ${revisions}/${MAX_REVISIONS}`,
+  );
   return true;
 }
 
@@ -1870,11 +1937,10 @@ async function checkWaiting(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pr
     saveJob(ctx, job);
     return null;
   }
-  // The owner's change requests send the job back into the pipeline: a live job, so the
-  // merged path below would remove its worktree and archive the record out from under it.
-  if (job.stage === "revise") {
+  // A live re-entry, not a merge: see reEntered.
+  if (reEntered(job)) {
     saveJob(ctx, job);
-    return { action: "ran", item: job.item, detail: "change requests → revise" };
+    return { action: "ran", item: job.item, detail: `change requests → ${job.stage}` };
   }
   if (job.stageState === "blocked") {
     saveJob(ctx, job);
@@ -1910,10 +1976,10 @@ async function runOneStage(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pro
           saveJob(ctx, job);
           return { action: "idle", item: job.item, detail: "reconcile waiting" };
         }
-        // Same trap as the waiting path: `revise` is a live job, not a merge.
-        if (job.stage === "revise") {
+        // A live re-entry, not a merge: see reEntered.
+        if (reEntered(job)) {
           saveJob(ctx, job);
-          return { action: "ran", item: job.item, detail: "change requests → revise" };
+          return { action: "ran", item: job.item, detail: `change requests → ${job.stage}` };
         }
         if (job.stageState === "blocked") {
           saveJob(ctx, job);
@@ -2113,10 +2179,21 @@ function provisionDeps(ctx: Ctx, worktree: string): void {
 function mergeBaseRef(ctx: Ctx, worktree: string): string | null {
   const res = git(ctx, ["merge", "--no-edit", UPSTREAM_REF], worktree, 5 * MIN);
   if (res.code !== 0) {
-    git(ctx, ["merge", "--abort"], worktree);
+    const abort = git(ctx, ["merge", "--abort"], worktree);
+    if (abort.code !== 0) {
+      ctx.deps.log(`[factory-jobs] could not abort the failed merge in ${worktree}: ${abort.stderr.trim()}`);
+    }
     return null;
   }
   return git(ctx, ["rev-parse", UPSTREAM_REF], worktree).stdout.trim();
+}
+
+/** A half-merged worktree would be inherited by the retry, so clear it best-effort. */
+function abortFailedMerge(ctx: Ctx, job: JobRecord): void {
+  const abort = git(ctx, ["merge", "--abort"], job.worktree);
+  if (abort.code !== 0) {
+    ctx.deps.log(`[factory-jobs] could not abort the failed merge in ${job.worktree}: ${abort.stderr.trim()}`);
+  }
 }
 
 function branchList(ctx: Ctx): string[] {
@@ -2150,6 +2227,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
     const branches = branchList(ctx);
     const readiness = readReadiness(ctx, config, items, jobs);
     const held = reportHeld(ctx, items, jobs, readiness);
+    let conflictedOrphan: AdoptionProposal | null = null;
 
     const adopt = findAdoptable(
       items,
@@ -2159,6 +2237,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
         commentsFor: (number) => fetchComments(ctx, config, number),
         hasCommits: (branch) => commitsAhead(ctx, branch) > 0,
         headOf: (branch) => git(ctx, ["rev-parse", "--short", branch]).stdout.trim() || null,
+        log: (msg) => ctx.deps.log(msg),
       },
       readiness,
     );
@@ -2181,6 +2260,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
       // conflict is the owner's call, and costs the job nothing.
       const mergedDev = ctx.dryRun ? BASE_REF : mergeBaseRef(ctx, worktree);
       if (mergedDev === null) {
+        // One conflicted orphan must not wedge the whole board: report it and look for other work.
         if (!ctx.dryRun) gitOrThrow(ctx, ["worktree", "remove", "--force", worktree]);
         commentOn(
           ctx,
@@ -2190,31 +2270,42 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
             `job was not opened. Resolve it (\`git merge ${UPSTREAM_REF}\`) and the next \`start\` will adopt it at ` +
             `\`${adopt.stage}\`.`,
         );
-        ctx.deps.log(`[factory-jobs] adopted nothing: ${BASE_REF} does not merge cleanly into ${adopt.branch}`);
-        return { action: "conflict", item: adopt.item.number, branch: adopt.branch, detail: `merge ${BASE_REF} conflicts` };
+        ctx.deps.log(
+          `[factory-jobs] #${adopt.item.number}: ${BASE_REF} does not merge cleanly into ${adopt.branch}; nothing adopted for it, looking for other work`,
+        );
+        conflictedOrphan = adopt;
+      } else {
+        const job = newJob(ctx, adopt.item, {
+          branch: adopt.branch,
+          worktree,
+          stage: adopt.stage,
+          adoptedFrom: { branch: adopt.branch, commit: adopt.commit, mergedDev },
+        });
+        saveJob(ctx, job);
+        setStatus(ctx, config, adopt.item, "In Progress");
+        commentOn(
+          ctx,
+          config,
+          adopt.item.number,
+          `factory: adopted the orphaned branch \`${adopt.branch}\` at \`${adopt.commit ?? "no commits"}\`; ` +
+            `re-entering the ledger at \`${adopt.stage}\`, with \`${UPSTREAM_REF}\` merged in at \`${mergedDev.slice(0, 7)}\` ` +
+            `so the stage agents are current. The prior run's cost is not charged against the new budget.`,
+        );
+        ctx.deps.log(`[factory-jobs] adopted #${adopt.item.number} at ${adopt.stage} (${adopt.branch}, ${UPSTREAM_REF} merged)`);
+        return { action: "adopted", item: adopt.item.number, branch: adopt.branch, focus: readiness.focus ?? null, held };
       }
-      const job = newJob(ctx, adopt.item, {
-        branch: adopt.branch,
-        worktree,
-        stage: adopt.stage,
-        adoptedFrom: { branch: adopt.branch, commit: adopt.commit, mergedDev },
-      });
-      saveJob(ctx, job);
-      setStatus(ctx, config, adopt.item, "In Progress");
-      commentOn(
-        ctx,
-        config,
-        adopt.item.number,
-        `factory: adopted the orphaned branch \`${adopt.branch}\` at \`${adopt.commit ?? "no commits"}\`; ` +
-          `re-entering the ledger at \`${adopt.stage}\`, with \`${UPSTREAM_REF}\` merged in at \`${mergedDev.slice(0, 7)}\` ` +
-          `so the stage agents are current. The prior run's cost is not charged against the new budget.`,
-      );
-      ctx.deps.log(`[factory-jobs] adopted #${adopt.item.number} at ${adopt.stage} (${adopt.branch}, ${UPSTREAM_REF} merged)`);
-      return { action: "adopted", item: adopt.item.number, branch: adopt.branch, focus: readiness.focus ?? null, held };
     }
 
     const candidate = pickCandidate(items, jobs, readiness);
     if (!candidate) {
+      if (conflictedOrphan) {
+        return {
+          action: "conflict",
+          item: conflictedOrphan.item.number,
+          branch: conflictedOrphan.branch,
+          detail: `merge ${BASE_REF} conflicts`,
+        };
+      }
       ctx.deps.log("[factory-jobs] nothing approved to start; no orphan to adopt either");
       return { action: "nothing", focus: readiness.focus ?? null, held };
     }
