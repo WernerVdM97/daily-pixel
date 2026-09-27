@@ -599,6 +599,47 @@ describe('OutcomeRenderer — rolls delta', () => {
   });
 });
 
+// ── Bail refund grace (once per game day) ──
+
+describe('OutcomeRenderer — bail refund grace', () => {
+  // A bail the engine refunded: the start-of-action drain was handed back, so the mutation delta
+  // is 0. The same bail on a later action the same day keeps `rollRefunded` unset and nets -1.
+  const bail: ActionOutcome = {
+    distilledType: 'inspection',
+    finalDc: 12,
+    playerRolled: null,
+    outcome: 'bailed',
+    outcomeText: 'You step back from the situation, catching your breath.',
+    mutations: [{ type: 'modify_stamina', amount: -1 }],
+  };
+
+  it('names the refunded step-back when the roll came back', () => {
+    const outcome: ActionOutcome = { ...bail, rollsDelta: 0, rollRefunded: true };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 3 }));
+    expect(result).toContain('🎲 3 (refunded) · free step-back');
+  });
+
+  it('says nothing extra on a second same-day step-back that kept the roll', () => {
+    const outcome: ActionOutcome = { ...bail, rollsDelta: -1 };
+    const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
+    expect(result).toContain('🎲 2 (-1)');
+    expect(result).not.toContain('step-back');
+    expect(result).not.toContain('refunded');
+  });
+
+  it('leaves the bail wording off every other outcome shape, refunded or charged', () => {
+    // systemRefund (timeout / divine intervention) and an ordinary charged roll must not borrow it.
+    const timedOut: ActionOutcome = { ...bail, outcome: 'timed_out', rollsDelta: 0, rollRefunded: true };
+    const spent: ActionOutcome = { ...bail, outcome: 'success', playerRolled: 15, rollsDelta: -1 };
+    const refundedRest: ActionOutcome = { ...bail, outcome: 'done', rollsDelta: 0, rollRefunded: true };
+
+    for (const outcome of [timedOut, spent, refundedRest]) {
+      const result = formatOutcome(outcome, ctx({ rollsRemaining: 2 }));
+      expect(result).not.toContain('step-back');
+    }
+  });
+});
+
 // ── spawn_npc is ignored (narrated by LLM in outcome_text) ──
 
 describe('OutcomeRenderer — spawn_npc ignored', () => {
