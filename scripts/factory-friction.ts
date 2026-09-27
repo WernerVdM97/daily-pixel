@@ -277,7 +277,6 @@ interface SessionStats {
   editedFiles: string[];
   correctionTurns: number;
   shipped: boolean;
-  /** Whether a commit was owed at all; false for a lead-driven child, whose contract forbids one. */
   commitExpected: boolean;
   signals: Record<string, number>;
   /** Per label, how many times this session itself hit it: an offender is session-scoped. */
@@ -285,9 +284,10 @@ interface SessionStats {
 }
 
 const CORRECTION = /^\s*(no\b|nope|not\b|actually|wait\b|stop\b|wrong|that'?s (not|wrong)|still (broken|failing)|didn'?t work|revert|undo|again\b)/i;
-// A wrapped `git -c … commit` (the ledger's stage children write one) counts, so the flags between
-// `git` and `commit` are skipped rather than making a shipped session read as unshipped.
-const SHIPPED = /\bgit\b[^\n;&|]*\bcommit\b|gh pr (?:create|merge)/i;
+// `git` must sit in command position, with only git's own flags before the verb: prose and heredocs
+// mention `git … commit` freely, and a false positive here silently suppresses a `dead-end`.
+export const SHIPPED =
+  /(?:^|[;\n&|()])\s*git(?:\s+(?:-[cC]\s+[^\s=]+|-{1,2}[a-zA-Z][\w-]*)(?:=(?:"[^"]*"|'[^']*'|\S+))?)*\s+commit\b|gh pr (?:create|merge)/i;
 
 /** A scheduled loop's launcher brief: the headless session that fires `schedule.run-due`. */
 const SCHEDULE_LAUNCHER = /schedule\.run-due/;
@@ -307,6 +307,16 @@ export function agentOf(subagentName: string | null, firstUserText: string): str
   }
   if (SCHEDULE_LAUNCHER.test(firstUserText)) return "scheduler-run";
   return "interactive";
+}
+
+/**
+ * A lead-driven delegate child never commits (the lead commits for it), so "edited and did not ship"
+ * is compliance; a ledger stage runs under a child name too but owes one, which its brief's marker says.
+ */
+export function commitExpectedFor(subagentName: string | null, firstUserText: string): boolean {
+  return (
+    /FACTORY LEDGER STAGE/.test(firstUserText) || !/^subagent-delegate-(executor|fixer)-/.test(subagentName ?? "")
+  );
 }
 
 /**
@@ -489,10 +499,7 @@ function readSession(file: string, ancestorIds: Set<string>): SessionStats {
   // the session header's uuid is the real id (meta/sessions 2026-09-11).
   if (stats.id === "session" && headerId) stats.id = headerId;
   stats.agent = agentOf(subagentName, firstUserText);
-  // A lead-driven delegate child never commits (the lead commits for it), so "edited and did not
-  // ship" is compliance, not friction; a ledger stage owes a commit and is named as a child too.
-  stats.commitExpected =
-    /FACTORY LEDGER STAGE/.test(firstUserText) || !/^subagent-delegate-(executor|fixer)-/.test(subagentName ?? "");
+  stats.commitExpected = commitExpectedFor(subagentName, firstUserText);
 
   deriveSignals(stats);
   return stats;
