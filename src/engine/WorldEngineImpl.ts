@@ -1266,7 +1266,9 @@ export class WorldEngineImpl implements WorldEngine {
       nextDecision,
       actionType: internalState.actionType,
       combatEnemyName: internalState.lastDecideResult.combatEnemy?.name ?? remembered?.name,
-      combatEnemyCondition: remembered?.condition,
+      // The finish/spare interstitial fought no round of its own, so the edge still holds the
+      // previous round's HP while `nextDecision.combatStatus` bands the foe for this beat.
+      combatEnemyCondition: internalState.fatalBlow ? undefined : remembered?.condition,
     };
   }
 

@@ -159,10 +159,9 @@ export function buildDecisionView(
   /** Combat enemy name for the opening frame's nameplate. */
   combatEnemyName?: string,
   /** The foe's banded condition (wound word + pip fill, never exact HP) from the persisted
-   *  `in_combat` edge against the same foe; undefined when nothing is remembered. */
+   *  `in_combat` edge against the same foe; undefined when there is nothing to band. */
   combatEnemyCondition?: { woundWord: string; filled: number; total: number },
-  /** Whether this screen leads with the opening frame. Explicit rather than read off
-   *  `decisionIdx === 0`: a resumed mid-fight combat re-shows its opener at a later index. */
+  /** Whether this screen leads with the opening frame. */
   showOpeningFrame = false,
 ): DecisionViewState {
   // Raw DCs stay hidden while deciding; passive insight (10 + WIS) instead lets a perceptive
