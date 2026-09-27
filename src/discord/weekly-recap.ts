@@ -19,9 +19,8 @@ export const META_LAST_RECAP_DATE = "last_recap_date";
 export const DISCORD_UNKNOWN_CHANNEL = 10003;
 
 /**
- * True ONLY when a fetch failed because the thread is truly gone (Unknown Channel / 10003)
- * — the one case where recreating the week is safe. Every other failure (rate limit, 5xx,
- * network, permission) is transient and must keep the current week. Tolerates any thrown value.
+ * True only when the fetch failed because the thread is gone (10003): the one case where recreating the
+ * week is safe. Rate limits, 5xx, network and permission errors are transient and must keep the week.
  */
 export function isThreadDeleted(err: unknown): boolean {
   return (err as { code?: unknown } | null | undefined)?.code === DISCORD_UNKNOWN_CHANNEL;
@@ -81,19 +80,14 @@ function deterministicRecap(actions: WeeklyActionSummary[]): RecapResult {
 }
 
 // ── prompt input cap ──
-/**
- * Safety valve against an unbounded prompt (cost/latency/context), not a routine trim:
- * ~9 fully-active players at ~22 actions/week, above realistic scale. Only the LLM path is
- * capped; the deterministic digest still counts every action so its totals stay truthful.
- */
+/** Safety valve, not a routine trim (~9 active players at ~22 actions/week is above realistic scale); only the LLM path is capped, so the digest still counts every action. */
 export const MAX_RECAP_ACTIONS = 200;
 /** Per-action narrative chars sent to the LLM (~60 tokens) — enough gist to judge significance. */
 export const MAX_RECAP_NARRATIVE = 240;
 
 /**
- * Bound the prompt input. Always truncates narratives; over MAX_RECAP_ACTIONS, keeps notable
- * beats (success/failure) plus the most recent of the rest, in original oldest-first order —
- * so a heavy week degrades gracefully instead of dropping its early days.
+ * Bound the prompt input: always truncates narratives; past MAX_RECAP_ACTIONS keeps the notable beats
+ * plus the most recent of the rest, in original oldest-first order.
  */
 export function capRecapActions(actions: WeeklyActionSummary[]): WeeklyActionSummary[] {
   const trimmed = actions.map((a) =>
@@ -164,14 +158,8 @@ function canAddThreadMembers(channel: unknown): channel is ThreadMemberAddable {
 }
 
 /**
- * Post an outcome into the week's recap thread, falling back to `fallback()` (the channel
- * followUp) when there's no thread id, the fetch fails, or it isn't sendable — so nothing is lost.
- *
- * `subscribeUserIds` are joined to the thread BEFORE the post. The owner mention in the payload is
- * deliberately ping-suppressed (allowedMentions.users: []), and a suppressed bot mention does NOT
- * subscribe a user — so without an explicit add the acting player never gets the thread in their
- * sidebar and misses the outcome (F#19a). members.add is idempotent, so re-adding a member each
- * action is a harmless no-op. Best-effort per user: a failed add must never block the post.
+ * Post an outcome into the week's recap thread, falling back to `fallback()` when no thread is usable.
+ * `subscribeUserIds` are added BEFORE the post (a ping-suppressed mention does not subscribe them) and `members.add` is idempotent; a failed add must not block the post.
  */
 export async function broadcastOutcome(opts: {
   client: ChannelFetcher;
@@ -184,7 +172,7 @@ export async function broadcastOutcome(opts: {
   if (threadId) {
     try {
       const channel = await client.channels.fetch(threadId);
-      // [debug F#19a] confirm what we resolved + which branch we take.
+      // [debug] confirm what we resolved + which branch we take.
       console.log(
         c.cyan(
           `[recap][debug] threadId=${threadId} sendable=${isSendable(channel)} ` +

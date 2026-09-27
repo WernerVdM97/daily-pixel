@@ -182,6 +182,7 @@ const RESUME_DECISION_RESULT: ActionResumeResult = {
       { label: "Fall back", dcModifier: 0 },
     ],
   },
+  actionType: "other",
 };
 
 // The 280-char boundary text for transcript 6 (candidate churn class b — the router's
@@ -563,6 +564,7 @@ describe("action oracle — slash /action <text> (new action)", () => {
     );
     h.engine.setResumeResult({
       state: { rawInput: "hunt", decisions: [], accumulatedDc: 10 },
+      actionType: "other",
       nextDecision: {
         prompt: "The trail has gone cold. Continue?",
         options: [],
@@ -684,6 +686,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
     );
     h.engine.setResumeResult({
       state: { rawInput: "hunt", decisions: [], accumulatedDc: 10 },
+      actionType: "other",
       nextDecision: {
         prompt: "The trail has gone cold. Continue?",
         options: [],
@@ -713,6 +716,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
     );
     h.engine.setResumeResult({
       state: { rawInput: "hunt", decisions: [], accumulatedDc: 10 },
+      actionType: "other",
       nextDecision: { prompt: "", options: [] },
     });
     const { intr, _acks } = slashInteraction("action-12-stale-empty", "action");

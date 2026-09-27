@@ -1,10 +1,6 @@
 /**
- * /hi — the greeting screen crosses the JSON seam as `hi.open` (M7.2, DC-M7.2.4): the
- * screen composition (character header, weekend hooks / day-job block, unfinished-action
- * resume) moved into the controller layer (`composeHiScreen` in src/controller/hiScreen.ts)
- * and the reply copy moved to the router (DC-P4). This handler is translate + paint only —
- * the router's error.message IS the string the dispatcher paints, and the view maps through
- * `noticeViewToDiscord`.
+ * /hi crosses the JSON seam as `hi.open`: the screen composition is `composeHiScreen` in
+ * `src/controller/hiScreen.ts`; the copy is the router's.
  */
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
@@ -21,10 +17,8 @@ export function makeHiCommand(router: GameRouter) {
       playerId: interaction.user.id,
     });
 
-    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
-    // Reported before the ok check because the read it replaces was outcome-independent;
-    // absent when there is no character, which is today's `if (char)` gate — and the
-    // charless `nav:hi` edge is reachable, so that fallback is pinned, not assumed.
+    // Reported before the ok check: the read it replaces was outcome-independent. `nav` is absent
+    // for a charless player, and a `nav:hi` button click reaches exactly that arm.
     onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {

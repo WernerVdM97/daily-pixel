@@ -673,6 +673,7 @@ describe('conformance — hi.open (fake timers: Wednesday 2026-07-15)', () => {
         const engine = realChar({ lastActionState: IN_FLIGHT as never });
         engine.setResumeResult({
           state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 10, kind: 'quest' },
+          actionType: 'other',
           nextDecision: { prompt: 'The trail forks. Continue?', options: [], narration: 'You stand at the ridgeline, wind pulling at your cloak.' },
         });
         return realRouter(engine);
@@ -1153,6 +1154,7 @@ runCaseBlock('conformance — menu.open', [
       const engine = realChar({ lastActionState: IN_FLIGHT as never });
       engine.setResumeResult({
         state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 10, kind: 'quest' },
+        actionType: 'other',
         nextDecision: { prompt: 'The trail has gone cold.', options: [], narration: 'You lost the trail.' },
       });
       return realRouter(engine);
@@ -1172,6 +1174,7 @@ runCaseBlock('conformance — menu.open', [
       const engine = realChar({ lastActionState: IN_FLIGHT as never });
       engine.setResumeResult({
         state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 10, kind: 'quest' },
+        actionType: 'other',
         nextDecision: { prompt: 'The trail has gone cold.', options: [] },
       });
       return realRouter(engine);
@@ -1191,6 +1194,7 @@ runCaseBlock('conformance — menu.open', [
       const engine = realChar({ lastActionState: IN_FLIGHT as never });
       engine.setResumeResult({
         state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 10, kind: 'quest' },
+        actionType: 'other',
         nextDecision: {
           prompt: 'The trail forks. Which way?',
           options: [
@@ -1439,6 +1443,7 @@ runCaseBlock('conformance — action.custom', [
       const engine = realChar({ lastActionState: IN_FLIGHT as never });
       engine.setResumeResult({
         state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 10, kind: 'quest' },
+        actionType: 'other',
         nextDecision: {
           prompt: 'The trail forks. Which way?',
           options: [
@@ -2582,6 +2587,7 @@ describe('barrier coverage (M5.1 checklist)', () => {
     const staleEngine = realChar({ lastActionState: IN_FLIGHT as never });
     staleEngine.setResumeResult({
       state: { rawInput: 'x', decisions: [], accumulatedDc: 0, kind: 'quest' },
+      actionType: 'other',
       nextDecision: { prompt: 'Cold.', options: [] },
     });
     codes.add(errorCodeOf(await drive(realRouter(staleEngine), MENU_OPEN))); // stale-session
@@ -2629,6 +2635,7 @@ describe('barrier coverage (M5.1 checklist)', () => {
     const resumeEngine = realChar({ lastActionState: IN_FLIGHT as never });
     resumeEngine.setResumeResult({
       state: { rawInput: 'x', decisions: [], accumulatedDc: 0, kind: 'quest' },
+      actionType: 'other',
       nextDecision: {
         prompt: 'Fork?',
         options: [

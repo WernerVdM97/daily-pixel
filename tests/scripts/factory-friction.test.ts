@@ -4,12 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   agentOf,
+  commitExpectedFor,
   isProbeExit,
   readLedger,
+  SHIPPED,
   unprocessedOwnerAnswer,
 } from '../../scripts/factory-friction.js';
 
 const NOW = Date.parse('2026-09-13T12:00:00Z');
+const EXECUTOR_CHILD = 'subagent-delegate-executor-8c1f2b4a-5d6e-4f70-9a11-2c3d4e5f6071-1';
+const FIXER_CHILD = 'subagent-delegate-fixer-8c1f2b4a-5d6e-4f70-9a11-2c3d4e5f6072-2';
 
 describe('agentOf', () => {
   it('extracts the agent from a subagent session name', () => {
@@ -31,6 +35,52 @@ describe('agentOf', () => {
 
   it('does not mistake a non-subagent session_info name for an agent', () => {
     expect(agentOf('my custom session name', '')).toBe('interactive');
+  });
+});
+
+describe('commitExpectedFor', () => {
+  it('excuses a lead-driven delegate child, whose contract forbids a commit', () => {
+    expect(commitExpectedFor(EXECUTOR_CHILD, 'Task: build item 97')).toBe(false);
+    expect(commitExpectedFor(FIXER_CHILD, 'Task: fix item 97')).toBe(false);
+  });
+
+  it('holds a ledger stage child to a commit even though it runs under a child name', () => {
+    // The stage wrapper prefixes the child's brief, so the marker is not at the string start.
+    expect(commitExpectedFor(EXECUTOR_CHILD, 'Task: FACTORY LEDGER STAGE: build\nImplement card #97.')).toBe(true);
+  });
+
+  it('expects a commit from every other loop and from a non-delegate child', () => {
+    expect(commitExpectedFor(null, 'how is the dark factory performing?')).toBe(true);
+    expect(commitExpectedFor('subagent-delegate-reviewer-8c1f2b4a-5d6e-4f70-9a11-2c3d4e5f6073-1', 'review PR #189')).toBe(true);
+    expect(commitExpectedFor('subagent-factory-triage-8c1f2b4a-5d6e-4f70-9a11-2c3d4e5f6074-1', 'triage the board')).toBe(true);
+  });
+});
+
+describe('SHIPPED', () => {
+  it('counts a commit however the command is wrapped', () => {
+    expect(SHIPPED.test('git commit -m "feat(factory): x"')).toBe(true);
+    expect(SHIPPED.test('cd /repo\ngit add -A\ngit commit -q -F -')).toBe(true);
+    expect(SHIPPED.test('git -c core.editor=true commit -q -F -')).toBe(true);
+    // The ledger stage children commit with the identity spelled out; `-c k="$(git config k)"`
+    // is one atom, and a bare word boundary would split it at the nested command.
+    expect(SHIPPED.test('cd /repo && git add a b && git -c user.name="$(git config user.name)" commit -q -F -')).toBe(true);
+  });
+
+  it('counts a PR opened or merged', () => {
+    expect(SHIPPED.test('gh pr create --base dev --head feat/97-x')).toBe(true);
+    expect(SHIPPED.test('gh pr merge 190 --squash')).toBe(true);
+  });
+
+  it('does not read prose or a heredoc mentioning a commit as a ship', () => {
+    // These all matched the previous `\bgit\b[^;&|]*\bcommit\b`, each one suppressing a dead-end.
+    expect(SHIPPED.test('cat >> .pi/factory/memory/x.md <<\'EOF\'\nthe old `\bgit\b[^;&|]*\bcommit\b` was loose\nEOF')).toBe(false);
+    expect(SHIPPED.test('const tip = git(ctx, ["rev-parse", "--verify", `${branch}^{commit}`]).stdout.trim();')).toBe(false);
+    expect(SHIPPED.test('grep -n "git commit\\|commit\\b" scripts/factory-jobs.ts')).toBe(false);
+  });
+
+  it('does not read a git subcommand that merely names a commit', () => {
+    expect(SHIPPED.test('git log --oneline dev..feat/97-x | grep commit')).toBe(false);
+    expect(SHIPPED.test('hg commit -m x')).toBe(false);
   });
 });
 

@@ -50,6 +50,28 @@ export class LocationRepository {
       .get(data.name) as LocationRow;
   }
 
+  /** Rows still awaiting enrichment, oldest first (the sweep's order). */
+  findPendingEnrichment(limit: number): LocationRow[] {
+    return this.db
+      .prepare('SELECT * FROM locations WHERE enrichment_pending = 1 ORDER BY id ASC LIMIT ?')
+      .all(limit) as LocationRow[];
+  }
+
+  /** Count one failed enrichment attempt and return the running total, or `null` when the row is
+   *  no longer provisional — a late loser must not bump the cap or log a give-up it did not earn. */
+  incrementEnrichmentAttempts(name: string): number | null {
+    const updated = this.db
+      .prepare(
+        'UPDATE locations SET enrichment_attempts = enrichment_attempts + 1 WHERE name = ? AND enrichment_pending = 1',
+      )
+      .run(name);
+    if (updated.changes === 0) return null;
+    const row = this.db
+      .prepare('SELECT enrichment_attempts FROM locations WHERE name = ?')
+      .get(name) as { enrichment_attempts: number } | undefined;
+    return row?.enrichment_attempts ?? 0;
+  }
+
   /**
    * D3 cartographer landing: enrich a still-provisional location with the LLM's
    * is_safe + description and clear the pending flag. Guarded on

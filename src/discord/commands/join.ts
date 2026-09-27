@@ -32,10 +32,8 @@ const CID_START_OVER = "join:restart";
 /** Double-click guard — user ID locked while an interaction processes; concurrent ones return early. */
 const _userInFlight = new Set<string>();
 
-/** The seam router this adapter dispatches through (M7.3, DC-M7.3.8). Set by
- *  `makeJoinCommand(router)`; read by `handleInteraction` for the button/modal walk. The
- *  module-level setter is a documented M9 casualty — the dispatcher's join branch is frozen
- *  (dispatchInteraction.ts:238) and passes the handler the dead compat params below. */
+/** The seam router for the button/modal walk in `handleInteraction`, set by `makeJoinCommand`.
+ *  Module-level: the frozen dispatcher passes `_engine`/`_wizards` rather than the router. */
 let _router: GameRouter | null = null;
 
 function parseChoiceCid(
@@ -53,15 +51,13 @@ function parseChoiceCid(
 
 // ── Factory ──
 
-/** M7.3 (DC-M7.3.8): the defs and the wizard store drop — the controller owns both now.
- *  The slash arm is translate + paint: defer (transcript 1), dispatch `join.open`, paint
- *  the router's copy/`wizardViewToDiscord` payload. */
+/** The slash arm is translate + paint: defer, dispatch `join.open`, paint the router's
+ *  `wizardViewToDiscord` payload. */
 export function makeJoinCommand(router: GameRouter) {
   _router = router;
   return async (interaction: ChatInputCommandInteraction): Promise<string> => {
-    // Defer immediately: the first screen's Oak PNG can blow past Discord's 3s ack
-    // window (→ 10062) on slow hosts. A payload-free defer acks fast; editReply then
-    // has a 15-minute window for the heavy payload.
+    // Defer before dispatching: the first screen's Oak PNG can blow past Discord's 3s ack window
+    // (→ 10062) on slow hosts. A payload-free defer acks fast; editReply then has 15 minutes.
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const response = await router.dispatch({
@@ -70,7 +66,7 @@ export function makeJoinCommand(router: GameRouter) {
     });
 
     if (!response.ok) {
-      // HAS_CHARACTER_COPY — painted via editReply without ❌ (transcript 2's byte path).
+      // The guard's copy is painted as-is — this arm adds no ❌.
       await interaction.editReply({ content: response.error.message });
       return "join_guard_has_character";
     }
@@ -82,19 +78,12 @@ export function makeJoinCommand(router: GameRouter) {
 
 // ── Interaction handler ──
 
-/**
- * Builds the ephemeral `/hi` first-day screen for a new character. Injected from
- * index.ts so `join` can show the opening view without importing the registry/builder.
- * Returns a ready-to-send reply payload (Components V2, ephemeral).
- */
+/** Builds the ephemeral `/hi` first-day screen for a new character; injected by the dispatcher so
+ *  `join` never imports the registry/builder. Returns a ready-to-send Components V2 payload. */
 export type RenderHiScreen = (userId: string) => unknown | Promise<unknown>;
 
-/**
- * M7.3 (DC-M7.3.8): the button/modal walk is translate + paint through the module-level
- * `_router`. `engine` and `wizards` KEEP their signature slots — the frozen dispatcher's
- * join branch (dispatchInteraction.ts:238) passes `engine` + `joinWizards` — and are now
- * documented dead-until-M9 compat params; the handler never reads them.
- */
+/** The button/modal walk, translate + paint through the module-level `_router`. `_engine` and
+ *  `_wizards` keep their signature slots only because the frozen dispatcher passes them. */
 export async function handleInteraction(
   i: MessageComponentInteraction | ModalSubmitInteraction,
   _engine: WorldEngine,
@@ -103,12 +92,10 @@ export async function handleInteraction(
 ): Promise<void> {
   const userId = i.user.id;
 
-  // Per-user in-flight guard — drop duplicate clicks silently.
   if (_userInFlight.has(userId)) return;
   _userInFlight.add(userId);
 
   try {
-    // Modal submission for name
     if (i.isModalSubmit() && i.customId === CID_NAME_MODAL) {
       const name = i.fields.getTextInputValue(CID_NAME_INPUT);
       const response = await _router!.dispatch({
@@ -117,8 +104,7 @@ export async function handleInteraction(
         text: name,
       });
       if (!response.ok) {
-        // The router's message IS the store's validation copy — safeNotify welds the ❌
-        // (transcript 4's byte path).
+        // The router's message IS the store's validation copy, so `safeNotify` only adds the ❌.
         await safeNotify(i, `❌ ${response.error.message}`);
       } else {
         await i.deferUpdate();
@@ -127,10 +113,9 @@ export async function handleInteraction(
       return;
     }
 
-    // Other modals — none yet, ignore
+    // No other modals exist yet.
     if (i.isModalSubmit()) return;
 
-    // Button: open name modal
     if (i.customId === CID_NAME_BUTTON) {
       try {
         // join.open is idempotent — a resumed session yields the same step-1 screen.
@@ -138,8 +123,8 @@ export async function handleInteraction(
         if (response.ok) {
           await i.showModal(buildNameModal(response.view as WizardViewState));
         } else {
-          // has-character (or any other error arm) — the click must still be acked, else
-          // Discord shows "This interaction failed" after 3s (reviewer ACCEPT-2).
+          // Any error arm — the click must still be acked, else Discord shows
+          // "This interaction failed" after 3s.
           await safeNotify(i, response.error.message);
         }
       } catch {
@@ -148,7 +133,7 @@ export async function handleInteraction(
       return;
     }
 
-    // Button: choice (steps 2-7)
+    // Buttons for wizard steps 2-7: the choice leaves.
     const parsed = parseChoiceCid(i.customId);
     if (parsed) {
       const response = await _router!.dispatch({
@@ -184,8 +169,7 @@ export async function handleInteraction(
         // The created arm always carries the fact — its absence is an internal breach.
         if (!created) throw new Error("character.create returned ok:true without createdCharacter");
 
-        // Public channel announcement (the wizard itself ran ephemeral). Welded from the
-        // `createdCharacter` fact (DC-M7.3.7) — the exact pre-seam embed.
+        // Public announcement — the wizard itself ran ephemeral.
         const createdEmbed = new EmbedBuilder()
           .setTitle("✨ A new hero joins the Oak")
           .setDescription(
@@ -208,8 +192,8 @@ export async function handleInteraction(
         // Replace the finished wizard with the player's ephemeral /hi screen.
         const hiPayload = renderHiScreen ? await renderHiScreen(userId) : undefined;
         if (hiPayload) {
-          // Wizard is a classic embed but /hi is Components V2, which can't be edited
-          // in — so drop the wizard and follow up instead.
+          // The wizard message is a classic embed and the `/hi` payload is Components V2, which
+          // can't be edited in: drop the wizard and follow up instead.
           await i.deleteReply().catch(() => {});
           await i.followUp(hiPayload as Parameters<typeof i.followUp>[0]).catch(() => {});
         } else {
@@ -245,10 +229,8 @@ export async function handleInteraction(
   }
 }
 
-/**
- * Notify the user of an error without ever throwing. The interaction may be dead
- * (10062 expired / 40060 acked); swallow it — a wizard button must never crash the handler.
- */
+/** Notify the user of an error and never throw: the interaction may already be dead (10062
+ *  expired / 40060 acked), and a wizard button must not crash the handler. */
 async function safeNotify(
   i: MessageComponentInteraction | ModalSubmitInteraction,
   message: string,
@@ -264,9 +246,8 @@ async function safeNotify(
   }
 }
 
-/** Weld the step-1 name modal from the view's `nameField` (DC-M7.3.3) — the customIds
- *  (`join:name:modal`/`join:name:input`) and the title are medium chrome; the label,
- *  placeholder and length bounds are the view's. */
+/** Welds the step-1 name modal: the customIds (`join:name:modal`/`join:name:input`) and the
+ *  title are medium chrome; the label, placeholder and length bounds come from the view. */
 function buildNameModal(view: WizardViewState): ModalBuilder {
   const field = view.nameField;
   const input = new TextInputBuilder()

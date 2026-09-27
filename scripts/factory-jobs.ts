@@ -53,7 +53,7 @@ const SCRIPT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const SCHEMA_VERSION = 1;
 
-export type StageName = "build" | "review" | "fix" | "deliver" | "reconcile" | "done";
+export type StageName = "build" | "review" | "fix" | "deliver" | "reconcile" | "revise" | "resolve" | "done";
 export type StageKind = "model" | "code";
 /** `waiting` is a reconcile whose PR is still open: re-runnable, but charged nothing. */
 export type StageState = "ready" | "running" | "blocked" | "waiting";
@@ -67,13 +67,15 @@ export interface StageSpec {
 
 const MIN = 60_000;
 
-/** Build 50 / review 20 / fix 30 the three code stages are seconds, not minutes. */
+/** The three code stages are seconds, not minutes. */
 export const STAGES: Record<StageName, StageSpec> = {
   build: { kind: "model", agent: "delegate-executor", budgetMs: 50 * MIN },
   review: { kind: "model", agent: "delegate-reviewer", budgetMs: 20 * MIN },
   fix: { kind: "model", agent: "delegate-fixer", budgetMs: 30 * MIN },
   deliver: { kind: "code", budgetMs: MIN },
   reconcile: { kind: "code", budgetMs: MIN },
+  revise: { kind: "model", agent: "delegate-fixer", budgetMs: 30 * MIN },
+  resolve: { kind: "model", agent: "delegate-fixer", budgetMs: 20 * MIN },
   done: { kind: "code", budgetMs: MIN },
 };
 
@@ -83,6 +85,8 @@ const STAGE_ORDER: StageName[] = ["build", "review", "fix", "deliver", "reconcil
 export const JOB_CAP_MS = 100 * MIN;
 /** A third attempt at one stage is blocked rather than run: two failures is a pattern. */
 export const MAX_ATTEMPTS = 2;
+/** Consecutive change-request cycles before the branch goes back to the owner. */
+export const MAX_REVISIONS = 3;
 /** A PR open this long is "waiting" that wants a human's attention. `stale` prints it. */
 export const WAITING_STALE_MS = 7 * 24 * 60 * MIN;
 /** The integration branch every job forks from and PRs to. */
@@ -96,6 +100,18 @@ export const BASE_REF = "dev";
 export const UPSTREAM_REF = `origin/${BASE_REF}`;
 /** Never pruned: the integration branch itself, and the release line. */
 const PROTECTED_BRANCHES = new Set([BASE_REF, "main", "master"]);
+
+/**
+ * Who counts as the owner on a PR review. The default is this repo's account; the env var
+ * exists so a rename or a co-owner does not need a code change to be heard.
+ */
+export function reviewerLogins(env: NodeJS.ProcessEnv = process.env): string[] {
+  const configured = (env.FACTORY_REVIEWER_LOGINS ?? "")
+    .split(",")
+    .map((login) => login.trim())
+    .filter(Boolean);
+  return configured.length > 0 ? configured : ["WernerVdM97"];
+}
 
 export type StageResult =
   | "ok"
@@ -144,6 +160,11 @@ export interface JobRecord {
   pr: number | null;
   /** Set only when the block's DM actually went out, so a failed page is retried. */
   pagedAt?: string;
+  revisions?: number;
+  /** Review ids already actioned: the id is what stops a still-standing decision re-triggering. */
+  consumedReviews?: number[];
+  /** Every real push, so feedback collection can window conversation comments by it. */
+  lastPushAt?: string;
   adoptedFrom?: { branch: string; commit: string | null; mergedDev?: string };
   waitingSince?: string;
   startedAt: string;
@@ -152,6 +173,11 @@ export interface JobRecord {
 }
 
 export function nextStage(stage: StageName): StageName | null {
+  // The one non-linear edge: the owner's change requests re-enter at `revise` and go back
+  // out through `deliver`, because the fix has to be pushed to the PR they were made on.
+  if (stage === "revise") return "deliver";
+  // The other: `resolve` is revise's first half, for a branch that has to be merged first.
+  if (stage === "resolve") return "revise";
   const idx = STAGE_ORDER.indexOf(stage);
   return idx === -1 || idx === STAGE_ORDER.length - 1 ? null : STAGE_ORDER[idx + 1];
 }
@@ -239,13 +265,16 @@ export function decide(job: JobRecord, live: Liveness): Action {
   return { kind: "run", timeoutMs: attemptTimeoutMs(job) };
 }
 
-/** The verdict line a review stage must start its findings file with. */
-export function parseVerdict(text: string): "clean" | "findings" | "ok" | "nochange" {
+/**
+ * The verdict line a review or resolve stage must start its report with. The meaningful set is
+ * per stage: only `resolve` reports `unresolved`, and only `fix`/`revise` may report `nochange`.
+ */
+export function parseVerdict(text: string): "clean" | "findings" | "ok" | "nochange" | "unresolved" {
   const first = text.trimStart().split("\n", 1)[0] ?? "";
-  const match = /VERDICT:\s*(clean|findings|ok|nochange)\b/i.exec(first);
+  const match = /VERDICT:\s*(clean|findings|ok|nochange|unresolved)\b/i.exec(first);
   // Anything else reads as `findings`: the safe default is to assume there is work to do.
   if (!match) return "findings";
-  return match[1]!.toLowerCase() as "clean" | "findings" | "ok" | "nochange";
+  return match[1]!.toLowerCase() as "clean" | "findings" | "ok" | "nochange" | "unresolved";
 }
 
 // ── Paths and root resolution ──────────────────────────────────────────────
@@ -998,6 +1027,11 @@ export function claimedBranch(comments: { body: string }[], number: number, bran
   return branches.find((b) => /(^|\/)\d+-/.test(b) && b.includes(`/${number}-`))?.replace(/^origin\//, "") ?? null;
 }
 
+/** The branch a claim comment names, whether or not that branch still exists. */
+function claimedBranchName(comments: { body: string }[]): string | null {
+  return comments.map((comment) => CLAIM_COMMENT.exec(comment.body)?.[1]).find((branch) => branch) ?? null;
+}
+
 /**
  * An orphan is an `In Progress` item with no job record and evidence a run got there first:
  * a factory claim comment naming the branch, a branch whose name carries the item number and
@@ -1008,7 +1042,13 @@ export function claimedBranch(comments: { body: string }[], number: number, bran
 export function findAdoptable(
   items: BoardItem[],
   jobs: JobRecord[],
-  ctx: { branches: string[]; commentsFor(number: number): { body: string }[]; hasCommits(branch: string): boolean; headOf(branch: string): string | null },
+  ctx: {
+    branches: string[];
+    commentsFor(number: number): { body: string }[];
+    hasCommits(branch: string): boolean;
+    headOf(branch: string): string | null;
+    log(msg: string): void;
+  },
   readiness: Readiness = {},
 ): AdoptionProposal | null {
   const orphans = items
@@ -1016,8 +1056,17 @@ export function findAdoptable(
     .sort((a, b) => a.number - b.number);
   for (const item of orphans) {
     if (holdReason(item, readiness)) continue;
-    const branch = claimedBranch(ctx.commentsFor(item.number), item.number, ctx.branches);
-    if (!branch) continue;
+    const comments = ctx.commentsFor(item.number);
+    const branch = claimedBranch(comments, item.number, ctx.branches);
+    if (!branch) {
+      // A claim whose branch is gone is otherwise an invisible skip: `In Progress` with neither
+      // a job record nor an adoptable branch.
+      const named = claimedBranchName(comments);
+      if (named) {
+        ctx.log(`[factory-jobs] #${item.number} is claimed by branch ${named}, which no longer exists; nothing to adopt`);
+      }
+      continue;
+    }
     const hasCommits = ctx.hasCommits(branch);
     return { item, branch, stage: hasCommits ? "review" : "build", commit: hasCommits ? ctx.headOf(branch) : null };
   }
@@ -1069,6 +1118,11 @@ export function archiveJob(ctx: Ctx, job: JobRecord): void {
 
 export function artifactPath(ctx: Ctx, item: number, stage: StageName): string {
   return resolve(ctx.jobsDir, "artifacts", String(item), `${stage}.md`);
+}
+
+/** The revise stage's input from the PR's own reviews — not its report, which is `revise.md`. */
+export function feedbackPath(ctx: Ctx, item: number): string {
+  return resolve(ctx.jobsDir, "artifacts", String(item), "feedback.md");
 }
 
 function lockPath(ctx: Ctx): string {
@@ -1224,6 +1278,22 @@ export function stageTask(ctx: Ctx, job: JobRecord, stage: StageName, artifact: 
       `Write your report to ${artifact}. Its first line is \`VERDICT: ok\`, or \`VERDICT: nochange\` if a finding genuinely needs no code change.`,
       `If you commit nothing and the findings did need work, the stage is a failure.`,
     );
+  } else if (stage === "revise") {
+    head.push(
+      `Read the owner's PR change requests at ${feedbackPath(ctx, job.item)} and implement exactly what they name.`,
+      `Do not widen the scope, and do not add improvements of your own.`,
+      `Run the full test suite and typecheck, and commit on \`${job.branch}\` when both are green.`,
+      `Write your report to ${artifact}. Its first line is \`VERDICT: ok\`, or \`VERDICT: nochange\` when a request genuinely needs no code change.`,
+      `Map each request to the work you did, so the report says what answered what.`,
+    );
+  } else if (stage === "resolve") {
+    head.push(
+      `You are resolving merge conflicts so the owner's change requests can be applied. Run \`git merge --no-edit ${UPSTREAM_REF}\` in the worktree.`,
+      `Resolve every conflict so BOTH intents survive: never delete a side wholesale; where both sides changed the same lines, keep \`${UPSTREAM_REF}\`'s version and re-apply this branch's intent on top of it; in \`CHANGELOG.md\`, keep both entries.`,
+      `If any conflict needs a judgement call you cannot ground in the code, stop, leave it unresolved, and write \`VERDICT: unresolved\`.`,
+      `Run the full test suite and typecheck, and commit the merge on \`${job.branch}\` when both are green. If a previous attempt already landed the merge, verify it and report \`VERDICT: ok\`: no new commit is required.`,
+      `Write your report to ${artifact}. Its first line is \`VERDICT: ok\`, or \`VERDICT: unresolved\` if you had to stop.`,
+    );
   }
   return head.join("\n");
 }
@@ -1374,10 +1444,25 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
   const branchAfter = git(ctx, ["rev-parse", job.branch], job.worktree).stdout.trim();
   job.artifacts[stage] = artifact;
 
-  if (stage === "build" || stage === "fix") {
-    // Only the fixer may accept a finding without a commit: a build that claims `nochange`
-    // has implemented nothing, and its stage fails on the branch check below.
-    if (stage === "fix" && parseVerdict(text) === "nochange") {
+  if (stage === "resolve") {
+    // Resolve passes on `ok` plus `dev` contained, not on a moved tip: an attempt that landed the
+    // merge and then failed to report leaves the next one nothing to commit. `unresolved` is a
+    // judgement call the code could not ground, and an absent verdict is not a claim to trust.
+    const verdict = parseVerdict(text);
+    if (verdict !== "ok") {
+      ctx.deps.log(`[factory-jobs] resolve stage reported ${verdict}, so the merge is still unresolved`);
+      abortFailedMerge(ctx, job);
+      return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
+    }
+    if (git(ctx, ["merge-base", "--is-ancestor", UPSTREAM_REF, job.branch], job.worktree).code !== 0) {
+      ctx.deps.log(`[factory-jobs] resolve stage reported ok, but ${UPSTREAM_REF} is not contained in ${job.branch}`);
+      abortFailedMerge(ctx, job);
+      return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
+    }
+  } else if (stage === "build" || stage === "fix" || stage === "revise") {
+    // A build that claims `nochange` has implemented nothing and still fails the branch
+    // check below; the fixer and the revise stage may accept a request without a commit.
+    if (stage !== "build" && parseVerdict(text) === "nochange") {
       return { ok: true, result: "nochange", exit: outcome.code, startedAt, endedAt };
     }
     if (branchAfter === branchBefore) {
@@ -1409,16 +1494,29 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
 
 async function runDeliver(ctx: Ctx, config: ProjectConfig, job: JobRecord): Promise<void> {
   const startedAt = ctx.deps.now();
+  // A recorded PR that is no longer open is settled by `reconcile`: pushing would recreate
+  // the deleted head branch as a duplicate PR, and the item would never reach `Done`.
+  if (job.pr) {
+    const state = recordedPrState(ctx, config, job.pr);
+    if (state !== "OPEN") {
+      ctx.deps.log(`[factory-jobs] #${job.item}: PR #${job.pr} is ${state}; not pushing — reconcile settles it`);
+      succeed(job, "deliver", startedAt, ctx.deps.now(), "ok", null);
+      return;
+    }
+  }
   // A retry after a partial success must not create a second PR for the branch: a `gh` failure
   // between `pr create` and the record write is a seconds-wide window, and "a pull request for
   // branch ... already exists" would wedge the job for ever on a branch that is already fine.
   const existing = existingPr(ctx, config, job);
   let url = existing?.url ?? "";
+  const [push, pr] = deliverCommands(ctx, job);
+  // Always: a revise cycle has new commits on a branch whose PR is already open, so a push
+  // that only ran on the creating path would leave the owner reviewing the pre-revise diff.
+  runCommand(ctx, push, job.worktree);
+  if (!ctx.dryRun) job.lastPushAt = new Date(ctx.deps.now()).toISOString();
   if (existing) {
     ctx.deps.log(`[factory-jobs] #${job.item}: reusing the open PR #${existing.number} for ${job.branch}`);
   } else {
-    const [push, pr] = deliverCommands(ctx, job);
-    runCommand(ctx, push, job.worktree);
     const created = runCommand(ctx, pr);
     url = created.trim().split("\n").pop() ?? "";
     const number = Number.parseInt(url.split("/").pop() ?? "", 10);
@@ -1427,6 +1525,14 @@ async function runDeliver(ctx: Ctx, config: ProjectConfig, job: JobRecord): Prom
     }
     job.pr = Number.isFinite(number) ? number : null;
   }
+  const revised = (job.revisions ?? 0) > 0;
+  const nochange = revised && parseVerdict(readArtifact(artifactPath(ctx, job.item, "revise"))) === "nochange";
+  const comment = revised
+    ? nochange
+      ? `factory: the change requests on PR #${job.pr} were assessed and need no code change — nothing revised.`
+      : `factory: revised per the owner's change requests on PR #${job.pr} — pushed for re-review.`
+    : `factory: PR opened for review — ${url || "(dry run)"}\n\nNo agent merged it; merging is the owner's step. The ledger will move this item to \`Done\` and close the issue once it is merged.`;
+  const what = revised ? (nochange ? "nochange comment" : "re-review comment") : "PR-link comment";
   // Past this point the PR exists, so nothing here may fail the stage: the board and the
   // comment are best effort, exactly like the block's.
   bestEffort(
@@ -1439,17 +1545,31 @@ async function runDeliver(ctx: Ctx, config: ProjectConfig, job: JobRecord): Prom
   );
   bestEffort(
     ctx,
-    () =>
-      commentOn(
-        ctx,
-        config,
-        job.item,
-        `factory: PR opened for review — ${url || "(dry run)"}\n\nNo agent merged it; merging is the owner's step. The ledger will move this item to \`Done\` and close the issue once it is merged.`,
-      ),
-    "PR-link comment",
+    () => commentOn(ctx, config, job.item, comment),
+    what,
   );
   succeed(job, "deliver", startedAt, ctx.deps.now(), "ok", null);
-  ctx.deps.log(`[factory-jobs] #${job.item}: PR opened for review — ${url || "(dry run)"}`);
+  ctx.deps.log(
+    revised
+      ? nochange
+        ? `[factory-jobs] #${job.item}: change requests assessed, no code change — PR #${job.pr}`
+        : `[factory-jobs] #${job.item}: revised and re-pushed — PR #${job.pr}`
+      : `[factory-jobs] #${job.item}: PR opened for review — ${url || "(dry run)"}`,
+  );
+}
+
+/** The recorded PR's state as GitHub reports it, so `deliver` never pushes to a dead PR. */
+function recordedPrState(ctx: Ctx, config: ProjectConfig, prNumber: number): string | null {
+  const pr = ghJson<{ state?: string }>(ctx, [
+    "pr",
+    "view",
+    String(prNumber),
+    "--repo",
+    config.repo,
+    "--json",
+    "state",
+  ]);
+  return pr.state ?? null;
 }
 
 /** The open PR for this job's branch, if a previous attempt already opened one. */
@@ -1479,19 +1599,207 @@ function existingPr(ctx: Ctx, config: ProjectConfig, job: JobRecord): { number: 
   return pr;
 }
 
+interface PullReview {
+  id: number;
+  user?: { login?: string } | null;
+  state?: string;
+  submitted_at?: string;
+  body?: string | null;
+}
+
+interface ReviewComment {
+  id: number;
+  review_id?: number | null;
+  user?: { login?: string } | null;
+  path?: string;
+  line?: number | null;
+  body?: string | null;
+}
+
+interface ConversationComment {
+  id: number;
+  user?: { login?: string } | null;
+  created_at?: string;
+  body?: string | null;
+}
+
+/** `revise` and `resolve`, its first half: a live re-entry, never a merge that finished a job. */
+function reEntered(job: JobRecord): boolean {
+  return job.stage === "revise" || job.stage === "resolve";
+}
+
+/**
+ * Action the owner's change requests: snapshot their words as the revise stage's input and
+ * re-enter the pipeline at `revise` (or at `resolve` first, when the branch needs a merge it
+ * cannot make itself). False when there is nothing to action, so the caller waits.
+ */
+function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumber: number): boolean {
+  // GitHub pages at 30 by default, so a long-lived PR's newest change request can fall off the end.
+  const reviews = ghJson<PullReview[]>(ctx, ["api", `repos/${config.repo}/pulls/${prNumber}/reviews?per_page=100`]);
+  const logins = reviewerLogins();
+  const consumed = new Set(job.consumedReviews ?? []);
+  const triggers = (reviews ?? []).filter(
+    (review) =>
+      review.state === "CHANGES_REQUESTED" && logins.includes(review.user?.login ?? "") && !consumed.has(review.id),
+  );
+  if (triggers.length === 0) return false;
+
+  if ((job.revisions ?? 0) >= MAX_REVISIONS) {
+    blockJob(
+      ctx,
+      config,
+      job,
+      boardItem(ctx, config, job),
+      `revise cycles exhausted (${MAX_REVISIONS} consecutive change-request cycles) — the owner should take over the branch`,
+    );
+    return true;
+  }
+  if (!ctx.dryRun && !existsSync(job.worktree)) {
+    blockJob(
+      ctx,
+      config,
+      job,
+      boardItem(ctx, config, job),
+      `the worktree ${job.worktree} is gone, so the owner's change requests cannot be implemented there`,
+    );
+    return true;
+  }
+  const dirt = ctx.dryRun ? "" : porcelain(ctx, job.worktree);
+  if (dirt) {
+    blockJob(
+      ctx,
+      config,
+      job,
+      boardItem(ctx, config, job),
+      `the worktree ${job.worktree} has uncommitted changes, so the owner's change requests cannot be applied there:\n${dirt}`,
+    );
+    return true;
+  }
+  // Merging `dev` in is the precondition for applying the requests, and a conflict there is
+  // usually mechanical: the cycle enters at `resolve` for one bounded attempt first.
+  const conflicted = !ctx.dryRun && mergeBaseRef(ctx, job.worktree) === null;
+  if (conflicted) {
+    // A failed abort leaves unmerged files a stage child would inherit and no clean tree to
+    // apply anything to, which is the owner's call rather than a resolve attempt.
+    const leftover = porcelain(ctx, job.worktree);
+    if (leftover) {
+      blockJob(
+        ctx,
+        config,
+        job,
+        boardItem(ctx, config, job),
+        `the failed merge of \`${UPSTREAM_REF}\` left unmerged files in ${job.worktree} (\`git merge --abort\` did not clean it), ` +
+          `so the owner's change requests cannot be applied there:\n${leftover}`,
+      );
+      return true;
+    }
+  }
+  const inline = ghJson<ReviewComment[]>(ctx, ["api", `repos/${config.repo}/pulls/${prNumber}/comments?per_page=100`]);
+  const conversation = ghJson<ConversationComment[]>(ctx, ["api", `repos/${config.repo}/issues/${prNumber}/comments?per_page=100`]);
+  const pushedAt = job.lastPushAt ? Date.parse(job.lastPushAt) : Number.NaN;
+  const context = (conversation ?? []).filter((comment) => {
+    const at = Date.parse(comment.created_at ?? "");
+    if (!logins.includes(comment.user?.login ?? "")) return false;
+    // `created_at` is second-granular and `lastPushAt` millisecond: a comment made in the
+    // push's own second still counts as after it.
+    return Number.isFinite(pushedAt) && Number.isFinite(at) && at >= pushedAt - 1000;
+  });
+
+  const feedback = feedbackPath(ctx, job.item);
+  if (!ctx.dryRun) {
+    mkdirSync(dirname(feedback), { recursive: true });
+    writeFileSync(feedback, feedbackDoc(prNumber, triggers, inline ?? [], context));
+  }
+
+  const revisions = (job.revisions ?? 0) + 1;
+  const nowIso = new Date(ctx.deps.now()).toISOString();
+  job.revisions = revisions;
+  job.consumedReviews = [...(job.consumedReviews ?? []), ...triggers.map((review) => review.id)];
+  // A fresh budget with the fresh stage, exactly as `retryPass` grants one: the waiting
+  // passes cost nothing, and the cycle is a decision rather than a failure.
+  job.spentMs = 0;
+  job.attempts = {};
+  job.history.push({
+    stage: "reconcile",
+    startedAt: nowIso,
+    endedAt: nowIso,
+    result: "retried",
+    exit: null,
+    spentMs: 0,
+  });
+  job.stage = conflicted ? "resolve" : "revise";
+  job.stageState = "ready";
+  job.claim = null;
+  job.stageStartedAt = undefined;
+  job.waitingSince = undefined;
+  bestEffort(
+    ctx,
+    () =>
+      commentOn(
+        ctx,
+        config,
+        job.item,
+        `factory: change requests on PR #${prNumber} — revise cycle ${revisions} of ${MAX_REVISIONS} opened ` +
+          `(reviews ${triggers.map((review) => review.id).join(", ")})` +
+          (conflicted ? `; the branch conflicts with \`${UPSTREAM_REF}\`, so it enters at \`resolve\` first` : "") +
+          `; the ledger will implement them and re-push for re-review.`,
+      ),
+    "revise-cycle comment",
+  );
+  ctx.deps.log(
+    `[factory-jobs] #${job.item}: PR #${prNumber} carries change requests → ${job.stage} ${revisions}/${MAX_REVISIONS}`,
+  );
+  return true;
+}
+
+/** The revise stage's input: the owner's own words, in the order the reviews arrived. */
+function feedbackDoc(
+  prNumber: number,
+  triggers: PullReview[],
+  inline: ReviewComment[],
+  context: ConversationComment[],
+): string {
+  const lines = [`# Change requests on PR #${prNumber}`, ""];
+  for (const review of triggers) {
+    lines.push(`## #${review.id} by ${review.user?.login ?? "unknown"}, ${review.submitted_at ?? "unknown time"}`, "");
+    if (review.body?.trim()) lines.push(review.body.trim(), "");
+    for (const comment of inline.filter((entry) => entry.review_id === review.id)) {
+      lines.push(`- ${comment.path ?? "(unknown file)"}:${comment.line ?? "?"} — ${(comment.body ?? "").trim()}`);
+    }
+    lines.push("");
+  }
+  if (context.length > 0) {
+    lines.push("## Context: conversation comments since the last push", "");
+    for (const comment of context) {
+      lines.push(`- ${comment.user?.login ?? "unknown"}, ${comment.created_at ?? ""}: ${(comment.body ?? "").trim()}`);
+    }
+    lines.push("");
+  }
+  lines.push("Address exactly these requests; anything else is out of scope.");
+  return `${lines.join("\n")}\n`;
+}
+
 async function runReconcile(ctx: Ctx, config: ProjectConfig, job: JobRecord): Promise<void> {
   const startedAt = ctx.deps.now();
   if (!job.pr) throw new Error("job carries no PR number to reconcile");
   // Read even in a dry run: reading is neither spawning nor writing, and a dry run that
   // could only ever see an open PR would tell the operator nothing.
-  const raw = gh(ctx, ["pr", "view", String(job.pr), "--repo", config.repo, "--json", "state,mergedAt"]);
-  let pr: { state: string; mergedAt: string | null };
+  const raw = gh(ctx, ["pr", "view", String(job.pr), "--repo", config.repo, "--json", "state,mergedAt,reviewDecision"]);
+  let pr: { state: string; mergedAt: string | null; reviewDecision?: string | null };
   try {
-    pr = JSON.parse(raw) as { state: string; mergedAt: string | null };
+    pr = JSON.parse(raw) as { state: string; mergedAt: string | null; reviewDecision?: string | null };
   } catch {
     throw new Error(`gh pr view returned unparseable JSON for PR #${job.pr}`);
   }
   if (pr.state === "OPEN") {
+    // The decision is only a cheap gate: the reviews themselves are the authoritative
+    // trigger, and fetching them on every ordinary waiting tick would be a cost per tick.
+    if (pr.reviewDecision === "CHANGES_REQUESTED" && openReviseCycle(ctx, config, job, job.pr)) return;
+    // Approved in between, so the cycles are no longer consecutive. Consumed review ids stay
+    // consumed: a review already actioned can never trigger again either way.
+    if (pr.reviewDecision && pr.reviewDecision !== "CHANGES_REQUESTED" && (job.revisions ?? 0) > 0) {
+      job.revisions = 0;
+    }
     // No history entry per pass: a week of ticks would swamp the record, and waiting
     // costs nothing, so there is nothing to charge. `waitingSince` is the durable fact.
     job.stageState = "waiting";
@@ -1629,6 +1937,15 @@ async function checkWaiting(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pr
     saveJob(ctx, job);
     return null;
   }
+  // A live re-entry, not a merge: see reEntered.
+  if (reEntered(job)) {
+    saveJob(ctx, job);
+    return { action: "ran", item: job.item, detail: `change requests → ${job.stage}` };
+  }
+  if (job.stageState === "blocked") {
+    saveJob(ctx, job);
+    return { action: "blocked", item: job.item, detail: "reconcile blocked" };
+  }
   // Merged: `done` follows in the same code path, exactly as it does on the fresh path. The
   // waiting path is the normal one (a human merges days later), so a tick that stopped here
   // would park the worktree and the record for ever.
@@ -1658,6 +1975,15 @@ async function runOneStage(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pro
         if (job.stageState === "waiting") {
           saveJob(ctx, job);
           return { action: "idle", item: job.item, detail: "reconcile waiting" };
+        }
+        // A live re-entry, not a merge: see reEntered.
+        if (reEntered(job)) {
+          saveJob(ctx, job);
+          return { action: "ran", item: job.item, detail: `change requests → ${job.stage}` };
+        }
+        if (job.stageState === "blocked") {
+          saveJob(ctx, job);
+          return { action: "blocked", item: job.item, detail: "reconcile blocked" };
         }
         saveJob(ctx, job);
         // `done` follows a merge immediately: worktree removed, record archived.
@@ -1853,10 +2179,21 @@ function provisionDeps(ctx: Ctx, worktree: string): void {
 function mergeBaseRef(ctx: Ctx, worktree: string): string | null {
   const res = git(ctx, ["merge", "--no-edit", UPSTREAM_REF], worktree, 5 * MIN);
   if (res.code !== 0) {
-    git(ctx, ["merge", "--abort"], worktree);
+    const abort = git(ctx, ["merge", "--abort"], worktree);
+    if (abort.code !== 0) {
+      ctx.deps.log(`[factory-jobs] could not abort the failed merge in ${worktree}: ${abort.stderr.trim()}`);
+    }
     return null;
   }
   return git(ctx, ["rev-parse", UPSTREAM_REF], worktree).stdout.trim();
+}
+
+/** A half-merged worktree would be inherited by the retry, so clear it best-effort. */
+function abortFailedMerge(ctx: Ctx, job: JobRecord): void {
+  const abort = git(ctx, ["merge", "--abort"], job.worktree);
+  if (abort.code !== 0) {
+    ctx.deps.log(`[factory-jobs] could not abort the failed merge in ${job.worktree}: ${abort.stderr.trim()}`);
+  }
 }
 
 function branchList(ctx: Ctx): string[] {
@@ -1890,6 +2227,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
     const branches = branchList(ctx);
     const readiness = readReadiness(ctx, config, items, jobs);
     const held = reportHeld(ctx, items, jobs, readiness);
+    let conflictedOrphan: AdoptionProposal | null = null;
 
     const adopt = findAdoptable(
       items,
@@ -1899,6 +2237,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
         commentsFor: (number) => fetchComments(ctx, config, number),
         hasCommits: (branch) => commitsAhead(ctx, branch) > 0,
         headOf: (branch) => git(ctx, ["rev-parse", "--short", branch]).stdout.trim() || null,
+        log: (msg) => ctx.deps.log(msg),
       },
       readiness,
     );
@@ -1921,6 +2260,7 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
       // conflict is the owner's call, and costs the job nothing.
       const mergedDev = ctx.dryRun ? BASE_REF : mergeBaseRef(ctx, worktree);
       if (mergedDev === null) {
+        // One conflicted orphan must not wedge the whole board: report it and look for other work.
         if (!ctx.dryRun) gitOrThrow(ctx, ["worktree", "remove", "--force", worktree]);
         commentOn(
           ctx,
@@ -1930,31 +2270,42 @@ export async function startPass(ctx: Ctx): Promise<StartOutcome> {
             `job was not opened. Resolve it (\`git merge ${UPSTREAM_REF}\`) and the next \`start\` will adopt it at ` +
             `\`${adopt.stage}\`.`,
         );
-        ctx.deps.log(`[factory-jobs] adopted nothing: ${BASE_REF} does not merge cleanly into ${adopt.branch}`);
-        return { action: "conflict", item: adopt.item.number, branch: adopt.branch, detail: `merge ${BASE_REF} conflicts` };
+        ctx.deps.log(
+          `[factory-jobs] #${adopt.item.number}: ${BASE_REF} does not merge cleanly into ${adopt.branch}; nothing adopted for it, looking for other work`,
+        );
+        conflictedOrphan = adopt;
+      } else {
+        const job = newJob(ctx, adopt.item, {
+          branch: adopt.branch,
+          worktree,
+          stage: adopt.stage,
+          adoptedFrom: { branch: adopt.branch, commit: adopt.commit, mergedDev },
+        });
+        saveJob(ctx, job);
+        setStatus(ctx, config, adopt.item, "In Progress");
+        commentOn(
+          ctx,
+          config,
+          adopt.item.number,
+          `factory: adopted the orphaned branch \`${adopt.branch}\` at \`${adopt.commit ?? "no commits"}\`; ` +
+            `re-entering the ledger at \`${adopt.stage}\`, with \`${UPSTREAM_REF}\` merged in at \`${mergedDev.slice(0, 7)}\` ` +
+            `so the stage agents are current. The prior run's cost is not charged against the new budget.`,
+        );
+        ctx.deps.log(`[factory-jobs] adopted #${adopt.item.number} at ${adopt.stage} (${adopt.branch}, ${UPSTREAM_REF} merged)`);
+        return { action: "adopted", item: adopt.item.number, branch: adopt.branch, focus: readiness.focus ?? null, held };
       }
-      const job = newJob(ctx, adopt.item, {
-        branch: adopt.branch,
-        worktree,
-        stage: adopt.stage,
-        adoptedFrom: { branch: adopt.branch, commit: adopt.commit, mergedDev },
-      });
-      saveJob(ctx, job);
-      setStatus(ctx, config, adopt.item, "In Progress");
-      commentOn(
-        ctx,
-        config,
-        adopt.item.number,
-        `factory: adopted the orphaned branch \`${adopt.branch}\` at \`${adopt.commit ?? "no commits"}\`; ` +
-          `re-entering the ledger at \`${adopt.stage}\`, with \`${UPSTREAM_REF}\` merged in at \`${mergedDev.slice(0, 7)}\` ` +
-          `so the stage agents are current. The prior run's cost is not charged against the new budget.`,
-      );
-      ctx.deps.log(`[factory-jobs] adopted #${adopt.item.number} at ${adopt.stage} (${adopt.branch}, ${UPSTREAM_REF} merged)`);
-      return { action: "adopted", item: adopt.item.number, branch: adopt.branch, focus: readiness.focus ?? null, held };
     }
 
     const candidate = pickCandidate(items, jobs, readiness);
     if (!candidate) {
+      if (conflictedOrphan) {
+        return {
+          action: "conflict",
+          item: conflictedOrphan.item.number,
+          branch: conflictedOrphan.branch,
+          detail: `merge ${BASE_REF} conflicts`,
+        };
+      }
       ctx.deps.log("[factory-jobs] nothing approved to start; no orphan to adopt either");
       return { action: "nothing", focus: readiness.focus ?? null, held };
     }
@@ -2033,6 +2384,9 @@ export function retryPass(ctx: Ctx, item: number): { ok: boolean; detail: string
     job.stageState = "ready";
     job.claim = null;
     job.waitingSince = undefined;
+    // An owner retry grants a fresh budget, so the change-request cycles start over with it.
+    job.revisions = 0;
+    job.consumedReviews = [];
     job.history.push({
       stage: job.stage,
       startedAt: new Date(ctx.deps.now()).toISOString(),

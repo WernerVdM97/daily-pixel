@@ -73,6 +73,7 @@ describe('SessionController — beginCustomAction', () => {
     engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1, rollsRemaining: 0, lastActionState: '{...}' as never }));
     engine.setResumeResult({
       state: { rawInput: 'scout the ridge', decisions: [], accumulatedDc: 12 } as never,
+      actionType: 'other',
       nextDecision: {
         prompt: 'The ridge forks ahead.',
         options: [
@@ -87,6 +88,89 @@ describe('SessionController — beginCustomAction', () => {
 
     expect(result.kind).toBe('resume');
     expect(engine.calls.resumeAction).toContain(1);
+  });
+});
+
+// ── C4 follow-up: a resumed mid-fight re-opens the fight. The opener is the caller's to
+// ask for — `buildDecisionView` can no longer infer it from the beat index, since a resume lands
+// at `state.decisions.length > 0`.
+
+describe('SessionController — the combat opener on a resume', () => {
+  const makeController = (engine: MockWorldEngine) =>
+    new SessionController(engine, () => 'A quiet clearing under the oak.', [], undefined, new WizardSession(), EMPTY_DEFS, SCENE_STUB);
+
+  const COMBAT_RESUME = {
+    state: {
+      rawInput: 'attack the goblin',
+      decisions: [{ prompt: 'The goblin circles. What do you do?', options: [], chosen: 'Press the attack', dcModifier: 0 }],
+      accumulatedDc: 12,
+    },
+    nextDecision: {
+      prompt: 'It bares its teeth. Press on?',
+      options: [
+        { label: 'Press the attack', dcModifier: 0 },
+        { label: 'Fall back', dcModifier: 1 },
+      ],
+    },
+    actionType: 'combat' as const,
+    combatEnemyName: 'Goblin',
+    combatEnemyCondition: { woundWord: 'Bloodied', filled: 2, total: 5 },
+  };
+
+  it('renders the opener, with the remembered foe, on a combat resume', () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ lastActionState: '{...}' as never }));
+    engine.setResumeResult(COMBAT_RESUME);
+
+    const result = makeController(engine).openActionMenu('user-1');
+
+    expect(result.kind).toBe('resume-decision');
+    if (result.kind !== 'resume-decision') throw new Error('unreachable');
+    expect(result.view.openingFrame).toContain('Goblin');
+    expect(result.view.openingFrame).toContain('Bloodied');
+    // The later index is exactly what the old `decisionIdx === 0` gate refused.
+    expect(result.view.buttons.some((b) => b.kind === 'choice' && b.customId === 'action:choice:1:0')).toBe(true);
+  });
+
+  it('renders it on the action.custom resume arm too', () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ lastActionState: '{...}' as never }));
+    engine.setResumeResult(COMBAT_RESUME);
+
+    const result = makeController(engine).beginCustomAction('user-1');
+
+    expect(result.kind).toBe('resume');
+    if (result.kind !== 'resume') throw new Error('unreachable');
+    expect(result.view.openingFrame).toContain('Goblin');
+  });
+
+  it('leaves the opener off a non-combat resume', () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ lastActionState: '{...}' as never }));
+    engine.setResumeResult({ ...COMBAT_RESUME, actionType: 'travel', combatEnemyName: undefined, combatEnemyCondition: undefined });
+
+    const result = makeController(engine).openActionMenu('user-1');
+
+    expect(result.kind).toBe('resume-decision');
+    if (result.kind !== 'resume-decision') throw new Error('unreachable');
+    expect(result.view.openingFrame).toBeUndefined();
+  });
+
+  it('leaves the opener off the beat AFTER the resume (the fight re-opens once)', async () => {
+    const engine = new MockWorldEngine();
+    const char = MockWorldEngine.defaultCharacter({ lastActionState: '{...}' as never });
+    engine.setCharacter(char);
+    engine.setStepActionResult({
+      resolved: false,
+      state: COMBAT_RESUME.state,
+      nextDecision: COMBAT_RESUME.nextDecision,
+    });
+
+    const result = await makeController(engine).stepChoice('user-1', 'Press the attack', char);
+
+    expect(result.kind).toBe('decision');
+    if (result.kind !== 'decision') throw new Error('unreachable');
+    expect(result.view.openingFrame).toBeUndefined();
   });
 });
 
