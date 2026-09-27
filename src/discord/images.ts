@@ -1,10 +1,6 @@
 /**
- * Shared image attachments for Discord messages.
- *
- * Files are read once (lazily) into a cached Buffer; each call returns a fresh
- * AttachmentBuilder from that buffer so the same image can be sent across many
- * replies/edits without re-reading the disk. A missing/unreadable file degrades
- * gracefully to `null` so a deploy without the asset never breaks a command.
+ * Files are read once (lazily) into a cached Buffer, and each call returns a fresh
+ * AttachmentBuilder from it; a missing/unreadable file degrades to `null` rather than throwing.
  */
 import { AttachmentBuilder } from 'discord.js';
 import { readFileSync } from 'node:fs';

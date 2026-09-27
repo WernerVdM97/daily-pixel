@@ -467,7 +467,300 @@ describe('WorldEngineImpl — cartographer fires on the auto-resolve frontier-cr
 
     closeDb();
   });
+
+  it('leaves the minted row provisional when the cartographer reports failure', async () => {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const userRepo = new UserRepository(getDb());
+    const charRepo = new CharacterRepository(getDb());
+    const locationRepo = new LocationRepository(getDb());
+
+    const user = userRepo.create('888888889');
+    const characterId = charRepo.create(user.id, {
+      name: 'Mira',
+      class: 'Ranger',
+      upbringing: 'Village',
+      race: 'Human',
+      alignment: 'neutral good',
+      day_job: 'Hunter',
+      stats: JSON.stringify({ physical: 2, wisdom: 2, intelligence: 0, charisma: 0 }),
+      health: 10,
+      max_health: 10,
+      max_stamina: 10,
+      stamina: 10,
+      rolls_remaining: 3,
+      location: 'The East Road',
+      wealth: 0,
+      last_action_state: null,
+    }).id;
+
+    const cartographer: CartographerGateway = { enrich: async () => undefined };
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      llm: { decide: async () => ({ distilledType: 'travel', stat: 'physical', baseDc: 10, required: false, done: true, decision: [], outcomeText: '' }) },
+      userRepo,
+      charRepo,
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new AutoResolveMockGateway([{ type: 'cross_frontier', direction: 'NE', name: 'Eastvale' }]),
+      cartographer,
+      rollD20: () => 15,
+    });
+
+    await engine.startAction(characterId, 'cross the frontier to the north-east');
+    await flush();
+
+    // Pre-fix the gateway returned {} here, which settled the row with the fallback text.
+    const row = locationRepo.findByName('Eastvale');
+    expect(row).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 1 });
+    // Still the mint placeholder — the fallback text is only written once the cap is reached.
+    expect(row?.description).toContain('Mapping');
+
+    closeDb();
+  });
 });
+describe('WorldEngineImpl — bounded enrichment retry sweep (#46)', () => {
+  afterEach(closeDb);
+
+  async function flush(times = 5): Promise<void> {
+    for (let i = 0; i < times; i++) await new Promise((r) => setImmediate(r));
+  }
+
+  /** Engine with a scripted cartographer, seated over `pending` provisional rows (insertion
+   *  order = id order = the sweep's oldest-first order). `block` keeps an attempt awaiting the
+   *  LLM so a second tick can be fired against a still-in-flight row. */
+  function setup(config: {
+    pending: string[];
+    enrich: (name: string) => CartographerResult | undefined;
+    block?: Promise<void>;
+    maxAttempts?: number;
+    sweepLimit?: number;
+  }) {
+    initDb(':memory:');
+    migrate(getDb());
+    seedWorld(getDb(), SEEDED_LOCATIONS, SEEDED_EDGES);
+    const locationRepo = new LocationRepository(getDb());
+    for (const name of config.pending) locationRepo.create({ name, enrichmentPending: 1, emoji: '📍' });
+
+    const calls: string[] = [];
+    const cartographer: CartographerGateway = {
+      enrich: async (input) => {
+        calls.push(input.newName);
+        if (config.block) await config.block;
+        return config.enrich(input.newName);
+      },
+    };
+    const engine = new WorldEngineImpl({
+      db: getDb(),
+      userRepo: new UserRepository(getDb()),
+      charRepo: new CharacterRepository(getDb()),
+      itemRepo: new ItemRepository(getDb()),
+      actionRepo: new ActionRepository(getDb()),
+      npcRepo: new NpcRepository(getDb()),
+      pipelineLlmGateway: new AutoResolveMockGateway([]),
+      cartographer,
+      ...(config.maxAttempts !== undefined ? { enrichmentMaxAttempts: config.maxAttempts } : {}),
+      ...(config.sweepLimit !== undefined ? { enrichmentSweepLimit: config.sweepLimit } : {}),
+    });
+    return { engine, locationRepo, calls };
+  }
+
+  it('a failed attempt leaves the row pending and counts the attempt', async () => {
+    const { engine, locationRepo, calls } = setup({ pending: ['Wolf Hollow'], enrich: () => undefined });
+
+    engine.tick(true);
+    await flush();
+
+    expect(calls).toEqual(['Wolf Hollow']);
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({
+      enrichment_pending: 1,
+      enrichment_attempts: 1,
+      description: null,
+    });
+
+    closeDb();
+  });
+
+  it('a later success settles the row and clears the flag', async () => {
+    let attempt = 0;
+    const { engine, locationRepo, calls } = setup({
+      pending: ['Wolf Hollow'],
+      enrich: () =>
+        ++attempt === 1
+          ? undefined
+          : { is_safe: 1, description: 'A blood-soaked clearing.', region: 'The Ashen Reach', emoji: '🐺' },
+    });
+
+    engine.tick(true);
+    await flush();
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 1 });
+
+    engine.tick(true);
+    await flush();
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({
+      enrichment_pending: 0,
+      is_safe: 1,
+      description: 'A blood-soaked clearing.',
+      region: 'The Ashen Reach',
+      emoji: '🐺',
+      node_tier: 2,
+    });
+
+    // A settled row is never re-enriched by a later sweep.
+    engine.tick(true);
+    await flush();
+    expect(calls).toEqual(['Wolf Hollow', 'Wolf Hollow']);
+
+    closeDb();
+  });
+
+  it('gives up at the cap, settling with the placeholder instead of retrying for ever', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { engine, locationRepo, calls } = setup({ pending: ['Nowhere'], enrich: () => undefined });
+
+    for (let i = 0; i < 3; i++) {
+      engine.tick(true);
+      await flush();
+    }
+
+    expect(locationRepo.findByName('Nowhere')).toMatchObject({
+      enrichment_pending: 0,
+      enrichment_attempts: 3,
+      is_safe: 0,
+      description: 'An uncharted place beyond the known map.',
+      region: 'The Vale',
+      emoji: '📍',
+      node_tier: 2,
+    });
+    // Exactly one warn per failed attempt, the last naming the give-up.
+    expect(warn.mock.calls.length).toBe(3);
+    expect(String(warn.mock.calls[2][0])).toContain('giving up on "Nowhere"');
+
+    engine.tick(true);
+    await flush();
+    expect(calls.length).toBe(3);
+
+    warn.mockRestore();
+    closeDb();
+  });
+
+  it('sweeps at most the per-tick limit, oldest first', async () => {
+    const { engine, locationRepo, calls } = setup({
+      pending: ['One', 'Two', 'Three', 'Four'],
+      enrich: () => undefined,
+    });
+
+    engine.tick(true);
+    await flush();
+
+    expect(calls).toEqual(['One', 'Two', 'Three']);
+    expect(locationRepo.findByName('Four')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+
+    closeDb();
+  });
+
+  it('honours an overridden per-tick limit and per-row cap', async () => {
+    const { engine, locationRepo, calls } = setup({
+      pending: ['One', 'Two', 'Three'],
+      enrich: () => undefined,
+      maxAttempts: 1,
+      sweepLimit: 2,
+    });
+
+    engine.tick(true);
+    await flush();
+
+    expect(calls).toEqual(['One', 'Two']);
+    // Cap 1: the first failure settles, so neither row is swept again.
+    expect(locationRepo.findByName('One')).toMatchObject({ enrichment_pending: 0, enrichment_attempts: 1 });
+    expect(locationRepo.findByName('Two')).toMatchObject({ enrichment_pending: 0, enrichment_attempts: 1 });
+    expect(locationRepo.findByName('Three')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+
+    closeDb();
+  });
+
+  it('counts a throwing enrich() as one attempt, warning instead of rejecting unhandled', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown): void => void rejections.push(err);
+    process.on('unhandledRejection', onRejection);
+
+    const { engine, locationRepo, calls } = setup({
+      pending: ['Nowhere'],
+      enrich: () => {
+        throw new Error('gateway exploded');
+      },
+    });
+
+    engine.tick(true);
+    await flush();
+
+    expect(calls).toEqual(['Nowhere']);
+    // Still provisional with the attempt counted — the same path a non-conforming gateway takes.
+    expect(locationRepo.findByName('Nowhere')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 1 });
+    expect(String(warn.mock.calls[0][0])).toContain('gateway exploded');
+    expect(rejections).toEqual([]);
+
+    process.off('unhandledRejection', onRejection);
+    warn.mockRestore();
+    closeDb();
+  });
+
+  it('keeps a post-await write failure a warning, not an unhandled rejection', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown): void => void rejections.push(err);
+    process.on('unhandledRejection', onRejection);
+    // The settle write is the thing that fails here, after the await: the attempt's promise is
+    // voided by both callers, so this is what used to escape as an operator-paging rejection.
+    const boom = vi.spyOn(LocationRepository.prototype, 'enrichProvisional').mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+    const { engine, locationRepo } = setup({
+      pending: ['Wolf Hollow'],
+      enrich: () => ({ is_safe: 1, description: 'A blood-soaked clearing.' }),
+    });
+
+    engine.tick(true);
+    await flush();
+
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+    expect(String(warn.mock.calls[0][0])).toContain('enrichment failed for "Wolf Hollow"');
+    expect(rejections).toEqual([]);
+
+    boom.mockRestore();
+    process.off('unhandledRejection', onRejection);
+    warn.mockRestore();
+    closeDb();
+  });
+
+  it('skips a row whose attempt is still awaiting the LLM', async () => {
+    let release: () => void = () => {};
+    const block = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { engine, locationRepo, calls } = setup({ pending: ['Wolf Hollow'], enrich: () => undefined, block });
+
+    engine.tick(true);
+    await flush();
+    expect(calls).toEqual(['Wolf Hollow']);
+
+    // Second tick inside the in-flight window: the sweep must not stack a second attempt.
+    engine.tick(true);
+    await flush();
+    expect(calls).toEqual(['Wolf Hollow']);
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 0 });
+
+    release();
+    await flush();
+    expect(locationRepo.findByName('Wolf Hollow')).toMatchObject({ enrichment_pending: 1, enrichment_attempts: 1 });
+
+    closeDb();
+  });
+});
+
 describe('WorldEngineImpl — startAction surfaces a persisted enemy condition on re-entry (0.3.2 C4)', () => {
   /** Scripted decide() with a fixed non-empty option, so start() always lands on the
    *  non-resolved (real firstDecision) return path — the only one `combatEnemyCondition` is
@@ -551,6 +844,7 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
     userRepo: UserRepository,
     charRepo: CharacterRepository,
     gateway: PipelineLlmGateway,
+    rollD20: () => number = () => 15,
   ): WorldEngineImpl {
     return new WorldEngineImpl({
       db: getDb(),
@@ -561,7 +855,7 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
       actionRepo: new ActionRepository(getDb()),
       npcRepo: new NpcRepository(getDb()),
       pipelineLlmGateway: gateway,
-      rollD20: () => 15,
+      rollD20,
     });
   }
 
@@ -738,6 +1032,87 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
 
     expect(startResult.combatEnemyName).toBeUndefined();
     expect(startResult.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  // ── C4 follow-up: the resume half. `resumeAction` rebuilds the decision screen from the
+  // persisted state, so it must carry the same two rendering inputs the first beat gets — without
+  // them a resumed fight has no frame to open with. ──
+
+  it('carries the action type and the remembered foe on a mid-fight resume', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+
+    await engine.startAction(characterId, 'attack the goblin');
+    // Two contested rounds: enemyMaxHp 12 (baseDc), both dice 15, player +3 vs enemy +2 → margin 1,
+    // the trade band's lighter player hit (−1 HP) against −2 enemy HP each round.
+    await engine.stepAction(characterId, 'Attack');
+    await engine.stepAction(characterId, 'Attack');
+
+    const resumed = engine.resumeAction(characterId);
+
+    expect(resumed.actionType).toBe('combat');
+    // The whole point: the opener gate can no longer read the beat index as "not the first beat".
+    expect(resumed.state.decisions).toHaveLength(2);
+    expect(resumed.combatEnemyName).toBe('Goblin');
+    // 8/12 = 0.667 → filled = round(0.667*5) = 3, 'Bloodied'.
+    expect(resumed.combatEnemyCondition).toEqual({ woundWord: 'Bloodied', filled: 3, total: 5 });
+
+    closeDb();
+  });
+
+  it('names the DECIDE-hinted foe on a resume that never reached a round, with no condition to band', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+
+    // Abandoned on the first decision screen: no `in_combat` edge is written until the first
+    // choice, so the name can only come off the persisted decide result.
+    await engine.startAction(characterId, 'attack the goblin');
+    const resumed = engine.resumeAction(characterId);
+
+    expect(resumed.actionType).toBe('combat');
+    expect(resumed.state.decisions).toHaveLength(0);
+    expect(resumed.combatEnemyName).toBe('Goblin');
+    expect(resumed.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('carries the action type and no foe on a non-combat resume', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('rest'));
+
+    await engine.startAction(characterId, 'rest by the fire');
+    const resumed = engine.resumeAction(characterId);
+
+    expect(resumed.actionType).toBe('rest');
+    expect(resumed.combatEnemyName).toBeUndefined();
+    expect(resumed.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('leaves the foe unbanded on a resume at the finish/spare interstitial', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }), () => 20);
+
+    // Two crits against the 12 HP (baseDc) foe: 12 → 4 (edge written) → 0 (interstitial).
+    await engine.startAction(characterId, 'attack the goblin');
+    const round = await engine.stepAction(characterId, 'Attack');
+    expect(round.resolved).toBe(false);
+    expect(engine.resumeAction(characterId).combatEnemyCondition).toEqual({ woundWord: 'Battered', filled: 2, total: 5 });
+
+    const interstitial = await engine.stepAction(characterId, 'Attack');
+    expect(interstitial.resolved).toBe(false);
+
+    const resumed = engine.resumeAction(characterId);
+
+    // The win branch persists no round, so the edge still reads 4/12 while the pending decision's
+    // `combatStatus` says Critical — the opener must take the latter's word for it.
+    expect(resumed.combatEnemyName).toBe('Goblin');
+    expect(resumed.combatEnemyCondition).toBeUndefined();
+    expect(resumed.nextDecision.combatStatus).toMatchObject({ woundWord: 'Critical' });
 
     closeDb();
   });

@@ -1,11 +1,6 @@
 /**
- * Medium step (JSON-seam M2, see docs/engine/json-seam-build-plans.md) — the sole place that
- * knows about `discord.js`. Takes a semantic `ViewState` (from `src/view/viewState.ts`,
- * assembled by `buildDecisionView`/`buildOutcomeView` in `action.ts`) and produces Discord
- * embed/component JSON: the block join, the embed-length degradation ladder, all
- * `EmbedBuilder`/`ButtonBuilder`/`ActionRowBuilder` construction, and the colour-intent→hex
- * mapping. Behaviour must stay byte-identical to the pre-M2 `buildDecisionMessage`/
- * `buildOutcomeEmbed` bodies this was ported from.
+ * A semantic `ViewState` in, Discord embed/component JSON out. The shapes are pinned by the oracle
+ * snapshots under `tests/discord/__snapshots__/` (action, dispatch, screens).
  */
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
@@ -13,16 +8,15 @@ import type { CommuteViewState, DecisionViewState, LoadingViewState, MenuViewSta
 import { clip, MAX_EMBED_DESC, outcomeColor } from '../render/embedText.js';
 import { OAK_IMAGE, imageFiles, hasImage } from './images.js';
 
-/** Opening-frame chrome — medium chrome, never a semantic choice (M2 design call), so it stays
- *  internal to this step rather than living in `ViewColorIntent`. */
+/** Opening-frame chrome. Never a semantic choice, so it stays internal rather than joining
+ *  `ViewColorIntent`. */
 const OPENING_FRAME_COLOR = 0x2c2f33;
 
 /** Decision embeds always use this fixed hex — the constant `outcomeColor` has no case for. */
 const DECISION_COLOR = 0xdaa520;
 
-/** Colour-intent→hex mapping: the decision constant plus `outcomeColor`'s exact switch for
- *  every outcome-derived intent (including 'default', which falls through `outcomeColor`'s
- *  own `default:` case to the same 0x3498db). */
+/** The decision constant, else `outcomeColor`'s own switch for every outcome-derived intent —
+ *  including 'default', which lands on its `default:` case (0x3498db). */
 function colorIntentToHex(intent: ViewColorIntent): number {
   if (intent === 'decision') return DECISION_COLOR;
   return outcomeColor(intent);
@@ -38,9 +32,8 @@ export function decisionViewToDiscord(view: DecisionViewState): {
   if (view.combatStatus) blocks.push(view.combatStatus);
   blocks.push(view.prompt);
 
-  // Fit the embed cap, degrading gracefully: full gamebook → collapse history to
-  // a breadcrumb → hard clip. Buttons live in `components` (always present), so a
-  // hard clip of the option text never disables the choices.
+  // Fit the embed cap, degrading gracefully: full gamebook → collapse history to a breadcrumb →
+  // hard clip. Buttons live in `components`, so clipping option text never disables the choices.
   const optionsTail = view.optionLines.length > 0 ? `\n\n${view.optionLines.join('\n')}` : '';
   let truncated = blocks.join('\n\n') + optionsTail;
   if (truncated.length > MAX_EMBED_DESC && view.storyThread) {
@@ -54,7 +47,7 @@ export function decisionViewToDiscord(view: DecisionViewState): {
     .setColor(colorIntentToHex(view.colorIntent))
     .setFooter({ text: view.footer });
 
-  // Buttons — max 5 per row.
+  // 5 per row is Discord's cap.
   const buttons: ButtonBuilder[] = view.buttons.map(item => item.kind === 'bail'
     ? new ButtonBuilder()
       .setCustomId(item.customId)
@@ -87,16 +80,14 @@ export function decisionViewToDiscord(view: DecisionViewState): {
 }
 
 export function outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBuilder['toJSON']> {
-  // Full gamebook recap: breadcrumb, destination scene, story thread, then the resolution as
-  // focal unquoted text. Degrade to fit the embed cap: full → collapse history → drop the
-  // decorative scene → hard clip.
+  // Full gamebook recap: breadcrumb, destination scene, story thread, then the resolution as focal
+  // unquoted text. Degrade to fit the cap: full → collapse history → drop the decorative scene → clip.
   const assemble = (collapseHistory: boolean, includeScene: boolean): string => {
     const parts: string[] = [];
     if (view.locationLine) parts.push(view.locationLine);
     if (view.breadcrumb) parts.push(view.breadcrumb);
-    // Combat outcomes show the combat opening frame (enemy nameplate + HP bars) instead of
-    // the plain location scene — the terminal card already covers the dice reveal, so the
-    // combat frame provides visual context without duplicating information. (0.3.2 P2)
+    // Combat outcomes show the combat frame (enemy nameplate + HP bars) instead of the plain location
+    // scene: the terminal card already covers the dice reveal, so this adds context without duplicating it.
     if (includeScene) {
       if (view.isCombat) {
         if (view.combatSceneBlock) parts.push(view.combatSceneBlock);
@@ -123,8 +114,6 @@ export function outcomeViewToDiscord(view: OutcomeViewState): ReturnType<EmbedBu
     .toJSON();
 }
 
-/** Maps the day-job menu to the exact embed+button-row JSON both the `nav:action` leaf and
- *  the slash `/action` no-description path built inline before M3.3b. */
 export function menuViewToDiscord(view: MenuViewState): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -145,16 +134,12 @@ export function menuViewToDiscord(view: MenuViewState): {
   return { embeds: [embed], components: [row.toJSON()] };
 }
 
-/** Maps a notice view to the exact `interaction.reply(...)` payload shape the four
- *  feedback/bug modal-submit leaves used inline before M3.1. */
 export function noticeViewToDiscord(view: NoticeViewState): { content: string; flags?: MessageFlags.Ephemeral } {
   return view.ephemeral
     ? { content: view.text, flags: MessageFlags.Ephemeral }
     : { content: view.text };
 }
 
-/** Maps a loading view to the plain grey "please wait" embed the day-job work flow's
- *  "Starting…" beat used inline before M3.4. */
 export function loadingViewToDiscord(view: LoadingViewState): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -165,9 +150,8 @@ export function loadingViewToDiscord(view: LoadingViewState): {
   };
 }
 
-/** Maps the day-job work flow's transient commute beat to the exact "🚶 Daily Commute" embed
- *  used inline before M3.4 — note the two trailing spaces after the first sentence (a
- *  deliberate Discord hard-line-break, not a typo). */
+/** Maps the day-job work flow's transient commute beat. The two spaces after the first sentence
+ *  are a deliberate Discord hard line-break, not a typo. */
 export function commuteViewToDiscord(view: CommuteViewState): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -186,9 +170,7 @@ export function commuteViewToDiscord(view: CommuteViewState): {
   };
 }
 
-/** Wizard-screen button chrome (M7.3, DC-M7.3.3): the customIds and styles the semantic
- *  `WizardViewState.buttons` weld to — join:name Primary, join:choice:<step>:<value>
- *  Secondary, join:confirm Success, join:restart Danger. */
+/** Wizard-screen button chrome: the customIds and styles the semantic `WizardViewState.buttons` weld to. */
 function wizardButton(b: WizardViewState['buttons'][number]): ButtonBuilder {
   switch (b.kind) {
     case 'name':
@@ -220,12 +202,7 @@ function wizardButton(b: WizardViewState['buttons'][number]): ButtonBuilder {
   }
 }
 
-/** Maps the wizard view to the exact embed+button-row JSON the pre-seam `buildStepMessage`
- *  produced (M7.3, DC-M7.3.3) — title "⚔️  Forge Your Hero" with the DOUBLE SPACE pinned
- *  verbatim (M7.0 transcript 1 asserts it), goldenrod 0xdaa520, Oak thumbnail + files. The
- *  ledger + body rejoin with the same `\n\n` the old description used; choice buttons chunk
- *  ≤5/row with the restart button in its OWN final row (transcripts 1-8 pin the layout
- *  byte-for-byte — the walk steps' Start Over was always a separate row). */
+/** The wizard screen. The double space in the title (`⚔️  Forge Your Hero`) is deliberate. */
 export function wizardViewToDiscord(view: WizardViewState): {
   embeds: ReturnType<EmbedBuilder['toJSON']>[];
   components: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[];
@@ -238,9 +215,7 @@ export function wizardViewToDiscord(view: WizardViewState): {
   embed.setDescription([view.ledger, view.body].join('\n\n'));
   embed.setFooter({ text: view.footer });
 
-  // Choice buttons chunked ≤5/row (Discord's cap); the non-choice buttons (name on step 1,
-  // confirm+restart on step 8, restart alone on steps 2-7) sit in ONE final row — exactly
-  // the old builder's layout (transcripts 1-8 pin it byte-for-byte).
+  // Choice buttons chunk ≤5/row; every non-choice button shares ONE final row.
   const components: ActionRowBuilder<ButtonBuilder>[] = [];
   const choices = view.buttons.filter(b => b.kind === 'choice');
   const others = view.buttons.filter(b => b.kind !== 'choice');

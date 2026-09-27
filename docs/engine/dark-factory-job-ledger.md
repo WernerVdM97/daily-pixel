@@ -57,15 +57,16 @@ The board stays the human surface: Status, priority, comments and the bulletin a
 
 ## Stages
 
-One stage per process. The three model stages are each a spawned `pi -p` wrapper whose child agent is named in the prompt, owned by the drainer, with its own timeout and its own budget; they write to the default session root (one session file per spawn, which is what keeps `scripts/factory-friction.ts` and meta-oil able to read the transcripts). `deliver`, `reconcile` and `done` are plain code the drainer runs itself, no child at all.
+One stage per process. Each model stage is a spawned `pi -p` wrapper whose child agent is named in the prompt, owned by the drainer, with its own timeout and its own budget; they write to the default session root (one session file per spawn, which is what keeps `scripts/factory-friction.ts` and meta-oil able to read the transcripts). `deliver`, `reconcile` and `done` are plain code the drainer runs itself, no child at all.
 
 `start` is a command, not a stage. The daily schedule's agent runs `npx tsx scripts/factory-jobs.ts start`, which does its work inline in seconds (worktree, branch, ledger record, Status `In Progress`, claim comment) and leaves the job at `build`/`ready`; the drainer's stages begin at `build`.
 
 | Stage | Kind | Agent | Budget | Ends with |
 | --- | --- | --- | --- | --- |
-| `build` | model | `factory-builder` | 50 min | commit on the branch plus a build report |
-| `review` | model | `factory-reviewer` | 20 min | `findings.md`; read-only, fresh context |
-| `fix` | model | `factory-fixer` | 30 min | committed fixes, or a recorded skip when the review reports none |
+| `build` | model | `delegate-executor` | 50 min | commit on the branch plus a build report |
+| `review` | model | `delegate-reviewer` | 20 min | `findings.md`; read-only, fresh context |
+| `fix` | model | `delegate-fixer` | 30 min | committed fixes, or a recorded skip when the review reports none |
+| `revise` | model | `delegate-fixer` | 30 min | committed fixes for the owner's PR change requests, or a recorded `nochange` |
 | `deliver` | code | none | seconds | pushed branch, PR to `dev`, Status `In Review`, PR-link comment, PR number recorded |
 | `reconcile` | code | none | seconds | merged: Status `Done` and the issue closed. Still open: stays waiting, costing nothing |
 | `done` | code | none | seconds | worktree removed, record moved to `.pi/factory/jobs/archive/<item>.json` |
@@ -146,10 +147,11 @@ The bulletin already sorts `Blocked` items with a written question, so a blocked
 
 ## Reconciling the merge
 
-Merging is the owner's step, so the stage that opened the PR cannot know the outcome. `reconcile` closes that gap. It runs as plain code on a tick, reads the recorded PR with `gh pr view <n> --json state,mergedAt`, and takes one of three paths:
+Merging is the owner's step, so the stage that opened the PR cannot know the outcome. `reconcile` closes that gap. It runs as plain code on a tick, reads the recorded PR with `gh pr view <n> --json state,mergedAt,reviewDecision`, and takes one of four paths:
 
 - **Merged** → Status `Done`, then close the issue with a comment naming the PR, then `done`. This is the transition the sweeper used to own, now happening within a tick of the merge rather than within 48 hours of it.
 - **Still open** → the job stays at `reconcile`/`ready` and the pass records `waiting`. Nothing is charged: a job waiting on the owner spends none of its 100 minutes, and a waiting pass is not a failed attempt, so it can wait as long as a review takes without edging toward the block thresholds.
+- **Changes requested** → the owner has read the diff and asked for work on the branch. The job re-enters the pipeline at `revise`, which implements the requests, and `deliver` pushes them to the same PR. See § The revise cycle.
 - **Closed without merging** → block and page, treating a rejected PR as a decision rather than a failure. The branch, the worktree and the reviewer's findings all stay, so a redo resumes from the review instead of from `dev`.
 
 This is why the sweeper has to stand down on ledger items: two writers on one transition would race, and the sweeper would move the card to `Done` without closing the issue, leaving the ledger holding a job it still believes is awaiting a merge. The sweeper keeps the rule for items with no job record, which is every item that predates the ledger.
@@ -157,6 +159,24 @@ This is why the sweeper has to stand down on ledger items: two writers on one tr
 `done` follows immediately in the same code path: worktree removed, record archived, branch kept. The branch outlives the job on purpose, because `done` means merged and those commits are the record of what was merged. It then survives only until the pruner runs: `factory-jobs.ts housekeeping` deletes local branches whose PR is merged, which a job's branch always is by the time `done` has run. The archived record keeps the branch name, and `origin`'s copy is left alone — deleting it is the owner's button on the PR page, and no `git fetch` can bring it back.
 
 Waiting is visible rather than silent. `factory-jobs.ts stale` lists jobs whose PR has been open for more than a week, beside the orphaned records it already prints for humans, and the sweeper's own idle-PR check keeps nagging at 24 hours in the digest.
+
+## The revise cycle
+
+A PR nobody acts on is a job that waits for ever, and before this cycle the feedback on it was only implemented if a human did it by hand. A **"Request changes" review from the owner** is therefore a fourth outcome of the open path rather than a variant of waiting: the work is already approved, the owner has now said what is wrong with it, and the ledger owns the fix.
+
+The trigger is an owner review whose state is `CHANGES_REQUESTED` and whose id is not in the job's `consumedReviews`. The login is checked against `FACTORY_REVIEWER_LOGINS` (comma-separated, default `WernerVdM97`), read from the process environment — the launcher's systemd environment — and never from the repo `.env`, which is where `FACTORY_ENABLED` and `FACTORY_OPENROUTER_API_KEY` live. A login only triggers a cycle if GitHub let that account submit the review at all — write access. A co-owner without it can be asked for a review but can never leave one, so their objection is silently unheard. `gh pr view` carries `reviewDecision`, which is only a cheap gate: on an ordinary waiting tick it is not `CHANGES_REQUESTED` and nothing else is fetched, and an ordinary tick with no standing change request stays one API call.
+
+The authoritative data comes from REST, and it is the *code* that turns it into a file: the triggering reviews (id, login, timestamp, body), their inline diff comments as `- <path>:<line> — <body>`, and — as context rather than as triggers — the reviewer's conversation comments made after the last push (`lastPushAt`, written by `deliver`). The result is `artifacts/<item>/feedback.md`, and it ends by saying so: address exactly these requests, anything else is out of scope. The revise stage reads that file and reports to `artifacts/<item>/revise.md`, the way `fix` reads the reviewer's findings and reports to `fix.md`. Conversation comments are context only: they never trigger a cycle themselves, so an owner who answers a question in the thread has to click **Request changes** again for the ledger to act.
+
+**A cycle gets a fresh 100 minutes**, the same grant `retryPass` makes: the waiting passes that led to the review cost nothing, and the review is a decision rather than a failure, so `spentMs` returns to zero with the `attempts` map. `MAX_REVISIONS` is 3, and it counts *consecutive* cycles: an owner approval in between resets the count to zero. A fourth set of change requests blocks and pages instead, with the review deliberately left unconsumed and the stage still `reconcile`, because at that point the cycle is not converging and the branch belongs to the owner.
+
+**Consumed review ids are the idempotency guard.** GitHub keeps `CHANGES_REQUESTED` as the PR's decision after a push — it does not clear when the commits arrive — so the decision alone would re-trigger on every tick for ever. The ids of the reviews actually actioned are appended to `consumedReviews`, and a review already listed there is never a trigger again. An owner `retry` clears the list along with `revisions`, because a human has now looked at the branch and a request they consider unanswered should get to trigger again.
+
+**The branch is merged forward from `dev` before the stage runs**, the same precondition adoption applies and the same command (`git merge --no-edit origin/dev`, aborted on conflict). A conflict, an uncommitted worktree (checked before the merge: a dirtied tree would be merged into a state nobody can apply the requests to), or a worktree that is no longer there, blocks and pages naming the reason, with the review unconsumed and no stage change: none of them is something the factory should resolve on the owner's branch.
+
+**`deliver` pushes on every run, not only when it creates the PR.** A revise cycle commits onto a branch whose PR is already open, so the second delivery re-pushes, reuses that PR, and comments `revised per the owner's change requests on PR #<n>` instead of the PR-opened text; when the revise stage reported `nochange` the comment says the requests needed no code change rather than claiming a revision. Without the unconditional push the cycle would do the work and show the owner nothing. A recorded PR that is no longer open is the one exception: `deliver` pushes nothing and creates nothing, because the head branch is gone and a push would recreate it as a duplicate PR, and `reconcile` reads the same state and finishes the job.
+
+**The waiting-path trap.** Both reconcile call sites read the outcome from the stage state rather than from a return value, and the merged path is `finishJob` — worktree removed, record archived. Entering `revise` leaves the stage at `ready`, which a call site that only knew `waiting` from merged would read as merged, deleting the worktree of a live job and archiving its record. Both the waiting re-check and `runOneStage`'s reconcile branch therefore test for `revise` before they treat the pass as a merge, and both are covered by tests.
 
 ## Components
 
@@ -200,6 +220,10 @@ Unit tests only, no real `pi` spawn, with an injected clock and an injected runn
 - State machine: advance, skip `fix` when the review reports no findings, silent requeue on the first failure, block on the second, block on cumulative budget, and the adaptive attempt timeout `min(stage budget, remaining)`.
 - Adoption: an orphan with a claim comment is taken over; one with only a matching branch is taken over; one with neither is left for the sweeper; a branch with commits enters at `review` and one without enters at `build`.
 - Reconcile: an open PR leaves the job waiting with no attempt charged and nothing spent; a merged PR sets `Done` and closes the issue; a PR closed unmerged blocks; a waiting job survives many ticks without reaching the attempt or budget guards.
+- The revise cycle: an owner `CHANGES_REQUESTED` review snapshots the feedback file and re-enters at `revise` with `revisions` 1, the review id consumed, the budget and attempts reset and `origin/dev` merged into the branch; a second pass over the same review stays waiting with no second comment; a review from a login outside `FACTORY_REVIEWER_LOGINS` is ignored, and an owner approval beside it never opens a cycle; the env var overrides the default; the decision gate fetches no review data on an ordinary waiting tick; an approval resets `revisions` to 0; a comment made in the last push's own second is still context; a job at `MAX_REVISIONS` blocks and pages with the review unconsumed; a conflicting `dev` merge, a dirty worktree and a missing worktree each block instead of revising; and both call sites — the waiting re-check and the ready path — return a `ran` outcome for a job entering `revise`, keep its record, and never remove its worktree.
+- The revise stage behaves like `fix`: `VERDICT: ok` requires the branch to have moved, `VERDICT: nochange` is accepted without one, and the next stage is `deliver`.
+- Delivery: the fresh path pushes, opens the PR and comments the PR link; a revised job pushes again, creates no second PR, records `lastPushAt` and comments the re-review text — or the no-code-change text when the revise stage reported `nochange`; a recorded PR that is no longer open gets no push, no second PR and no comment at all.
+- `retry` clears `revisions` and `consumedReviews` with the attempts and the budget.
 - Liveness and locking: a second drain exits on the drain lock; a genuine orphan (pid live, start time matches) is killed as a group and counted; a recycled pid (pid live, start time differs) is counted and never killed; a clean crash is counted; `retry` clears `blocked`, zeroes the attempts and refreshes the budget.
 - The gate: only `Approved`, plus `auto:docs`/`auto:changelog`/`auto:tests` within their class; priority then oldest; `Inbox` and `Blocked` never picked. Readiness is a second question on top of approval, and each is its own case here: an item carrying `needs-human-decision`, an item with an open native `blockedBy` dependency, and an item outside the focus milestone are all declined with a reason and reported, never silently skipped.
 - Focus: the sprint is the open milestone with the earliest due date, cached at `.pi/factory/focus.json`, and no dated open milestone means no filter at all (priority order is the fallback, not the norm). The empty-results and stale-cache paths are asserted, because a silently disabled focus filter looks exactly like a working one.

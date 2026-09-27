@@ -540,7 +540,7 @@ describe('ProdLlmGateway — cartographer enrich (D3)', () => {
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 0, description: 'A cold ruin.', matchesExisting: '' }),
     });
-    const result = await gw.enrich({ newName: 'The Cold Ruin', existingNames: ['Town Square'], narrative: 'you enter a ruin' });
+    const result = (await gw.enrich({ newName: 'The Cold Ruin', existingNames: ['Town Square'], narrative: 'you enter a ruin' }))!;
     expect(result.is_safe).toBe(0);
     expect(result.description).toBe('A cold ruin.');
     expect(result.matchesExisting).toBeUndefined(); // empty string dropped
@@ -560,7 +560,7 @@ describe('ProdLlmGateway — cartographer enrich (D3)', () => {
         ],
       }),
     });
-    const result = await gw.enrich({ newName: 'Cinderhold', existingNames: [], narrative: 'ash', knownRegions: ['The Vale'] });
+    const result = (await gw.enrich({ newName: 'Cinderhold', existingNames: [], narrative: 'ash', knownRegions: ['The Vale'] }))!;
     expect(result.region).toBe('The Ashen Reach');
     expect(result.emoji).toBe('🌋');
     expect(result.node_tier).toBe(1);
@@ -576,7 +576,7 @@ describe('ProdLlmGateway — cartographer enrich (D3)', () => {
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 1, description: 'The shrine.', matchesExisting: 'The Shrine of the First Flame' }),
     });
-    const result = await gw.enrich({ newName: 'The Temple', existingNames: ['The Shrine of the First Flame'], narrative: 'a temple' });
+    const result = (await gw.enrich({ newName: 'The Temple', existingNames: ['The Shrine of the First Flame'], narrative: 'a temple' }))!;
     expect(result.matchesExisting).toBe('The Shrine of the First Flame');
     expect(result.is_safe).toBe(1);
   });
@@ -586,7 +586,7 @@ describe('ProdLlmGateway — cartographer enrich (D3)', () => {
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 0, description: 'A drowned hall.', tags: 'Swamp, bog ,bog, WET' }),
     });
-    const result = await gw.enrich({ newName: 'The Drowned Hall', existingNames: [], narrative: 'a swamp' });
+    const result = (await gw.enrich({ newName: 'The Drowned Hall', existingNames: [], narrative: 'a swamp' }))!;
     expect(result.tags).toBe('swamp,bog,wet');
   });
 
@@ -595,7 +595,7 @@ describe('ProdLlmGateway — cartographer enrich (D3)', () => {
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 0, description: 'Ruins.', tags: ['ruins', 'ancient', 'stone'] }),
     });
-    const result = await gw.enrich({ newName: 'The Old Keep', existingNames: [], narrative: 'ruins' });
+    const result = (await gw.enrich({ newName: 'The Old Keep', existingNames: [], narrative: 'ruins' }))!;
     expect(result.tags).toBe('ruins,ancient,stone');
   });
 
@@ -604,14 +604,28 @@ describe('ProdLlmGateway — cartographer enrich (D3)', () => {
       apiKey: 'x',
       fetch: enrichFetch({ is_safe: 0, description: 'Nowhere.', tags: ' , ' }),
     });
-    const result = await gw.enrich({ newName: 'Nowhere', existingNames: [], narrative: '' });
+    const result = (await gw.enrich({ newName: 'Nowhere', existingNames: [], narrative: '' }))!;
     expect(result.tags).toBeUndefined();
   });
 
-  it('returns an empty result (never throws) on a non-200 / malformed response', async () => {
+  it('reports failure (undefined) on a non-200, so the row stays provisional', async () => {
     const bad = vi.fn().mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom'), json: () => Promise.resolve({}) }) as unknown as typeof fetch;
     const gw = new ProdLlmGateway({ apiKey: 'x', fetch: bad });
-    await expect(gw.enrich({ newName: 'X', existingNames: [], narrative: '' })).resolves.toEqual({});
+    await expect(gw.enrich({ newName: 'X', existingNames: [], narrative: '' })).resolves.toBeUndefined();
+  });
+
+  it('reports failure (undefined) on unparseable content, but an empty valid payload still settles', async () => {
+    const malformed = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ choices: [{ message: { content: 'not json at all' } }] }),
+      text: () => Promise.resolve(''),
+    }) as unknown as typeof fetch;
+    const gw = new ProdLlmGateway({ apiKey: 'x', fetch: malformed });
+    await expect(gw.enrich({ newName: 'X', existingNames: [], narrative: '' })).resolves.toBeUndefined();
+
+    const empty = new ProdLlmGateway({ apiKey: 'x', fetch: enrichFetch({}) });
+    await expect(empty.enrich({ newName: 'X', existingNames: [], narrative: '' })).resolves.toEqual({});
   });
 });
 

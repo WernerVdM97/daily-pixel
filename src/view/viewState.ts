@@ -1,9 +1,6 @@
 /**
- * Semantic view-state DTOs for the /action decision and outcome screens (JSON-seam M2,
- * see docs/engine/json-seam-build-plans.md). Transport-neutral: no discord.js import, no
- * runtime code — that non-import is the structural guarantee these types stay presentation
- * data, not a Discord-shaped payload. `src/discord/viewToDiscord.ts` is the sole medium step
- * that maps a `ViewState` into embed/component JSON.
+ * Semantic view-state DTOs for the /action decision and outcome screens. Transport-neutral: no
+ * `discord.js` import, and the structural test bans this layer importing `src/discord/` at runtime.
  */
 
 /** Semantic colour choice — the medium step maps this to a Discord embed hex. */
@@ -63,9 +60,8 @@ export interface NoticeViewState {
   ephemeral: boolean;
 }
 
-/** The day-job action menu — one embed + one button row. The medium step maps `style`
- *  intent to `ButtonStyle` ('secondary' | 'primary' only — this screen has no bail/favoured
- *  concept, unlike `DecisionButtonItem`). */
+/** The day-job action menu — one embed + one button row. `style` is `'secondary' | 'primary'`
+ *  only: this screen has no bail/favoured concept, unlike `DecisionButtonItem`. */
 export interface MenuViewState {
   screen: 'menu';
   title: { emoji: string; text: string };
@@ -73,29 +69,23 @@ export interface MenuViewState {
   buttons: Array<{ label: string; customId: string; style: 'secondary' | 'primary' }>;
 }
 
-/** A transient "please wait" screen — one plain grey embed, no buttons. Used between staged
- *  controller steps (e.g. the day-job work flow's "Starting…" beat) where the caller has
- *  already deferred/replied and just needs to paint an interstitial while a later step runs. */
+/** A transient "please wait" screen — one plain grey embed, no buttons, painted between staged
+ *  controller steps where the caller has already deferred and a later step is still running. */
 export interface LoadingViewState {
   screen: 'loading';
   body: string;
 }
 
-/** The day-job work flow's transient commute beat — folds the "you moved" beat INTO the
- *  loading indicator (idle message carried over) so the multi-second LLM call underneath
- *  still reads as "in progress", not stalled. */
+/** The day-job commute beat — folds "you moved" into the loading indicator so the multi-second
+ *  LLM call underneath still reads as in-progress, not stalled. */
 export interface CommuteViewState {
   screen: 'commute';
   destination: string;
   idle: string;
 }
 
-/** The character-creation wizard screen (M7.3, DC-M7.3.3) — the join walk's step screen
- *  carried semantically across the seam. Pure strings pre-rendered (byte-identity with the
- *  pre-seam buildStepMessage assembly), interactive/data parts semantic. The embed chrome
- *  (title ⚔️  Forge Your Hero, goldenrod, Oak thumbnail/files) and the button customIds +
- *  styles stay in the medium step. The wizard envelope carries NO character facts — the
- *  walk's user has no character (DC-M6.1's null-char rule). */
+/** The character-creation wizard screen — the join walk's step screen carried semantically across
+ *  the seam; chrome and customIds stay in the medium step, and the envelope carries no character facts. */
 export interface WizardViewState {
   screen: 'wizard';
   /** 1-8; 8 = the confirm review screen. */
