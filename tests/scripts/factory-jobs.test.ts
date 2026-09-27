@@ -52,6 +52,7 @@ import {
   retryPass,
   reviewerLogins,
   stagePiArgs,
+  stageTask,
   staleReport,
   worktreePathFor,
 } from '../../scripts/factory-jobs.js';
@@ -178,7 +179,7 @@ class Harness {
     spawnStage: async (run) => {
       this.spawns.push(run);
       this.nowMs += this.stageDurationMs;
-      if (['build', 'fix', 'revise'].includes(run.stage) && this.stageCommits) this.branchSha = 'bbbbbbb';
+      if (['build', 'fix', 'revise', 'resolve'].includes(run.stage) && this.stageCommits) this.branchSha = 'bbbbbbb';
       this.afterSpawn?.(run);
       const report = this.reports[run.stage];
       if (report !== undefined) {
@@ -1368,16 +1369,25 @@ describe('the revise cycle', () => {
     expect(h.called('gh', 'project item-edit')).toBe(true);
   });
 
-  it('blocks rather than revising when dev will not merge into the branch', async () => {
+  it('enters resolve when dev will not merge into the branch, instead of blocking', async () => {
     const h = reviewing();
     h.when('git', ['merge', '--no-edit'], { code: 1, stdout: '', stderr: 'CONFLICT (content)' });
-    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34, detail: 'change requests \u2192 resolve' });
+
     const after = h.read(34);
-    expect(after).toMatchObject({ stage: 'reconcile', stageState: 'blocked' });
-    expect(after.consumedReviews).toBeUndefined();
+    expect(after.stage).toBe('resolve');
+    expect(after.stageState).toBe('ready');
+    expect(after.revisions).toBe(1);
+    expect(after.consumedReviews).toEqual([9001]);
+    expect(after.spentMs).toBe(0);
+    expect(after.attempts).toEqual({});
+    expect(after.waitingSince).toBeUndefined();
+    expect(after.history.at(-1)).toMatchObject({ stage: 'reconcile', result: 'retried', exit: null, spentMs: 0 });
     expect(h.called('git', 'merge --abort')).toBe(true);
-    expect(existsSync(feedbackPath(h.ctx(), 34))).toBe(false);
-    expect(h.pages[0]).toContain('conflicts');
+    // The feedback file is the revise stage's input and is written on this path too.
+    expect(readFileSync(feedbackPath(h.ctx(), 34), 'utf8')).toContain('Change requests on PR #117');
+    expect(commentBody(h, 34)).toContain(`the branch conflicts with \`${UPSTREAM_REF}\`, so it enters at \`resolve\` first`);
+    expect(h.pages).toEqual([]);
   });
 
   it('blocks rather than revising when the worktree is gone', async () => {
@@ -1402,6 +1412,16 @@ describe('the revise cycle', () => {
     expect(h.read(34).stage).toBe('revise');
     expect(h.has(34)).toBe(true);
     expect(h.called('git', 'worktree remove')).toBe(false);
+  });
+
+  it('keeps a ready reconcile alive when it enters resolve', async () => {
+    const h = reviewing({ stageState: 'ready' });
+    h.when('git', ['merge', '--no-edit'], { code: 1, stdout: '', stderr: 'CONFLICT' });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34, detail: 'change requests \u2192 resolve' });
+    expect(h.read(34).stage).toBe('resolve');
+    expect(h.has(34)).toBe(true);
+    expect(h.called('git', 'worktree remove')).toBe(false);
+    expect(h.called('gh', 'issue close')).toBe(false);
   });
 
   it('runs the fixer on the feedback file, needing a commit unless it reports nochange', async () => {
@@ -1492,6 +1512,69 @@ describe('the revise cycle', () => {
     h.write(job({ stage: 'reconcile', stageState: 'blocked', revisions: MAX_REVISIONS, consumedReviews: [9001] }));
     expect(retryPass(h.ctx(), 34).ok).toBe(true);
     expect(h.read(34)).toMatchObject({ revisions: 0, consumedReviews: [] });
+  });
+});
+
+// ── The resolve stage ─────────────────────────────────────────────────────
+
+describe('the resolve stage', () => {
+  it('is revise\'s first half: ok plus a merge commit advances to revise', async () => {
+    const h = new Harness();
+    h.reports = { resolve: 'VERDICT: ok' };
+    h.write(job({ stage: 'resolve', revisions: 1 }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve ok' });
+    expect(h.read(34).stage).toBe('revise');
+    expect(h.spawns[0]).toMatchObject({ agent: 'delegate-fixer', stage: 'resolve', timeoutMs: 20 * MIN });
+
+    expect(nextStage('resolve')).toBe('revise');
+    expect(attemptTimeoutMs(job({ stage: 'resolve' }))).toBe(20 * MIN);
+  });
+
+  it('fails a resolve reporting unresolved, and blocks on the second one', async () => {
+    const h = new Harness();
+    h.reports = { resolve: 'VERDICT: unresolved\n\nTwo sides disagree on the frame ordering.' };
+    h.write(job({ stage: 'resolve', revisions: 1 }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve failed' });
+    expect(h.read(34)).toMatchObject({ stage: 'resolve', stageState: 'ready', attempts: { resolve: 1 } });
+    expect(h.pages).toEqual([]);
+
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve failed' });
+    expect(h.read(34).attempts.resolve).toBe(2);
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked', detail: 'resolve failed twice' });
+    expect(h.read(34).stageState).toBe('blocked');
+    expect(h.pages).toHaveLength(1);
+    expect(h.pages[0]).toContain('resolve failed twice');
+  });
+
+  it('fails a resolve that claims ok without a merge commit', async () => {
+    const h = new Harness();
+    h.stageCommits = false;
+    h.reports = { resolve: 'VERDICT: ok' };
+    h.write(job({ stage: 'resolve', revisions: 1 }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve failed' });
+    expect(h.read(34)).toMatchObject({ stage: 'resolve', attempts: { resolve: 1 } });
+    expect(h.logs.join('\n')).toContain('committed nothing');
+  });
+
+  it('fails a resolve whose report carries no verdict at all', async () => {
+    const h = new Harness();
+    h.reports = { resolve: 'Resolved the caption conflict.' };
+    h.write(job({ stage: 'resolve', revisions: 1 }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'resolve failed' });
+    expect(h.read(34)).toMatchObject({ stage: 'resolve', attempts: { resolve: 1 } });
+  });
+
+  it('carries the both-intents rules in the task text', () => {
+    const h = new Harness();
+    const task = stageTask(h.ctx(), job({ stage: 'resolve', revisions: 1 }), 'resolve', '/tmp/artifacts/34/resolve.md');
+    expect(task).toContain('git merge --no-edit origin/dev');
+    expect(task).toContain('BOTH intents survive');
+    expect(task).toContain('never delete a side wholesale');
+    expect(task).toContain("keep `origin/dev`'s version");
+    expect(task).toContain('keep both entries');
+    expect(task).toContain('VERDICT: unresolved');
+    expect(task).toContain('commit the merge on `feat/34-last-stand`');
+    expect(task).toContain('full test suite and typecheck');
   });
 });
 
@@ -1814,6 +1897,7 @@ describe('the ledger read-outs', () => {
     expect(parseVerdict('**VERDICT: findings**')).toBe('findings');
     expect(parseVerdict('VERDICT: ok')).toBe('ok');
     expect(parseVerdict('VERDICT: nochange')).toBe('nochange');
+    expect(parseVerdict('VERDICT: unresolved')).toBe('unresolved');
     expect(parseVerdict('I found three things')).toBe('findings');
   });
 
@@ -1969,6 +2053,39 @@ describe('start under the readiness gate', () => {
     h.when('git', ['branch', '-a'], ok('dev\nmain\n'));
     const { startPass } = await import('../../scripts/factory-jobs.js');
     expect(await startPass(h.ctx())).toMatchObject({ action: 'started', item: 97, held: [] });
+  });
+
+  /** A meta-oil proposal card: one per applied proposal, claiming the branch it opened the PR on. */
+  function proposalCard(h: Harness, milestone: string): Harness {
+    h.board = [item({ number: 220, status: 'In Progress', milestone, title: 'Meta-oil proposal 2: ledger adoption' })];
+    h.when(
+      'gh',
+      ['issue view 220'],
+      ok('{"comments":[{"author":{"login":"agent97eth"},"body":"factory: claimed (branch chore/meta-oil-2)"}]}'),
+    );
+    return h.when('git', ['branch', '-a'], ok('dev\nchore/meta-oil-2\n'));
+  }
+
+  it('adopts a meta-oil proposal branch at review, in the focus milestone', async () => {
+    const h = proposalCard(milestones(new Harness()), 'A. Release A closeout');
+    h.when('git', ['rev-list', '--count'], ok('3\n'));
+    h.when('git', ['rev-parse', '--short'], ok('31eb9e3\n'));
+    h.when('git', ['rev-parse', 'origin/dev'], ok('d3f557b\n'));
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({ action: 'adopted', item: 220, branch: 'chore/meta-oil-2' });
+    // The proposal's PR has commits ahead of dev, so the ledger reviews it rather than rebuilding it.
+    expect(h.read(220)).toMatchObject({ stage: 'review', spentMs: 0, pr: null });
+    expect(h.called('git', 'merge --no-edit origin/dev')).toBe(true);
+  });
+
+  it('holds a meta-oil proposal branch outside the focus milestone', async () => {
+    const h = proposalCard(milestones(new Harness()), 'B. v0.3.x polish');
+    const { startPass } = await import('../../scripts/factory-jobs.js');
+    expect(await startPass(h.ctx())).toMatchObject({
+      action: 'nothing',
+      held: [{ number: 220, reason: 'out-of-focus', detail: 'B. v0.3.x polish' }],
+    });
+    expect(h.has(220)).toBe(false);
   });
 });
 

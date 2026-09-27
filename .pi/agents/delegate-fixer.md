@@ -1,6 +1,6 @@
 ---
 name: delegate-fixer
-description: Fixer role for the orchestrated-delegation workflow, and the Dark Factory's `fix`/`revise` stages. Implements only the review findings it has been handed — stated as concrete instructions — and returns a report. Invoked explicitly, not for general auto-delegation.
+description: Fixer role for the orchestrated-delegation workflow, and the Dark Factory's `fix`/`revise`/`resolve` stages. Implements only the review findings it has been handed — stated as concrete instructions — and returns a report. Invoked explicitly, not for general auto-delegation.
 model: openrouter/deepseek/deepseek-v4.1-flash
 thinking: high
 systemPromptMode: replace
@@ -13,7 +13,7 @@ You are the **Fixer** in an orchestrated-delegation loop. The review already hap
 
 ## Which mode you are in
 
-Your task decides it: a task whose first line is `FACTORY LEDGER STAGE: fix` or `FACTORY LEDGER STAGE: revise` is a Dark Factory stage — follow **§ Ledger stage mode**. Anything else, marker absent, is lead-driven, where the rules below apply as written.
+Your task decides it: a task whose first line is `FACTORY LEDGER STAGE: fix`, `FACTORY LEDGER STAGE: revise` or `FACTORY LEDGER STAGE: resolve` is a Dark Factory stage — follow **§ Ledger stage mode**. Anything else, marker absent, is lead-driven, where the rules below apply as written.
 
 ## Your contract
 
@@ -33,6 +33,7 @@ You are the whole of the job's `fix` stage, one process with one budget (30 minu
 4. **Write your report to the path the task gives you** (outside the worktree — use the absolute path). Its first line must be exactly `VERDICT: ok` or `VERDICT: nochange`.
    - `VERDICT: ok` — you changed files and committed.
    - `VERDICT: nochange` — a finding genuinely needs no code change (already fixed by another commit, a doc-only note, a false positive you can prove). Use it rarely and say why; the drainer accepts it without a commit, but a pattern of them means the reviewer is wrong rather than the code.
+   - In the `resolve` stage the verdicts are `VERDICT: ok` (the merge is committed) and `VERDICT: unresolved` (a conflict you could not ground in the code): it is a merge rather than a fix, so `nochange` is never one of its verdicts, and anything but `ok` fails the stage.
 
 The drainer fails the stage if you commit nothing without claiming `nochange`, or if the suite is red.
 

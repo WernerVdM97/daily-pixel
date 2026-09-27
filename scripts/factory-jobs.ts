@@ -53,7 +53,7 @@ const SCRIPT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const SCHEMA_VERSION = 1;
 
-export type StageName = "build" | "review" | "fix" | "deliver" | "reconcile" | "revise" | "done";
+export type StageName = "build" | "review" | "fix" | "deliver" | "reconcile" | "revise" | "resolve" | "done";
 export type StageKind = "model" | "code";
 /** `waiting` is a reconcile whose PR is still open: re-runnable, but charged nothing. */
 export type StageState = "ready" | "running" | "blocked" | "waiting";
@@ -75,6 +75,7 @@ export const STAGES: Record<StageName, StageSpec> = {
   deliver: { kind: "code", budgetMs: MIN },
   reconcile: { kind: "code", budgetMs: MIN },
   revise: { kind: "model", agent: "delegate-fixer", budgetMs: 30 * MIN },
+  resolve: { kind: "model", agent: "delegate-fixer", budgetMs: 20 * MIN },
   done: { kind: "code", budgetMs: MIN },
 };
 
@@ -175,6 +176,8 @@ export function nextStage(stage: StageName): StageName | null {
   // The one non-linear edge: the owner's change requests re-enter at `revise` and go back
   // out through `deliver`, because the fix has to be pushed to the PR they were made on.
   if (stage === "revise") return "deliver";
+  // The other: `resolve` is revise's first half, for a branch that has to be merged first.
+  if (stage === "resolve") return "revise";
   const idx = STAGE_ORDER.indexOf(stage);
   return idx === -1 || idx === STAGE_ORDER.length - 1 ? null : STAGE_ORDER[idx + 1];
 }
@@ -262,13 +265,13 @@ export function decide(job: JobRecord, live: Liveness): Action {
   return { kind: "run", timeoutMs: attemptTimeoutMs(job) };
 }
 
-/** The verdict line a review stage must start its findings file with. */
-export function parseVerdict(text: string): "clean" | "findings" | "ok" | "nochange" {
+/** The verdict line a review or resolve stage must start its report with. */
+export function parseVerdict(text: string): "clean" | "findings" | "ok" | "nochange" | "unresolved" {
   const first = text.trimStart().split("\n", 1)[0] ?? "";
-  const match = /VERDICT:\s*(clean|findings|ok|nochange)\b/i.exec(first);
+  const match = /VERDICT:\s*(clean|findings|ok|nochange|unresolved)\b/i.exec(first);
   // Anything else reads as `findings`: the safe default is to assume there is work to do.
   if (!match) return "findings";
-  return match[1]!.toLowerCase() as "clean" | "findings" | "ok" | "nochange";
+  return match[1]!.toLowerCase() as "clean" | "findings" | "ok" | "nochange" | "unresolved";
 }
 
 // ── Paths and root resolution ──────────────────────────────────────────────
@@ -1260,6 +1263,14 @@ export function stageTask(ctx: Ctx, job: JobRecord, stage: StageName, artifact: 
       `Write your report to ${artifact}. Its first line is \`VERDICT: ok\`, or \`VERDICT: nochange\` when a request genuinely needs no code change.`,
       `Map each request to the work you did, so the report says what answered what.`,
     );
+  } else if (stage === "resolve") {
+    head.push(
+      `You are resolving merge conflicts so the owner's change requests can be applied. Run \`git merge --no-edit ${UPSTREAM_REF}\` in the worktree.`,
+      `Resolve every conflict so BOTH intents survive: never delete a side wholesale; where both sides changed the same lines, keep \`${UPSTREAM_REF}\`'s version and re-apply this branch's intent on top of it; in \`CHANGELOG.md\`, keep both entries.`,
+      `If any conflict needs a judgement call you cannot ground in the code, stop, leave it unresolved, and write \`VERDICT: unresolved\`.`,
+      `Run the full test suite and typecheck, and commit the merge on \`${job.branch}\` when both are green.`,
+      `Write your report to ${artifact}. Its first line is \`VERDICT: ok\`, or \`VERDICT: unresolved\` if you had to stop.`,
+    );
   }
   return head.join("\n");
 }
@@ -1410,11 +1421,18 @@ async function runModelStage(ctx: Ctx, job: JobRecord, stage: StageName): Promis
   const branchAfter = git(ctx, ["rev-parse", job.branch], job.worktree).stdout.trim();
   job.artifacts[stage] = artifact;
 
-  if (stage === "build" || stage === "fix" || stage === "revise") {
+  if (stage === "build" || stage === "fix" || stage === "revise" || stage === "resolve") {
     // A build that claims `nochange` has implemented nothing and still fails the branch
     // check below; the fixer and the revise stage may accept a request without a commit.
-    if (stage !== "build" && parseVerdict(text) === "nochange") {
+    if ((stage === "fix" || stage === "revise") && parseVerdict(text) === "nochange") {
       return { ok: true, result: "nochange", exit: outcome.code, startedAt, endedAt };
+    }
+    // Resolve passes on `ok` and a moved branch only: `unresolved` means a judgement call the
+    // code could not ground, and an absent verdict is not a claim worth trusting.
+    const verdict = parseVerdict(text);
+    if (stage === "resolve" && verdict !== "ok") {
+      ctx.deps.log(`[factory-jobs] resolve stage reported ${verdict}, so the merge is still unresolved`);
+      return { ok: false, result: "failed", exit: outcome.code, startedAt, endedAt };
     }
     if (branchAfter === branchBefore) {
       ctx.deps.log(`[factory-jobs] ${stage} stage committed nothing on ${job.branch}`);
@@ -1574,9 +1592,15 @@ interface ConversationComment {
   body?: string | null;
 }
 
+/** `revise` and `resolve`, its first half: a live re-entry, never a merge that finished a job. */
+function reEntered(job: JobRecord): boolean {
+  return job.stage === "revise" || job.stage === "resolve";
+}
+
 /**
  * Action the owner's change requests: snapshot their words as the revise stage's input and
- * re-enter the pipeline at `revise`. False when there is nothing to action, so the caller waits.
+ * re-enter the pipeline at `revise` (or at `resolve` first, when the branch needs a merge it
+ * cannot make itself). False when there is nothing to action, so the caller waits.
  */
 function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumber: number): boolean {
   // GitHub pages at 30 by default, so a long-lived PR's newest change request can fall off the end.
@@ -1620,17 +1644,9 @@ function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumb
     );
     return true;
   }
-  if (!ctx.dryRun && mergeBaseRef(ctx, job.worktree) === null) {
-    blockJob(
-      ctx,
-      config,
-      job,
-      boardItem(ctx, config, job),
-      `merging ${UPSTREAM_REF} into ${job.branch} conflicts, so the owner's change requests cannot be applied`,
-    );
-    return true;
-  }
-
+  // Merging `dev` in is the precondition for applying the requests, and a conflict there is
+  // usually mechanical: the cycle enters at `resolve` for one bounded attempt first.
+  const conflicted = !ctx.dryRun && mergeBaseRef(ctx, job.worktree) === null;
   const inline = ghJson<ReviewComment[]>(ctx, ["api", `repos/${config.repo}/pulls/${prNumber}/comments?per_page=100`]);
   const conversation = ghJson<ConversationComment[]>(ctx, ["api", `repos/${config.repo}/issues/${prNumber}/comments?per_page=100`]);
   const pushedAt = job.lastPushAt ? Date.parse(job.lastPushAt) : Number.NaN;
@@ -1664,7 +1680,7 @@ function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumb
     exit: null,
     spentMs: 0,
   });
-  job.stage = "revise";
+  job.stage = conflicted ? "resolve" : "revise";
   job.stageState = "ready";
   job.claim = null;
   job.stageStartedAt = undefined;
@@ -1677,11 +1693,15 @@ function openReviseCycle(ctx: Ctx, config: ProjectConfig, job: JobRecord, prNumb
         config,
         job.item,
         `factory: change requests on PR #${prNumber} — revise cycle ${revisions} of ${MAX_REVISIONS} opened ` +
-          `(reviews ${triggers.map((review) => review.id).join(", ")}); the ledger will implement them and re-push for re-review.`,
+          `(reviews ${triggers.map((review) => review.id).join(", ")})` +
+          (conflicted ? `; the branch conflicts with \`${UPSTREAM_REF}\`, so it enters at \`resolve\` first` : "") +
+          `; the ledger will implement them and re-push for re-review.`,
       ),
     "revise-cycle comment",
   );
-  ctx.deps.log(`[factory-jobs] #${job.item}: PR #${prNumber} carries change requests → revise ${revisions}/${MAX_REVISIONS}`);
+  ctx.deps.log(
+    `[factory-jobs] #${job.item}: PR #${prNumber} carries change requests → ${job.stage} ${revisions}/${MAX_REVISIONS}`,
+  );
   return true;
 }
 
@@ -1872,9 +1892,9 @@ async function checkWaiting(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pr
   }
   // The owner's change requests send the job back into the pipeline: a live job, so the
   // merged path below would remove its worktree and archive the record out from under it.
-  if (job.stage === "revise") {
+  if (reEntered(job)) {
     saveJob(ctx, job);
-    return { action: "ran", item: job.item, detail: "change requests → revise" };
+    return { action: "ran", item: job.item, detail: `change requests → ${job.stage}` };
   }
   if (job.stageState === "blocked") {
     saveJob(ctx, job);
@@ -1910,10 +1930,10 @@ async function runOneStage(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pro
           saveJob(ctx, job);
           return { action: "idle", item: job.item, detail: "reconcile waiting" };
         }
-        // Same trap as the waiting path: `revise` is a live job, not a merge.
-        if (job.stage === "revise") {
+        // Same trap as the waiting path: a change-request re-entry is a live job, not a merge.
+        if (reEntered(job)) {
           saveJob(ctx, job);
-          return { action: "ran", item: job.item, detail: "change requests → revise" };
+          return { action: "ran", item: job.item, detail: `change requests → ${job.stage}` };
         }
         if (job.stageState === "blocked") {
           saveJob(ctx, job);
