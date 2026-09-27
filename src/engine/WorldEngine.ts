@@ -197,6 +197,12 @@ export interface ActionOutcome {
 export interface ActionResumeResult {
   state: ActionState;
   nextDecision: ActionDecision;
+  /** The type `classify` pinned at CLASSIFY, read back off the persisted state. */
+  actionType: ClassifiedActionType;
+  /** Same two slots `ActionStartResult` carries, read the same way: the DECIDE hint, else the
+   *  persisted `in_combat` foe. */
+  combatEnemyName?: string;
+  combatEnemyCondition?: { woundWord: string; filled: number; total: number };
 }
 
 export interface LocationInfo {

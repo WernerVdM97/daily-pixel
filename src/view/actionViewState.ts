@@ -153,15 +153,16 @@ export function buildDecisionView(
     maxHealth?: number;
     location?: string;
   },
-  /** The type `classify` routed this action to — set only on the first decision screen, the sole
-   *  post-classify moment the opening frame belongs to; CONTINUE beats never carry it. */
+  /** The type `classify` routed this action to — picks which opening-frame register renders.
+   *  The frame must also be asked for (`showOpeningFrame`). */
   actionType?: ClassifiedActionType,
-  /** Combat enemy name for the opening frame's nameplate; set only on the first decision of a
-   *  combat action. */
+  /** Combat enemy name for the opening frame's nameplate. */
   combatEnemyName?: string,
-  /** The foe's banded condition (wound word + pip fill, never exact HP) when an `in_combat` edge
-   *  from a prior bail against the same foe exists; first combat decision only, undefined otherwise. */
+  /** The foe's banded condition (wound word + pip fill, never exact HP) from the persisted
+   *  `in_combat` edge against the same foe; undefined when there is nothing to band. */
   combatEnemyCondition?: { woundWord: string; filled: number; total: number },
+  /** Whether this screen leads with the opening frame. */
+  showOpeningFrame = false,
 ): DecisionViewState {
   // Raw DCs stay hidden while deciding; passive insight (10 + WIS) instead lets a perceptive
   // character occasionally spot the single safest route — earned (see INSIGHT_MARGIN), not a readout.
@@ -248,7 +249,7 @@ export function buildDecisionView(
   };
   if (combatEnemyName) openingFrameSlots.enemyName = combatEnemyName;
   if (combatEnemyCondition) openingFrameSlots.enemyCondition = combatEnemyCondition;
-  const openingFrame = actionType && decisionIdx === 0
+  const openingFrame = showOpeningFrame && actionType
     ? renderOpeningFrame(actionType, openingFrameSlots)
     : undefined;
 

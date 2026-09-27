@@ -1015,8 +1015,9 @@ export class WorldEngineImpl implements WorldEngine {
     };
   }
 
-  /** Reads a prior bail's persisted `in_combat` edge to band the foe's condition on the opening
-   *  frame. A spare closes that edge, so the `undefined` after one is by design — don't re-open it. */
+  /** Reads the persisted `in_combat` edge to band a remembered foe's condition on the opening
+   *  frame: a prior bail's re-entry, or the foe a resumed mid-fight is still locked to. A spare
+   *  closes that edge, so the `undefined` after one is by design — don't re-open it. */
   private readPersistedCombatFoe(
     characterId: number,
     internalState: PipelineInternalActionState,
@@ -1258,10 +1259,16 @@ export class WorldEngineImpl implements WorldEngine {
     }
 
     const { state, nextDecision } = this.machine.resume(internalState);
+    const remembered = this.readPersistedCombatFoe(characterId, internalState, row.location);
 
     return {
       state: this.toPublicState(state),
       nextDecision,
+      actionType: internalState.actionType,
+      combatEnemyName: internalState.lastDecideResult.combatEnemy?.name ?? remembered?.name,
+      // The finish/spare interstitial fought no round of its own, so the edge still holds the
+      // previous round's HP while `nextDecision.combatStatus` bands the foe for this beat.
+      combatEnemyCondition: internalState.fatalBlow ? undefined : remembered?.condition,
     };
   }
 
