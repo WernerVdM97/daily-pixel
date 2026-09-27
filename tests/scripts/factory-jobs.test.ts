@@ -1131,10 +1131,30 @@ describe('the revise cycle', () => {
   const PR = 117;
   const WORKTREE = 'feat-34-last-stand';
 
+  interface Fixture {
+    /** The reviewing account, so a drive-by reviewer can stand in for the owner. */
+    login?: string;
+    /** The PR's `reviewDecision`: the cheap gate on fetching the reviews at all. */
+    decision?: string | null;
+    /** Reviews listed beside the change request, e.g. an owner approval. */
+    extraReviews?: Record<string, unknown>[];
+  }
+
   /** The owner has asked for changes on PR 117: one review, one inline comment, one reply. */
-  function changeRequests(h: Harness, login = 'WernerVdM97'): Harness {
+  function changeRequests(h: Harness, over: Fixture = {}): Harness {
     const repo = readProjectConfig(h.root).repo;
-    h.when('gh', ['pr', 'view'], ok(JSON.stringify({ state: 'OPEN', mergedAt: null, reviewDecision: 'CHANGES_REQUESTED' })));
+    const login = over.login ?? 'WernerVdM97';
+    h.when(
+      'gh',
+      ['pr', 'view'],
+      ok(
+        JSON.stringify({
+          state: 'OPEN',
+          mergedAt: null,
+          reviewDecision: over.decision === undefined ? 'CHANGES_REQUESTED' : over.decision,
+        }),
+      ),
+    );
     h.when(
       'gh',
       ['api', `repos/${repo}/pulls/${PR}/reviews`],
@@ -1147,6 +1167,7 @@ describe('the revise cycle', () => {
             submitted_at: '2026-09-12T09:00:00Z',
             body: 'Please drop the emoji from the caption.',
           },
+          ...(over.extraReviews ?? []),
         ]),
       ),
     );
@@ -1180,8 +1201,8 @@ describe('the revise cycle', () => {
   }
 
   /** That PR in the state the ledger leaves it: open, reviewed, and waiting on the merge. */
-  function reviewing(over: Partial<JobRecord> = {}, login = 'WernerVdM97'): Harness {
-    const h = changeRequests(new Harness(), login);
+  function reviewing(over: Partial<JobRecord> = {}, fixture: Fixture = {}): Harness {
+    const h = changeRequests(new Harness(), fixture);
     const worktree = join(h.worktreeRoot, WORKTREE);
     mkdirSync(worktree, { recursive: true });
     h.when('git', ['rev-parse', 'origin/dev'], ok('d3f557b\n'));
@@ -1200,8 +1221,8 @@ describe('the revise cycle', () => {
     return h;
   }
 
-  it('enters revise on the owner\'s change requests, snapshotting them and rebasing the branch', async () => {
-    const h = reviewing();
+  it('enters revise on the owner\'s change requests, snapshotting them and merging dev in', async () => {
+    const h = reviewing({ spentMs: 40 * MIN, attempts: { build: 1 } });
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34, detail: 'change requests \u2192 revise' });
 
     const after = h.read(34);
@@ -1214,6 +1235,11 @@ describe('the revise cycle', () => {
     expect(after.waitingSince).toBeUndefined();
     expect(after.history.at(-1)).toMatchObject({ stage: 'reconcile', result: 'retried', exit: null, spentMs: 0 });
     expect(h.called('git', 'merge --no-edit origin/dev')).toBe(true);
+    // The whole PR is read, not its first GitHub page: the newest request is the one that matters.
+    const repo = readProjectConfig(h.root).repo;
+    expect(h.called('gh', `api repos/${repo}/pulls/${PR}/reviews?per_page=100`)).toBe(true);
+    expect(h.called('gh', `api repos/${repo}/pulls/${PR}/comments?per_page=100`)).toBe(true);
+    expect(h.called('gh', `api repos/${repo}/issues/${PR}/comments?per_page=100`)).toBe(true);
 
     const text = readFileSync(feedbackPath(h.ctx(), 34), 'utf8');
     expect(text).toContain('Change requests on PR #117');
@@ -1227,6 +1253,7 @@ describe('the revise cycle', () => {
 
     expect(commentBody(h, 34)).toContain('change requests on PR #117');
     expect(commentBody(h, 34)).toContain(`revise cycle 1 of ${MAX_REVISIONS}`);
+    expect(commentBody(h, 34)).toContain('reviews 9001');
     // The status is the owner's review surface, so it stays where the deliver left it.
     expect(h.called('gh', 'project item-edit')).toBe(false);
   });
@@ -1245,7 +1272,13 @@ describe('the revise cycle', () => {
   });
 
   it('ignores a change request from a login that is not the owner', async () => {
-    const h = reviewing({}, 'drive-by-reviewer');
+    const h = reviewing({}, {
+      login: 'drive-by-reviewer',
+      // A standing approval must not open a cycle while the decision is still changes-requested.
+      extraReviews: [
+        { id: 9002, user: { login: 'WernerVdM97' }, state: 'APPROVED', submitted_at: '2026-09-12T10:00:00Z', body: 'Looks good.' },
+      ],
+    });
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
     const after = h.read(34);
     expect(after).toMatchObject({ stage: 'reconcile', stageState: 'waiting' });
@@ -1260,6 +1293,60 @@ describe('the revise cycle', () => {
     expect(reviewerLogins({ FACTORY_REVIEWER_LOGINS: ' alice , bob ,' })).toEqual(['alice', 'bob']);
     expect(reviewerLogins({ FACTORY_REVIEWER_LOGINS: '   ' })).toEqual(['WernerVdM97']);
     expect(reviewerLogins({ FACTORY_REVIEWER_LOGINS: ',,' })).toEqual(['WernerVdM97']);
+  });
+
+  it('keeps a conversation comment made in the push\'s own second', async () => {
+    const h = new Harness();
+    const repo = readProjectConfig(h.root).repo;
+    const worktree = join(h.worktreeRoot, WORKTREE);
+    mkdirSync(worktree, { recursive: true });
+    h.when('gh', ['pr', 'view'], ok('{"state":"OPEN","mergedAt":null,"reviewDecision":"CHANGES_REQUESTED"}'));
+    h.when(
+      'gh',
+      ['api', `repos/${repo}/pulls/${PR}/reviews`],
+      ok(
+        JSON.stringify([
+          { id: 9001, user: { login: 'WernerVdM97' }, state: 'CHANGES_REQUESTED', submitted_at: '2026-09-12T09:00:00Z', body: 'Fix the caption.' },
+        ]),
+      ),
+    );
+    h.when('gh', ['api', `repos/${repo}/pulls/${PR}/comments`], ok('[]'));
+    h.when(
+      'gh',
+      ['api', `repos/${repo}/issues/${PR}/comments`],
+      ok(
+        JSON.stringify([
+          { id: 43, user: { login: 'WernerVdM97' }, created_at: '2026-09-11T12:30:00Z', body: 'Made in the push second.' },
+          { id: 44, user: { login: 'WernerVdM97' }, created_at: '2026-09-11T12:29:58Z', body: 'Made two seconds earlier.' },
+        ]),
+      ),
+    );
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(job({ stage: 'reconcile', stageState: 'waiting', pr: PR, worktree, lastPushAt: '2026-09-11T12:30:00.000Z' }));
+
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 34 });
+    const text = readFileSync(feedbackPath(h.ctx(), 34), 'utf8');
+    expect(text).toContain('Made in the push second.');
+    expect(text).not.toContain('Made two seconds earlier.');
+  });
+
+  it('blocks rather than revising when the worktree has uncommitted changes', async () => {
+    const h = reviewing();
+    h.dirtyWorktree = '?? scratch.txt\n';
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+    const after = h.read(34);
+    expect(after).toMatchObject({ stage: 'reconcile', stageState: 'blocked' });
+    expect(after.consumedReviews).toBeUndefined();
+    expect(h.pages[0]).toContain('uncommitted changes');
+    expect(h.pages[0]).toContain('scratch.txt');
+    expect(h.called('git', 'merge --no-edit')).toBe(false);
+    expect(existsSync(feedbackPath(h.ctx(), 34))).toBe(false);
+  });
+
+  it('resets the cycle count when the owner approves instead of requesting changes', async () => {
+    const h = reviewing({ revisions: 1 }, { decision: 'APPROVED' });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.read(34)).toMatchObject({ stage: 'reconcile', stageState: 'waiting', revisions: 0 });
   });
 
   it('reads no review data on an ordinary waiting tick', async () => {
@@ -1349,6 +1436,7 @@ describe('the revise cycle', () => {
 
   it('re-pushes an existing PR after a revise cycle instead of opening a second one', async () => {
     const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"OPEN"}'));
     h.when('gh', ['pr', 'list'], ok(`[{"number":${PR},"url":"https://example.test/pull/117"}]`));
     h.board = [item({ number: 34, status: 'In Review' })];
     h.write(job({ stage: 'deliver', revisions: 1, pr: PR }));
@@ -1362,6 +1450,40 @@ describe('the revise cycle', () => {
     expect(commentBody(h, 34)).toContain("factory: revised per the owner's change requests on PR #117");
     expect(commentBody(h, 34)).not.toContain('PR opened');
     expect(h.logs.join('\n')).not.toContain('PR opened for review');
+  });
+
+  it('does not push to or re-create a recorded PR that is no longer open', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"MERGED"}'));
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(job({ stage: 'deliver', revisions: 1, pr: PR }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
+
+    // `reconcile` reads the same state and finishes the job; deliver neither pushes nor comments.
+    expect(h.read(34)).toMatchObject({ pr: PR, stage: 'reconcile' });
+    expect(h.called('git', 'push')).toBe(false);
+    expect(h.called('gh', 'pr create')).toBe(false);
+    expect(h.called('gh', 'pr list')).toBe(false);
+    expect(commentBody(h, 34)).toBe('');
+    expect(h.logs.join('\n')).toContain('MERGED');
+  });
+
+  it('does not claim a revision when the revise stage reported nochange', async () => {
+    const h = new Harness();
+    h.when('gh', ['pr', 'view'], ok('{"state":"OPEN"}'));
+    h.when('gh', ['pr', 'list'], ok(`[{"number":${PR},"url":"https://example.test/pull/117"}]`));
+    h.board = [item({ number: 34, status: 'In Review' })];
+    h.write(job({ stage: 'deliver', revisions: 1, pr: PR }));
+    const report = join(h.jobsDir, 'artifacts', '34', 'revise.md');
+    mkdirSync(dirname(report), { recursive: true });
+    writeFileSync(report, 'VERDICT: nochange');
+
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
+    expect(h.read(34).stage).toBe('reconcile');
+    expect(h.called('git', 'push -u origin feat/34-last-stand')).toBe(true);
+    expect(commentBody(h, 34)).toContain('need no code change');
+    expect(commentBody(h, 34)).not.toContain('revised per');
+    expect(h.logs.join('\n')).toContain('no code change');
   });
 
   it('clears the revise bookkeeping on an owner retry', () => {
