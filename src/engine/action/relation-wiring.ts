@@ -65,9 +65,8 @@ export function resolveAuthoredRelation(
   };
 }
 
-/** `in_combat` is single-valued per pc, but its UNIQUE key includes the anchor, so re-engaging a
- *  foe that resolves a different anchor would leave the bailed edge behind — a second, ambiguous
- *  fight. Drop every other `in_combat` edge the same pc holds, right after writing this one. */
+/** `in_combat` is single-valued per pc, but its UNIQUE key includes the anchor: a re-engage that
+ *  resolves a different anchor leaves the bailed edge behind, a second ambiguous fight. */
 function sweepInCombatEdges(repo: RelationRepository, key: RelationKey): void {
   if (key.relType !== 'in_combat') return;
 
@@ -98,8 +97,7 @@ export function persistAuthoredRelations(
     const key = resolveAuthoredRelation(relation, char, nearbyNpcs);
     if (!key) continue;
     repo.set({ ...key, props: relation.props });
-    // Set first, sweep second: a crash between the two leaves a recoverable duplicate (the read
-    // ranks it) rather than no edge at all. A dropped set sweeps nothing — the live fight stands.
+    // Set before sweep: a crash between the two leaves a rankable duplicate, not a lost fight.
     sweepInCombatEdges(repo, key);
   }
 

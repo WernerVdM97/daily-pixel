@@ -226,8 +226,6 @@ describe('persistAuthoredRelations', () => {
     warn.mockRestore();
   });
 
-  // `set_relation`'s UNIQUE key includes the anchor, so a re-engage that resolves a different
-  // anchor used to insert a second `in_combat` edge for the same pc and leave the read ambiguous.
   describe('in_combat is single-valued per pc', () => {
     function inCombat(anchor: AuthoredRelation['to'], enemyName: string, round: number): AuthoredRelation {
       return {
@@ -288,8 +286,14 @@ describe('persistAuthoredRelations', () => {
 
     it('a pre-seeded duplicate pair is swept by the next establish', () => {
       // Seeded via repo.set: the legacy shape the sweep exists to clean up.
-      repo.set({ fromType: 'pc', fromRef: '1', toType: 'location', toRef: 'The Old Mill', relType: 'in_combat', props: { enemyName: 'Wild Boar', enemyHp: 2, enemyMaxHp: 12, round: 4 } });
-      repo.set({ fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'in_combat', props: { enemyName: 'Grum the Smith', enemyHp: 9, enemyMaxHp: 12, round: 2 } });
+      repo.set({
+        fromType: 'pc', fromRef: '1', toType: 'location', toRef: 'The Old Mill', relType: 'in_combat',
+        props: { enemyName: 'Wild Boar', enemyHp: 2, enemyMaxHp: 12, round: 4 },
+      });
+      repo.set({
+        fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'in_combat',
+        props: { enemyName: 'Grum the Smith', enemyHp: 9, enemyMaxHp: 12, round: 2 },
+      });
 
       persistAuthoredRelations(
         repo,
@@ -312,8 +316,14 @@ describe('persistAuthoredRelations', () => {
         { id: 1 },
         npcs,
       );
-      repo.set({ fromType: 'pc', fromRef: '2', toType: 'npc', toRef: '42', relType: 'in_combat', props: { enemyName: 'Grum the Smith', enemyHp: 9, enemyMaxHp: 12, round: 2 } });
-      repo.set({ fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'trust', props: { score: 5 } });
+      repo.set({
+        fromType: 'pc', fromRef: '2', toType: 'npc', toRef: '42', relType: 'in_combat',
+        props: { enemyName: 'Grum the Smith', enemyHp: 9, enemyMaxHp: 12, round: 2 },
+      });
+      repo.set({
+        fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'trust',
+        props: { score: 5 },
+      });
 
       persistAuthoredRelations(
         repo,

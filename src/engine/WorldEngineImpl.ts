@@ -37,9 +37,8 @@ import type { PipelineContextResolver } from "./action/pipeline-context.js";
 import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
 import type { CriticGateMode } from "./action/critic-gate.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
-import { readCombatState, type CombatState } from "./action/combat-state.js";
+import { readCombatState, type CombatState, type PersistedSceneStateEdge } from "./action/combat-state.js";
 import type { NodeType } from "../db/repositories/relation.js";
-import type { SceneStateEdge } from "../llm/LlmGateway.js";
 import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
 import { effectiveStats } from "./action/dc.js";
 import {
@@ -1025,15 +1024,14 @@ export class WorldEngineImpl implements WorldEngine {
   ): { name: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
     if (internalState.actionType !== 'combat') return undefined;
 
-    // The DB row shape back into the `SceneStateEdge` shape `readCombatState` expects, mirroring
+    // The DB row shape back into the edge shape `readCombatState` expects, mirroring
     // `pipeline-context.ts`'s scene-relations projection.
     const rows = this.relationRepo.forNode('pc', String(characterId));
-    const edges: SceneStateEdge[] = rows.map((row) => ({
+    const edges: PersistedSceneStateEdge[] = rows.map((row) => ({
       from: { type: row.from_type as NodeType, ref: row.from_ref },
       to: { type: row.to_type as NodeType, ref: row.to_ref },
       relType: row.rel_type,
       props: JSON.parse(row.props) as Record<string, number | string | boolean>,
-      updatedDay: row.updated_day,
       rowId: row.id,
     }));
 

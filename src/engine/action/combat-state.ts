@@ -40,38 +40,14 @@ function isSaneCombatProps(enemyHp: number, enemyMaxHp: number, round: number): 
   );
 }
 
-/** The combat `round` a duplicate-resolution comparison ranks by; a malformed one scores lowest so
- *  a corrupt edge never wins a ranking it would then fail validation on. */
-function edgeRound(edge: SceneStateEdge): number {
-  const round = (edge.props as Record<string, unknown>).round;
-  return typeof round === 'number' && Number.isFinite(round) ? round : -Infinity;
+/** A scene-state edge projected from a persisted row. The row id is read-path metadata for the
+ *  duplicate ranking below, held off the LLM-facing `SceneStateEdge`. */
+export interface PersistedSceneStateEdge extends SceneStateEdge {
+  rowId?: number;
 }
 
-/** Highest `round`, then most recently updated, then last written — a total order over two persisted
- *  rows, so which fight wins never depends on the order the DB happened to return them in. */
-function isLaterCombatEdge(candidate: SceneStateEdge, incumbent: SceneStateEdge): boolean {
-  const candidateRound = edgeRound(candidate);
-  const incumbentRound = edgeRound(incumbent);
-  if (candidateRound !== incumbentRound) return candidateRound > incumbentRound;
-
-  const candidateDay = candidate.updatedDay ?? -Infinity;
-  const incumbentDay = incumbent.updatedDay ?? -Infinity;
-  if (candidateDay !== incumbentDay) return candidateDay > incumbentDay;
-
-  return (candidate.rowId ?? -Infinity) > (incumbent.rowId ?? -Infinity);
-}
-
-/** Find the `in_combat` edge authored BY the pc and parse its props into a `CombatState`, or
- *  `null` if absent or malformed. A duplicate pair is a legacy shape (the write path sweeps), and
- *  resolves through `isLaterCombatEdge`. */
-export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
-  let edge: SceneStateEdge | undefined;
-  for (const candidate of edges) {
-    if (candidate.relType !== 'in_combat' || candidate.from.type !== 'pc') continue;
-    if (!edge || isLaterCombatEdge(candidate, edge)) edge = candidate;
-  }
-  if (!edge) return null;
-
+/** One edge's props parsed into a `CombatState`, or `null` if they are unreadable. */
+function parseCombatEdge(edge: SceneStateEdge): CombatState | null {
   const { enemyName, enemyHp, enemyMaxHp, round } = edge.props as Record<string, unknown>;
   if (typeof enemyName !== 'string' || enemyName.trim() === '') return null;
   if (typeof enemyHp !== 'number' || !Number.isFinite(enemyHp)) return null;
@@ -90,6 +66,36 @@ export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
     : undefined;
 
   return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName, baseDc };
+}
+
+/** A readable candidate plus the row id the ranking tie-breaks on. */
+interface RankedCombatEdge {
+  state: CombatState;
+  rowId: number;
+}
+
+/** Live beats finished, then highest `round`, then last written — a total order, so a duplicate pair
+ *  never resolves to whichever row the DB happened to return first. */
+function isLaterCombatEdge(candidate: RankedCombatEdge, incumbent: RankedCombatEdge): boolean {
+  const candidateLive = candidate.state.enemyHp > 0;
+  const incumbentLive = incumbent.state.enemyHp > 0;
+  if (candidateLive !== incumbentLive) return candidateLive;
+  if (candidate.state.round !== incumbent.state.round) return candidate.state.round > incumbent.state.round;
+  return candidate.rowId > incumbent.rowId;
+}
+
+/** The pc's `in_combat` edge as a `CombatState`, or `null` if the pc holds none that parses. */
+export function readCombatState(edges: PersistedSceneStateEdge[]): CombatState | null {
+  let winner: RankedCombatEdge | undefined;
+  for (const edge of edges) {
+    if (edge.relType !== 'in_combat' || edge.from.type !== 'pc') continue;
+    const state = parseCombatEdge(edge);
+    if (!state) continue;
+
+    const candidate = { state, rowId: edge.rowId ?? -Infinity };
+    if (!winner || isLaterCombatEdge(candidate, winner)) winner = candidate;
+  }
+  return winner?.state ?? null;
 }
 
 /** The initial (or any full-state) `set_relation` for the `in_combat` edge — `set` overwrites props

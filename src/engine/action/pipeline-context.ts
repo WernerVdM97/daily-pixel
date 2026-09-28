@@ -1,4 +1,5 @@
-import type { LlmContext, SceneStateEdge } from '../../llm/LlmGateway.js';
+import type { LlmContext } from '../../llm/LlmGateway.js';
+import type { PersistedSceneStateEdge } from './combat-state.js';
 import type { CharacterData, ItemData } from '../WorldEngine.js';
 import type { WorldContextResolver } from './machine.js';
 import type { NodeType } from '../../db/repositories/relation.js';
@@ -58,12 +59,11 @@ export function buildPipelineContext(
   // The persisted subgraph touching this PC, as structured data only — rendering is the template's
   // concern.
   const sceneRelationRows = resolver.getSceneRelations?.({ type: 'pc', ref: String(char.id) }) ?? [];
-  const sceneState: SceneStateEdge[] = sceneRelationRows.map((row) => ({
+  const sceneState: PersistedSceneStateEdge[] = sceneRelationRows.map((row) => ({
     from: { type: row.from_type as NodeType, ref: row.from_ref },
     to: { type: row.to_type as NodeType, ref: row.to_ref },
     relType: row.rel_type,
     props: JSON.parse(row.props) as Record<string, number | string | boolean>,
-    updatedDay: row.updated_day,
     rowId: row.id,
   }));
 

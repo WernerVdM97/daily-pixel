@@ -255,9 +255,6 @@ describe('sim — scene-state spine (Stage 2 T3): cross-turn read-back through P
         to: { type: 'location', ref: "The Warden's Oak" },
         relType: 'knows_secret',
         props: { clue: 'a hidden door behind the bar' },
-        // Persisted-row recency metadata on the projected edge (see SceneStateEdge); this travel
-        // edge carries it untouched.
-        updatedDay: null,
         rowId: expect.any(Number),
       },
     ]);

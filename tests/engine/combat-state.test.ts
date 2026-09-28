@@ -6,6 +6,7 @@ import {
   combatRoundUpdate,
   combatSaveUpdate,
   type CombatState,
+  type PersistedSceneStateEdge,
 } from '../../src/engine/action/combat-state.js';
 import type { SceneStateEdge } from '../../src/llm/LlmGateway.js';
 
@@ -164,66 +165,94 @@ describe('readCombatState / combatStateToSetRelation round-trip', () => {
   });
 });
 
-// The write-side sweep keeps one `in_combat` edge per pc, so a pair here is a legacy DB shape
-// (`set_relation`'s UNIQUE key includes the anchor, so a different-anchor re-engage used to add a
-// second). Both orders must give the same fight — never "whichever row the DB returned first".
+// A pair here is a legacy DB shape (the write-side sweep keeps one edge per pc). Both orders must
+// give the same fight — never "whichever row the DB returned first".
 describe('readCombatState — duplicate in_combat edges for one pc resolve deterministically', () => {
   function combatEdge(
     anchor: { type: 'npc' | 'location'; ref: string },
     props: Record<string, number | string>,
-    recency: { updatedDay: number | null; rowId: number },
-  ): SceneStateEdge {
+    rowId: number,
+  ): PersistedSceneStateEdge {
     return {
       ...edgeFromAuthored({ type: 'pc', ref: '7' }, anchor, 'in_combat', props),
-      ...recency,
+      rowId,
     };
   }
 
-  const graskAtRound3 = () => combatEdge(
+  const graskAtRound3 = (rowId: number) => combatEdge(
     { type: 'npc', ref: '42' },
     { enemyName: 'Grask the Bandit', enemyHp: 4, enemyMaxHp: 15, round: 3 },
-    { updatedDay: 2, rowId: 1 },
+    rowId,
   );
-  const boarAtRound1 = () => combatEdge(
+  const boarAtRound1 = (rowId: number) => combatEdge(
     { type: 'location', ref: 'Darkwood Clearing' },
     { enemyName: 'Wild Boar', enemyHp: 12, enemyMaxHp: 12, round: 1 },
-    { updatedDay: 9, rowId: 2 },
+    rowId,
   );
 
   it('the higher round wins, whichever order the rows arrive in', () => {
-    for (const edges of [[graskAtRound3(), boarAtRound1()], [boarAtRound1(), graskAtRound3()]]) {
+    for (const edges of [[graskAtRound3(1), boarAtRound1(2)], [boarAtRound1(2), graskAtRound3(1)]]) {
       expect(readCombatState(edges)).toMatchObject({ enemyName: 'Grask the Bandit', round: 3 });
     }
   });
 
-  it('on equal rounds the more recently updated edge wins, whichever order they arrive in', () => {
-    const stale = combatEdge(
+  it('a live fight beats a finished one on a higher round, whichever order the rows arrive in', () => {
+    // The shape pre-fix play leaves behind: the terminal write stamps the killed foe's edge at
+    // `cs.round + 1`, so round alone would hand the read a fight that is already over.
+    const dead = combatEdge(
       { type: 'location', ref: 'The Old Mill' },
-      { enemyName: 'Wild Boar', enemyHp: 8, enemyMaxHp: 12, round: 2 },
-      { updatedDay: 3, rowId: 1 },
+      { enemyName: 'Wild Boar', enemyHp: 0, enemyMaxHp: 12, round: 6 },
+      1,
     );
-    const later = combatEdge(
+    const live = combatEdge(
       { type: 'npc', ref: '42' },
-      { enemyName: 'Grask the Bandit', enemyHp: 10, enemyMaxHp: 15, round: 2 },
-      { updatedDay: 7, rowId: 2 },
+      { enemyName: 'Grask the Bandit', enemyHp: 7, enemyMaxHp: 12, round: 3 },
+      2,
     );
 
-    for (const edges of [[stale, later], [later, stale]]) {
+    for (const edges of [[dead, live], [live, dead]]) {
+      expect(readCombatState(edges)).toMatchObject({ enemyName: 'Grask the Bandit', enemyHp: 7, round: 3 });
+    }
+  });
+
+  it('a lone finished fight still reads dead, so it stays the "nothing to resume" marker', () => {
+    const dead = combatEdge(
+      { type: 'location', ref: 'The Old Mill' },
+      { enemyName: 'Wild Boar', enemyHp: 0, enemyMaxHp: 12, round: 6 },
+      1,
+    );
+
+    expect(readCombatState([dead])).toMatchObject({ enemyName: 'Wild Boar', enemyHp: 0 });
+  });
+
+  it('an unreadable edge loses to a readable sibling instead of nulling the whole read', () => {
+    const corrupt = combatEdge(
+      { type: 'location', ref: 'The Old Mill' },
+      { enemyName: 'Wild Boar', enemyHp: 50, enemyMaxHp: 12, round: 7 },
+      2,
+    );
+    const live = combatEdge(
+      { type: 'npc', ref: '42' },
+      { enemyName: 'Grask the Bandit', enemyHp: 7, enemyMaxHp: 12, round: 3 },
+      1,
+    );
+
+    for (const edges of [[corrupt, live], [live, corrupt]]) {
       expect(readCombatState(edges)).toMatchObject({ enemyName: 'Grask the Bandit' });
     }
   });
 
-  it('on equal rounds and update days the later-written row wins, whichever order they arrive in', () => {
+  it('on equal rounds the later-written row wins, whichever order they arrive in', () => {
     const rounded = { enemyHp: 8, enemyMaxHp: 12, round: 2 };
     const staleRow = combatEdge(
       { type: 'location', ref: 'The Old Mill' },
       { ...rounded, enemyName: 'A Wounded Boar' },
-      { updatedDay: 4, rowId: 4 },
+      4,
     );
     const newerRow = combatEdge(
       { type: 'location', ref: 'The Old Mill' },
       { ...rounded, enemyName: 'Wild Boar' },
-      { updatedDay: 4, rowId: 5 },
+      5,
     );
 
     for (const edges of [[staleRow, newerRow], [newerRow, staleRow]]) {
