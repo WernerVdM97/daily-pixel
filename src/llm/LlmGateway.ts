@@ -73,6 +73,11 @@ export interface SceneStateEdge {
   to: { type: 'pc' | 'npc' | 'location'; ref: string };
   relType: string;
   props: Record<string, number | string | boolean>;
+  /** Recency of the persisted row this edge was projected from: `relations.updated_day`, then its
+   *  insert `id`. Read-path metadata only, never rendered into a prompt; absent on edges the engine
+   *  synthesizes in memory, which are single-candidate by construction. */
+  updatedDay?: number | null;
+  rowId?: number;
 }
 
 // Canonical list — the SINGLE source of truth for the category set. The union type below is

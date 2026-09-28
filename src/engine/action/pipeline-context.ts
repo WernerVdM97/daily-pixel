@@ -63,6 +63,8 @@ export function buildPipelineContext(
     to: { type: row.to_type as NodeType, ref: row.to_ref },
     relType: row.rel_type,
     props: JSON.parse(row.props) as Record<string, number | string | boolean>,
+    updatedDay: row.updated_day,
+    rowId: row.id,
   }));
 
   return {

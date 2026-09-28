@@ -65,6 +65,24 @@ export function resolveAuthoredRelation(
   };
 }
 
+/** `in_combat` is single-valued per pc, but its UNIQUE key includes the anchor, so re-engaging a
+ *  foe that resolves a different anchor would leave the bailed edge behind — a second, ambiguous
+ *  fight. Drop every other `in_combat` edge the same pc holds, right after writing this one. */
+function sweepInCombatEdges(repo: RelationRepository, key: RelationKey): void {
+  if (key.relType !== 'in_combat') return;
+
+  for (const row of repo.findByFrom(key.fromType, key.fromRef, key.relType)) {
+    if (row.to_type === key.toType && row.to_ref === key.toRef) continue;
+    repo.remove({
+      fromType: key.fromType,
+      fromRef: key.fromRef,
+      toType: row.to_type as NodeType,
+      toRef: row.to_ref,
+      relType: key.relType,
+    });
+  }
+}
+
 /**
  * Resolve and persist authored relations; shared by the prod engine and the sim host. Unresolvable
  * edges drop with a warning (never a throw), and an `update_relation` on a missing edge warns and is skipped.
@@ -80,6 +98,9 @@ export function persistAuthoredRelations(
     const key = resolveAuthoredRelation(relation, char, nearbyNpcs);
     if (!key) continue;
     repo.set({ ...key, props: relation.props });
+    // Set first, sweep second: a crash between the two leaves a recoverable duplicate (the read
+    // ranks it) rather than no edge at all. A dropped set sweeps nothing — the live fight stands.
+    sweepInCombatEdges(repo, key);
   }
 
   for (const relation of relationsToUpdate) {

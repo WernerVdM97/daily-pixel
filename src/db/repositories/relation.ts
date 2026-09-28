@@ -108,6 +108,16 @@ export class RelationRepository {
       .all({ type, ref }) as RelationRow[];
   }
 
+  /** Every edge of one `relType` authored BY a single node — the single-valued-edge sweep's read. */
+  findByFrom(fromType: NodeType, fromRef: string, relType: string): RelationRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM relations
+         WHERE from_type = ? AND from_ref = ? AND rel_type = ?`,
+      )
+      .all(fromType, fromRef, relType) as RelationRow[];
+  }
+
   /** Total edge count — the sim-metrics hook (Stage 2 T5c) for "edges persisted at scenario end". */
   count(): number {
     return (this.db.prepare('SELECT count(*) AS n FROM relations').get() as { n: number }).n;

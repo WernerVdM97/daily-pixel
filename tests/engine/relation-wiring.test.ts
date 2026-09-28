@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../src/db/migrate.js';
-import { RelationRepository } from '../../src/db/repositories/relation.js';
+import { RelationRepository, type RelationRow } from '../../src/db/repositories/relation.js';
 import {
   resolveRelationEndpoint,
   resolveAuthoredRelation,
@@ -224,5 +224,134 @@ describe('persistAuthoredRelations', () => {
     expect(repo.count()).toBe(0);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+
+  // `set_relation`'s UNIQUE key includes the anchor, so a re-engage that resolves a different
+  // anchor used to insert a second `in_combat` edge for the same pc and leave the read ambiguous.
+  describe('in_combat is single-valued per pc', () => {
+    function inCombat(anchor: AuthoredRelation['to'], enemyName: string, round: number): AuthoredRelation {
+      return {
+        from: { node: 'pc' },
+        to: anchor,
+        relType: 'in_combat',
+        props: { enemyName, enemyHp: 6, enemyMaxHp: 12, round },
+      };
+    }
+
+    function liveInCombatEdges(fromRef = '1'): RelationRow[] {
+      return repo.forNode('pc', fromRef).filter((e) => e.rel_type === 'in_combat');
+    }
+
+    it('a re-engage on a different anchor drops the bailed edge, leaving exactly one', () => {
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'npc', name: 'Grum the Smith' }, 'Grum the Smith', 3)],
+        [],
+        { id: 1 },
+        npcs,
+      );
+
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'location', name: 'The Old Mill' }, 'Wild Boar', 1)],
+        [],
+        { id: 1 },
+        [],
+      );
+
+      const edges = liveInCombatEdges();
+      expect(edges).toHaveLength(1);
+      expect(edges[0]).toMatchObject({ to_type: 'location', to_ref: 'The Old Mill' });
+      expect(JSON.parse(edges[0].props)).toMatchObject({ enemyName: 'Wild Boar', round: 1 });
+    });
+
+    it('the same-anchor re-engage path is unchanged: one edge, props advanced in place', () => {
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'npc', name: 'Grum the Smith' }, 'Grum the Smith', 1)],
+        [],
+        { id: 1 },
+        npcs,
+      );
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'npc', name: 'Grum the Smith' }, 'Grum the Smith', 2)],
+        [],
+        { id: 1 },
+        npcs,
+      );
+
+      const edges = liveInCombatEdges();
+      expect(edges).toHaveLength(1);
+      expect(JSON.parse(edges[0].props)).toMatchObject({ round: 2, enemyHp: 6 });
+    });
+
+    it('a pre-seeded duplicate pair is swept by the next establish', () => {
+      // Seeded via repo.set: the legacy shape the sweep exists to clean up.
+      repo.set({ fromType: 'pc', fromRef: '1', toType: 'location', toRef: 'The Old Mill', relType: 'in_combat', props: { enemyName: 'Wild Boar', enemyHp: 2, enemyMaxHp: 12, round: 4 } });
+      repo.set({ fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'in_combat', props: { enemyName: 'Grum the Smith', enemyHp: 9, enemyMaxHp: 12, round: 2 } });
+
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'location', name: 'Darkwood Clearing' }, 'A Ravenous Stag', 1)],
+        [],
+        { id: 1 },
+        [],
+      );
+
+      const edges = liveInCombatEdges();
+      expect(edges).toHaveLength(1);
+      expect(edges[0]).toMatchObject({ to_ref: 'Darkwood Clearing' });
+    });
+
+    it('sweeps only the re-engaging pc, and only in_combat edges', () => {
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'npc', name: 'Grum the Smith' }, 'Grum the Smith', 3)],
+        [],
+        { id: 1 },
+        npcs,
+      );
+      repo.set({ fromType: 'pc', fromRef: '2', toType: 'npc', toRef: '42', relType: 'in_combat', props: { enemyName: 'Grum the Smith', enemyHp: 9, enemyMaxHp: 12, round: 2 } });
+      repo.set({ fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'trust', props: { score: 5 } });
+
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'location', name: 'The Old Mill' }, 'Wild Boar', 1)],
+        [],
+        { id: 1 },
+        [],
+      );
+
+      expect(liveInCombatEdges()).toHaveLength(1);
+      const otherPc = liveInCombatEdges('2');
+      expect(otherPc).toHaveLength(1);
+      expect(otherPc[0]).toMatchObject({ to_type: 'npc', to_ref: '42' });
+      expect(repo.find({ fromType: 'pc', fromRef: '1', toType: 'npc', toRef: '42', relType: 'trust' })).toBeDefined();
+    });
+
+    it('a set that drops (unresolvable npc) sweeps nothing — the live fight stands', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'location', name: 'The Old Mill' }, 'Wild Boar', 2)],
+        [],
+        { id: 1 },
+        [],
+      );
+
+      persistAuthoredRelations(
+        repo,
+        [inCombat({ node: 'npc', name: 'A Stranger' }, 'A Stranger', 1)],
+        [],
+        { id: 1 },
+        npcs,
+      );
+
+      const edges = liveInCombatEdges();
+      expect(edges).toHaveLength(1);
+      expect(edges[0]).toMatchObject({ to_ref: 'The Old Mill' });
+      warn.mockRestore();
+    });
   });
 });
