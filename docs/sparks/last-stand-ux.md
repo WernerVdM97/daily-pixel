@@ -24,7 +24,7 @@ When the day's first lethal blow lands, the engine floors the player to 1 HP and
 Two render facts shape every wireframe below:
 
 - The bail label becomes the **worded button** (`shortLabel(opt.label, 80)`, `actionViewState.ts:223`), while the non-bail label becomes the **lettered body line** (`**A.** …`, `actionViewState.ts:233`). "Caption" is therefore two surfaces at two different widths, and quoting a button caption at body width (or the reverse) would miss the one that actually truncates.
-- Neither forced label carries `stat`, and `dcArrow(0)` is empty for the last stand (`actionViewState.ts:53` and `:60`), so today both captions render bare. The existing emoji vocabulary (`DISTILLED_EMOJI`, `src/engine/OutcomeRenderer.ts:101`, reached through `distilledActionEmoji`) keys on distilled action type and is never consulted from an option label.
+- Neither forced label carries `stat`, and `dcArrow(0)` is empty for the last stand (`actionViewState.ts:54`; `statEmoji`, `:60`, returns nothing for a label with no `stat`), so today both captions render bare. The existing emoji vocabulary (`DISTILLED_EMOJI`, `src/engine/OutcomeRenderer.ts:101`, reached through `distilledActionEmoji`) keys on distilled action type and is never consulted from an option label.
 
 The screen also escalates its own border: `chooseContinueBorder` (`actionViewState.ts:94`) returns the heavy style at ≤25% HP, which the last stand always is, so the continue card renders `╔` while the opener-register frames render `┌`.
 
@@ -34,7 +34,7 @@ Plain captions, no scene frame. Reproduced from a live call of `buildDecisionVie
 
 ````text
 🤔 Decision                        ← embed title; one body embed, one button row
-──────────────────────────────────────────────────────────
+──────────────────────────────────────────────────────────  ← wireframe rule, not rendered
 > 🧭 **Quest:** attack the gloomfang
 
 ↪ **Stand firm**
@@ -58,7 +58,7 @@ Plain captions, no scene frame. Reproduced from a live call of `buildDecisionVie
 > late.
 
 **A.** Last stand
-──────────────────────────────────────────────────────────
+──────────────────────────────────────────────────────────  ← wireframe rule, not rendered
 [ Bail bloodied ]   [ A ]          ← button row
 Decision 2                         ← embed footer
 ````
@@ -114,14 +114,14 @@ Both forced captions gain an emoji from the existing vocabulary, and the screen 
 > late.
 
 **A.** ⚔️ Last stand
-──────────────────────────────────────────────────────────
-[ 🏃 Bail bloodied ]   [ A ]
+──────────────────────────────────────────────────────────  ← wireframe rule, not rendered
+[ 🏃 Bail bloodied ]   [ A ]       ← button row
 ````
 
-**Assumes this code.** Same option labels as (a), at `PipelineActionStateMachine.ts:645-646`. The scene half needs no new slot: the decision message already leads with an embed when `openingFrame` is set (the `showOpeningFrame` gate at `actionViewState.ts:252`, prepended at `viewToDiscord.ts:69-77`, and already included for the agent adapter at `viewToText.ts:82`), so a last-stand screen reusing it shows the frame to the player-agent too. The emoji half reads `DISTILLED_EMOJI` (`OutcomeRenderer.ts:101`): `distilledActionEmoji('flee')` and `('retreat')` return 🏃, `('combat')` and `('attack')` return ⚔️, while `('bail')` falls through to the ✴️ default, so the captions need a key the vocabulary already has (`flee`, `combat`) or a label-keyed map beside it. Baking the emoji into the labels at `PipelineActionStateMachine.ts:645-646` would carry it to both surfaces from one place, since the button caption and the body line both read `opt.label` (`actionViewState.ts:223` and `:233`).
+**Assumes this code.** Same option labels as (a), at `PipelineActionStateMachine.ts:645-646`. The scene half needs no new view slot, but it is not free of call-site change: the decision message already leads with an embed when `openingFrame` is set (the `showOpeningFrame` gate at `actionViewState.ts:252`, prepended at `viewToDiscord.ts:69-77`, and already included for the agent adapter at `viewToText.ts:82`), so a last-stand screen reusing it shows the frame to the player-agent too. The gate defaults off (`actionViewState.ts:165`) and is passed `true` only on an action's first decision (`SessionController.ts:653`) and on combat resumes (`:295`, `:593`). The desperate beat is a later decision of a continued action, rendered through `stepChoice` (`SessionController.ts:243-261`), which passes neither the flag nor the `actionType`/enemy slots, so reusing the register costs that path a flag plus those slots, not a new view slot. The emoji half reads `DISTILLED_EMOJI` (`OutcomeRenderer.ts:101`): `distilledActionEmoji('flee')` and `('retreat')` return 🏃, `('combat')` and `('attack')` return ⚔️, while `('bail')` falls through to the ✴️ default, so the captions need a key the vocabulary already has (`flee`, `combat`) or a label-keyed map beside it. A label-keyed map is the cheaper route, because `opt.label` is not only the button caption and the body line (`actionViewState.ts:223` and `:233`): it is also the choice key and the persisted choice, resolved by string equality in `step` (`PipelineActionStateMachine.ts:299-301`) and recorded as `chosen` (`:309`, `:336`), which renders into the story thread (`actionViewState.ts:86`). Baking the emoji into the labels at `PipelineActionStateMachine.ts:645-646` would therefore carry it to both surfaces from one place, but it is an engine-plus-wire change, not the free move it looks like: every `stepAction` addressing an option by label breaks (`Invalid choice`), and the next screen's thread reads `↪ **⚔️ Last stand**`. That is why the render-side decorations keep `opt.label` raw (`actionViewState.ts:227-228`).
 
-- [p] Cheapest option: the frame slot exists, the emoji vocabulary exists, and nothing in the engine or on the wire moves.
-- [c] The frame duplicates the card. Both carry the foe's nameplate, its condition band and the player's HP, and side by side they disagree on the same 1 HP: the opener HP bar has no minimum fill, so 1/30 renders `[░░░░░░░]` (reads dead), while the continue card renders `[█░░░░░░░░░░░░░░]`.
+- [p] Cheapest option: the frame slot exists, the emoji vocabulary exists, and a label-keyed render map keeps `opt.label` raw, so nothing on the wire moves; the only engine-side edit is the frame's own call site on the mid-action path.
+- [c] The frame duplicates the card. Both carry the foe's nameplate, its condition band and the player's HP, and side by side they disagree on the same 1 HP: both renderers call `hpBar` (`AnsiRenderer.ts:148`), which has no fill floor, but the continue card passes it a 15-column width and the opener 7, so `round(1/30 * 15) = 1` against `round(1/30 * 7) = 0` — the opener shows `[░░░░░░░]` (reads dead) where the card shows `[█░░░░░░░░░░░░░░]`.
 - [c] Register clash: a standard-bordered `┌` frame directly above a heavy-bordered `╔` card shows two borders from two ladders at once.
 - [c] Height: a second embed plus a 16-line art block sits on the screen where a panicking player most needs both choices near the thumb.
 
@@ -165,7 +165,7 @@ Same captions, one frame, no duplication. The round's dice maths has to go somew
 Budget assumed, stated because truncation is the risk being evaluated: **20 visible columns for the worded bail caption** and **30 columns for a body option line**.
 
 - The 30 is measured, not guessed: phone portrait is a hard 30-column cap for scene text, with 60 columns the ceiling for a code block ([Discord Window Size Reference](../templates/discord-window-size.md), and [Discord UX](../ui/poc-discord-ux.md) § Width).
-- The 20 is derived: the bail caption shares its action row with the lettered `A` button plus Discord's own button padding, which takes roughly a third of the 30. The empirical anchor is the recorded POC failure, where a ~22-column caption ("Decline — I'll use steel") in a two-button row truncated on mobile, and is why option text moved into the body while the buttons became letters ([POC action UX refinements](../decisions/poc-action-ux-refinements.md) § 1).
+- The 20 is derived: the bail caption shares its action row with the lettered `A` button plus Discord's own button padding, which takes roughly a third of the 30. The empirical anchor is the recorded POC failure, where a 24-column caption ("Decline — I'll use steel") in a two-button row truncated on mobile, and is why option text moved into the body while the buttons became letters ([POC action UX refinements](../decisions/poc-action-ux-refinements.md) § 1).
 - Emoji count 2 columns, a variation selector counts 0, spaces count 1. Today's caption is 13 columns, and the row is comfortable.
 
 | Caption | Columns | Verdict |
@@ -184,7 +184,7 @@ So the emoji is affordable: it costs 3 columns on the worded caption and leaves 
 - [?] **Emoji per option, or per outcome?** The vocabulary is per distilled action type today, so 🏃 and ⚔️ are derived from intent words. A label-keyed map suits a caption better but grows a second vocabulary beside the first.
 - [?] **Frame above the card, or replacing it?** (b) duplicates the nameplate and the HP bar and shows two border registers; (c) removes both and pays in the shared continue card and the dice line's rehoming.
 - [?] **Which border wins?** The card is already heavy on this screen (`chooseContinueBorder`, `actionViewState.ts:94`), so a frame keeping `┌` above it reads as a downgrade of the moment.
-- [?] **Minimum HP-bar fill.** Should a 1 HP bar show one pip so the opener and the card agree? The card fills one block, the opener fills none.
+- [?] **Opener bar width, or a 1 HP floor?** The disagreement above is width plus rounding, not a missing fill rule, so either fix moves more than this one bar: widening the opener moves every opener reading (2/30 shows no pip in 7 columns where the card's 15 shows one), a floor inside `hpBar` moves every bar in the game.
 - [?] **Is 20 columns right?** The derived budget matches the recorded POC truncation, but nothing in the repo has measured a two-button row on a phone. A live check settles it, and `🏃 Bail out bloodied` is its test case: the one caption that sits exactly on the line.
 - [!] **Nothing here is approved.** The code work is the sibling implementation card, which needs `Status=Approved` on its own; these wireframes only show what it would look like.
 
