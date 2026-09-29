@@ -94,12 +94,13 @@ function outcomeToText(view: OutcomeViewState): string {
   const parts: string[] = [`${view.title.emoji} ${view.title.text}`];
   if (view.locationLine) parts.push(view.locationLine);
   if (view.breadcrumb) parts.push(view.breadcrumb);
-  // Combat outcomes carry the combat scene block; non-combat carry the plain scene (mirrors
-  // the `isCombat` selection in `outcomeViewToDiscord`).
+  // Combat outcomes carry the combat scene block; the auto-resolved arm carries its opening
+  // frame ahead of the plain scene (mirrors the selection in `outcomeViewToDiscord`).
   if (view.isCombat) {
     if (view.combatSceneBlock) parts.push(view.combatSceneBlock);
-  } else if (view.sceneBlock) {
-    parts.push(view.sceneBlock);
+  } else {
+    if (view.openingFrame) parts.push(view.openingFrame);
+    if (view.sceneBlock) parts.push(view.sceneBlock);
   }
   if (view.storyThread) parts.push(view.storyThread.full);
   parts.push(view.outcomeBlock);
