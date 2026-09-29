@@ -119,6 +119,7 @@ deferred depth & polish
 | 🌱 | [Moral Drift](./sparks/mvp+moral-drift.md) | Continuous moral vector, derived alignment, governor loop |
 | 🌱 | [Login Streaks](./sparks/mvp+login-streaks.md) | Retention incentives, bonus rolls |
 | 🌱 | [ANSI Art — Coloured Frames & Splash](./sparks/mvp+ansi-art.md) | Discord `ansi` colour: tested constraints, colour roles, frame slots, splash |
+| 🌱 | [Last-Stand Screen: Emoji Captions & Combat Scene Frame](./sparks/last-stand-ux.md) | Wireframes for the desperate-choice beat: today's render, two candidates for emoji option captions + a combat scene frame, and the mobile caption budget |
 
 ---
 
