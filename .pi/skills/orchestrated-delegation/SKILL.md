@@ -112,7 +112,7 @@ In the factory the base is always `dev` (`baseRef: "dev"`), so the streams and t
 
 ## Edit discipline
 
-The transcripts repeat the same three edit failures (8 PARTIAL APPLY, 11 anchor-not-found and 6 read-guard refusals in one 14-day window), and all three are avoidable:
+Past transcripts repeat the same three edit failures (PARTIAL APPLY, anchor-not-found and read-guard refusals), and all three are avoidable:
 
 - **Read before you edit.** The edit tool refuses a file this conversation has not read, and a fresh worktree counts as unread; read the file rather than retrying the same call.
 - **One hunk per call, anchored on unique text.** A later hunk whose anchor went stale reports PARTIAL APPLY and drops the rest of the call, and when a line repeats — every `### Fixed`, every `});` — widen the anchor until it is unique.
