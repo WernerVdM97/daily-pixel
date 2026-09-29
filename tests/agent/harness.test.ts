@@ -1797,3 +1797,73 @@ describe('AgentHarness — the outcome verb', () => {
     expect(harness.transcript.verbHistogram()).toEqual({ kinds: { custom: 1 }, verbs: { chore: 1 } });
   });
 });
+
+// ── C4 follow-up, on the harness: a fight abandoned mid-round comes back through `menu.open`,
+// and the resumed screen has to re-open it. The brain reads the screen text the frame rides on. ──
+
+describe('AgentHarness — a resumed mid-fight re-opens the combat frame', () => {
+  /** A fight that cannot resolve on its own: `required: true` routes every choice into
+   *  `handleCombatStep`, and the foe (baseDc 12 → 12 HP) survives a round. */
+  const COMBAT_SCRIPT: PipelineScript = {
+    classify: () => ({
+      kind: 'hit',
+      actionType: 'combat',
+      flags: { unsafe_location: false, needs_roll: true, target_present: true },
+    }),
+    decide: () => ({
+      distilledType: 'skirmish',
+      stat: 'physical',
+      baseDc: 12,
+      required: true,
+      combatEnemy: { name: 'Goblin Skirmisher', anchor: 'location' },
+      decision: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
+    }),
+    resolveMutate: () => ({ mutations: [] }),
+    resolveNarrate: () => ({ outcomeText: 'The goblin drops.' }),
+  };
+
+  it('shows the opener, with the foe it remembers, on the resumed screen and not on the beat after', async () => {
+    // Alternating dice: the player crits (clean band, −8 foe HP) and the foe rolls 15. Round 1
+    // leaves the fight at 4/12 — damaged enough to band, alive enough to continue.
+    let roll = 0;
+    const agentEngine = buildAgentEngine({
+      pipelineLlmGateway: new PipelineScriptedGateway(COMBAT_SCRIPT),
+      rollD20: () => [20, 15][roll++ % 2],
+    });
+    const brain = new ScriptedAgentPlayerGateway([
+      { kind: 'custom', text: 'attack the goblin' },
+      { kind: 'choice', index: 0 },   // round 1
+      // Walking off the decision screen is the harness's stand-in for a player who leaves
+      // mid-round: the action stays in flight, which is the state a resume reads.
+      { kind: 'sleep' },
+      { kind: 'choice', index: 0 },   // resumes, then round 2 breaks the foe
+      { kind: 'choice', index: 0 },   // 'Finish it'
+    ]);
+    const harness = createAgentHarness(agentEngine.engine, buildDeterministicRouter(agentEngine), brain, 'agent:resume-fight');
+    await harness.createCharacter(SEED);
+
+    expect(await harness.playOneAction()).toEqual({ kind: 'illegal-move', move: { kind: 'sleep' } });
+    expect(await harness.playOneAction()).toEqual({ kind: 'outcome' });
+
+    const dispatches = harness.transcript.protocol.filter(
+      (e): e is ProtocolDispatchEntry => e.kind === 'dispatch',
+    );
+    const resumes = dispatches.filter((d) => d.event.type === 'menu.open');
+    expect(resumes).toHaveLength(2); // the menu, then the resume
+
+    const resumed = resumes[1].response;
+    if (!resumed.ok) throw new Error('the resume returned an error envelope');
+    const view = resumed.view as DecisionViewState;
+    expect(view.screen).toBe('decision');
+    expect(view.openingFrame).toContain('Goblin Skirmisher');
+    expect(view.openingFrame).toContain('Battered');
+    // The player sees it: the same text the brain was handed for that turn.
+    expect(brain.calls[3].screenText).toContain('Goblin Skirmisher');
+
+    // The fight re-opens once — the round that follows the resume is a plain continue screen.
+    const beats = dispatches.filter((d) => d.event.type === 'action.choose');
+    const afterResume = beats[1].response;
+    if (!afterResume.ok) throw new Error('the resumed beat returned an error envelope');
+    expect((afterResume.view as DecisionViewState).openingFrame).toBeUndefined();
+  });
+});

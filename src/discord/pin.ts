@@ -1,14 +1,12 @@
 import type { Message } from "discord.js";
 
 /**
- * Pinning helpers. All best-effort: pinning requires the bot to hold the
- * **Manage Messages** permission in the target channel. Without it Discord
- * rejects `pin()`/`unpin()`/`fetchPinned()` and we log + carry on — the message
- * itself still posted, it just isn't pinned. None of these throw into callers.
+ * Pinning is best-effort: it needs the bot to hold **Manage Messages** there, and without it Discord
+ * rejects the calls — logged and carried on, since the message itself still posted. Nothing throws.
  */
 
-/** Pin a freshly-sent message. Used for release notes and Saturday threats,
- *  which all stay pinned (no unpinning of prior ones). */
+/** Pins a freshly-sent message, leaving earlier pins alone. Used for release notes; the pin helpers
+ *  below build on it. */
 export async function pinMessage(message: Message, label: string): Promise<void> {
   try {
     await message.pin();
@@ -21,11 +19,8 @@ export async function pinMessage(message: Message, label: string): Promise<void>
 }
 
 /**
- * Pin `message` and unpin every *older* pinned message in the same channel whose
- * content starts with `marker` — so only the latest of that kind stays pinned.
- * Used for the leaderboard (only the most recent board should remain). Matching
- * on the message's own header keeps it self-contained: no meta bookkeeping, and
- * it cleans up any boards pinned before this feature existed too.
+ * Pins `message` and unpins every older pinned message starting with `marker` — the Saturday threat
+ * and the leaderboard. Matching the header itself needs no bookkeeping, and cleans up pre-feature pins.
  */
 export async function pinReplacing(
   message: Message,
@@ -48,12 +43,8 @@ export async function pinReplacing(
 }
 
 /**
- * Pin `message`, then keep only the `keep` NEWEST pinned messages of the same kind (own
- * messages whose content starts with `marker`) pinned, unpinning the older ones. Discord caps
- * a channel at 50 pins, so an unbounded "pin every week's header" archive would silently start
- * failing (error 30003) once full. Bounding it keeps pinning working; an unpinned header survives
- * as an ordinary message (its thread persists) — only the pin is dropped. The trim is logged so
- * the cap isn't a silent truncation.
+ * Pins `message`, then keeps only the `keep` newest of the same kind: Discord caps a channel at 50
+ * pins, so an archive of every week's header would start failing (error 30003) once full.
  */
 export async function pinKeepingNewest(
   message: Message,

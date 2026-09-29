@@ -1,12 +1,6 @@
 /**
- * /sleep — rest or advance the world.
- *
- * Admin (ADMIN_USER_ID env var): triggers the daily tick. Stays adapter-direct until M9
- * (flagged M7.1 watch item — the engine-direct `tick(true)` cron call is engine-owned).
- * Non-admin: the player goodnight crosses the JSON seam as `rest.begin` (M7.1, DC-M7.1.5) —
- * this handler is translate + paint only. The unsafe-rest −1 HP rule moved into
- * `engine.restAtOak` (DC-M7.1.1); the reply copy moved to the router (DC-P4); the collapse
- * announcement crosses back as the `restUnsafe` fact (DC-M7.1.4).
+ * /sleep — rest or advance the world. Admin (`ADMIN_USER_ID`, plus `SLEEP_ADMIN_TICK=true`) triggers
+ * the daily tick directly; the player goodnight crosses the JSON seam as `rest.begin` and is translate + paint only.
  */
 import type { WorldEngine } from "../../engine/WorldEngine.js";
 import { mapError } from "../../engine/ErrorMapper.js";
@@ -18,7 +12,6 @@ import type { NoticeViewState } from "../../view/viewState.js";
 import type { NavFacts } from "../CommandRegistry.js";
 
 export function makeSleepCommand(engine: WorldEngine, router: GameRouter) {
-  /** Warn once at first call if ADMIN_USER_ID is unset (deploy-time safety net). */
   const adminUserId = process.env.ADMIN_USER_ID ?? "";
   if (!adminUserId) {
     console.warn(
@@ -38,8 +31,8 @@ export function makeSleepCommand(engine: WorldEngine, router: GameRouter) {
       try {
         const result = engine.tick(true);
 
-        // Shares the morning builder with the live cron post (index.ts) so the two never
-        // drift — same day, same prose, whichever path advances the world.
+        // Shares the morning builder with the live cron post in index.ts, so both paths
+        // render the same day and prose.
         return buildMorningAnnouncement({
           day: result.dayNumber,
           playersAffected: result.playersAffected,
@@ -51,25 +44,22 @@ export function makeSleepCommand(engine: WorldEngine, router: GameRouter) {
       }
     }
 
-    // Player path — translate + paint. The router owns the guards, the rest screen, and
-    // the penalty copy; its error.message IS the string the dispatcher paints.
+    // Player path — the router owns the guards and the penalty copy; its error.message IS the
+    // string the dispatcher paints.
     const response = await router.dispatch({
       type: "rest.begin",
       playerId: interaction.user.id,
     });
 
-    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine. The
-    // admin-tick arm above returns before this, matching the dispatcher's own `!isAdminTick`
-    // gate on the nav weld; the guard rejections carry `nav` too, because the read this
-    // replaces ran regardless of outcome.
+    // The admin-tick arm above returns before this, matching the dispatcher's own `!isAdminTick` gate
+    // on the nav weld; the guard rejections carry `nav` too, since the read this replaces was unconditional.
     onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {
       return response.error.message;
     }
 
-    // The collapse announcement crosses as the `restUnsafe` fact (DC-M7.1.4) — announce it
-    // publicly before painting the actor's own goodnight. announceCollapse is best-effort.
+    // Announced publicly before painting the actor's own goodnight; `announceCollapse` is best-effort.
     const restUnsafe = response.facts?.restUnsafe as
       | { name: string; prev: { health: number; stamina: number }; updated: { health: number; stamina: number } }
       | undefined;

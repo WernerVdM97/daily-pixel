@@ -1,10 +1,6 @@
 /**
- * /look — the scene survey crosses the JSON seam as `screen.look` (M8.1, DC-M8.4): the
- * composition (scene code block, location, safe/unsafe block, Paths, entities) moved into
- * the controller layer (`composeLookScreen` in src/controller/lookScreen.ts, which now also
- * owns the `SceneLookupFn` type) and the no-character copy moved to the router (DC-P4).
- * This handler is translate + paint only — the router's error.message IS the string the
- * dispatcher paints, and the view maps through `noticeViewToDiscord`.
+ * /look crosses the JSON seam as `screen.look`; `composeLookScreen` in `src/controller/lookScreen.ts`
+ * owns the composition and the `SceneLookupFn` type, and the no-character copy is the router's.
  */
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
@@ -21,9 +17,8 @@ export function makeLookCommand(router: GameRouter) {
       playerId: interaction.user.id,
     });
 
-    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
-    // Reported before the ok check because the read it replaces was outcome-independent;
-    // absent when there is no character, which is today's `if (char)` gate.
+    // Reported before the ok check because the read it replaces was outcome-independent; `nav` is
+    // absent on the no-character arm.
     onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {

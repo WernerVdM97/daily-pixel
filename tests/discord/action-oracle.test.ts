@@ -141,13 +141,14 @@ const RESOLVED_OUTCOME: ActionOutcome = {
   actionId: 88,
 };
 
-// A resolved `ActionStartResult` (LLM auto-finished at start) — no `actionType` (same
-// determinism-scope reasoning as DECISION_RESULT; `firstDecision` is never read once
-// `outcome` is present).
+// A resolved `ActionStartResult` (LLM auto-finished at start) — `actionType` is 'search' because
+// the outcome now carries the auto-resolved opening frame (the auto-finish path never showed a
+// decision screen to hang it on).
 const RESOLVED_START_RESULT = {
   state: { rawInput: "scout the northern ridge", decisions: [], accumulatedDc: 11, kind: "quest" },
   firstDecision: { prompt: "", options: [] },
   outcome: RESOLVED_OUTCOME,
+  actionType: "search",
 };
 
 const DIVINE_OUTCOME: ActionOutcome = {
@@ -181,6 +182,7 @@ const RESUME_DECISION_RESULT: ActionResumeResult = {
       { label: "Fall back", dcModifier: 0 },
     ],
   },
+  actionType: "other",
 };
 
 // The 280-char boundary text for transcript 6 (candidate churn class b — the router's
@@ -562,6 +564,7 @@ describe("action oracle — slash /action <text> (new action)", () => {
     );
     h.engine.setResumeResult({
       state: { rawInput: "hunt", decisions: [], accumulatedDc: 10 },
+      actionType: "other",
       nextDecision: {
         prompt: "The trail has gone cold. Continue?",
         options: [],
@@ -683,6 +686,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
     );
     h.engine.setResumeResult({
       state: { rawInput: "hunt", decisions: [], accumulatedDc: 10 },
+      actionType: "other",
       nextDecision: {
         prompt: "The trail has gone cold. Continue?",
         options: [],
@@ -712,6 +716,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
     );
     h.engine.setResumeResult({
       state: { rawInput: "hunt", decisions: [], accumulatedDc: 10 },
+      actionType: "other",
       nextDecision: { prompt: "", options: [] },
     });
     const { intr, _acks } = slashInteraction("action-12-stale-empty", "action");

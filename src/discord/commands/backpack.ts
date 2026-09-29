@@ -1,9 +1,6 @@
 /**
- * /backpack — the inventory grid crosses the JSON seam as `screen.backpack` (M8.1, DC-M8.4):
- * the composition (`formatBackpack` + `BACKPACK_CAPACITY`) moved into the controller layer
- * (src/controller/backpackScreen.ts). This handler is translate + paint only — the router's
- * error.message IS the string the dispatcher paints, and the view maps through
- * `noticeViewToDiscord`.
+ * /backpack crosses the JSON seam as `screen.backpack`; the grid is `formatBackpack`, and
+ * `BACKPACK_CAPACITY`, in `src/controller/backpackScreen.ts`.
  */
 import { noticeViewToDiscord } from "../viewToDiscord.js";
 import type { GameRouter } from "../../protocol/router.js";
@@ -20,9 +17,8 @@ export function makeBackpackCommand(router: GameRouter) {
       playerId: interaction.user.id,
     });
 
-    // DC-M9.6: hand the dispatcher its nav facts rather than let it read the engine.
-    // Reported before the ok check because the read it replaces was outcome-independent;
-    // absent when there is no character, which is today's `if (char)` gate.
+    // Reported before the ok check because the read it replaces was outcome-independent; `nav` is
+    // absent on the no-character arm.
     onNav?.(response.facts?.nav as NavFacts | undefined);
 
     if (!response.ok) {

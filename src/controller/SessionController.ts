@@ -282,7 +282,18 @@ export class SessionController {
             narration: resumeResult.nextDecision.narration,
           };
         }
-        const view = buildDecisionView(resumeResult.nextDecision, resumeResult.state.decisions.length, resumeResult.state, character);
+        const view = buildDecisionView(
+          resumeResult.nextDecision,
+          resumeResult.state.decisions.length,
+          resumeResult.state,
+          character,
+          resumeResult.actionType,
+          resumeResult.combatEnemyName,
+          resumeResult.combatEnemyCondition,
+          // A mid-fight resume re-opens the fight: only combat earns a second opener, since every
+          // other register is a scene-setter for a start the player has already moved past.
+          resumeResult.actionType === 'combat',
+        );
         return { kind: 'resume-decision', view };
       } catch (err) {
         return { kind: 'resume-error', message: err instanceof Error ? err.message : String(err) };
@@ -569,7 +580,19 @@ export class SessionController {
       if (r.nextDecision.options.length === 0) {
         return { kind: 'resume-stale', prompt: r.nextDecision.prompt || 'Could not recover.', narration: r.nextDecision.narration };
       }
-      return { kind: 'resume', view: buildDecisionView(r.nextDecision, r.state.decisions.length, r.state, char) };
+      return {
+        kind: 'resume',
+        view: buildDecisionView(
+          r.nextDecision,
+          r.state.decisions.length,
+          r.state,
+          char,
+          r.actionType,
+          r.combatEnemyName,
+          r.combatEnemyCondition,
+          r.actionType === 'combat',
+        ),
+      };
     }
     if (char.rollsRemaining <= 0) return { kind: 'no-rolls' };
     return { kind: 'start' };
@@ -608,7 +631,10 @@ export class SessionController {
       // was strictly missing the gamebook trail. One build shared by both arms: the view is a
       // plain DTO and `outcomeViewToDiscord` only reads it, so aliasing is safe and avoids
       // rendering the identical frames twice.
-      const view = buildOutcomeView(result.outcome, char, scene, result.state, this.engine);
+      const view = buildOutcomeView(result.outcome, char, scene, result.state, this.engine, {
+        type: result.actionType,
+        originLocation: prevChar.location,
+      });
       return {
         kind: 'outcome',
         viewPrivate: view,
@@ -627,7 +653,7 @@ export class SessionController {
     // buildDecisionView to fill the opening frame and don't survive onto DecisionViewState —
     // dropping args 6/7 here silently rendered every combat opening frame with the
     // 'Unknown foe' placeholder and no banded condition since the paths crossed the seam.
-    return { kind: 'decision', view: buildDecisionView(result.firstDecision, 0, result.state, prevChar, result.actionType, result.combatEnemyName, result.combatEnemyCondition) };
+    return { kind: 'decision', view: buildDecisionView(result.firstDecision, 0, result.state, prevChar, result.actionType, result.combatEnemyName, result.combatEnemyCondition, true) };
   }
 
   /** The confirmation copy for a feedback/bug submission — a pure function of the surface, so it

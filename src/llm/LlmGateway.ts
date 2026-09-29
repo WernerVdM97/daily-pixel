@@ -213,7 +213,10 @@ export interface CartographerResult {
  * (same transport), filling a provisional location's is_safe + description off the critical path.
  */
 export interface CartographerGateway {
-  enrich(input: CartographerInput): Promise<CartographerResult>;
+  /** Chart one provisional location. `undefined` means the call failed (transport/parse) and the
+   *  row must stay provisional for a later attempt; a partial-but-valid payload returns an object,
+   *  whose missing fields the caller defaults. Never throws. */
+  enrich(input: CartographerInput): Promise<CartographerResult | undefined>;
 }
 
 /** One resolved action, flattened for the weekly recap prompt. */

@@ -6,7 +6,7 @@ const ACTION_TIMEOUT_MS = 30 * 60 * 1000;
 const SPOKE_CAP = 5;
 
 import type Database from "better-sqlite3";
-import type { LlmGateway, CartographerGateway, CriticGateway } from "../llm/LlmGateway.js";
+import type { LlmGateway, CartographerGateway, CartographerResult, CriticGateway } from "../llm/LlmGateway.js";
 import type { UserRepository } from "../db/repositories/user.js";
 import type {
   CharacterRepository,
@@ -37,9 +37,8 @@ import type { PipelineContextResolver } from "./action/pipeline-context.js";
 import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiring.js";
 import type { CriticGateMode } from "./action/critic-gate.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
-import { readCombatState, type CombatState } from "./action/combat-state.js";
+import { readCombatState, type CombatState, type PersistedSceneStateEdge } from "./action/combat-state.js";
 import type { NodeType } from "../db/repositories/relation.js";
-import type { SceneStateEdge } from "../llm/LlmGateway.js";
 import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
 import { effectiveStats } from "./action/dc.js";
 import {
@@ -82,6 +81,12 @@ export const DAILY_ROLL_ALLOWANCE = 3;
 
 /** Extra rolls granted on the Saturday tick. */
 export const SATURDAY_BONUS_ROLLS = 1;
+
+/** Failed enrichment attempts before a provisional row gives up and settles with the placeholder. */
+const ENRICHMENT_MAX_ATTEMPTS = 3;
+
+/** Pending rows the nightly sweep re-fires per tick, oldest first. */
+const ENRICHMENT_SWEEP_LIMIT = 3;
 
 // ── Seeded RNG helpers ──
 
@@ -243,6 +248,8 @@ interface WorldEngineConfig {
   /** Enriches new provisional locations (is_safe + description) off the critical path.
    *  Absent in tests / without an LLM key — the row stays provisional. */
   cartographer?: CartographerGateway;
+  enrichmentMaxAttempts?: number;
+  enrichmentSweepLimit?: number;
   /** Coherence critic: decision beats via CritiquedLlmGateway, resolution beats via the machine
    *  hook. Absent = disabled. */
   critic?: CriticGateway;
@@ -293,6 +300,10 @@ export class WorldEngineImpl implements WorldEngine {
   private llmCallRepo: LlmCallRepository;
   private machine: PipelineActionStateMachine;
   private cartographer?: CartographerGateway;
+  /** Names with an attempt awaiting the LLM, so one row is never enriched twice at once. */
+  private enrichmentInFlight = new Set<string>();
+  private enrichmentMaxAttempts: number;
+  private enrichmentSweepLimit: number;
   private classDefs: ClassDef[];
   private upbringingDefs: ModifierDef[];
   private raceDefs: ModifierDef[];
@@ -335,6 +346,8 @@ export class WorldEngineImpl implements WorldEngine {
     this.dayJobIncome = config.dayJobIncome ?? {};
     this.itemSets = config.itemSets ?? [];
     this.cartographer = config.cartographer;
+    this.enrichmentMaxAttempts = config.enrichmentMaxAttempts ?? ENRICHMENT_MAX_ATTEMPTS;
+    this.enrichmentSweepLimit = config.enrichmentSweepLimit ?? ENRICHMENT_SWEEP_LIMIT;
 
     const contextResolver: PipelineContextResolver = {
       getNearbyNpcs: (location: string) => this.nearbyNpcsAt(location),
@@ -692,9 +705,31 @@ export class WorldEngineImpl implements WorldEngine {
 
   private fireCartographer(provisionalNames: string[], narrative: string): void {
     if (!this.cartographer || provisionalNames.length === 0) return;
-    const cartographer = this.cartographer;
-
     for (const name of provisionalNames) {
+      void this.enrichProvisionalLocation(name, narrative);
+    }
+  }
+
+  /** Nightly re-attempt for rows a failed enrichment left pending, oldest first and bounded per
+   *  tick so a burst of failures cannot turn into unbounded LLM spend in one sweep. */
+  private reconcileEnrichment(): void {
+    if (!this.cartographer) return;
+    for (const row of this.locationRepo.findPendingEnrichment(this.enrichmentSweepLimit)) {
+      // The narrative that minted the row is long gone; the sweep re-asks from the map alone.
+      void this.enrichProvisionalLocation(row.name, "");
+    }
+  }
+
+  /** One attempt, shared by the mint-time fire and the nightly sweep: a failure leaves the row
+   *  provisional and counts it, and at the cap the row settles rather than retry for ever. */
+  private async enrichProvisionalLocation(name: string, narrative: string): Promise<void> {
+    const cartographer = this.cartographer;
+    // One attempt per name at a time: a row minted seconds before a tick would otherwise be
+    // enriched twice at once, and one outage would cost it two of its attempts.
+    if (!cartographer || this.enrichmentInFlight.has(name)) return;
+    this.enrichmentInFlight.add(name);
+
+    try {
       // Existing names excluding this fresh row, so the LLM can flag it as a synonym.
       const existingNames = this.locationRepo
         .findAll()
@@ -713,43 +748,63 @@ export class WorldEngineImpl implements WorldEngine {
       const fromLocation = inbound?.from_location;
       const fromRegion = fromLocation ? this.locationRepo.findByName(fromLocation)?.region ?? null : null;
 
-      void (async () => {
-        try {
-          const result = await cartographer.enrich({
-            newName: name,
-            existingNames,
-            narrative,
-            knownRegions,
-            fromLocation,
-            fromRegion,
-          });
-          const description = result.description ?? "An uncharted place beyond the known map.";
-          const isSafe = result.is_safe ?? 0;
-          const updated = this.locationRepo.enrichProvisional(name, {
-            isSafe,
-            description,
-            tags: result.tags ?? null,
-            // Geometry — validated/defaulted here, never trusted blind. The region is
-            // sanitized: it lands in /map headers and the prompt's region labels.
-            region: (result.region ? sanitizeAuthored(result.region, 40) : "") || fromRegion || HOME_REGION,
-            emoji: result.emoji?.trim() || "📍",
-            nodeTier: result.node_tier === 1 ? 1 : 2,
-          });
-          if (updated) {
-            this.authorOnwardFrontiers(name, result.onwardFrontiers ?? []);
-            console.log(
-              `[cartographer] charted "${name}" (is_safe=${isSafe}, tier=${result.node_tier ?? 2}, region=${result.region ?? fromRegion ?? HOME_REGION}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
-            );
-          }
-        } catch (err) {
-          // Best-effort: a failed enrichment leaves the row provisional.
+      let result: CartographerResult | undefined;
+      let failure = "";
+      try {
+        result = await cartographer.enrich({
+          newName: name,
+          existingNames,
+          narrative,
+          knownRegions,
+          fromLocation,
+          fromRegion,
+        });
+      } catch (err) {
+        failure = ` (${err instanceof Error ? err.message : String(err)})`;
+      }
+
+      if (result === undefined) {
+        const attempts = this.locationRepo.incrementEnrichmentAttempts(name);
+        // Settled under us by a concurrent attempt: nothing to count, and no give-up to announce.
+        if (attempts === null) return;
+        if (attempts < this.enrichmentMaxAttempts) {
           console.warn(
-            "[cartographer] enrichment failed for",
-            name,
-            err instanceof Error ? err.message : String(err),
+            `[cartographer] enrichment attempt ${attempts}/${this.enrichmentMaxAttempts} failed for "${name}"${failure} — the nightly sweep will retry`,
           );
+          return;
         }
-      })();
+        console.warn(
+          `[cartographer] giving up on "${name}" after ${attempts} attempts${failure} — settling with the placeholder`,
+        );
+        result = {};
+      }
+
+      const description = result.description ?? "An uncharted place beyond the known map.";
+      const isSafe = result.is_safe ?? 0;
+      const updated = this.locationRepo.enrichProvisional(name, {
+        isSafe,
+        description,
+        tags: result.tags ?? null,
+        // Geometry — validated/defaulted here, never trusted blind. The region is
+        // sanitized: it lands in /map headers and the prompt's region labels.
+        region: (result.region ? sanitizeAuthored(result.region, 40) : "") || fromRegion || HOME_REGION,
+        emoji: result.emoji?.trim() || "📍",
+        nodeTier: result.node_tier === 1 ? 1 : 2,
+      });
+      if (updated) {
+        this.authorOnwardFrontiers(name, result.onwardFrontiers ?? []);
+        console.log(
+          `[cartographer] charted "${name}" (is_safe=${isSafe}, tier=${result.node_tier ?? 2}, region=${result.region ?? fromRegion ?? HOME_REGION}${result.matchesExisting ? `, llm flagged dup of "${result.matchesExisting}"` : ""})`,
+        );
+      }
+    } catch (err) {
+      // The promise is voided by both callers, so a throw after the LLM call stays a warning
+      // here instead of paging the operator as an unhandled rejection.
+      console.warn(
+        `[cartographer] enrichment failed for "${name}" (${err instanceof Error ? err.message : String(err)})`,
+      );
+    } finally {
+      this.enrichmentInFlight.delete(name);
     }
   }
 
@@ -959,8 +1014,9 @@ export class WorldEngineImpl implements WorldEngine {
     };
   }
 
-  /** Reads a prior bail's persisted `in_combat` edge to band the foe's condition on the opening
-   *  frame. A spare closes that edge, so the `undefined` after one is by design — don't re-open it. */
+  /** Reads the persisted `in_combat` edge to band a remembered foe's condition on the opening
+   *  frame: a prior bail's re-entry, or the foe a resumed mid-fight is still locked to. A spare
+   *  closes that edge, so the `undefined` after one is by design — don't re-open it. */
   private readPersistedCombatFoe(
     characterId: number,
     internalState: PipelineInternalActionState,
@@ -968,14 +1024,15 @@ export class WorldEngineImpl implements WorldEngine {
   ): { name: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
     if (internalState.actionType !== 'combat') return undefined;
 
-    // The DB row shape back into the `SceneStateEdge` shape `readCombatState` expects, mirroring
+    // The DB row shape back into the edge shape `readCombatState` expects, mirroring
     // `pipeline-context.ts`'s scene-relations projection.
     const rows = this.relationRepo.forNode('pc', String(characterId));
-    const edges: SceneStateEdge[] = rows.map((row) => ({
+    const edges: PersistedSceneStateEdge[] = rows.map((row) => ({
       from: { type: row.from_type as NodeType, ref: row.from_ref },
       to: { type: row.to_type as NodeType, ref: row.to_ref },
       relType: row.rel_type,
       props: JSON.parse(row.props) as Record<string, number | string | boolean>,
+      rowId: row.id,
     }));
 
     const cs = readCombatState(edges);
@@ -1202,10 +1259,16 @@ export class WorldEngineImpl implements WorldEngine {
     }
 
     const { state, nextDecision } = this.machine.resume(internalState);
+    const remembered = this.readPersistedCombatFoe(characterId, internalState, row.location);
 
     return {
       state: this.toPublicState(state),
       nextDecision,
+      actionType: internalState.actionType,
+      combatEnemyName: internalState.lastDecideResult.combatEnemy?.name ?? remembered?.name,
+      // The finish/spare interstitial fought no round of its own, so the edge still holds the
+      // previous round's HP while `nextDecision.combatStatus` bands the foe for this beat.
+      combatEnemyCondition: internalState.fatalBlow ? undefined : remembered?.condition,
     };
   }
 
@@ -1592,7 +1655,7 @@ export class WorldEngineImpl implements WorldEngine {
     }
 
     // Transaction so a partial failure can't half-tick the world and poison the cron date.
-    return this.db.transaction((): TickResult => {
+    const result = this.db.transaction((): TickResult => {
       // ── Advance day number ──
       const currentDayStr = this.metaRepo.get("day_number") ?? "1";
       const newDay = Number(currentDayStr) + 1;
@@ -1766,6 +1829,11 @@ export class WorldEngineImpl implements WorldEngine {
         collapsedNames,
       };
     })();
+
+    // After the transaction: the sweep only queues async work, and the tick's write lock must
+    // not be held across it.
+    this.reconcileEnrichment();
+    return result;
   }
 
   // ── Meta ──

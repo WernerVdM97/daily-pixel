@@ -1310,6 +1310,7 @@ describe("dispatch oracle — M9.3.0 characterisation net", () => {
     );
     h.engine.setResumeResult({
       state: { rawInput: "scout", decisions: [], accumulatedDc: 10 },
+      actionType: "other",
       nextDecision: { prompt: "The trail has gone cold.", options: [] },
     });
     const { intr, _acks } = modalInteraction(
