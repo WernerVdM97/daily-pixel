@@ -497,7 +497,12 @@ function readSession(file: string, ancestorIds: Set<string>): SessionStats {
   if (!stats.startedAt) stats.startedAt = fileStat.mtimeMs;
   // Child-run transcripts are all named `session.jsonl`, so the basename carries no identity;
   // the session header's uuid is the real id (meta/sessions 2026-09-11).
-  if (stats.id === "session" && headerId) stats.id = headerId;
+  if (stats.id === "session" && headerId) {
+    stats.id = headerId;
+    // The header id lands after the parse loop, so failed calls collected above still carry the
+    // basename: `--errors` could not name the run that failed.
+    for (const call of stats.failedCalls) if (call.session === "session") call.session = headerId;
+  }
   stats.agent = agentOf(subagentName, firstUserText);
   stats.commitExpected = commitExpectedFor(subagentName, firstUserText);
 
