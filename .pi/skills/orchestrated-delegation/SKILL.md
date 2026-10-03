@@ -30,7 +30,7 @@ The role definitions live in `.pi/agents/`: `factory-executor` leads the loop, t
 
 | Role | Agent (`.pi/agents/`) | Model (thinking) | Runs | Owns |
 | ------ | ------- | ------- | ------ | ------ |
-| Lead | main session; `factory-executor` in the factory | session default; the factory pins `z-ai/glm-5.3-flash` at `high` | every iteration | analysis, spec, triage, verification, commits, human contact |
+| Lead | main session; `factory-executor` in the factory | session default; the factory pins `z-ai/glm-5.3-flash` at `low` | every iteration | analysis, spec, triage, verification, commits, human contact |
 | Coordinator | `delegate-coordinator` | `openrouter/deepseek/deepseek-v4.1-flash` at `high`, read-only | session checkpoints | steering: direction, drift, blockers, next move |
 | Executor | `delegate-executor` | `openrouter/deepseek/deepseek-v4.1-flash` at `high` | per stream | implement exactly to spec, return evidence |
 | Reviewer | `delegate-reviewer` | `openrouter/deepseek/deepseek-v4.1-flash` at `high`, read-only | per stream | adversarial critique, ranked findings |
