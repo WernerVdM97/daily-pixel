@@ -36,6 +36,10 @@ The stack sat unmerged for eight days on this. The code was never affected: the 
 
 **Two things to avoid on any replacement identity, since both are the likely triggers:** writing in bursts (20 issues, 4 PRs and 13 comments inside half an hour from a four-day-old account), and leaving a leaked `gh` OAuth token live.
 
+### Commit history still carries what the tree no longer does (deferred 2026-10-03, owner-directed)
+
+PR #198 took the machine-identifying values out of the working tree; `dev` and `main` history still holds them. Decided 2026-10-03 **not** to rewrite: a force-push leaves the objects reachable through `refs/pull/*` and the fork network, and it breaks the factory's merged-branch pruner and every ledger `adoptedFrom.commit`. The specifics and the full cost list live in the gitignored factory memory under `.pi/factory/memory/incidents/`, kept off the remote on purpose so this file does not point at what is exposed. Revisit only if that exposure is ever joined to something that matters.
+
 ---
 
 Human notes go here. If a note becomes work, file an issue and delete the line.
