@@ -359,7 +359,7 @@ function firstLineOf(parts: any[]): string {
   return line.length > 160 ? `${line.slice(0, 157)}...` : line;
 }
 
-function readSession(file: string, ancestorIds: Set<string>): SessionStats {
+export function readSession(file: string, ancestorIds: Set<string>): SessionStats {
   const stats: SessionStats = {
     file,
     id: basename(file).replace(/\.jsonl$/, ""),
