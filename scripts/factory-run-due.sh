@@ -11,6 +11,8 @@
 # Install (system units, matching scripts/daily-pixel-deploy.*):
 #   sudo cp scripts/factory-run-due.sh /usr/local/bin/factory-run-due
 #   sudo cp scripts/factory-run-due.service scripts/factory-run-due.timer /etc/systemd/system/
+#   sudo systemctl edit factory-run-due     # the per-machine block: User, HOME, PATH,
+#                                           # FACTORY_PROJECT_DIR. See docs/engine/dark-factory.md.
 #   sudo systemctl daemon-reload && sudo systemctl enable --now factory-run-due.timer
 #
 # Run one tick by hand:  scripts/factory-run-due.sh
@@ -27,7 +29,6 @@
 # can have its build running by 06:01.
 set -euo pipefail
 
-PROJECT_DIR="${FACTORY_PROJECT_DIR:-/home/werner/projects/daily-pixel}"
 # Floor chosen to survive a tick alongside an interactive session on a 3.3GB box; the
 # earlier oom-kills happened when a second pi stacked onto a parent already holding ~700MB.
 MIN_AVAIL_MB="${FACTORY_MIN_AVAIL_MB:-1000}"
@@ -48,6 +49,20 @@ CURL_BIN="${CURL_BIN:-curl}"
 FACTORY_FIRE_MODEL="openrouter/deepseek/deepseek-v4.1-flash"
 
 log() { echo "$LOG_TAG $*"; }
+
+# The installed copy sits at /usr/local/bin, outside the repo, so the repo root comes from
+# FACTORY_PROJECT_DIR first (the systemd drop-in sets it) and is otherwise derived from this
+# script's own location, which only resolves for an in-repo run: package.json is the guard that
+# rejects /usr/local/bin's parent.
+if [ -n "${FACTORY_PROJECT_DIR:-}" ]; then
+  PROJECT_DIR="$FACTORY_PROJECT_DIR"
+else
+  PROJECT_DIR="$(cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd || true)"
+  if [ ! -f "$PROJECT_DIR/package.json" ]; then
+    log "FACTORY_PROJECT_DIR unset and '$0' is not inside the repo; refusing to guess"
+    exit 1
+  fi
+fi
 
 # ── The one switch ─────────────────────────────────────────────────────────
 # Off means this tick does nothing at all: no schedules, no drain, no housekeeping. Three

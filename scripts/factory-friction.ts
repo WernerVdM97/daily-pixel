@@ -134,7 +134,7 @@ function parseSpan(raw: string | undefined): number {
 /**
  * Pi escapes a project cwd into a session folder name by replacing `/` with `-` and
  * wrapping the result in an extra leading `-` and trailing `--`. So
- * `/home/werner/projects/daily-pixel` becomes `--home-werner-projects-daily-pixel--`.
+ * `/repo/daily-pixel` becomes `--repo-daily-pixel--`.
  * The exact form is checked first, then the escaped form, then any folder whose name
  * ends with the repo basename, so a rename upstream degrades to a match instead of a
  * silently empty report.

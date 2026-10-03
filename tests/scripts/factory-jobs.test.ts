@@ -1984,14 +1984,14 @@ describe('the ledger read-outs', () => {
     expect(branchFor(34, 'Last stand buttons/captions: emojis + combat scene frame')).toBe(
       'feat/34-last-stand-buttons-captions-emojis-combat-scene',
     );
-    expect(worktreePathFor('/home/werner/projects/worktrees/daily-pixel', 'feat/34-x')).toBe(
-      '/home/werner/projects/worktrees/daily-pixel/feat-34-x',
+    expect(worktreePathFor('/repo/worktrees/daily-pixel', 'feat/34-x')).toBe(
+      '/repo/worktrees/daily-pixel/feat-34-x',
     );
   });
 
   it('resolves the canonical checkout, never a linked worktree of it', () => {
-    const exec = (() => ok('/home/werner/projects/daily-pixel/.git\n')) as Exec;
-    expect(resolveRepoRoot({ env: {}, exec })).toBe('/home/werner/projects/daily-pixel');
+    const exec = (() => ok('/repo/daily-pixel/.git\n')) as Exec;
+    expect(resolveRepoRoot({ env: {}, exec })).toBe('/repo/daily-pixel');
     expect(resolveRepoRoot({ env: { FACTORY_PROJECT_DIR: '/tmp/scratch' }, exec })).toBe('/tmp/scratch');
   });
 
