@@ -1,16 +1,11 @@
 [Unit]
 Description=Fire due Dark Factory agent schedules
-Documentation=file:/home/werner/projects/daily-pixel/.pi/factory/memory/incidents/memory.md
+Documentation=https://github.com/WernerVdM97/daily-pixel/blob/dev/docs/engine/dark-factory.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=werner
-Environment=HOME=/home/werner
-# systemd's default PATH omits ~/.local/bin, where pi is installed on this box.
-Environment=PATH=/home/werner/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=FACTORY_PROJECT_DIR=/home/werner/projects/daily-pixel
 Environment=FACTORY_MIN_AVAIL_MB=1000
 # A wedged run must not block every later tick for ever. The ceiling bounds the schedule step
 # plus the longest job stage: the schedule step was already bounded by the old 1800 and runs
@@ -18,3 +13,8 @@ Environment=FACTORY_MIN_AVAIL_MB=1000
 # margin rather than headroom to grow into.
 TimeoutStartSec=5400
 ExecStart=/usr/local/bin/factory-run-due
+
+# User=, HOME=, PATH= (~/.local/bin first, pi lives there) and FACTORY_PROJECT_DIR= are
+# per-machine, so they live in a drop-in: `sudo systemctl edit factory-run-due`. Install it
+# before the first start, or the unit runs as root. %h cannot stand in for them: under the
+# system manager it is /root whatever User= says.

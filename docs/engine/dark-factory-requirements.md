@@ -80,7 +80,7 @@ Copied whole into `.claude/skills/orchestrated-delegation/` (including `game-fea
 
 Proposed repricing, since all five `delegate-*` currently sit on `deepseek-v4-flash` at `high`: mechanical roles (executor, fixer, reviewer, coordinator) stay on `deepseek-v4-flash`; only the judge moves up to `z-ai/glm-5.3` at `max`. DeepSeek flash is the cheaper of the two, so four of five roles get cheaper or stay level.
 
-Today that skill lives only at `~/dotVault/agent/skills/orchestrated-delegation/SKILL.md` and its agents at `~/.pi/agent/agents/`, so the factory depends on this machine's user scope. It is also missing from the `AGENTS.md` skill table.
+Today that skill lives only in user scope, at `~/.pi/agent/skills/orchestrated-delegation/SKILL.md`, with its agents at `~/.pi/agent/agents/`, so the factory depends on this machine's user scope. It is also missing from the `AGENTS.md` skill table.
 
 ## Tracking
 

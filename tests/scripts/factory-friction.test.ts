@@ -102,7 +102,7 @@ describe('isProbeExit', () => {
   });
 
   it('strips a leading cd <dir> && wrapper before testing', () => {
-    expect(isProbeExit('bash', 'cd /home/werner/projects/daily-pixel && grep -q auto:docs .pi/agents/x.md', '(no output)')).toBe(true);
+    expect(isProbeExit('bash', 'cd /repo/daily-pixel && grep -q auto:docs .pi/agents/x.md', '(no output)')).toBe(true);
     expect(
       isProbeExit('bash', 'cd /repo && ls .claude/skills/', "ls: cannot access '.claude/skills/': No such file or directory"),
     ).toBe(true);

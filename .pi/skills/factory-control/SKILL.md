@@ -36,7 +36,7 @@ Both of those gates, and the timer below them, only govern the tick. The session
 Whole factory, on both levers, because each one guards a different door. First the tick, with a reason for the next reader:
 
 ```bash
-cd /home/werner/projects/daily-pixel
+cd "$(git rev-parse --show-toplevel)"
 printf '%s\n' "owner paused $(date -u +%F): <why>, until <what>" > .pi/factory/PAUSED
 ```
 
@@ -81,7 +81,7 @@ A tick, now: `bash scripts/factory-run-due.sh` (uses the repo copy and the same 
 ## Verifying
 
 ```bash
-cd /home/werner/projects/daily-pixel
+cd "$(git rev-parse --show-toplevel)"
 bash scripts/factory-run-due.sh          # expect: factory is off (...PAUSED: <reason>); skipping this tick
 journalctl -u factory-run-due.service --since "-15min" --no-pager | tail -5
 npx --no-install tsx scripts/factory-jobs.ts list      # expect: no jobs in the ledger, or a named one

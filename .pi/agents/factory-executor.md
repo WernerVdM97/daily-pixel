@@ -16,7 +16,7 @@ The build itself is no longer your work. One board item became a *job* tracked i
 ## Your one command
 
 ```bash
-cd "${FACTORY_PROJECT_DIR:-/home/werner/projects/daily-pixel}" && npx tsx scripts/factory-jobs.ts start
+cd "${FACTORY_PROJECT_DIR:-$PWD}" && npx tsx scripts/factory-jobs.ts start
 ```
 
 `start` does its work inline in seconds: it prefers *adopting* an orphaned `In Progress` item with a factory claim comment or a matching branch, otherwise picks the highest-priority-then-oldest runnable item, cuts a worktree off `dev`, claims the item on the board, and writes the job record. It prints one JSON line saying what it did.

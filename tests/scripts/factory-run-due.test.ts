@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -242,5 +242,52 @@ describe("the schedule fire's argv", () => {
     expect(argv[argv.indexOf('--model') + 1]).toBe(MODEL);
     expect(argv).not.toContain('--api-key');
     expect(out).toContain('no FACTORY_OPENROUTER_API_KEY');
+  });
+});
+
+// The repo root is a machine fact, so the launcher resolves it instead of carrying it. The
+// installed copy sits at /usr/local/bin, outside any repo, which is why FACTORY_PROJECT_DIR wins
+// and why the derivation is guarded rather than trusted.
+describe('resolving the project dir', () => {
+  /** A scratch tree holding a copy of the launcher, so a tick that resolves its own repo root
+   *  writes only inside it. `withRepo` puts the package.json the guard looks for beside it. */
+  function scratch(withRepo: boolean): { root: string; script: string; env: Record<string, string> } {
+    const root = mkdtempSync(join(tmpdir(), 'factory-projdir-'));
+    if (withRepo) writeFileSync(join(root, 'package.json'), '{}\n');
+    const bin = join(root, withRepo ? 'scripts' : 'bin');
+    mkdirSync(bin, { recursive: true });
+    const script = join(bin, 'factory-run-due.sh');
+    copyFileSync(SCRIPT, script);
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      FACTORY_PAUSE_FILE: join(root, 'PAUSED'),
+      FACTORY_LOCK_FILE: join(root, 'lock'),
+      FACTORY_MIN_AVAIL_MB: '1',
+      PI_BIN: '/bin/true',
+      FACTORY_ENABLED: '',
+      FACTORY_FIRE: '',
+      FACTORY_OPENROUTER_API_KEY: '',
+      CURL_BIN: '',
+    };
+    delete env.FACTORY_PROJECT_DIR;
+    return { root, script, env };
+  }
+
+  it('derives the repo root from its own location when FACTORY_PROJECT_DIR is unset', () => {
+    const { root, script, env } = scratch(true);
+    // The scratch .env is the fingerprint: only a tick that resolved <root> reads this one.
+    writeFileSync(join(root, '.env'), 'FACTORY_ENABLED=0\n');
+
+    const res = spawnSync('bash', [script], { encoding: 'utf8', env });
+    expect(res.status).toBe(0);
+    expect(`${res.stdout ?? ''}${res.stderr ?? ''}`).toContain('factory is off (FACTORY_ENABLED=0 in .env)');
+  });
+
+  it('refuses to guess outside a repo, which is the /usr/local/bin copy', () => {
+    const { script, env } = scratch(false);
+
+    const res = spawnSync('bash', [script], { encoding: 'utf8', env });
+    expect(res.status).toBe(1);
+    expect(`${res.stdout ?? ''}${res.stderr ?? ''}`).toContain('refusing to guess');
   });
 });

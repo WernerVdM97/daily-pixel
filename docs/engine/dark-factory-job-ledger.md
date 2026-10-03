@@ -35,7 +35,7 @@ One board item being built, tracked in `.pi/factory/jobs/<item>.json` (runtime, 
   "priority": "P2 - normal",
   "milestone": "v0.3.x polish",
   "branch": "feat/34-last-stand-emojis-combat-frame",
-  "worktree": "/home/werner/projects/worktrees/daily-pixel/feat-34-...",
+  "worktree": "~/projects/worktrees/daily-pixel/feat-34-...",
   "baseRef": "dev",
   "stage": "review",
   "stageState": "running",
@@ -206,7 +206,7 @@ The launcher runs scripts from the checked-out tree, so a half-installed state (
 
 1. One PR to `dev` carrying the ledger, the three stage agent definitions and the rewritten executor, the launcher wiring, the docs, and the already-written model-pin and cadence retunes from the same session. Those retunes are independent of the ledger, so they ride as their own commits and can be reverted alone.
 2. Owner merges.
-3. `sudo cp scripts/factory-run-due.sh /usr/local/bin/factory-run-due`, copy the units, `daemon-reload`, restart the timer.
+3. `sudo cp scripts/factory-run-due.sh /usr/local/bin/factory-run-due`, copy the units, then `sudo systemctl edit factory-run-due` to set `User=`, `HOME=`, `PATH=` and `FACTORY_PROJECT_DIR=`. The tracked unit carries none of them, and it runs as root without the drop-in. Then `daemon-reload` and restart the timer.
 
 There is no runtime-file step: the schedule keeps targeting `factory-executor`, whose definition is already the thin starter by the time it merges, so nothing is repointed by hand and no merge order can break a tick.
 
