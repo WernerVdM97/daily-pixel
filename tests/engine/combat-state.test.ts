@@ -6,6 +6,7 @@ import {
   combatRoundUpdate,
   combatSaveUpdate,
   type CombatState,
+  type PersistedSceneStateEdge,
 } from '../../src/engine/action/combat-state.js';
 import type { SceneStateEdge } from '../../src/llm/LlmGateway.js';
 
@@ -161,6 +162,102 @@ describe('readCombatState / combatStateToSetRelation round-trip', () => {
       round: 1,
     });
     expect(readCombatState([edge])).toBeNull();
+  });
+});
+
+// A pair here is a legacy DB shape (the write-side sweep keeps one edge per pc). Both orders must
+// give the same fight — never "whichever row the DB returned first".
+describe('readCombatState — duplicate in_combat edges for one pc resolve deterministically', () => {
+  function combatEdge(
+    anchor: { type: 'npc' | 'location'; ref: string },
+    props: Record<string, number | string>,
+    rowId: number,
+  ): PersistedSceneStateEdge {
+    return {
+      ...edgeFromAuthored({ type: 'pc', ref: '7' }, anchor, 'in_combat', props),
+      rowId,
+    };
+  }
+
+  const graskAtRound3 = (rowId: number) => combatEdge(
+    { type: 'npc', ref: '42' },
+    { enemyName: 'Grask the Bandit', enemyHp: 4, enemyMaxHp: 15, round: 3 },
+    rowId,
+  );
+  const boarAtRound1 = (rowId: number) => combatEdge(
+    { type: 'location', ref: 'Darkwood Clearing' },
+    { enemyName: 'Wild Boar', enemyHp: 12, enemyMaxHp: 12, round: 1 },
+    rowId,
+  );
+
+  it('the higher round wins, whichever order the rows arrive in', () => {
+    for (const edges of [[graskAtRound3(1), boarAtRound1(2)], [boarAtRound1(2), graskAtRound3(1)]]) {
+      expect(readCombatState(edges)).toMatchObject({ enemyName: 'Grask the Bandit', round: 3 });
+    }
+  });
+
+  it('a live fight beats a finished one on a higher round, whichever order the rows arrive in', () => {
+    // The shape pre-fix play leaves behind: the terminal write stamps the killed foe's edge at
+    // `cs.round + 1`, so round alone would hand the read a fight that is already over.
+    const dead = combatEdge(
+      { type: 'location', ref: 'The Old Mill' },
+      { enemyName: 'Wild Boar', enemyHp: 0, enemyMaxHp: 12, round: 6 },
+      1,
+    );
+    const live = combatEdge(
+      { type: 'npc', ref: '42' },
+      { enemyName: 'Grask the Bandit', enemyHp: 7, enemyMaxHp: 12, round: 3 },
+      2,
+    );
+
+    for (const edges of [[dead, live], [live, dead]]) {
+      expect(readCombatState(edges)).toMatchObject({ enemyName: 'Grask the Bandit', enemyHp: 7, round: 3 });
+    }
+  });
+
+  it('a lone finished fight still reads dead, so it stays the "nothing to resume" marker', () => {
+    const dead = combatEdge(
+      { type: 'location', ref: 'The Old Mill' },
+      { enemyName: 'Wild Boar', enemyHp: 0, enemyMaxHp: 12, round: 6 },
+      1,
+    );
+
+    expect(readCombatState([dead])).toMatchObject({ enemyName: 'Wild Boar', enemyHp: 0 });
+  });
+
+  it('an unreadable edge loses to a readable sibling instead of nulling the whole read', () => {
+    const corrupt = combatEdge(
+      { type: 'location', ref: 'The Old Mill' },
+      { enemyName: 'Wild Boar', enemyHp: 50, enemyMaxHp: 12, round: 7 },
+      2,
+    );
+    const live = combatEdge(
+      { type: 'npc', ref: '42' },
+      { enemyName: 'Grask the Bandit', enemyHp: 7, enemyMaxHp: 12, round: 3 },
+      1,
+    );
+
+    for (const edges of [[corrupt, live], [live, corrupt]]) {
+      expect(readCombatState(edges)).toMatchObject({ enemyName: 'Grask the Bandit' });
+    }
+  });
+
+  it('on equal rounds the later-written row wins, whichever order they arrive in', () => {
+    const rounded = { enemyHp: 8, enemyMaxHp: 12, round: 2 };
+    const staleRow = combatEdge(
+      { type: 'location', ref: 'The Old Mill' },
+      { ...rounded, enemyName: 'A Wounded Boar' },
+      4,
+    );
+    const newerRow = combatEdge(
+      { type: 'location', ref: 'The Old Mill' },
+      { ...rounded, enemyName: 'Wild Boar' },
+      5,
+    );
+
+    for (const edges of [[staleRow, newerRow], [newerRow, staleRow]]) {
+      expect(readCombatState(edges)).toMatchObject({ enemyName: 'Wild Boar' });
+    }
   });
 });
 

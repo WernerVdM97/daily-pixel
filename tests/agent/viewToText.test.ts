@@ -157,6 +157,14 @@ describe('viewToText', () => {
     expect(viewToText(bare)).toBe('✅ Success\n\nYou did it.');
   });
 
+  it('renders an auto-resolved outcome\'s opening frame ahead of its scene', () => {
+    const outcome: OutcomeViewState = {
+      screen: 'outcome', title: { emoji: '🔍', text: 'Scout' }, colorIntent: 'success',
+      sceneBlock: 'SCENE', openingFrame: 'FRAME', isCombat: false, outcomeBlock: 'You succeed.',
+    };
+    expect(viewToText(outcome)).toBe(['🔍 Scout', 'FRAME', 'SCENE', 'You succeed.'].join('\n\n'));
+  });
+
   it('selects the combat scene block for a combat outcome', () => {
     const outcome: OutcomeViewState = {
       screen: 'outcome', title: { emoji: '⚔️', text: 'Victory' }, colorIntent: 'success',

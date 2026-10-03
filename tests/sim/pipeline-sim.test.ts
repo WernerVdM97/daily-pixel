@@ -255,6 +255,7 @@ describe('sim — scene-state spine (Stage 2 T3): cross-turn read-back through P
         to: { type: 'location', ref: "The Warden's Oak" },
         relType: 'knows_secret',
         props: { clue: 'a hidden door behind the bar' },
+        rowId: expect.any(Number),
       },
     ]);
     expect(sceneStateByDecideCall[3]).toEqual(sceneStateByDecideCall[2]);

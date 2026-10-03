@@ -1,12 +1,13 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import {
   agentOf,
   commitExpectedFor,
   isProbeExit,
   readLedger,
+  readSession,
   SHIPPED,
   unprocessedOwnerAnswer,
 } from '../../scripts/factory-friction.js';
@@ -339,5 +340,62 @@ describe('readLedger', () => {
     const report = readLedger(dir, 7 * 86_400_000, NOW)!;
     expect(report.jobs).toHaveLength(0);
     expect(report.notes.some((n) => n.includes('broken.json'))).toBe(true);
+  });
+});
+
+describe('readSession', () => {
+  const dirs: string[] = [];
+
+  function scratch(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-friction-test-'));
+    dirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Header, one failed `edit` call, and its result: every child run transcript is named
+  // `session.jsonl`, so the basename identifies nothing and the header uuid is the real id.
+  function transcript(headerId: string): string {
+    return [
+      { type: 'session', version: 3, id: headerId, timestamp: '2026-10-03T06:00:00Z', cwd: '/tmp' },
+      {
+        type: 'message',
+        id: 'e2',
+        timestamp: '2026-10-03T06:00:01Z',
+        message: { role: 'assistant', content: [{ type: 'toolCall', id: 'call-1', name: 'edit', arguments: { path: 'src/x.ts' } }] },
+      },
+      {
+        type: 'message',
+        id: 'e3',
+        timestamp: '2026-10-03T06:00:02Z',
+        message: { role: 'toolResult', toolName: 'edit', toolCallId: 'call-1', isError: true, content: [{ type: 'text', text: 'No such file' }] },
+      },
+    ]
+      .map((line) => JSON.stringify(line))
+      .join('\n');
+  }
+
+  function writeTranscript(relPath: string, headerId: string): string {
+    const file = join(scratch(), relPath);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${transcript(headerId)}\n`);
+    return file;
+  }
+
+  it('names the header uuid on a child-run transcript whose basename carries no identity', () => {
+    const file = writeTranscript('p/child/run-0/session.jsonl', '01a07d8c-3df2-727b-9556-872ca909ad6b');
+    const stats = readSession(file, new Set());
+    expect(stats.failedCalls).toHaveLength(1);
+    expect(stats.failedCalls[0].session).toBe('01a07d8c-3df2-727b-9556-872ca909ad6b');
+  });
+
+  it('keeps the basename where it already identifies the transcript', () => {
+    // The correction keys off the basename, not off the presence of a header id.
+    const file = writeTranscript('p/2026-10-03T06-00-00-000Z_x.jsonl', '01a07d8c-3df2-727b-9556-872ca909ad6b');
+    const stats = readSession(file, new Set());
+    expect(stats.failedCalls[0].session).toBe('2026-10-03T06-00-00-000Z_x');
   });
 });

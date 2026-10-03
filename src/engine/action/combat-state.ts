@@ -40,12 +40,14 @@ function isSaneCombatProps(enemyHp: number, enemyMaxHp: number, round: number): 
   );
 }
 
-/** Find the `in_combat` edge authored BY the pc and parse its props into a `CombatState`, or
- *  `null` if absent or malformed. */
-export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
-  const edge = edges.find((e) => e.relType === 'in_combat' && e.from.type === 'pc');
-  if (!edge) return null;
+/** A scene-state edge projected from a persisted row. The row id is read-path metadata for the
+ *  duplicate ranking below, held off the LLM-facing `SceneStateEdge`. */
+export interface PersistedSceneStateEdge extends SceneStateEdge {
+  rowId?: number;
+}
 
+/** One edge's props parsed into a `CombatState`, or `null` if they are unreadable. */
+function parseCombatEdge(edge: SceneStateEdge): CombatState | null {
   const { enemyName, enemyHp, enemyMaxHp, round } = edge.props as Record<string, unknown>;
   if (typeof enemyName !== 'string' || enemyName.trim() === '') return null;
   if (typeof enemyHp !== 'number' || !Number.isFinite(enemyHp)) return null;
@@ -64,6 +66,36 @@ export function readCombatState(edges: SceneStateEdge[]): CombatState | null {
     : undefined;
 
   return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName, baseDc };
+}
+
+/** A readable candidate plus the row id the ranking tie-breaks on. */
+interface RankedCombatEdge {
+  state: CombatState;
+  rowId: number;
+}
+
+/** Live beats finished, then highest `round`, then last written — a total order, so a duplicate pair
+ *  never resolves to whichever row the DB happened to return first. */
+function isLaterCombatEdge(candidate: RankedCombatEdge, incumbent: RankedCombatEdge): boolean {
+  const candidateLive = candidate.state.enemyHp > 0;
+  const incumbentLive = incumbent.state.enemyHp > 0;
+  if (candidateLive !== incumbentLive) return candidateLive;
+  if (candidate.state.round !== incumbent.state.round) return candidate.state.round > incumbent.state.round;
+  return candidate.rowId > incumbent.rowId;
+}
+
+/** The pc's `in_combat` edge as a `CombatState`, or `null` if the pc holds none that parses. */
+export function readCombatState(edges: PersistedSceneStateEdge[]): CombatState | null {
+  let winner: RankedCombatEdge | undefined;
+  for (const edge of edges) {
+    if (edge.relType !== 'in_combat' || edge.from.type !== 'pc') continue;
+    const state = parseCombatEdge(edge);
+    if (!state) continue;
+
+    const candidate = { state, rowId: edge.rowId ?? -Infinity };
+    if (!winner || isLaterCombatEdge(candidate, winner)) winner = candidate;
+  }
+  return winner?.state ?? null;
 }
 
 /** The initial (or any full-state) `set_relation` for the `in_combat` edge — `set` overwrites props
