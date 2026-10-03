@@ -1,6 +1,6 @@
 ---
 title: Last-Stand Screen: Emoji Captions & Combat Scene Frame
-status: spark
+status: exploring
 domain: spark
 phase: mvp+
 tags:
@@ -12,25 +12,26 @@ related:
 - '[[ansi-art-classification-framework]]'
 - '[[visual-craft]]'
 - '[[mvp+ansi-art]]'
+- '[[poc-action-ux-refinements]]'
 ---
-Wireframes for the desperate-choice beat: how the last-stand screen renders today, and two candidate treatments that put an emoji on both forced labels and a combat scene frame on the screen. Each block states the code it assumes, and the caption-width check decides whether the captions survive mobile. Evaluation only; the options stay options.
+The desperate-choice beat's screen, settled in review: the combat frame is the game's screen and leads the decision screen of every action, the card below keeps only what the frame cannot carry, and both captions render alike under one button convention and one emoji vocabulary. Each block states the code it assumes. Design only; the code work is the sibling implementation card.
 
 ---
 
-## The beat, and the two things it renders
+## The beat, and the two surfaces it renders
 
 When the day's first lethal blow lands, the engine floors the player to 1 HP and authors a forced decision with exactly two options: `{ label: 'Bail bloodied', dcModifier: null }` and `{ label: 'Last stand', dcModifier: 0 }` (`src/engine/action/PipelineActionStateMachine.ts:645-646`; the triage note cited 740-741, and the file has moved since). It renders through `buildDecisionView` (`src/view/actionViewState.ts:137`) and reaches Discord through `decisionViewToDiscord` (`src/discord/viewToDiscord.ts:25`).
 
-Two render facts shape every wireframe below:
+Two render facts shape the screen as it renders today, and both are what the settled design below changes:
 
 - The bail label becomes the **worded button** (`shortLabel(opt.label, 80)`, `actionViewState.ts:223`), while the non-bail label becomes the **lettered body line** (`**A.** …`, `actionViewState.ts:233`). "Caption" is therefore two surfaces at two different widths, and quoting a button caption at body width (or the reverse) would miss the one that actually truncates.
 - Neither forced label carries `stat`, and `dcArrow(0)` is empty for the last stand (`actionViewState.ts:54`; `statEmoji`, `:60`, returns nothing for a label with no `stat`), so today both captions render bare. The existing emoji vocabulary (`DISTILLED_EMOJI`, `src/engine/OutcomeRenderer.ts:101`, reached through `distilledActionEmoji`) keys on distilled action type and is never consulted from an option label.
 
 The screen also escalates its own border: `chooseContinueBorder` (`actionViewState.ts:94`) returns the heavy style at ≤25% HP, which the last stand always is, so the continue card renders `╔` while the opener-register frames render `┌`.
 
-## (a) As it renders today
+## How it renders today
 
-Plain captions, no scene frame. Reproduced from a live call of `buildDecisionView` + `decisionViewToDiscord` on the desperate-beat payload (GLOOMFANG at 3/5 pips, player 1/30, a heavy round), not hand-drawn.
+Plain captions, no scene frame, and the two captions on two different surfaces. Reproduced from a live call of `buildDecisionView` + `decisionViewToDiscord` on the desperate-beat payload (GLOOMFANG at 3/5 pips, player 1/30, a heavy round), not hand-drawn.
 
 ````text
 🤔 Decision                        ← embed title; one body embed, one button row
@@ -63,45 +64,40 @@ Plain captions, no scene frame. Reproduced from a live call of `buildDecisionVie
 Decision 2                         ← embed footer
 ````
 
-**Assumes this code.** The continue card arrives as the `combatStatus` block, assembled by `renderCombatStatusFrame` (`actionViewState.ts:101`) and emitted in the decision embed's block list at `viewToDiscord.ts:29-33`. The bail caption is the worded button (`actionViewState.ts:223`); the last-stand caption is the lettered body line (`actionViewState.ts:233`). No scene frame: `combatSceneBlock` is only ever assigned inside `buildOutcomeView` (`actionViewState.ts:308`, `:318`, returned at `:350`) and only the outcome message selects it (`viewToDiscord.ts:92-95`, mirrored for the agent adapter at `src/agent/viewToText.ts:99-104`). The decision screen's other frame slot is `openingFrame` (`actionViewState.ts:252`), which the desperate beat never asks for.
+**Assumes this code.** The continue card arrives as the `combatStatus` block, assembled by `renderCombatStatusFrame` (`actionViewState.ts:101`) and emitted in the decision embed's block list at `viewToDiscord.ts:29-33`. The bail caption is the worded button (`actionViewState.ts:223`); the last-stand caption is the lettered body line (`actionViewState.ts:233`). No scene frame: `combatSceneBlock` is only ever assigned inside `buildOutcomeView` (`actionViewState.ts:309`, `:319`, returned at `:361`) and only the outcome message selects it (`viewToDiscord.ts:92-95`, mirrored for the agent adapter at `src/agent/viewToText.ts:99-104`). The decision screen's other frame slot is `openingFrame` (`actionViewState.ts:252`), which the desperate beat never asks for.
 
-## (b) Candidate: emoji captions, combat scene frame above the card
+## The settled screen: the frame is the game's screen
 
-Both forced captions gain an emoji from the existing vocabulary, and the screen leads with the registered COMBAT_FRAME (opener variant, `src/render/OpeningFrameRenderer.ts`) above the continue card.
+The frame on top is the game's screen, not a decorative opener: it leads the decision screen of every action, this beat included, and the card below keeps only what the frame cannot carry. On the last stand the frame renders the heavy border, the ladder the card is already on (`chooseContinueBorder` returns heavy at ≤25% HP, `actionViewState.ts:94`), so the two borders agree instead of dropping from `╔` to `┌` mid-screen. The card loses the foe nameplate, the condition band and both HP reads, all of which the frame is already showing, and keeps the round's dice maths; the foe's danger tag moves up to the frame's nameplate, which today carries the name alone (`OpeningFrameRenderer.ts:114`).
 
 ````text
-[ embeds[0]: COMBAT_FRAME, opener register, prepended ]
+[ embeds[0]: COMBAT_FRAME, heavy register, leading the decision screen ]
 ```ansi
-┌────────────────────────────┐
-│  GLOOMFANG                 │
-│  HP [▓▓▓░░] BRUISED        │
-│                            │
-│        /\        /\        │
-│       /  \______/  \       │
-│      |    o    o    |      │
-│      |      /\      |      │
-│       \    '--'    /       │
-│        '-.______.-'        │
-│                            │
-│   ,^.                      │
-│  ( _ )   WARDEN            │
-│  /|_|\   HP [░░░░░░░] 1/30 │
-│  _/ \_                     │
-└────────────────────────────┘
+╔════════════════════════════╗
+║  GLOOMFANG          [hard] ║
+║  HP [▓▓▓░░] BRUISED        ║
+║                            ║
+║        /\        /\        ║
+║       /  \______/  \       ║
+║      |    o    o    |      ║
+║      |      /\      |      ║
+║       \    '--'    /       ║
+║        '-.______.-'        ║
+║                            ║
+║   ,^.                      ║
+║  ( _ )   WARDEN            ║
+║  /|_|\   HP [░░░░░░░] 1/30 ║
+║  _/ \_                     ║
+╚════════════════════════════╝
 ```
 
-[ embeds[1]: the same body as (a), one emoji added, read under the scene above ]
+[ embeds[1]: the body, with the card reduced to the round ledger ]
 > 🧭 **Quest:** attack the gloomfang
 
 ↪ **Stand firm**
 
 ```ansi
 ╔════════════════════════════╗
-║  GLOOMFANG          [hard] ║
-║  HP [▓▓▓░░] BRUISED        ║
-║  YOU                       ║
-║  HP [█░░░░░░░░░░░░░░] 1/30 ║
-╠════════════════════════════╣
 ║  4           vs 17 +3 = 20 ║
 ║  +2 = 6                    ║
 ║  hit -14 margin      HEAVY ║
@@ -113,80 +109,61 @@ Both forced captions gain an emoji from the existing vocabulary, and the screen 
 > touch. Make your stand or flee before it's too
 > late.
 
-**A.** ⚔️ Last stand
+**A.** 🏃 Bail bloodied
+**B.** ⚔️ Last stand
 ──────────────────────────────────────────────────────────  ← wireframe rule, not rendered
-[ 🏃 Bail bloodied ]   [ A ]       ← button row
+[ A ]   [ B ]                    ← button row
+Decision 2                       ← embed footer
 ````
 
-**Assumes this code.** Same option labels as (a), at `PipelineActionStateMachine.ts:645-646`. The scene half needs no new view slot, but it is not free of call-site change: the decision message already leads with an embed when `openingFrame` is set (the `showOpeningFrame` gate at `actionViewState.ts:252`, prepended at `viewToDiscord.ts:69-77`, and already included for the agent adapter at `viewToText.ts:82`), so a last-stand screen reusing it shows the frame to the player-agent too. The gate defaults off (`actionViewState.ts:165`) and is passed `true` only on an action's first decision (`SessionController.ts:653`) and on combat resumes (`:295`, `:593`). The desperate beat is a later decision of a continued action, rendered through `stepChoice` (`SessionController.ts:243-261`), which passes neither the flag nor the `actionType`/enemy slots, so reusing the register costs that path a flag plus those slots, not a new view slot. The emoji half reads `DISTILLED_EMOJI` (`OutcomeRenderer.ts:101`): `distilledActionEmoji('flee')` and `('retreat')` return 🏃, `('combat')` and `('attack')` return ⚔️, while `('bail')` falls through to the ✴️ default, so the captions need a key the vocabulary already has (`flee`, `combat`) or a label-keyed map beside it. A label-keyed map is the cheaper route, because `opt.label` is not only the button caption and the body line (`actionViewState.ts:223` and `:233`): it is also the choice key and the persisted choice, resolved by string equality in `step` (`PipelineActionStateMachine.ts:299-301`) and recorded as `chosen` (`:309`, `:336`), which renders into the story thread (`actionViewState.ts:86`). Baking the emoji into the labels at `PipelineActionStateMachine.ts:645-646` would therefore carry it to both surfaces from one place, but it is an engine-plus-wire change, not the free move it looks like: every `stepAction` addressing an option by label breaks (`Invalid choice`), and the next screen's thread reads `↪ **⚔️ Last stand**`. That is why the render-side decorations keep `opt.label` raw (`actionViewState.ts:227-228`).
+**Assumes this code.** The heavy border costs no new asset: `renderOpeningFrame` already takes the border style as its fourth argument (`OpeningFrameRenderer.ts:277-282`), so the emphasis is an argument at the call site rather than a fork in the renderer, and the register stays the shipped one. Leading every decision screen is a call-site change, not a view-slot change: the decision message already leads with an embed when `openingFrame` is set (the `showOpeningFrame` gate at `actionViewState.ts:252`, prepended at `viewToDiscord.ts:69-77`, and already included for the agent adapter at `viewToText.ts:82`), but the gate defaults off (`actionViewState.ts:165`) and is passed `true` only on an action's first decision (`SessionController.ts:656`) and on combat resumes (`:295`, `:593`). The desperate beat is a later decision of a continued action, rendered through `stepChoice` (`SessionController.ts:243-261`), which passes neither the flag nor the `actionType`/enemy slots, so this path gains a flag plus those slots. The card's duplicated blocks are the nameplate, HP and band lines from `buildContinueLines` (`CombatCardRenderer.ts:118-170`), and the `borderMid` divider exists only to separate them from the ledger (`CombatCardRenderer.ts:189`); the tag is `dangerTier(lastRound.dc)` (`combat-dc.ts:170`), passed to the card alone and riding its nameplate, so rehoming it on the frame needs a tag slot beside the name.
 
-- [p] Cheapest option: the frame slot exists, the emoji vocabulary exists, and a label-keyed render map keeps `opt.label` raw, so nothing on the wire moves; the only engine-side edit is the frame's own call site on the mid-action path.
-- [c] The frame duplicates the card. Both carry the foe's nameplate, its condition band and the player's HP, and side by side they disagree on the same 1 HP: both renderers call `hpBar` (`AnsiRenderer.ts:148`), which has no fill floor, but the continue card passes it a 15-column width and the opener 7, so `round(1/30 * 15) = 1` against `round(1/30 * 7) = 0` — the opener shows `[░░░░░░░]` (reads dead) where the card shows `[█░░░░░░░░░░░░░░]`.
-- [c] Register clash: a standard-bordered `┌` frame directly above a heavy-bordered `╔` card shows two borders from two ladders at once.
-- [c] Height: a second embed plus a 16-line art block sits on the screen where a panicking player most needs both choices near the thumb.
+- [p] One screen, one read: the card's 15-column player bar and the frame's 7-column bar no longer render side by side, so the `1/30` that read as one pip on one and an empty run on the other is gone, and the frame's bar plus its suffix (`OpeningFrameRenderer.ts:140-143`) is the only player-HP read left.
+- [p] Reuse over invention: the frame is the shipped COMBAT_FRAME at a heavier border, and the emoji pair the captions need already exists in the vocabulary.
+- [c] The frame now leads every decision screen, so the gate and the `actionType`/enemy slots move onto `stepChoice` (`SessionController.ts:243-261`), a path every continued action takes.
+- [c] The frame's own bar still rounds `1/30` to an empty 7-wide bar beside its own `1/30` suffix, the width-plus-rounding artefact rather than a missing floor; the deferred health-bar card owns it.
+- [c] Height: two embeds and a 16-line art block sit above the choices on the screen where a panicking player most needs both choices near the thumb, though the card below them drops from eight interior lines to four.
 
-## (c) Variant: the frame replaces the card
+## Captions: one emoji, one convention for the row
 
-Same captions, one frame, no duplication. The round's dice maths has to go somewhere, because the frame carries none.
+Both forced options render alike: the caption sits in the message as a lettered line with its emoji, and the button carries the letter (`**B.** ⚔️ Last stand`, `[ B ]`). The letters follow the beat's authored option order, which puts the bail first (`PipelineActionStateMachine.ts:645-646`), so the last stand lands on B. That is what every non-terminal option already does (`actionViewState.ts:233`, `:227-228`), so it is the cheaper of the two conventions the review offered: it deletes the terminal option's special case (`actionViewState.ts:222-223`) instead of adding a second one for a non-terminal option, and it leaves the caption on the 30-column body line, where a re-worded label cannot truncate. [POC action UX refinements](../decisions/poc-action-ux-refinements.md) § 1 carved "+ the terminal button" out of its own option-text-in-the-body rule; settling on letters retires that carve-out, and the implementation card amends that record.
 
-````text
-[ embeds[0]: COMBAT_FRAME, header and footer re-pointed at the live fight ]
-┌────────────────────────────┐
-│  GLOOMFANG          BRUISED│     ← condition band in the header slot
-│                            │
-│        /\        /\        │
-│       /  \______/  \       │
-│      |    o    o    |      │     ← the foe mid-fight, not at its opener
-│      |      /\      |      │
-│       \    '--'    /       │
-│        '-.______.-'        │
-│                            │
-│   ,^.                      │
-│  ( _ )   WARDEN    1/30    │
-│  /|_|\   `4 vs 17 +3 = 20` │     ← dice line rehomed into the footer
-│  _/ \_   `hit -14 · HEAVY` │
-└────────────────────────────┘
+The emoji is per option, from one vocabulary for the whole game, so an option carries the same emoji wherever it renders: `DISTILLED_EMOJI` maps `combat`/`attack` to ⚔️ and `flee`/`retreat` to 🏃 (`OutcomeRenderer.ts:101`), while `bail` falls through to the ✴️ default, so the map keys on the option's intent or on its label, render-side. `opt.label` stays raw either way, because it is also the choice key and the persisted choice, resolved by string equality in `step` (`PipelineActionStateMachine.ts:299-301`) and recorded as `chosen` (`:309`, `:336`), which renders into the story thread (`actionViewState.ts:86`); baking the emoji into the label would break every `stepAction` addressing the option by name and leak the glyph into the next screen's thread. The bail letter keeps the danger tint (`viewToDiscord.ts:51-55`), so the way out still reads as one.
 
-> The blow would be lethal — you feel death's cold touch.
-> Make your stand or flee before it's too late.
+## Rejected on the way here
 
-**A.** ⚔️ Last stand
-[ 🏃 Bail bloodied ]   [ A ]
-````
-
-**Assumes this code.** Captions and their emoji as in (b), from the labels at `PipelineActionStateMachine.ts:645-646`. Everything the frame lacks today it would have to gain: the opener variant is fed static slots (`openingFrameSlots`, `actionViewState.ts:244-252`), while the card's live values come from `CombatStatusData` and the last `CombatBeatLog` (`renderCombatStatusFrame`, `actionViewState.ts:101-127`). This is a frame-register change rather than a decision-view change, and it costs the card's own dice layout (`src/render/CombatCardRenderer.ts:188-230`).
-
-- [p] One nameplate, one HP read, no contradiction on the 1/30 bar.
-- [c] The continue card is shared with every mid-fight decision, so touching it for the last stand touches every combat round's screen.
-- [c] Puts the "cooler" half of the ask into the ANSI frame library, which needs its own wireframe and colour roles before it can be emitted.
+- [I] **The frame replacing the card.** It would have to gain the live nameplate, the band and the dice layout the card owns (`src/render/CombatCardRenderer.ts:188-230`), and the card is the shared screen of every mid-fight decision, so the last stand would have rewritten every combat round rather than one beat.
+- [I] **A last-stand register of its own.** An opener is an encounter-setter and this is a mid-fight crisis, but a distinct register buys that drama with an asset, a colour-role set and a wireframe, where combat frames stay standard.
 
 ## Caption budget against Discord mobile width
 
-Budget assumed, stated because truncation is the risk being evaluated: **20 visible columns for the worded bail caption** and **30 columns for a body option line**.
+Budget stated because truncation is the risk that decided the convention: **20 visible columns for a caption on a two-button row**, and **30 columns for a body option line**. The captions ride the body, so the 20 is kept as the measurement the button route failed rather than as a live constraint.
 
 - The 30 is measured, not guessed: phone portrait is a hard 30-column cap for scene text, with 60 columns the ceiling for a code block ([Discord Window Size Reference](../templates/discord-window-size.md), and [Discord UX](../ui/poc-discord-ux.md) § Width).
-- The 20 is derived: the bail caption shares its action row with the lettered `A` button plus Discord's own button padding, which takes roughly a third of the 30. The empirical anchor is the recorded POC failure, where a 24-column caption ("Decline — I'll use steel") in a two-button row truncated on mobile, and is why option text moved into the body while the buttons became letters ([POC action UX refinements](../decisions/poc-action-ux-refinements.md) § 1).
-- Emoji count 2 columns, a variation selector counts 0, spaces count 1. Today's caption is 13 columns, and the row is comfortable.
+- The 20 is derived: a worded caption shares its action row with the other button plus Discord's own button padding, which takes roughly a third of the 30. The empirical anchor is the recorded POC failure, where a 24-column caption ("Decline — I'll use steel") in a two-button row truncated on mobile, and is why option text moved into the body while the buttons became letters ([POC action UX refinements](../decisions/poc-action-ux-refinements.md) § 1).
+- Emoji count 2 columns, a variation selector counts 0, spaces count 1. Today's bail caption is 13 columns on the button, and the row is comfortable.
 
 | Caption | Columns | Verdict |
 | --- | --- | --- |
-| `Bail bloodied` (today) | 13 | fits |
-| `🏃 Bail bloodied` | 16 | fits, 4 spare |
-| `🏃 Bail out bloodied` | 20 | exactly the budget, with nothing spare: the longest caption that still fits |
-| `🏃 Bail out, bleed later` | 24 | over the row, truncates |
-| `**A.** ⚔️ Last stand`, in the body | 16 of 30 | fits, with room for a longer label |
+| `**A.** 🏃 Bail bloodied`, in the body | 19 of 30 | fits, 11 spare |
+| `**B.** ⚔️ Last stand`, in the body | 16 of 30 | fits, with room for a longer label |
+| `Bail bloodied` (today's button) | 13 | fits |
+| `🏃 Bail bloodied` on a button | 16 of 20 | fits, 4 spare |
+| `🏃 Bail out bloodied` on a button | 20 of 20 | on the line with nothing spare: the longest caption the row would hold |
+| `🏃 Bail out, bleed later` on a button | 24 | over the row, truncates |
 
-So the emoji is affordable: it costs 3 columns on the worded caption and leaves the short labels a forced beat needs well inside the row. What it does not afford is a re-worded, more dramatic bail caption. The emoji and a longer label compete for the same few columns, and a caption that only looks cooler on desktop buys a truncated button on the platform that must pass.
+So the emoji is affordable on either surface. What settles the convention is the bottom of that table: a button caption has 20 columns, the bail label already spends 16 of them, and a more dramatic label truncates on the platform that must pass, while the body line it moves to still has 11 columns spare.
 
-## Open questions
+## Settled, and deferred
 
-- [?] **Own frame register, or reuse COMBAT_FRAME?** Reading the last stand as the COMBAT_FRAME opener variant is the zero-new-assets path, but an opener is an encounter-setter and this is a mid-fight crisis. A distinct last-stand register buys the drama and costs an asset, a colour-role set and a wireframe.
-- [?] **Emoji per option, or per outcome?** The vocabulary is per distilled action type today, so 🏃 and ⚔️ are derived from intent words. A label-keyed map suits a caption better but grows a second vocabulary beside the first.
-- [?] **Frame above the card, or replacing it?** (b) duplicates the nameplate and the HP bar and shows two border registers; (c) removes both and pays in the shared continue card and the dice line's rehoming.
-- [?] **Which border wins?** The card is already heavy on this screen (`chooseContinueBorder`, `actionViewState.ts:94`), so a frame keeping `┌` above it reads as a downgrade of the moment.
-- [?] **Opener bar width, or a 1 HP floor?** The disagreement above is width plus rounding, not a missing fill rule, so either fix moves more than this one bar: widening the opener moves every opener reading (2/30 shows no pip in 7 columns where the card's 15 shows one), a floor inside `hpBar` moves every bar in the game.
-- [?] **Is 20 columns right?** The derived budget matches the recorded POC truncation, but nothing in the repo has measured a two-button row on a phone. A live check settles it, and `🏃 Bail out bloodied` is its test case: the one caption that sits exactly on the line.
-- [!] **Nothing here is approved.** The code work is the sibling implementation card, which needs `Status=Approved` on its own; these wireframes only show what it would look like.
+- [p] **Frame register:** the shipped COMBAT_FRAME, parameterised, not a register of its own. Combat frames stay standard, and the last stand reads as the same screen in a heavier mood.
+- [p] **Emoji:** per option, one vocabulary for the whole game, applied wherever an option renders.
+- [p] **Frame above the card, not replacing it:** the card keeps the round ledger, which the frame has no room for.
+- [p] **Border:** both thick on this screen, so the two borders come off one ladder.
+- [p] **Button convention:** the caption in the message for every option, the letter on every button.
+- [>] **Health bars:** a follow-up card owns them in general; the 1 HP read stays a placeholder here.
+- [p] **The 20-column budget:** with no caption in the button row, nothing on this screen rides it; the body lines sit inside the measured 30, so no live check gates the implementation.
+- [!] **Nothing here is built.** The design is settled; the code work is the sibling implementation card, which needs `Status=Approved` on its own.
 
 ---
 
