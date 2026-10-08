@@ -862,9 +862,20 @@ export function setStatus(ctx: Ctx, config: ProjectConfig, item: BoardItem, stat
   ]);
 }
 
+/**
+ * Issue comments are public and this repo's are read by strangers, but the ledger writes
+ * absolute worktree paths into block reasons and the block body. `~` keeps the comment usable
+ * without publishing the account name. The page is deliberately not routed through here: it is
+ * a DM to the owner, and a path they can `cd` straight into is worth keeping there.
+ */
+export function publicBody(body: string, home = homedir()): string {
+  return body.split(home).join("~");
+}
+
 export function commentOn(ctx: Ctx, config: ProjectConfig, number: number, body: string): void {
-  if (ctx.dryRun) return void ctx.deps.log(`[dry-run] comment on #${number}: ${body.split("\n")[0]}`);
-  gh(ctx, ["issue", "comment", String(number), "--repo", config.repo, "--body-file", "-"], body);
+  const published = publicBody(body);
+  if (ctx.dryRun) return void ctx.deps.log(`[dry-run] comment on #${number}: ${published.split("\n")[0]}`);
+  gh(ctx, ["issue", "comment", String(number), "--repo", config.repo, "--body-file", "-"], published);
 }
 
 /** Comments on an issue, oldest first. Only the adoption path needs these. */

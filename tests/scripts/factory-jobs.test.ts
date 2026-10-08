@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -45,6 +45,7 @@ import {
   parseVerdict,
   pickCandidate,
   probeClaim,
+  publicBody,
   readFocusCache,
   readProjectConfig,
   resolveFocus,
@@ -1362,6 +1363,25 @@ describe('the revise cycle', () => {
     expect(h.pages[0]).toContain('scratch.txt');
     expect(h.called('git', 'merge --no-edit')).toBe(false);
     expect(existsSync(feedbackPath(h.ctx(), 34))).toBe(false);
+  });
+
+  it('never publishes an absolute home path in an issue comment', async () => {
+    // A home-rooted worktree is the case that publishes the account name. It is left absent so
+    // the block fires on the reason that names the path.
+    const home = homedir();
+    const h = reviewing({ worktree: join(home, 'projects/worktrees/daily-pixel/feat-34-last-stand') });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'blocked' });
+
+    const body = commentBody(h, 34);
+    expect(body).toContain('is gone');
+    expect(body).toContain('~/projects/worktrees/daily-pixel/feat-34-last-stand');
+    expect(body).not.toContain(home);
+    // The page is the owner's own DM, so it keeps the path they can cd straight into.
+    expect(h.pages[0]).toContain(home);
+  });
+
+  it('leaves a path that is not under home untouched', () => {
+    expect(publicBody('/tmp/scratch/feat-34-x')).toBe('/tmp/scratch/feat-34-x');
   });
 
   it('resets the cycle count when the owner approves instead of requesting changes', async () => {
