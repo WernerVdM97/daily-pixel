@@ -23,7 +23,18 @@
 //    billed as completion tokens and emitted before the content. Probed on the live API: a silent
 //    body came back with 28 reasoning tokens, the same body with `{enabled: false}` with none.
 //    So the field is sent on every call, and never conditionally.
+//  - `effort` names the tier; leaving it out buys the model's own default (`high`). A tier it does not
+//    serve is not an error there, it is a quiet substitution.
 import { OPENROUTER_TITLE, OPENROUTER_URL, OPENROUTER_PROVIDER_ROUTING } from './openrouter.js';
+
+/** The tiers `deepseek/deepseek-v4.1-flash` serves. */
+export const REASONING_EFFORTS = ['max', 'high', 'low'] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/** Exact and case-sensitive; callers normalise before asking. */
+export function isReasoningEffort(value: string): value is ReasoningEffort {
+  return (REASONING_EFFORTS as readonly string[]).includes(value);
+}
 
 /** The wire body, minus the per-call plumbing. Split out so the one caller that needs to *log* the
  *  request (ProdLlmGateway's verbose line) builds it through this function rather than a copy that
@@ -36,6 +47,8 @@ export interface ChatRequestBodyInput {
   /** Ask for chain-of-thought. Only decide/critic (and the pipeline's decide stage) opt in; every
    *  other stage sends an explicit off — see the omission trap above. */
   reasoning?: boolean;
+  /** How hard to think, when `reasoning` is on. Omitted = the model's default tier. */
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface ChatRequest extends ChatRequestBodyInput {
@@ -63,6 +76,7 @@ export interface ChatResponse {
 }
 
 export function buildRequestBody(req: ChatRequestBodyInput) {
+  const thinks = req.reasoning === true;
   return {
     model: req.model,
     messages: [
@@ -70,7 +84,7 @@ export function buildRequestBody(req: ChatRequestBodyInput) {
       { role: 'user' as const, content: req.userMessage },
     ],
     response_format: { type: 'json_object' as const },
-    reasoning: { enabled: req.reasoning === true },
+    reasoning: thinks && req.reasoningEffort ? { enabled: true, effort: req.reasoningEffort } : { enabled: thinks },
     temperature: req.temperature,
     stream: false,
     provider: OPENROUTER_PROVIDER_ROUTING,

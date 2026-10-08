@@ -3,7 +3,7 @@
  * for a move and maps the reply back — the MOVE half fails loud (`resolveMove`), the NOTES half fails soft.
  */
 
-import { callChatCompletion, type ChatResponse } from '../llm/chat-transport.js';
+import { callChatCompletion, type ChatResponse, type ReasoningEffort } from '../llm/chat-transport.js';
 import { DEFAULT_LLM_MODEL } from '../llm/openrouter.js';
 import type { LlmCallRecorder } from '../llm/LlmCallRecorder.js';
 import { APP_VERSION } from '../version.js';
@@ -23,6 +23,7 @@ export interface ProdAgentPlayerGatewayConfig {
   apiKey: string;
   model?: string;
   temperature?: number;
+  reasoningEffort?: ReasoningEffort;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetch?: typeof fetch;
   /** Optional audit sink — records every move-pick attempt as an `llm_calls` row. */
@@ -81,6 +82,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
   private recorder?: LlmCallRecorder;
   private systemPrompt: string;
   private verbose: boolean;
+  private reasoningEffort?: ReasoningEffort;
   /** Stamps `llm_calls.promptVersion`: `agent-v2`, or `agent-v2/<persona>` when set. */
   private persona?: string;
 
@@ -91,6 +93,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
     this.fetchFn = config.fetch ?? fetch.bind(globalThis);
     this.recorder = config.recorder;
     this.persona = config.persona;
+    this.reasoningEffort = config.reasoningEffort;
     // The move-picker's instruction, the handbook every brain carries, and (when a persona is set) its
     // fragment fire as a unit; unset adds nothing, so the persona-less prompt is unchanged.
 
@@ -121,6 +124,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
         systemPrompt: this.systemPrompt,
         userMessage,
         reasoning: true,
+        ...(this.reasoningEffort ? { reasoningEffort: this.reasoningEffort } : {}),
         fetchFn: this.fetchFn,
       });
 

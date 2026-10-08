@@ -3,7 +3,7 @@
  * the model for a playtest report and validates it. ONE `llm_calls` row in `finally`, however it ends.
  */
 
-import { callChatCompletion, type ChatResponse } from '../llm/chat-transport.js';
+import { callChatCompletion, type ChatResponse, type ReasoningEffort } from '../llm/chat-transport.js';
 import { DEFAULT_LLM_MODEL } from '../llm/openrouter.js';
 import type { LlmCallRecorder } from '../llm/LlmCallRecorder.js';
 import { APP_VERSION } from '../version.js';
@@ -38,6 +38,7 @@ export interface ProdPlaytestCriticGatewayConfig {
   /** Injectable BASE for the persona review's system prompt, for tests: the persona's own fragment is
    *  appended to it, so an injected base still exercises the real voice composition. */
   personaReviewSystemPrompt?: string;
+  reasoningEffort?: ReasoningEffort;
   /** If true, console-log a one-line summary of the call (model, latency, tokens). */
   verbose?: boolean;
 }
@@ -95,6 +96,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
   private systemPrompt: string;
   private personaReviewPromptBase: string;
   private verbose: boolean;
+  private reasoningEffort?: ReasoningEffort;
 
   constructor(config: ProdPlaytestCriticGatewayConfig) {
     this.apiKey = config.apiKey;
@@ -106,6 +108,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
     this.systemPrompt = config.systemPrompt ?? loadCriticTemplate('critic');
     this.personaReviewPromptBase = config.personaReviewSystemPrompt ?? loadCriticTemplate('persona-review');
     this.verbose = config.verbose ?? false;
+    this.reasoningEffort = config.reasoningEffort;
   }
 
   async critique(input: CritiqueInput): Promise<PlaytestReport> {
@@ -128,6 +131,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
         systemPrompt: this.systemPrompt,
         userMessage,
         reasoning: true,
+        ...(this.reasoningEffort ? { reasoningEffort: this.reasoningEffort } : {}),
         fetchFn: this.fetchFn,
       });
 
@@ -235,6 +239,7 @@ export class ProdPlaytestCriticGateway implements PlaytestCriticGateway {
         systemPrompt,
         userMessage,
         reasoning: true,
+        ...(this.reasoningEffort ? { reasoningEffort: this.reasoningEffort } : {}),
         fetchFn: this.fetchFn,
       });
 

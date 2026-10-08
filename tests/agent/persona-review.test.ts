@@ -216,6 +216,19 @@ describe('ScriptedPlaytestCriticGateway — persona review (T5)', () => {
 // ── ProdPlaytestCriticGateway — request assembly ──
 
 describe('ProdPlaytestCriticGateway — persona review request', () => {
+  it('carries the configured reasoning tier on the review call too', async () => {
+    const fetchFn = mockFetch(apiResponse(reviewReply()));
+    await new ProdPlaytestCriticGateway({
+      apiKey: 'test-key',
+      fetch: fetchFn,
+      systemPrompt: 'CRITIC SYSTEM',
+      personaReviewSystemPrompt: 'REVIEW SYSTEM',
+      reasoningEffort: 'low',
+    }).review(sampleInput());
+
+    expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: true, effort: 'low' });
+  });
+
   it('sends the review template + the persona fragment as the system prompt, and the series + log', async () => {
     const fetchFn = mockFetch(apiResponse(reviewReply()));
     await makeReviewer(fetchFn).review(sampleInput());

@@ -106,6 +106,18 @@ describe('ProdPlaytestCriticGateway — request', () => {
     expect(body.messages[1].content).toContain('PLAY LOG:');
   });
 
+  it('carries the configured reasoning tier on the critique call', async () => {
+    const fetchFn = mockFetch(apiResponse(REPORT));
+    await new ProdPlaytestCriticGateway({
+      apiKey: 'test-key',
+      fetch: fetchFn,
+      systemPrompt: 'CRITIC SYSTEM',
+      reasoningEffort: 'low',
+    }).critique(sampleRun());
+
+    expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: true, effort: 'low' });
+  });
+
   it('buildCritiqueMessage renders the scoreboard and every event kind as a log line', () => {
     const msg = buildCritiqueMessage(sampleRun());
     expect(msg).toContain('RUN SUMMARY:');

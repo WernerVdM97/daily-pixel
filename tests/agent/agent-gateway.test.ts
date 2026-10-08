@@ -68,6 +68,7 @@ function apiResponse(content: unknown): unknown {
 interface RequestBody {
   messages: Array<{ content: string }>;
   response_format: unknown;
+  reasoning: unknown;
 }
 
 function bodyOf(fetchFn: typeof fetch): RequestBody {
@@ -155,6 +156,13 @@ describe('ProdAgentPlayerGateway — request', () => {
     const system = bodyOf(fetchFn).messages[0].content as string;
     expect(system).toContain('move-picker');
     expect(system).toContain('player handbook');
+  });
+
+  it('sends the configured reasoning tier', async () => {
+    const fetchFn = mockFetch(apiResponse({ choice: 0 }));
+    await new ProdAgentPlayerGateway({ apiKey: 'test-key', fetch: fetchFn, reasoningEffort: 'low' }).chooseMove(menuInput());
+
+    expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: true, effort: 'low' });
   });
 
   it('buildUserMessage renders SCREEN, numbered MOVES, and CHARACTER', () => {

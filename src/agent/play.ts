@@ -11,8 +11,10 @@ import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
+import { parseReasoningEffort } from './harnessEnv.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
+import { REASONING_EFFORTS } from '../llm/chat-transport.js';
 import { LlmCallRepository } from '../db/repositories/llm-call.js';
 import type { CharCreateData } from '../engine/WorldEngine.js';
 import { loadYamlFile } from '../assets/yaml-loader.js';
@@ -91,6 +93,14 @@ async function main(): Promise<void> {
     return;
   }
   const model = process.env.AGENT_MODEL?.trim() || undefined;
+  const reasoningEffort = parseReasoningEffort(process.env.PLAYER_AGENT_REASONING_EFFORT);
+  if (reasoningEffort === null) {
+    console.error(
+      `agent:play: PLAYER_AGENT_REASONING_EFFORT must be one of ${REASONING_EFFORTS.join('|')} (got "${process.env.PLAYER_AGENT_REASONING_EFFORT}").`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   const days = Number(process.env.AGENT_DAYS ?? '1');
   if (!Number.isFinite(days) || days < 1) {
     console.error(`agent:play: AGENT_DAYS must be a positive integer (got "${process.env.AGENT_DAYS}").`);
@@ -141,6 +151,7 @@ async function main(): Promise<void> {
     apiKey,
     ...(model ? { model } : {}),
     ...(persona ? { persona } : {}),
+    reasoningEffort,
     recorder: new LlmCallRepository(agentEngine.db),
     verbose: true,
   });
@@ -263,6 +274,7 @@ async function main(): Promise<void> {
       const critic = new ProdPlaytestCriticGateway({
         apiKey,
         ...(model ? { model } : {}),
+        reasoningEffort,
         recorder: new LlmCallRepository(agentEngine.db),
         verbose: true,
       });
@@ -290,6 +302,7 @@ async function main(): Promise<void> {
         const reviewer = new ProdPlaytestCriticGateway({
           apiKey,
           ...(model ? { model } : {}),
+          reasoningEffort,
           recorder: new LlmCallRepository(agentEngine.db),
           verbose: true,
         });

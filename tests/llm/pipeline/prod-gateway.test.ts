@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ProdPipelineLlmGateway } from '../../../src/llm/pipeline/ProdPipelineGateway.js';
-import { callChatCompletion } from '../../../src/llm/chat-transport.js';
+import { callChatCompletion, isReasoningEffort, REASONING_EFFORTS } from '../../../src/llm/chat-transport.js';
 import { buildUserMessage, PROMPT_SET_VERSION } from '../../../src/llm/prompt-builder.js';
 import type { PromptSet } from '../../../src/llm/prompt-builder.js';
 import { ACTION_CATEGORIES } from '../../../src/llm/LlmGateway.js';
@@ -767,6 +767,31 @@ describe('callChatCompletion — shared transport', () => {
     await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', reasoning: true, fetchFn });
 
     expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: true });
+  });
+
+  it('names the reasoning tier when the caller pins one', async () => {
+    const fetchFn = mockFetch({ choices: [{ message: { content: '{}' } }] });
+
+    await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', reasoning: true, reasoningEffort: 'low', fetchFn });
+
+    expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: true, effort: 'low' });
+  });
+
+  it('drops the tier on an off call rather than asking for both', async () => {
+    const fetchFn = mockFetch({ choices: [{ message: { content: '{}' } }] });
+
+    await callChatCompletion({ apiKey: 'x', model: 'm', temperature: 0.5, systemPrompt: 's', userMessage: 'u', reasoningEffort: 'low', fetchFn });
+
+    expect(bodyOf(fetchFn).reasoning).toEqual({ enabled: false });
+  });
+
+  it('keeps the tier vocabulary inside what the pinned model serves', () => {
+    for (const tier of REASONING_EFFORTS) expect(isReasoningEffort(tier)).toBe(true);
+
+    // Real OpenRouter tiers the pinned model does not offer.
+    for (const offList of ['medium', 'minimal', 'xhigh', 'none', 'LOW', '']) {
+      expect(isReasoningEffort(offList)).toBe(false);
+    }
   });
 
   it('does not throw on empty content — returns content: null', async () => {

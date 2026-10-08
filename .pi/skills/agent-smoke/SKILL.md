@@ -45,6 +45,7 @@ Every run's `AGENT_START_DATE` must be a **noon-UTC instant** (`2026-09-15T12:00
 | `AGENT_OUT` | Transcript path, one per run. The review lands at `<AGENT_OUT>.reviews.json`. |
 | `AGENT_PROTOCOL_OUT` | Protocol-log path (default `<AGENT_OUT>.protocol.json`); the replayable instrument. |
 | `AGENT_FORCE_FREE_ACTIONS` | Diagnostic, not the way: `1` withholds each day's day-job buttons until a free-text action completes. Use only when a question needs the quest loop (e.g. RA-2 inspiration), and note in the report that the arm was forced. |
+| `PLAYER_AGENT_REASONING_EFFORT` | `max`/`high`/`low`, default `low`. How hard the brain, the run critique and the persona review reason, and the run's largest cost lever: every brain move pays it. Anything else exits 1 rather than being silently clamped to a tier the model does serve. Raise it to `high` to run the other arm of an A/B. |
 | `AGENT_PROTOCOL_BEATS`, `AGENT_BRAIN_CHOOSES_CHAR`, `AGENT_USER_ID`, `AGENT_INHERIT`, `AGENT_MODEL` | Unchanged. `AGENT_BRAIN_CHOOSES_CHAR=1` is the token-heavy realism arm; `AGENT_INHERIT=1` needs `AGENT_USER_ID` and exits 1 when no character is found. |
 
 ## Running one run
