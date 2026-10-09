@@ -97,7 +97,7 @@ function continueHard(): string {
 }
 
 /** C1: risky encounter, ELDER WYRM — the heaviest foe in this set. */
-function continueFatal(): string {
+function continueRisky(): string {
   const input: ContinueCardInput = {
     enemyName: "ELDER WYRM",
     woundWord: "BLOODIED",
@@ -294,7 +294,7 @@ function terminalLongLabel(): string {
 
 // E — Danger-tier flicker across rounds (regression watch)
 
-/** Same foe SHADOW STAG, same HP state, three different DCs — the danger word
+/** Same foe SHADOW STAG, same HP state, one DC per band — the danger word
  *  must change but the layout must not break. */
 function dangerFlickerFrames(): Record<string, string> {
   const base: Omit<ContinueCardInput, "dangerTier" | "lastRound"> = {
@@ -303,7 +303,7 @@ function dangerFlickerFrames(): Record<string, string> {
     pips: { filled: 3, total: 5 },
     playerHp: 18, playerMaxHp: 24, playerHpDelta: -1,
   };
-  const dcs = [10, 14, 16, 19, 21];
+  const dcs = [10, 14, 16, 20, 24];
   const result: Record<string, string> = {};
   for (const dc of dcs) {
     const tier = dangerTier(dc);
@@ -379,7 +379,7 @@ async function main() {
   // A — Continue card variants
   messages.push({ label: "A.1", title: "Continue — standard (TRADE, edge-win, medium)", content: continueStandard() });
   messages.push({ label: "A.2", title: "Continue — hard encounter, HEAVY band", content: continueHard() });
-  messages.push({ label: "A.3", title: "Continue — risky encounter, ELDER WYRM", content: continueFatal() });
+  messages.push({ label: "A.3", title: "Continue — risky encounter, ELDER WYRM", content: continueRisky() });
   messages.push({ label: "A.4", title: "Continue — dead tie (margin 0, −2/−2)", content: continueDeadTie() });
   messages.push({ label: "A.5", title: "Continue — edge-loss trade (margin −2, you −2, foe −1)", content: continueEdgeLoss() });
 

@@ -264,12 +264,12 @@ describe('deriveEnemyMaxHp', () => {
 });
 
 describe('dangerTier — DC to worded encounter-danger tier (POC+ 0.3.2 C1)', () => {
-  it('11 -> easy (top of the easy band, reachable from the contract floor of 10)', () => {
+  it('11 -> easy (top of the easy band)', () => {
     expect(dangerTier(10)).toBe('easy');
     expect(dangerTier(11)).toBe('easy');
   });
 
-  it('12 -> medium (bottom of the medium band, anchors the sim baseline goblin)', () => {
+  it('12 -> medium (bottom of the medium band)', () => {
     expect(dangerTier(12)).toBe('medium');
   });
 
@@ -277,7 +277,7 @@ describe('dangerTier — DC to worded encounter-danger tier (POC+ 0.3.2 C1)', ()
     expect(dangerTier(15)).toBe('medium');
   });
 
-  it('16 -> hard (bottom of the hard band, where a v13 ordinary action anchors)', () => {
+  it('16 -> hard (bottom of the hard band)', () => {
     expect(dangerTier(16)).toBe('hard');
     expect(dangerTier(17)).toBe('hard');
   });
@@ -294,7 +294,7 @@ describe('dangerTier — DC to worded encounter-danger tier (POC+ 0.3.2 C1)', ()
     expect(dangerTier(23)).toBe('risky');
   });
 
-  it('24 -> fatal (bottom of the fatal band, at the contract ceiling, and beyond)', () => {
+  it('24 -> fatal (bottom of the fatal band, and beyond)', () => {
     expect(dangerTier(24)).toBe('fatal');
     expect(dangerTier(100)).toBe('fatal');
   });
