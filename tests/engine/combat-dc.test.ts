@@ -264,43 +264,55 @@ describe('deriveEnemyMaxHp', () => {
 });
 
 describe('dangerTier — DC to worded encounter-danger tier (POC+ 0.3.2 C1)', () => {
-  it('9 -> easy (top of the easy band)', () => {
-    expect(dangerTier(9)).toBe('easy');
+  it('11 -> easy (top of the easy band)', () => {
+    expect(dangerTier(10)).toBe('easy');
+    expect(dangerTier(11)).toBe('easy');
   });
 
-  it('10 -> medium (bottom of the medium band)', () => {
-    expect(dangerTier(10)).toBe('medium');
-  });
-
-  it('13 -> medium (top of the medium band, anchors the sim baseline goblin baseDc 12)', () => {
-    expect(dangerTier(13)).toBe('medium');
+  it('12 -> medium (bottom of the medium band)', () => {
     expect(dangerTier(12)).toBe('medium');
   });
 
-  it('14 -> hard (bottom of the hard band)', () => {
-    expect(dangerTier(14)).toBe('hard');
+  it('15 -> medium (top of the medium band)', () => {
+    expect(dangerTier(15)).toBe('medium');
   });
 
-  it('17 -> hard (top of the hard band)', () => {
+  it('16 -> hard (bottom of the hard band)', () => {
+    expect(dangerTier(16)).toBe('hard');
     expect(dangerTier(17)).toBe('hard');
   });
 
-  it('18 -> risky (bottom of the risky band)', () => {
-    expect(dangerTier(18)).toBe('risky');
+  it('19 -> hard (top of the hard band)', () => {
+    expect(dangerTier(19)).toBe('hard');
   });
 
-  it('21 -> risky (top of the risky band)', () => {
-    expect(dangerTier(21)).toBe('risky');
+  it('20 -> risky (bottom of the risky band)', () => {
+    expect(dangerTier(20)).toBe('risky');
   });
 
-  it('22 -> fatal (bottom of the fatal band, and beyond)', () => {
-    expect(dangerTier(22)).toBe('fatal');
+  it('23 -> risky (top of the risky band)', () => {
+    expect(dangerTier(23)).toBe('risky');
+  });
+
+  it('24 -> fatal (bottom of the fatal band, and beyond)', () => {
+    expect(dangerTier(24)).toBe('fatal');
     expect(dangerTier(100)).toBe('fatal');
   });
 
   it('very low DC still resolves to easy', () => {
     expect(dangerTier(0)).toBe('easy');
     expect(dangerTier(1)).toBe('easy');
+  });
+
+  it('reaches all five words across the legal baseDc range 10-24', () => {
+    const dcs = Array.from({ length: 15 }, (_, i) => 10 + i);
+    expect([...new Set(dcs.map(dangerTier))].sort()).toEqual([
+      'easy',
+      'fatal',
+      'hard',
+      'medium',
+      'risky',
+    ]);
   });
 });
 
