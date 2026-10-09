@@ -96,7 +96,7 @@ function continueHard(): string {
   return renderCombatContinueCard(input, PALETTES.house, BORDERS.heavy);
 }
 
-/** C1: fatal encounter — top danger tier. */
+/** C1: risky encounter, ELDER WYRM — the heaviest foe in this set. */
 function continueFatal(): string {
   const input: ContinueCardInput = {
     enemyName: "ELDER WYRM",
@@ -112,7 +112,7 @@ function continueFatal(): string {
       playerHpDelta: -12,
       enemyHpDelta: -2,
     },
-    dangerTier: dangerTier(20), // fatal
+    dangerTier: dangerTier(20), // risky
   };
   return renderCombatContinueCard(input, PALETTES.house, BORDERS.heavy);
 }
@@ -254,7 +254,7 @@ function continueLongName(): string {
     woundWord: "UNSCATHED",
     pips: { filled: 5, total: 5 },
     playerHp: 24, playerMaxHp: 24, playerHpDelta: 0,
-    dangerTier: dangerTier(18), // risky
+    dangerTier: dangerTier(18), // hard
   };
   return renderCombatContinueCard(input, PALETTES.house, BORDERS.standard);
 }
@@ -273,7 +273,7 @@ function continueWideHp(): string {
       playerHpDelta: 0,
       enemyHpDelta: -1,
     },
-    dangerTier: dangerTier(12), // easy
+    dangerTier: dangerTier(12), // medium
   };
   return renderCombatContinueCard(input, PALETTES.house, BORDERS.standard);
 }
@@ -379,7 +379,7 @@ async function main() {
   // A — Continue card variants
   messages.push({ label: "A.1", title: "Continue — standard (TRADE, edge-win, medium)", content: continueStandard() });
   messages.push({ label: "A.2", title: "Continue — hard encounter, HEAVY band", content: continueHard() });
-  messages.push({ label: "A.3", title: "Continue — fatal encounter, ELDER WYRM", content: continueFatal() });
+  messages.push({ label: "A.3", title: "Continue — risky encounter, ELDER WYRM", content: continueFatal() });
   messages.push({ label: "A.4", title: "Continue — dead tie (margin 0, −2/−2)", content: continueDeadTie() });
   messages.push({ label: "A.5", title: "Continue — edge-loss trade (margin −2, you −2, foe −1)", content: continueEdgeLoss() });
 

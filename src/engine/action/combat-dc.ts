@@ -165,12 +165,12 @@ export function deriveEnemyMaxHp(baseDc: number, scale = 1): number {
 
 export type DangerTier = 'easy' | 'medium' | 'hard' | 'risky' | 'fatal';
 
-/** Worded encounter-danger tier for display only — a first-cut, tunable ladder anchored so the
- *  baseline goblin (baseDc 12) reads "medium"; never a per-beat pass/fail threshold. */
+/** Worded encounter-danger tier for display only, never a per-beat threshold — bands cut against
+ *  v13's anchor, so an ordinary `baseDc` 16-17 reads "hard" and the baseline goblin (12) "medium". */
 export function dangerTier(dc: number): DangerTier {
-  if (dc <= 9) return 'easy';
-  if (dc <= 13) return 'medium';
-  if (dc <= 17) return 'hard';
-  if (dc <= 21) return 'risky';
+  if (dc <= 11) return 'easy';
+  if (dc <= 15) return 'medium';
+  if (dc <= 19) return 'hard';
+  if (dc <= 23) return 'risky';
   return 'fatal';
 }
