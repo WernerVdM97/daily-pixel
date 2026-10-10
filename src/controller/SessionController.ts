@@ -257,7 +257,18 @@ export class SessionController {
       };
     }
     const char = this.engine.getCharacter(userId);
-    const view = buildDecisionView(result.nextDecision, result.state.decisions.length, result.state, char ?? undefined);
+    // Every decision screen leads with its opening frame, this beat included — the flag and the
+    // register's slots ride the step result the same way the resume paths' ride `resumeAction`'s.
+    const view = buildDecisionView(
+      result.nextDecision,
+      result.state.decisions.length,
+      result.state,
+      char ?? undefined,
+      result.actionType,
+      result.combatEnemyName,
+      result.combatEnemyCondition,
+      true,
+    );
     return { kind: 'decision', view };
   }
 
@@ -290,9 +301,7 @@ export class SessionController {
           resumeResult.actionType,
           resumeResult.combatEnemyName,
           resumeResult.combatEnemyCondition,
-          // A mid-fight resume re-opens the fight: only combat earns a second opener, since every
-          // other register is a scene-setter for a start the player has already moved past.
-          resumeResult.actionType === 'combat',
+          true,
         );
         return { kind: 'resume-decision', view };
       } catch (err) {
@@ -590,7 +599,7 @@ export class SessionController {
           r.actionType,
           r.combatEnemyName,
           r.combatEnemyCondition,
-          r.actionType === 'combat',
+          true,
         ),
       };
     }

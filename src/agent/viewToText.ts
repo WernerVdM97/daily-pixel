@@ -27,16 +27,16 @@ export interface ViewMove {
  *  harness will act on. Non-interactive screens offer none and return `[]`. */
 export function viewMoves(view: ViewState): ViewMove[] {
   switch (view.screen) {
-    case 'decision': {
-      // `buildDecisionView` appends choices and option lines in lockstep, and a bail adds a button
-      // but no option line, so the k-th choice button pairs the k-th option line wherever bail falls.
-      let choiceIdx = 0;
-      return view.buttons.map((b, index) =>
-        b.kind === 'bail'
-          ? { index, label: b.label, customId: b.customId, kind: 'bail' as const }
-          : { index, label: view.optionLines[choiceIdx++] ?? b.letter, customId: b.customId, kind: 'choice' as const, favoured: b.favoured },
-      );
-    }
+    case 'decision':
+      // Every option renders a body line, the terminal one included, so the k-th button pairs the
+      // k-th line — a bail reads as its own caption, not as a bare letter.
+      return view.buttons.map((b, index) => ({
+        index,
+        label: view.optionLines[index] ?? b.letter,
+        customId: b.customId,
+        kind: b.kind,
+        ...(b.kind === 'choice' ? { favoured: b.favoured } : {}),
+      }));
     case 'menu':
       return view.buttons.map((b, index) => ({ index, label: b.label, customId: b.customId, kind: 'menu' as const }));
     default:

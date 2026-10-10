@@ -229,7 +229,13 @@ export class PipelineSimEngine {
     }
 
     this.pendingState = result.state;
-    return { resolved: false, state: toPublicState(result.state), nextDecision: result.nextDecision };
+    return {
+      resolved: false,
+      state: toPublicState(result.state),
+      nextDecision: result.nextDecision,
+      actionType: result.state.actionType,
+      combatEnemyName: result.state.lastDecideResult?.combatEnemy?.name,
+    };
   }
 
   getCharacter(discordUserId: string): CharacterData | null {

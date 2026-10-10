@@ -744,6 +744,11 @@ describe('distilledActionEmoji', () => {
     expect(distilledActionEmoji('Negotiate')).toBe('🗣️');
   });
 
+  it('maps the terminal option\'s bail intent to the same emoji as a retreat', () => {
+    expect(distilledActionEmoji('bail')).toBe('🏃');
+    expect(distilledActionEmoji('Bail bloodied')).toBe('🏃');
+  });
+
   it('falls back to ✴️ for an unknown type', () => {
     expect(distilledActionEmoji('flibbertigibbet')).toBe('✴️');
     expect(distilledActionEmoji('')).toBe('✴️');

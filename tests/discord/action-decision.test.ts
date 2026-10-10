@@ -65,7 +65,7 @@ function buttons(msg: ReturnType<typeof buildDecisionMessage>): any[] {
 }
 
 describe('buildDecisionMessage — A/B/C buttons', () => {
-  it('lists real options as lettered body lines, stat-emoji-prefixed and dcArrow-suffixed; bail is not lettered', () => {
+  it('lists every option as a lettered body line, stat-emoji-prefixed and dcArrow-suffixed, the terminal one included', () => {
     const msg = buildDecisionMessage({
       prompt: 'A wolf blocks the path.',
       options: [
@@ -80,10 +80,10 @@ describe('buildDecisionMessage — A/B/C buttons', () => {
     // as a prefix and a dcArrow difficulty hint as a suffix — render-only decoration.
     expect(desc).toContain('**A.** 💪 Track the wolf quietly ⬇️');
     expect(desc).toContain('**B.** 🧠 Charge in ⬆️');
-    expect(desc).not.toContain('Step back'); // terminal option lives on the button only
+    expect(desc).toContain('**C.** 🏃 Step back'); // the terminal option reads like every other one
   });
 
-  it('labels real-option buttons A/B and keeps a worded bail button', () => {
+  it('labels every button with its letter, the terminal one included', () => {
     const msg = buildDecisionMessage({
       prompt: 'x',
       options: [
@@ -93,7 +93,7 @@ describe('buildDecisionMessage — A/B/C buttons', () => {
       ],
     }, 0);
 
-    expect(buttons(msg).map(b => b.label)).toEqual(['A', 'B', 'Step back']);
+    expect(buttons(msg).map(b => b.label)).toEqual(['A', 'B', 'C']);
   });
 
   it('maps each letter button to its original option index (resolution depends on this)', () => {
@@ -392,24 +392,17 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     const msg = buildDecisionMessage({
       prompt: 'Combat — what do you do?',
       narration: 'The wolf lunges, jaws snapping shut on air.',
-      combatStatus: {
-        enemyName: 'Wolf',
-        woundWord: 'Bloodied',
-        pips: { filled: 3, total: 5 },
-        playerHp: 10,
-        playerMaxHp: 12,
-        playerHpDelta: -2,
-      },
+      combatStatus,
+      combatRounds: [round()],
       options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
-    // Composed via AnsiRenderer — a fenced frame, not a plain text line.
-    // Continue card redesign: HP floaters are no longer rendered as separate lines;
-    // the displayed HP is already post-delta (10/12).
+    // Composed via AnsiRenderer — a fenced frame, not a plain text line: the round ledger.
     expect(desc).toContain('```ansi');
-    expect(desc).toContain('Wolf');
-    expect(desc).toContain('Bloodied');
-    expect(desc).toContain('10/12');
+    expect(desc).toContain('vs 10 +2 = 12');
+    expect(desc).toContain('TRADE');
+    // The nameplate, condition band and HP reads moved up to the opening frame (asserted below).
+    expect(desc).not.toContain('HP [');
   });
 
   // ── ANSI-D: the continue frame's dice line (previously the frame showed HP bands only) ──
@@ -509,7 +502,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     expect(mono).not.toContain('[DC');
   });
 
-  it('shows no dice line when combatRounds is absent (first beat / pre-combat) — HP bands render exactly as before', () => {
+  it('omits the card entirely when combatRounds is absent (first beat / pre-combat) — the frame carries the band', () => {
     const msg = buildDecisionMessage({
       prompt: 'Combat — what do you do?',
       combatStatus,
@@ -517,14 +510,28 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     }, 1);
     const desc = (msg.embeds[0] as any).description as string;
 
-    expect(desc).not.toContain('d20');
-    expect(desc).not.toContain('margin');
-    // HP band content still present, unaffected
-    expect(desc).toContain('Wolf');
-    expect(desc).toContain('Bloodied');
+    // No round fought → no ledger, and the card is the ledger alone: nothing to render.
+    expect(desc).not.toContain('```ansi');
+    expect(desc).not.toContain('Wolf');
   });
 
-  it('shows no dice line when combatRounds is an empty array', () => {
+  it('hands the foe\'s name, banded condition and danger tag to the opening frame when asked for one', () => {
+    const msg = buildDecisionMessage({
+      prompt: 'Combat — what do you do?',
+      combatStatus,
+      combatRounds: [round({ dc: 15 })],
+      options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
+    }, 1, undefined, { stats: { physical: 8, wisdom: 5, intelligence: 4, charisma: 3 }, name: 'Wren', health: 1, maxHealth: 30 }, 'combat', 'Wolf', undefined, true);
+    const embeds = msg.embeds as any[];
+    const frame = embeds[0].description as string;
+
+    expect(embeds[1].description).toContain('```ansi'); // frame leads, ledger follows
+    expect(frame).toContain('Wolf');
+    expect(frame).toContain('Bloodied');
+    expect(frame).toContain('[hard]');
+  });
+
+  it('omits the card when combatRounds is an empty array', () => {
     const msg = buildDecisionMessage({
       prompt: 'Combat — what do you do?',
       combatStatus,
@@ -535,6 +542,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
 
     expect(desc).not.toContain('d20');
     expect(desc).not.toContain('margin');
+    expect(desc).not.toContain('```ansi');
   });
 
   it('omits combatStatus on non-combat screens where the engine never set it', () => {
@@ -575,6 +583,10 @@ describe('buildDecisionMessage — last-stand / bail decision screen shows the r
     marker: 'combat_round',
     floorSave: true,
   };
+  const DESPERATE_CHAR = {
+    stats: { physical: 8, wisdom: 5, intelligence: 4, charisma: 3 },
+    name: 'Wren', health: 1, maxHealth: 30,
+  };
   const desperateDecision = {
     prompt: "The blow would be lethal — you feel death's cold touch. Make your stand or flee before it's too late.",
     combatStatus: {
@@ -592,28 +604,37 @@ describe('buildDecisionMessage — last-stand / bail decision screen shows the r
     ],
   };
 
-  it('renders the contested-roll readout and enemy condition alongside the Bail/Last-stand buttons', () => {
-    const msg = buildDecisionMessage(desperateDecision, 1);
-    const desc = (msg.embeds[0] as any).description as string;
+  it('leads with the heavy frame and keeps the round ledger under it, both captions lettered', () => {
+    const msg = buildDecisionMessage(
+      desperateDecision, 1, undefined, DESPERATE_CHAR, 'combat', undefined, undefined, true,
+    );
+    const [frameEmbed, bodyEmbed] = msg.embeds as any[];
+    const frame = (frameEmbed.description as string).replace(/\x1b\[[0-9;]*m/g, '');
+    const desc = bodyEmbed.description as string;
     const mono = desc.replace(/\x1b\[[0-9;]*m/g, '');
 
-    // The same post-C1/C2 readout the ordinary continue screen shows: the contested roll (player
-    // vs the enemy's total), the signed margin, and the band word — never a solo [DC N].
+    // The frame leads, on the same heavy border ladder the card below it is on (1/30 HP).
+    expect(frame).toContain('Shadow Stag');
+    expect(frame).toContain('Critical');
+    expect(frame).toContain('[medium]'); // dangerTier(12)
+    expect(frame).toContain('HP [░░░░░░░]'); // hmm: 1/30 still floors to an empty bar
+    expect(frame).toContain('╔');
+
+    // The card keeps the round's maths — the contested roll (player vs the enemy's total), the
+    // signed margin and the band word — never a solo [DC N].
     expect(mono).toContain('vs 10 +2 = 12'); // enemy contested total
     expect(mono).toContain('+5 = 6');        // player total (1 + 5)
     expect(mono).toContain('hit -6 margin'); // margin (1+5) - (10+2) = -6
     expect(mono).toContain('HEAVY');
     expect(mono).not.toContain('[DC');
-    // Enemy condition still reads (banded, not exact numbers).
-    expect(mono).toContain('Shadow Stag');
-    expect(mono).toContain('Critical');
+    // The nameplate, condition band and both HP reads are the frame's alone now.
+    expect(mono).not.toContain('Shadow Stag');
+    expect(mono).not.toContain('HP [');
 
-    // The forced options still render — the readout is ADDED above them, not a swap. Both survive
-    // the standard convention: the real "Last stand" option is lettered (A) with its label in the
-    // body; the terminal "Bail bloodied" keeps a worded button. (Cosmetic styling of these buttons
-    // is a separate tracked follow-up — out of C5's readout scope.)
-    expect(desc).toContain('**A.** Last stand');
-    expect(buttons(msg).map((b: any) => b.label)).toEqual(['Bail bloodied', 'A']);
+    // Both forced options render alike: caption + emoji in the body, letter on the button.
+    expect(desc).toContain('**A.** 🏃 Bail bloodied');
+    expect(desc).toContain('**B.** ⚔️ Last stand');
+    expect(buttons(msg).map((b: any) => b.label)).toEqual(['A', 'B']);
   });
 });
 

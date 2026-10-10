@@ -106,20 +106,24 @@ const DISTILLED_EMOJI: Array<[string, string]> = [
   ['talk', '🗣️'], ['negotiate', '🗣️'], ['persuade', '🗣️'], ['social', '🗣️'], ['counsel', '🗣️'],
   ['trade', '🤝'], ['barter', '🤝'], ['buy', '🤝'], ['sell', '🤝'],
   ['investigate', '🔍'], ['search', '🔍'], ['inspect', '🔍'], ['study', '🔍'],
-  ['flee', '🏃'], ['retreat', '🏃'], ['escape', '🏃'],
+  ['bail', '🏃'], ['flee', '🏃'], ['retreat', '🏃'], ['escape', '🏃'],
   ['rest', '😴'], ['sleep', '😴'], ['camp', '🏕️'],
   ['craft', '🔨'], ['forge', '🔨'], ['build', '🔨'], ['repair', '🔨'], ['mend', '🔨'],
   ['heal', '✨'], ['pray', '🙏'], ['bless', '🙏'],
   ['steal', '🗝️'], ['sneak', '🥷'], ['gather', '🌿'], ['fish', '🎣'],
 ];
 
-/** Emoji for a distilled action type (decision breadcrumb). Unknown → ✴️. */
+/** The no-keyword-matched glyph — callers that must tell a hit from a miss compare against it. */
+export const DISTILLED_EMOJI_MISS = '✴️';
+
+/** Emoji for a distilled action type (decision breadcrumb) or any intents worded like one — an
+ *  option label included. Unknown → ✴️. */
 export function distilledActionEmoji(type: string): string {
   const t = (type ?? '').toLowerCase();
   for (const [keyword, emoji] of DISTILLED_EMOJI) {
     if (t.includes(keyword)) return emoji;
   }
-  return '✴️';
+  return DISTILLED_EMOJI_MISS;
 }
 
 // ── Outcome label map ──

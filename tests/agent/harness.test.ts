@@ -1801,7 +1801,7 @@ describe('AgentHarness — the outcome verb', () => {
 // ── C4 follow-up, on the harness: a fight abandoned mid-round comes back through `menu.open`,
 // and the resumed screen has to re-open it. The brain reads the screen text the frame rides on. ──
 
-describe('AgentHarness — a resumed mid-fight re-opens the combat frame', () => {
+describe('AgentHarness — the combat frame leads every decision screen, the resumed fight included', () => {
   /** A fight that cannot resolve on its own: `required: true` routes every choice into
    *  `handleCombatStep`, and the foe (baseDc 12 → 12 HP) survives a round. */
   const COMBAT_SCRIPT: PipelineScript = {
@@ -1860,10 +1860,10 @@ describe('AgentHarness — a resumed mid-fight re-opens the combat frame', () =>
     // The player sees it: the same text the brain was handed for that turn.
     expect(brain.calls[3].screenText).toContain('Goblin Skirmisher');
 
-    // The fight re-opens once — the round that follows the resume is a plain continue screen.
+    // Every decision screen leads with the frame, so the round after the resume carries it too.
     const beats = dispatches.filter((d) => d.event.type === 'action.choose');
     const afterResume = beats[1].response;
     if (!afterResume.ok) throw new Error('the resumed beat returned an error envelope');
-    expect((afterResume.view as DecisionViewState).openingFrame).toBeUndefined();
+    expect((afterResume.view as DecisionViewState).openingFrame).toContain('Goblin Skirmisher');
   });
 });

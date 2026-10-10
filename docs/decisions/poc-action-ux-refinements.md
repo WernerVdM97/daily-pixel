@@ -32,7 +32,7 @@ Live play exposed three rough edges in the `/action` UX. None are new mechanics 
 
 ### 1. Option text in the body, buttons become A/B/C
 
-- Render the full option label in the **message body** as a lettered list; buttons carry only `A` / `B` / `C` / `D` (+ the terminal button, below).
+- Render the full option label in the **message body** as a lettered list; buttons carry only `A` / `B` / `C` / `D`. Amended: the `+ the terminal button` carve-out is retired — the terminal option renders like every other one, so its caption sits in the body and its button is a letter too ([[last-stand-ux]]).
 - Constrain option labels at **both** ends: prompt instructs the LLM to keep labels ≤ ~6 words, and the bot truncates defensively.
 - Amends [[poc-build-probabilistic]] §3 (decision rendering); the `label` / `dc_modifier` response schema is unchanged.
 

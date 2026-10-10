@@ -46,11 +46,11 @@ describe('buildDecisionView — semantic shape', () => {
     expect(view.narration).toBeUndefined();
     expect(view.combatStatus).toBeUndefined();
     expect(view.prompt).toBe('> A fork in the road.');
-    expect(view.optionLines).toEqual(['**A.** Easy path ⬇️', '**B.** Hard path ⬆️']);
+    expect(view.optionLines).toEqual(['**A.** Easy path ⬇️', '**B.** Hard path ⬆️', '**C.** 🏃 Step back']);
     expect(view.buttons).toEqual([
       { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: true },
       { kind: 'choice', letter: 'B', customId: 'action:choice:0:1', favoured: false },
-      { kind: 'bail', label: 'Step back', customId: 'action:bail' },
+      { kind: 'bail', letter: 'C', customId: 'action:bail' },
     ]);
     expect(view.footer).toBe('a safer path catches your eye');
     expect(view.openingFrame).toBeUndefined();
@@ -245,11 +245,11 @@ describe('decisionViewToDiscord — medium step', () => {
     storyThread: { full: 'FULL-THREAD', collapsed: 'COLL-THREAD' },
     narration: 'The wind shifts.',
     prompt: '> A fork in the road.',
-    optionLines: ['**A.** Easy path ⬇️', '**B.** Hard path ⬆️'],
+    optionLines: ['**A.** Easy path ⬇️', '**B.** Hard path ⬆️', '**C.** 🏃 Step back'],
     buttons: [
       { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: true },
       { kind: 'choice', letter: 'B', customId: 'action:choice:0:1', favoured: false },
-      { kind: 'bail', label: 'Step back', customId: 'action:bail' },
+      { kind: 'bail', letter: 'C', customId: 'action:bail' },
     ],
     footer: 'a safer path catches your eye',
     openingFrame: undefined,
@@ -270,7 +270,7 @@ describe('decisionViewToDiscord — medium step', () => {
     const buttons = result.components[0].components as any[];
     expect(buttons[0]).toMatchObject({ custom_id: 'action:choice:0:0', label: 'A', style: ButtonStyle.Success });
     expect(buttons[1]).toMatchObject({ custom_id: 'action:choice:0:1', label: 'B', style: ButtonStyle.Secondary });
-    expect(buttons[2]).toMatchObject({ custom_id: 'action:bail', label: 'Step back', style: ButtonStyle.Danger });
+    expect(buttons[2]).toMatchObject({ custom_id: 'action:bail', label: 'C', style: ButtonStyle.Danger });
   });
 
   it('degrades the description: full → collapsed → hard clip, as the joined length exceeds the embed cap', () => {
