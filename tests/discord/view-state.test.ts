@@ -46,26 +46,31 @@ describe('buildDecisionView — semantic shape', () => {
     expect(view.narration).toBeUndefined();
     expect(view.combatStatus).toBeUndefined();
     expect(view.prompt).toBe('> A fork in the road.');
-    expect(view.optionLines).toEqual(['**A.** Easy path ⬇️', '**B.** Hard path ⬆️']);
+    expect(view.optionLines).toEqual(['**A.** Easy path ⬇️', '**B.** Hard path ⬆️', '**C.** 🏃 Step back']);
     expect(view.buttons).toEqual([
       { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: true },
       { kind: 'choice', letter: 'B', customId: 'action:choice:0:1', favoured: false },
-      { kind: 'bail', label: 'Step back', customId: 'action:bail' },
+      { kind: 'bail', letter: 'C', customId: 'action:bail' },
     ]);
     expect(view.footer).toBe('a safer path catches your eye');
     expect(view.openingFrame).toBeUndefined();
   });
 
-  it('carries the rendered opening-frame ANSI string when the opener is asked for, whatever the beat index', () => {
-    const withFrame = buildDecisionView(decision, 0, state, char, 'travel', undefined, undefined, true);
+  it('carries the rendered opening-frame ANSI string when the register is known, whatever the beat index', () => {
+    const withFrame = buildDecisionView(decision, 0, state, char, 'travel');
     expect(withFrame.openingFrame).toContain('```ansi');
 
-    // The flag, not `decisionIdx`, is the gate: a resumed fight shows its opener at a later beat.
-    const resumed = buildDecisionView(decision, 1, state, char, 'combat', 'Goblin', undefined, true);
+    // The register, not `decisionIdx`, is the gate: a resumed fight shows its opener at a later beat.
+    const resumed = buildDecisionView(decision, 1, state, char, 'combat', 'Goblin');
     expect(resumed.openingFrame).toContain('```ansi');
+  });
 
-    const continueBeat = buildDecisionView(decision, 1, state, char, 'travel');
-    expect(continueBeat.openingFrame).toBeUndefined();
+  it('keys an option caption on its whole words — "Arrest the smuggler" is not a rest', () => {
+    const view = buildDecisionView(
+      { prompt: 'The smuggler freezes.', options: [{ label: 'Arrest the smuggler', dcModifier: 0 }] },
+      0, undefined, undefined, 'social',
+    );
+    expect(view.optionLines[0]).toBe('**A.** 🗣️ Arrest the smuggler');
   });
 
   it('omits storyThread when no state is given (no story to thread)', () => {
@@ -245,11 +250,11 @@ describe('decisionViewToDiscord — medium step', () => {
     storyThread: { full: 'FULL-THREAD', collapsed: 'COLL-THREAD' },
     narration: 'The wind shifts.',
     prompt: '> A fork in the road.',
-    optionLines: ['**A.** Easy path ⬇️', '**B.** Hard path ⬆️'],
+    optionLines: ['**A.** Easy path ⬇️', '**B.** Hard path ⬆️', '**C.** 🏃 Step back'],
     buttons: [
       { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: true },
       { kind: 'choice', letter: 'B', customId: 'action:choice:0:1', favoured: false },
-      { kind: 'bail', label: 'Step back', customId: 'action:bail' },
+      { kind: 'bail', letter: 'C', customId: 'action:bail' },
     ],
     footer: 'a safer path catches your eye',
     openingFrame: undefined,
@@ -270,7 +275,7 @@ describe('decisionViewToDiscord — medium step', () => {
     const buttons = result.components[0].components as any[];
     expect(buttons[0]).toMatchObject({ custom_id: 'action:choice:0:0', label: 'A', style: ButtonStyle.Success });
     expect(buttons[1]).toMatchObject({ custom_id: 'action:choice:0:1', label: 'B', style: ButtonStyle.Secondary });
-    expect(buttons[2]).toMatchObject({ custom_id: 'action:bail', label: 'Step back', style: ButtonStyle.Danger });
+    expect(buttons[2]).toMatchObject({ custom_id: 'action:bail', label: 'C', style: ButtonStyle.Danger });
   });
 
   it('degrades the description: full → collapsed → hard clip, as the joined length exceeds the embed cap', () => {

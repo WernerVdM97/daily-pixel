@@ -6,12 +6,12 @@
 import type { WorldEngine, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../engine/WorldEngine.js';
 import type { CombatBeatLog } from '../engine/action/combat-dc.js';
 import { dangerTier } from '../engine/action/combat-dc.js';
-import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../engine/OutcomeRenderer.js';
+import { formatOutcome, distilledActionEmoji, labelActionEmoji, DISTILLED_EMOJI_MISS, type OutcomeRenderContext } from '../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../engine/stat-format.js';
 import { dayJobEmoji } from '../render/format.js';
 import { BORDERS, PALETTES, type BorderStyle } from '../render/AnsiRenderer.js';
 import { renderOpeningFrame, type OpeningFrameSlots } from '../render/OpeningFrameRenderer.js';
-import { renderCombatContinueCard, renderCombatTerminalCard, type ContinueCardInput, type CombatTerminalCard } from '../render/CombatCardRenderer.js';
+import { renderCombatContinueCard, renderCombatTerminalCard, type CombatTerminalCard } from '../render/CombatCardRenderer.js';
 import { enemyConditionBand } from '../engine/action/PipelineActionStateMachine.js';
 import type { DecisionViewState, OutcomeViewState, ViewColorIntent } from './viewState.js';
 
@@ -63,6 +63,28 @@ function statEmoji(stat: string | undefined): string {
   return info ? info.emoji : '';
 }
 
+/** The vocabulary's hit, or nothing — its miss glyph is no usable decoration. */
+function hitOrNothing(emoji: string): string {
+  return emoji === DISTILLED_EMOJI_MISS ? '' : emoji;
+}
+
+/** The register's own word, keyed like a distilled type. */
+function vocabEmoji(text: string | undefined): string {
+  return text ? hitOrNothing(distilledActionEmoji(text)) : '';
+}
+
+/** A caption's own words, matched whole. */
+function captionEmoji(label: string | undefined): string {
+  return label ? hitOrNothing(labelActionEmoji(label)) : '';
+}
+
+/** One emoji per option, render-only decoration on the caption: the terminal option's bail intent
+ *  first, else the stat it tests, else the intent its own label names, else its action's register. */
+function optionEmoji(opt: { label: string; dcModifier: number | null; stat?: string }, actionType?: ClassifiedActionType): string {
+  if (opt.dcModifier === null) return vocabEmoji('bail');
+  return statEmoji(opt.stat) || captionEmoji(opt.label) || vocabEmoji(actionType);
+}
+
 /** Renders the "story so far" gamebook thread. The first beat authors no narration, so it
  *  renders choice-only; `collapse` drops narration to a breadcrumb — the overflow degrade form. */
 function buildStoryThread(
@@ -97,41 +119,6 @@ function chooseContinueBorder(status: CombatStatusData, lastRound?: CombatBeatLo
   return BORDERS.standard;
 }
 
-/** Frame for a combat continue-screen, border chosen by escalation rules. */
-function renderCombatStatusFrame(status: CombatStatusData, lastRound?: CombatBeatLog): string {
-  const input: ContinueCardInput = {
-    enemyName: status.enemyName,
-    woundWord: status.woundWord,
-    pips: status.pips,
-    playerHp: status.playerHp,
-    playerMaxHp: status.playerMaxHp,
-    playerHpDelta: status.playerHpDelta,
-    lastRound: lastRound
-      ? {
-          d20: lastRound.playerD20,
-          bonus: lastRound.playerBonus,
-          dc: lastRound.dc,
-          enemyD20: lastRound.enemyD20,
-          enemyBonus: lastRound.enemyBonus,
-          margin: lastRound.margin,
-          band: lastRound.band,
-          playerHpDelta: lastRound.playerHpDelta,
-          enemyHpDelta: lastRound.enemyHpAfter - lastRound.enemyHpBefore,
-        }
-      : undefined,
-    // CombatStatusData carries no DC (only the round log does), so the tag simply doesn't
-    // show on the pre-first-round beat — fine, there's no encounter danger to report yet.
-    dangerTier: lastRound ? dangerTier(lastRound.dc) : undefined,
-  };
-  return renderCombatContinueCard(input, PALETTES.house, chooseContinueBorder(status, lastRound));
-}
-
-/** Tolerant read: an action saved before `combatRounds` still carries an engine-composed string
- *  in `combatStatus`, so render either shape and ignore `lastRound` on that branch. */
-function renderCombatStatus(combatStatus: CombatStatusData | string, lastRound?: CombatBeatLog): string {
-  return typeof combatStatus === 'string' ? combatStatus : renderCombatStatusFrame(combatStatus, lastRound);
-}
-
 /** Assembles the decision screen's semantic view-state. The medium step (`decisionViewToDiscord`)
  *  owns the block join and the embed-length degrade ladder. */
 export function buildDecisionView(
@@ -153,16 +140,15 @@ export function buildDecisionView(
     maxHealth?: number;
     location?: string;
   },
-  /** The type `classify` routed this action to — picks which opening-frame register renders.
-   *  The frame must also be asked for (`showOpeningFrame`). */
+  /** The type `classify` routed this action to — picks which opening-frame register renders. Every
+   *  decision screen leads with its frame when this is known. */
   actionType?: ClassifiedActionType,
-  /** Combat enemy name for the opening frame's nameplate. */
+  /** Combat enemy name for the opening frame's nameplate. Outranked by the decision's own
+   *  `combatStatus` when it carries one, which bands the foe as of this beat rather than earlier. */
   combatEnemyName?: string,
   /** The foe's banded condition (wound word + pip fill, never exact HP) from the persisted
    *  `in_combat` edge against the same foe; undefined when there is nothing to band. */
   combatEnemyCondition?: { woundWord: string; filled: number; total: number },
-  /** Whether this screen leads with the opening frame. */
-  showOpeningFrame = false,
 ): DecisionViewState {
   // Raw DCs stay hidden while deciding; passive insight (10 + WIS) instead lets a perceptive
   // character occasionally spot the single safest route — earned (see INSIGHT_MARGIN), not a readout.
@@ -180,16 +166,31 @@ export function buildDecisionView(
       collapsed: buildStoryThread(state.rawInput, state.decisions, true, state.kind, workEmoji),
     }
     : undefined;
-  // Narration sits quoted above the CTA, with combatStatus a plain (unquoted) line between
+  // Narration sits quoted above the CTA, with the round ledger a plain (unquoted) line between
   // them on combat continue-screens; both absent on the first beat, leaving just quest line + CTA.
   const narration = decision.narration ? quoteLines(decision.narration) : undefined;
-  const combatStatus = decision.combatStatus
-    ? renderCombatStatus(decision.combatStatus, decision.combatRounds?.at(-1))
+  // Tolerant read: an action saved before `combatRounds` still carries an engine-composed string
+  // in `combatStatus`, which renders as-is. A structured status with no round yet has no ledger.
+  const combat: CombatStatusData | undefined = typeof decision.combatStatus === 'string' ? undefined : decision.combatStatus;
+  const lastRound = decision.combatRounds?.at(-1);
+  const continueBorder = combat ? chooseContinueBorder(combat, lastRound) : BORDERS.standard;
+  const combatStatus = typeof decision.combatStatus === 'string'
+    ? decision.combatStatus
+    : combat && lastRound ? renderCombatContinueCard({
+        d20: lastRound.playerD20,
+        bonus: lastRound.playerBonus,
+        enemyD20: lastRound.enemyD20,
+        enemyBonus: lastRound.enemyBonus,
+        margin: lastRound.margin,
+        band: lastRound.band,
+        playerHpDelta: lastRound.playerHpDelta,
+        enemyHpDelta: lastRound.enemyHpAfter - lastRound.enemyHpBefore,
+      }, PALETTES.house, continueBorder)
     : undefined;
   const prompt = quoteLines(decision.prompt);
 
-  // List real (non-bail) options in the body as A./B./C. so button captions can
-  // be just the letter — nothing truncates on mobile. No options → Continue fallback.
+  // List every option in the body as A./B./C. — button captions are just the letter, so a
+  // re-worded label cannot truncate on mobile. No options → Continue fallback.
   const options = decision.options.length > 0
     ? decision.options
     : [{ label: 'Continue', dcModifier: 0 }];
@@ -218,21 +219,19 @@ export function buildDecisionView(
   // customId carries each option's original index — the controller's `beginChoice`
   // resolves the label back from that index via `engine.resolvePendingChoice`.
   options.forEach((opt, origIdx) => {
-    if (opt.dcModifier === null) {
-      // Terminal (bail) — keeps a worded button, not lettered in the body.
-      buttons.push({ kind: 'bail', label: shortLabel(opt.label, 80), customId: CID_BAIL });
-    } else {
-      const letter = LETTERS[letterIdx++] ?? String(origIdx + 1);
-      const favoured = origIdx === favouredIdx;
-      // Emoji and difficulty arrow are render-only decorations on this line —
-      // `opt.label` itself (used for the button and for `chosen`) stays raw.
-      const icon = statEmoji(opt.stat);
-      const arrow = dcArrow(opt.dcModifier);
-      const prefix = icon ? `${icon} ` : '';
-      const suffix = arrow ? ` ${arrow}` : '';
-      optionLines.push(`**${letter}.** ${prefix}${opt.label}${suffix}`);
-      buttons.push({ kind: 'choice', letter, customId: choiceCid(decisionIdx, origIdx), favoured });
-    }
+    // The terminal (bail) option renders like every other one, so the letters follow the beat's
+    // authored order and no option keeps a special case of its own.
+    const letter = LETTERS[letterIdx++] ?? String(origIdx + 1);
+    // Emoji and difficulty arrow are render-only decorations on this line — `opt.label` itself
+    // (the choice key `step` resolves by string equality) stays raw.
+    const icon = optionEmoji(opt, actionType);
+    const arrow = dcArrow(opt.dcModifier);
+    const prefix = icon ? `${icon} ` : '';
+    const suffix = arrow ? ` ${arrow}` : '';
+    optionLines.push(`**${letter}.** ${prefix}${opt.label}${suffix}`);
+    buttons.push(opt.dcModifier === null
+      ? { kind: 'bail', letter, customId: CID_BAIL }
+      : { kind: 'choice', letter, customId: choiceCid(decisionIdx, origIdx), favoured: origIdx === favouredIdx });
   });
 
   const footer = favouredIdx >= 0
@@ -249,8 +248,20 @@ export function buildDecisionView(
   };
   if (combatEnemyName) openingFrameSlots.enemyName = combatEnemyName;
   if (combatEnemyCondition) openingFrameSlots.enemyCondition = combatEnemyCondition;
-  const openingFrame = showOpeningFrame && actionType
-    ? renderOpeningFrame(actionType, openingFrameSlots)
+  // The decision's own band is this beat's truth, outranking the slots the caller read before it.
+  if (combat) {
+    openingFrameSlots.enemyName = combat.enemyName;
+    openingFrameSlots.enemyCondition = {
+      woundWord: combat.woundWord,
+      filled: combat.pips.filled,
+      total: combat.pips.total,
+    };
+  }
+  // The danger tier rides the round log's DC; combatStatus carries none, so a beat with no round
+  // fought yet shows no tag.
+  if (lastRound) openingFrameSlots.enemyDangerTag = dangerTier(lastRound.dc);
+  const openingFrame = actionType
+    ? renderOpeningFrame(actionType, openingFrameSlots, PALETTES.house, continueBorder)
     : undefined;
 
   return {
@@ -266,10 +277,6 @@ export function buildDecisionView(
     footer,
     openingFrame,
   };
-}
-
-function shortLabel(label: string, maxLen: number): string {
-  return label.length > maxLen ? label.slice(0, maxLen - 1) + '…' : label;
 }
 
 /** Assembles the outcome screen's semantic view-state; the medium step (`outcomeViewToDiscord`)

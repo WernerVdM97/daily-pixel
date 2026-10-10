@@ -91,9 +91,8 @@ describe('SessionController — beginCustomAction', () => {
   });
 });
 
-// ── C4 follow-up: a resumed mid-fight re-opens the fight. The opener is the caller's to
-// ask for — `buildDecisionView` can no longer infer it from the beat index, since a resume lands
-// at `state.decisions.length > 0`.
+// ── C4 follow-up: a resumed mid-fight re-opens the fight. The opener follows the register the
+// caller passes, not the beat index: a resume lands at `state.decisions.length > 0`.
 
 describe('SessionController — the combat opener on a resume', () => {
   const makeController = (engine: MockWorldEngine) =>
@@ -144,7 +143,7 @@ describe('SessionController — the combat opener on a resume', () => {
     expect(result.view.openingFrame).toContain('Goblin');
   });
 
-  it('leaves the opener off a non-combat resume', () => {
+  it('renders the register\'s own opener on a non-combat resume too — every decision screen leads with the frame', () => {
     const engine = new MockWorldEngine();
     engine.setCharacter(MockWorldEngine.defaultCharacter({ lastActionState: '{...}' as never }));
     engine.setResumeResult({ ...COMBAT_RESUME, actionType: 'travel', combatEnemyName: undefined, combatEnemyCondition: undefined });
@@ -153,10 +152,10 @@ describe('SessionController — the combat opener on a resume', () => {
 
     expect(result.kind).toBe('resume-decision');
     if (result.kind !== 'resume-decision') throw new Error('unreachable');
-    expect(result.view.openingFrame).toBeUndefined();
+    expect(result.view.openingFrame).toContain('TRAVEL');
   });
 
-  it('leaves the opener off the beat AFTER the resume (the fight re-opens once)', async () => {
+  it('renders it on the stepChoice arm too (the desperate beat is a later decision of a continued action)', async () => {
     const engine = new MockWorldEngine();
     const char = MockWorldEngine.defaultCharacter({ lastActionState: '{...}' as never });
     engine.setCharacter(char);
@@ -164,13 +163,15 @@ describe('SessionController — the combat opener on a resume', () => {
       resolved: false,
       state: COMBAT_RESUME.state,
       nextDecision: COMBAT_RESUME.nextDecision,
+      actionType: 'combat',
+      combatEnemyName: 'Goblin',
     });
 
     const result = await makeController(engine).stepChoice('user-1', 'Press the attack', char);
 
     expect(result.kind).toBe('decision');
     if (result.kind !== 'decision') throw new Error('unreachable');
-    expect(result.view.openingFrame).toBeUndefined();
+    expect(result.view.openingFrame).toContain('Goblin');
   });
 });
 

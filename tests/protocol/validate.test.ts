@@ -20,7 +20,7 @@ const decisionView = {
   optionLines: ['A. Fight', 'B. Flee'],
   buttons: [
     { kind: 'choice', letter: 'A', customId: 'action:choice:0', favoured: false },
-    { kind: 'bail', label: 'Leave', customId: 'action:bail' },
+    { kind: 'bail', letter: 'B', customId: 'action:bail' },
   ],
   footer: 'Rolls left: 2',
   openingFrame: 'The oak stands watch.',

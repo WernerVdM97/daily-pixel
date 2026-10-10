@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderCombatContinueCard, renderCombatTerminalCard, bandColor, type ContinueCardInput, type CombatTerminalCard } from "../../src/render/CombatCardRenderer.js";
+import { renderCombatContinueCard, renderCombatTerminalCard, bandColor, type ContinueRound, type CombatTerminalCard } from "../../src/render/CombatCardRenderer.js";
 import { BORDERS, PALETTES } from "../../src/render/AnsiRenderer.js";
 
 const stripSgr = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -197,42 +197,40 @@ describe("CombatCardRenderer", () => {
   });
 
   describe("continue card", () => {
-    function continueInput(overrides: Partial<ContinueCardInput> = {}): ContinueCardInput {
+    function continueRound(overrides: Partial<ContinueRound> = {}): ContinueRound {
       return {
-        enemyName: "GLOOMFANG",
-        woundWord: "BRUISED",
-        pips: { filled: 3, total: 5 },
-        playerHp: 18,
-        playerMaxHp: 24,
-        playerHpDelta: -3,
+        d20: 14,
+        bonus: 3,
+        enemyD20: 10,
+        enemyBonus: 4,
+        margin: 3,
+        band: "trade",
+        playerHpDelta: -1,
+        enemyHpDelta: -2,
         ...overrides,
       };
     }
 
-    it("keeps every line at exactly 30 visible chars with a last round", () => {
-      const rendered = renderCombatContinueCard(continueInput({
-        lastRound: { d20: 14, bonus: 3, dc: 15, enemyD20: 10, enemyBonus: 4, margin: 3, band: "trade", playerHpDelta: -1, enemyHpDelta: -2 },
-      }));
+    it("is the round ledger alone — no nameplate, condition band or HP reads", () => {
+      const rendered = renderCombatContinueCard(continueRound());
+      const mono = stripSgr(rendered);
+      expect(mono).not.toContain("GLOOMFANG");
+      expect(mono).not.toContain("YOU");
+      expect(mono).not.toContain("HP [");
+      expect(mono).not.toMatch(/\u2593/); // no pip run: the frame above carries the banded foe
+      expect(mono).toContain("vs 10 +4 = 14");
+    });
+
+    it("keeps every line at exactly 30 visible chars", () => {
+      const rendered = renderCombatContinueCard(continueRound());
       const lines = rendered.split("\n").filter((l) => l !== "```ansi" && l !== "```");
       for (const line of lines) {
         expect(stripSgr(line).length).toBe(FRAME_WIDTH);
       }
     });
 
-    it("renders HP bars only (no dice readout) when lastRound is absent", () => {
-      const rendered = renderCombatContinueCard(continueInput());
-      const mono = stripSgr(rendered);
-      expect(mono).toContain("GLOOMFANG");
-      expect(mono).toContain("YOU");
-      expect(mono).toContain("18/24");
-      expect(mono).toContain("[▓▓▓░░]");
-      expect(mono).not.toContain("margin"); // No dice line without a round
-    });
-
     it("shows the contested roll (player vs enemy total) and the band word, not a boxed DC", () => {
-      const rendered = renderCombatContinueCard(continueInput({
-        lastRound: { d20: 14, bonus: 3, dc: 15, enemyD20: 10, enemyBonus: 4, margin: 3, band: "trade", playerHpDelta: -1, enemyHpDelta: -2 },
-      }));
+      const rendered = renderCombatContinueCard(continueRound());
       const mono = stripSgr(rendered);
       expect(mono).toContain("14");
       expect(mono).toContain("vs 10 +4 = 14");
@@ -244,8 +242,8 @@ describe("CombatCardRenderer", () => {
     });
 
     it("signs a negative margin correctly", () => {
-      const rendered = renderCombatContinueCard(continueInput({
-        lastRound: { d20: 8, bonus: 3, dc: 16, enemyD20: 15, enemyBonus: 2, margin: -6, band: "heavy", playerHpDelta: -3, enemyHpDelta: -1 },
+      const rendered = renderCombatContinueCard(continueRound({
+        d20: 8, bonus: 3, enemyD20: 15, enemyBonus: 2, margin: -6, band: "heavy", playerHpDelta: -3, enemyHpDelta: -1,
       }));
       const mono = stripSgr(rendered);
       expect(mono).toContain("hit -6 margin");
@@ -254,7 +252,7 @@ describe("CombatCardRenderer", () => {
 
     it("escalates to heavy border when band is heavy", () => {
       const rendered = renderCombatContinueCard(
-        continueInput({ lastRound: { d20: 8, bonus: 3, dc: 16, enemyD20: 15, enemyBonus: 2, margin: -6, band: "heavy", playerHpDelta: -3, enemyHpDelta: -1 } }),
+        continueRound({ band: "heavy", margin: -6 }),
         PALETTES.house,
         BORDERS.heavy,
       );
@@ -264,22 +262,18 @@ describe("CombatCardRenderer", () => {
     });
 
     it("begins and ends with the ansi fence", () => {
-      const rendered = renderCombatContinueCard(continueInput());
+      const rendered = renderCombatContinueCard(continueRound());
       expect(rendered.startsWith("```ansi\n")).toBe(true);
       expect(rendered.endsWith("\n```")).toBe(true);
     });
 
     it("renders well under 2000 chars", () => {
-      const rendered = renderCombatContinueCard(continueInput({
-        lastRound: { d20: 14, bonus: 3, dc: 15, enemyD20: 10, enemyBonus: 4, margin: 3, band: "trade", playerHpDelta: -1, enemyHpDelta: -2 },
-      }));
+      const rendered = renderCombatContinueCard(continueRound());
       expect(rendered.length).toBeLessThan(2000);
     });
 
     it("survives monochrome strip — all numbers and band word readable (constraint 4)", () => {
-      const rendered = renderCombatContinueCard(continueInput({
-        lastRound: { d20: 14, bonus: 3, dc: 15, enemyD20: 10, enemyBonus: 4, margin: 3, band: "trade", playerHpDelta: -1, enemyHpDelta: -2 },
-      }));
+      const rendered = renderCombatContinueCard(continueRound());
       const mono = stripSgr(rendered);
       expect(mono).toContain("vs 10 +4 = 14");
       expect(mono).toContain("+3 = 17");
@@ -287,43 +281,28 @@ describe("CombatCardRenderer", () => {
       expect(mono).toContain("TRADE");
     });
 
-    it("shows the danger tag on the nameplate when dangerTier is set", () => {
-      const rendered = renderCombatContinueCard(continueInput({ dangerTier: "hard" }));
-      const mono = stripSgr(rendered);
-      expect(mono).toContain("[hard]");
-    });
-
-    it("shows no danger tag on the nameplate when dangerTier is absent", () => {
-      const rendered = renderCombatContinueCard(continueInput());
-      const mono = stripSgr(rendered);
-      expect(mono).not.toContain("[hard]");
-      expect(mono).not.toMatch(/\[(easy|medium|hard|risky|fatal)\]/);
-    });
-
-    it("keeps every line at exactly 30 visible chars with a danger tag on a long name", () => {
-      const rendered = renderCombatContinueCard(continueInput({
-        enemyName: "Woodland Stag Sentinel", // 22 chars, well past the nameplate budget with a tag
-        dangerTier: "medium",
+    it("keeps every line at exactly 30 visible chars with double-digit maths", () => {
+      const rendered = renderCombatContinueCard(continueRound({
+        d20: 11, bonus: -2, margin: -3, enemyD20: 8, enemyBonus: 12,
       }));
-      const mono = stripSgr(rendered);
       const lines = rendered.split("\n").filter((l) => l !== "```ansi" && l !== "```");
       for (const line of lines) {
         expect(stripSgr(line).length).toBe(FRAME_WIDTH);
       }
-      // The tag must render intact — not truncated into "[med" by a nameplate that overran its budget.
-      expect(mono).toContain("[medium]");
     });
   });
 
   describe("per-round HP-delta line (POC+ 0.3.2 C2)", () => {
-    function continueInput(overrides: Partial<ContinueCardInput> = {}): ContinueCardInput {
+    function continueRound(overrides: Partial<ContinueRound> = {}): ContinueRound {
       return {
-        enemyName: "GLOOMFANG",
-        woundWord: "BRUISED",
-        pips: { filled: 3, total: 5 },
-        playerHp: 18,
-        playerMaxHp: 24,
-        playerHpDelta: -3,
+        d20: 14,
+        bonus: 3,
+        enemyD20: 10,
+        enemyBonus: 4,
+        margin: 3,
+        band: "trade",
+        playerHpDelta: -1,
+        enemyHpDelta: -2,
         ...overrides,
       };
     }
@@ -334,9 +313,7 @@ describe("CombatCardRenderer", () => {
       ["trade", -1, -2],
       ["heavy", -3, -1],
     ] as const)("continue card shows the HP-delta line for the %s band", (band, playerHpDelta, enemyHpDelta) => {
-      const rendered = renderCombatContinueCard(continueInput({
-        lastRound: { d20: 14, bonus: 3, dc: 15, enemyD20: 10, enemyBonus: 4, margin: 1, band, playerHpDelta, enemyHpDelta },
-      }));
+      const rendered = renderCombatContinueCard(continueRound({ band, playerHpDelta, enemyHpDelta }));
       const mono = stripSgr(rendered);
       expect(mono).toContain(`you ${playerHpDelta === 0 ? '0' : playerHpDelta}`);
       expect(mono).toContain(`foe ${enemyHpDelta}`);
@@ -355,9 +332,9 @@ describe("CombatCardRenderer", () => {
     });
 
     it("a trade-band edge-win reads coherently: TRADE band word + you -1 + foe -2, no WIN/LOSS word on the continue card", () => {
-      const rendered = renderCombatContinueCard(continueInput({
-        // player 13+2=15, enemy 12+2=14, margin +1 -> trade, edge-win (POC+ 0.3.2 C2)
-        lastRound: { d20: 13, bonus: 2, dc: 12, enemyD20: 12, enemyBonus: 2, margin: 1, band: "trade", playerHpDelta: -1, enemyHpDelta: -2 },
+      // player 13+2=15, enemy 12+2=14, margin +1 -> trade, edge-win (POC+ 0.3.2 C2)
+      const rendered = renderCombatContinueCard(continueRound({
+        d20: 13, bonus: 2, enemyD20: 12, enemyBonus: 2, margin: 1, band: "trade", playerHpDelta: -1, enemyHpDelta: -2,
       }));
       const mono = stripSgr(rendered);
       expect(mono).toContain("TRADE");
@@ -383,8 +360,8 @@ describe("CombatCardRenderer", () => {
     });
 
     it("keeps every line at exactly 30 visible chars with the HP-delta line present (continue card)", () => {
-      const rendered = renderCombatContinueCard(continueInput({
-        lastRound: { d20: 13, bonus: 2, dc: 12, enemyD20: 12, enemyBonus: 2, margin: 1, band: "trade", playerHpDelta: -1, enemyHpDelta: -2 },
+      const rendered = renderCombatContinueCard(continueRound({
+        d20: 13, bonus: 2, enemyD20: 12, enemyBonus: 2, margin: 1, band: "trade", playerHpDelta: -1, enemyHpDelta: -2,
       }));
       const lines = rendered.split("\n").filter((l) => l !== "```ansi" && l !== "```");
       for (const line of lines) {
@@ -404,13 +381,7 @@ describe("CombatCardRenderer", () => {
   describe("continue/terminal vocabulary parity (POC+ 0.3.2 C1)", () => {
     it("both cards render the same roll-vs-roll vocabulary for the same round", () => {
       const continueRendered = stripSgr(renderCombatContinueCard({
-        enemyName: "GLOOMFANG",
-        woundWord: "BRUISED",
-        pips: { filled: 3, total: 5 },
-        playerHp: 18,
-        playerMaxHp: 24,
-        playerHpDelta: -3,
-        lastRound: { d20: 18, bonus: 3, dc: 15, enemyD20: 14, enemyBonus: 2, margin: 5, band: "glanced", playerHpDelta: 0, enemyHpDelta: -3 },
+        d20: 18, bonus: 3, enemyD20: 14, enemyBonus: 2, margin: 5, band: "glanced", playerHpDelta: 0, enemyHpDelta: -3,
       }));
       const terminalRendered = stripSgr(renderCombatTerminalCard(winCard({
         playerD20: 18,
@@ -443,46 +414,6 @@ describe("CombatCardRenderer", () => {
     });
     it("falls back to chrome for unknown bands", () => {
       expect(bandColor("unknown")).toBe("chrome");
-    });
-  });
-
-  describe("right-edge padding (0.3.2 P1)", () => {
-    const baseInput = (): ContinueCardInput => ({
-      enemyName: "GLOOMFANG",
-      woundWord: "BRUISED",
-      pips: { filled: 3, total: 5 },
-      playerHp: 18,
-      playerMaxHp: 24,
-      playerHpDelta: -3,
-    });
-
-    it("keeps a 2-digit N/MM HP figure with one space inside the right border", () => {
-      const rendered = renderCombatContinueCard(baseInput());
-      const mono = stripSgr(rendered);
-      // The player HP line reads something like:  │  HP [▓▓▓▓▓▓▓▓░░░░] 18/24 │
-      // After the -1 bar-width correction, the suffix should have a trailing space
-      // (fitSegments pads the interior to 28, so "18/24" + space + border).
-      const hpLine = mono.split('\n').find(l => l.includes('18/24'));
-      expect(hpLine).toBeDefined();
-      // The HP number should not be the last interior character — there must be
-      // at least one space before the border glyph.
-      expect(hpLine).toMatch(/\d\s+[│║]/);
-    });
-
-    it("a 3-digit HP figure also keeps one space inside the right border", () => {
-      const rendered = renderCombatContinueCard({ ...baseInput(), playerHp: 10, playerMaxHp: 100 });
-      const mono = stripSgr(rendered);
-      const hpLine = mono.split('\n').find(l => l.includes('10/100'));
-      expect(hpLine).toBeDefined();
-      expect(hpLine).toMatch(/\d\s+[│║]/);
-    });
-
-    it("the continue card is still exactly 30-wide with the padding correction", () => {
-      const rendered = renderCombatContinueCard(baseInput());
-      const lines = rendered.split('\n').filter((l) => l !== '```ansi' && l !== '```');
-      for (const line of lines) {
-        expect(stripSgr(line).length).toBe(FRAME_WIDTH);
-      }
     });
   });
 

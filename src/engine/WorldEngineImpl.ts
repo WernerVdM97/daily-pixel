@@ -1197,10 +1197,14 @@ export class WorldEngineImpl implements WorldEngine {
 
       this.persistState(characterId, result.state);
 
+      const remembered = this.readPersistedCombatFoe(characterId, result.state, row.location);
       return {
         resolved: false,
         state: this.toPublicState(result.state),
         nextDecision: result.nextDecision,
+        actionType: result.state.actionType,
+        combatEnemyName: result.state.lastDecideResult?.combatEnemy?.name ?? remembered?.name,
+        combatEnemyCondition: result.state.fatalBlow ? undefined : remembered?.condition,
       };
     } catch (_err) {
       const err = _err as Error & { name?: string };

@@ -250,6 +250,42 @@ describe("OpeningFrameRenderer", () => {
       }
     });
 
+    it("combat puts the foe's danger tag on the nameplate, the card's ladder read on the frame", () => {
+      const rendered = renderOpeningFrame("combat", { enemyName: "Gloomfang", enemyDangerTag: "hard" });
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("[hard]");
+      // One space inside the right border, the name left-aligned — the card's own nameplate shape.
+      expect(mono).toMatch(/Gloomfang +\[hard\] ./);
+    });
+
+    it("combat tints a hard tag as a threat and a mild one as plain information", () => {
+      // Role colours only: the tag's own word keeps the meaning when colour is stripped.
+      const hard = renderOpeningFrame("combat", { enemyName: "Gloomfang", enemyDangerTag: "hard" });
+      const easy = renderOpeningFrame("combat", { enemyName: "Gloomfang", enemyDangerTag: "easy" });
+      expect(hard).toContain("\u001b[31m[hard]");
+      expect(easy).toContain("\u001b[33m[easy]");
+    });
+
+    it("combat clips a long foe name rather than glueing the tag to it", () => {
+      const rendered = renderOpeningFrame("combat", {
+        enemyName: "Woodland Stag Sentinel", // 22 chars, past the nameplate budget with a tag
+        enemyDangerTag: "medium",
+      });
+      const mono = stripSgr(rendered);
+      const lines = rendered.split("\n");
+      for (const line of lines) {
+        if (line === "```ansi" || line === "```") continue;
+        expect(stripSgr(line).length).toBe(FRAME_WIDTH);
+      }
+      // The tag renders intact — never truncated into "[med" by an overrun nameplate.
+      expect(mono).toContain("[medium]");
+    });
+
+    it("combat with no danger tag renders the name alone (fresh fight, no tier)", () => {
+      const rendered = renderOpeningFrame("combat", { enemyName: "Gloomfang" });
+      expect(stripSgr(rendered)).not.toMatch(/\[(easy|medium|hard|risky|fatal)\]/);
+    });
+
     it("travel shows the origin location name and the literal rumoured-destination glyph", () => {
       const rendered = renderOpeningFrame("travel", { locationName: "Oakhollow" });
       const mono = stripSgr(rendered);

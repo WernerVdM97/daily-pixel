@@ -38,6 +38,8 @@ export interface OpeningFrameSlots {
   /** `combat` only: the foe's name, when already signalled (e.g. a `combatEnemy` hint from DECIDE).
    *  Undefined renders an honest "unknown foe": `handleCombatStep` writes the `in_combat` edge only on the first choice, so pre-decision neither is knowable. */
   enemyName?: string;
+  /** `combat` only: the foe's resolved danger tier (e.g. `hard`) for the nameplate's right edge. */
+  enemyDangerTag?: string;
   /** `combat` re-entry only: a persisted `in_combat` edge from a prior bail means the foe is already
    *  damaged. Banded (wound word + pips), never exact HP; absent, the placeholder bar is unchanged. */
   enemyCondition?: { woundWord: string; filled: number; total: number };
@@ -46,6 +48,8 @@ export interface OpeningFrameSlots {
 // The wireframes' own bar width. The placeholder branch is fixed (never real HP); the re-entry
 // branch below swaps in a pip run sized to `condition.total`.
 const ENEMY_BAR_WIDTH = 14;
+// Tiers that read as a warning on the nameplate; milder ones are tinted as plain information.
+const HARD_TIERS = ['hard', 'risky', 'fatal'];
 // Placeholder-branch width only. The real-HP branch sizes its bar adaptively instead: a fixed width
 // would let fitSegments truncate a wide "{hp}/{maxHp}" suffix, eating a digit off the HP number.
 const PC_BAR_WIDTH = 6;
@@ -108,10 +112,21 @@ function clipName(value: string, max: number): string {
   return safe.length > max ? safe.slice(0, max) : safe;
 }
 
+/** The nameplate: the foe's name left, its danger tag right, one space inside the right border.
+ *  The tag's budget comes off the name, so a long foe clips rather than glueing the two together. */
+function nameplateLine(name: string, tag: string | undefined): Segment[] {
+  if (!tag) return [plain('  '), coloured(clipName(name, INTERIOR_WIDTH - 2), 'threat')];
+  const label = `[${escapeBackticks(tag)}]`;
+  const clipped = clipName(name, INTERIOR_WIDTH - 2 - label.length - 1);
+  const gap = ' '.repeat(Math.max(0, INTERIOR_WIDTH - 2 - clipped.length - label.length - 1));
+  const role: Role = HARD_TIERS.includes(tag) ? 'threat' : 'warmth';
+  return [plain('  '), coloured(clipped, 'threat'), plain(gap), coloured(label, role)];
+}
+
 /** `combat` -> COMBAT_FRAME (opener variant): a placeholder enemy header (see `enemyName`) and a
  *  footer that uses real player data when the caller supplies it. */
 function combatLines(slots: OpeningFrameSlots): Segment[][] {
-  const enemyName = slots.enemyName ? clipName(slots.enemyName, 20) : 'Unknown foe';
+  const enemyName = slots.enemyName ? slots.enemyName : 'Unknown foe';
   const enemyBar = hpBar(0, 0, ENEMY_BAR_WIDTH); // maxHp<=0 -> all-empty "unknown" bar (honest, not broken)
 
   // Re-entry: a persisted in_combat edge means the foe is already damaged, so the placeholder bar
@@ -145,7 +160,7 @@ function combatLines(slots: OpeningFrameSlots): Segment[][] {
   const pcBarRole: Role = hasPcHp ? (pcFraction < LOW_HP_THRESHOLD ? 'threat' : 'life') : 'chrome';
 
   return [
-    [plain('  '), coloured(enemyName, 'threat')],
+    nameplateLine(enemyName, slots.enemyDangerTag),
     enemyHpLine,
     staticLine(BLANK),
     staticLine('        /\\        /\\        '),

@@ -268,6 +268,21 @@ exports[`action oracle — slash /action (mid-action resume) > 10 · mid-action 
       ],
       "embeds": [
         {
+          "color": 2895667,
+          "description": "\`\`\`ansi
+[37m┌────────────────────────────┐[0m
+[37m│[37m  . . .                     [0m│[0m
+[37m│                            │[0m
+[37m│[34m            ,^.             [0m│[0m
+[37m│[34m           ( o )            [0m│[0m
+[37m│[34m           /|_|\\            [0m│[0m
+[37m│[34m             |              [0m│[0m
+[37m│[34m           _/ \\_            [0m│[0m
+[37m│                            │[0m
+[37m└────────────────────────────┘[0m
+\`\`\`",
+        },
+        {
           "color": 14329120,
           "description": "> 🧭 **Quest:** scout the northern ridge
 
@@ -850,6 +865,21 @@ exports[`action oracle — slash /action <text> (new action) > 20 · /action <te
       ],
       "embeds": [
         {
+          "color": 2895667,
+          "description": "\`\`\`ansi
+[37m┌────────────────────────────┐[0m
+[37m│[37m  . . .                     [0m│[0m
+[37m│                            │[0m
+[37m│[34m            ,^.             [0m│[0m
+[37m│[34m           ( o )            [0m│[0m
+[37m│[34m           /|_|\\            [0m│[0m
+[37m│[34m             |              [0m│[0m
+[37m│[34m           _/ \\_            [0m│[0m
+[37m│                            │[0m
+[37m└────────────────────────────┘[0m
+\`\`\`",
+        },
+        {
           "color": 14329120,
           "description": "> 🧭 **Quest:** scout the northern ridge
 
@@ -948,6 +978,21 @@ exports[`action oracle — slash /action <text> (new action) > 23 · /action <te
         },
       ],
       "embeds": [
+        {
+          "color": 2895667,
+          "description": "\`\`\`ansi
+[37m┌────────────────────────────┐[0m
+[37m│[37m  . . .                     [0m│[0m
+[37m│                            │[0m
+[37m│[34m            ,^.             [0m│[0m
+[37m│[34m           ( o )            [0m│[0m
+[37m│[34m           /|_|\\            [0m│[0m
+[37m│[34m             |              [0m│[0m
+[37m│[34m           _/ \\_            [0m│[0m
+[37m│                            │[0m
+[37m└────────────────────────────┘[0m
+\`\`\`",
+        },
         {
           "color": 14329120,
           "description": "> 🧭 **Quest:** scout the northern ridge

@@ -519,7 +519,7 @@ describe("action oracle — slash /action <text> (new action)", () => {
     const methods = _acks.map((a) => a.method);
     expect(methods).toEqual(["deferReply", "editReply"]);
     const edit = _acks.at(-1)!;
-    expect((edit.arg as any).embeds[0].description).toContain("A shadow shifts ahead. Press on?");
+    expect((edit.arg as any).embeds.at(-1).description).toContain("A shadow shifts ahead. Press on?");
     expect(rawIds((edit.arg as any).components)).toEqual(["action:choice:1:0", "action:choice:1:1"]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
@@ -606,7 +606,7 @@ describe("action oracle — slash /action <text> (new action)", () => {
     const methods = _acks.map((a) => a.method);
     expect(methods).toEqual(["deferReply", "editReply"]);
     const edit = _acks.at(-1)!;
-    expect((edit.arg as any).embeds[0].description).toContain("A shadow shifts ahead. Press on?");
+    expect((edit.arg as any).embeds.at(-1).description).toContain("A shadow shifts ahead. Press on?");
     expect(rawIds((edit.arg as any).components)).toEqual(["action:choice:1:0", "action:choice:1:1"]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
@@ -670,7 +670,7 @@ describe("action oracle — slash /action (mid-action resume)", () => {
     const methods = _acks.map((a) => a.method);
     expect(methods).toEqual(["deferReply", "editReply"]);
     const edit = _acks.at(-1)!;
-    expect((edit.arg as any).embeds[0].description).toContain("A shadow shifts ahead. Press on?");
+    expect((edit.arg as any).embeds.at(-1).description).toContain("A shadow shifts ahead. Press on?");
     // decisionIdx = state.decisions.length (1, from RESUME_DECISION_RESULT's one prior record).
     expect(rawIds((edit.arg as any).components)).toEqual(["action:choice:1:0", "action:choice:1:1"]);
     // DC-M9.2.4 class 3: menu.open stamps first, on this resume arm too.
