@@ -148,11 +148,10 @@ export type ActionStepResult =
       resolved: false;
       state: ActionState;
       nextDecision: ActionDecision;
-      /** The type pinned at CLASSIFY, carried so a mid-action beat can pick its opening-frame
-       *  register: unlike `ActionResumeResult`, a step's state never persists it. */
+      /** The type pinned at CLASSIFY, so a mid-action beat can pick its frame register — a step's
+       *  state never persists it. */
       actionType: ClassifiedActionType;
-      /** Same two slots `ActionResumeResult` carries, read the same way: the DECIDE hint, else the
-       *  persisted `in_combat` foe. */
+      /** Same two slots `ActionResumeResult` carries, read the same way. */
       combatEnemyName?: string;
       combatEnemyCondition?: { woundWord: string; filled: number; total: number };
     }

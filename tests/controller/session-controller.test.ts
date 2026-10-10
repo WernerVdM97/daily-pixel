@@ -91,9 +91,8 @@ describe('SessionController — beginCustomAction', () => {
   });
 });
 
-// ── C4 follow-up: a resumed mid-fight re-opens the fight. The opener is the caller's to
-// ask for — `buildDecisionView` can no longer infer it from the beat index, since a resume lands
-// at `state.decisions.length > 0`.
+// ── C4 follow-up: a resumed mid-fight re-opens the fight. The opener follows the register the
+// caller passes, not the beat index: a resume lands at `state.decisions.length > 0`.
 
 describe('SessionController — the combat opener on a resume', () => {
   const makeController = (engine: MockWorldEngine) =>

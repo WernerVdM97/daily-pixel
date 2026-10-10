@@ -6,7 +6,7 @@
 import type { WorldEngine, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../engine/WorldEngine.js';
 import type { CombatBeatLog } from '../engine/action/combat-dc.js';
 import { dangerTier } from '../engine/action/combat-dc.js';
-import { formatOutcome, distilledActionEmoji, DISTILLED_EMOJI_MISS, type OutcomeRenderContext } from '../engine/OutcomeRenderer.js';
+import { formatOutcome, distilledActionEmoji, labelActionEmoji, DISTILLED_EMOJI_MISS, type OutcomeRenderContext } from '../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../engine/stat-format.js';
 import { dayJobEmoji } from '../render/format.js';
 import { BORDERS, PALETTES, type BorderStyle } from '../render/AnsiRenderer.js';
@@ -63,19 +63,26 @@ function statEmoji(stat: string | undefined): string {
   return info ? info.emoji : '';
 }
 
-/** A vocabulary hit, or nothing: `distilledActionEmoji`'s miss glyph is not a usable decoration. */
-function vocabEmoji(text: string | undefined): string {
-  if (!text) return '';
-  const emoji = distilledActionEmoji(text);
+/** The vocabulary's hit, or nothing — its miss glyph is no usable decoration. */
+function hitOrNothing(emoji: string): string {
   return emoji === DISTILLED_EMOJI_MISS ? '' : emoji;
 }
 
+/** The register's own word, keyed like a distilled type. */
+function vocabEmoji(text: string | undefined): string {
+  return text ? hitOrNothing(distilledActionEmoji(text)) : '';
+}
+
+/** A caption's own words, matched whole. */
+function captionEmoji(label: string | undefined): string {
+  return label ? hitOrNothing(labelActionEmoji(label)) : '';
+}
+
 /** One emoji per option, render-only decoration on the caption: the terminal option's bail intent
- *  first, else the stat it tests, else the intent its own label names, else its action's register
- *  (what an option with no stat and no keyworded label — the forced "Last stand" — falls back to). */
+ *  first, else the stat it tests, else the intent its own label names, else its action's register. */
 function optionEmoji(opt: { label: string; dcModifier: number | null; stat?: string }, actionType?: ClassifiedActionType): string {
   if (opt.dcModifier === null) return vocabEmoji('bail');
-  return statEmoji(opt.stat) || vocabEmoji(opt.label) || vocabEmoji(actionType);
+  return statEmoji(opt.stat) || captionEmoji(opt.label) || vocabEmoji(actionType);
 }
 
 /** Renders the "story so far" gamebook thread. The first beat authors no narration, so it
@@ -133,8 +140,8 @@ export function buildDecisionView(
     maxHealth?: number;
     location?: string;
   },
-  /** The type `classify` routed this action to — picks which opening-frame register renders.
-   *  The frame must also be asked for (`showOpeningFrame`). */
+  /** The type `classify` routed this action to — picks which opening-frame register renders. Every
+   *  decision screen leads with its frame when this is known. */
   actionType?: ClassifiedActionType,
   /** Combat enemy name for the opening frame's nameplate. Outranked by the decision's own
    *  `combatStatus` when it carries one, which bands the foe as of this beat rather than earlier. */
@@ -142,8 +149,6 @@ export function buildDecisionView(
   /** The foe's banded condition (wound word + pip fill, never exact HP) from the persisted
    *  `in_combat` edge against the same foe; undefined when there is nothing to band. */
   combatEnemyCondition?: { woundWord: string; filled: number; total: number },
-  /** Whether this screen leads with the opening frame — every decision screen does. */
-  showOpeningFrame = false,
 ): DecisionViewState {
   // Raw DCs stay hidden while deciding; passive insight (10 + WIS) instead lets a perceptive
   // character occasionally spot the single safest route — earned (see INSIGHT_MARGIN), not a readout.
@@ -168,8 +173,6 @@ export function buildDecisionView(
   // in `combatStatus`, which renders as-is. A structured status with no round yet has no ledger.
   const combat: CombatStatusData | undefined = typeof decision.combatStatus === 'string' ? undefined : decision.combatStatus;
   const lastRound = decision.combatRounds?.at(-1);
-  // One border ladder for both: the last stand's heavy register reads on the frame and the card
-  // alike instead of the screen dropping from heavy to standard below the fold.
   const continueBorder = combat ? chooseContinueBorder(combat, lastRound) : BORDERS.standard;
   const combatStatus = typeof decision.combatStatus === 'string'
     ? decision.combatStatus
@@ -245,8 +248,7 @@ export function buildDecisionView(
   };
   if (combatEnemyName) openingFrameSlots.enemyName = combatEnemyName;
   if (combatEnemyCondition) openingFrameSlots.enemyCondition = combatEnemyCondition;
-  // The decision's own band is this beat's truth, so it outranks the slots the caller read
-  // before the beat — the persisted edge a caller found can be a round stale.
+  // The decision's own band is this beat's truth, outranking the slots the caller read before it.
   if (combat) {
     openingFrameSlots.enemyName = combat.enemyName;
     openingFrameSlots.enemyCondition = {
@@ -258,7 +260,7 @@ export function buildDecisionView(
   // The danger tier rides the round log's DC; combatStatus carries none, so a beat with no round
   // fought yet shows no tag.
   if (lastRound) openingFrameSlots.enemyDangerTag = dangerTier(lastRound.dc);
-  const openingFrame = showOpeningFrame && actionType
+  const openingFrame = actionType
     ? renderOpeningFrame(actionType, openingFrameSlots, PALETTES.house, continueBorder)
     : undefined;
 

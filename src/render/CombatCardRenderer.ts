@@ -94,8 +94,7 @@ export interface ContinueRound {
   enemyHpDelta: number;
 }
 
-/** Render the combat CONTINUE card: the contested roll, the band and the HP deltas. `style` is the
- *  caller's escalation rules — the same ladder the frame above it runs. */
+/** Render the combat CONTINUE card: the contested roll, the band and the HP deltas. */
 export function renderCombatContinueCard(
   round: ContinueRound,
   palette: Palette = PALETTES.house,

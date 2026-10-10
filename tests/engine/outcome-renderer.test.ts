@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 import type { CombatBeatLog } from '../../src/engine/action/combat-dc.js';
-import { formatOutcome, distilledActionEmoji, type OutcomeRenderContext } from '../../src/engine/OutcomeRenderer.js';
+import { formatOutcome, distilledActionEmoji, labelActionEmoji, type OutcomeRenderContext } from '../../src/engine/OutcomeRenderer.js';
 // Combat-card tests below inject the presentation-side renderer (ANSI-C: OutcomeRenderer
 // itself never imports src/render/ — see the grep-proof acceptance in the ANSI-C plan section).
 import { renderCombatTerminalCard } from '../../src/render/CombatCardRenderer.js';
@@ -752,6 +752,25 @@ describe('distilledActionEmoji', () => {
   it('falls back to ✴️ for an unknown type', () => {
     expect(distilledActionEmoji('flibbertigibbet')).toBe('✴️');
     expect(distilledActionEmoji('')).toBe('✴️');
+  });
+});
+
+describe('labelActionEmoji', () => {
+  it('matches a keyword a caption uses as a whole word', () => {
+    expect(labelActionEmoji('Bail bloodied')).toBe('🏃');
+    expect(labelActionEmoji('Press the attack')).toBe('⚔️');
+    expect(labelActionEmoji('Sneak past the guard')).toBe('🥷');
+  });
+
+  it('ignores a keyword that only occurs inside a longer word', () => {
+    expect(labelActionEmoji('Arrest the smuggler')).toBe('✴️');
+    expect(labelActionEmoji('Restrain the guard')).toBe('✴️');
+    expect(labelActionEmoji('Restless night')).toBe('✴️');
+  });
+
+  it('falls back to ✴️ for a caption with no keyword at all', () => {
+    expect(labelActionEmoji('Last stand')).toBe('✴️');
+    expect(labelActionEmoji('')).toBe('✴️');
   });
 });
 

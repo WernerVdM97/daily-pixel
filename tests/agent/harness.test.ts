@@ -688,10 +688,10 @@ const DECISION_VIEW = {
   title: { emoji: '⚔️', text: 'Action' },
   colorIntent: 'decision',
   prompt: 'What do you do?',
-  optionLines: ['**A.** Press the attack'],
+  optionLines: ['**A.** Press the attack', '**B.** Retreat'],
   buttons: [
     { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: false },
-    { kind: 'bail', label: 'Retreat', customId: 'action:bail' },
+    { kind: 'bail', letter: 'B', customId: 'action:bail' },
   ],
   footer: '',
 } as unknown as DecisionViewState;

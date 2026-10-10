@@ -286,7 +286,8 @@ describe("OpeningFrameRenderer", () => {
       expect(stripSgr(rendered)).not.toMatch(/\[(easy|medium|hard|risky|fatal)\]/);
     });
 
-    it("travel shows the origin location name and the literal rumoured-destination glyph", () => {      const rendered = renderOpeningFrame("travel", { locationName: "Oakhollow" });
+    it("travel shows the origin location name and the literal rumoured-destination glyph", () => {
+      const rendered = renderOpeningFrame("travel", { locationName: "Oakhollow" });
       const mono = stripSgr(rendered);
       expect(mono).toContain("Oakhollow");
       expect(mono).toContain("????");

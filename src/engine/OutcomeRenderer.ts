@@ -126,6 +126,16 @@ export function distilledActionEmoji(type: string): string {
   return DISTILLED_EMOJI_MISS;
 }
 
+/** Emoji for a whole caption, keyed on its words rather than its letters — the rule above reads
+ *  "arrest" as "rest". Unknown → ✴️. */
+export function labelActionEmoji(label: string): string {
+  const words = new Set((label ?? '').toLowerCase().split(/[^a-z]+/));
+  for (const [keyword, emoji] of DISTILLED_EMOJI) {
+    if (words.has(keyword)) return emoji;
+  }
+  return DISTILLED_EMOJI_MISS;
+}
+
 // ── Outcome label map ──
 
 const OUTCOME_LABELS: Record<string, { icon: string; label: string }> = {

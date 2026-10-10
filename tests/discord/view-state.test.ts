@@ -56,16 +56,21 @@ describe('buildDecisionView — semantic shape', () => {
     expect(view.openingFrame).toBeUndefined();
   });
 
-  it('carries the rendered opening-frame ANSI string when the opener is asked for, whatever the beat index', () => {
-    const withFrame = buildDecisionView(decision, 0, state, char, 'travel', undefined, undefined, true);
+  it('carries the rendered opening-frame ANSI string when the register is known, whatever the beat index', () => {
+    const withFrame = buildDecisionView(decision, 0, state, char, 'travel');
     expect(withFrame.openingFrame).toContain('```ansi');
 
-    // The flag, not `decisionIdx`, is the gate: a resumed fight shows its opener at a later beat.
-    const resumed = buildDecisionView(decision, 1, state, char, 'combat', 'Goblin', undefined, true);
+    // The register, not `decisionIdx`, is the gate: a resumed fight shows its opener at a later beat.
+    const resumed = buildDecisionView(decision, 1, state, char, 'combat', 'Goblin');
     expect(resumed.openingFrame).toContain('```ansi');
+  });
 
-    const continueBeat = buildDecisionView(decision, 1, state, char, 'travel');
-    expect(continueBeat.openingFrame).toBeUndefined();
+  it('keys an option caption on its whole words — "Arrest the smuggler" is not a rest', () => {
+    const view = buildDecisionView(
+      { prompt: 'The smuggler freezes.', options: [{ label: 'Arrest the smuggler', dcModifier: 0 }] },
+      0, undefined, undefined, 'social',
+    );
+    expect(view.optionLines[0]).toBe('**A.** 🗣️ Arrest the smuggler');
   });
 
   it('omits storyThread when no state is given (no story to thread)', () => {

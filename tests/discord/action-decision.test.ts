@@ -43,10 +43,9 @@ function buildDecisionMessage(
   actionType?: ClassifiedActionType,
   combatEnemyName?: string,
   combatEnemyCondition?: { woundWord: string; filled: number; total: number },
-  showOpeningFrame?: boolean,
 ) {
   return decisionViewToDiscord(
-    buildDecisionView(decision, decisionIdx, state, char, actionType, combatEnemyName, combatEnemyCondition, showOpeningFrame),
+    buildDecisionView(decision, decisionIdx, state, char, actionType, combatEnemyName, combatEnemyCondition),
   );
 }
 
@@ -521,7 +520,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
       combatStatus,
       combatRounds: [round({ dc: 15 })],
       options: [{ label: 'Press the attack', dcModifier: 0, stat: 'physical' }],
-    }, 1, undefined, { stats: { physical: 8, wisdom: 5, intelligence: 4, charisma: 3 }, name: 'Wren', health: 1, maxHealth: 30 }, 'combat', 'Wolf', undefined, true);
+    }, 1, undefined, { stats: { physical: 8, wisdom: 5, intelligence: 4, charisma: 3 }, name: 'Wren', health: 1, maxHealth: 30 }, 'combat', 'Wolf');
     const embeds = msg.embeds as any[];
     const frame = embeds[0].description as string;
 
@@ -606,7 +605,7 @@ describe('buildDecisionMessage — last-stand / bail decision screen shows the r
 
   it('leads with the heavy frame and keeps the round ledger under it, both captions lettered', () => {
     const msg = buildDecisionMessage(
-      desperateDecision, 1, undefined, DESPERATE_CHAR, 'combat', undefined, undefined, true,
+      desperateDecision, 1, undefined, DESPERATE_CHAR, 'combat',
     );
     const [frameEmbed, bodyEmbed] = msg.embeds as any[];
     const frame = (frameEmbed.description as string).replace(/\x1b\[[0-9;]*m/g, '');
@@ -617,7 +616,7 @@ describe('buildDecisionMessage — last-stand / bail decision screen shows the r
     expect(frame).toContain('Shadow Stag');
     expect(frame).toContain('Critical');
     expect(frame).toContain('[medium]'); // dangerTier(12)
-    expect(frame).toContain('HP [░░░░░░░]'); // hmm: 1/30 still floors to an empty bar
+    expect(frame).toContain('HP [░░░░░░░]');
     expect(frame).toContain('╔');
 
     // The card keeps the round's maths — the contested roll (player vs the enemy's total), the
@@ -764,8 +763,8 @@ describe('buildDecisionMessage — ANSI-F opening frame (art post + reply-body d
   const decision = { prompt: 'A wolf blocks the path.', options: [{ label: 'Fight', dcModifier: 0 }] };
   const char = { stats: { physical: 10, wisdom: 10, intelligence: 10, charisma: 10 }, name: 'Aldric', health: 24, maxHealth: 30, location: 'Oakhollow' };
 
-  it('prepends an opening-frame embed ahead of the decision embed on the first decision when the opener is asked for', () => {
-    const msg = buildDecisionMessage(decision, 0, undefined, char, 'travel', undefined, undefined, true);
+  it('prepends an opening-frame embed ahead of the decision embed on the first decision', () => {
+    const msg = buildDecisionMessage(decision, 0, undefined, char, 'travel');
     expect(msg.embeds.length).toBe(2);
     const frameDesc = (msg.embeds[0] as any).description as string;
     expect(frameDesc).toContain('```ansi');
@@ -780,13 +779,8 @@ describe('buildDecisionMessage — ANSI-F opening frame (art post + reply-body d
     expect(msg.embeds.length).toBe(1);
   });
 
-  it('never prepends the opening frame on a CONTINUE beat, even if actionType were passed', () => {
-    const msg = buildDecisionMessage(decision, 1, undefined, char, 'travel');
-    expect(msg.embeds.length).toBe(1);
-  });
-
   it('renders the combat register with the real PC name/HP and an honest placeholder foe', () => {
-    const msg = buildDecisionMessage(decision, 0, undefined, char, 'combat', undefined, undefined, true);
+    const msg = buildDecisionMessage(decision, 0, undefined, char, 'combat');
     const frameDesc = (msg.embeds[0] as any).description as string;
     expect(frameDesc).toContain('Aldric');
     expect(frameDesc).toContain('24/30');
@@ -794,7 +788,7 @@ describe('buildDecisionMessage — ANSI-F opening frame (art post + reply-body d
   });
 
   it('degrades gracefully with no character data at all — still renders a frame, just placeholders', () => {
-    const msg = buildDecisionMessage(decision, 0, undefined, undefined, 'other', undefined, undefined, true);
+    const msg = buildDecisionMessage(decision, 0, undefined, undefined, 'other');
     expect(msg.embeds.length).toBe(2);
     const frameDesc = (msg.embeds[0] as any).description as string;
     expect(frameDesc).toContain('```ansi');
