@@ -168,11 +168,11 @@ The encounter's overall danger is worded, never shown as a per-beat threshold:
 
 | DC | Tier |
 | --- | --- |
-| ≤ 9 | `easy` |
-| 10–13 | `medium` |
-| 14–17 | `hard` |
-| 18–21 | `risky` |
-| ≥ 22 | `fatal` |
+| ≤ 11 | `easy` |
+| 12–15 | `medium` |
+| 16–19 | `hard` |
+| 20–23 | `risky` |
+| ≥ 24 | `fatal` |
 
 ## Terminal conditions
 
