@@ -287,6 +287,17 @@ describe("CombatCardRenderer", () => {
       expect(mono).toContain("TRADE");
     });
 
+    it("draws its own placeholder name when the engine withheld the foe's (it invented it)", () => {
+      const rendered = renderCombatContinueCard(continueInput({ enemyName: undefined, dangerTier: "hard" }));
+      const mono = stripSgr(rendered);
+      expect(mono).toContain("Unknown foe");
+      expect(mono).toContain("[hard]");
+      const lines = rendered.split("\n").filter((l) => l !== "```ansi" && l !== "```");
+      for (const line of lines) {
+        expect(stripSgr(line).length).toBe(FRAME_WIDTH);
+      }
+    });
+
     it("shows the danger tag on the nameplate when dangerTier is set", () => {
       const rendered = renderCombatContinueCard(continueInput({ dangerTier: "hard" }));
       const mono = stripSgr(rendered);

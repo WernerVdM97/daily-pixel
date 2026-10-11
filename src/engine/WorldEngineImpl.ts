@@ -1047,8 +1047,6 @@ export class WorldEngineImpl implements WorldEngine {
     if (!matches) return undefined;
 
     const { filled, woundWord } = enemyConditionBand(cs.enemyHp / cs.enemyMaxHp);
-    // An `unnamedFoe` edge still bands its condition, but its placeholder name is withheld: nothing
-    // in the fight ever called the foe that, so the opener must not put it on the nameplate.
     return {
       ...(cs.unnamedFoe ? {} : { name: cs.enemyName }),
       condition: { woundWord, filled, total: 5 },

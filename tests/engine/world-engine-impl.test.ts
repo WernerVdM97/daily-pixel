@@ -19,6 +19,7 @@ import type {
   PipelineStageResult,
 } from '../../src/llm/pipeline/types.js';
 import { ENEMY_HP_MIN } from '../../src/engine/action/combat-dc.js';
+import type { CombatStatusData } from '../../src/engine/WorldEngine.js';
 // ── T6 concurrent step serialisation ──
 
 /** Minimal scriptable `PipelineLlmGateway` double for B#3's auto-resolve-start tests (mirrors
@@ -951,10 +952,7 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
     closeDb();
   });
 
-  // ── #148, the 08-02 wolf fight: `actions` id 123 established with no `combatEnemy` at all, so the
-  // engine's generic placeholder foe was persisted instead, and the re-engage showed that placeholder
-  // name on the opener beside a fiction that had only ever named wolves. The pair below is those rows
-  // — establish with no signal at baseDc 16 (→ a 16-HP foe), one round to leave
+  // ── Establish with no `combatEnemy` signal at baseDc 16 (→ a 16-HP foe), one round to leave
   // `{"enemyName":"Minion","enemyHp":13,"enemyMaxHp":16,"round":2}`, a bail, then a re-engage.
   it('never puts the generic no-signal placeholder on the opener of a same-location re-engage (#148)', async () => {
     const { userRepo, charRepo, characterId } = seedCharacter();
@@ -988,6 +986,12 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
     // name never reaches the nameplate: the frame renders its honest "Unknown foe" instead.
     expect(reengaged.combatEnemyName).toBeUndefined();
     expect(reengaged.combatEnemyCondition).toEqual({ woundWord: 'Healthy', filled: 4, total: 5 });
+
+    // The in-fight cards read the same withheld name, so the beat after the opener never names it.
+    const engaged = await engine.stepAction(characterId, 'Attack');
+    expect(engaged.resolved).toBe(false);
+    if (engaged.resolved) throw new Error('expected unresolved step');
+    expect((engaged.nextDecision.combatStatus as CombatStatusData).enemyName).toBeUndefined();
 
     closeDb();
   });

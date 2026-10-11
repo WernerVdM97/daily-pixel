@@ -87,7 +87,8 @@ export function bandColor(band: string): Role {
 // ─── CONTINUE card ───────────────────────────────────────────────────
 
 export interface ContinueCardInput {
-  enemyName: string;
+  /** Absent when the engine invented the foe's name — the card then draws its own "Unknown foe". */
+  enemyName?: string;
   woundWord: string;
   pips: { filled: number; total: number };
   playerHp: number;
@@ -118,6 +119,7 @@ export interface ContinueCardInput {
 function buildContinueLines(input: ContinueCardInput): Segment[][] {
   const bar = '▓'.repeat(input.pips.filled) + '░'.repeat(input.pips.total - input.pips.filled);
   const lines: Segment[][] = [];
+  const enemyName = input.enemyName ?? 'Unknown foe';
 
   if (input.dangerTier) {
     const hardTiers = ['hard', 'risky', 'fatal'];
@@ -125,14 +127,14 @@ function buildContinueLines(input: ContinueCardInput): Segment[][] {
     const tag = `[${escapeBackticks(input.dangerTier)}]`;
     // Prefix '  ' (2) + name + >=1 space of gap + tag must fit within INTERIOR_WIDTH.
     const maxNameLen = INTERIOR_WIDTH - 2 - tag.length - 1;
-    const name = clipEnemyName(escapeBackticks(input.enemyName), maxNameLen);
+    const name = clipEnemyName(escapeBackticks(enemyName), maxNameLen);
     lines.push(twoColumnLine(
       [plain(`  ${name}`)],
       [coloured(tag, tierRole)],
     ));
   } else {
     const maxNameLen = INTERIOR_WIDTH - 2;
-    const name = clipEnemyName(escapeBackticks(input.enemyName), maxNameLen);
+    const name = clipEnemyName(escapeBackticks(enemyName), maxNameLen);
     lines.push([plain(`  ${name}`)]);
   }
   {

@@ -772,6 +772,16 @@ describe('buildDecisionMessage — ANSI-F opening frame (art post + reply-body d
     expect(frameDesc).toContain('Unknown foe');
   });
 
+  // The engine withholds the name when it invented it, and the band still reads — the two slots are
+  // filled independently downstream, so a dropped arg renders a bare placeholder frame silently.
+  it('bands a remembered foe it will not name: the placeholder header keeps the foe\'s condition', () => {
+    const msg = buildDecisionMessage(decision, 0, undefined, char, 'combat', undefined, { woundWord: 'Healthy', filled: 4, total: 5 }, true);
+    const frameDesc = (msg.embeds[0] as any).description as string;
+    const mono = frameDesc.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(mono).toContain('│  Unknown foe               │');
+    expect(mono).toContain('│  HP [▓▓▓▓░] Healthy        │');
+  });
+
   it('degrades gracefully with no character data at all — still renders a frame, just placeholders', () => {
     const msg = buildDecisionMessage(decision, 0, undefined, undefined, 'other', undefined, undefined, true);
     expect(msg.embeds.length).toBe(2);
