@@ -1,6 +1,6 @@
 ---
 name: factory-memory
-description: "Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil) reads or writes .pi/factory/memory/."
+description: "Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil, rem) reads or writes .pi/factory/memory/."
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 paths:
   - .pi/factory/memory/**
@@ -20,12 +20,12 @@ One folder per subject, so an agent can aim a search at a branch of the tree ins
 | --- | --- |
 | `board/` | `status-flow`, `fields-and-ids`, `labels`, `milestones`, `blockers` |
 | `gate/` | `approval-rules`, `auto-classes`, `violations` |
-| `loops/` | `triage`, `executor`, `sweeper`, `scrumo`, `escalator` |
+| `loops/` | `triage`, `executor`, `sweeper`, `scrumo`, `escalator`, `rem` |
 | `repo/` | `build-and-test`, `branches-and-worktrees`, `known-failures`, `conventions` |
 | `delivery/` | `discord`, `pr-and-review`, `ci` |
 | `models/` | `tiers`, `escalations` |
 | `owner/` | `preferences` |
-| `meta/` | the factory's own improvement record: `proposals` (its `memory.md` index, plus one dated draft file per survey), `metrics`, `sessions` |
+| `meta/` | the factory's own improvement record: `proposals` (its `memory.md` index, plus one dated draft file per survey), `metrics`, `sessions`, `rem-findings` (REM's signals for the next survey; written by REM, read first by meta-oil) |
 | `incidents/` | one dated bullet per incident; split into `incidents/YYYY-MM/` once it outgrows a page |
 
 Nest deeper only when a topic genuinely splits. Depth is cheap for grepping, but a folder holding one line is a worse index than a line in the parent.
@@ -33,6 +33,8 @@ Nest deeper only when a topic genuinely splits. Depth is cheap for grepping, but
 ## Write scope
 
 Read anything; write only inside your own scope. One writer per topic, except the two shared logs (`gate/violations/`, `incidents/`), which any listed loop may append a dated line to — append-only, never rewrite another loop's line. Topics with no loop in the table below are owner-seeded reference facts: read them, flag staleness in your report, but only the owner updates them.
+
+`rem` is the one exception to one-writer-per-topic, and only in the destructive direction: it may delete, merge, genericise and correct lines anywhere in the tree, but never add a fact to a topic it does not own. Everything it removes must be verified against the live repo and board first, never purged on age. The append-only logs stay append-only for it too.
 
 | Loop | May write |
 | --- | --- |
@@ -42,6 +44,7 @@ Read anything; write only inside your own scope. One writer per topic, except th
 | scrumo | `loops/scrumo/`, `board/milestones/`, `owner/preferences/`, `incidents/` |
 | escalator | `loops/escalator/`, `models/escalations/`, `incidents/` |
 | meta-oil | `meta/proposals/`, `meta/metrics/`, `meta/sessions/`, `loops/meta-oil/`, `incidents/` |
+| rem | consolidating edits (delete, merge, genericise, correct) anywhere in the tree, plus `loops/rem/`, `meta/rem-findings/`, dated appends to `incidents/` |
 
 Which model ran, what a gate rule means, and which command verifies a change all belong to the topics above, not to the loop folders. `loops/<name>/` is only for that loop's own habits and mistakes.
 
