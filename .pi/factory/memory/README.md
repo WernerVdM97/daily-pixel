@@ -12,6 +12,7 @@ Full conventions: [`.pi/skills/factory-memory/SKILL.md`](../../../.pi/skills/fac
 | `gate/` | approval rules, `auto:*` classes, violations found |
 | `loops/` | one folder per loop: what it learned, what it got wrong |
 | `repo/` | build and test commands, branch and worktree paths, known failures, conventions |
+| `docs/` | the vault's own facts: structure decisions, archival record, recurring convention violations; written by the librarian |
 | `delivery/` | Discord plumbing, PR and review mechanics, CI behaviour |
 | `models/` | which model for which role, escalation routes, failures seen |
 | `owner/` | the owner's stated preferences and priorities |

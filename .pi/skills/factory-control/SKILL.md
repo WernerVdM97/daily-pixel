@@ -29,7 +29,7 @@ Ticks are skippable for three reasons besides the switch, and the journal line n
 
 The pause file is the **stop now, with a note** lever; `.env` is the one that reads as intent ("off until further notice"). Stacking both buys nothing except a second place to undo later, since either alone stops the whole tick.
 
-Both of those gates, and the timer below them, only govern the tick. The session door is the per-loop row, and it is the one that is silently open: a schedule left unpaused is fired by any `pi` session in this repo the moment it notices the occurrence is overdue. A stop that means it uses the file **and** all ten loops.
+Both of those gates, and the timer below them, only govern the tick. The session door is the per-loop row, and it is the one that is silently open: a schedule left unpaused is fired by any `pi` session in this repo the moment it notices the occurrence is overdue. A stop that means it uses the file **and** all eleven loops.
 
 ## Stopping
 
@@ -40,14 +40,14 @@ cd "$(git rev-parse --show-toplevel)"
 printf '%s\n' "owner paused $(date -u +%F): <why>, until <what>" > .pi/factory/PAUSED
 ```
 
-Then the schedules, since the file cannot stop a session firing one. One loop, or all ten in turn:
+Then the schedules, since the file cannot stop a session firing one. One loop, or all eleven in turn:
 
 ```
 subagent({ action: "schedule.pause", id: "factory-triage" })
 subagent({ action: "schedule.list" })   # ids and the paused flags
 ```
 
-The ten schedule ids: `factory-triage`, `factory-executor`, `factory-sweeper`, `factory-scrumo`, `factory-scrumo-thu`, `factory-scrumo-sun`, `meta-oil-fri`, `meta-oil-sat`, `factory-rem`, `factory-muscle-memory`.
+The eleven schedule ids: `factory-triage`, `factory-executor`, `factory-sweeper`, `factory-scrumo`, `factory-scrumo-thu`, `factory-scrumo-sun`, `meta-oil-fri`, `meta-oil-sat`, `factory-rem`, `factory-muscle-memory`, `factory-librarian`.
 
 ## Starting
 
@@ -59,9 +59,9 @@ The ten schedule ids: `factory-triage`, `factory-executor`, `factory-sweeper`, `
 
 ## Resuming after a long stop
 
-**A resume is a burst, by construction.** `schedule.run-due` walks every due schedule and only *attaches* a child run per schedule, so one tick starts every overdue loop within seconds of each other. The launcher does not bound it: its `flock` and `MIN_AVAIL_MB` preflight are released as soon as the children are attached, while the children keep running for up to 50 minutes each. A stop of a week therefore lands ten `pi` children in one tick on a box whose whole budget is under 8 GB.
+**A resume is a burst, by construction.** `schedule.run-due` walks every due schedule and only *attaches* a child run per schedule, so one tick starts every overdue loop within seconds of each other. The launcher does not bound it: its `flock` and `MIN_AVAIL_MB` preflight are released as soon as the children are attached, while the children keep running for up to 50 minutes each. A stop of a week therefore lands eleven `pi` children in one tick on a box whose whole budget is under 8 GB.
 
-**The pile is not ten jobs.** `factory-scrumo`, `factory-scrumo-thu` and `factory-scrumo-sun` are one agent on three schedules, and `meta-oil-fri`/`meta-oil-sat` are one agent on two. Firing the whole pile buys three digests and two surveys of a week in which nothing ran, which is the verbosity meta-oil exists to delete.
+**The pile is not eleven jobs.** `factory-scrumo`, `factory-scrumo-thu` and `factory-scrumo-sun` are one agent on three schedules, and `meta-oil-fri`/`meta-oil-sat` are one agent on two. Firing the whole pile buys three digests and two surveys of a week in which nothing ran, which is the verbosity meta-oil exists to delete.
 
 Two ways to resume, and the second is the one to reach for after a long stop.
 
@@ -89,7 +89,7 @@ systemctl list-timers factory-run-due.timer            # the tick is still sched
 cmp /usr/local/bin/factory-run-due scripts/factory-run-due.sh
 ```
 
-And the door that has no journal: `subagent({ action: "schedule.list" })` must show ten `paused` rows while the factory is stopped. A stopped factory with ten `scheduled` rows is stopped only until someone opens a session here.
+And the door that has no journal: `subagent({ action: "schedule.list" })` must show eleven `paused` rows while the factory is stopped. A stopped factory with eleven `scheduled` rows is stopped only until someone opens a session here.
 
 A stopped factory reads as: the off line and nothing else. No `draining job stages`, no `housekeeping`, no `{"action":…}` from the ledger. Anything past that line means a stage was already in flight when the switch landed, which is normal and by design.
 

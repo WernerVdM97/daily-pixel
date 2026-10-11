@@ -1,6 +1,6 @@
 ---
 name: factory-memory
-description: "Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil, rem, muscle-memory) reads or writes .pi/factory/memory/."
+description: "Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil, rem, muscle-memory, librarian) reads or writes .pi/factory/memory/."
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 paths:
   - .pi/factory/memory/**
@@ -22,6 +22,7 @@ One folder per subject, so an agent can aim a search at a branch of the tree ins
 | `gate/` | `approval-rules`, `auto-classes`, `violations` |
 | `loops/` | `triage`, `executor`, `sweeper`, `scrumo`, `escalator`, `rem` |
 | `repo/` | `build-and-test`, `branches-and-worktrees`, `known-failures`, `conventions` |
+| `docs/` | the vault's own facts: structure decisions, what was archived when and why, recurring convention violations (written by the librarian) |
 | `delivery/` | `discord`, `pr-and-review`, `ci` |
 | `models/` | `tiers`, `escalations` |
 | `owner/` | `preferences` |
@@ -49,6 +50,7 @@ Read anything; write only inside your own scope. One writer per topic, except th
 | meta-oil | `meta/proposals/`, `meta/metrics/`, `meta/sessions/`, `loops/meta-oil/`, `incidents/` |
 | rem | consolidating edits (delete, merge, genericise, correct) anywhere in the tree, plus `loops/rem/`, `meta/rem-findings/`, dated appends to `incidents/` |
 | muscle-memory | `muscle/patterns/` (full write), plus append-only dated lines in the reference topics `repo/`, `delivery/`, `models/`, `board/` |
+| librarian | `docs/` (the memory topic), `loops/librarian/` |
 
 Which model ran, what a gate rule means, and which command verifies a change all belong to the topics above, not to the loop folders. `loops/<name>/` is only for that loop's own habits and mistakes.
 
