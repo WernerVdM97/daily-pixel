@@ -44,7 +44,9 @@ export interface StatBlock {
 
 /** Banded enemy condition plus the player's HP movement, for a combat continue-screen. */
 export interface CombatStatusData {
-  enemyName: string;
+  /** Absent on an `unnamedFoe` fight, whose `enemyName` is the engine's own placeholder: the card
+   *  falls back to its placeholder nameplate rather than print a name the fiction never used. */
+  enemyName?: string;
   woundWord: string;
   pips: { filled: number; total: number };
   /** DISPLAY value only: `playerHpDelta` is already applied and clamped >= 0 so a lethal round never
@@ -188,7 +190,7 @@ export interface ActionOutcome {
   combatBeat?: CombatBeatLog;
   /** Display data for the terminal combat-frame reveal, set alongside `combatBeat`. `enemyMaxHp`
    *  and `margin` are not on the telemetry log, and `enemyName` is nowhere else on the outcome. */
-  combatFrame?: { enemyName: string; enemyMaxHp: number; margin: number };
+  combatFrame?: { enemyName?: string; enemyMaxHp: number; margin: number };
   /** Full per-fight round log, terminal round inclusive — surfaced so the terminal presentation
    *  layer reads the whole fight off the outcome. Absent on non-combat outcomes. */
   combatRounds?: CombatBeatLog[];

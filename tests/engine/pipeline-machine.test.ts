@@ -3063,6 +3063,23 @@ describe('PipelineActionStateMachine — SL-6 fatal-blow interstitial (RA-5c)', 
     expect(fatalCs.woundWord).toBe('Battered');
   });
 
+  it('a foe the engine named for itself stays unnamed at the interstitial — a foe-agnostic prompt', async () => {
+    const llm = new MockPipelineLlmGateway();
+    // No `combatEnemy` at all, so the establish mints its own placeholder foe (6 HP from baseDc 6).
+    llm.decideResultQueue = [combatEnemyDecideResult({ combatEnemy: undefined })];
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the wolves', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+
+    expect(interstitial.nextDecision.prompt).toBe('The foe is broken and cannot rise. Finish it, or let it live?');
+    expect((interstitial.nextDecision.combatStatus as CombatStatusData).enemyName).toBeUndefined();
+  });
+
   it("'Finish it' resolves success with the foe at 0 HP, banding Slain, and consumes no extra roll", async () => {
     const llm = new MockPipelineLlmGateway();
     llm.decideResultQueue = [combatEnemyDecideResult()];

@@ -175,13 +175,14 @@ function validateTypedRelationProps(
   if (relType === 'in_combat') {
     // Requires the FULL prop set even for update_relation: the combat writers always emit the
     // absolute set, a partial delta would double-sum `round`, and the LLM never authors in_combat.
-    const { enemyName, enemyHp, enemyMaxHp, round, mintName, baseDc } = props as {
+    const { enemyName, enemyHp, enemyMaxHp, round, mintName, baseDc, unnamedFoe } = props as {
       enemyName?: unknown;
       enemyHp?: unknown;
       enemyMaxHp?: unknown;
       round?: unknown;
       mintName?: unknown;
       baseDc?: unknown;
+      unnamedFoe?: unknown;
     };
     if (typeof enemyName !== 'string' || enemyName.trim() === '') {
       return `${opType} "in_combat" requires a non-empty "enemyName" string`;
@@ -210,6 +211,9 @@ function validateTypedRelationProps(
     }
     if (baseDc !== undefined && (typeof baseDc !== 'number' || !Number.isFinite(baseDc) || baseDc < 0)) {
       return `${opType} "in_combat" prop "baseDc" must be a finite non-negative number when present`;
+    }
+    if (unnamedFoe !== undefined && typeof unnamedFoe !== 'boolean') {
+      return `${opType} "in_combat" prop "unnamedFoe" must be a boolean when present`;
     }
     return null;
   }
