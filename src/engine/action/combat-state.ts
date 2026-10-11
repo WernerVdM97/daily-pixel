@@ -13,6 +13,9 @@ export interface CombatState {
   /** The intended name of an `anchor: 'npc'` foe. Held on the edge because the per-action marker dies
    *  with the action, bails included: a re-engaged fight would otherwise continue the edge's positive HP instead of re-running establish. */
   mintName?: string;
+  /** Set when the establish beat named no foe, so `enemyName` is the engine's placeholder rather than
+   *  a name the fiction used: a reader must not surface it as if the fight had named that foe. */
+  unnamedFoe?: boolean;
   /** The fight's authored `baseDc`, pinned at establish and read back on every later round.
    *  Optional for edges persisted before the prop existed. */
   baseDc?: number;
@@ -65,7 +68,9 @@ function parseCombatEdge(edge: SceneStateEdge): CombatState | null {
     ? rawBaseDc
     : undefined;
 
-  return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName, baseDc };
+  const unnamedFoe = (edge.props as Record<string, unknown>).unnamedFoe === true ? true : undefined;
+
+  return { enemyName, enemyHp, enemyMaxHp, round, anchor: toAnchor(edge.to), mintName, baseDc, unnamedFoe };
 }
 
 /** A readable candidate plus the row id the ranking tie-breaks on. */
@@ -114,6 +119,7 @@ export function combatStateToSetRelation(state: CombatState): AuthoredRelation {
       // with no mint leaves the edge's prop bag as it was before this prop existed.
       ...(state.mintName ? { mintName: state.mintName } : {}),
       ...(state.baseDc !== undefined ? { baseDc: state.baseDc } : {}),
+      ...(state.unnamedFoe ? { unnamedFoe: true } : {}),
     },
   };
 }

@@ -535,6 +535,7 @@ export class PipelineActionStateMachine {
         };
       } else {
         // No combatEnemy signal — default to a location-anchored minion (always establishes).
+        // `unnamedFoe` keeps the placeholder name off the remembered-foe surface on a re-engage.
         const enemyMaxHp = deriveEnemyMaxHp(state.lastDecideResult.baseDc);
         cs = {
           enemyName: 'Minion',
@@ -543,6 +544,7 @@ export class PipelineActionStateMachine {
           round: 1,
           anchor: { node: 'location', name: char.location },
           baseDc: state.lastDecideResult.baseDc,
+          unnamedFoe: true,
         };
       }
     }

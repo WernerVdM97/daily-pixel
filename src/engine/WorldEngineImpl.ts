@@ -1021,7 +1021,7 @@ export class WorldEngineImpl implements WorldEngine {
     characterId: number,
     internalState: PipelineInternalActionState,
     currentLocation: string,
-  ): { name: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
+  ): { name?: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
     if (internalState.actionType !== 'combat') return undefined;
 
     // The DB row shape back into the edge shape `readCombatState` expects, mirroring
@@ -1047,7 +1047,12 @@ export class WorldEngineImpl implements WorldEngine {
     if (!matches) return undefined;
 
     const { filled, woundWord } = enemyConditionBand(cs.enemyHp / cs.enemyMaxHp);
-    return { name: cs.enemyName, condition: { woundWord, filled, total: 5 } };
+    // An `unnamedFoe` edge still bands its condition, but its placeholder name is withheld: nothing
+    // in the fight ever called the foe that, so the opener must not put it on the nameplate.
+    return {
+      ...(cs.unnamedFoe ? {} : { name: cs.enemyName }),
+      condition: { woundWord, filled, total: 5 },
+    };
   }
 
   /** Is the remembered foe's anchor still here? Reached only when the LLM stayed silent on the
