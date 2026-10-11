@@ -1,7 +1,7 @@
 ---
 title: "POC+ 0.3.2 — combat-correctness & prod-bug release (build plan)"
-status: archived
-domain: engine
+status: shipped
+domain: archived
 phase: poc
 tags:
   - build-plan

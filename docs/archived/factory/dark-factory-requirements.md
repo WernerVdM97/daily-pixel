@@ -1,9 +1,10 @@
 ---
 title: Dark Factory requirements (scrumo + model tiering)
 status: shipped
-domain: engine
+domain: archived
 phase: poc
 tags: [process, automation, agents, models]
+superseded_by: "implemented in code"
 related:
   - "[[dark-factory]]"
 ---
@@ -56,7 +57,7 @@ Not just a model flag. GitHub issue bodies carry attachment URLs, and private `u
 
 1. `gh issue view <n> --json body` and detect image URLs.
 2. Fetch to a temp path with the token (`gh api` or an authenticated curl).
-3. `read` the image, then triage as today (dedupe, resolve `[[doc-links]]`, draft acceptance criteria as an issue comment, label, `Inbox` -> `Triaged` or `Blocked` + `needs-human-decision`).
+3. `read` the image, then triage as today (dedupe, resolve the doc links it carries, draft acceptance criteria as an issue comment, label, `Inbox` -> `Triaged` or `Blocked` + `needs-human-decision`).
 
 The existing tools (`read, grep, find, ls, bash`) already cover this, so only the instructions and the model change.
 

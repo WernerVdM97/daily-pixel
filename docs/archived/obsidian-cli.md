@@ -7,7 +7,6 @@ tags:
 - vault
 related:
 - '[[CONVENTIONS]]'
-phase: nogo
 ---
 
 # Obsidian CLI

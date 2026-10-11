@@ -1,7 +1,7 @@
 ---
 title: "POC+ Release A — worth-returning-to (build plan)"
-status: archived
-domain: engine
+status: shipped
+domain: archived
 phase: poc
 tags:
   - build-plan

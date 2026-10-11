@@ -2,7 +2,7 @@
 title: "POC+ Stage 1 — v12 tail, welcome tag & combat maths reveal (build plan)"
 status: shipped
 superseded_by: "implemented in code"
-domain: engine
+domain: archived
 phase: poc
 tags:
   - build-plan

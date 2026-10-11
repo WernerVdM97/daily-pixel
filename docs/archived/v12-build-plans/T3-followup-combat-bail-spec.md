@@ -1,7 +1,7 @@
 ---
 title: "T3 follow-up — voluntary mid-combat bail (flee at a cost): spec handoff"
 status: shipped
-domain: engine
+domain: archived
 superseded_by: "implemented in code"
 phase: poc
 tags: [combat, engine, pipeline, thread-c, stage-3, bail, spec]

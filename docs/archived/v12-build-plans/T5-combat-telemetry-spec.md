@@ -1,7 +1,7 @@
 ---
 title: "T5 — per-round combat beat logging + sim combat scenario + metrics: spec handoff"
 status: shipped
-domain: engine
+domain: archived
 superseded_by: "implemented in code"
 phase: poc
 tags: [combat, engine, pipeline, thread-c, stage-3, telemetry, sim, spec]

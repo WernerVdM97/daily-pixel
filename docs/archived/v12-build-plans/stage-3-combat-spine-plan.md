@@ -1,7 +1,7 @@
 ---
 title: "Stage 3 — Thread C combat spine: build plan"
 status: shipped
-domain: engine
+domain: archived
 superseded_by: "implemented in code"
 phase: poc
 tags: [combat, engine, pipeline, scene-state, thread-c, stage-3, sim]

@@ -1,7 +1,7 @@
 ---
 title: "Stage 1 — Thread D backbone: build plan"
 status: shipped
-domain: engine
+domain: archived
 superseded_by: "implemented in code"
 phase: poc
 tags: [llm, pipeline, thread-d, stage-1, sim]

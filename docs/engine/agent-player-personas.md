@@ -226,7 +226,7 @@ Keep these blocks small and structured. The point is a player's working memory, 
 - Dispatched through the existing `screen.*` events, rendered with `viewToText`, recorded as a transcript `recon` event, fed back as the next turn's context.
 - Costs no roll and does not advance the day, but it **is** a turn: the brain sees the result and picks again. A player who stares at the map has spent a moment, not a roll.
 - Capped twice: per screen (a small constant, e.g. 2) and per day in total (e.g. 6), because a day's shape is read in turns and twelve free recon turns would distort the per-day ratings. Hitting either cap withholds that screen rather than crashing, and logs a warning finding.
-- Replay must learn about it. `recon` is a new legal move kind, so `src/agent/replay.ts`'s DC-S5 choice-fidelity checks (`isLegal` / `menuLegalMoves` / `decisionLegalMoves`) and its chrome carve-out need the treatment the scripted beats got, and the transcript union gains a `recon` event. Replay is the repo's drift net; it appears in T1 and T9 for that reason.
+- Replay must learn about it. `recon` is a new legal move kind, so `src/agent/replay.ts`'s DC-S5 choice-fidelity checks (`isLegal` / `menuLegalMoves` / `decisionLegalMoves`) and its chrome carve-out need the treatment the scripted beats got, and the transcript union gains a `recon` event. Replay is the repo's drift net; the recon surface and the tests that pin it both owe it a case.
 
 ### D. The handbook
 
@@ -234,7 +234,7 @@ A `handbook.md` fragment in the brain's system prompt: what a first-time player 
 
 Covers the command list (`/join`, `/hi`, `/action`, `/sleep`, `/look`, `/map`, `/stats`, `/backpack`, `/journal`, `/help`), the `/join` wizard (seven steps plus the confirm screen), the roll economy (three rolls a day, `SATURDAY_BONUS_ROLLS = 1` on Saturdays, no-roll deterministic screens, `/sleep` to end the day), the emoji signal vocabulary, and the interaction model (most moves are buttons; the free-text `/action` slot is the exception, and it is the one the personas are meant to reach for). It also states the **shape of the game's promise**: a day is a ritual, the world advances without you, the arc runs to December.
 
-- [!] **Do not transcribe the two infographics in `docs/assets/`** (`core-loop.png` and `character-creation.png`). They are LLM-authored NotebookLM posters, and at least one claim is already wrong: `core-loop.png` states "2 Rolls Per Day" (and "Rolls: 0/2") while the engine is `DAILY_ROLL_ALLOWANCE = 3`, plus `SATURDAY_BONUS_ROLLS = 1` on Saturdays (`WorldEngineImpl.ts`). [[pitch-and-pillars]] said "two rolls" too and so did the in-game `/help` copy, which also called `/join` a 6-step wizard when the wizard's own footer counts seven, so the stale figures had reached the one source this handbook is told to trust. Both copies are now corrected (the pitch and `/help` in the same change that lands this spec, the wizard length in `/help`), because a tutorial that teaches wrong rules is worse than no tutorial. T2 then adds a test that reads the handbook fragments and asserts every roll figure against those two constants, so the next copy cannot drift.
+- [!] **Do not transcribe the two infographics in `docs/assets/`** (`core-loop.png` and `character-creation.png`). They are LLM-authored NotebookLM posters, and at least one claim is already wrong: `core-loop.png` states "2 Rolls Per Day" (and "Rolls: 0/2") while the engine is `DAILY_ROLL_ALLOWANCE = 3`, plus `SATURDAY_BONUS_ROLLS = 1` on Saturdays (`WorldEngineImpl.ts`). [[pitch-and-pillars]] said "two rolls" too and so did the in-game `/help` copy, which also called `/join` a 6-step wizard when the wizard's own footer counts seven, so the stale figures had reached the one source this handbook is told to trust. Both copies are now corrected (the pitch and `/help` in the same change that lands this spec, the wizard length in `/help`), because a tutorial that teaches wrong rules is worse than no tutorial. A test then reads the handbook fragments and asserts every roll figure against those two constants, so the next copy cannot drift.
 
 ### E. Feedback, in three layers
 
@@ -295,7 +295,7 @@ The per-day rating pair also gives the panel its headline artefact: an **engagem
 
 `quitHorizon`, `hook` and `building` are the fields the design goal actually needs. A panel where eight personas say `building: "nothing"` is a verdict on the game's long arc, however good the individual days felt.
 
-Two contract notes. `rubric` values are `number | "unobserved"` (1-5, or that exact string), and both the parser and the aggregation must accept each; T9 pins it. And `scores` deliberately repeats three of the critic's dimensions (clarity, challenge, variety) so the panel matrix and the expert report can be read side by side: it is not a second opinion on design quality. The persona's design-adjacent findings are the friction list, not these.
+Two contract notes. `rubric` values are `number | "unobserved"` (1-5, or that exact string), and both the parser and the aggregation must accept each; the tests pin it. And `scores` deliberately repeats three of the critic's dimensions (clarity, challenge, variety) so the panel matrix and the expert report can be read side by side: it is not a second opinion on design quality. The persona's design-adjacent findings are the friction list, not these.
 
 ### G. Panel shape and the time axis
 
@@ -363,18 +363,9 @@ Touch points: `AgentPlayerGateway.ts` (`AgentMove` gains `recon`; `ChooseMoveInp
 
 ---
 
-## Build plan
+## What shipped
 
-- [x] **T1 · surface.** Recon move class, recon dispatch and both caps (per screen, per day), the recon event's DC-S5 legality in `replay.ts`, recap block, the day log (today's attempts, rejections included), intent note, arc note, transcript `recon` event. Brain still on `agent-v1` behaviour; verify by hand that a run can read a map, act on it, and _not_ repeat a refused option.
-- [x] **T2 · prompts v2.** Set-based layout for both families, `current_source/` mirrors, derived stamp helper, `v1` frozen. Handbook written from repo sources, stating the seven-step wizard, the interaction model and the year-long promise, plus a test that asserts its roll figures against `DAILY_ROLL_ALLOWANCE` and `SATURDAY_BONUS_ROLLS`.
-- [x] **T3 · personas.** The ten `personas/*.md` fragments and the loader; `AGENT_PERSONA` in `play.ts` (unset = no fragment); header stamp.
-- [x] **T4 · friction and the day note.** Per-turn `friction` with recurrence tags; the day note folded into the day's last turn (see the Build log; engagement + fulfilment ratings, the line, the `arcNote` update); transcript events.
-- [x] **T5 · review.** `PersonaReview` seam with the three benchmark questions and the five-criterion rubric (including the `unobserved` allowance), `persona-review.md`, review gateway, `.reviews.json` output.
-- [x] **T6 · panel aggregation, and the smoke.** `src/agent/panel.ts` + `npm run agent:panel <dir>`: the rubric matrix with coverage, the score matrix, the engagement/fulfilment sparkline, exposure-ranked friction, the fulfilment-signal count, verb histograms, and the `arcNote` / `quitTrigger` distinctiveness check. Then the three-persona one-day smoke, which is the gate on everything after it.
-- [x] **T7 · the arc panel, then breadth.** The arc panel (a subset over five to seven days) as the first real use, because it is the only shape that speaks to the core goal, then the ten-persona day-1 breadth run scored against the 2026-09-13 baseline's success criteria and labelled an onboarding instrument in its own report. _(The arc panel ran 2026-09-15 to 09-19 and is recorded in § Panel evidence; the ten-persona breadth run has not been paid for.)_
-- [x] **T8 · the interrupted panel.** `skipDays(n)` on the harness via `pinAdvancingClock` (its `advanceDays` steps one calendar day per skipped tick), and the absence-then-return path. _(Machinery and unit coverage shipped; no live interrupted run yet.)_
-- [x] **T9 · stubs and tests.** Scripted gates stay persona-neutral and offline and go through boot parity; unit tests for recon legality and both caps, the replay legality carve-out, recap shaping, friction recurrence parsing, the split day-note, review parsing (including `unobserved`), sparkline, exposure ranking and the handbook figures. `npm test` still never touches the network.
-- [x] **T10 · skill and changelog.** Update `.pi/skills/agent-smoke/SKILL.md` to run panels rather than single runs, with the three shapes and the smoke step; CHANGELOG `[Unreleased]`.
+Shipped in three stacked branches off `dev` (`feat/agent-panel-1-surface`, `-2-feedback`, `-3-panels`), `npx tsc --noEmit`, `npx tsc -p tsconfig.test.json` and `npx vitest run` green before every commit. The instrument as built is the recon surface (§ C) plus the recap, day log and notes (§ B), both prompt families at set version `v2` with the handbook and its roll figures pinned by test (§ D), the ten persona fragments and `AGENT_PERSONA` (§ A, § Roster), the friction and day-note contract (§ E), the review seam (§ F), and `npm run agent:panel` as the aggregator (§ H). The per-slice detail lives in the changelog; the readings the panel has produced are under § Panel evidence, and what has not been run is named at the end of § Build log.
 
 ---
 
@@ -391,15 +382,11 @@ Touch points: `AgentPlayerGateway.ts` (`AgentMove` gains `recon`; `ChooseMoveInp
 
 ## Build log
 
-Shipped in three stacked branches off `dev` (`feat/agent-panel-1-surface`, `-2-feedback`, `-3-panels`), task by task, with `npx tsc --noEmit`, `npx tsc -p tsconfig.test.json` and `npx vitest run` green before every commit. T1-T10 are done; the readings the panel produced are under § Panel evidence.
-
-Decisions taken during the build, where they diverge from this document or from its task numbering:
+Decisions taken during the build, where they diverge from this document:
 
 - **The day note is day-level, not sleep-level** (this diverges from § E, which folds the note into the `sleep` pick). Reason: a day usually ends because the rolls ran out, and `menu.open` returns `no-rolls` at zero rolls (`SessionController.openActionMenu`), so the brain is never asked again and its last offered turn always has exactly one roll left. Evidence: across the four live five-day arc runs, 18 of the 20 persona-days ended `no-rolls` (the other two ended `slept`) and **all 20 still captured a day note**; the 18 that ended `no-rolls` would each have lost their rating had the note stayed sleep-only, and the arc panel's headline series would have been empty. `ChooseMoveInput.lastRoll` now tells the brain when its last roll is being spent, a note may ride any turn with the last one winning, and a day that closes unrated logs a warning finding. Still zero extra LLM calls.
-- **T4 moved into layer 1**, after T2/T3: T2's prompt requests `friction` and `dayNote`, so the parsing had to land in the same change or layer 1 would have asked for fields its own gateway drops.
-- **Tests are allocated by module, not by task number**, so each layer carries the tests for what it introduces rather than deferring them all to T9.
+- **The prompt asks for fields, so their parsing ships with it.** `friction` and `dayNote` are requested by the `v2` prompt, so the gateway had to carry them in the same change; the surface layer would otherwise have asked for fields its own gateway dropped.
 - **The clock is pinned for all multi-day runs, not only `skipDays`** (owner decision), so the Saturday bonus roll and the five-day absence nudge actually fire instead of reading the real date.
 - **`facts.distilledType` is not the classify vocabulary.** It is the action model's own open-vocabulary label ("one word preferred"), so the panel reports `actionVerbs` as an observed label frequency table and the priors-versus-behaviour comparison runs on move kinds instead.
-- **Stale task numbering corrected.** The tests task is T9, so the two inline "T8" references (the replay coverage in § C and the review parsing in § F) now read T9.
 
 Still open, and named here rather than left to be inferred: the interrupted shape has not been run live, the ten-persona breadth panel has not been paid for, and the flat fulfilment series (#137) and blind work menu (#134) in § Panel evidence are product tickets on the board, not harness defects.

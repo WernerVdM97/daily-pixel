@@ -2,7 +2,7 @@
 title: JSON Seam — Smoke-Run Upgrade Brainstorm (lead prompt)
 status: superseded
 superseded_by: "[[json-seam-protocol]] § Smoke-run tooling plan (M8.5)"
-domain: engine
+domain: archived
 phase: mvp
 tags: [architecture, engine, protocol, seam, agent-player, smoke, qa, brainstorm, handover]
 related:

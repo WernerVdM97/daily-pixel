@@ -1,7 +1,7 @@
 ---
 title: "Stage 2 — Scene-state spine + travel gate: build plan"
 status: shipped
-domain: engine
+domain: archived
 superseded_by: "implemented in code"
 phase: poc
 tags: [llm, pipeline, scene-state, graph, thread-d, stage-2]

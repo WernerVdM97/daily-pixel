@@ -78,7 +78,7 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 | `sparks/`    | `spark`    | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
 | `archived/`  | `archived` | Done deals: shipped specs (`status: shipped`), rejected ideas (`status: nogo`), replaced directions (`status: superseded`). Kept for history.        |
 
-`domain` in frontmatter always matches the folder the file sits in.
+`domain` in frontmatter always matches the folder the file sits in — including `archived/`, whose docs carry `domain: archived` whatever domain they came from. That field is load-bearing rather than decorative: the Obsidian index (`Docs Index.base`) filters its by-domain view on it, so a shipped engine spec that keeps `domain: engine` reappears among the live engine docs.
 
 ---
 
@@ -118,3 +118,12 @@ This is the single most important anti-slop habit: **contradictions become one d
 Every doc must appear in the map of content — **[`docs/README.md`](./README.md)**, which owns the index and its maintenance rules. Add your doc's row there when you create it. If it's not on the map, it's slop.
 
 Maintain it when docs are promoted through statusses.
+
+---
+
+## 8. Citing the source
+
+Docs describe the code, so they cite it — and the citation is the part that rots first.
+
+- **Name the file and the symbol, never a line number.** `src/engine/action/PipelineActionStateMachine.ts`, function `enqueueContinue` survives an edit; `machine.ts:562` is a lie the day after it is written, and nothing flags it.
+- **A retired path is a stale citation too.** When a module is renamed or moved, the docs that name the old one are wrong until it is swept; the sweep is the librarian's, but the rename's author is the cheapest place to catch it.

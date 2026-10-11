@@ -1,3 +1,15 @@
+---
+title: POC Build & Deploy
+status: decided
+domain: engine
+phase: poc
+tags: [deploy, ops, dev-environment]
+related: []
+---
+_The live runbook for getting the bot up: local `tsx` dev, the Podman dev container (and the `:U` bind-mount trap that makes SQLite fail with `SQLITE_CANTOPEN`), the `scripts/query.mjs` DB inspection recipes, and the Debian LXC production install with its hourly auto-deploy timer._
+
+---
+
 # POC Build & Deploy
 
 Run and deploy The Warden's Oak during the POC phase.

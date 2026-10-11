@@ -2,7 +2,7 @@
 title: "v12 QA — prod data review (2026-07-05)"
 status: shipped
 superseded_by: "implemented in code"
-domain: spark
+domain: archived
 tags: [v12, pipeline, llm, prompt-refactor, qa, bug]
 phase: poc
 related:

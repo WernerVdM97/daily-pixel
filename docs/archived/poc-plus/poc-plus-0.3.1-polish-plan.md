@@ -2,7 +2,7 @@
 title: "POC+ 0.3.1 — combat-readability polish & hardening release (build plan)"
 status: shipped
 superseded_by: "implemented in code"
-domain: engine
+domain: archived
 phase: poc
 tags:
   - build-plan

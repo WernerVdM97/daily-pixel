@@ -1,6 +1,6 @@
 ---
 title: "Combat System v12"
-status: draft
+status: exploring
 domain: engine
 phase: poc
 tags:

@@ -2,7 +2,7 @@
 title: Polish Pass — Follow-up (post-0.2.7)
 status: shipped
 superseded_by: "implemented in code"
-domain: spark
+domain: archived
 phase: poc
 tags:
   - polish

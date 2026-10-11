@@ -1,8 +1,16 @@
 ---
 title: Discord Window Size Reference
-status: spark
-domain: spark
-tags: [discord]
+status: decided
+domain: ui
+phase: poc
+tags: [discord, layout, mobile]
+related:
+  - "[[poc-discord-ux]]"
+  - "[[visual-craft]]"
+  - "[[mvp+ansi-art]]"
+---
+_The measured budget every screen is built inside: 60 characters by 32 lines as the ceiling for a code block on the phone client, ~30 columns as the safe minimum for scene text in portrait. Measured against a real phone, not derived from Discord's documented limits._
+
 ---
 
 # Discord Window Size Reference
