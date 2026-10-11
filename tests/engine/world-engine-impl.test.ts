@@ -19,6 +19,7 @@ import type {
   PipelineStageResult,
 } from '../../src/llm/pipeline/types.js';
 import { ENEMY_HP_MIN } from '../../src/engine/action/combat-dc.js';
+import type { CombatStatusData } from '../../src/engine/WorldEngine.js';
 // ── T6 concurrent step serialisation ──
 
 /** Minimal scriptable `PipelineLlmGateway` double for B#3's auto-resolve-start tests (mirrors
@@ -770,6 +771,7 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
     constructor(
       private readonly distilledType: string,
       private readonly combatEnemy?: { name: string; anchor: 'npc' | 'location' },
+      private readonly baseDc = 12,
     ) {}
 
     async classify(): Promise<PipelineStageResult<ClassifyHit>> {
@@ -780,7 +782,7 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
       const result: PipelineDecideResult = {
         distilledType: this.distilledType,
         stat: 'physical',
-        baseDc: 12,
+        baseDc: this.baseDc,
         required: true,
         decision: [{ label: 'Attack', dcModifier: 0, stat: 'physical' }],
         ...(this.combatEnemy ? { combatEnemy: this.combatEnemy } : {}),
@@ -946,6 +948,50 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
     // 5/20 = 0.25 → filled = round(0.25*5) = 1 (Math.round), woundWord: >=0.15 and <0.4 → 'Battered'.
     expect(startResult.combatEnemyName).toBe('Goblin');
     expect(startResult.combatEnemyCondition).toEqual({ woundWord: 'Battered', filled: 1, total: 5 });
+
+    closeDb();
+  });
+
+  // ── Establish with no `combatEnemy` signal at baseDc 16 (→ a 16-HP foe), one round to leave
+  // `{"enemyName":"Minion","enemyHp":13,"enemyMaxHp":16,"round":2}`, a bail, then a re-engage.
+  it('never puts the generic no-signal placeholder on the opener of a same-location re-engage (#148)', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+
+    // Round 1's dice: playerD20 15 (+3 physical) vs enemyD20 10 (+6, clamped from baseDc 16) →
+    // margin 2 → 'glanced', enemyHpDelta -3, so 16 HP reads 13 — the traced edge's own numbers.
+    const rolls = [15, 10];
+    let rollIdx = 0;
+    const rollD20 = () => rolls[Math.min(rollIdx++, rolls.length - 1)];
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', undefined, 16), rollD20);
+
+    const opened = await engine.startAction(characterId, 'fight the wolves in the forest');
+    expect(opened.combatEnemyName).toBeUndefined(); // the establish named no foe
+
+    const round1 = await engine.stepAction(characterId, 'Attack');
+    expect(round1.resolved).toBe(false);
+
+    const relations = new RelationRepository(getDb());
+    const edge = () => JSON.parse(relations.findByFrom('pc', String(characterId), 'in_combat')[0].props);
+    expect(edge()).toMatchObject({ enemyName: 'Minion', enemyHp: 13, enemyMaxHp: 16, round: 2 });
+
+    const bailed = await engine.stepAction(characterId, 'Flee the fight');
+    expect(bailed.resolved).toBe(true);
+    if (!bailed.resolved) throw new Error('expected resolved step');
+    expect(bailed.outcome.outcome).toBe('bailed');
+    expect(edge()).toMatchObject({ enemyName: 'Minion', enemyHp: 13, enemyMaxHp: 16, round: 2 });
+
+    const reengaged = await engine.startAction(characterId, 'fight the wolves again');
+
+    // The condition is still the fight's own truth — 13/16 bands as Healthy — but the placeholder
+    // name never reaches the nameplate: the frame renders its honest "Unknown foe" instead.
+    expect(reengaged.combatEnemyName).toBeUndefined();
+    expect(reengaged.combatEnemyCondition).toEqual({ woundWord: 'Healthy', filled: 4, total: 5 });
+
+    // The in-fight cards read the same withheld name, so the beat after the opener never names it.
+    const engaged = await engine.stepAction(characterId, 'Attack');
+    expect(engaged.resolved).toBe(false);
+    if (engaged.resolved) throw new Error('expected unresolved step');
+    expect((engaged.nextDecision.combatStatus as CombatStatusData).enemyName).toBeUndefined();
 
     closeDb();
   });

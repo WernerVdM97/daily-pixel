@@ -527,7 +527,7 @@ describe('buildDecisionMessage — narration and combatStatus', () => {
     expect(embeds[1].description).toContain('```ansi'); // frame leads, ledger follows
     expect(frame).toContain('Wolf');
     expect(frame).toContain('Bloodied');
-    expect(frame).toContain('[hard]');
+    expect(frame).toContain('[medium]');
   });
 
   it('omits the card when combatRounds is an empty array', () => {
@@ -785,6 +785,16 @@ describe('buildDecisionMessage — ANSI-F opening frame (art post + reply-body d
     expect(frameDesc).toContain('Aldric');
     expect(frameDesc).toContain('24/30');
     expect(frameDesc).toContain('Unknown foe');
+  });
+
+  // The engine withholds the name when it invented it, and the band still reads — the two slots are
+  // filled independently downstream, so a dropped arg renders a bare placeholder frame silently.
+  it('bands a remembered foe it will not name: the placeholder header keeps the foe\'s condition', () => {
+    const msg = buildDecisionMessage(decision, 0, undefined, char, 'combat', undefined, { woundWord: 'Healthy', filled: 4, total: 5 });
+    const frameDesc = (msg.embeds[0] as any).description as string;
+    const mono = frameDesc.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(mono).toContain('│  Unknown foe               │');
+    expect(mono).toContain('│  HP [▓▓▓▓░] Healthy        │');
   });
 
   it('degrades gracefully with no character data at all — still renders a frame, just placeholders', () => {

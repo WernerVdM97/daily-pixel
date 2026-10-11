@@ -1022,6 +1022,17 @@ describe('Mutation v12 T2 (Stage 3) — per-relType prop schemas: in_combat / co
     }
   });
 
+  it('accepts an in_combat edge carrying the optional unnamedFoe flag', () => {
+    const result = validateMutations([inCombat({ ...combatProps, unnamedFoe: true })], ctx());
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects in_combat with a non-boolean unnamedFoe', () => {
+    const result = validateMutations([inCombat({ ...combatProps, unnamedFoe: 'yes' })], ctx());
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain('unnamedFoe');
+  });
+
   it('combat_save is whitelisted and its savedDay prop validates', () => {
     const result = validateMutations(
       [{

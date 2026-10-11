@@ -543,6 +543,7 @@ export class PipelineActionStateMachine {
           round: 1,
           anchor: { node: 'location', name: char.location },
           baseDc: state.lastDecideResult.baseDc,
+          unnamedFoe: true,
         };
       }
     }
@@ -584,10 +585,10 @@ export class PipelineActionStateMachine {
       // Display-only nominal HP: the foe is still alive until the player answers, so banding on the
       // real 0 would read 'Slain' beside the prompt asking whether to kill it. Nothing else changes.
       const fatalStatus = composeCombatStatus(
-        cs.enemyName, 1, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
+        displayFoeName(cs), 1, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
       );
       const nextDecision: ActionDecision = {
-        prompt: `${cs.enemyName} is broken and cannot rise. Finish it, or let it live?`,
+        prompt: `${displayFoeName(cs) ?? 'The foe'} is broken and cannot rise. Finish it, or let it live?`,
         options: [
           { label: FATAL_BLOW_FINISH_LABEL, dcModifier: 0 },
           { label: FATAL_BLOW_SPARE_LABEL, dcModifier: 0 },
@@ -637,7 +638,7 @@ export class PipelineActionStateMachine {
         // HP=1/delta=0, not the raw math: the floor guarantees survival, so showing the raw (≤0)
         // would put 0 HP beside a live player. The round log appends to the previous decision's.
         const desperateStatus = composeCombatStatus(
-          cs.enemyName, newEnemyHp, cs.enemyMaxHp, 0, 1, char.maxHealth,
+          displayFoeName(cs), newEnemyHp, cs.enemyMaxHp, 0, 1, char.maxHealth,
         );
         const nextDecision: ActionDecision = {
           prompt: 'The blow would be lethal — you feel death\'s cold touch. Make your stand or flee before it\'s too late.',
@@ -784,7 +785,7 @@ export class PipelineActionStateMachine {
       { label: COMBAT_FLEE_LABEL, dcModifier: null },
     ];
     nextDecision.combatStatus = composeCombatStatus(
-      cs.enemyName, newEnemyHp, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
+      displayFoeName(cs), newEnemyHp, cs.enemyMaxHp, playerHpDelta, char.health, char.maxHealth,
     );
 
     const continueMutations: WorldMutation[] = [
@@ -1006,7 +1007,7 @@ export class PipelineActionStateMachine {
         llmCallIds: [...(state.llmCallIds ?? []), ...combatResolveCallIds, ...criticCallIds],
         hpZero: (playerHpDelta < 0 && (char.health + playerHpDelta) <= 0) || undefined,
         combatBeat,
-        combatFrame: { enemyName: cs.enemyName, enemyMaxHp: cs.enemyMaxHp, margin: roundResult.margin },
+        combatFrame: { enemyName: displayFoeName(cs), enemyMaxHp: cs.enemyMaxHp, margin: roundResult.margin },
         combatRounds,
       },
     };
@@ -1387,10 +1388,14 @@ export function enemyConditionBand(hpFraction: number): { filled: number; woundW
   return { filled, woundWord };
 }
 
+function displayFoeName(cs: CombatState): string | undefined {
+  return cs.unnamedFoe ? undefined : cs.enemyName;
+}
+
 /** Combat-status data for a continue screen: the enemy stays banded, the player is exact and
  *  clamped at 0. Frame assembly lives in the presentation layer, never imported engine-side. */
 function composeCombatStatus(
-  enemyName: string,
+  enemyName: string | undefined,
   enemyHp: number,
   enemyMaxHp: number,
   playerHpDelta: number,

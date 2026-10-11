@@ -1021,7 +1021,7 @@ export class WorldEngineImpl implements WorldEngine {
     characterId: number,
     internalState: PipelineInternalActionState,
     currentLocation: string,
-  ): { name: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
+  ): { name?: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
     if (internalState.actionType !== 'combat') return undefined;
 
     // The DB row shape back into the edge shape `readCombatState` expects, mirroring
@@ -1047,7 +1047,10 @@ export class WorldEngineImpl implements WorldEngine {
     if (!matches) return undefined;
 
     const { filled, woundWord } = enemyConditionBand(cs.enemyHp / cs.enemyMaxHp);
-    return { name: cs.enemyName, condition: { woundWord, filled, total: 5 } };
+    return {
+      ...(cs.unnamedFoe ? {} : { name: cs.enemyName }),
+      condition: { woundWord, filled, total: 5 },
+    };
   }
 
   /** Is the remembered foe's anchor still here? Reached only when the LLM stayed silent on the
