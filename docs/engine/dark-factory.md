@@ -17,7 +17,7 @@ The Dark Factory is a set of scheduled agent loops that keep the backlog triaged
 
 The one rule that defines the factory: **an agent may only execute an item whose board Status is `Approved`, or that carries a standing-approval `auto:*` label and stays inside that class.** Everything else is read-only. Moving a card to `Approved` is the human's action and the human's alone.
 
-Two loops point the other way. **`meta-oil`** studies the factory itself — its transcripts, token spend, retry loops, and gate history — and proposes fixes to the machinery. It is subject to the same rule, applied to its own proposals: it edits a factory file only when that exact numbered proposal has been approved. **`rem`** is the factory's sleep: the weekly consolidation pass over the loops' shared memory that purges what is no longer true and abstracts what is, so the tree stays worth re-reading (see § The loops).
+Two loops point the other way, and both are the factory's sleep. **`meta-oil`** studies the factory itself — its transcripts, token spend, retry loops, and gate history — and proposes fixes to the machinery. It is subject to the same rule, applied to its own proposals: it edits a factory file only when that exact numbered proposal has been approved. **`rem`** runs the weekly consolidation pass over the loops' shared memory that purges what is no longer true and abstracts what is, and **`muscle-memory`** follows it an hour later, mining the repo's session transcripts for task families that recur and are hard to follow and encoding them as one-line notes where a reader would look (see § The loops).
 
 ## The board
 
@@ -47,7 +47,7 @@ Blocked (needs-human-decision) is reachable from any stage except Done; triage o
 
 | Path | What it is |
 | --- | --- |
-| `.pi/agents/factory-{triage,executor,sweeper,scrumo,escalator,rem}.md` | Loop role definitions: authority, gate, memory scope, report shape |
+| `.pi/agents/factory-{triage,executor,sweeper,scrumo,escalator,rem,muscle-memory}.md` | Loop role definitions: authority, gate, memory scope, report shape |
 | `.pi/agents/meta-oil.md` | The improvement loop's role definition |
 | `.pi/subagents/schedules/` | The durable schedules (`factory-*` plus `meta-oil-{fri,sat}`); paused runtime state, not tracked |
 | `.pi/factory/project.json` | The board's field and option ids, so agents don't hardcode them |
@@ -63,7 +63,7 @@ The loops run with `context: "fresh"`, so `.pi/factory/memory/` is the only thin
 
 ## The loops
 
-Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`schedule.list`); the escalator is the exception, a child the executor spawns rather than a scheduled loop. All nine schedules are **enabled**, so they fire themselves through the headless launcher; a schedule flipped back to `paused` runs only when the owner fires it by hand with `schedule.run`.
+Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`schedule.list`); the escalator is the exception, a child the executor spawns rather than a scheduled loop. All ten schedules are **enabled**, so they fire themselves through the headless launcher; a schedule flipped back to `paused` runs only when the owner fires it by hand with `schedule.run`.
 
 | Loop | Agent | Cadence | Writes code? |
 | --- | --- | --- | --- |
@@ -73,6 +73,7 @@ Each loop is a project-scoped agent in `.pi/agents/` plus a durable schedule (`s
 | Scrumo | `factory-scrumo` | 7d × 3: 19:00 local Tue and Thu, 14:00 local Sun | No — DM digest (linked, one message), three recommended actions, blocker comments |
 | Meta-oil | `meta-oil` | Fri + Sat 18:00Z (20:00 local) | No — friction analysis and numbered proposals as one digest of cards: an index card, then one card per proposal; edits a factory file only once that exact proposal is approved |
 | REM | `factory-rem` | 7d, anchored Sunday 20:00Z (22:00 local) | No — memory consolidation: purges, merges and genericises `.pi/factory/memory/` (verified against the live repo and board, never on age), escalates to Inbox issues for triage and `meta/rem-findings/` notes for meta-oil |
+| Muscle-memory | `factory-muscle-memory` | 7d, anchored Sunday 21:00Z (23:00 local), one hour after REM | No — encodes recurring hard task families from session transcripts: one-line notes appended to the reference topics (repetition-gated), skill proposals as Inbox issues; never creates a skill |
 
 **Clock times are approximate, and pi has no calendar trigger.** The scheduler knows one-shot `at` triggers and fixed intervals only (`on` and `timezone` are refused outright), so "07:30" is not a slot: it is a phase. A 12h interval anchored at 07:30 does fire at 07:30 and 19:30 forever, because the next run is plain arithmetic off the anchor and catch-up preserves that phase rather than resetting it, but the _actual_ start is quantised by the systemd tick (5 min, plus up to 30s of jitter), so a pass lands in the 07:30 to 07:35 window rather than on the minute. Tuesday plus Thursday is not expressible as one interval at all, since the gap alternates between 2d and 5d, which is why scrumo is a set of weekly schedules (`factory-scrumo` on Tuesday, `factory-scrumo-thu` on Thursday, `factory-scrumo-sun` at 14:00 on Sunday) exactly as meta-oil is (`meta-oil-fri`, `meta-oil-sat`). Changing a cadence means editing `schedule.json` directly: the API exposes create/list/show/history/pause/resume/run/delete, and deliberately no update.
 
@@ -102,6 +103,8 @@ Applying one needs an explicit token from the owner. The digest carries numbered
 
 **REM** (`openrouter/deepseek/deepseek-v4.1-flash` at `xhigh`, the same pin as triage and meta-oil) is the consolidation pass the memory tree otherwise never gets: every loop only ever adds lines, so a tree that only grows becomes a log, and a log nobody re-reads is where knowledge goes to hide. It runs once a week, Sunday night, and walks every `memory.md` under `.pi/factory/memory/`, classifying each line as keep, purge, merge, genericise, fix or escalate. It is the one sanctioned exception to one-writer-per-topic, and only in the destructive direction: it may delete, merge, genericise and correct lines in any topic, but never add a fact to a topic it does not own — its own additions go to `loops/rem/` and `meta/rem-findings/`. A line dies only on evidence verified against the live repo and board in the same pass (the file it names is gone, the issue is closed, the repo now states the rule), never on age, because a wrong deletion is unrecoverable while a stale line is merely noise; what cannot be verified is escalated rather than purged. Genericisation is the other half of the job: a line describing one resolved incident whose lesson recurs is rewritten to its general form and kept, so the memory keeps the lesson and loses the one-off identifiers. The append-only logs (`gate/violations/`, `incidents/`) and the pending-proposal index stay untouchable, and a topic over its 25-line cap with nothing prunable is itself a finding. Escalation has two channels, chosen by what the finding is: an `Inbox` issue for triage when it is work (a writer loop's prompt that teaches bad memory habits, a fact the repo should own permanently so the memory copy can die), one dated line in `meta/rem-findings/` when it is signal for meta-oil's next survey (which drains that file first). It never DMs and never sets a board Status; its report lives in the run transcript.
 
+**Muscle-memory** (same DeepSeek flash `xhigh` pin) follows an hour after REM every Sunday night, and it is the additive mirror of REM's exception: where REM may delete anywhere but never add, muscle-memory appends but never rewrites. Its raw material is the session transcripts — interactive chats and factory sessions weighted equally, because the executor re-deriving what the owner already explained once is exactly the waste it exists to remove — indexed through `scripts/factory-friction.ts --since 28d` (project-scoped by default) and read by cheap read-only children, never in its own context. It hunts task families that are both **repeated** (two or more distinct sessions) and **hard** (red herrings, gotchas, recipes whose steps are easy to get wrong), and its outputs are three: a one-line note appended to the reference topic where a reader would look (`repo/`, `delivery/`, `models/`, `board/`), under the shared-log protocol and only past the promotion bar — the pattern seen in two or more distinct sessions or once plus live-repo verification, deduped against the skills, the docs and the tree first; a dated bookkeeping line in the `muscle/patterns/` ledger carrying the evidence and the state (candidate, promoted, skill-proposed, covered), so any inline note can be checked against what was actually observed; and, when one task family accumulates three or more gotchas, a skill proposal as an `Inbox` issue for triage — it never creates the skill itself. Its subject is the work, not the machine: meta-oil fixes the factory, muscle-memory encodes how the game gets built. It never DMs either.
+
 The intake has three tiers, in order of how little they need: inbox files under `.pi/factory/inbox/` (always work, no Discord), DM reactions (no listener, no privileged intent), and DM message text. Text needs no privileged intent either: `MessageContent` gates _guild_ messages, and Discord delivers DM content to a bot holding only `DirectMessages`, verified against this repo's own bot. `MessageContent` would only become relevant if the intake moved into a channel. A button or modal intake inside the running bot is real work in `src/` behind a flag, and is therefore exactly the kind of change that has to go through the gate like any other.
 
 ## The gate
@@ -113,7 +116,7 @@ Enforced twice, belt and braces:
 
 Standing-approval classes (the only work that can run without per-item approval): `auto:docs` (docs/ and comments only), `auto:changelog` (CHANGELOG.md upkeep), `auto:tests` (test-only, no `src/`). Anything else always needs Status=`Approved`.
 
-**Meta-oil's proposal cards are a third, narrower form of the same thing.** A proposal the owner reacted to on the digest is already decided: the drain resolves the reaction into one verdict per proposal, and meta-oil applies that proposal and files one card per applied proposal with Status `Approved` to *record* that human decision, not to make one. It must never set `Approved` on work the owner has not voted for, and a proposal the owner did not answer gets no card and no PR — so every card in that column traces back to a tap on a digest the owner was sent. See § The loops.
+**Meta-oil's proposal cards are a third, narrower form of the same thing.** A proposal the owner reacted to on the digest is already decided: the drain resolves the reaction into one verdict per proposal, and meta-oil applies that proposal and files one card per applied proposal with Status `Approved` to _record_ that human decision, not to make one. It must never set `Approved` on work the owner has not voted for, and a proposal the owner did not answer gets no card and no PR — so every card in that column traces back to a tap on a digest the owner was sent. See § The loops.
 
 ### Approval is not readiness
 
@@ -136,6 +139,7 @@ Schedules live under `.pi/subagents/schedules/` and are enabled; a schedule flip
 - Fire a meta-oil survey: `subagent({ action: "schedule.run", id: "meta-oil-fri" })`
 - Fire a meta-oil confirm: `subagent({ action: "schedule.run", id: "meta-oil-sat" })`
 - Fire a REM pass: `subagent({ action: "schedule.run", id: "factory-rem" })`
+- Fire a muscle-memory pass: `subagent({ action: "schedule.run", id: "factory-muscle-memory" })`
 
 To answer a meta-oil digest, react on the DM it sent. If the run could not record its own message id (see `scripts/factory-inbox.ts --record <id>`), the watcher says so instead of quietly reporting no decisions. The digest is one message of embeds: `npx tsx scripts/send-dm.ts --embed embeds.json` (`--embed` takes one embed object or an array, and a body is optional when there is at least one).
 

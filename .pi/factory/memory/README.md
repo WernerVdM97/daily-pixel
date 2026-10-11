@@ -16,6 +16,7 @@ Full conventions: [`.pi/skills/factory-memory/SKILL.md`](../../../.pi/skills/fac
 | `models/` | which model for which role, escalation routes, failures seen |
 | `owner/` | the owner's stated preferences and priorities |
 | `meta/` | the factory's own improvement record: `proposals` (index plus one dated draft file per survey), `metrics`, `sessions`, `rem-findings` (REM's signals for the next meta-oil survey) |
+| `muscle/` | the pattern ledger: recurring task families mined from session transcripts, their evidence and state; written by muscle-memory, whose promoted facts live inline in the reference topics |
 | `incidents/` | one dated bullet per incident; split into `incidents/YYYY-MM/` when it outgrows a page |
 
 ## Rules
@@ -27,6 +28,7 @@ Full conventions: [`.pi/skills/factory-memory/SKILL.md`](../../../.pi/skills/fac
 - No secrets. Name the env var, never the value.
 - One writer per topic, except the shared logs (`gate/violations/`, `incidents/`): any loop may append a dated line there; never rewrite another loop's line. Topics with no loop writer are owner-seeded reference facts — read-only for loops.
 - `rem` is the exception to one-writer-per-topic, destructive-only: it deletes, merges, genericises and corrects lines anywhere, never adds a fact to a topic it does not own, and never purges what it has not verified against the live repo and board.
+- `muscle-memory` is the additive mirror, narrower: append-only dated lines in the reference topics (`repo/`, `delivery/`, `models/`, `board/`), never rewriting another writer's line, with its bookkeeping in `muscle/patterns/`.
 
 ## Reading it
 

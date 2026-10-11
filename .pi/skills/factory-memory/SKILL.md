@@ -1,6 +1,6 @@
 ---
 name: factory-memory
-description: "Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil, rem) reads or writes .pi/factory/memory/."
+description: "Durable topic-scoped memory for the Dark Factory loops: where to read facts, what to write, and how to keep the tree greppable. Use whenever a factory agent (triage, executor, sweeper, scrumo, escalator, meta-oil, rem, muscle-memory) reads or writes .pi/factory/memory/."
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 paths:
   - .pi/factory/memory/**
@@ -26,6 +26,7 @@ One folder per subject, so an agent can aim a search at a branch of the tree ins
 | `models/` | `tiers`, `escalations` |
 | `owner/` | `preferences` |
 | `meta/` | the factory's own improvement record: `proposals` (its `memory.md` index, plus one dated draft file per survey), `metrics`, `sessions`, `rem-findings` (REM's signals for the next survey; written by REM, read first by meta-oil) |
+| `muscle/` | the pattern ledger: recurring task families mined from session transcripts, their evidence and their state (candidate, promoted, skill-proposed, covered); written by muscle-memory, whose promoted facts live inline in the reference topics |
 | `incidents/` | one dated bullet per incident; split into `incidents/YYYY-MM/` once it outgrows a page |
 
 Nest deeper only when a topic genuinely splits. Depth is cheap for grepping, but a folder holding one line is a worse index than a line in the parent.
@@ -36,6 +37,8 @@ Read anything; write only inside your own scope. One writer per topic, except th
 
 `rem` is the one exception to one-writer-per-topic, and only in the destructive direction: it may delete, merge, genericise and correct lines anywhere in the tree, but never add a fact to a topic it does not own. Everything it removes must be verified against the live repo and board first, never purged on age. The append-only logs stay append-only for it too.
 
+`muscle-memory` is the additive mirror of that exception, and it is narrower: it may append dated lines to the reference topics (`repo/`, `delivery/`, `models/`, `board/`) under the shared-log protocol — append its own line, never rewrite, delete or reorder another writer's — with the promotion bar (a pattern seen in two or more distinct sessions, or once plus live-repo verification) gating what lands. Its bookkeeping lives in `muscle/patterns/`, which it owns outright. The two exceptions never overlap: REM deletes anywhere but adds nowhere; muscle-memory appends to the reference topics but rewrites nothing.
+
 | Loop | May write |
 | --- | --- |
 | triage | `loops/triage/`, `board/blockers/`, `incidents/` |
@@ -45,6 +48,7 @@ Read anything; write only inside your own scope. One writer per topic, except th
 | escalator | `loops/escalator/`, `models/escalations/`, `incidents/` |
 | meta-oil | `meta/proposals/`, `meta/metrics/`, `meta/sessions/`, `loops/meta-oil/`, `incidents/` |
 | rem | consolidating edits (delete, merge, genericise, correct) anywhere in the tree, plus `loops/rem/`, `meta/rem-findings/`, dated appends to `incidents/` |
+| muscle-memory | `muscle/patterns/` (full write), plus append-only dated lines in the reference topics `repo/`, `delivery/`, `models/`, `board/` |
 
 Which model ran, what a gate rule means, and which command verifies a change all belong to the topics above, not to the loop folders. `loops/<name>/` is only for that loop's own habits and mistakes.
 
