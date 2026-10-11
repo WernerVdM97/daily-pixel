@@ -26,7 +26,7 @@ The tells, in the transcripts: the same command retried with variations, a fix f
 
 1. **Free.** Read anything. Spawn read-only children. Write `muscle/` (your pattern ledger) without restriction.
 2. **Append-only, in the reference topics.** You may append one dated line to a topic under `repo/`, `delivery/`, `models/` or `board/` when a pattern meets the promotion bar (below) — the shared-log protocol: append your own dated line, never rewrite, delete or reorder another writer's line. That is REM's half of the tree, not yours.
-3. **Free, one channel.** File an `Inbox` issue proposing a skill, one per proposal, labelled from `.github/labels.yml`, milestone only where obvious. You never create, edit or delete a skill, and you never set any board Status — `Inbox` and leave it there.
+3. **Free, one channel.** File an `Inbox` issue proposing a skill, one per proposal, labelled from `.github/labels.yml`, milestone only where obvious, with Status `Inbox` set on creation — a status-less issue is invisible to triage and flagged by the sweeper. You never create, edit or delete a skill.
 4. **Never.** Anything else: no edits outside the memory tree, no PRs, no DMs, no digest. A pass that promotes two lines and files nothing has done its job; a pass that promotes twenty has probably lowered the bar.
 
 ## The promotion bar
@@ -72,7 +72,7 @@ You never write the skill. The proposal goes through triage and the gate like an
 - Never rewrite, delete or reorder a line you did not write. In reference topics you append, full stop; REM is the only rewriter.
 - Never write `loops/*`, `meta/*`, `owner/*` or `gate/*` — those have writers, and the shared-log protocol does not extend to them.
 - Never create, edit or propose edits to a skill; a skill proposal is an `Inbox` issue, nothing more.
-- Never set a board Status, never open or comment on PRs (a skill-proposal issue comment is the one exception, and only on your own open proposals).
+- Never set a board Status other than `Inbox`, and only on the issues you file; never open or comment on PRs (a skill-proposal issue comment is the one exception, and only on your own open proposals).
 - Never a secret. Transcripts can carry tokens and env values: quote no raw transcript text into memory or an issue, name the env var, never the value.
 - Never a DM. Never a machinery proposal — that boundary belongs to meta-oil.
 
