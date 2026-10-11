@@ -161,6 +161,15 @@
 
   .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 14px 0; }
 
+  .grouplabel {
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin: 28px 0 2px;
+  }
+  .grouplabel.product { color: var(--green); }
+  .grouplabel.factory { color: var(--violet); }
+
   .foot { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); margin-top: 60px; padding-top: 16px; }
   .foot a { color: var(--blue); }
   ul.tight { margin: 8px 0; padding-left: 20px; }
@@ -175,7 +184,7 @@
 
   <div class="facts">
     <div class="fact"><span class="big">1</span><span class="lbl">board (GitHub Projects) as the control panel</span></div>
-    <div class="fact"><span class="big">5</span><span class="lbl">scheduled loops + 1 on-call specialist</span></div>
+    <div class="fact"><span class="big">7</span><span class="lbl">scheduled loops + 1 on-call specialist</span></div>
     <div class="fact"><span class="big">5 min</span><span class="lbl">heartbeat tick that wakes the factory</span></div>
     <div class="fact"><span class="big">1</span><span class="lbl">rule the whole thing hangs on</span></div>
   </div>
@@ -205,7 +214,9 @@
   <p>Priority labels (P0 to P3) rank cards within a column, so when a builder asks "what next?", the answer is deterministic: highest priority first, then oldest.</p>
 
   <h2><span class="num">03</span>The crew</h2>
-  <p>Each worker is an AI agent with a written job description (in <code>.pi/agents/</code>) and a fixed schedule (in <code>.pi/subagents/schedules/</code>). None of them remember yesterday directly; they keep notes in a small memory folder instead, one dated fact per line.</p>
+  <p>Each worker is an AI agent with a written job description (in <code>.pi/agents/</code>) and a fixed schedule (in <code>.pi/subagents/schedules/</code>). None of them remember yesterday directly; they keep notes in a small memory tree instead, one dated fact per line — and on Sunday night two loops tend that tree: one prunes it, one grows it. The crew splits in two: a <em>product line</em> that builds the game, and a <em>factory line</em> whose subject is the factory itself.</p>
+
+  <div class="grouplabel product">The product line — builds The Warden's Oak</div>
   <div class="grid">
     <div class="card">
       <h3>Triage</h3>
@@ -220,6 +231,12 @@
       <p>It used to build whole features in one long, fragile session. Now it's thin: once a day it runs one command that picks an approved card (or rescues a crashed one) and registers a <em>job</em> in the ledger. Building happens stage by stage after that.</p>
     </div>
     <div class="card">
+      <h3>Builder · Reviewer · Fixer</h3>
+      <div class="role">the job pipeline crew</div>
+      <div class="chips"><span class="chip">inside every job</span><span class="chip model">fresh context per stage</span></div>
+      <p>A job's steps are three more specialists: a <em>Builder</em> implements exactly to the card's spec, a <em>Reviewer</em> attacks the result fresh-eyed and read-only, a <em>Fixer</em> lands precisely the findings it was handed. For risky changes a <em>Judge</em> adds a second opinion whose verdict binds.</p>
+    </div>
+    <div class="card">
       <h3>Sweeper</h3>
       <div class="role">the auditor and janitor</div>
       <div class="chips"><span class="chip">every 48 h</span><span class="chip no">writes no code</span></div>
@@ -232,16 +249,32 @@
       <p>Reads the board, the roadmap and the changelog, then sends you a private Discord message: what changed, what's blocked, and exactly three recommended actions phrased as decisions you can just take.</p>
     </div>
     <div class="card">
+      <h3>Escalator</h3>
+      <div class="role">the on-call specialist</div>
+      <div class="chips"><span class="chip">on demand</span><span class="chip model">deep thinking</span></div>
+      <p>Not scheduled. When a builder hits something genuinely hard (a schema change, a weird failure), it spawns as a one-shot child with a heavyweight reasoning model, reproduces the problem, and hands back a binding verdict.</p>
+    </div>
+  </div>
+
+  <div class="grouplabel factory">The factory line — improves the machine that builds it</div>
+  <div class="grid">
+    <div class="card">
       <h3>Meta-oil</h3>
       <div class="role">the one that studies the factory itself</div>
       <div class="chips"><span class="chip">Fri + Sat evening</span><span class="chip no">writes no code</span></div>
       <p>Measures the factory's own transcripts: wasted tokens, repeated failed commands, costly model choices. Sends you up to five numbered improvement proposals; you vote with emoji reactions (1️⃣ to 5️⃣, ✅, ❌). Only an approved proposal gets applied, as a PR you review.</p>
     </div>
     <div class="card">
-      <h3>Escalator</h3>
-      <div class="role">the on-call specialist</div>
-      <div class="chips"><span class="chip">on demand</span><span class="chip model">deep thinking</span></div>
-      <p>Not scheduled. When a builder hits something genuinely hard (a schema change, a weird failure), it spawns as a one-shot child with a heavyweight reasoning model, reproduces the problem, and hands back a binding verdict.</p>
+      <h3>REM</h3>
+      <div class="role">the factory's sleep</div>
+      <div class="chips"><span class="chip">Sunday night</span><span class="chip no">writes no code</span></div>
+      <p>All week the loops leave dated facts in the shared memory tree, and nothing ever forgets on purpose. REM is the weekly forgetting pass: it deletes lines that are no longer true — but only after checking them against the live repo and board, never on age — merges duplicates, and keeps the lesson of a resolved incident by rewriting it in generic form.</p>
+    </div>
+    <div class="card">
+      <h3>Muscle-memory</h3>
+      <div class="role">the factory's other sleep phase</div>
+      <div class="chips"><span class="chip">Sunday night, after REM</span><span class="chip no">writes no code</span></div>
+      <p>Runs an hour after REM, on the freshly pruned tree. It reads the week's session transcripts for tasks that keep coming back and are hard to follow — red herrings, gotchas, steps easy to get wrong — and writes each lesson as one line in the memory topic where a reader would look, but only once it has seen the pattern twice. When one task's notes pile up, it files a card proposing a new skill instead.</p>
     </div>
   </div>
 
