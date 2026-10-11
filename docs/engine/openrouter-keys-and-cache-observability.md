@@ -9,7 +9,7 @@ related:
   - "[[dark-factory]]"
   - "[[dark-factory-requirements]]"
 ---
-_How OpenRouter spend gets attributed per actor (four actors, four keys once the factory is split off, and the `--api-key` precedence trap that makes an environment variable useless for this), and why the host pin cannot currently be verified, plus the five `llm_calls` columns and the migration that fix it._
+_How OpenRouter spend gets attributed per actor (four actors, four keys since the factory was split off in #160, and the `--api-key` precedence trap that makes an environment variable useless for this), and why the host pin cannot currently be verified, plus the five `llm_calls` columns and the migration that fix it._
 
 ---
 
@@ -17,16 +17,16 @@ Two loose ends were left by the move onto OpenRouter (PR #157). Both are about t
 
 ## Part 1: a key is the unit of attribution
 
-Four actors reach the same OpenRouter account. Two of them share one key today: your own interactive sessions and the entire factory.
+Four actors reach the same OpenRouter account, and each holds its own key since the factory was split off (#160). A shared key means a cache regression and a spend spike arrive together, with no way to tell them apart.
 
 | Actor | Key | Where it comes from | Separated? |
 | ----- | --- | ------------------- | ---------- |
 | Interactive `pi` | the shared key | `~/.pi/agent/auth.json`, provider `openrouter` | n/a, that _is_ the shared key |
-| The Dark Factory, all 11 agents | **the shared key** | `auth.json`, inherited by each spawned `pi` child | **no** |
+| The Dark Factory, every loop and every stage child | `FACTORY_OPENROUTER_API_KEY` | process environment, else the repo `.env` (never sourced); passed as `--api-key` at both spawn sites | yes (#160) |
 | The bot | `OPENROUTER_API_KEY` | process env; `EnvironmentFile=/home/bot/app/.env` in prod | yes (PR #157) |
 | The agent-player | `AGENT_OPENROUTER_API_KEY` | the shell that sources the repo `.env` | yes (PR #157) |
 
-The factory is the omission, and it is the largest spender: a tick can fire five loops and spawn several children, and none of it is separable from your own interactive sessions.
+The factory was the omission, and it is the largest spender: a tick can fire several loops and spawn several children, and until #160 none of it was separable from your own interactive sessions.
 
 **Per-key accounting already exists**, which is what makes splitting worthwhile rather than cosmetic. `GET https://openrouter.ai/api/v1/key` with a key returns its own `usage`, `usage_daily`, `usage_weekly`, `usage_monthly`, `limit` and `limit_remaining`. Reading the shared key on 2026-09-14 reported **$10.27 all-time and $3.38 this week** with no attribution beneath it, while every factory loop reaches the same endpoint under the same identity as you. Those figures are a snapshot, not a budget: they date the split rather than describe it.
 

@@ -16,7 +16,7 @@ related:
 
 # Per-Option Stat & Ability-Check Rolls
 
-> Resolves a contradiction between the `/action` decision prompt (Rule 5 — "mix clever / direct / social options") and the roll engine (a single global `stat`, locked before the player chooses, that taps **only** item bonuses and never the character's own ability). Surfaced while diagnosing LLM reasoning digressions via `scripts/llm-thinking-analysis.mjs` — see [[SPEC-action-prompt-optimization]].
+> Resolves a contradiction between the `/action` decision prompt (Rule 5 — "mix clever / direct / social options") and the roll engine (a single global `stat`, locked before the player chooses, that taps **only** item bonuses and never the character's own ability). Surfaced while diagnosing LLM reasoning digressions via `scripts/llm-thinking-analysis.mjs`.
 
 ---
 
@@ -98,4 +98,4 @@ These interact: per-option stat is cosmetic while `stat` only toggles item bonus
   skewed. Re-run `scripts/llm-thinking-analysis.mjs` + the cohort aggregate to confirm the
   digression is gone.
 - [>] Implementation lands in `decision-v6.md`, `dc.ts`, `machine.ts`, `prompt-builder.ts`,
-  `LlmGateway.ts`, `WorldEngine.ts`, `DeepseekLlmGateway.ts` — see [[SPEC-action-prompt-optimization]].
+  `LlmGateway.ts`, `WorldEngine.ts`, `DeepseekLlmGateway.ts`.

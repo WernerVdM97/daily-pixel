@@ -1,7 +1,7 @@
 ---
 title:
 status: spark            # spark | exploring | decided | superseded | nogo | shipped
-domain: spark            # vision | game | engine | ui | spark | archived
+domain: spark            # vision | game | engine | ui | spark (archived/ keeps its origin domain)
 phase: mvp               # poc | mvp | mvp+
 tags: []
 related: []

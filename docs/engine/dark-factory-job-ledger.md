@@ -200,23 +200,19 @@ Changed:
 - `.pi/agents/factory-executor.md`: rewritten into the thin starter (one bash command, no build work); the name survives because the schedule targets it (see Triggers).
 - `.pi/factory/memory/loops/executor/memory.md`: the new protocol's invariants.
 
-## Rollout
+## Install
 
-The launcher runs scripts from the checked-out tree, so a half-installed state (new tick, old checkout) would have the tick calling a drainer that is not there. Order:
+The launcher runs scripts from the checked-out tree, so a half-installed state is possible: the tick can call a drainer that is not there. The starter's own task text fails soft on that case ("if `scripts/factory-jobs.ts` is absent, report that and stop"), so no merge can wedge the schedule; install promptly anyway, because until the units are in the rewritten executor can start a job while the installed tick has no drain step, and the job sits `ready` until the first post-install tick advances it.
 
-1. One PR to `dev` carrying the ledger, the three stage agent definitions and the rewritten executor, the launcher wiring, the docs, and the already-written model-pin and cadence retunes from the same session. Those retunes are independent of the ledger, so they ride as their own commits and can be reverted alone.
-2. Owner merges.
-3. `sudo cp scripts/factory-run-due.sh /usr/local/bin/factory-run-due`, copy the units, then `sudo systemctl edit factory-run-due` to set `User=`, `HOME=`, `PATH=` and `FACTORY_PROJECT_DIR=`. The tracked unit carries none of them, and it runs as root without the drop-in. Then `daemon-reload` and restart the timer.
+1. `sudo cp scripts/factory-run-due.sh /usr/local/bin/factory-run-due`, copy the units, then `sudo systemctl edit factory-run-due` to set `User=`, `HOME=`, `PATH=` and `FACTORY_PROJECT_DIR=`. The tracked unit carries none of them and runs as root without the drop-in.
+2. `daemon-reload`, then restart the timer.
 
-There is no runtime-file step: the schedule keeps targeting `factory-executor`, whose definition is already the thin starter by the time it merges, so nothing is repointed by hand and no merge order can break a tick.
-
-Between the merge and step 3 the factory half-exists: the rewritten executor can start a job, but the installed tick has no drain step, so the job sits `ready` until the first post-install tick advances it. Harmless, but install promptly to avoid the confusion. The starter's task text also fails soft ("if `scripts/factory-jobs.ts` is absent, report that and stop") so a merge can never wedge the schedule.
+There is no runtime-file step: the schedule keeps targeting `factory-executor`, whose definition is the thin starter, so nothing is repointed by hand and no merge order can break a tick.
 
 ## Interactions to reconcile
 
 - **The sweeper's stalled-`In Progress` rule** currently resets those items to `Approved`, which would fight a ledger job that is legitimately `In Progress` across ticks. Narrow it to `In Progress` with no job record **and no adoptable branch**, so the two never both own the same item and the ledger gets first refusal on orphans. Its `In Review` → `Done` rule stands down the same way: for items with a job record the ledger owns that transition, because only the ledger also closes the linked issue (see Reconciling the merge).
-- **#34 is adopted (decided).** It is `In Progress` with branch `feat/34-last-stand-emojis-combat-frame` at `31eb9e3` and no PR. The ledger adopts it at `review`, not `build`: the branch is a green pre-review checkpoint, so re-reviewing is the correct next step and it re-finds the fixes that were lost with the worktree. Its prior run's cost is not charged against the new budget.
-- **#97 is `Approved` with zero acceptance criteria.** A `build` stage would read it, find nothing to implement, and burn an attempt. Write the criteria first, or take `needs-human-decision` off before the first job runs.
+- **An `Approved` item with no acceptance criteria is a wasted build attempt.** A `build` stage reads it, finds nothing to implement, and burns an attempt, so the criteria come first or the item is not ready.
 
 ## Tests and verification
 
@@ -250,14 +246,6 @@ No structural changes to triage, sweeper, scrumo or meta-oil: they are single-st
 - **Two writers.** Three serialisations close it: one tick at a time via the global flock, one ledger writer at a time via the drain lock, one stage at a time because a drain runs one stage and exits.
 - **A long stage delays other schedules.** The drain runs inside the tick, so a 50-minute build holds the global flock and any schedule due meanwhile fires late, at the first tick after the build ends. The factory already tolerated 30-minute executor runs in the same shape, and `catchUp: latest` preserves each schedule's phase, so nothing is lost, only shifted.
 - **More machinery than the current load needs.** Accepted: the failure was state management, not throughput.
-
----
-
-## Next steps
-
-[x] Recon first: the factory-script test layout, `tsconfig` scope for `scripts/`, the `pi` CLI flags for spawning a stage child, and the flag set that gives the reviewer a read-only toolset.
-[x] Build the ledger and its tests, then the three stage agents and the rewritten executor, then the launcher wiring, then the docs and changelog.
-[ ] Open the PR to `dev`; install the units only after the merge. Between the merge and the install the factory half-exists: the starter can open a job, but the installed tick has no drain step, so the job sits `ready` until the first post-install tick advances it.
 
 ---
 

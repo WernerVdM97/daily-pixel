@@ -9,10 +9,10 @@ tags:
 related:
 - '[[the-poc]]'
 - '[[poc-example-scenes]]'
-- '[[archived/poc/poc-build-scenes|poc-build-scenes]]'
-- '[[archived/poc/poc-build-probabilistic|poc-build-probabilistic]]'
-- '[[archived/poc/poc-build-world-tick|poc-build-world-tick]]'
-- '[[archived/poc/poc-spec-reconciliation|poc-spec-reconciliation]]'
+- '[[archived/poc-build-scenes|poc-build-scenes]]'
+- '[[archived/poc-build-probabilistic|poc-build-probabilistic]]'
+- '[[archived/poc-build-world-tick|poc-build-world-tick]]'
+- '[[archived/poc-spec-reconciliation|poc-spec-reconciliation]]'
 - '[[mvp-discord-ux]]'
 ---
 

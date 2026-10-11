@@ -56,9 +56,11 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 | `spark`      | Raw idea. May be half-baked, wrong, or contradict another spark.    | …capture a thought. Don't build on it.                             |
 | `exploring`  | A real candidate direction, actively being fleshed out. Not locked. | …discuss and prototype against, knowing it may change.             |
 | `decided`    | This **is** the direction. Build against it.                        | …implement. Changing it requires a decision record.                |
-| `shipped`    | Implemented and archived. The code is the living artifact.          | …read for history. The spec has been built.                        |
-| `superseded` | Kept for history. Points to what replaced it via `superseded_by`.   | …understand why we moved on. Nothing else.                         |
+| `shipped`    | Implemented. The code is the living artifact.                       | …read for history. The spec has been built.                        |
+| `superseded` | Retired for a replacement, which `superseded_by` names.             | …understand why we moved on. Nothing else.                         |
 | `nogo`       | Explored and rejected. Won't pursue — at least not in current form. | …remember why we said no. Don't resurrect without new information. |
+
+The last three are **archive reasons**, and the only statuses a retired doc may carry. There is no `archived` status: the folder says *that* a doc was retired, the status says *why* — `shipped` (the code is the living artifact), `superseded` (`superseded_by` names the replacement) or `nogo` (we said no).
 
 **Rule:** to overturn a `decided` or `shipped` doc, write a `decisions/` record and flip the old doc to `superseded` — don't silently edit it into something new, and don't open a competing third doc.
 
@@ -66,7 +68,7 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 
 ---
 
-## 3. `domain` — the folder
+## 3. `domain` — which part of the design a doc belongs to
 
 | Folder       | Domain     | Holds                                                                                                                                                |
 | ------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -76,9 +78,11 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 | `ui/`        | `ui`       | Discord UX, command flows, ASCII presentation, and `ui/mockups/`.                                                                                    |
 | `decisions/` | —          | Decision records (ADRs): cross-cutting trade-offs that have been resolved.                                                                           |
 | `sparks/`    | `spark`    | Design inbox. All docs live here during Phase 1 (design). Docs graduate to domain folders when they reach `status: exploring` or higher in Phase 2+. |
-| `archived/`  | `archived` | Done deals: shipped specs (`status: shipped`), rejected ideas (`status: nogo`), replaced directions (`status: superseded`). Kept for history.        |
+| `archived/`  | —          | Done deals, kept for history: shipped specs, rejected ideas, replaced directions. Flat: one file per doc, no per-arc subfolders.                     |
 
-`domain` in frontmatter always matches the folder the file sits in.
+`domain` matches the folder the file sits in, with one exception: under `archived/` it keeps the domain the doc had when it was retired, so we can still see where it came from. That is the only exception, and it is the folder — never a field — that marks a doc as retired, so the tooling filters on the folder: `Docs Index.base` drops `archived/` from its by-domain view with `!file.inFolder("docs/archived")`, and its archive view groups what lives there by `status`.
+
+A flattened archive loses the arc a doc was written for, so the map's archived table carries it in an `Arc` column (`poc`, `poc-plus`, `json-seam`, `v12-build-plans`, `factory`, …).
 
 ---
 
@@ -87,7 +91,7 @@ A doc only moves between folders once as it matures from a spark. Its maturity i
 1. New idea → drop it in `sparks/` with `status: spark`, `domain: spark`.
 2. When it earns a clear domain and firm direction, **`git mv`** it into that folder and bump `status` to `exploring` (or `decided`).
 3. When it becomes the direction → `status: decided`.
-4. When it's been implemented and the code is the living artifact → **`git mv`** into `archived/`, flip `status` to `shipped`, set `superseded_by: "implemented in code"`. Shipped docs don't appear in the map of content — they're history, not active reference. Active docs that link to shipped docs should note the reference in their `related:` frontmatter so readers know where to look.
+4. When it's been implemented and the code is the living artifact → **`git mv`** it into `archived/` (flat, filename only), keep the `domain` it had, flip `status` to `shipped`, set `superseded_by: "implemented in code"`, and move its row out of its domain's table into the map's archived table. Archived docs are history, not active reference, so they appear on the map under `🗄️ archived` rather than among the live docs. Active docs that link to them should note the reference in their `related:` frontmatter so readers know where to look.
 
 Sparks are allowed to be messy and to contradict each other. The other folders are not.
 
@@ -115,6 +119,15 @@ This is the single most important anti-slop habit: **contradictions become one d
 
 ## 7. The index
 
-Every doc must appear in the map of content — **[`docs/README.md`](./README.md)**, which owns the index and its maintenance rules. Add your doc's row there when you create it. If it's not on the map, it's slop.
+Every doc must appear in the map of content — **[`docs/README.md`](./README.md)**, which owns the index and its maintenance rules. Add your doc's row there when you create it: in its domain's table while it lives, in the `🗄️ archived` table once it is retired, which carries `Reason`, `Arc`, `Doc`, `Domain` and `Summary`. If it's not on the map, it's slop.
 
-Maintain it when docs are promoted through statusses.
+Maintain it when docs are promoted through statuses.
+
+---
+
+## 8. Citing the source
+
+Docs describe the code, so they cite it — and the citation is the part that rots first.
+
+- **Name the file and the symbol, never a line number.** `src/engine/action/PipelineActionStateMachine.ts`, function `enqueueContinue` survives an edit; `machine.ts:562` is a lie the day after it is written, and nothing flags it.
+- **A retired path is a stale citation too.** When a module is renamed or moved, the docs that name the old one are wrong until it is swept; the sweep is the librarian's, but the rename's author is the cheapest place to catch it.

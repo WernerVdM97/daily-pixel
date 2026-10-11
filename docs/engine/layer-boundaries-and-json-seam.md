@@ -161,6 +161,6 @@ Why now, not later:
 
 ## Arc status — closed 2026-08-09
 
-The arc this doc specced ran M0–M10 and is done: the protocol seam exists and both frontends (Discord, agent-player) ride it, settling the two corresponding gap-table rows above. The milestone record, build plans, handovers and the interchangeability proof (with an explicit statement of what it does *not* cover) are archived under `docs/archived/json-seam/` — see [[json-seam-protocol]] and [[json-seam-build-plans]]. Two limits worth not re-discovering: the transport is **in-process throughout** (decision 3 — nothing has crossed a wire), and the structural checks constrain imports and named calls, **not dataflow**.
+The arc this doc specced ran M0–M10 and is done: the protocol seam exists and both frontends (Discord, agent-player) ride it, settling the two corresponding gap-table rows above. The milestone record, build plans, handovers and the interchangeability proof (with an explicit statement of what it does *not* cover) are archived under `docs/archived/` — see [[json-seam-protocol]] and [[json-seam-build-plans]]. Two limits worth not re-discovering: the transport is **in-process throughout** (decision 3 — nothing has crossed a wire), and the structural checks constrain imports and named calls, **not dataflow**.
 
 Related: [[discord-interaction-layer]] (adapter plumbing), [[mvp-architecture]] (system target), [[mvp-llm-prompt-architecture]] (sim harness lineage).

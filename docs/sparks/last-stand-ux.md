@@ -139,7 +139,7 @@ The emoji is per option, from one vocabulary for the whole game, so an option ca
 
 Budget stated because truncation is the risk that decided the convention: **20 visible columns for a caption on a two-button row**, and **30 columns for a body option line**. The captions ride the body, so the 20 is kept as the measurement the button route failed rather than as a live constraint.
 
-- The 30 is measured, not guessed: phone portrait is a hard 30-column cap for scene text, with 60 columns the ceiling for a code block ([Discord Window Size Reference](../templates/discord-window-size.md), and [Discord UX](../ui/poc-discord-ux.md) § Width).
+- The 30 is measured, not guessed: phone portrait is a hard 30-column cap for scene text, with 60 columns the ceiling for a code block ([Discord Window Size Reference](../ui/discord-window-size.md), and [Discord UX](../ui/poc-discord-ux.md) § Width).
 - The 20 is derived: a worded caption shares its action row with the other button plus Discord's own button padding, which takes roughly a third of the 30. The empirical anchor is the recorded POC failure, where a 24-column caption ("Decline — I'll use steel") in a two-button row truncated on mobile, and is why option text moved into the body while the buttons became letters ([POC action UX refinements](../decisions/poc-action-ux-refinements.md) § 1).
 - Emoji count 2 columns, a variation selector counts 0, spaces count 1. Today's bail caption is 13 columns on the button, and the row is comfortable.
 

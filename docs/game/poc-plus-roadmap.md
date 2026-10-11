@@ -17,7 +17,7 @@ related:
   - "[[improved-item-features]]"
   - "[[pitch-and-pillars]]"
 ---
-_The player-facing engagement arc for the `0.3.x` line, the final POC round before MVP. Where [[prompt-v13-roadmap]] makes the game coherent (prompt/engine plumbing), this arc makes it sticky. Decided 2026-07-09. Items 0–2 (v12 closeout tail, welcome tag, combat maths reveal) and the inserted Release A shipped as `0.3.1`–`0.3.3` — their build plans and the per-item specs are archived under `archived/poc-plus/`. What remains live is the shared-world half: stages 2–4 below._
+_The player-facing engagement arc for the `0.3.x` line, the final POC round before MVP. Where [[prompt-v13-roadmap]] makes the game coherent (prompt/engine plumbing), this arc makes it sticky. Decided 2026-07-09. Items 0–2 (v12 closeout tail, welcome tag, combat maths reveal) and the inserted Release A shipped as `0.3.1`–`0.3.3` — their build plans and the per-item specs are archived under `archived/`. What remains live is the shared-world half: stages 2–4 below._
 
 ---
 

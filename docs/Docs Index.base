@@ -22,7 +22,8 @@ views:
     name: By Domain
     filters:
       and:
-        - '!domain.containsAny("spark", "archived")'
+        - '!domain.containsAny("spark")'
+        - '!file.inFolder("docs/archived")'
     groupBy:
       property: domain
       direction: ASC
@@ -45,3 +46,20 @@ views:
     order:
       - domain
       - title
+  - type: table
+    name: Archive
+    filters:
+      and:
+        - file.inFolder("docs/archived")
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - domain
+      - title
+      - file.tags
+    sort:
+      - property: domain
+        direction: ASC
+      - property: title
+        direction: ASC
