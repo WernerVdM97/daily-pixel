@@ -982,8 +982,9 @@
         },
         "prompt": "> Combat — what do you do?",
         "optionLines": [
-          "**A.** Press the attack",
-          "**B.** Feint and strike ⬆️"
+          "**A.** ⚔️ Press the attack",
+          "**B.** ⚔️ Feint and strike ⬆️",
+          "**C.** 🏃 Step back"
         ],
         "buttons": [
           {
@@ -1000,7 +1001,7 @@
           },
           {
             "kind": "bail",
-            "label": "Step back",
+            "letter": "C",
             "customId": "action:bail"
           }
         ],
@@ -1053,8 +1054,9 @@
         },
         "prompt": "> Combat — what do you do?",
         "optionLines": [
-          "**A.** Press the attack",
-          "**B.** Feint and strike ⬆️"
+          "**A.** ⚔️ Press the attack",
+          "**B.** ⚔️ Feint and strike ⬆️",
+          "**C.** 🏃 Step back"
         ],
         "buttons": [
           {
@@ -1071,11 +1073,12 @@
           },
           {
             "kind": "bail",
-            "label": "Step back",
+            "letter": "C",
             "customId": "action:bail"
           }
         ],
-        "footer": "Decision 2"
+        "footer": "Decision 2",
+        "openingFrame": "```ansi\n\u001b[37m┌────────────────────────────┐\u001b[0m\n\u001b[37m│  \u001b[31mUnknown foe\u001b[0m               │\u001b[0m\n\u001b[37m│  HP [\u001b[37m░░░░░░░░░░░░░░\u001b[0m] ?/?   │\u001b[0m\n\u001b[37m│                            │\u001b[0m\n\u001b[37m│        /\\        /\\        │\u001b[0m\n\u001b[37m│       /  \\______/  \\       │\u001b[0m\n\u001b[37m│      |    o    o    |      │\u001b[0m\n\u001b[37m│      |      /\\      |      │\u001b[0m\n\u001b[37m│       \\    '--'    /       │\u001b[0m\n\u001b[37m│        '-.______.-'        │\u001b[0m\n\u001b[37m│                            │\u001b[0m\n\u001b[37m│   ,^.                      │\u001b[0m\n\u001b[37m│  ( _ )   \u001b[34mBram\u001b[0m              │\u001b[0m\n\u001b[37m│  /|_|\\   HP [\u001b[32m██████\u001b[0m] 10/10 │\u001b[0m\n\u001b[37m│  _/ \\_                     │\u001b[0m\n\u001b[37m└────────────────────────────┘\u001b[0m\n```"
       },
       "facts": {
         "characterName": "Bram",

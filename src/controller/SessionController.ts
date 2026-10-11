@@ -257,7 +257,16 @@ export class SessionController {
       };
     }
     const char = this.engine.getCharacter(userId);
-    const view = buildDecisionView(result.nextDecision, result.state.decisions.length, result.state, char ?? undefined);
+    // The step result carries the register and enemy slots the same way `resumeAction`'s does.
+    const view = buildDecisionView(
+      result.nextDecision,
+      result.state.decisions.length,
+      result.state,
+      char ?? undefined,
+      result.actionType,
+      result.combatEnemyName,
+      result.combatEnemyCondition,
+    );
     return { kind: 'decision', view };
   }
 
@@ -290,9 +299,6 @@ export class SessionController {
           resumeResult.actionType,
           resumeResult.combatEnemyName,
           resumeResult.combatEnemyCondition,
-          // A mid-fight resume re-opens the fight: only combat earns a second opener, since every
-          // other register is a scene-setter for a start the player has already moved past.
-          resumeResult.actionType === 'combat',
         );
         return { kind: 'resume-decision', view };
       } catch (err) {
@@ -590,7 +596,6 @@ export class SessionController {
           r.actionType,
           r.combatEnemyName,
           r.combatEnemyCondition,
-          r.actionType === 'combat',
         ),
       };
     }
@@ -653,7 +658,7 @@ export class SessionController {
     // buildDecisionView to fill the opening frame and don't survive onto DecisionViewState —
     // dropping args 6/7 here silently rendered every combat opening frame with the
     // 'Unknown foe' placeholder and no banded condition since the paths crossed the seam.
-    return { kind: 'decision', view: buildDecisionView(result.firstDecision, 0, result.state, prevChar, result.actionType, result.combatEnemyName, result.combatEnemyCondition, true) };
+    return { kind: 'decision', view: buildDecisionView(result.firstDecision, 0, result.state, prevChar, result.actionType, result.combatEnemyName, result.combatEnemyCondition) };
   }
 
   /** The confirmation copy for a feedback/bug submission — a pure function of the surface, so it

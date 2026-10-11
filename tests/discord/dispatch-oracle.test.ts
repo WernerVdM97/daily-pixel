@@ -80,6 +80,7 @@ const DECISION_RESULT = {
 
 const NEXT_DECISION_STEP = {
   resolved: false as const,
+  actionType: "other" as const,
   state: { rawInput: "Advance carefully", decisions: [], accumulatedDc: 11 },
   nextDecision: {
     prompt: "A shadow shifts ahead. Press on?",

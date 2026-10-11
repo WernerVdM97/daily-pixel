@@ -512,7 +512,8 @@
         "colorIntent": "decision",
         "prompt": "> The gate creaks. What do you do?",
         "optionLines": [
-          "**A.** Advance carefully"
+          "**A.** Advance carefully",
+          "**B.** 🏃 Leave"
         ],
         "buttons": [
           {
@@ -523,7 +524,7 @@
           },
           {
             "kind": "bail",
-            "label": "Leave",
+            "letter": "B",
             "customId": "action:bail"
           }
         ],
@@ -571,7 +572,8 @@
         "colorIntent": "decision",
         "prompt": "> The gate creaks. What do you do?",
         "optionLines": [
-          "**A.** Advance carefully"
+          "**A.** Advance carefully",
+          "**B.** 🏃 Leave"
         ],
         "buttons": [
           {
@@ -582,7 +584,7 @@
           },
           {
             "kind": "bail",
-            "label": "Leave",
+            "letter": "B",
             "customId": "action:bail"
           }
         ],
@@ -766,7 +768,8 @@
         "colorIntent": "decision",
         "prompt": "> The gate creaks. What do you do?",
         "optionLines": [
-          "**A.** Advance carefully"
+          "**A.** Advance carefully",
+          "**B.** 🏃 Leave"
         ],
         "buttons": [
           {
@@ -777,7 +780,7 @@
           },
           {
             "kind": "bail",
-            "label": "Leave",
+            "letter": "B",
             "customId": "action:bail"
           }
         ],
@@ -825,7 +828,8 @@
         "colorIntent": "decision",
         "prompt": "> The gate creaks. What do you do?",
         "optionLines": [
-          "**A.** Advance carefully"
+          "**A.** Advance carefully",
+          "**B.** 🏃 Leave"
         ],
         "buttons": [
           {
@@ -836,7 +840,7 @@
           },
           {
             "kind": "bail",
-            "label": "Leave",
+            "letter": "B",
             "customId": "action:bail"
           }
         ],

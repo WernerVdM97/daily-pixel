@@ -46,10 +46,10 @@ export const decisionView: DecisionViewState = {
   title: { emoji: '🤔', text: 'Decision' },
   colorIntent: 'decision',
   prompt: '> The gate creaks. What do you do?',
-  optionLines: ['**A.** Advance carefully'],
+  optionLines: ['**A.** Advance carefully', '**B.** 🏃 Leave'],
   buttons: [
     { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: false },
-    { kind: 'bail', label: 'Leave', customId: 'action:bail' },
+    { kind: 'bail', letter: 'B', customId: 'action:bail' },
   ],
   footer: 'What do you do?',
 };

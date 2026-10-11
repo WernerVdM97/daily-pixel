@@ -22,32 +22,32 @@ const decision: DecisionViewState = {
   narration: 'The wind stirs.',
   combatStatus: undefined,
   prompt: 'What do you do?',
-  optionLines: ['**A.** Advance carefully', '**B.** Hold position'],
+  optionLines: ['**A.** Advance carefully', '**B.** Hold position', '**C.** Retreat'],
   buttons: [
     { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: true },
     { kind: 'choice', letter: 'B', customId: 'action:choice:0:1', favoured: false },
-    { kind: 'bail', label: 'Retreat', customId: 'action:bail' },
+    { kind: 'bail', letter: 'C', customId: 'action:bail' },
   ],
   footer: 'Insight favours A.',
 };
 
 describe('viewMoves', () => {
-  it('enumerates decision choices then bail, pairing each choice with its option line and carrying favoured', () => {
+  it('enumerates every button in order, each paired with its own option line and carrying favoured', () => {
     expect(viewMoves(decision)).toEqual([
       { index: 0, label: '**A.** Advance carefully', customId: 'action:choice:0:0', kind: 'choice', favoured: true },
       { index: 1, label: '**B.** Hold position', customId: 'action:choice:0:1', kind: 'choice', favoured: false },
-      { index: 2, label: 'Retreat', customId: 'action:bail', kind: 'bail' },
+      { index: 2, label: '**C.** Retreat', customId: 'action:bail', kind: 'bail' },
     ]);
   });
 
   it('handles a bail-only decision (no real choices)', () => {
     const bailOnly: DecisionViewState = {
       ...decision,
-      optionLines: [],
-      buttons: [{ kind: 'bail', label: 'Flee', customId: 'action:bail' }],
+      optionLines: ['**A.** 🏃 Flee'],
+      buttons: [{ kind: 'bail', letter: 'A', customId: 'action:bail' }],
     };
     expect(viewMoves(bailOnly)).toEqual([
-      { index: 0, label: 'Flee', customId: 'action:bail', kind: 'bail' },
+      { index: 0, label: '**A.** 🏃 Flee', customId: 'action:bail', kind: 'bail' },
     ]);
   });
 
@@ -58,25 +58,26 @@ describe('viewMoves', () => {
     expect(viewMoves(emptyMenu)).toEqual([]);
   });
 
-  it('pairs choices with option lines even when bail is not last', () => {
+  it('pairs positionally, so a bail anywhere in the row keeps its own caption', () => {
     const bailFirst: DecisionViewState = {
       ...decision,
+      optionLines: ['**A.** Retreat', '**B.** Advance carefully', '**C.** Hold position'],
       buttons: [
-        { kind: 'bail', label: 'Flee', customId: 'action:bail' },
-        { kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: false },
-        { kind: 'choice', letter: 'B', customId: 'action:choice:0:1', favoured: false },
+        { kind: 'bail', letter: 'A', customId: 'action:bail' },
+        { kind: 'choice', letter: 'B', customId: 'action:choice:0:0', favoured: false },
+        { kind: 'choice', letter: 'C', customId: 'action:choice:0:1', favoured: false },
       ],
     };
     expect(viewMoves(bailFirst)).toEqual([
-      { index: 0, label: 'Flee', customId: 'action:bail', kind: 'bail' },
-      { index: 1, label: '**A.** Advance carefully', customId: 'action:choice:0:0', kind: 'choice', favoured: false },
-      { index: 2, label: '**B.** Hold position', customId: 'action:choice:0:1', kind: 'choice', favoured: false },
+      { index: 0, label: '**A.** Retreat', customId: 'action:bail', kind: 'bail' },
+      { index: 1, label: '**B.** Advance carefully', customId: 'action:choice:0:0', kind: 'choice', favoured: false },
+      { index: 2, label: '**C.** Hold position', customId: 'action:choice:0:1', kind: 'choice', favoured: false },
     ]);
   });
 
   it('falls back to the letter when an option line is missing', () => {
     const noLines: DecisionViewState = { ...decision, optionLines: [] };
-    expect(viewMoves(noLines).map(m => m.label)).toEqual(['A', 'B', 'Retreat']);
+    expect(viewMoves(noLines).map(m => m.label)).toEqual(['A', 'B', 'C']);
   });
 
   it('enumerates menu buttons positionally', () => {
@@ -118,7 +119,7 @@ describe('viewToText', () => {
         'FULL THREAD',
         'The wind stirs.',
         'What do you do?',
-        '[0] **A.** Advance carefully (favoured)\n[1] **B.** Hold position\n[2] Retreat',
+        '[0] **A.** Advance carefully (favoured)\n[1] **B.** Hold position\n[2] **C.** Retreat',
         'Insight favours A.',
       ].join('\n\n'),
     );

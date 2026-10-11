@@ -287,7 +287,7 @@ _The warden tends the fire._",
             {
               "custom_id": "action:bail",
               "emoji": undefined,
-              "label": "Fall back",
+              "label": "B",
               "style": 4,
               "type": 2,
             },
@@ -297,12 +297,28 @@ _The warden tends the fire._",
       ],
       "embeds": [
         {
+          "color": 2895667,
+          "description": "\`\`\`ansi
+[37m┌────────────────────────────┐[0m
+[37m│[37m  . . .                     [0m│[0m
+[37m│                            │[0m
+[37m│[34m            ,^.             [0m│[0m
+[37m│[34m           ( o )            [0m│[0m
+[37m│[34m           /|_|\\            [0m│[0m
+[37m│[34m             |              [0m│[0m
+[37m│[34m           _/ \\_            [0m│[0m
+[37m│                            │[0m
+[37m└────────────────────────────┘[0m
+\`\`\`",
+        },
+        {
           "color": 14329120,
           "description": "> 🧭 **Quest:** Advance carefully
 
 > A shadow shifts ahead. Press on?
 
-**A.** Push forward ⬆️",
+**A.** Push forward ⬆️
+**B.** 🏃 Fall back",
           "footer": {
             "icon_url": undefined,
             "text": "What do you do?",

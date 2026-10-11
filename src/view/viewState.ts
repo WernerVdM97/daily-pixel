@@ -15,10 +15,11 @@ export type ViewColorIntent =
   | 'default';
 
 /** Mirrors the current `ButtonBuilder` set 1:1 — a lettered real option ("choice") or the
- *  worded terminal option ("bail"). */
+ *  lettered terminal option ("bail", tinted danger by the medium step). Both captions live in
+ *  `optionLines`. */
 export type DecisionButtonItem =
   | { kind: 'choice'; letter: string; customId: string; favoured: boolean }
-  | { kind: 'bail'; label: string; customId: string };
+  | { kind: 'bail'; letter: string; customId: string };
 
 export interface DecisionViewState {
   screen: 'decision';

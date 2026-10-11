@@ -47,11 +47,11 @@ export function decisionViewToDiscord(view: DecisionViewState): {
     .setColor(colorIntentToHex(view.colorIntent))
     .setFooter({ text: view.footer });
 
-  // 5 per row is Discord's cap.
+  // 5 per row is Discord's cap. Every caption lives in the body; the button is its letter.
   const buttons: ButtonBuilder[] = view.buttons.map(item => item.kind === 'bail'
     ? new ButtonBuilder()
       .setCustomId(item.customId)
-      .setLabel(item.label)
+      .setLabel(item.letter)
       .setStyle(ButtonStyle.Danger)
     : new ButtonBuilder()
       .setCustomId(item.customId)

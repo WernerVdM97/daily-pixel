@@ -202,6 +202,7 @@ const DECISION_COMBAT: Parameters<MockWorldEngine['setStartActionResult']>[0] = 
 /** stepAction → a continue-decision beat. */
 const NEXT_DECISION_STEP: Parameters<MockWorldEngine['setStepActionResult']>[0] = {
   resolved: false,
+  actionType: 'other',
   state: { rawInput: 'Walk the rounds', decisions: [], accumulatedDc: 11 },
   nextDecision: {
     prompt: 'A shadow shifts ahead. Press on?',
@@ -458,17 +459,13 @@ function assertViewConformance(response: GameResponse): void {
   }
 }
 
-/** Execution-state settle (2): decision button elements are lettered choices or worded bails. */
+/** Execution-state settle (2): every decision button is a lettered option — the terminal bail
+ *  included — with the caption itself living in the body's `optionLines`. */
 function assertDecisionButtons(buttons: DecisionViewState['buttons']): void {
   for (const b of buttons) {
-    if (b.kind === 'choice') {
-      expect(typeof b.letter).toBe('string');
-      expect(typeof b.customId).toBe('string');
-      expect(typeof b.favoured).toBe('boolean');
-    } else {
-      expect(typeof b.label).toBe('string');
-      expect(typeof b.customId).toBe('string');
-    }
+    expect(typeof b.letter).toBe('string');
+    expect(typeof b.customId).toBe('string');
+    if (b.kind === 'choice') expect(typeof b.favoured).toBe('boolean');
   }
 }
 
