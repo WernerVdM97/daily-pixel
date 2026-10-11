@@ -1,7 +1,7 @@
 ---
 title: Obsidian CLI
 status: nogo
-domain: archived
+domain: spark
 tags:
 - engine
 - vault
