@@ -561,9 +561,8 @@ export class SessionController {
     const prevChar = this.engine.getCharacter(userId);
     if (!prevChar) throw new Error(`runWork: no character for ${userId}`);
 
-    // Per-action `income` (day-jobs.yml) rides the action as a guaranteed wage: paid into
-    // the RESOLVED outcome (after the failure-strip) so it shows in the footer (💰) when
-    // work finishes, not before. base_income is the separate nightly-tick wage.
+    // Per-action `income` (day-jobs.yml) is the shift's nominal wage — full on success, floor(half)
+    // on failure — paid into the RESOLVED outcome after the failure-strip. `base_income` is separate.
     const result = await this.engine.startAction(prevChar.id, workPrompt, { kind: 'work', wage });
     return this.renderStartResult(userId, prevChar, result);
   }
