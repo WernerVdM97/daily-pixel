@@ -312,8 +312,20 @@ if [ -z "$PI_KEY" ]; then
   log "no FACTORY_OPENROUTER_API_KEY (env or .env); this tick spends on the shared ~/.pi/agent/auth.json credential"
 fi
 if [ -n "$ACTION" ]; then
+  # The key reaches the pi below as --api-key, and that covers only that process: every child it
+  # spawns is pi's own session and resolves auth.json from the agent dir instead. `agent-dir`
+  # builds a shadow of that dir whose auth.json holds the factory key, so one fire keeps the
+  # whole tree on the factory credential. Empty means there is none, and the children fall back
+  # to the shared one; pi reads an empty PI_CODING_AGENT_DIR as unset.
+  AGENT_DIR=""
+  if [ -n "$PI_KEY" ] && [ -f "$PROJECT_DIR/scripts/factory-jobs.ts" ]; then
+    AGENT_DIR="$(npx --no-install tsx scripts/factory-jobs.ts agent-dir 2>/dev/null | tail -1 || true)"
+    if [ -z "$AGENT_DIR" ]; then
+      log "no shadow agent dir; this fire's children will spend on the shared ~/.pi/agent/auth.json credential"
+    fi
+  fi
   if [ -n "$PI_KEY" ]; then
-    "$PI_BIN" -p --approve --tools subagent --model "$FACTORY_FIRE_MODEL" --api-key "$PI_KEY" "$ACTION" || status=$?
+    PI_CODING_AGENT_DIR="${AGENT_DIR:-}" "$PI_BIN" -p --approve --tools subagent --model "$FACTORY_FIRE_MODEL" --api-key "$PI_KEY" "$ACTION" || status=$?
   else
     "$PI_BIN" -p --approve --tools subagent --model "$FACTORY_FIRE_MODEL" "$ACTION" || status=$?
   fi

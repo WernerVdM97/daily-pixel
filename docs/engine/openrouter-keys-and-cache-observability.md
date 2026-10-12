@@ -22,7 +22,7 @@ Four actors reach the same OpenRouter account, and each holds its own key since 
 | Actor | Key | Where it comes from | Separated? |
 | ----- | --- | ------------------- | ---------- |
 | Interactive `pi` | the shared key | `~/.pi/agent/auth.json`, provider `openrouter` | n/a, that _is_ the shared key |
-| The Dark Factory, every loop and every stage child | `FACTORY_OPENROUTER_API_KEY` | process environment, else the repo `.env` (never sourced); passed as `--api-key` at both spawn sites | yes (#160) |
+| The Dark Factory, every loop and every stage child | `FACTORY_OPENROUTER_API_KEY` | process environment, else the repo `.env` (never sourced); `--api-key` at both spawn sites, and a shadow agent dir for everything spawned under them | yes (#160) |
 | The bot | `OPENROUTER_API_KEY` | process env; `EnvironmentFile=/home/bot/app/.env` in prod | yes (PR #157) |
 | The agent-player | `AGENT_OPENROUTER_API_KEY` | the shell that sources the repo `.env` | yes (PR #157) |
 
@@ -64,7 +64,9 @@ The lever is therefore `--api-key`, at the two places the factory spawns `pi`. B
 
 Both are one line, and both pass the flag only when the key is non-empty: `--api-key ""` is not "no key", it is a broken key, and it would turn the pin's hard-failure behaviour into a factory that cannot reach a model at all. Absent the flag, pi falls back to the shared `auth.json` credential, which is the deliberate degradation the launcher then warns about on the tick it happens.
 
-A third path deliberately does **not** need this: the agent children themselves are spawned by pi from inside the wrapper process, so they inherit whatever credential the parent resolved. One `--api-key` per factory-launched `pi` covers every agent in the tree under it, which is why the fix was two lines rather than one per agent definition.
+A third path looked like it needed nothing: the agent children are spawned by pi from inside the wrapper process, so the assumption was that they inherit whatever credential the parent resolved, which is why the fix was two lines rather than one per agent definition. **They do not inherit it, and that assumption hid the factory's largest spend.** A child is pi's own session, built by pi-subagents on a `ModelRuntime` of its own, and that runtime reads `auth.json` from the agent dir (`$PI_CODING_AGENT_DIR`, default `~/.pi/agent`); the parent's `--api-key` is a runtime override on the *parent's* runtime and reaches nothing else, so every child of every loop and every stage billed the shared key while the wrapper's own calls looked correctly attributed. Probed both ways rather than reasoned about: with a bogus key in a shadow agent dir and the real key on the wrapper, the wrapper answered and its child came back `401 User not found`; with two distinct valid keys, the wrapper's spend landed on one and the child's on the other.
+
+Both spawn sites therefore hand the process tree a **shadow agent dir** — `$HOME/.pi/factory-agent`, `FACTORY_AGENT_DIR` to move it — whose `auth.json` carries the factory key while every other entry is a symlink to the real agent dir, so models, the DeepSeek host pin, `settings.json`, the session root and the npm package install are exactly what a plain run resolves. The wrapper keeps its `--api-key`, which covers its own calls; the shadow covers everything under it. It is rebuilt on every stage and every fire, so a rotated key reaches the next one; only OpenRouter is re-keyed, so a provider this factory does not use keeps its credential; and it is skipped with a log line when there is no key or the shadow cannot be built, which is the same deliberate degradation as the missing key itself. `scripts/factory-run-due.sh` asks `scripts/factory-jobs.ts agent-dir` for the path instead of re-deriving the convention in shell, so there is one implementation and one `auth.json` writer.
 
 ### Where the factory key is stored
 

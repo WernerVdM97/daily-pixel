@@ -35,16 +35,19 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -481,6 +484,83 @@ export function factoryApiKey(root: string, env: NodeJS.ProcessEnv = process.env
   return found;
 }
 
+/** pi's own config dir, the one a session resolves its credential, models and sessions from. */
+export function piAgentDir(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = (env.PI_CODING_AGENT_DIR ?? "").trim();
+  return configured ? resolve(configured) : resolve(homedir(), ".pi", "agent");
+}
+
+/** The factory's shadow of it. Deliberately not derived from `PI_CODING_AGENT_DIR`: a stage
+ *  spawned under the shadow inherits that variable, and deriving would nest one dir per level. */
+export function factoryAgentDir(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = (env.FACTORY_AGENT_DIR ?? "").trim();
+  return configured ? resolve(configured) : resolve(homedir(), ".pi", "factory-agent");
+}
+
+function linkIfAbsent(target: string, link: string): void {
+  try {
+    lstatSync(link);
+  } catch {
+    symlinkSync(target, link);
+  }
+}
+
+/**
+ * A stage wrapper's children are pi's own sessions, built by pi-subagents on a `ModelRuntime` of
+ * its own, which reads `auth.json` from the agent dir and never sees the wrapper's `--api-key`.
+ * This shadow hands them the factory key: everything else is symlinked, so models and their host
+ * pins, settings, the session root and the package install stay what a plain run resolves.
+ */
+export function prepareFactoryAgentDir(agentDir: string, factoryDir: string, apiKey: string): void {
+  // Enforced rather than requested: the dir holds a credential, and a shadow left by an earlier
+  // run keeps whatever mode it was created with.
+  mkdirSync(factoryDir, { recursive: true, mode: 0o700 });
+  chmodSync(factoryDir, 0o700);
+  for (const entry of readdirSync(agentDir)) {
+    if (entry === "auth.json") continue;
+    linkIfAbsent(join(agentDir, entry), join(factoryDir, entry));
+  }
+  // The shared entries first, so a provider this factory does not use keeps its credential and
+  // only OpenRouter is re-keyed. Unreadable or malformed shared auth.json is not fatal.
+  let shared: Record<string, unknown> = {};
+  try {
+    shared = JSON.parse(readFileSync(join(agentDir, "auth.json"), "utf8")) as Record<string, unknown>;
+  } catch {
+    shared = {};
+  }
+  const body = { ...shared, openrouter: { type: "api_key", key: apiKey } };
+  const authPath = join(factoryDir, "auth.json");
+  writeFileSync(authPath, `${JSON.stringify(body, null, 2)}\n`);
+  chmodSync(authPath, 0o600);
+}
+
+/**
+ * The environment a stage wrapper needs for its *children* to spend on the factory key. `{}`
+ * means no factory key, or no shadow could be built, either of which is the documented fallback
+ * to the shared credential — loud, not silent.
+ */
+export function stageCredentialEnv(
+  root: string,
+  env: NodeJS.ProcessEnv = process.env,
+  warn: (msg: string) => void = (msg) => process.stderr.write(`${msg}\n`),
+): Record<string, string> {
+  const apiKey = factoryApiKey(root, env);
+  if (!apiKey) return {};
+  const agentDir = piAgentDir(env);
+  const factoryDir = factoryAgentDir(env);
+  if (agentDir === factoryDir) {
+    warn(`[factory-jobs] the agent dir and the shadow are both ${agentDir}; children resolve the factory key from their own dir already`);
+    return {};
+  }
+  try {
+    prepareFactoryAgentDir(agentDir, factoryDir, apiKey);
+  } catch (err) {
+    warn(`[factory-jobs] cannot build ${factoryDir} (${err instanceof Error ? err.message : String(err)}); stage children will spend on the shared ~/.pi/agent/auth.json credential`);
+    return {};
+  }
+  return { PI_CODING_AGENT_DIR: factoryDir };
+}
+
 /** The `pi` argv for one stage wrapper. Extracted so the credential plumbing is testable
  *  without spawning, and so the key can never be added as an empty `--api-key`. */
 export function stagePiArgs(prompt: string, apiKey = ""): string[] {
@@ -503,6 +583,7 @@ const defaultSpawnStage = (env: NodeJS.ProcessEnv = process.env, root = resolveR
   if (!pi) throw new Error("pi is not on PATH and no binary at $HOME/.local/bin/pi; set FACTORY_PI_BIN");
   // `--api-key` and not an exported variable: pi resolves the auth file BEFORE the environment,
   // so exporting the key here would be silently ignored in favour of the shared `auth.json` one.
+  // The flag reaches this wrapper only; the shadow dir is what reaches its children.
   const child = spawn(
     pi,
     stagePiArgs(wrapperPrompt(run.agent, run.task), factoryApiKey(root, env)),
@@ -511,7 +592,7 @@ const defaultSpawnStage = (env: NodeJS.ProcessEnv = process.env, root = resolveR
       // Its own process group, so a kill takes the grandchildren (bash runs, subagents) too.
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env,
+      env: { ...env, ...stageCredentialEnv(root, env) },
     },
   );
   let stdout = "";
@@ -2778,6 +2859,7 @@ const USAGE = `Dark Factory job ledger
   tsx scripts/factory-jobs.ts retry <item>   owner unblock: attempts and budget reset
   tsx scripts/factory-jobs.ts list           every live job, one line each
   tsx scripts/factory-jobs.ts show <item>    one job's record
+  tsx scripts/factory-jobs.ts agent-dir      the shadow agent dir children run under, if any
   tsx scripts/factory-jobs.ts stale          orphans, and PRs open over a week
   tsx scripts/factory-jobs.ts housekeeping   fetch, freshen local dev, prune merged branches
 
@@ -2820,6 +2902,13 @@ async function main(): Promise<void> {
       if (opts.item === undefined) throw new Error("show needs an item number");
       const path = jobPath(ctx.jobsDir, opts.item);
       ctx.deps.log(existsSync(path) ? readFileSync(path, "utf8") : `no job record for #${opts.item}`);
+      break;
+    }
+    case "agent-dir": {
+      // The launcher's fire spawns its own pi, so it asks for the same dir rather than re-deriving
+      // the convention; printing nothing is how it learns there is no key or no shadow.
+      const dir = stageCredentialEnv(ctx.root)["PI_CODING_AGENT_DIR"];
+      if (dir) ctx.deps.log(dir);
       break;
     }
     case "stale":

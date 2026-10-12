@@ -206,32 +206,66 @@ describe("the schedule fire's argv", () => {
   const KEY = 'sk-or-v1-factory-test';
   const MODEL = 'openrouter/deepseek/deepseek-v4.1-flash';
 
-  /** A stand-in for pi that records the argv it was handed. */
-  function fakePi(): { bin: string; argv: () => string[] } {
+  /** A stand-in for pi that records the argv and the agent dir it was handed. */
+  function fakePi(): { bin: string; argv: () => string[]; agentDir: () => string } {
     const dir = mkdtempSync(join(tmpdir(), 'factory-pi-'));
     const bin = join(dir, 'pi');
     const recorded = join(dir, 'argv');
-    writeFileSync(bin, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" >> '${recorded}'\n`);
+    const agentDirFile = join(dir, 'agent-dir');
+    writeFileSync(
+      bin,
+      `#!/usr/bin/env bash\nprintf '%s\\n' "$@" >> '${recorded}'\nprintf '%s' "\${PI_CODING_AGENT_DIR-}" > '${agentDirFile}'\n`,
+    );
     chmodSync(bin, 0o755);
     return {
       bin,
       argv: () => (existsSync(recorded) ? readFileSync(recorded, 'utf8').split('\n').filter(Boolean) : []),
+      agentDir: () => (existsSync(agentDirFile) ? readFileSync(agentDirFile, 'utf8') : ''),
     };
+  }
+
+  /** A curl that answers the budget preflight, so a named fire reaches the pi. */
+  function answeringCurl(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-pi-curl-'));
+    const curl = join(dir, 'curl');
+    writeFileSync(curl, `#!/usr/bin/env bash\nprintf '%s\\n%s' '${JSON.stringify({ data: { limit_remaining: 5 } })}' '200'\n`);
+    chmodSync(curl, 0o755);
+    return curl;
   }
 
   it('pins the model ahead of the key, so --api-key is installed against the OpenRouter provider', () => {
     const pi = fakePi();
     // A named fire while the factory is off: it goes through the same preflight, so it needs a
     // curl that answers, and it stops before the drain.
-    const dir = mkdtempSync(join(tmpdir(), 'factory-pi-curl-'));
-    const curl = join(dir, 'curl');
-    writeFileSync(curl, `#!/usr/bin/env bash\nprintf '%s\\n%s' '${JSON.stringify({ data: { limit_remaining: 5 } })}' '200'\n`);
-    chmodSync(curl, 0o755);
-    tick({ FACTORY_ENABLED: '0', FACTORY_FIRE: 'factory-triage', FACTORY_OPENROUTER_API_KEY: KEY, PI_BIN: pi.bin, CURL_BIN: curl });
+    tick({ FACTORY_ENABLED: '0', FACTORY_FIRE: 'factory-triage', FACTORY_OPENROUTER_API_KEY: KEY, PI_BIN: pi.bin, CURL_BIN: answeringCurl() });
 
     const argv = pi.argv();
     expect(argv.slice(0, 8)).toEqual(['-p', '--approve', '--tools', 'subagent', '--model', MODEL, '--api-key', KEY]);
     expect(argv[8]).toContain('schedule.run');
+  });
+
+  it('points the fire at the shadow agent dir, because --api-key covers the fire and nothing under it', () => {
+    // The fire's own children are pi's sessions: they resolve `auth.json` from the agent dir,
+    // never from the parent's `--api-key`, so without this the whole tree spends on the shared
+    // credential. Run against the real repo, because the launcher asks scripts/factory-jobs.ts
+    // for the dir rather than re-deriving the convention in shell.
+    const pi = fakePi();
+    const shadow = join(mkdtempSync(join(tmpdir(), 'factory-agent-shadow-')), 'agent');
+    const agentDir = mkdtempSync(join(tmpdir(), 'factory-agent-base-'));
+    const out = tick({
+      FACTORY_PROJECT_DIR: REPO_ROOT,
+      FACTORY_ENABLED: '0',
+      FACTORY_FIRE: 'factory-triage',
+      FACTORY_OPENROUTER_API_KEY: KEY,
+      FACTORY_AGENT_DIR: shadow,
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_BIN: pi.bin,
+      CURL_BIN: answeringCurl(),
+    });
+
+    expect(out).not.toContain('no shadow agent dir');
+    expect(pi.agentDir()).toBe(shadow);
+    expect(JSON.parse(readFileSync(join(shadow, 'auth.json'), 'utf8')).openrouter).toEqual({ type: 'api_key', key: KEY });
   });
 
   it('keeps the pin on the shared-credential fallback, and omits --api-key rather than passing it empty', () => {
@@ -241,6 +275,8 @@ describe("the schedule fire's argv", () => {
     const argv = pi.argv();
     expect(argv[argv.indexOf('--model') + 1]).toBe(MODEL);
     expect(argv).not.toContain('--api-key');
+    // No key means no shadow: pi reads an empty PI_CODING_AGENT_DIR as the default agent dir.
+    expect(pi.agentDir()).toBe('');
     expect(out).toContain('no FACTORY_OPENROUTER_API_KEY');
   });
 });
