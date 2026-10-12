@@ -962,8 +962,9 @@ export class PipelineActionStateMachine {
     );
 
     const mutations = [...finalMutations];
-    if (state.wage && state.wage > 0) {
-      mutations.push({ type: 'modify_wealth', amount: state.wage });
+    const wage = state.wage && state.wage > 0 ? wagePayout(state.wage, verdict) : 0;
+    if (wage > 0) {
+      mutations.push({ type: 'modify_wealth', amount: wage });
     }
 
     // Built after `mutations` is fully assembled, so the beat's `ops` matches what the outcome reports.
@@ -1102,8 +1103,9 @@ export class PipelineActionStateMachine {
     );
 
     const mutations = [...finalMutations];
-    if (state.wage && state.wage > 0) {
-      mutations.push({ type: 'modify_wealth', amount: state.wage });
+    const wage = state.wage && state.wage > 0 ? wagePayout(state.wage, verdict) : 0;
+    if (wage > 0) {
+      mutations.push({ type: 'modify_wealth', amount: wage });
     }
 
     const finalState: PipelineInternalActionState = {
@@ -1330,6 +1332,12 @@ export class PipelineActionStateMachine {
 }
 
 // ── Module-level helpers ──
+
+/** A failed shift pays half, floored: the work happened either way, but a botch must never out-earn
+ *  the routine success beside it. */
+function wagePayout(wage: number, verdict: 'success' | 'failure'): number {
+  return verdict === 'failure' ? Math.floor(wage / 2) : wage;
+}
 
 /** Drops the `modify_rolls_remaining` grant on `kind: 'work'`: the day job pays coin, not cadence, and
  *  routing never sees `kind`. Expects the POST-collapse set (deltas netted, amounts coerced). */

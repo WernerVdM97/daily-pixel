@@ -24,6 +24,7 @@ import type {
 import type { CriticGateway, CriticInput, CriticVerdict, LlmContext } from '../../src/llm/LlmGateway.js';
 import type { PipelineContextResolver } from '../../src/engine/action/pipeline-context.js';
 import type { RelationRow } from '../../src/db/repositories/types.js';
+import { formatOutcome } from '../../src/engine/OutcomeRenderer.js';
 
 // Deliberately NOT the legacy `MockLlmGateway` (single-decision-shaped) — the pipeline needs
 // 4 distinct scriptable stages and sharing the legacy fixture would couple the two machines'
@@ -786,6 +787,138 @@ describe('PipelineActionStateMachine — F#12: day-job work strips positive insp
     expect(llm.resolveNarrateCalls).toHaveLength(1);
     expect(llm.resolveNarrateCalls[0].finalMutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
     expect(step.outcome.mutations).not.toContainEqual({ type: 'modify_rolls_remaining', amount: 1 });
+  });
+});
+
+describe('PipelineActionStateMachine — #138: a failed shift pays half the wage, floored', () => {
+  /** decision:[] on a non-combat type auto-resolves through resolve() — the non-combat payout site. */
+  function workNonCombatLlm(): MockPipelineLlmGateway {
+    const llm = new MockPipelineLlmGateway();
+    llm.classifyResult = {
+      kind: 'hit',
+      actionType: 'skill',
+      flags: { unsafe_location: false, needs_roll: true, target_present: false },
+    };
+    llm.decideResult = {
+      distilledType: 'labour',
+      stat: 'physical',
+      baseDc: 10,
+      required: false,
+      decision: [],
+    };
+    llm.resolveNarrateResult = { outcomeText: 'Sparks and smoke.' };
+    return llm;
+  }
+
+  /** `physical` 3 on the fixture char: a d20 of 15 clears the DC 10 check, a 1 misses it. */
+  function workNonCombatMachine(roll: number): PipelineActionStateMachine {
+    return new PipelineActionStateMachine(workNonCombatLlm(), () => roll);
+  }
+
+  it('pays the full wage on a successful shift (non-combat site)', async () => {
+    const result = await workNonCombatMachine(15).start(testChar(), 'work the forge', testItems, 'work', 7);
+    if (!result.resolved) throw new Error('expected resolved start');
+
+    expect(result.outcome.outcome).toBe('success');
+    expect(result.outcome.mutations).toContainEqual({ type: 'modify_wealth', amount: 7 });
+  });
+
+  it('pays the floor of half the wage on a failed shift, so an odd wage floors rather than rounds (non-combat site)', async () => {
+    const result = await workNonCombatMachine(1).start(testChar(), 'work the forge', testItems, 'work', 7);
+    if (!result.resolved) throw new Error('expected resolved start');
+
+    expect(result.outcome.outcome).toBe('failure');
+    expect(result.outcome.mutations).toContainEqual({ type: 'modify_wealth', amount: 3 });
+    expect(result.outcome.mutations).not.toContainEqual({ type: 'modify_wealth', amount: 4 });
+    expect(result.outcome.mutations).not.toContainEqual({ type: 'modify_wealth', amount: 7 });
+
+    // The player-facing footer: it derives its 💰 delta from the same mutations, so a payout that
+    // bypassed this site would read the full wage beside a half-paid purse.
+    const footer = formatOutcome(result.outcome, {
+      stamina: 10, maxStamina: 10, rollsRemaining: 1, health: 12, maxHealth: 12,
+      wealth: testChar().wealth + 3, name: 'Aldric',
+    });
+    expect(footer).toContain('💰 8 (+3)');
+  });
+
+  /** The combat payout site: a seeded combat_save on the same day, a nat-1 player roll and 3 HP
+   *  reach the second-lethal-blow arm of the ladder, which resolves `verdict: 'failure'`. */
+  function combatLossSetup(): PipelineActionStateMachine {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [{
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 10,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+    }];
+    llm.resolveNarrateResult = { outcomeText: 'The goblin overwhelms you.' };
+
+    const resolver: PipelineContextResolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => [],
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+      getCurrentDay: () => 1,
+      getSceneRelations: () => ([{
+        id: 0,
+        from_type: 'pc',
+        from_ref: '1',
+        to_type: 'pc',
+        to_ref: '1',
+        rel_type: 'combat_save',
+        props: JSON.stringify({ savedDay: 1 }),
+        created_by_action_id: null,
+        updated_day: null,
+      }] as unknown) as RelationRow[],
+    };
+    const rolls = [1, 10];
+    let i = 0;
+    return new PipelineActionStateMachine(llm, () => rolls[i++], resolver);
+  }
+
+  it('pays the floor of half the wage on a lost fight (combat site)', async () => {
+    const machine = combatLossSetup();
+    const lowChar = testChar({ health: 3 });
+
+    const started = await machine.start(lowChar, 'attack the goblin', testItems, 'work', 5);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const step = await machine.step(started.state, 'Press the attack', lowChar, testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcome).toBe('failure');
+    expect(step.outcome.mutations).toContainEqual({ type: 'modify_wealth', amount: 2 });
+    expect(step.outcome.mutations).not.toContainEqual({ type: 'modify_wealth', amount: 5 });
+  });
+
+  it('pays the full wage on a won fight (combat site)', async () => {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResultQueue = [{
+      distilledType: 'combat',
+      stat: 'physical',
+      baseDc: 6,
+      required: true,
+      decision: [{ label: 'Press the attack', dcModifier: 0 }],
+      combatEnemy: { name: 'Goblin', anchor: 'location' },
+    }];
+    // nat-20 player vs nat-1 enemy with a 6 HP foe: a first-round kill, so the win is reached
+    // through the fatal-blow interstitial and resolves `verdict: 'success'`.
+    const rolls = [20, 1];
+    let i = 0;
+    const machine = new PipelineActionStateMachine(llm, () => rolls[i++]);
+
+    const started = await machine.start(testChar(), 'attack the goblin', testItems, 'work', 5);
+    if (started.resolved) throw new Error('expected unresolved start');
+    const interstitial = await machine.step(started.state, 'Press the attack', testChar(), testItems);
+    if (interstitial.resolved) throw new Error('expected unresolved fatal-blow interstitial');
+    const step = await machine.step(interstitial.state, 'Finish it', testChar(), testItems);
+    if (!step.resolved) throw new Error('expected resolved step');
+
+    expect(step.outcome.outcome).toBe('success');
+    expect(step.outcome.mutations).toContainEqual({ type: 'modify_wealth', amount: 5 });
   });
 });
 

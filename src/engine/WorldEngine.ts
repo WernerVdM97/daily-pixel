@@ -105,8 +105,8 @@ export interface ActionState {
   accumulatedDc: number;
   /** How the action was initiated. Set at start, carried through every beat. */
   kind?: ActionKind;
-  /** Day-job wage paid on RESOLVE, added after the failure-strip so it survives a failed roll; not
-   *  paid if the player bails. */
+  /** Day-job wage paid on RESOLVE, added after the failure-strip so it survives a failed roll — at
+   *  half, floored, when the shift failed. Not paid at all if the player bails. */
   wage?: number;
 }
 
