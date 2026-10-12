@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -34,6 +34,7 @@ import {
   focusWindow,
   focusCachePath,
   factoryApiKey,
+  factoryAgentDir,
   HELD_LABEL,
   heldReport,
   holdReason,
@@ -44,6 +45,8 @@ import {
   nextStage,
   parseVerdict,
   pickCandidate,
+  piAgentDir,
+  prepareFactoryAgentDir,
   probeClaim,
   publicBody,
   readFocusCache,
@@ -52,6 +55,7 @@ import {
   resolveRepoRoot,
   retryPass,
   reviewerLogins,
+  stageCredentialEnv,
   stagePiArgs,
   stageTask,
   staleReport,
@@ -2245,6 +2249,135 @@ describe('the stage wrapper argv', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('openrouter/deepseek/deepseek-v4.1-flash');
     expect(args[args.indexOf('--thinking') + 1]).toBe('off');
     expect(args).toEqual(expect.arrayContaining(['-p', '--approve', '--tools', 'subagent']));
+  });
+});
+
+/**
+ * `--api-key` on a stage wrapper covers that wrapper and nothing under it: pi-subagents builds
+ * each child as pi's own session on a `ModelRuntime` of its own, which reads `auth.json` from the
+ * agent dir. Without this shadow a stage's children spend on the shared credential, outside the
+ * factory key's cap, while the wrapper's own calls look correctly attributed.
+ */
+describe('the shadow agent dir a stage child resolves its credential from', () => {
+  const KEY = 'sk-or-v1-factory-test';
+
+  /** The parts of a real `~/.pi/agent` the shadow has to get right. */
+  function scratchAgentDir(repoKey = 'sk-or-v1-shared', extraAuth: Record<string, unknown> = {}): string {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-agent-base-'));
+    mkdirSync(join(dir, 'npm'));
+    writeFileSync(join(dir, 'models.json'), '{"providers":{"openrouter":{}}}\n');
+    writeFileSync(join(dir, 'settings.json'), '{"packages":["npm:pi-subagents"]}\n');
+    writeFileSync(join(dir, 'auth.json'), JSON.stringify({ ...extraAuth, openrouter: { type: 'api_key', key: repoKey } }));
+    return dir;
+  }
+
+  function scratchShadow(): string {
+    return join(mkdtempSync(join(tmpdir(), 'factory-agent-shadow-')), 'agent');
+  }
+
+  /** A repo whose `.env` carries the factory key, so `stageCredentialEnv` has one to route. */
+  function scratchRepo(key = KEY): string {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-agent-repo-'));
+    writeFileSync(join(dir, '.env'), `FACTORY_OPENROUTER_API_KEY=${key}\n`);
+    return dir;
+  }
+
+  it('re-keys auth.json and mirrors everything else by symlink', () => {
+    const agentDir = scratchAgentDir();
+    const factoryDir = scratchShadow();
+    prepareFactoryAgentDir(agentDir, factoryDir, KEY);
+
+    expect(lstatSync(join(factoryDir, 'auth.json')).isSymbolicLink()).toBe(false);
+    expect(JSON.parse(readFileSync(join(factoryDir, 'auth.json'), 'utf8')).openrouter).toEqual({ type: 'api_key', key: KEY });
+    // The dir holds a credential, and a shadow left by an earlier run keeps the mode it was
+    // created with, so both are enforced on every prep rather than only at creation.
+    expect(statSync(join(factoryDir, 'auth.json')).mode & 0o777).toBe(0o600);
+    expect(statSync(factoryDir).mode & 0o777).toBe(0o700);
+    // Symlinked, not copied: models.json carries the DeepSeek host pin and settings.json the
+    // package list, and a copy would drift the moment either is edited.
+    expect(lstatSync(join(factoryDir, 'models.json')).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(factoryDir, 'npm')).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(factoryDir, 'models.json'), 'utf8')).toBe(readFileSync(join(agentDir, 'models.json'), 'utf8'));
+  });
+
+  it('re-keys only openrouter, so a provider this factory does not use keeps its credential', () => {
+    const agentDir = scratchAgentDir('sk-or-v1-shared', { deepseek: { type: 'api_key', key: 'sk-deepseek-shared' } });
+    const factoryDir = scratchShadow();
+    prepareFactoryAgentDir(agentDir, factoryDir, KEY);
+
+    const auth = JSON.parse(readFileSync(join(factoryDir, 'auth.json'), 'utf8'));
+    expect(auth.deepseek).toEqual({ type: 'api_key', key: 'sk-deepseek-shared' });
+    expect(auth.openrouter.key).toBe(KEY);
+  });
+
+  it('survives a missing or malformed shared auth.json by writing only the factory key', () => {
+    const factoryDir = scratchShadow();
+    const bare = mkdtempSync(join(tmpdir(), 'factory-agent-bare-'));
+    prepareFactoryAgentDir(bare, factoryDir, KEY);
+    expect(JSON.parse(readFileSync(join(factoryDir, 'auth.json'), 'utf8'))).toEqual({ openrouter: { type: 'api_key', key: KEY } });
+
+    writeFileSync(join(bare, 'auth.json'), 'not json at all');
+    prepareFactoryAgentDir(bare, factoryDir, KEY);
+    expect(JSON.parse(readFileSync(join(factoryDir, 'auth.json'), 'utf8')).openrouter.key).toBe(KEY);
+  });
+
+  it('rewrites the key every prep, so a rotated key reaches the next stage', () => {
+    const agentDir = scratchAgentDir();
+    const factoryDir = scratchShadow();
+    prepareFactoryAgentDir(agentDir, factoryDir, 'sk-or-v1-first');
+    prepareFactoryAgentDir(agentDir, factoryDir, 'sk-or-v1-second');
+
+    expect(JSON.parse(readFileSync(join(factoryDir, 'auth.json'), 'utf8')).openrouter.key).toBe('sk-or-v1-second');
+  });
+
+  it('is idempotent, and leaves an entry that is already there alone', () => {
+    const agentDir = scratchAgentDir();
+    const factoryDir = scratchShadow();
+    prepareFactoryAgentDir(agentDir, factoryDir, KEY);
+    // A template pi wrote into the shadow itself must not be replaced by a link to the shared one.
+    mkdirSync(join(factoryDir, 'sessions'), { recursive: true });
+    prepareFactoryAgentDir(agentDir, factoryDir, KEY);
+
+    expect(lstatSync(join(factoryDir, 'sessions')).isSymbolicLink()).toBe(false);
+    expect(lstatSync(join(factoryDir, 'models.json')).isSymbolicLink()).toBe(true);
+  });
+
+  it('routes a stage to the shadow when there is a key, and to the shared credential when there is not', () => {
+    const agentDir = scratchAgentDir();
+    const factoryDir = scratchShadow();
+    const env = { PI_CODING_AGENT_DIR: agentDir, FACTORY_AGENT_DIR: factoryDir };
+
+    expect(stageCredentialEnv(scratchRepo(), env)).toEqual({ PI_CODING_AGENT_DIR: factoryDir });
+    expect(readFileSync(join(factoryDir, 'auth.json'), 'utf8')).toContain(KEY);
+
+    const noKey = mkdtempSync(join(tmpdir(), 'factory-agent-nokey-'));
+    expect(stageCredentialEnv(noKey, { PI_CODING_AGENT_DIR: agentDir, FACTORY_AGENT_DIR: scratchShadow() })).toEqual({});
+  });
+
+  it('fails soft and loud when the shadow cannot be built, rather than killing the stage', () => {
+    const warnings: string[] = [];
+    const env = { PI_CODING_AGENT_DIR: join(tmpdir(), 'factory-agent-does-not-exist'), FACTORY_AGENT_DIR: scratchShadow() };
+
+    expect(stageCredentialEnv(scratchRepo(), env, (msg) => warnings.push(msg))).toEqual({});
+    expect(warnings.join('\n')).toContain('shared ~/.pi/agent/auth.json credential');
+  });
+
+  it('refuses to aim a shadow at itself', () => {
+    const warnings: string[] = [];
+    const same = scratchShadow();
+    const env = { PI_CODING_AGENT_DIR: same, FACTORY_AGENT_DIR: same };
+
+    expect(stageCredentialEnv(scratchRepo(), env, (msg) => warnings.push(msg))).toEqual({});
+    expect(warnings.join('\n')).toContain('children resolve the factory key from their own dir already');
+  });
+
+  it('defaults to the pi config dir and a sibling shadow under $HOME', () => {
+    expect(piAgentDir({})).toBe(join(homedir(), '.pi', 'agent'));
+    expect(factoryAgentDir({})).toBe(join(homedir(), '.pi', 'factory-agent'));
+    // Not derived from PI_CODING_AGENT_DIR: a stage spawned under the shadow inherits that
+    // variable, and deriving would nest one directory per spawn level.
+    expect(factoryAgentDir({ PI_CODING_AGENT_DIR: '/tmp/elsewhere' })).toBe(join(homedir(), '.pi', 'factory-agent'));
+    expect(piAgentDir({ PI_CODING_AGENT_DIR: '/tmp/elsewhere' })).toBe('/tmp/elsewhere');
   });
 });
 
