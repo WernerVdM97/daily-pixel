@@ -94,7 +94,7 @@ flowchart TD
 ```
 
 - [p] **Roll-first** (`machine.ts:295` invariant): the dice decide the verdict, *then* the Resolve DMA narrates to match — the critic can only patch prose, never the outcome.
-- [!] The engine's `E3→E4→E5` chain rewrites the LLM's proposed mutations *after* authoring (collapse caps stacked damage at −5 stamina / −4 health; failure strips `add_item`/`cross_frontier`/`reveal_location` and keeps costs; the day-job wage is paid win-or-lose). This is why `outcome_text` drifts — it is authored against the pre-adjustment set. **The Resolve/Critic seam must carry `final_mutations`.**
+- [!] The engine's `E3→E4→E5` chain rewrites the LLM's proposed mutations *after* authoring (collapse caps stacked damage at −5 stamina / −4 health; failure strips `add_item`/`cross_frontier`/`reveal_location` and keeps costs; the day-job wage is paid win-or-lose, at half when the shift failed). This is why `outcome_text` drifts — it is authored against the pre-adjustment set. **The Resolve/Critic seam must carry `final_mutations`.**
 
 ## Diagram 2 — an ActionType is a registry entry
 
