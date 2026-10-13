@@ -124,9 +124,7 @@ function nameplateLine(name: string, tag: string | undefined): Segment[] {
 function combatLines(slots: OpeningFrameSlots): Segment[][] {
   const enemyName = slots.enemyName ? slots.enemyName : 'Unknown foe';
 
-  // Only a persisted in_combat edge makes the foe's condition knowable, and a bar drawn without one
-  // promises an exchange that never happened (the one-roll kill). Re-entry gets the banded pip
-  // readout (see the continue card); pre-decision the line is omitted outright.
+  // No in_combat edge means nothing to band; a bar here would promise an exchange that never ran.
   const condition = slots.enemyCondition;
   const enemyHpLines: Segment[][] = condition
     ? [[

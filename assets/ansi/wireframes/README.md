@@ -33,7 +33,7 @@ Aligned with `docs/sparks/mvp+ansi-art.md` (live-tested constraints) and the reg
 
 | Type     | Register                  | What it sets                                      |
 | -------- | ------------------------- | ------------------------------------------------- |
-| `combat` | COMBAT_FRAME (opener)     | foe nameplate + full HP + sprite, player footer   |
+| `combat` | COMBAT_FRAME (opener)     | foe nameplate + sprite; HP band on re-entry only  |
 | `travel` | SCENE (route strip)       | origin → winding path → rumoured destination      |
 | `social` | DIALOGUE_MODAL (bust)     | NPC bust behind rim + crest; speech in the reply  |
 | `skill`  | SCENE (focus placeholder) | player char at a task rig                         |
