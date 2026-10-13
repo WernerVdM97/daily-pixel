@@ -22,7 +22,7 @@
 // Against prod: stop the bot (or accept that single-row updates on a WAL DB are
 // low-risk), pull a backup first, then run with --apply.
 import Database from 'better-sqlite3';
-import yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -37,7 +37,7 @@ const dbPath = argv.includes('--db') ? path.resolve(dbArg) : path.join(ROOT, 'da
 
 // name -> {physical,wisdom,intelligence,charisma} with every key defaulted to 0.
 function modifierMap(file) {
-  const rows = yaml.load(fs.readFileSync(path.join(CHAR_DIR, file), 'utf-8'));
+  const rows = load(fs.readFileSync(path.join(CHAR_DIR, file), 'utf-8'));
   const map = new Map();
   for (const r of rows) {
     const m = {};

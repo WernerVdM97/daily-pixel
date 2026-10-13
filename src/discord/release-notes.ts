@@ -2,7 +2,7 @@
  * Player-facing release notes: one YAML file per release tag in `assets/release-notes/<tag>.yml`, posted
  * once per tag at boot with a feedback button. Keep the content non-technical: what's new and fun.
  */
-import yaml from "js-yaml";
+import { load } from "js-yaml";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -32,7 +32,7 @@ export function loadReleaseNotes(tag: string, dir: string): ReleaseNotes | null 
   }
 
   try {
-    const parsed = yaml.load(raw) as Partial<ReleaseNotes> | undefined;
+    const parsed = load(raw) as Partial<ReleaseNotes> | undefined;
     if (
       !parsed ||
       typeof parsed.title !== "string" ||

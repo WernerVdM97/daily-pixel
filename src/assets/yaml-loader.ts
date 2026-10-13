@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import fs from 'node:fs';
 
 export class YamlLoadError extends Error {
@@ -27,7 +27,7 @@ export function loadYamlFile(filePath: string): unknown[] {
 
   let parsed: unknown;
   try {
-    parsed = yaml.load(raw);
+    parsed = load(raw);
   } catch (e) {
     throw new YamlLoadError('Invalid YAML syntax', filePath, e);
   }
