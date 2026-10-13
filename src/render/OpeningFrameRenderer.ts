@@ -41,13 +41,9 @@ export interface OpeningFrameSlots {
   /** `combat` only: the foe's resolved danger tier (e.g. `hard`) for the nameplate's right edge. */
   enemyDangerTag?: string;
   /** `combat` re-entry only: a persisted `in_combat` edge from a prior bail means the foe is already
-   *  damaged. Banded (wound word + pips), never exact HP; absent, the placeholder bar is unchanged. */
+   *  damaged. Banded (wound word + pips), never exact HP; absent, no enemy HP line is drawn at all. */
   enemyCondition?: { woundWord: string; filled: number; total: number };
 }
-
-// The wireframes' own bar width. The placeholder branch is fixed (never real HP); the re-entry
-// branch below swaps in a pip run sized to `condition.total`.
-const ENEMY_BAR_WIDTH = 14;
 // Tiers that read as a warning on the nameplate; milder ones are tinted as plain information.
 const HARD_TIERS = ['hard', 'risky', 'fatal'];
 // Placeholder-branch width only. The real-HP branch sizes its bar adaptively instead: a fixed width
@@ -127,18 +123,18 @@ function nameplateLine(name: string, tag: string | undefined): Segment[] {
  *  footer that uses real player data when the caller supplies it. */
 function combatLines(slots: OpeningFrameSlots): Segment[][] {
   const enemyName = slots.enemyName ? slots.enemyName : 'Unknown foe';
-  const enemyBar = hpBar(0, 0, ENEMY_BAR_WIDTH); // maxHp<=0 -> all-empty "unknown" bar (honest, not broken)
 
-  // Re-entry: a persisted in_combat edge means the foe is already damaged, so the placeholder bar
-  // and `?/?` swap for the banded pip readout (see the continue card); absent, nothing changes.
+  // Only a persisted in_combat edge makes the foe's condition knowable, and a bar drawn without one
+  // promises an exchange that never happened (the one-roll kill). Re-entry gets the banded pip
+  // readout (see the continue card); pre-decision the line is omitted outright.
   const condition = slots.enemyCondition;
-  const enemyHpLine: Segment[] = condition
-    ? [
+  const enemyHpLines: Segment[][] = condition
+    ? [[
       plain('  HP ['),
       coloured('▓'.repeat(condition.filled) + '░'.repeat(condition.total - condition.filled), 'threat'),
       plain(`] ${condition.woundWord}`),
-    ]
-    : [plain('  HP ['), coloured(enemyBar, 'chrome'), plain('] ?/?')];
+    ]]
+    : [];
 
   const pcName = clipName(slots.pcName ?? 'Warden', 14);
   const hasPcHp = slots.pcHp !== undefined && slots.pcMaxHp !== undefined;
@@ -161,7 +157,7 @@ function combatLines(slots: OpeningFrameSlots): Segment[][] {
 
   return [
     nameplateLine(enemyName, slots.enemyDangerTag),
-    enemyHpLine,
+    ...enemyHpLines,
     staticLine(BLANK),
     staticLine('        /\\        /\\        '),
     staticLine('       /  \\______/  \\       '),
