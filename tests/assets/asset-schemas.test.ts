@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import yaml from "js-yaml";
+import { load } from "js-yaml";
 import {
   loadAndValidate,
   validateStatDef,
@@ -107,7 +107,7 @@ describe("T5 — release notes", () => {
 
   for (const f of files) {
     it(`${f} is valid and its tag matches the filename`, () => {
-      const obj = yaml.load(fs.readFileSync(path.join(RN, f), "utf-8"));
+      const obj = load(fs.readFileSync(path.join(RN, f), "utf-8"));
       const expectedTag = f.replace(/\.yml$/, "");
       expect(validateReleaseNotes(obj, expectedTag)).toEqual([]);
     });
@@ -126,7 +126,7 @@ describe("golden entry counts", () => {
   };
   for (const [f, n] of Object.entries(expected)) {
     it(`${f} has ${n} entries`, () => {
-      const rows = yaml.load(fs.readFileSync(cc(f), "utf-8")) as unknown[];
+      const rows = load(fs.readFileSync(cc(f), "utf-8")) as unknown[];
       expect(rows.length).toBe(n);
     });
   }

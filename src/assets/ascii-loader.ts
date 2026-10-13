@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import fs from 'node:fs';
 
 export class AsciiLoadError extends Error {
@@ -40,7 +40,7 @@ export function loadAsciiFile(filePath: string): AsciiFile {
 
   let frontmatter: unknown;
   try {
-    frontmatter = yaml.load(fmRaw);
+    frontmatter = load(fmRaw);
   } catch (e) {
     throw new AsciiLoadError('Invalid YAML in frontmatter', filePath, e);
   }
