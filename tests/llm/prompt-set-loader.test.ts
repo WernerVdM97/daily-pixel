@@ -473,3 +473,67 @@ describe(`${PROMPT_SET_VERSION} content assertions — P3 RESOLVE difficulty sig
     expect(tpl).not.toContain('baseDc');
   });
 });
+
+describe(`${PROMPT_SET_VERSION} content assertions — the favoured-option promise`, () => {
+  const RESOLVE_BASE_FILE = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    '..',
+    'assets',
+    'prompts',
+    'decision-prompts',
+    PROMPT_SET_VERSION,
+    'resolve',
+    'BASE.md',
+  );
+
+  it('every resolve/*/failure.md carries the favoured mild-end instruction and names Rule 2b', () => {
+    for (const category of ACTION_CATEGORIES) {
+      const tpl = readFileSync(
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          '..',
+          '..',
+          'assets',
+          'prompts',
+          'decision-prompts',
+          PROMPT_SET_VERSION,
+          'resolve',
+          category,
+          'failure.md',
+        ),
+        'utf-8',
+      );
+      const favouredLine = tpl.split('\n').find((line) => line.includes('favoured: true'));
+      expect(favouredLine).toBeTruthy();
+      // The whole promise: the mild end named, a concrete ceiling for this recipe's own menu, and
+      // the nat-1 waiver pointed at rather than restated.
+      expect(favouredLine).toMatch(/mild end/i);
+      expect(favouredLine).toMatch(/`modify_(stamina|health)` -1|low-end `modify_wealth`/);
+      expect(favouredLine).toContain('Rule 2b');
+    }
+  });
+
+  it('BASE.md states the mild-end rule as 2b and names the natural-1 precedence', () => {
+    const tpl = readFileSync(RESOLVE_BASE_FILE, 'utf-8');
+    const ruleLine = tpl.split('\n').find((line) => line.startsWith('### 2b.'));
+    expect(ruleLine).toBeTruthy();
+    // One place owns the numbers: stamina at -1, wealth at the low end, no item lost.
+    const ruleBody = tpl.split('\n').slice(tpl.split('\n').indexOf(ruleLine!)).find((line) => line.includes('mild end'));
+    expect(ruleBody).toBeTruthy();
+    expect(ruleBody).toContain('modify_stamina` -1');
+    expect(ruleBody).toContain('remove_item');
+    expect(ruleBody).toMatch(/low end/);
+    // A natural 1 on a favoured option is the one case where the two rules collide, and the
+    // prompt has to settle it rather than leave the model to choose.
+    expect(tpl).toMatch(/Precedence with Rule 2a/i);
+    expect(tpl).toMatch(/natural 1[^.]*waived/i);
+  });
+
+  it('BASE.md documents the "- favoured: true" token in its INPUT CONTEXT "### What was decided" bullet', () => {
+    const tpl = readFileSync(RESOLVE_BASE_FILE, 'utf-8');
+    const bulletLine = tpl.split('\n').find((line) => line.includes('### What was decided'));
+    expect(bulletLine).toBeTruthy();
+    expect(bulletLine).toContain('favoured: true');
+  });
+});

@@ -5,3 +5,4 @@
 - `modify_stamina` -1 (futile effort), secondary to the above.
 - No items gained, no reveals.
 - Apply Rule 2a: on a natural 1, the search goes wrong — amplify the cost (a costlier loss), and add `modify_health` -1 (cut on debris, a trap sprung).
+- **Favoured option** (`- favoured: true`) — ancillary setback at the mild end: `modify_stamina` -1 and a low-end `modify_wealth` loss rather than the `remove_item`. A natural 1 does not amplify it (Rule 2b).

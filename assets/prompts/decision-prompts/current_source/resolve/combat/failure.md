@@ -6,3 +6,4 @@
 - Always: `modify_stamina` -1 to -3 (exhaustion).
 - Always: `remove_item` (broken weapon, dropped gear) OR `modify_wealth` loss (coin lost fleeing or looted off you).
 - Apply Rule 2a: on a natural 1, amplify costs — stamina at -2 to -3, remove the most valuable relevant item, or a larger wealth loss.
+- **Favoured option** (`- favoured: true`) — ancillary setback at the mild end: `modify_stamina` -1, and the low-end `modify_wealth` loss rather than the `remove_item`. A natural 1 does not amplify it (Rule 2b).

@@ -5,3 +5,4 @@
 - `modify_stamina` -1 (wasted effort), secondary to the above.
 - No rewards — no rolls restored, no stat gains.
 - Apply Rule 2a: on a natural 1, the effort backfires worse — amplify the cost (a deeper strain), and add `modify_stamina` -1 more (overexertion).
+- **Favoured option** (`- favoured: true`) — ancillary setback at the mild end: `modify_health` -1, and `modify_stamina` -1 at most. A natural 1 does not deepen the strain (Rule 2b).

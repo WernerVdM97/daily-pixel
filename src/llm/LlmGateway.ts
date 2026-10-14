@@ -119,6 +119,9 @@ export interface LlmDecisionOption {
    *  top-level `stat`), letting one decision offer approaches that test different attributes —
    *  clever (wisdom) vs direct (physical). See ADR [[per-option-stat-and-ability-checks]]. */
   stat?: 'physical' | 'wisdom' | 'intelligence' | 'charisma';
+  /** Set when the screen the player clicked had flagged this option the safest route, so RESOLVE
+   *  knows the failure it authors breaks a promise and holds the ancillary setback at the mild end. */
+  favoured?: boolean;
 }
 
 export interface LlmGateway {

@@ -6,6 +6,7 @@
 import type { WorldEngine, ActionOutcome, ActionKind, CharacterData, CombatStatusData, ClassifiedActionType } from '../engine/WorldEngine.js';
 import type { CombatBeatLog } from '../engine/action/combat-dc.js';
 import { dangerTier } from '../engine/action/combat-dc.js';
+import { favouredOptionIndex, passiveInsight } from '../engine/action/favoured.js';
 import { formatOutcome, distilledActionEmoji, labelActionEmoji, DISTILLED_EMOJI_MISS, type OutcomeRenderContext } from '../engine/OutcomeRenderer.js';
 import { STAT_LABELS } from '../engine/stat-format.js';
 import { dayJobEmoji } from '../render/format.js';
@@ -36,10 +37,6 @@ export function parseActionCid(customId: string): { decisionIdx: number; optionI
 }
 
 // ── Helpers ──
-
-/** How much easier the safest option must be than the next-best before passive
- *  insight flags it — keeps the green hint a rare, earned tell. */
-const INSIGHT_MARGIN = 2;
 
 /** Quote every line of `text` as a Discord blockquote (blank lines keep the bar). */
 function quoteLines(text: string): string {
@@ -150,10 +147,9 @@ export function buildDecisionView(
    *  `in_combat` edge against the same foe; undefined when there is nothing to band. */
   combatEnemyCondition?: { woundWord: string; filled: number; total: number },
 ): DecisionViewState {
-  // Raw DCs stay hidden while deciding; passive insight (10 + WIS) instead lets a perceptive
-  // character occasionally spot the single safest route — earned (see INSIGHT_MARGIN), not a readout.
+  // Raw DCs stay hidden while deciding; passive insight instead lets a perceptive character
+  // occasionally spot the single safest route, earned rather than a DC readout.
   const runningDc = state?.accumulatedDc;
-  const passiveInsight = char ? 10 + char.stats.wisdom : undefined;
 
   // ── Gamebook layout: the story so far (narration quoted, choices bold) sits above the quoted
   // prompt; the lettered options are the only unquoted, actionable text. ──
@@ -195,21 +191,9 @@ export function buildDecisionView(
     ? decision.options
     : [{ label: 'Continue', dcModifier: 0 }];
 
-  // Hint fires only when ALL hold: two or more real options, DCs known, passive insight ≥ the
-  // easiest option's DC, and that option ≥ INSIGHT_MARGIN safer than the next-best. Rare and earned.
-  let favouredIdx = -1;
-  if (passiveInsight != null && runningDc != null) {
-    const real = options
-      .map((opt, i) => ({ i, effDc: runningDc + (opt.dcModifier ?? 0), bail: opt.dcModifier === null }))
-      .filter(o => !o.bail)
-      .sort((a, b) => a.effDc - b.effDc);
-    if (real.length >= 2) {
-      const [best, second] = real;
-      if (passiveInsight >= best.effDc && second.effDc - best.effDc >= INSIGHT_MARGIN) {
-        favouredIdx = best.i;
-      }
-    }
-  }
+  const favouredIdx = char && runningDc != null
+    ? favouredOptionIndex(options, runningDc, passiveInsight(char.stats.wisdom))
+    : -1;
 
   const LETTERS = ['A', 'B', 'C', 'D', 'E'];
   const optionLines: string[] = [];

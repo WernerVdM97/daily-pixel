@@ -25,6 +25,8 @@ import type { CriticGateway, CriticInput, CriticVerdict, LlmContext } from '../.
 import type { PipelineContextResolver } from '../../src/engine/action/pipeline-context.js';
 import type { RelationRow } from '../../src/db/repositories/types.js';
 import { formatOutcome } from '../../src/engine/OutcomeRenderer.js';
+import { buildDecisionView } from '../../src/view/actionViewState.js';
+import { buildResolveUserMessage } from '../../src/llm/pipeline/pipeline-messages.js';
 
 // Deliberately NOT the legacy `MockLlmGateway` (single-decision-shaped) — the pipeline needs
 // 4 distinct scriptable stages and sharing the legacy fixture would couple the two machines'
@@ -407,6 +409,65 @@ describe('PipelineActionStateMachine — needs_roll: false', () => {
       expect(result.outcome.playerRolled).toBeNull();
     }
     expect(rollD20).not.toHaveBeenCalled();
+  });
+});
+
+describe('PipelineActionStateMachine — the favoured-option promise', () => {
+  // One fixture, both callers: the decision screen the player clicks and the engine handoff. WIS 2
+  // → passive insight 12, best option DC 10 (baseDc 12 - 2) and next-best 16, so 'Easy path' is the
+  // one the screen marks. Mirrors tests/discord/view-state.test.ts's own favoured fixture.
+  const decide: PipelineDecideResult = {
+    distilledType: 'search',
+    stat: 'physical',
+    baseDc: 12,
+    required: false,
+    decision: [
+      { label: 'Easy path', dcModifier: -2 },
+      { label: 'Hard path', dcModifier: 4 },
+      { label: 'Step back', dcModifier: null },
+    ],
+  };
+
+  async function runToResolve(choice: string): Promise<MockPipelineLlmGateway> {
+    const llm = new MockPipelineLlmGateway();
+    llm.decideResult = decide;
+    llm.resolveNarrateResult = { outcomeText: 'The road goes on.' };
+    const char = testChar({ stats: { physical: 3, wisdom: 2, intelligence: 0, charisma: 0 } });
+    const machine = new PipelineActionStateMachine(llm, () => 20);
+
+    const started = await machine.start(char, 'search the old ruins', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    const view = buildDecisionView(started.firstDecision, 0, started.state, char);
+    expect(view.buttons[0]).toEqual({ kind: 'choice', letter: 'A', customId: 'action:choice:0:0', favoured: true });
+    expect(view.buttons[1]).toMatchObject({ kind: 'choice', letter: 'B', favoured: false });
+
+    // Force the resolve on the next step (a terminating decide with no real options), so the
+    // handoff carries the very options the screen above rendered.
+    llm.decideResult = { ...decide, decision: [{ label: 'Step back', dcModifier: null }] };
+    const step = await machine.step(started.state, choice, char, testItems);
+    expect(step.resolved).toBe(true);
+    return llm;
+  }
+
+  it('flags the choice the screen marked, all the way into the RESOLVE user message', async () => {
+    const llm = await runToResolve('Easy path');
+
+    const handoff = llm.resolveMutateCalls[0].chosenOption;
+    expect(handoff.label).toBe('Easy path');
+    expect(handoff.favoured).toBe(true);
+    // And the same flag is what the prompt layer writes, so button and token agree end to end.
+    expect(buildResolveUserMessage(llm.resolveMutateCalls[0], 'RESOLVE-MUTATE')).toContain('- favoured: true');
+  });
+
+  it('leaves the flag off every other choice, including one easier than the marked option', async () => {
+    const llm = await runToResolve('Hard path');
+
+    const handoff = llm.resolveMutateCalls[0].chosenOption;
+    expect(handoff.label).toBe('Hard path');
+    // Absent, not false: the token is never emitted for an unflagged choice.
+    expect('favoured' in handoff).toBe(false);
+    expect(buildResolveUserMessage(llm.resolveMutateCalls[0], 'RESOLVE-MUTATE')).not.toContain('- favoured');
   });
 });
 

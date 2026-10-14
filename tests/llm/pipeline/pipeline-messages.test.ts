@@ -72,6 +72,30 @@ describe('buildResolveUserMessage — Stage 2 fatalBlow / decisionPrompt (RA-1/R
   });
 });
 
+describe('buildResolveUserMessage — the favoured flag', () => {
+  it('emits a bare "- favoured: true" line when the chosen option was flagged', () => {
+    const msg = buildResolveUserMessage(
+      baseInput({ chosenOption: { label: 'Press the attack', dcModifier: 0, favoured: true } }),
+      'RESOLVE-MUTATE',
+    );
+    expect(msg).toContain('- favoured: true');
+    // Inside "What was decided", with the rest of the chosen option's facts.
+    expect(msg.indexOf('- chosen: Press the attack')).toBeLessThan(msg.indexOf('- favoured: true'));
+    expect(msg.indexOf('- favoured: true')).toBeLessThan(msg.indexOf('## You —'));
+  });
+
+  it('omits the line entirely on an unflagged choice, keeping previously scripted results byte-identical', () => {
+    const unflagged = buildResolveUserMessage(baseInput(), 'RESOLVE-MUTATE');
+    expect(unflagged).not.toContain('- favoured');
+    // An explicit `false` must not leak the line either: the token is only ever present, never false.
+    const explicitFalse = buildResolveUserMessage(
+      baseInput({ chosenOption: { label: 'Press the attack', dcModifier: 0, favoured: false } }),
+      'RESOLVE-MUTATE',
+    );
+    expect(explicitFalse).toBe(unflagged);
+  });
+});
+
 describe('buildResolveUserMessage — P3 finalDc / foeDanger difficulty signal', () => {
   it('omits both "- final dc:" and "- foe danger:" lines when neither field is supplied (auto-resolve)', () => {
     const msg = buildResolveUserMessage(baseInput(), 'RESOLVE-MUTATE');

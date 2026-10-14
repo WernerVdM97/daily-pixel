@@ -19,7 +19,7 @@ Each family lives in `assets/prompts/<family>/`, loaded from the file matching i
 
 | Family | Folder | Version constant | Owning module | Versioned file | Stamped as |
 | -------- | -------- | ------------------ | --------------- | ---------------- | ------------ |
-| Decision | `assets/prompts/decision-prompts/` | `PROMPT_SET_VERSION` | `src/llm/prompt-builder.ts` | the set directory `v13/` (`classify.md`, `decide/*.md`, `resolve/**/*.md`) | `<vN>/<template>` |
+| Decision | `assets/prompts/decision-prompts/` | `PROMPT_SET_VERSION` | `src/llm/prompt-builder.ts` | the set directory `v14/` (`classify.md`, `decide/*.md`, `resolve/**/*.md`) | `<vN>/<template>` |
 | Critic | `assets/prompts/critic/` | `CRITIC_VERSION` | `src/llm/prompt-builder.ts` | `critic-<vN>.md` | `critic-<vN>` |
 | Agent brain | `assets/prompts/agent-player/` | `AGENT_PLAYER_SET_VERSION` | `src/agent/agentPrompt.ts` | the set directory `v2/` (`brain.md`, `handbook.md`, `personas/<name>.md`) | `agent-<vN>` / `agent-<vN>/<persona>` |
 | Playtest critic | `assets/prompts/agent-critic/` | `AGENT_CRITIC_SET_VERSION` | `src/agent/criticPrompt.ts` | the set directory `v2/` (`<template>.md`: `critic.md`, `persona-review.md`) | `agent-critic-<vN>/<template>` |
