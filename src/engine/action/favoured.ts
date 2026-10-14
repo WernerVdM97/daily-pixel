@@ -6,7 +6,7 @@
 
 /** How much easier the safest option must be than the next-best before passive insight flags it —
  *  keeps the tell rare and earned rather than a DC readout. */
-export const INSIGHT_MARGIN = 2;
+const INSIGHT_MARGIN = 2;
 
 /** Passive insight: 10 + WIS. An option is only ever spotted at or under this effective DC. */
 export function passiveInsight(wisdom: number): number {

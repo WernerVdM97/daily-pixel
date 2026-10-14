@@ -297,17 +297,16 @@ export class PipelineActionStateMachine {
     char: CharacterData,
     items: ItemData[],
   ): Promise<PipelineStepResult> {
-    const option = state.pendingDecision.options.find(o => o.label === choice);
+    const options = state.pendingDecision.options;
+    const option = options.find(o => o.label === choice);
     if (!option) {
       throw new Error(`Invalid choice: "${choice}"`);
     }
 
-    // Recomputed from the inputs the screen was built from, so the flag RESOLVE is told about is
-    // the one the green button promised. Bailing resolves without a handoff, so it carries none.
+    // Bailing resolves without a handoff, so it carries no flag.
     const favoured =
-      option.dcModifier !== null &&
-      favouredOptionIndex(state.pendingDecision.options, state.accumulatedDc, passiveInsight(char.stats.wisdom))
-        === state.pendingDecision.options.indexOf(option);
+      favouredOptionIndex(options, state.accumulatedDc, passiveInsight(char.stats.wisdom))
+        === options.indexOf(option);
     const chosenOption: ActionOption = favoured ? { ...option, favoured: true } : option;
 
     // Bail

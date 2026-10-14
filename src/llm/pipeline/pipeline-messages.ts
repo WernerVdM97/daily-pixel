@@ -74,8 +74,8 @@ export function buildResolveUserMessage(
   out.push(`- prompt: ${decisionPrompt ?? reconstructDecisionPrompt(decision.distilledType)}`);
   out.push(`- chosen: ${chosenOption.label}`);
   out.push(`- stat: ${chosenOption.stat ?? decision.stat}`);
-  // Only ever present, never `false`: the flag is set on the handoff copy, so an unflagged choice
-  // renders byte-identically to every resolution scripted before it existed.
+  // Only ever present, never `false`: an unflagged choice renders byte-identically to every
+  // resolution scripted before the flag existed.
   if (chosenOption.favoured) {
     out.push('- favoured: true');
   }

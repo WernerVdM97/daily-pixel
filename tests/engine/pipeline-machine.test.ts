@@ -460,7 +460,7 @@ describe('PipelineActionStateMachine — the favoured-option promise', () => {
     expect(buildResolveUserMessage(llm.resolveMutateCalls[0], 'RESOLVE-MUTATE')).toContain('- favoured: true');
   });
 
-  it('leaves the flag off every other choice, including one easier than the marked option', async () => {
+  it('leaves the flag off a choice that is not the marked one', async () => {
     const llm = await runToResolve('Hard path');
 
     const handoff = llm.resolveMutateCalls[0].chosenOption;
