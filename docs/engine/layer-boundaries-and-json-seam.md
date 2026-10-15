@@ -9,7 +9,7 @@ related:
   - "[[mvp-architecture]]"
   - "[[mvp-llm-prompt-architecture]]"
 ---
-How the layers wire together today versus a frontend-neutral target where every frontend (Discord, a DM-agent player, a future web UI) talks to the game through one JSON seam. The engine and renderers are already clean; the missing piece is an application/controller layer, currently smeared across the Discord handlers. Extracting it is the prerequisite for the "all features on, driven by agents" short-term sim, and doubles as the future frontend-swap seam. All open questions were settled 2026-07-18 (see Decisions).
+The layering decision: every frontend (Discord, the agent-player, a future web UI) talks to the game through one JSON seam rather than to the engine directly. The engine and renderers were already clean; the missing piece was an application/controller layer living inside the Discord handlers, and extracting it was the prerequisite for the "all features on, driven by agents" short-term sim. All open questions were settled 2026-07-18 (see Decisions), and the arc that built the target closed 2026-08-09 (see Arc status). The "Before" section below keeps the pre-seam baseline because the two defects it names are the reason the seam exists.
 
 ---
 
@@ -26,7 +26,9 @@ Six responsibilities. The problem is not that they exist; it is that three of th
 
 ---
 
-## Now — current state
+## Before the seam — the baseline it was drawn against (2026-07-18)
+
+Neither defect below survived the arc: dispatch moved out of `index.ts` into `src/discord/dispatchInteraction.ts` behind the protocol router, flow and session state moved into `src/controller/`, and the commute rule moved into the engine.
 
 ```mermaid
 flowchart TB
@@ -66,12 +68,12 @@ flowchart TB
 
 - [p] **The engine boundary was drawn deliberately and holds.** `WorldEngine` is a plain-serialisable seam (its header says so), the engine imports nothing from `discord.js` or `render/`, and `sim/` proves it runs standalone.
 - [p] **`render/*` is genuinely pure** — its own input DTOs, string output, zero imports from engine/db/discord.
-- [c] **The application boundary above the engine was never drawn.** Flow, session state, and view-assembly all accreted inside the Discord handlers because a single `discord.js` `Interaction` bundles input + response + identity, so guard→engine→build-embed→reply in one handler is the path of least resistance. The `index.ts` dispatcher is now a ~2460-line `if/else` on `customId` with 20-plus branches, and it is not the only home: the `src/discord/commands/*` files (`action`, `sleep`, `hi`) carry their own resume/`lastActionState` flow, so the extraction is bigger than one file.
-- [!] **One real rule leak:** the "commute from the Oak to workplace" path writes character stamina + location straight to the DB via `charRepo.update` (`index.ts`, under the `── Commute from the Oak to the workplace ──` block — the sole direct repo write in the whole Discord layer), bypassing the engine. It is the canary: a game rule living in the UI. Contained (one site) but it is exactly the drift that grows.
+- [c] **The application boundary above the engine was not drawn.** Flow, session state, and view-assembly had all accreted inside the Discord handlers, because a single `discord.js` `Interaction` bundles input + response + identity, so guard→engine→build-embed→reply in one handler is the path of least resistance. The dispatcher was a ~2460-line `if/else` on `customId` with 20-plus branches, and it was not the only home: the `src/discord/commands/*` files (`action`, `sleep`, `hi`) carried their own resume/`lastActionState` flow, so the extraction was bigger than one file.
+- [!] **One real rule leak:** the "commute from the Oak to workplace" path wrote character stamina + location straight to the DB via `charRepo.update` (in `index.ts`, under the `── Commute from the Oak to the workplace ──` block, the sole direct repo write in the whole Discord layer), bypassing the engine. It was the canary: a game rule living in the UI, contained to one site but exactly the drift that grows. The rule now lives in the engine, whose `commuteToWorkplace` header says why.
 
 ---
 
-## Target — best-practice future
+## Target — what the arc built
 
 ```mermaid
 flowchart TB
@@ -88,7 +90,7 @@ flowchart TB
 
   PROTO{{"JSON protocol seam<br/>input events  ⇅  view-state DTOs"}}:::seam
 
-  CTRL["Session controller / application layer (NEW)<br/>flow · guards · menu compose · resume<br/>emits semantic view-state — no discord.js"]:::core
+  CTRL["Session controller / application layer<br/>flow · guards · menu compose · resume<br/>emits semantic view-state — no discord.js"]:::core
 
   PRES["Presentation — shared, pure<br/>render/* + view-state → medium"]:::core
   ENGINE2["Engine / domain<br/>ALL rules incl. commute · plain data"]:::core
@@ -110,26 +112,26 @@ flowchart TB
   SIM2 ==>|still enters at engine| ENGINE2
 ```
 
-The shape in one sentence: **Discord and the agent-player become peer adapters over one JSON seam; a new session controller owns all flow; the engine owns all rules; rendering is a shared pure service any adapter can reuse.**
+The shape in one sentence: **Discord and the agent-player are peer adapters over one JSON seam; a session controller owns all flow; the engine owns all rules; rendering is a shared pure service any adapter can reuse.**
 
-- [I] **Adapters shrink to two jobs:** translate their transport's events into protocol input-events, and paint the returned view-state in their medium. No game logic.
-- [I] **The controller is the new layer** and is transport-neutral: it never imports `discord.js`. It emits a *semantic* view-state DTO (screen kind, prompt, narration, options, art slots, footer), not embeds.
+- [I] **Adapters do two jobs:** translate their transport's events into protocol input-events, and paint the returned view-state in their medium. No game logic.
+- [I] **The controller is the layer** and is transport-neutral: it never imports `discord.js`. It emits a *semantic* view-state DTO (screen kind, prompt, narration, options, art slots, footer), not embeds.
 - [I] **Rendering is shared:** the pure `render/*` frames plus a view-state→medium step, callable by any adapter, so an agent can see close to what a Discord player sees.
 - [I] **Two test depths, kept distinct:** `sim/` still enters at the *engine* (fast, deterministic, LLM cut — for months of data); the *agent-player* enters at the *protocol/controller* (all features on, real LLM — for bug-hunting and feedback). This is the "in between" target: a shorter sim of the whole game, not the engine core alone.
 
 ---
 
-## Gap — how far from target
+## Gap — how far the arc got
 
 | Layer | Now | Target | Distance |
 | --- | --- | --- | --- |
-| Engine / domain | Clean seam; a couple of rules leaked up (commute); some inline SQL | All rules in engine; sole DB writer | **Small** |
-| Persistence | Behind repos mostly; engine inline SQL + 1 Discord direct write | Every write via repos, engine-only | **Small–med** |
-| Presentation | `render/*` already pure ✓; view-assembly welded to `discord.js` | Semantic view-state DTO + shared pure renderers | **Medium** |
-| Application / controller | Does not exist; flow spread across `index.ts` dispatcher + command files | Dedicated transport-neutral controller (flow + session state) | **Large — the bulk** |
+| Engine / domain | Clean seam; the direct-write leak is closed; some inline SQL | All rules in engine; sole DB writer | **Small** |
+| Persistence | Behind repos mostly; engine inline SQL, no direct write left in the Discord layer | Every write via repos, engine-only | **Small–med** |
+| Presentation | `render/*` pure ✓; the semantic view-state DTO ships (`src/view/`, `src/discord/viewToDiscord.ts`), and the adapter's painting is one call per screen | Semantic view-state DTO + shared pure renderers | **Closed** |
+| Application / controller | Built: `src/controller/` owns flow and session state (`SessionController`, the screens, the join wizard), reached through the protocol router | Dedicated transport-neutral controller (flow + session state) | **Closed — the bulk of the arc** |
 | Protocol seam | **Built and load-bearing** (`src/protocol/`: versioned envelope, event union, closed `facts` whitelist, error taxonomy, contract suite against two backends) | JSON input-events + view-state DTOs | **Closed** — see [[json-seam-protocol]] M5–M10. Transport stays in-process per decision 3, so the wire-format claim is by design rather than demonstrated |
 | Frontend adapters | **Two thin adapters over one seam**: the Discord layer is translate + paint (zero runtime engine/controller imports, structurally enforced) and the agent-player is a protocol client | Thin adapters; + agent-player, + web later | **Closed for the two that exist**; a web adapter is a later arc, unblocked rather than built |
-| Test harnesses | `sim/` at engine level only | `sim/` (engine) + agent-player (controller, all features) | **Agent-player is net-new** |
+| Test harnesses | `sim/` at engine level + the agent-player at controller level (`src/agent/`, all features on, real LLM) | `sim/` (engine) + agent-player (controller, all features) | **Closed** — see [[agent-player-personas]] |
 
 Already banked (the reason this is a refactor, not a rewrite): the engine seam, the pure renderers, the repository layer, the `sim/engine-factory` wiring, and the JSON-serialisable action state that already round-trips through the DB.
 

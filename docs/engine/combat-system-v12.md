@@ -1,6 +1,6 @@
 ---
 title: "Combat System v12"
-status: exploring
+status: decided
 domain: engine
 phase: poc
 tags:
@@ -162,9 +162,9 @@ enemyMaxHp  = clamp(round(baseDc * scale), ENEMY_HP_MIN=6, ENEMY_HP_MAX=40)
 When the foe is a known NPC with a real `health` value, `enemyMaxHp` is seeded from that instead
 (0.3.2 C3). `scale` is the Thread B world-tier seam; currently hardcoded to 1.
 
-### Danger tier (display only, 0.3.2 C1)
+### Danger tier (the card's word, and RESOLVE's)
 
-The encounter's overall danger is worded, never shown as a per-beat threshold:
+The encounter's overall danger is worded, never shown as a per-beat threshold. The bands are anchored to v13's ladder (re-cut in #96), and the combat card renders the word beside the foe:
 
 | DC | Tier |
 | --- | --- |
@@ -173,6 +173,8 @@ The encounter's overall danger is worded, never shown as a per-beat threshold:
 | 16–19 | `hard` |
 | 20–23 | `risky` |
 | ≥ 24 | `fatal` |
+
+The tier is not display-only: the same word reaches RESOLVE as `foe danger`, so the narration and the card describe a fight's difficulty on one scale ([[resolve-difficulty-signal]]). It is the fight's tier, not the round's: the opening round authors `baseDc`, the engine pins it on the `in_combat` edge, and every CONTINUE round reads it back (#97).
 
 ## Terminal conditions
 
@@ -213,9 +215,9 @@ trade equally, the cap-derive fraction comparison punishes the player:
 
 | Scenario | DC | Player | Enemy | After 4 rounds of trade | Cap verdict |
 | --- | --- | --- | --- | --- | --- |
-| Goblin (even match) | 12 | 10 HP → 2 HP (20%) | 12 HP → 4 HP (33%) | FAILURE |
-| Wolf (hard) | 14 | 10 HP → 2 HP (20%) | 14 HP → 6 HP (43%) | FAILURE |
-| Stag (risky) | 16 | 10 HP → 2 HP (20%) | 16 HP → 8 HP (50%) | FAILURE |
+| Goblin (medium) | 12 | 10 HP → 2 HP (20%) | 12 HP → 4 HP (33%) | FAILURE |
+| Wolf (medium) | 14 | 10 HP → 2 HP (20%) | 14 HP → 6 HP (43%) | FAILURE |
+| Stag (hard) | 16 | 10 HP → 2 HP (20%) | 16 HP → 8 HP (50%) | FAILURE |
 
 The player loses the fraction comparison even when they and the enemy **deal exactly the same
 damage every round**. A fight the sim would model as fair (50/50 in an un-capped contest) becomes a

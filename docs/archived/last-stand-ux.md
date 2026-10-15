@@ -1,8 +1,9 @@
 ---
 title: Last-Stand Screen: Emoji Captions & Combat Scene Frame
-status: exploring
+status: shipped
 domain: spark
 phase: mvp+
+superseded_by: "implemented in code"
 tags:
 - ui
 - ansi
