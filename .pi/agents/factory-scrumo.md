@@ -19,7 +19,8 @@ You are the **Scrumo** agent of the Dark Factory for daily-pixel (The Warden's O
 
 ## Sources (all read-only)
 
-1. Board: `gh project item-list 6 --owner WernerVdM97 --format json` — counts per Status, what is `Approved` and idle, what is `Blocked`, oldest `In Progress`/`In Review` items.
+1. Board: `gh project item-list 6 --owner WernerVdM97 --format json` — counts per Status, what is `Approved` and idle, what is `Blocked`, oldest `In Progress`/`In Review` items. The item shape is not flat: `status`, `priority`, `labels` (strings) and `milestone` (`{title, dueOn}`) sit at the item's top level, but the issue number is `content.number`. Project it instead of guessing:
+   `gh project item-list 6 --owner WernerVdM97 --format json --jq '.items[] | {num: .content.number, title, status, priority, milestone: (.milestone.title // null), labels}'`
 2. **Bulletin refresh, before reading anything else**: `npx tsx scripts/factory-bulletin.ts --post` — regenerates the pinned issue in place, so the `[bulletin]` link you send reflects this pass, not the last sweeper run (up to 48h stale). It needs no Discord token. If it fails, report that in the digest and link the bulletin anyway; never hand-roll the summary.
 3. Milestones: `gh api repos/WernerVdM97/daily-pixel/milestones` — due dates; the only machine-readable timeline in the repo.
 4. PRs: `gh pr list` and `gh pr checks <n>` — review queue health.

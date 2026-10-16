@@ -10,6 +10,12 @@ const TYPES: OpeningActionType[] = ["combat", "travel", "social", "skill", "sear
 
 const FRAME_WIDTH = 30;
 
+/** The foe's HP line is the one whose `HP [` follows the left border and spaces alone; the PC
+ *  footer's carries the figure's art before the label, so a bare-label regex separates the two. */
+function enemyHpLines(rendered: string): string[] {
+  return stripSgr(rendered).split("\n").filter((l) => /^[│║]\s+HP \[/.test(l));
+}
+
 function richSlots(): OpeningFrameSlots {
   return {
     pcName: "Aldric",
@@ -146,7 +152,7 @@ describe("OpeningFrameRenderer", () => {
       const rendered = renderOpeningFrame("combat");
       const mono = stripSgr(rendered);
       expect(mono).toContain("Unknown foe");
-      expect(mono).toContain("?/?");
+      expect(enemyHpLines(rendered)).toEqual([]);
     });
 
     it("combat shows the real enemy name when supplied", () => {
@@ -189,19 +195,25 @@ describe("OpeningFrameRenderer", () => {
       }
     });
 
-    it("combat with no enemyCondition (fresh fight) renders byte-identical to the pre-C4 placeholder output", () => {
-      const withoutCondition = renderOpeningFrame("combat", { enemyName: "Shadow Stag" });
-      const mono = stripSgr(withoutCondition);
-      // Exactly today's placeholder vocabulary — no band leaks in when enemyCondition is absent.
-      expect(mono).toContain("?/?");
-      expect(mono).not.toContain("Battered");
-      expect(mono).not.toContain("Bloodied");
-      expect(mono).not.toContain("Critical");
+    it("combat with no enemyCondition (pre-first-step) carries no enemy HP line", () => {
+      const slots = { pcName: "Aldric", enemyName: "Shadow Stag" };
+      const rendered = renderOpeningFrame("combat", slots);
+      const mono = stripSgr(rendered);
+
+      // No `in_combat` edge yet means no condition to band — and an honest-looking `?/?` bar there
+      // promised a multi-round exchange a one-roll resolution never runs. The foe's name stays.
+      expect(mono).toContain("Shadow Stag");
+      expect(enemyHpLines(rendered)).toEqual([]);
+      // Exactly one HP read survives, the player's own footer, and the sole `?/?` belongs to it.
+      expect(mono.match(/HP \[/g)).toHaveLength(1);
+      expect(mono.match(/\?\//g)).toHaveLength(1);
+      expect(mono.split("\n").some((l) => l.includes("/|_|\\") && l.includes("HP ["))).toBe(true);
+      // Nothing from the band vocabulary leaks in when enemyCondition is absent.
+      expect(mono).not.toMatch(/Battered|Bloodied|Critical/);
       expect(mono).not.toContain("▓");
 
       // Re-rendering with the exact same slots (no enemyCondition) is deterministic/stable.
-      const again = renderOpeningFrame("combat", { enemyName: "Shadow Stag" });
-      expect(again).toBe(withoutCondition);
+      expect(renderOpeningFrame("combat", slots)).toBe(rendered);
     });
 
     it("combat shows real PC HP when both pcHp/pcMaxHp are supplied", () => {
