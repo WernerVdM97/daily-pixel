@@ -1,44 +1,47 @@
 /**
- * The RA-2 inspiration dial's reading (`Transcript.inspiration()`), built from a hand-written protocol
- * log rather than a live run: the reading exists so the dial's numbers are mechanical instead of
- * hand-derived, and the arithmetic is what this file pins. Each day below is the forced arm's shape —
- * one free-text action, then day-job work — with the outcome blocks copied from what the engine
- * renders (`OutcomeRenderer`): a rolled beat opens on the roll header, an auto-resolved one does not,
- * and a positive `modify_rolls_remaining` adds the `✨ Inspired:` line last.
+ * The RA-2 dial's reading (`Transcript.inspiration()`) and its printed form (`formatInspirationDial`).
+ * Outcomes come from the real renderer (`buildOutcomeView` → `formatOutcome`) rather than copied by hand,
+ * so re-wording the roll header or the Inspired line fails here instead of leaving `rolls` and `grants`
+ * silently at 0 on every real run.
  */
 
 import { describe, it, expect } from 'vitest';
 
-import { Transcript, QUOTABLE_ELIGIBLE_FLOOR } from '../../src/agent/transcript.js';
+import { Transcript, QUOTABLE_ELIGIBLE_FLOOR, formatInspirationDial } from '../../src/agent/transcript.js';
 import type { ProtocolDispatchEntry } from '../../src/agent/transcript.js';
+import { buildOutcomeView } from '../../src/view/actionViewState.js';
+import type { ActionOutcome } from '../../src/engine/WorldEngine.js';
 import type { GameEvent } from '../../src/protocol/events.js';
 import type { GameResponse } from '../../src/protocol/envelope.js';
 
 const USER = 'agent:test';
 
-/** An engine-rendered outcome block. Mirrors `formatOutcome`'s assembly: header line, body, changes
- *  line, stats footer. */
-function outcomeBlock(opts: { rolled?: boolean; granted?: number; dc?: number }): string {
-  const header = opts.rolled === false ? '🌟 **DONE**' : `💪 🎲 12 + 3 = **15**  vs  ${opts.dc ?? 14}  →  ✅ **SUCCESS**`;
-  const lines = [header, '', 'You get on with it.', ''];
-  if (opts.granted) {
-    lines.push(`→ The East Road  ✨ Inspired: +${opts.granted} ${opts.granted === 1 ? 'roll' : 'rolls'}`);
-  }
-  lines.push('`⚡ 9/10  ┃  🎲 2 (-1)`');
-  return lines.join('\n');
+/** One engine outcome: a rolled success, an auto-resolved `done` (`playerRolled: null`), or either with
+ *  an inspiration grant applied. */
+function actionOutcome(opts: {
+  rolled?: boolean;
+  granted?: number;
+  outcome?: ActionOutcome['outcome'];
+  outcomeText?: string;
+}): ActionOutcome {
+  const rolled = opts.rolled !== false;
+  return {
+    distilledType: 'hunt',
+    finalDc: 14,
+    playerRolled: rolled ? 16 : null,
+    ...(rolled ? { rollBonus: 3 } : {}),
+    outcome: opts.outcome ?? (rolled ? 'success' : 'done'),
+    outcomeText: opts.outcomeText ?? 'You get on with it.',
+    mutations: opts.granted ? [{ type: 'modify_rolls_remaining', amount: opts.granted }] : [],
+  };
 }
 
-function outcomeResponse(block: string, intent: 'success' | 'bailed' = 'success'): GameResponse {
+/** The outcome screen the engine builds for an outcome. */
+function outcomeResponse(outcome: ActionOutcome): GameResponse {
   return {
     v: 1,
     ok: true,
-    view: {
-      screen: 'outcome',
-      title: { emoji: '⚔️', text: 'Success' },
-      colorIntent: intent,
-      isCombat: false,
-      outcomeBlock: block,
-    },
+    view: buildOutcomeView(outcome, null, null, { rawInput: 'Scout the road', decisions: [] }),
   };
 }
 
@@ -46,8 +49,8 @@ function dispatch(seq: number, event: GameEvent, response: GameResponse): Protoc
   return { seq, kind: 'dispatch', event, response };
 }
 
-const resolved = (): GameResponse => outcomeResponse(outcomeBlock({ rolled: true }));
-const granted = (): GameResponse => outcomeResponse(outcomeBlock({ rolled: false, granted: 1 }));
+const resolved = (): GameResponse => outcomeResponse(actionOutcome({ rolled: true }));
+const granted = (): GameResponse => outcomeResponse(actionOutcome({ rolled: false, granted: 1 }));
 
 /** One day: a granted free action, two rolled day jobs, then the night. */
 function day(seq: number): ProtocolDispatchEntry[] {
@@ -55,7 +58,7 @@ function day(seq: number): ProtocolDispatchEntry[] {
     dispatch(seq, { type: 'action.custom', playerId: USER, text: 'Scout the road' }, granted()),
     dispatch(seq + 1, { type: 'dayjob.start', playerId: USER, jobIndex: 0 }, resolved()),
     dispatch(seq + 2, { type: 'dayjob.start', playerId: USER, jobIndex: 1 }, resolved()),
-    dispatch(seq + 3, { type: 'rest.begin', playerId: USER }, outcomeResponse(outcomeBlock({ rolled: true }))),
+    dispatch(seq + 3, { type: 'rest.begin', playerId: USER }, resolved()),
   ];
 }
 
@@ -89,14 +92,24 @@ describe('Transcript.inspiration — the RA-2 dial reading', () => {
     expect(transcript.freeActionsByDay()).toEqual([1, 1]);
   });
 
-  it('reads a grant off the engine\'s own named-reward line, not off the model\'s prose', () => {
-    // Prose claiming an inspiration, with no grant in the outcome: still not a grant.
-    const prose = outcomeResponse(outcomeBlock({ rolled: true }).replace('You get on with it.', 'You feel inspired by the road.'));
+  it("reads a grant off the engine's own named-reward line, not off prose that mentions one", () => {
     const transcript = transcriptWith(
-      dispatch(1, { type: 'action.custom', playerId: USER, text: 'Scout the road' }, prose),
+      dispatch(
+        1,
+        { type: 'action.custom', playerId: USER, text: 'Scout the road' },
+        outcomeResponse(actionOutcome({ rolled: true, outcomeText: 'The road lifts your spirits.' })),
+      ),
     );
 
     expect(transcript.inspiration().grants).toBe(0);
+  });
+
+  it('reads the roll header the engine renders, so a re-worded one cannot read as zero rolls', () => {
+    const transcript = transcriptWith(
+      dispatch(1, { type: 'action.custom', playerId: USER, text: 'Scout the road' }, resolved()),
+    );
+
+    expect(transcript.inspiration().rolls).toBe(1);
   });
 
   it('carries no grant through the work path, where stripWorkInspiration drops it', () => {
@@ -131,7 +144,11 @@ describe('Transcript.inspiration — the RA-2 dial reading', () => {
 
   it('leaves a bailed action and a refused one out of both denominators', () => {
     const transcript = transcriptWith(
-      dispatch(1, { type: 'action.custom', playerId: USER, text: 'Scout the road' }, outcomeResponse(outcomeBlock({ rolled: true }), 'bailed')),
+      dispatch(
+        1,
+        { type: 'action.custom', playerId: USER, text: 'Scout the road' },
+        outcomeResponse(actionOutcome({ rolled: true, outcome: 'bailed' })),
+      ),
       dispatch(2, { type: 'dayjob.start', playerId: USER, jobIndex: 0 }, {
         v: 1,
         ok: false,
@@ -144,5 +161,35 @@ describe('Transcript.inspiration — the RA-2 dial reading', () => {
 
   it('names the sample a rate needs before it can be quoted', () => {
     expect(QUOTABLE_ELIGIBLE_FLOOR).toBe(50);
+  });
+});
+
+describe('formatInspirationDial — the printed block', () => {
+  it('prints a line per played day, then both denominators and the rate', () => {
+    const block = formatInspirationDial(transcriptWith(...day(1), ...day(5)).inspiration());
+
+    expect(block).toContain('── RA-2 inspiration dial ──');
+    expect(block).toContain('day 1: 3 resolution(s), 2 rolled, 1 eligible, 1 grant(s)');
+    expect(block).toContain('day 2: 3 resolution(s), 2 rolled, 1 eligible, 1 grant(s)');
+    expect(block).toContain('total: 6 resolution(s), 4 rolled, 2 eligible (non-work), 4 work, 2 grant(s)');
+    expect(block).toContain('grant rate: 100.0% (2/2) of eligible, 33.3% (2/6) of all resolutions');
+    expect(block).toContain('rolls per played day: 2.00');
+    expect(block).toContain('NOT quotable — 2 eligible resolution(s), floor is 50');
+  });
+
+  it('calls the sample quotable once the eligible count reaches the floor', () => {
+    const days = Array.from({ length: QUOTABLE_ELIGIBLE_FLOOR }, (_, i) => day(i * 4 + 1)).flat();
+
+    const block = formatInspirationDial(transcriptWith(...days).inspiration());
+
+    expect(block).toContain('quotable');
+    expect(block).not.toContain('NOT quotable');
+  });
+
+  it('prints n/a rather than dividing by nothing on a run that played no day', () => {
+    const block = formatInspirationDial(new Transcript().inspiration());
+
+    expect(block).toContain('grant rate: n/a of eligible, n/a of all resolutions');
+    expect(block).toContain('rolls per played day: n/a');
   });
 });

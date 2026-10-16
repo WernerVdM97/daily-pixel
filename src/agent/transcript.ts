@@ -132,14 +132,13 @@ export interface TranscriptSummary {
   findings: { error: number; warning: number };
 }
 
-/** Below this many non-work resolutions a grant rate is not quotable: at n = 50 with p ~ 0.10 the
- *  95% CI half-width is ~8pp, the smallest sample that separates the ~10% RA-2 dial target from the
- *  ~29% pre-dial baseline. Report the count and the reason below it rather than a rate. */
+/** Below this many non-work resolutions a grant rate is not quotable: at n = 50 a 10% reading's 95% CI
+ *  tops out at ~18%, so the band's upper edge (~19% at 3.7 rolls/day) binds. Report count, not a rate. */
 export const QUOTABLE_ELIGIBLE_FLOOR = 50;
 
 /** One played day of the RA-2 reading. */
 export interface InspirationDay {
-  /** 1-based play order, not the world's day number (a `AGENT_SKIP_DAYS` absence breaks that match). */
+  /** 1-based play order. */
   day: number;
   resolutions: number;
   rolls: number;
@@ -147,10 +146,8 @@ export interface InspirationDay {
   grants: number;
 }
 
-/** The RA-2 inspiration dial's reading, derived from the protocol log the way `freeActions()` is, so a
- *  reader and a test read one source. Read the rate against `eligible`, never against `resolutions`: a
- *  grant can only land on a non-work action, so a run's overall rate is the eligible rate diluted by
- *  how much of its day was day-job work. */
+/** The RA-2 inspiration dial's reading, derived from the protocol log the way `freeActions()` is. Read the
+ *  rate against `eligible`: `stripWorkInspiration` drops every grant on a day-job action by design. */
 export interface InspirationReading {
   /** Actions the brain completed — the whole-run denominator. */
   resolutions: number;
@@ -159,11 +156,36 @@ export interface InspirationReading {
   rolls: number;
   /** Those on a non-work action — the denominator the dial is tuned against. */
   eligible: number;
-  /** Those on day-job work, whose grants `stripWorkInspiration` drops by design. */
+  /** The day-job share of `resolutions`. */
   work: number;
   /** Those whose outcome carried the engine's own `✨ Inspired:` named-reward line. */
   grants: number;
   byDay: InspirationDay[];
+}
+
+/** Format the RA-2 dial for the run summary: the rate against both denominators, the roll cadence and
+ *  the verdict. The forced arm's work/free mix is not the band's calibrated mix, so it prints too. */
+export function formatInspirationDial(dial: InspirationReading): string {
+  const rate = (grants: number, denominator: number): string =>
+    denominator === 0 ? 'n/a' : `${((grants / denominator) * 100).toFixed(1)}% (${grants}/${denominator})`;
+  const verdict =
+    dial.eligible >= QUOTABLE_ELIGIBLE_FLOOR
+      ? 'quotable'
+      : `NOT quotable — ${dial.eligible} eligible resolution(s), floor is ${QUOTABLE_ELIGIBLE_FLOOR}`;
+  return (
+    '\n── RA-2 inspiration dial ──\n' +
+    dial.byDay
+      .map(
+        (d) =>
+          `  day ${d.day}: ${d.resolutions} resolution(s), ${d.rolls} rolled, ${d.eligible} eligible, ${d.grants} grant(s)`,
+      )
+      .join('\n') +
+    `\n  total: ${dial.resolutions} resolution(s), ${dial.rolls} rolled, ${dial.eligible} eligible (non-work), ` +
+    `${dial.work} work, ${dial.grants} grant(s)\n` +
+    `  grant rate: ${rate(dial.grants, dial.eligible)} of eligible, ${rate(dial.grants, dial.resolutions)} of all resolutions\n` +
+    `  rolls per played day: ${dial.byDay.length === 0 ? 'n/a' : (dial.rolls / dial.byDay.length).toFixed(2)}\n` +
+    `  ${verdict}`
+  );
 }
 
 /** A minimal append-only sink. A class (not a bare array) so later slices can add derived summaries
@@ -254,7 +276,7 @@ export class Transcript {
   }
 
   /** Count the free-text (`action.custom`) actions the brain RESOLVED in this run, derived from the protocol
-   *  log so a QA reader and a test read the same number. Day-job work is excluded: its grants are stripped. */
+   *  log so a QA reader and a test read the same number. Day-job work is excluded. */
   freeActions(): number {
     return this.freeActionsByDay().reduce((total, perDay) => total + perDay, 0);
   }
@@ -288,8 +310,8 @@ export class Transcript {
     };
   }
 
-  /** The dispatch log sliced into played days, cut at each nightly `rest.begin`. A day the run stopped
-   *  inside (stalled, crashed) is the last slice, and a slice with no dispatch at all is dropped. */
+  /** The dispatch log sliced into played days, cut at each nightly `rest.begin`; a slice with no dispatch
+   *  is dropped. The index is play order, not the world's day number (`AGENT_SKIP_DAYS` breaks that match). */
   private daySlices(): ProtocolDispatchEntry[][] {
     const days: ProtocolDispatchEntry[][] = [[]];
     for (const entry of this.protocol) {
@@ -350,9 +372,8 @@ interface ResolvedAction {
   granted: boolean;
 }
 
-/** The actions that resolved in one day's dispatch slice, in order. A start dispatch (`dayjob.start` =
- *  work, `action.custom` = free text) counts when it returned an outcome itself or a later
- *  `action.choose` beat did so without bailing; recons and screens never resolve an action. */
+/** The actions that resolved in one day's slice, in order. A start dispatch (`dayjob.start` = work,
+ *  `action.custom` = free text) counts when it or a later non-bail `action.choose` beat returned an outcome. */
 function resolvedActions(slice: ProtocolDispatchEntry[]): ResolvedAction[] {
   const actions: ResolvedAction[] = [];
   for (let i = 0; i < slice.length; i++) {
@@ -386,9 +407,8 @@ const ROLL_HEADER = /^.*🎲.* {2}vs {2}\d.*$/m;
 /** The engine's named-reward line, rendered whenever a positive `modify_rolls_remaining` landed. */
 const INSPIRED_LINE = /^.*✨ Inspired: \+\d+ rolls?$/m;
 
-/** Read one resolution off the message the engine built. Both markers are engine-rendered rather than
- *  model prose, which is the only reason they may be matched at all. Null when the envelope is not a
- *  completed outcome: the bail arm resolves an action too but stamps the `bailed` colour intent. */
+/** Read one resolution off the rendered message. The markers are engine-rendered, but the haystack holds
+ *  the model's prose too, so a model line shaped like one counts; null is a non-completed outcome or a bail. */
 function readOutcome(response: GameResponse): { rolled: boolean; granted: boolean } | null {
   if (!response.ok || response.view?.screen !== 'outcome' || response.view.colorIntent === 'bailed') {
     return null;

@@ -162,7 +162,7 @@ Two things the panels still cannot measure, stated so no reader infers them from
 
 RA-2's ~10% grant rate and 3.2-3.7 rolls-per-active-day band are still unverified, and this is the measurement that says why this harness cannot settle them alone: the forced arm reaches the actions a grant can land on, but not enough of them, and it gets expensive faster than it gets convincing.
 
-One live run off `dev` on 2026-10-16, `AGENT_FORCE_FREE_ACTIONS=1`, `AGENT_START_DATE=2026-10-19T12:00:00Z`, the harness default model (`deepseek/deepseek-v4.1-flash`, reasoning `low`), no persona, one process. It was clean to the day boundary: 0 error findings, every day closed `slept`/`no-rolls`, exit 0.
+One live run off `dev` on 2026-10-16 (session `agent:play-1792123525673`), `AGENT_FORCE_FREE_ACTIONS=1`, `AGENT_START_DATE=2026-10-19T12:00:00Z`, the harness default model (`deepseek/deepseek-v4.1-flash`, reasoning `low`), no persona, one process. It was clean to the day boundary: 0 error findings, every day closed `slept`/`no-rolls`, exit 0.
 
 | Run | Played days | Resolutions | Rolled | Eligible (non-work) | Work | Grants | Rolls / played day | Tokens |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -173,7 +173,7 @@ set -a && . ./.env && set +a
 AGENT_FORCE_FREE_ACTIONS=1 AGENT_DAYS=<n> AGENT_OUT=<dir>/forced-<n>d.json npm run agent:play
 ```
 
-The numbers are the transcript's own: `Transcript.inspiration()` — the reading `agent:play` now prints at the end of every run — counts a grant off the engine's `✨ Inspired:` line and eligibility off the action kind, so neither is read from model prose. The floor was pre-registered at 50 eligible resolutions, because at n = 50 with p ~ 0.10 the 95% CI half-width is ~8pp, the smallest sample that separates the 10% target from the pre-dial ~29%; the run reaches 7, so the dial comes back **unread rather than passed**, which is the count-plus-reason RA-2's criterion 4 asks for.
+The numbers are the transcript's own: `Transcript.inspiration()` — the reader `agent:play` prints at the end of every run — counts a grant off the engine's `✨ Inspired:` line and eligibility off the action kind, so neither is read from model prose. The printed block was added after this run; the table was re-derived from the run's protocol log with the same reader. The floor was pre-registered at 50 eligible resolutions, because at n = 50 a 10% reading has a 95% CI of roughly 2-18%: it is the band's own upper edge (~19% at 3.7 rolls/day) that binds the sample size, not the ~29% pre-dial baseline. The run reaches 7, so the dial comes back **unread rather than passed**, which is the count-plus-reason RA-2's criterion 4 asks for.
 
 Three things the run did settle, and all three change the next attempt.
 
@@ -183,7 +183,7 @@ Three things the run did settle, and all three change the next attempt.
 
 Three routes that could quote the dial, cheapest first:
 
-- **Human play, read off the DB.** `actions.applied_mutations` carries each action's applied mutation list, so the grant rate is the share of rows whose mutations carry a positive `modify_rolls_remaining`, and rolls per active day is the `player_rolled IS NOT NULL` rows grouped by day: two queries on a snapshot, no new instrumentation, and the same ratio the 29% baseline came from. The snapshot in hand predates v13 by a day (121 v12 actions, 2 v13), so this needs one newer than 2026-08-02; run against the one in hand it reproduces the pre-dial baseline instead, 34/121 = 28.1% of actions.
+- **Human play, read off the DB.** `actions.applied_mutations` carries each action's applied mutation list, so the grant rate is the share of rows whose mutations carry a positive `modify_rolls_remaining`, and rolls per active day is the `player_rolled IS NOT NULL` rows grouped by day: two queries on a snapshot, no new instrumentation, and the same ratio the 29% baseline came from. The harness's own `rolls` is not that column: a combat resolution renders its contest in the combat card and carries no roll header, so the printed figure is a floor. The snapshot in hand predates v13 by a day (121 v12 actions, 2 v13), so this needs one newer than 2026-08-02; run against the one in hand it reproduces the pre-dial baseline instead, 34/121 = 28.1% of actions.
 - **A ~29-day forced arm**, by hand, outside the stage budget: the reading above at ~4M tokens and ~1.5 hours.
 - **Force every action rather than one a day.** Withholding the day-job menu for the whole day instead of until the day's debt is paid would reach 3+ eligible resolutions per day and the floor in ~17 days. It is a harness behaviour change rather than a measurement, so it is not made here.
 
