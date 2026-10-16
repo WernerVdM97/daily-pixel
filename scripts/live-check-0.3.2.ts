@@ -221,7 +221,7 @@ function openingCombatReentry(): string {
   );
 }
 
-/** C4: fresh combat, no prior damage — "Unknown foe" placeholder + ?/? bar. */
+/** C4: fresh combat, no prior damage — "Unknown foe" nameplate, no enemy HP line. */
 function openingCombatFresh(): string {
   return renderOpeningFrame(
     "combat",

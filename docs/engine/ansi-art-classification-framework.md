@@ -88,7 +88,7 @@ Not a single register but a **family**: the opening frame (§2c) is rendered in 
 
 | Type | Register used | Scene slot | Reply body carries |
 |---|---|---|---|
-| `combat` | COMBAT_FRAME (opener variant) | foe nameplate + full HP + enemy sprite; player footer | encounter narration + options |
+| `combat` | COMBAT_FRAME (opener variant) | foe nameplate + enemy sprite; player footer (the foe's banded HP line renders on re-entry only) | encounter narration + options |
 | `travel` | SCENE (route strip) | origin → winding path → rumoured destination, PC at start | destination + travel cost, or first fork |
 | `social` | DIALOGUE_MODAL (bust) | NPC bust behind dash-dot rim + crest | the NPC's actual speech + response options |
 | `skill` | SCENE (focus placeholder) | PC at a task rig (placeholder until a skill-specific frag exists) | the attempt + stat/DC framing |
