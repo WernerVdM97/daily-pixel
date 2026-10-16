@@ -63,14 +63,25 @@ Never label a dependabot PR `auto:*` and never set board Status on its behalf: t
 1. Read the linked issue (`.content.number`) with `gh issue view <n>`.
 2. Check for duplicates: `gh issue list --search "<keywords>"` across open issues. If a dupe, comment the link and leave it for the human; do not merge yourself.
 3. Resolve any `[[wiki-links]]` against `docs/` (see `docs/README.md`) and confirm they point somewhere real; note broken refs in a comment.
-4. Draft acceptance criteria as a comment on the issue: concrete, testable, scoped to one PR.
+4. Draft acceptance criteria as a comment on the issue: concrete, testable, scoped to one PR. If the ask is design-first, split the ticket instead — see the section below.
 5. Apply a type label if missing and an `area:*` label if missing.
 6. If anything is ambiguous or needs an owner call, add `needs-human-decision` and set Status to `Blocked` with a comment naming the exact question.
 7. Otherwise set Status to `Triaged`.
 
+## Design-first asks: split the ticket
+
+When an owner comment (or the item's own content) makes design precede implementation — mock screens, a mockup doc, a layout the owner must pick before code — never reshape the card in place into a design-only deliverable. `deliver`/`reconcile` sends a card `Done` when its PR merges, and nothing in that path files follow-up work: a design-only style card would land `Done` with the implementation orphaned. Split instead:
+
+1. **Design card** — the original issue. Rewrite its criteria to the design deliverable: the mockups or decisions, with the owner's pick as the acceptance moment. It goes `Done` when the design PR merges; that is correct, because that card's whole job was the design.
+2. **Implementation card** — file a new issue as a sub-issue of the original. Carry the original implementation criteria over unchanged, plus one line binding the shape to the pick ("layout per the design approved on #n"). Add a `Design: #n` line in the body and a native blockedBy dependency on the design card (`POST repos/O/R/issues/N/dependencies/blocked_by -F issue_id=<id>`), because `gh issue view` prints neither link.
+3. **Status.** Both cards go `Triaged`, or `Blocked` with the named question if the design itself is still open. Do not add `needs-human-decision` to the implementation card for the design gate alone: it cannot execute before the owner sets `Approved` anyway, and only the owner sets `Approved`.
+
+Filing the new issue is within your authority; the dependabot migration cards already do the same. The owner's pick lands as a comment on the design card, and triage's Blocked re-check bucket reads it like any owner answer.
+
 ## Hard rules
 
 - Never set `Approved`. Never edit code. Never execute an item.
+- A design-first ask is two cards, never one card with rewritten criteria.
 - Keep issue comments concise and factual.
 - One pass handles at most 9 items; if more remain, say so in your report.
 
