@@ -158,6 +158,37 @@ Two things the panels still cannot measure, stated so no reader infers them from
 
 ---
 
+## The RA-2 dial's sample (2026-10-16)
+
+RA-2's ~10% grant rate and 3.2-3.7 rolls-per-active-day band are still unverified, and this is the measurement that says why this harness cannot settle them alone: the forced arm reaches the actions a grant can land on, but not enough of them, and it gets expensive faster than it gets convincing.
+
+One live run off `dev` on 2026-10-16 (session `agent:play-1792123525673`), `AGENT_FORCE_FREE_ACTIONS=1`, `AGENT_START_DATE=2026-10-19T12:00:00Z`, the harness default model (`deepseek/deepseek-v4.1-flash`, reasoning `low`), no persona, one process. It was clean to the day boundary: 0 error findings, every day closed `slept`/`no-rolls`, exit 0.
+
+| Run | Played days | Resolutions | Rolled | Eligible (non-work) | Work | Grants | Rolls / played day | Tokens |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4-day | 4 | 10 | 8 | 7 | 3 | 0 | 2.00 | 569k |
+
+```sh
+set -a && . ./.env && set +a
+AGENT_FORCE_FREE_ACTIONS=1 AGENT_DAYS=<n> AGENT_OUT=<dir>/forced-<n>d.json npm run agent:play
+```
+
+The numbers are the transcript's own: `Transcript.inspiration()` — the reader `agent:play` prints at the end of every run — counts a grant off the engine's `✨ Inspired:` line and eligibility off the action kind, so neither is read from model prose. The printed block was added after this run; the table was re-derived from the run's protocol log with the same reader. The floor was pre-registered at 50 eligible resolutions, because at n = 50 a 10% reading has a 95% CI of roughly 2-18%: it is the band's own upper edge (~19% at 3.7 rolls/day) that binds the sample size, not the ~29% pre-dial baseline. The run reaches 7, so the dial comes back **unread rather than passed**, which is the count-plus-reason RA-2's criterion 4 asks for.
+
+Three things the run did settle, and all three change the next attempt.
+
+- **The brain spends more free text than the switch forces.** The debt is one action per day, yet 7 of the run's 10 resolutions were non-work, i.e. 1.75 eligible per played day rather than the 1.0 a work-dominated reading predicts. The floor is therefore ~29 played days (~4M tokens at the measured 142k per run-day, well over an hour of wall clock) — out of reach for a factory build stage's 50 minutes, not for a hand-run panel.
+- **The rolls-per-day figure reads 2.00, under the band's 3.2-3.7, and it is not comparable.** The band was calibrated on human play, and this arm is 70% free text with a forcing switch on, so the cadence it produces is its own; the instrument prints the work/free mix beside the rate for exactly that reason, because a pass on the rate alone would not be a pass (criterion 3).
+- **The reading has to come with its sample.** A run this shape produces a grant rate whether or not it can support one, and the 4-day arm's is 0/7 — indistinguishable from the structural zero the RA-2 residual was filed for. Hence the floor and the verdict printed beside the number.
+
+Three routes that could quote the dial, cheapest first:
+
+- **Human play, read off the DB.** `actions.applied_mutations` carries each action's applied mutation list, so the grant rate is the share of rows whose mutations carry a positive `modify_rolls_remaining`, and rolls per active day is the `player_rolled IS NOT NULL` rows grouped by day: two queries on a snapshot, no new instrumentation, and the same ratio the 29% baseline came from. The harness's own `rolls` is not that column: a combat resolution renders its contest in the combat card and carries no roll header, so the printed figure is a floor. The snapshot in hand predates v13 by a day (121 v12 actions, 2 v13), so this needs one newer than 2026-08-02; run against the one in hand it reproduces the pre-dial baseline instead, 34/121 = 28.1% of actions.
+- **A ~29-day forced arm**, by hand, outside the stage budget: the reading above at ~4M tokens and ~1.5 hours.
+- **Force every action rather than one a day.** Withholding the day-job menu for the whole day instead of until the day's debt is paid would reach 3+ eligible resolutions per day and the floor in ~17 days. It is a harness behaviour change rather than a measurement, so it is not made here.
+
+---
+
 ## Why now
 
 Two structural gaps cap what the harness can tell us today, and neither is a prompt problem.
@@ -169,6 +200,8 @@ Two structural gaps cap what the harness can tell us today, and neither is a pro
 - [I] The repo already has the scar: the pre-persona finding that the realism arm did not fix move variety, where the a/b brains still funnelled into `menu-pick 0` — superseded, because the panel has since produced the reading it asked for (a verb histogram that differs by persona). Personas layered onto today's surface produce _flavoured funnel_, not new behaviour. Widening the information and move surfaces is the actual level-up; the persona prompt is what makes the widened surface pay off.
 
 - [I] **Second-order win: the RA-2 dial becomes observable.** `stripWorkInspiration` strips inspiration from `kind: 'work'` actions by design, so a work-dominated run measures a structural 0% and the harness "structurally cannot check" RA-2. Explorer, Socialite and Storyteller personas reach for the free-text `custom` slot by character, and those are exactly the non-work actions inspiration can land on. A panel is the first realistic route to a measured grant rate.
+
+- [!] **Measured 2026-10-16: that route reaches the right actions, not a quotable rate.** The sample size is the whole question — a run reports a grant rate whether or not it can support one — and at ~1.75 eligible resolutions per played day the floor is ~29 days of play either way. See § The RA-2 dial's sample.
 
 ---
 

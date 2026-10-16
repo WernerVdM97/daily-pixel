@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
+import { formatInspirationDial } from './transcript.js';
 import { parseReasoningEffort } from './harnessEnv.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
@@ -240,14 +241,14 @@ async function main(): Promise<void> {
         );
       });
       const run = harness.transcript.summary();
-      // The recorded dispatch stream's free (non-work) actions: the denominator an inspiration grant
-      // rate is read against, and the reason AGENT_FORCE_FREE_ACTIONS exists.
+      // Criterion 3 reads the free-action count, so it stays in the run summary.
       const freeActions = harness.transcript.freeActions();
       console.error(
         `\n── run summary ──\n  ${run.turns} turns, ${run.outcomes} outcomes, ${run.deadEnds} dead-ends, ` +
           `${run.commutes} commutes, ${run.dayBoundaries} nights, ${freeActions} free action(s)\n  ` +
           `findings: ${run.findings.error} error(s), ${run.findings.warning} warning(s)`,
       );
+      console.error(formatInspirationDial(harness.transcript.inspiration()));
     }
 
     // A stale/missing AGENT_USER_ID plays zero turns and would otherwise exit 0 like a success; the
