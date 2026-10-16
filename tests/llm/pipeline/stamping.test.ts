@@ -70,7 +70,7 @@ describe('callKindForPipelineStage', () => {
 // proven at this stage is that PROMPT_SET_VERSION is the single, correct source of truth a
 // future real wiring would stamp `actions.prompt_version` with — currently the active set.
 describe("PROMPT_SET_VERSION (narrowed 'actions.prompt_version carries the set' acceptance)", () => {
-  it("is 'v13'", () => {
-    expect(PROMPT_SET_VERSION).toBe('v13');
+  it("is 'v14'", () => {
+    expect(PROMPT_SET_VERSION).toBe('v14');
   });
 });

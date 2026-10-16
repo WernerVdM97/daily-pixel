@@ -166,7 +166,8 @@ daily-pixel/
 │   │   ├── decision-prompts/       # Versioned decision prompts (…, v11 monolith) + current_source/ + frozen phase-split sets
 │   │   │   ├── current_source/     # Live working set (classify.md, decide/, resolve/)
 │   │   │   ├── v12/                # Frozen v12 set - classify.md, decide/ (BASE + phases/ + per-type), resolve/ (per-type-per-verdict)
-│   │   │   └── v13/                # Frozen v13 set - same shape
+│   │   │   ├── v13/                # Frozen v13 set - same shape
+│   │   │   └── v14/                # Frozen v14 set - same shape
 │   │   ├── critic/                 # Coherence critic prompts
 │   │   ├── agent-player/           # AI-player brain prompts
 │   │   ├── agent-critic/           # AI-player playtest critic prompts

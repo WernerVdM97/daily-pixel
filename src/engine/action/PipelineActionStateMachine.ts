@@ -21,6 +21,7 @@ import type {
   CombatStatusData,
 } from '../WorldEngine.js';
 import { accumulateDc, abilityCheckBonus, resolveRoll, validateDcModifier } from './dc.js';
+import { favouredOptionIndex, passiveInsight } from './favoured.js';
 import { MAX_DECISIONS_PER_ACTION } from '../../llm/prompt-builder.js';
 import { buildPipelineContext, type PipelineContextResolver } from './pipeline-context.js';
 import type { MutationContext } from './mutations.js';
@@ -296,10 +297,17 @@ export class PipelineActionStateMachine {
     char: CharacterData,
     items: ItemData[],
   ): Promise<PipelineStepResult> {
-    const option = state.pendingDecision.options.find(o => o.label === choice);
+    const options = state.pendingDecision.options;
+    const option = options.find(o => o.label === choice);
     if (!option) {
       throw new Error(`Invalid choice: "${choice}"`);
     }
+
+    // Bailing resolves without a handoff, so it carries no flag.
+    const favoured =
+      favouredOptionIndex(options, state.accumulatedDc, passiveInsight(char.stats.wisdom))
+        === options.indexOf(option);
+    const chosenOption: ActionOption = favoured ? { ...option, favoured: true } : option;
 
     // Bail
     if (option.dcModifier === null) {
@@ -349,14 +357,14 @@ export class PipelineActionStateMachine {
     // Reactive combat actions short-circuit the generic beat-cap/decide/resolve flow;
     // `handleCombatStep` owns everything about the round from here.
     if (state.actionType === 'combat' && state.required) {
-      return this.handleCombatStep(stateWithStat, char, items, newDc, newDecisions, option);
+      return this.handleCombatStep(stateWithStat, char, items, newDc, newDecisions, chosenOption);
     }
 
     // Beat cap: `PipelineDecideResult` has no `done` flag, so this cap plus the zero-real-options
     // check below are the ONLY resolve-trigger signals available here.
     const isLastDecision = state.decisions.length >= MAX_DECISIONS_PER_ACTION - 1;
     if (isLastDecision) {
-      return this.resolve(stateWithStat, char, items, newDc, newDecisions, option);
+      return this.resolve(stateWithStat, char, items, newDc, newDecisions, chosenOption);
     }
 
     const context = buildPipelineContext(this.resolver, char, state.rawInput, recordToPrev(newDecisions), items);
@@ -383,7 +391,7 @@ export class PipelineActionStateMachine {
           ? { llmCallIds: [...(stateWithStat.llmCallIds ?? []), ...beatCallIds] }
           : {}),
       };
-      return this.resolve(stateForResolve, char, items, newDc, newDecisions, option);
+      return this.resolve(stateForResolve, char, items, newDc, newDecisions, chosenOption);
     }
 
     const nextDecision = toActionDecision(decideResult, state.required);

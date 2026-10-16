@@ -75,6 +75,8 @@ export interface ActionOption {
   dcModifier: number | null; // signed -5..+5; null = bail
   /** Per-option override of the roll stat; absent = inherit the action's top-level stat. */
   stat?: string;
+  /** Never authored, never persisted: engine-set on the handoff copy only. */
+  favoured?: boolean;
 }
 
 /** Selects which pending-decision option a player clicked, for `resolvePendingChoice` — 'option'

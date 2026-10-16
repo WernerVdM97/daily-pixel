@@ -74,7 +74,12 @@ export function buildResolveUserMessage(
   out.push(`- prompt: ${decisionPrompt ?? reconstructDecisionPrompt(decision.distilledType)}`);
   out.push(`- chosen: ${chosenOption.label}`);
   out.push(`- stat: ${chosenOption.stat ?? decision.stat}`);
-  // Bare structured token: the v13 recipe (stage 4), not this code, is where "what a spare
+  // Only ever present, never `false`: an unflagged choice renders byte-identically to every
+  // resolution scripted before the flag existed.
+  if (chosenOption.favoured) {
+    out.push('- favoured: true');
+  }
+  // Bare structured token: the resolve recipe, not this code, is where "what a spare
   // means" gets explained in prose.
   if (fatalBlow) {
     out.push(`- fatal blow: ${fatalBlow}`);
