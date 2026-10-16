@@ -289,7 +289,7 @@ One end-of-run review is lossy, and for a long-horizon game it is also the wrong
 
 The panel ranks friction by projected exposure over a campaign, not by raw count. This is the single most important measurement difference between testing a session-based game and testing this one.
 
-The baseline gives the rule a worked example. Its second finding is that bail dice read inconsistently: `🎲 1 (refunded)` on one bail and `🎲 0 (-1)` on the next for the same "Step back" move, flagged by three of four critics (#153). That is `periodic` friction at worst for most players, and untagged it would rank alongside trivia. For the **Soldier**, who fights and therefore bails as a habit, it is `ritual`, and it outranks almost anything else in the run. Same defect, different weight, decided by the persona. That is the instrument working.
+The baseline gives the rule a worked example. Its second finding is that bail dice read inconsistently: `🎲 1 (refunded)` on one bail and `🎲 0 (-1)` on the next for the same "Step back" move, flagged by three of four critics (#153, since fixed: a refunded bail now adds "free step-back"). That is `periodic` friction at worst for most players, and untagged it would rank alongside trivia. For the **Soldier**, who fights and therefore bails as a habit, it is `ritual`, and it outranks almost anything else in the run. Same defect, different weight, decided by the persona. That is the instrument working.
 
 The per-day rating pair also gives the panel its headline artefact: an **engagement and fulfilment series across days**. A run where engagement holds at 4 while fulfilment slides 4 → 2 has found something a single number cannot express, and it is the shape that predicts churn.
 

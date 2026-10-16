@@ -21,13 +21,13 @@ related:
   - "[[mutation-vocabulary-refinement]]"
   - "[[prompt-v9-markdown-and-critic]]"
 ---
-_The framework view of the action engine: a fixed classify → decide → dice → resolve spine with data-driven registries (ActionTypes, Mutations, DMAs) around it, and the three ownership zones (dice / engine / LLM) drawn so every seam is explicit. Formalizes structures that already exist in code (`CATEGORY_MUTATION_MAP`, the post-authoring mutation-adjustment pipeline) so future updates — more DMAs, mutations, action types, item interaction — plug in without touching the spine._
+_The framework view of the action engine: a fixed classify → decide → dice → resolve spine with data-driven registries (ActionTypes, Mutations, DMAs) around it, and the three ownership zones (dice / engine / LLM) drawn so every seam is explicit. Formalizes structures that already exist in code (`CATEGORY_MUTATION_MAP`, the post-authoring mutation-adjustment pipeline) so future updates — more DMAs, mutations, action types, item interaction — plug in without touching the spine. v12 ([[prompt-separation-of-concerns]]) built the spine this describes: `PipelineActionStateMachine` runs the Classify / Decide / Resolve split._
 
 ---
 
 # Action Engine Framework
 
-The engine that turns a player's custom action into a resolved outcome. This doc is the **scaling contract**: the resolution spine is fixed; everything that grows — action types, the mutation vocabulary, the LLM stages — is a **registry entry**, not a spine edit. It is grounded in the current code (`src/engine/action/`, `src/llm/`) and points at where v12 ([[prompt-separation-of-concerns]]) extends it.
+The engine that turns a player's custom action into a resolved outcome. This doc is the **scaling contract**: the resolution spine is fixed; everything that grows (action types, the mutation vocabulary, the LLM stages) is a **registry entry**, not a spine edit. It is grounded in the code (`src/engine/action/`, `src/llm/`).
 
 The core principle, shared with the game thesis: **dice rule the uncertain, the engine owns what players would feel cheated by if it drifted, the LLM dresses it.** Immersion is the seams between those three not showing. The diagrams below exist to make every seam visible so we can defend it.
 
@@ -35,9 +35,9 @@ The core principle, shared with the game thesis: **dice rule the uncertain, the 
 
 One term per concept — the code currently carries three overlapping classification fields, which the framework collapses:
 
-- [>] **`ActionType`** — the single closed routing key: `combat · travel · social · skill · search · rest · other`. Promotes today's optional `category` enum (`LlmGateway.ts:48`) to canonical, and **retires the free-form `distilledType`** (`LlmGateway.ts:52`) — the classifier becomes the source of truth for type. (`distilledType` is used for story-threading today, so removal is a tracked migration, not a rename.)
+- [>] **`ActionType`** — the single closed routing key: `combat · travel · social · skill · search · rest · other`, the canonical `ActionCategory` union in `src/llm/LlmGateway.ts` and the machine's key at `src/llm/pipeline/types.ts`. The classifier becomes the source of truth for type, and the free-form `distilledType` is demoted rather than gone: it is still read for story-threading, so its retirement is a tracked migration ([[prompt-v13-roadmap]]).
 - [I] **`ResolutionMode`** — *how* a type resolves, orthogonal to *what* it is: `buttonsRoll · freetextJudged · rolllessSolve`. Combat and skill are different ActionTypes sharing `buttonsRoll`.
-- [I] **`ActionKind`** — `work · quest` narrative label (`WorldEngine.ts:66`). Unchanged, orthogonal to ActionType.
+- [I] **`ActionKind`** — `work · quest` narrative label (`WorldEngine.ts`). Unchanged, orthogonal to ActionType.
 - [I] **DMA (DM Agent)** — one LLM call-site with a typed contract: Classify, Decide, Resolve, Critic.
 - [I] **Mutation** — a typed, whitelisted state-delta the LLM *proposes* and the engine *applies*.
 
@@ -46,7 +46,7 @@ One term per concept — the code currently carries three overlapping classifica
 Every box in every diagram below belongs to exactly one zone; every arrow that crosses a zone is a **seam**.
 
 - 🎲 **Stochastic (dice)** — the RNG for what *should* be uncertain: `d20`, the contested enemy d20 (combat), the severity band.
-- ⚙️ **Deterministic (engine)** — the roll math (`resolveRoll`, `dc.ts:66`), DC accumulation + clamp (`dc.ts:12`), and the **post-authoring mutation-adjustment pipeline** (collapse → outcome-filter → validate/clamp → write, `mutations.ts:70`, `machine.ts:562`) that produces `final_mutations`. Plus the scene-state truth.
+- ⚙️ **Deterministic (engine)** — the roll math (`resolveRoll` in `src/engine/action/dc.ts`), DC accumulation + clamp (`accumulateDc`, same file), and the **post-authoring mutation-adjustment pipeline** (collapse → outcome-filter → validate/clamp → write, `src/engine/action/mutations.ts`) that produces `final_mutations`. Plus the scene-state truth.
 - 🗣️ **Generative (LLM / DMAs)** — non-deterministic but *not random*: classification, option authoring, free-text judgment, narration. Owns only soft texture.
 
 ## Diagram 1 — the resolution pipeline (seams marked)
@@ -93,12 +93,12 @@ flowchart TD
   SS -.->|reads| C4
 ```
 
-- [p] **Roll-first** (`machine.ts:295` invariant): the dice decide the verdict, *then* the Resolve DMA narrates to match — the critic can only patch prose, never the outcome.
+- [p] **Roll-first** (an invariant `PipelineActionStateMachine` pins): the dice decide the verdict, *then* the Resolve DMA narrates to match — the critic can only patch prose, never the outcome.
 - [!] The engine's `E3→E4→E5` chain rewrites the LLM's proposed mutations *after* authoring (collapse caps stacked damage at −5 stamina / −4 health; failure strips `add_item`/`cross_frontier`/`reveal_location` and keeps costs; the day-job wage is paid win-or-lose, at half when the shift failed). This is why `outcome_text` drifts — it is authored against the pre-adjustment set. **The Resolve/Critic seam must carry `final_mutations`.**
 
 ## Diagram 2 — an ActionType is a registry entry
 
-Adding an action type is **one registration**, not a spine change. The `allowedMutations` field already exists in code as `CATEGORY_MUTATION_MAP` (`WorldEngineImpl.ts`) — this formalizes it and adds the missing fields (template, resolution mode, scene-state schema, classifier hint).
+Adding an action type is **one registration**, not a spine change. The `allowedMutations` field already exists in code as `CATEGORY_MUTATION_MAP` (`src/engine/geography-finalize.ts`) — this formalizes it and adds the missing fields (template, resolution mode, scene-state schema, classifier hint).
 
 ```mermaid
 classDiagram
@@ -139,7 +139,7 @@ The seven current entries, with `allowedMutations` quoted exactly from `CATEGORY
 
 ## Diagram 3 — the mutation vocabulary, grouped by target entity
 
-Fifteen ops today, grouped by *what they touch*. Every op is **LLM-proposed, engine-disposed** — the LLM emits a typed delta; the engine validates against the whitelist (`mutations.ts:41`), clamps numerics, and writes. The LLM never emits SQL. Grouping by entity is what makes the extension seam obvious: **item interaction is already a live group** (`add_item`/`remove_item`), so the future verbs (dashed) extend it without new machinery.
+Fifteen ops today, grouped by *what they touch*. Every op is **LLM-proposed, engine-disposed** — the LLM emits a typed delta; the engine validates against the whitelist (`validateMutations`, `src/engine/action/mutations.ts`), clamps numerics, and writes. The LLM never emits SQL. Grouping by entity is what makes the extension seam obvious: **item interaction is already a live group** (`add_item`/`remove_item`), so the future verbs (dashed) extend it without new machinery.
 
 ```mermaid
 flowchart LR
@@ -172,8 +172,8 @@ flowchart LR
   classDef future stroke-dasharray:5 5,opacity:0.55
 ```
 
-- [p] **Failure-filter is deterministic and central** (`applyOutcomeToMutations`, `machine.ts:562`): on failure, beneficial ops (`add_item`, `cross_frontier`, `reveal_location`) are stripped, costs kept, a −2 stamina penalty added.
-- [>] **v12 extends the vocabulary to be edge-shaped** (`set_relation` / `update_relation`, [[prompt-v12-scene-state]]) so combat/conversation/puzzle state lives on graph edges — same proposed→disposed rule, new op shape.
+- [p] **Failure-filter is deterministic and central** (`applyOutcomeToMutations`, `src/engine/action/machine.ts`): on failure, beneficial ops (`add_item`, `cross_frontier`, `reveal_location`) are stripped, costs kept, a −2 stamina penalty added.
+- [>] **v12 extends the vocabulary to be edge-shaped** (`set_relation` / `update_relation`, [[prompt-v12-scene-state]]) so combat/conversation/puzzle state lives on graph edges — same proposed→disposed rule, new op shape. The ops are in `src/engine/action/relation-wiring.ts` today.
 
 ## Diagram 4 — the scene-state graph shape
 
@@ -198,7 +198,7 @@ Deterministic-first: anything checkable without semantic judgment is a ⚙️ va
 | Validator | Owns | Reject / Warn |
 | --------- | ---- | ------------- |
 | Shape guard | empty `decision[]` + `mutations[]`, empty turns | reject |
-| Mutation shape + bounds + whitelist (`mutations.ts:97`) | malformed / out-of-range deltas | reject (drop) |
+| Mutation shape + bounds + whitelist (`validateMutations`, `src/engine/action/mutations.ts`) | malformed / out-of-range deltas | reject (drop) |
 | Handle resolution | `update_npc` / `remove_npc` handle → real id | reject / warn |
 | DC / stat bounds (`validateDecision`) | `baseDc`, `dcModifier` ∈ [−5,+5], valid ability | reject / clamp |
 | ActionType ↔ mutation fit (`CATEGORY_MUTATION_MAP`) | off-pattern mutation for the type | **warn + log** — descriptive & tunable, not a straitjacket |
@@ -223,14 +223,12 @@ The framework scales because each axis is additive:
 - [I] **Add a DMA** → a new node on the spine (Diagram 1) with a typed handoff contract. The v9 critic proved an extra stage is affordable.
 - [>] **Item interaction (worked example)** → new mutation ops `equip_item` / `consume_item` / `transfer_item` in the existing `INV` group; optionally a `use_item` ActionType with `ResolutionMode: buttonsRoll`; a `PC ──has──▶ Item` edge in scene-state. All additive — the spine, the roll math, and the zones are untouched. This is the test the framework must keep passing.
 
-## Current vs target
+## What v12 made of it
 
-- [>] **Today:** DMAs are a decorator stack — `Critic ∘ Fallback ∘ Deepseek` (critic outermost, wrapping the fallback/retry layer, wrapping the base gateway) — and the `DeepseekLlmGateway` class alone plays four roles (decide, cartographer, recap, critic). One `decide()` call does classify + author + (on resolve) mutate + narrate.
-- [>] **Target (v12):** split `decide` into distinct **Classify / Decide / Resolve** DMAs with structured handoffs (Diagram 1), each carrying only its ActionType's rule slice. The decorator stack (fallback, critic) stays as cross-cutting wrappers.
+- [p] **The target arrived.** `decide` was split into the **Classify / Decide / Resolve** DMAs with structured handoffs (Diagram 1), each carrying only its ActionType's rule slice, and the decorator stack survives as the cross-cutting wrappers around them (`FallbackLlmGateway`, `CritiquedLlmGateway`, with `LlmCallRecorder` as its sink). One `decide()` call no longer does classify + author + mutate + narrate; `src/llm/pipeline/` runs the stages, and `src/llm/pipeline/classifier.ts` is the heuristic half of Classify with the LLM as fallback.
+- [p] **The registries are where this doc put them.** `CATEGORY_MUTATION_MAP` lives in `src/engine/geography-finalize.ts`, the mutation vocabulary in `src/engine/action/mutations.ts`, and the spine in `PipelineActionStateMachine`.
 
 ## Open questions
 
-- [?] Is the Classify DMA an LLM call or a heuristic (verb/keyword) with an LLM fallback? (See [[prompt-v12-pipeline]].)
-- [?] How does the spine map onto the existing PHASE model (`NEW_ACTION` / `CONTINUE` / `RESOLVE_ROLL`, `prompt-builder.ts:104`)?
 - [?] Scene-state storage: typed structure in SQLite now, real graph backend at MVP ([[mvp-data-model]]) — where's the seam drawn?
-- [!] The `distilledType → ActionType` migration touches story-threading; scope it before removing the field.
+- [!] Two v12 carry-overs, both tracked in [[prompt-v13-roadmap]]: promote `CATEGORY_MUTATION_MAP` / `allowedMutations` from warn-only to enforced, and finish the `distilledType → ActionType` migration, which touches story-threading.

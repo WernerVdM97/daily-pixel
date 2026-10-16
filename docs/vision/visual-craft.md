@@ -59,42 +59,40 @@ Distilled from the live-tested findings in [[mvp+ansi-art]] and the `ansi-frames
 
 ## Worked example — the combat frames
 
-The first application of the creed, redesigned for `0.3.1` ([[poc-plus-0.3.1-polish-plan]] ANSI-D). A colour preview rendered exactly as Discord draws it (desktop colour beside mobile monochrome) lives in the design artifact: <https://claude.ai/code/artifact/fded3d8c-e34b-411b-81ef-5a6840005ef1>. The monochrome frames below are the durable asset; the colour-role mapping follows each.
+The first application of the creed, redesigned for `0.3.1` ([[poc-plus-0.3.1-polish-plan]] ANSI-D). A colour preview rendered exactly as Discord draws it (desktop colour beside mobile monochrome) lives in the design artifact: <https://claude.ai/code/artifact/fded3d8c-e34b-411b-81ef-5a6840005ef1>. The monochrome frames below are the durable asset; the colour-role mapping follows each. **Revised since:** the nameplate, condition band and both HP reads moved up onto the frame that now leads every decision screen, so the continue card is the round ledger alone; the two cards below are the shipped shape, and the border-ladder examples further down are kept as the `0.3.1` cut of the same creed.
 
 ### The roll readout
 
-Perception fix: drop the `d20` label (it named the die, not the drama), float the calc left and **box the DC** on the right so the number the roll is measured against is the emphasised anchor, and colour the margin and band by favourability. Clarity fix: the sign and the band word carry good/bad in monochrome, so the meaning survives the colour strip.
+Perception fix: drop the `d20` label (it named the die, not the drama), float the calc left and put the contested read against it on the right, so the number the roll is measured against is the emphasised anchor, and colour the margin and band by favourability. Clarity fix: the sign and the band word carry good/bad in monochrome, so the meaning survives the colour strip.
 
-Between-decision continue frame (standard border):
+Between-decision continue frame (standard border), the round ledger alone:
 
 ```
 ┌────────────────────────────┐
-│  GLOOMFANG                 │
-│  HP [▓▓▓░░░░░]    BRUISED  │
-│  YOU                       │
-│  HP [██████████░░]  18/24  │
-├────────────────────────────┤
-│  14 +3 = 17       [DC 15]  │
-│  hit +2 margin      TRADE  │
+│  14          vs 11 +4 = 15 │
+│  +3 = 17                   │
+│  hit +2 margin       TRADE │
+│  you -5             foe -6 │
 └────────────────────────────┘
 ```
 
-Colour: enemy name + banded condition `threat` red; player HP fill `life` green (`threat` below ~40%); the total `= 17` bold white `emphasis`; `[DC 15]` gold `warmth`, boxed; margin sign `life`/`threat` by sign; band word by favourability (CLEAN/GLANCED green, TRADE gold, HEAVY red).
+Colour: the player's d20 `warmth` gold, the enemy's contested total `threat` red; the margin sign `life`/`threat` by sign; the band word by favourability (CLEAN/GLANCED green, TRADE gold, HEAVY red); the player's HP delta `threat` unless it is zero, the foe's always `life`. Everything else quiet.
 
-Fight-over terminal card — a pure data card, no nameplate or HP bars (those duplicate the outcome embed's own stats line):
+Fight-over terminal card — a pure data card, no nameplate or HP bars (those duplicate the outcome embed's own stats line). The deciding round's own dice stay, and the flavour line lives in the embed:
 
 ```
 ┌────────────────────────────┐        ┌────────────────────────────┐
 │  COMBAT WON                │        │  COMBAT LOST               │
 │                            │        │                            │
-│  16               [DC 15]  │        │  6                [DC 15]  │
-│  16 +4 = 20                │        │  6 +3 = 9                  │
-│  + WIN          margin +5  │        │  x LOSS         margin -8  │
-│  The GLOOMFANG collapses.  │        │  You stagger and fall.     │
+│  16            vs 6 +3 = 9 │        │  6           vs 11 +3 = 14 │
+│  +4 = 20                   │        │  +3 = 9                    │
+│  + WIN           margin +5 │        │  x LOSS          margin -8 │
+│  clean                     │        │  heavy                     │
+│  you 0             foe -12 │        │  you -6             foe -2 │
 └────────────────────────────┘        └────────────────────────────┘
 ```
 
-Colour: focal roll `warmth` gold, bold; `+ WIN` / `x LOSS` line `life` / `threat`; everything else quiet (label, calc, flavour plain). The `+`/`x` marker and the WIN/LOST word are the mobile-safe carriers.
+Colour: focal roll `warmth` gold, the label plain; `+ WIN` / `x LOSS` `life` / `threat`; the band word by its band colour; margin plain; the player's HP delta `threat` unless zero, the foe's `life`. The `+`/`x` marker and the WIN/LOST word are the mobile-safe carriers.
 
 ### The border ladder — intensity & rarity
 

@@ -84,6 +84,8 @@ Shared design principle adopted across all three: **a roll is the price of a res
 
 **Acceptance.** A resolved `set_location` to a novel name → a `locations` row exists immediately (player renders, `/hi` and day-work gating work) → within seconds the row has an LLM `is_safe` + description and `enrichment_pending` cleared. A `set_location` matching an existing name (any casing) → reuses that row, no new row. The decision prompt context includes the location list.
 
+**Amended (#186).** The "within seconds" reading holds only when the cartographer succeeds. A failed `enrich()` used to come back as an empty *success*, settling the row with the placeholder and clearing the flag; it now reports failure as `undefined` and the row stays provisional, and the nightly tick sweeps pending rows back to the cartographer (3 per tick, oldest first) up to a 3-attempt cap held in `locations.enrichment_attempts`, after which the row settles with the placeholder.
+
 ---
 
 ## Cross-cutting consequences

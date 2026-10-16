@@ -237,7 +237,7 @@ Then the repo's own gate: full suite and typecheck green before each commit, and
 
 ## Not in scope
 
-No structural changes to triage, sweeper, scrumo or meta-oil: they are single-stage loops that fit their budgets. The sweeper's two board-hygiene rules are narrowed so that the ledger owns `In Progress` and `In Review` for items with a job record; that is a scope reduction for the sweeper rather than new work for it. No change to the gate policy, the board taxonomy, or `src/`. The game-side `deepseek-v4-flash` default is its own board item (read the model from `.env`), not part of this work.
+No structural changes to triage, sweeper, scrumo or meta-oil: they are single-stage loops that fit their budgets. The sweeper's two board-hygiene rules are narrowed so that the ledger owns `In Progress` and `In Review` for items with a job record; that is a scope reduction for the sweeper rather than new work for it. No change to the gate policy, the board taxonomy, or `src/`. The game-side default model (read from `.env`) is its own board item, not part of this work.
 
 ## Risks
 
