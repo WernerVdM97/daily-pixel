@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
+import { QUOTABLE_ELIGIBLE_FLOOR, type InspirationReading } from './transcript.js';
 import { parseReasoningEffort } from './harnessEnv.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
@@ -42,6 +43,32 @@ function loadDefs(): CharDefs {
     dayJobs: loadYamlFile(path.join(CC_DIR, 'day-jobs.yml')) as CharDefs['dayJobs'],
     itemSets: loadYamlFile(path.join(CC_DIR, 'item-sets.yml')) as CharDefs['itemSets'],
   };
+}
+
+/** The RA-2 dial's reading for the operator: the grant rate against both denominators, the day's roll
+ *  cadence, and whether the sample can support a rate at all. `AGENT_FORCE_FREE_ACTIONS` changes the
+ *  work/free mix the 3.2-3.7 band was calibrated on, so the mix is printed with the rate. */
+function formatInspirationDial(dial: InspirationReading): string {
+  const rate = (grants: number, denominator: number): string =>
+    denominator === 0 ? 'n/a' : `${((grants / denominator) * 100).toFixed(1)}% (${grants}/${denominator})`;
+  const verdict =
+    dial.eligible >= QUOTABLE_ELIGIBLE_FLOOR
+      ? 'quotable'
+      : `NOT quotable — ${dial.eligible} eligible resolution(s), floor is ${QUOTABLE_ELIGIBLE_FLOOR}`;
+  return (
+    '\n── RA-2 inspiration dial ──\n' +
+    dial.byDay
+      .map(
+        (d) =>
+          `  day ${d.day}: ${d.resolutions} resolution(s), ${d.rolls} rolled, ${d.eligible} eligible, ${d.grants} grant(s)`,
+      )
+      .join('\n') +
+    `\n  total: ${dial.resolutions} resolution(s), ${dial.rolls} rolled, ${dial.eligible} eligible (non-work), ` +
+    `${dial.work} work, ${dial.grants} grant(s)\n` +
+    `  grant rate: ${rate(dial.grants, dial.eligible)} of eligible, ${rate(dial.grants, dial.resolutions)} of all resolutions\n` +
+    `  rolls per played day: ${dial.byDay.length === 0 ? 'n/a' : (dial.rolls / dial.byDay.length).toFixed(2)}\n` +
+    `  ${verdict}`
+  );
 }
 
 const SEED: CharCreateData = {
@@ -248,6 +275,7 @@ async function main(): Promise<void> {
           `${run.commutes} commutes, ${run.dayBoundaries} nights, ${freeActions} free action(s)\n  ` +
           `findings: ${run.findings.error} error(s), ${run.findings.warning} warning(s)`,
       );
+      console.error(formatInspirationDial(harness.transcript.inspiration()));
     }
 
     // A stale/missing AGENT_USER_ID plays zero turns and would otherwise exit 0 like a success; the
