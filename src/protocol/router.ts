@@ -22,7 +22,7 @@
  * the contract suite pass deterministic ones.
  */
 
-import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse } from './envelope.js';
+import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse, type RollVerdict } from './envelope.js';
 import { validateGameEvent, type GameEvent } from './events.js';
 import type {
   ActionMenuResult,
@@ -33,7 +33,6 @@ import type {
   HelpOpenResult,
   HiOpenResult,
   JoinOpenResult,
-  OutcomeRoll,
   RestBeginResult,
   ScreenOpenResult,
   SessionController,
@@ -740,8 +739,7 @@ export class GameRouter {
    *  characterClass (only its result carries it). `nav` is the exact three fields
    *  getNavButtons reads; `collapse` (DC-M9.2) is the pre/post vitals `announceCollapse`
    *  needs, from the result's `prevChar`/post-action `char` — both omitted when the char
-   *  is gone (a null `next` makes `collapseNotice` a no-op, so omitting is lossless).
-   *  `roll` rides only an outcome that rolled a d20 (see `OutcomeRoll`). */
+   *  is gone (a null `next` makes `collapseNotice` a no-op, so omitting is lossless). */
   private outcomeFacts(result: {
     distilledType: string;
     characterName: string;
@@ -749,7 +747,7 @@ export class GameRouter {
     characterClass?: string | null;
     char: CharacterData | null;
     prevChar: CharacterData;
-    roll?: OutcomeRoll;
+    roll?: RollVerdict;
   }): Record<string, unknown> {
     const facts: Record<string, unknown> = {
       distilledType: result.distilledType,

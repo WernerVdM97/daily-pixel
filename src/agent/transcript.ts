@@ -28,8 +28,7 @@ export interface OutcomeEvent {
   /** The action model's own label for the action that produced this outcome — the outcome envelope's
    *  `facts.distilledType`, recorded verbatim. MODEL-AUTHORED and open-vocabulary: never keyword-matched from the text. */
   verb?: string;
-  /** The d20 the action rolled, and the DC it was decided against — lifted from the outcome
-   *  envelope's `roll` fact. Absent together when the action rolled no dice. */
+  /** Lifted from the outcome envelope's `roll` fact; all three are absent when the action rolled no dice. */
   d20?: number;
   dc?: number;
   /** The item/stat bonus the engine added to the d20, when the roll carried one. */

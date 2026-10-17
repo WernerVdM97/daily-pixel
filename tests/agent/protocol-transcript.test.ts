@@ -16,7 +16,7 @@ import { stubRun, STUB_RECORDED_AT } from '../../src/agent/stub.js';
 import { recordDeterministicRealSession, deterministicPipelineScript, buildDeterministicRouter, SEED } from '../../src/agent/deterministicSession.js';
 import { replayLog, replayFile } from '../../src/agent/replay.js';
 import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
-import type { ProtocolEntry } from '../../src/agent/transcript.js';
+import { Transcript, type ProtocolEntry } from '../../src/agent/transcript.js';
 import { buildAgentEngine } from '../../src/agent/engineHarness.js';
 import { createAgentHarness, type AgentHarness } from '../../src/agent/harness.js';
 import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
@@ -127,6 +127,23 @@ const TRAVEL_SCRIPT: PipelineScript = {
   resolveNarrate: () => ({ outcomeText: 'You wander down the lane and back.' }),
 };
 
+// Nothing between the LLM's `base_dc` and `accumulateDc` rounds it, so 12.5 reaches the envelope as
+// the engine decided against it.
+const FRACTIONAL_DC_SCRIPT: PipelineScript = {
+  ...deterministicPipelineScript,
+  decide: () => ({
+    distilledType: 'combat',
+    stat: 'physical',
+    baseDc: 12.5,
+    required: false,
+    decision: [
+      { label: 'Press the attack', dcModifier: 0 },
+      { label: 'Feint and strike', dcModifier: 1 },
+      { label: 'Step back', dcModifier: null },
+    ],
+  }),
+};
+
 function harnessFor(script: PipelineScript, moves: AgentMove[]): AgentHarness {
   const agentEngine = buildAgentEngine({
     pipelineLlmGateway: new PipelineScriptedGateway(script),
@@ -175,5 +192,27 @@ describe("the outcome's roll verdict", () => {
     expect(outcome).not.toHaveProperty('dc');
     expect(outcome).not.toHaveProperty('bonus');
     expect(rollFacts(harness)).toEqual([]);
+  });
+
+  it('a fractional DC still yields an outcome envelope', async () => {
+    const harness = harnessFor(FRACTIONAL_DC_SCRIPT, [
+      { kind: 'custom', text: 'attack the goblin' },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+    ]);
+    await harness.createCharacter(SEED);
+    expect(await harness.playOneAction()).toEqual({ kind: 'outcome' });
+
+    expect(harness.transcript.events.at(-1)).toMatchObject({ type: 'outcome', d20: 20, dc: 12.5 });
+    expect(rollFacts(harness)).toMatchObject([{ d20: 20, dc: 12.5 }]);
+  });
+
+  it('the lift omits the bonus when the roll carried none', () => {
+    const transcript = new Transcript();
+    transcript.outcome('You slip past the guard.', 'travel', { d20: 3, dc: 16 });
+
+    expect(transcript.events.at(-1)).toEqual({
+      type: 'outcome', text: 'You slip past the guard.', verb: 'travel', d20: 3, dc: 16,
+    });
   });
 });

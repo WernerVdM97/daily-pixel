@@ -89,8 +89,10 @@ export const isRollVerdict = (value: unknown): value is RollVerdict => {
   if (!isRecord(value)) return false;
   if (!Object.keys(value).every((key) => key === 'd20' || key === 'dc' || key === 'bonus')) return false;
   if (!Number.isInteger(value.d20) || (value.d20 as number) < 1 || (value.d20 as number) > 20) return false;
-  if (!Number.isInteger(value.dc)) return false;
-  return value.bonus === undefined || Number.isInteger(value.bonus);
+  // The engine keeps a fractional DC or item modifier, and a rejected fact costs the whole outcome
+  // envelope, so only the d20's 1-20 range is strict.
+  if (!Number.isFinite(value.dc)) return false;
+  return value.bonus === undefined || Number.isFinite(value.bonus);
 };
 
 /** Shared shape check for a `{ health, stamina }` vitals pair — non-negative integers,
