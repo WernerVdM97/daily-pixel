@@ -13,10 +13,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { stubRun, STUB_RECORDED_AT } from '../../src/agent/stub.js';
-import { recordDeterministicRealSession } from '../../src/agent/deterministicSession.js';
+import { recordDeterministicRealSession, deterministicPipelineScript, buildDeterministicRouter, SEED } from '../../src/agent/deterministicSession.js';
 import { replayLog, replayFile } from '../../src/agent/replay.js';
 import { PROTOCOL_VERSION } from '../../src/protocol/envelope.js';
-import type { ProtocolEntry } from '../../src/agent/transcript.js';
+import { Transcript, type ProtocolEntry } from '../../src/agent/transcript.js';
+import { buildAgentEngine } from '../../src/agent/engineHarness.js';
+import { createAgentHarness, type AgentHarness } from '../../src/agent/harness.js';
+import { ScriptedAgentPlayerGateway } from '../../src/agent/ScriptedAgentPlayerGateway.js';
+import type { AgentMove } from '../../src/agent/AgentPlayerGateway.js';
+import { PipelineScriptedGateway } from '../../src/sim/PipelineScriptedGateway.js';
+import type { PipelineScript } from '../../src/sim/types.js';
 
 const CORPUS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'protocol-corpus');
 const CORPUS_FILE = path.join(CORPUS_DIR, 'stub-1d.protocol.json');
@@ -103,5 +109,110 @@ describe("M8.5 corpus — committed transcripts for M9's replay gate", () => {
     const committed = JSON.parse(readFileSync(REAL_CORPUS_FILE, 'utf-8')) as ProtocolEntry[];
 
     expect(fresh).toEqual(committed);
+  });
+});
+
+// ── The outcome's roll verdict ──
+
+// Travel and rest are the engine's non-rollable types (`ROLL_ACTION_TYPES`), so a scripted travel
+// action resolves with no dice stage: the DC is set on the outcome and no d20 ever is.
+const TRAVEL_SCRIPT: PipelineScript = {
+  classify: () => ({
+    kind: 'hit',
+    actionType: 'travel',
+    flags: { unsafe_location: false, needs_roll: false, target_present: false },
+  }),
+  decide: () => ({ distilledType: 'travel', stat: 'physical', baseDc: 6, required: false, decision: [] }),
+  resolveMutate: () => ({ mutations: [] }),
+  resolveNarrate: () => ({ outcomeText: 'You wander down the lane and back.' }),
+};
+
+// Nothing between the LLM's `base_dc` and `accumulateDc` rounds it, so 12.5 reaches the envelope as
+// the engine decided against it.
+const FRACTIONAL_DC_SCRIPT: PipelineScript = {
+  ...deterministicPipelineScript,
+  decide: () => ({
+    distilledType: 'combat',
+    stat: 'physical',
+    baseDc: 12.5,
+    required: false,
+    decision: [
+      { label: 'Press the attack', dcModifier: 0 },
+      { label: 'Feint and strike', dcModifier: 1 },
+      { label: 'Step back', dcModifier: null },
+    ],
+  }),
+};
+
+function harnessFor(script: PipelineScript, moves: AgentMove[]): AgentHarness {
+  const agentEngine = buildAgentEngine({
+    pipelineLlmGateway: new PipelineScriptedGateway(script),
+    rollD20: () => 20,
+  });
+  return createAgentHarness(
+    agentEngine.engine,
+    buildDeterministicRouter(agentEngine),
+    new ScriptedAgentPlayerGateway(moves),
+    'agent:roll-verdict',
+    { recordedAt: STUB_RECORDED_AT },
+  );
+}
+
+/** Every roll fact the run's envelopes carried — the outcome dispatch is not the last entry (the
+ *  day log reads a look screen after it), so the log is scanned rather than tailed. */
+const rollFacts = (harness: AgentHarness): unknown[] =>
+  harness.transcript.protocol
+    .map((entry) => (entry.kind === 'dispatch' ? entry.response.facts?.roll : undefined))
+    .filter((roll) => roll !== undefined);
+
+describe("the outcome's roll verdict", () => {
+  it('a DC-checked action records the d20 and the DC it was decided against', async () => {
+    const harness = harnessFor(deterministicPipelineScript, [
+      { kind: 'custom', text: 'attack the goblin' },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+    ]);
+    await harness.createCharacter(SEED);
+    expect(await harness.playOneAction()).toEqual({ kind: 'outcome' });
+
+    // baseDc 8, option 0's dcModifier 0, and the harness's fixed d20 of 20.
+    const outcome = harness.transcript.events.at(-1);
+    expect(outcome).toMatchObject({ type: 'outcome', d20: 20, dc: 8, bonus: expect.any(Number) });
+    expect(rollFacts(harness)).toMatchObject([{ d20: 20, dc: 8, bonus: expect.any(Number) }]);
+  });
+
+  it('an auto-resolved travel carries neither the d20 nor the DC', async () => {
+    const harness = harnessFor(TRAVEL_SCRIPT, [{ kind: 'custom', text: 'wander down to the lane' }]);
+    await harness.createCharacter(SEED);
+    expect(await harness.playOneAction()).toEqual({ kind: 'outcome' });
+
+    const outcome = harness.transcript.events.at(-1);
+    expect(outcome?.type).toBe('outcome');
+    expect(outcome).not.toHaveProperty('d20');
+    expect(outcome).not.toHaveProperty('dc');
+    expect(outcome).not.toHaveProperty('bonus');
+    expect(rollFacts(harness)).toEqual([]);
+  });
+
+  it('a fractional DC still yields an outcome envelope', async () => {
+    const harness = harnessFor(FRACTIONAL_DC_SCRIPT, [
+      { kind: 'custom', text: 'attack the goblin' },
+      { kind: 'choice', index: 0 },
+      { kind: 'choice', index: 0 },
+    ]);
+    await harness.createCharacter(SEED);
+    expect(await harness.playOneAction()).toEqual({ kind: 'outcome' });
+
+    expect(harness.transcript.events.at(-1)).toMatchObject({ type: 'outcome', d20: 20, dc: 12.5 });
+    expect(rollFacts(harness)).toMatchObject([{ d20: 20, dc: 12.5 }]);
+  });
+
+  it('the lift omits the bonus when the roll carried none', () => {
+    const transcript = new Transcript();
+    transcript.outcome('You slip past the guard.', 'travel', { d20: 3, dc: 16 });
+
+    expect(transcript.events.at(-1)).toEqual({
+      type: 'outcome', text: 'You slip past the guard.', verb: 'travel', d20: 3, dc: 16,
+    });
   });
 });

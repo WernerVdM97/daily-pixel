@@ -22,7 +22,7 @@
  * the contract suite pass deterministic ones.
  */
 
-import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse } from './envelope.js';
+import { PROTOCOL_VERSION, validateGameResponse, type GameErrorCode, type GameResponse, type RollVerdict } from './envelope.js';
 import { validateGameEvent, type GameEvent } from './events.js';
 import type {
   ActionMenuResult,
@@ -747,6 +747,7 @@ export class GameRouter {
     characterClass?: string | null;
     char: CharacterData | null;
     prevChar: CharacterData;
+    roll?: RollVerdict;
   }): Record<string, unknown> {
     const facts: Record<string, unknown> = {
       distilledType: result.distilledType,
@@ -754,6 +755,7 @@ export class GameRouter {
     };
     if (result.actionId !== undefined) facts.actionId = result.actionId;
     if (result.characterClass != null) facts.characterClass = result.characterClass;
+    if (result.roll) facts.roll = result.roll;
     if (result.char) {
       facts.nav = {
         rollsRemaining: result.char.rollsRemaining,
