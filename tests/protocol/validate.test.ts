@@ -340,6 +340,30 @@ describe('validateGameResponse — valid envelopes', () => {
     expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
   });
 
+  it('accepts a well-formed roll fact, with and without the bonus', () => {
+    for (const roll of [{ d20: 20, dc: 8, bonus: 7 }, { d20: 3, dc: 16 }]) {
+      const envelope = { v: PROTOCOL_VERSION, ok: true, facts: { roll } };
+      expect(validateGameResponse(envelope)).toEqual({ ok: true, response: envelope });
+    }
+  });
+
+  it('rejects a malformed roll fact', () => {
+    for (const roll of [
+      'nope',
+      { d20: 20 }, // no DC
+      { dc: 8 }, // no d20
+      { d20: 0, dc: 8 }, // a d20 is 1-20
+      { d20: 21, dc: 8 },
+      { d20: 12.5, dc: 8 },
+      { d20: 20, dc: '8' },
+      { d20: 20, dc: 8, bonus: 1.5 },
+      { d20: 20, dc: 8, band: 'daunting' }, // the band is derived downstream, never carried
+    ]) {
+      const result = validateGameResponse({ v: PROTOCOL_VERSION, ok: true, facts: { roll } });
+      expect(result).toEqual({ ok: false, message: expect.any(String) });
+    }
+  });
+
   it('accepts ok:false with facts (the stale-session narration case)', () => {
     const envelope = {
       v: PROTOCOL_VERSION, ok: false,

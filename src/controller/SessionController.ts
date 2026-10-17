@@ -9,7 +9,7 @@
  * that later slices extend as the seam grows.
  */
 
-import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResult, CharCreateData } from '../engine/WorldEngine.js';
+import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResult, ActionOutcome, CharCreateData } from '../engine/WorldEngine.js';
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState, WizardViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
 import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
@@ -36,6 +36,24 @@ export type BeginChoiceResult =
   | { kind: 'no-character' }
   | { kind: 'ok'; character: CharacterData };
 
+/** The roll verdict an outcome envelope carries, projected from the engine's `ActionOutcome`. */
+export interface OutcomeRoll {
+  d20: number;
+  dc: number;
+  bonus?: number;
+}
+
+/** Absent when the action rolled no dice: an auto-resolved travel/rest still carries a `finalDc`,
+ *  so the DC alone cannot stand in for a verdict. */
+function outcomeRoll(outcome: ActionOutcome): OutcomeRoll | undefined {
+  if (outcome.playerRolled === null) return undefined;
+  return {
+    d20: outcome.playerRolled,
+    dc: outcome.finalDc,
+    ...(outcome.rollBonus !== undefined ? { bonus: outcome.rollBonus } : {}),
+  };
+}
+
 /** Outcome of stepping the action machine with a resolved label (M3.2 DC-C) — mirrors the
  *  pre-M3.2 button handler's step + outcome-render logic exactly: `decision` and `outcome`
  *  carry everything the adapter needs to paint without touching the engine again. Carries
@@ -44,7 +62,7 @@ export type BeginChoiceResult =
  *  like the pre-M3.2 handler's one inner try. */
 export type StepChoiceResult =
   | { kind: 'decision'; view: DecisionViewState }
-  | { kind: 'outcome'; view: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; characterClass?: string | null; char: CharacterData | null; prevChar: CharacterData };
+  | { kind: 'outcome'; view: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; characterClass?: string | null; char: CharacterData | null; prevChar: CharacterData; roll?: OutcomeRoll };
 
 /** Outcome of `openActionMenu` — mirrors the pre-M3.3b `nav:action` leaf's branch order
  *  exactly (char guard -> rolls guard -> resume-in-progress -> fresh menu). The "⏳ Stale
@@ -152,7 +170,7 @@ export type DayJobStart =
  *  propagate so the adapter's single outer try/catch covers start + paint + broadcast +
  *  announceCollapse, exactly like the pre-M3.4/pre-M3.5 handlers' one outer try. */
 export type StartRenderResult =
-  | { kind: 'outcome'; viewPrivate: OutcomeViewState; viewPublic: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; char: CharacterData; prevChar: CharacterData }
+  | { kind: 'outcome'; viewPrivate: OutcomeViewState; viewPublic: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; char: CharacterData; prevChar: CharacterData; roll?: OutcomeRoll }
   | { kind: 'empty-action'; prompt: string }
   | { kind: 'decision'; view: DecisionViewState }
   // DC-M9.3: a refunded divine-intervention roll — a system fault, not a real outcome.
@@ -254,6 +272,7 @@ export class SessionController {
         characterClass: char?.class,
         char,
         prevChar,
+        roll: outcomeRoll(result.outcome),
       };
     }
     const char = this.engine.getCharacter(userId);
@@ -648,6 +667,7 @@ export class SessionController {
         characterName: char.name,
         char,
         prevChar,
+        roll: outcomeRoll(result.outcome),
       };
     }
     if (result.firstDecision.options.length === 0) {

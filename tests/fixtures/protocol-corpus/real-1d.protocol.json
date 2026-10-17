@@ -1135,6 +1135,11 @@
         "characterName": "Bram",
         "actionId": 1,
         "characterClass": "Warrior",
+        "roll": {
+          "d20": 20,
+          "dc": 8,
+          "bonus": 7
+        },
         "nav": {
           "rollsRemaining": 2,
           "hasPendingAction": false,

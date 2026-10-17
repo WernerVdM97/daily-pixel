@@ -33,6 +33,7 @@ import type {
   HelpOpenResult,
   HiOpenResult,
   JoinOpenResult,
+  OutcomeRoll,
   RestBeginResult,
   ScreenOpenResult,
   SessionController,
@@ -739,7 +740,8 @@ export class GameRouter {
    *  characterClass (only its result carries it). `nav` is the exact three fields
    *  getNavButtons reads; `collapse` (DC-M9.2) is the pre/post vitals `announceCollapse`
    *  needs, from the result's `prevChar`/post-action `char` — both omitted when the char
-   *  is gone (a null `next` makes `collapseNotice` a no-op, so omitting is lossless). */
+   *  is gone (a null `next` makes `collapseNotice` a no-op, so omitting is lossless).
+   *  `roll` rides only an outcome that rolled a d20 (see `OutcomeRoll`). */
   private outcomeFacts(result: {
     distilledType: string;
     characterName: string;
@@ -747,6 +749,7 @@ export class GameRouter {
     characterClass?: string | null;
     char: CharacterData | null;
     prevChar: CharacterData;
+    roll?: OutcomeRoll;
   }): Record<string, unknown> {
     const facts: Record<string, unknown> = {
       distilledType: result.distilledType,
@@ -754,6 +757,7 @@ export class GameRouter {
     };
     if (result.actionId !== undefined) facts.actionId = result.actionId;
     if (result.characterClass != null) facts.characterClass = result.characterClass;
+    if (result.roll) facts.roll = result.roll;
     if (result.char) {
       facts.nav = {
         rollsRemaining: result.char.rollsRemaining,

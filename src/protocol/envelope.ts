@@ -29,7 +29,7 @@ export type GameResponse =
 /** The closed facts set (DC-P1). A key is added only when a consuming adapter justifies it —
  *  the validator rejects anything outside this set, which is what stops the "second
  *  protocol" escape hatch from growing silently. */
-const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter', 'collapse', 'persistFailed', 'internalFault']);
+const FACTS_KEYS = new Set<string>(['distilledType', 'characterName', 'characterClass', 'actionId', 'nav', 'narration', 'characterState', 'restUnsafe', 'createdCharacter', 'collapse', 'persistFailed', 'internalFault', 'roll']);
 
 const GAME_ERROR_CODES = new Set<GameErrorCode>(['no-character', 'no-rolls', 'stale-session', 'session-expired', 'illegal-move', 'unsafe', 'empty-action', 'invalid-event', 'internal', 'divine-intervention']);
 
@@ -75,6 +75,23 @@ const isJsonSerialisable = (value: unknown): boolean => {
 
 const isGameErrorCode = (value: unknown): value is GameErrorCode =>
   isString(value) && GAME_ERROR_CODES.has(value as GameErrorCode);
+
+/** The roll verdict an outcome envelope carries: the raw d20, the DC it was decided against, and the
+ *  item/stat bonus when the engine applied one. */
+export interface RollVerdict {
+  d20: number;
+  dc: number;
+  bonus?: number;
+}
+
+/** Shared by the validator and the transcript reader, so a malformed fact is dropped at both ends. */
+export const isRollVerdict = (value: unknown): value is RollVerdict => {
+  if (!isRecord(value)) return false;
+  if (!Object.keys(value).every((key) => key === 'd20' || key === 'dc' || key === 'bonus')) return false;
+  if (!Number.isInteger(value.d20) || (value.d20 as number) < 1 || (value.d20 as number) > 20) return false;
+  if (!Number.isInteger(value.dc)) return false;
+  return value.bonus === undefined || Number.isInteger(value.bonus);
+};
 
 /** Shared shape check for a `{ health, stamina }` vitals pair — non-negative integers,
  *  exactly those two keys. Used by both `restUnsafe` and `collapse` (DC-M9.2), the two
@@ -175,6 +192,9 @@ export function validateGameResponse(raw: unknown): { ok: true; response: GameRe
       ) {
         return { ok: false, message: 'facts.nav must be exactly { rollsRemaining: number; hasPendingAction: boolean; hasRestedToday: boolean }' };
       }
+    }
+    if ('roll' in raw.facts && !isRollVerdict(raw.facts.roll)) {
+      return { ok: false, message: 'facts.roll must be exactly { d20: 1-20; dc: integer; bonus?: integer }' };
     }
     // `characterState` — the agent brain's character snapshot (DC-M6.1). All six fields
     // required; health/maxHealth/stamina/maxStamina are non-negative integers; wealth is
