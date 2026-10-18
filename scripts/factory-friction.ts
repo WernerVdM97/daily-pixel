@@ -263,10 +263,7 @@ interface FailedCallGroup {
  */
 export const RUNAWAY_GROUP_AFTER = 20;
 
-/** A group past the threshold, kept so the report can name the calls it stands for. */
 interface RunawayGroup {
-  tool: string;
-  firstLine: string;
   calls: number;
 }
 
@@ -556,11 +553,9 @@ function deriveSignals(s: SessionStats): void {
   // share of them. Probe exits (deliberate nonzero checks) are excluded here and tallied in
   // `totals.probeExits` instead, so a session that probes a lot is not ranked as confused.
   for (const group of failedCallGroups(s.failedCalls)) {
-    // Past the threshold the group is one defect and counts once, carrying its call count on
-    // the offender row; `--errors` still lists every raw call.
     if (group.calls.length > RUNAWAY_GROUP_AFTER) {
       add("tool-error", `${group.tool} · runaway`, group.calls.length);
-      s.runaway.push({ tool: group.tool, firstLine: group.firstLine, calls: group.calls.length });
+      s.runaway.push({ calls: group.calls.length });
       continue;
     }
     for (const call of group.calls) add("tool-error", call.tool);
@@ -611,9 +606,7 @@ function failedCallGroups(calls: FailedCall[]): FailedCallGroup[] {
 interface SignalRollup {
   name: string;
   sessions: number;
-  /** Collapsed occurrences: a runaway group counts once, not once per identical call. */
   occurrences: number;
-  /** Groups collapsed out of `occurrences`, and the calls they actually stand for. */
   runaway: { groups: number; calls: number };
   attributedTokens: number;
   tokenShare: number;
@@ -664,10 +657,6 @@ interface Report {
   notes: string[];
 }
 
-/**
- * Occurrences with collapsed groups expanded back to the calls they stand for: the headline
- * keeps counting failed calls, and the parenthetical says how many of them are one group.
- */
 export function rawOccurrences(sig: { occurrences: number; runaway: { groups: number; calls: number } }): number {
   return sig.occurrences - sig.runaway.groups + sig.runaway.calls;
 }
@@ -679,7 +668,7 @@ export function summarise(sessions: SessionStats[], previous: SessionStats[], ca
   const totalTokens = sum(sessions, (s) => s.totalTokens);
   const totalToolCalls = sum(sessions, (s) => s.toolCalls);
 
-  const byName = new Map< string, {
+  const byName = new Map<string, {
     sessions: Set<string>;
     occurrences: number;
     tokens: number;
@@ -700,16 +689,20 @@ export function summarise(sessions: SessionStats[], previous: SessionStats[], ca
       bucket.sessions.add(s.id);
       bucket.occurrences += count;
       bucket.tokens += s.totalTokens;
-      for (const group of s.runaway) {
-        bucket.runawayGroups++;
-        bucket.runawayCalls += group.calls;
-      }
       // One row per (label, session), counting that session's own hits, so the session id
       // printed beside a count is the session the count belongs to.
       for (const [label, hits] of Object.entries(s.offenders[name] ?? {})) {
         bucket.offenders.set(`${s.id}\u0000${label}`, { label, count: hits, session: s.id, agent: s.agent });
       }
       byName.set(name, bucket);
+    }
+    // A runaway group is a `tool-error` fact, so it may only inflate that bucket's headline.
+    const toolError = byName.get("tool-error");
+    if (toolError) {
+      for (const group of s.runaway) {
+        toolError.runawayGroups++;
+        toolError.runawayCalls += group.calls;
+      }
     }
   }
 
@@ -1256,7 +1249,7 @@ function subagentOutcomes(): Report["subagents"] {
 
 // ── Output ─────────────────────────────────────────────────────────────────
 
-function renderText(report: Report, top: number): string {
+export function renderText(report: Report, top: number): string {
   const t = report.totals;
   const lines: string[] = [];
   lines.push(`Factory friction — ${report.window.since.slice(0, 10)} to ${report.window.until.slice(0, 10)} (${report.window.days}d)`);
