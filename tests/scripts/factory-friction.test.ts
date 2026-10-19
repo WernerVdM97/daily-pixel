@@ -6,9 +6,13 @@ import {
   agentOf,
   commitExpectedFor,
   isProbeExit,
+  rawOccurrences,
   readLedger,
   readSession,
+  renderText,
+  RUNAWAY_GROUP_AFTER,
   SHIPPED,
+  summarise,
   unprocessedOwnerAnswer,
 } from '../../scripts/factory-friction.js';
 
@@ -397,5 +401,150 @@ describe('readSession', () => {
     const file = writeTranscript('p/2026-10-03T06-00-00-000Z_x.jsonl', '01a07d8c-3df2-727b-9556-872ca909ad6b');
     const stats = readSession(file, new Set());
     expect(stats.failedCalls[0].session).toBe('2026-10-03T06-00-00-000Z_x');
+  });
+});
+
+describe('runaway failure groups', () => {
+  const dirs: string[] = [];
+
+  function scratch(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-friction-test-'));
+    dirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A session repeating one `subagent` call, the shape an unresolvable model id produces. */
+  function repeatedFailures(count: number, errorText: (i: number) => string): unknown[] {
+    const lines: unknown[] = [
+      { type: 'session', version: 3, id: '01a1313f-0000-7000-8000-00000000edda', timestamp: '2026-10-12T17:53:00Z', cwd: '/tmp' },
+    ];
+    for (let i = 0; i < count; i++) {
+      const at = `2026-10-12T17:54:${String(i % 60).padStart(2, '0')}Z`;
+      lines.push({
+        type: 'message',
+        id: `a${i}`,
+        timestamp: at,
+        message: { role: 'assistant', content: [{ type: 'toolCall', id: `call-${i}`, name: 'subagent', arguments: {} }] },
+      });
+      lines.push({
+        type: 'message',
+        id: `r${i}`,
+        timestamp: at,
+        message: { role: 'toolResult', toolName: 'subagent', toolCallId: `call-${i}`, isError: true, content: [{ type: 'text', text: errorText(i) }] },
+      });
+    }
+    return lines;
+  }
+
+  /** The same `bash` command run `times` over: the repeat-command signal, with no failures. */
+  function repeatedCommands(command: string, times: number): unknown[] {
+    const lines: unknown[] = [];
+    for (let i = 0; i < times; i++) {
+      const at = `2026-10-12T17:56:0${i}Z`;
+      lines.push({
+        type: 'message',
+        id: `c${i}`,
+        timestamp: at,
+        message: { role: 'assistant', content: [{ type: 'toolCall', id: `bash-${i}`, name: 'bash', arguments: { command } }] },
+      });
+      lines.push({
+        type: 'message',
+        id: `cr${i}`,
+        timestamp: at,
+        message: { role: 'toolResult', toolName: 'bash', toolCallId: `bash-${i}`, isError: false, content: [{ type: 'text', text: 'ok' }] },
+      });
+    }
+    return lines;
+  }
+
+  function writeLines(relPath: string, lines: unknown[]): string {
+    const file = join(scratch(), relPath);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    return file;
+  }
+
+  function writeSession(relPath: string, count: number, errorText: (i: number) => string): string {
+    return writeLines(relPath, repeatedFailures(count, errorText));
+  }
+
+  const oneRefusal = () => 'Tool subagent not found';
+
+  it('collapses more than 20 identical failures to one incident carrying its call count', () => {
+    const stats = readSession(writeSession('p/echo/session.jsonl', 21, oneRefusal), new Set());
+    expect(RUNAWAY_GROUP_AFTER).toBe(20);
+    expect(stats.signals['tool-error']).toBe(1);
+    expect(stats.offenders['tool-error']).toEqual({ 'subagent · runaway': 21 });
+    expect(stats.runaway).toEqual([{ calls: 21 }]);
+    // The raw calls survive for `--errors`, which lists them one by one.
+    expect(stats.failedCalls).toHaveLength(21);
+  });
+
+  it('leaves 20 identical failures as 20 separate incidents', () => {
+    const stats = readSession(writeSession('p/edge/session.jsonl', 20, oneRefusal), new Set());
+    expect(stats.signals['tool-error']).toBe(20);
+    expect(stats.offenders['tool-error']).toEqual({ subagent: 20 });
+    expect(stats.runaway).toEqual([]);
+  });
+
+  it('does not collapse a retry whose error text differs each time', () => {
+    const stats = readSession(writeSession('p/retry/session.jsonl', 25, (i) => `Tool subagent not found (attempt ${i})`), new Set());
+    expect(stats.signals['tool-error']).toBe(25);
+    expect(stats.runaway).toEqual([]);
+  });
+
+  it('keeps the raw call total on the headline and the ranking on the collapsed count', () => {
+    const stats = readSession(writeSession('p/echo/session.jsonl', 3611, oneRefusal), new Set());
+    const report = summarise([stats], [], null);
+    const signal = report.signals[0];
+    expect(signal.name).toBe('tool-error');
+    expect(signal.occurrences).toBe(1);
+    expect(signal.runaway).toEqual({ groups: 1, calls: 3611 });
+    expect(rawOccurrences(signal)).toBe(3611);
+  });
+
+  it('attributes the collapsed group to tool-error alone, not to every signal the session raised', () => {
+    const file = writeLines('p/mixed/session.jsonl', [
+      ...repeatedFailures(25, oneRefusal),
+      ...repeatedCommands('npx vitest run', 3),
+    ]);
+    const report = summarise([readSession(file, new Set())], [], null);
+    const toolError = report.signals.find((s) => s.name === 'tool-error')!;
+    const repeat = report.signals.find((s) => s.name === 'repeat-command')!;
+    expect(toolError.runaway).toEqual({ groups: 1, calls: 25 });
+    expect(rawOccurrences(toolError)).toBe(25);
+    expect(repeat.runaway).toEqual({ groups: 0, calls: 0 });
+    expect(rawOccurrences(repeat)).toBe(1);
+    expect(repeat.offenders[0].count).toBe(3);
+  });
+
+  it('renders the raw total beside the collapse, and no parenthetical for a signal without one', () => {
+    const file = writeLines('p/headline/session.jsonl', [
+      ...repeatedFailures(3611, oneRefusal),
+      ...repeatedCommands('npx vitest run', 3),
+    ]);
+    const text = renderText(summarise([readSession(file, new Set())], [], null), 10);
+    expect(text).toContain('1. tool-error — 3611x in 1 session(s) (3611 in 1 runaway group), ');
+    expect(text).toContain('2. repeat-command — 1x in 1 session(s), ');
+  });
+
+  it('prints no parenthetical for a group sitting exactly at the threshold', () => {
+    const stats = readSession(writeSession('p/at/session.jsonl', 20, oneRefusal), new Set());
+    const text = renderText(summarise([stats], [], null), 10);
+    expect(text).toContain('1. tool-error — 20x in 1 session(s), ');
+    expect(text).not.toContain('runaway group');
+  });
+
+  it('counts two runaway groups separately in the parenthetical', () => {
+    const stats = readSession(
+      writeSession('p/two/session.jsonl', 46, (i) => (i < 21 ? 'Tool subagent not found' : 'Model echo returned nothing')),
+      new Set(),
+    );
+    const text = renderText(summarise([stats], [], null), 10);
+    expect(text).toContain('1. tool-error — 46x in 1 session(s) (46 in 2 runaway groups), ');
   });
 });

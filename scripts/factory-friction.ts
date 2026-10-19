@@ -250,6 +250,23 @@ interface FailedCall {
   probe: boolean;
 }
 
+/** Identical failures inside one session: same tool, same first line of the error. */
+interface FailedCallGroup {
+  tool: string;
+  firstLine: string;
+  calls: FailedCall[];
+}
+
+/**
+ * The same call failing with the same text this many times is one broken call, not N
+ * incidents: a model stuck on a refusal must not be able to bury every other signal.
+ */
+export const RUNAWAY_GROUP_AFTER = 20;
+
+interface RunawayGroup {
+  calls: number;
+}
+
 interface SessionStats {
   file: string;
   id: string;
@@ -266,6 +283,8 @@ interface SessionStats {
   /** Failed calls that read as deliberate probes, by tool: excluded from the tool-error ranking. */
   probeTools: Record<string, number>;
   failedCalls: FailedCall[];
+  /** Failure groups collapsed to one tool-error incident, with their true call counts. */
+  runaway: RunawayGroup[];
   aborts: number;
   providerErrors: number;
   reasoningTokens: number;
@@ -374,6 +393,7 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
     failedTools: {},
     probeTools: {},
     failedCalls: [],
+    runaway: [],
     aborts: 0,
     providerErrors: 0,
     reasoningTokens: 0,
@@ -532,9 +552,13 @@ function deriveSignals(s: SessionStats): void {
   // meaning N failed calls worth diagnosing, and its offender row carries that tool's own
   // share of them. Probe exits (deliberate nonzero checks) are excluded here and tallied in
   // `totals.probeExits` instead, so a session that probes a lot is not ranked as confused.
-  for (const [tool, n] of Object.entries(s.failedTools)) {
-    const genuine = n - (s.probeTools[tool] ?? 0);
-    for (let i = 0; i < genuine; i++) add("tool-error", tool);
+  for (const group of failedCallGroups(s.failedCalls)) {
+    if (group.calls.length > RUNAWAY_GROUP_AFTER) {
+      add("tool-error", `${group.tool} · runaway`, group.calls.length);
+      s.runaway.push({ calls: group.calls.length });
+      continue;
+    }
+    for (const call of group.calls) add("tool-error", call.tool);
   }
 
   // The same command re-run three times is a retry loop: either a flaky tool or a model
@@ -564,12 +588,26 @@ function tally(items: string[]): Map<string, number> {
   return out;
 }
 
+/** \u0000 keeps a tool name from colliding with the first line it failed on. */
+function failedCallGroups(calls: FailedCall[]): FailedCallGroup[] {
+  const groups = new Map<string, FailedCallGroup>();
+  for (const call of calls) {
+    if (call.probe) continue;
+    const key = `${call.tool}\u0000${call.firstLine}`;
+    const group = groups.get(key) ?? { tool: call.tool, firstLine: call.firstLine, calls: [] };
+    group.calls.push(call);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
 // ── Aggregation ────────────────────────────────────────────────────────────
 
 interface SignalRollup {
   name: string;
   sessions: number;
   occurrences: number;
+  runaway: { groups: number; calls: number };
   attributedTokens: number;
   tokenShare: number;
   frictionScore: number;
@@ -619,17 +657,35 @@ interface Report {
   notes: string[];
 }
 
+export function rawOccurrences(sig: { occurrences: number; runaway: { groups: number; calls: number } }): number {
+  return sig.occurrences - sig.runaway.groups + sig.runaway.calls;
+}
+
 const SIGNAL_WINDOW_FLOOR = 1; // kept named so the ranking formula reads as intended
 
-function summarise(sessions: SessionStats[], previous: SessionStats[], cache: CacheReport | null): Report {
+export function summarise(sessions: SessionStats[], previous: SessionStats[], cache: CacheReport | null): Report {
   const range = sessionRange(sessions);
   const totalTokens = sum(sessions, (s) => s.totalTokens);
   const totalToolCalls = sum(sessions, (s) => s.toolCalls);
 
-  const byName = new Map<string, { sessions: Set<string>; occurrences: number; tokens: number; offenders: Map<string, { label: string; count: number; session: string; agent: string }> }>();
+  const byName = new Map<string, {
+    sessions: Set<string>;
+    occurrences: number;
+    tokens: number;
+    runawayGroups: number;
+    runawayCalls: number;
+    offenders: Map<string, { label: string; count: number; session: string; agent: string }>;
+  }>();
   for (const s of sessions) {
     for (const [name, count] of Object.entries(s.signals)) {
-      const bucket = byName.get(name) ?? { sessions: new Set<string>(), occurrences: 0, tokens: 0, offenders: new Map() };
+      const bucket = byName.get(name) ?? {
+        sessions: new Set<string>(),
+        occurrences: 0,
+        tokens: 0,
+        runawayGroups: 0,
+        runawayCalls: 0,
+        offenders: new Map(),
+      };
       bucket.sessions.add(s.id);
       bucket.occurrences += count;
       bucket.tokens += s.totalTokens;
@@ -639,6 +695,14 @@ function summarise(sessions: SessionStats[], previous: SessionStats[], cache: Ca
         bucket.offenders.set(`${s.id}\u0000${label}`, { label, count: hits, session: s.id, agent: s.agent });
       }
       byName.set(name, bucket);
+    }
+    // A runaway group is a `tool-error` fact, so it may only inflate that bucket's headline.
+    const toolError = byName.get("tool-error");
+    if (toolError) {
+      for (const group of s.runaway) {
+        toolError.runawayGroups++;
+        toolError.runawayCalls += group.calls;
+      }
     }
   }
 
@@ -652,6 +716,7 @@ function summarise(sessions: SessionStats[], previous: SessionStats[], cache: Ca
       name,
       sessions: b.sessions.size,
       occurrences: b.occurrences,
+      runaway: { groups: b.runawayGroups, calls: b.runawayCalls },
       attributedTokens: b.tokens,
       tokenShare,
       frictionScore: Math.round(b.tokens * density),
@@ -1184,7 +1249,7 @@ function subagentOutcomes(): Report["subagents"] {
 
 // ── Output ─────────────────────────────────────────────────────────────────
 
-function renderText(report: Report, top: number): string {
+export function renderText(report: Report, top: number): string {
   const t = report.totals;
   const lines: string[] = [];
   lines.push(`Factory friction — ${report.window.since.slice(0, 10)} to ${report.window.until.slice(0, 10)} (${report.window.days}d)`);
@@ -1203,8 +1268,12 @@ function renderText(report: Report, top: number): string {
   lines.push("Ranked friction signals (proxy: tokens burned in sessions showing the signal, scaled by signal density)");
   if (!report.signals.length) lines.push("  none");
   for (const [i, sig] of report.signals.slice(0, top).entries()) {
+    const runaway =
+      sig.runaway.groups > 0
+        ? ` (${sig.runaway.calls} in ${sig.runaway.groups} runaway group${sig.runaway.groups === 1 ? "" : "s"})`
+        : "";
     lines.push(
-      `  ${i + 1}. ${sig.name} — ${sig.occurrences}x in ${sig.sessions} session(s), ` +
+      `  ${i + 1}. ${sig.name} — ${rawOccurrences(sig)}x in ${sig.sessions} session(s)${runaway}, ` +
         `${(sig.tokenShare * 100).toFixed(0)}% of window tokens, score ${sig.frictionScore}`,
     );
     for (const off of sig.offenders.slice(0, 3)) {
