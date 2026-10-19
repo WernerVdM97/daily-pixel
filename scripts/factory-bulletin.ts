@@ -402,7 +402,6 @@ function classifyItem(
   const last = lastComment(comments);
   const since = last ? ageMs(last.createdAt, opts.nowMs) : null;
   if (item.status === "Triaged") {
-    // An epic is tracking work, so listing it as approvable invites a Status that starts nothing.
     if (isEpic(item)) return null;
     return { bucket: "approve", entry: toEntry(item, since, last ? toExcerpt(last.body, 90) : "") };
   }
@@ -424,8 +423,6 @@ function buildNotes(queue: Queue): string[] {
     );
   }
   const held = queue.held.filter((entry) => inWindow(entry, queue.window));
-  // An epic is refused rather than waiting, so it gets its own sentence: "nothing is stalled,
-  // it is waiting" would be a lie about a card whose work lives somewhere else.
   const epics = held.filter((entry) => entry.reason === "epic");
   if (epics.length > 0) {
     notes.push(

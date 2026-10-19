@@ -369,6 +369,10 @@ describe('the gate', () => {
     expect(heldReport(board, []).map((held) => [held.item.number, held.reason])).toEqual([[98, 'epic']]);
     // A Triaged epic is unclaimed backlog, not work the gate is holding back.
     expect(heldReport([item({ number: 98, status: 'Triaged', labels: [EPIC_LABEL] })], [])).toEqual([]);
+    // An adopted epic is reported the same way, so adoption never picks it up silently.
+    expect(heldReport([item({ number: 98, status: 'In Progress', labels: [EPIC_LABEL] })], []).map((held) => held.reason)).toEqual([
+      'epic',
+    ]);
   });
 });
 

@@ -991,14 +991,13 @@ export interface GateCandidate {
   labels: string[];
 }
 
-/** The label for an arc-level parent: its work is its sub-issues, so no card carrying it is a unit of work. */
 export const EPIC_LABEL = "type:epic";
 
 export function isEpic(item: { labels: string[] }): boolean {
   return item.labels.includes(EPIC_LABEL);
 }
 
-/** `Approved`, or an `auto:*` item still upstream of execution. `Blocked`/`Done` never, and never an epic. */
+/** `Approved`, or an `auto:*` item still upstream of execution. `Blocked`/`Done` never. */
 export function isGated(item: GateCandidate): boolean {
   if (isEpic(item)) return false;
   if (item.status === "Approved") return true;
@@ -1051,12 +1050,11 @@ export interface Held {
 
 /**
  * Why an item is not runnable yet, or null when it is. `isGated` answers "may this run at
- * all" (approval); this answers "now" (dependencies, owner holds, the sprint's milestone) and
- * names the epic refusal so the ledger prints a reason rather than dropping the item.
+ * all" (approval); this answers "now" (dependencies, owner holds, the sprint's milestone).
  */
 export function holdReason(item: GateCandidate, readiness: Readiness = {}): Held | null {
   if (isEpic(item)) {
-    return { item, reason: "epic", detail: `${EPIC_LABEL} tracks work, its sub-issues are the work` };
+    return { item, reason: "epic", detail: `carries ${EPIC_LABEL}` };
   }
   if (item.labels.includes(HELD_LABEL)) {
     return { item, reason: "needs-decision", detail: `carries ${HELD_LABEL}` };
@@ -1099,9 +1097,9 @@ export function heldReport(items: GateCandidate[], jobs: JobRecord[], readiness:
   const held: Held[] = [];
   for (const item of items) {
     if (!REPORTABLE_STATUSES.has(item.status) || hasJobRecord(item.number, jobs)) continue;
-    // In Progress is an orphan the ledger could adopt and Approved is work a human claimed; an
-    // epic at Inbox or Triaged was never claimed, so it is backlog rather than a hold.
-    if (item.status !== "In Progress" && item.status !== "Approved" && !isGated(item)) continue;
+    const claimed = item.status === "Approved" || item.status === "In Progress";
+    // An epic at Inbox or Triaged was never claimed, so it is backlog rather than a hold.
+    if (!claimed && !isGated(item)) continue;
     const reason = holdReason(item, readiness);
     if (reason) held.push(reason);
   }
