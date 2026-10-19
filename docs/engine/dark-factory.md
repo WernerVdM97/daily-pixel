@@ -119,6 +119,8 @@ Enforced twice, belt and braces:
 
 Standing-approval classes (the only work that can run without per-item approval): `auto:docs` (docs/ and comments only), `auto:changelog` (CHANGELOG.md upkeep), `auto:tests` (test-only, no `src/`). Anything else always needs Status=`Approved`.
 
+**A `type:epic` is never executable, so it is never approvable.** That label means an arc-level parent whose work is its sub-issues, and a tracking issue is not a scoped change, which is the only thing this gate signs off. So `isGated` refuses an epic whatever its Status and whatever `auto:*` label it carries; the ledger prints the refusal as a hold named `epic` rather than letting an approved one sit silently unstarted; the bulletin keeps an epic out of `Ready to approve`; and triage scopes the sub-issues, never reshaping the parent into a build card. An epic that lands in `Approved` is carrying a status that belongs to its children, so triage moves it to whichever column they are in and comments why: the cards to approve are the ones underneath it.
+
 **Meta-oil's proposal cards are a third, narrower form of the same thing.** A proposal the owner reacted to on the digest is already decided: the drain resolves the reaction into one verdict per proposal, and meta-oil applies that proposal and files one card per applied proposal with Status `Approved` to _record_ that human decision, not to make one. It must never set `Approved` on work the owner has not voted for, and a proposal the owner did not answer gets no card and no PR — so every card in that column traces back to a tap on a digest the owner was sent. See § The loops.
 
 ### Approval is not readiness

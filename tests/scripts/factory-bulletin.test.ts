@@ -129,6 +129,34 @@ describe('classifyBoard', () => {
     expect(classified.statusCounts).toMatchObject({ Inbox: 1, Approved: 1, Blocked: 3 });
   });
 
+  it('keeps a Triaged epic out of the approval queue, since approving one starts nothing', () => {
+    const queue = classifyBoard(
+      [
+        item({ number: 98, status: 'Triaged', labels: ['type:epic'], priority: 'P1 - high' }),
+        item({ number: 34, status: 'Triaged' }),
+      ],
+      new Map([[34, [comment('agent97eth', '2026-09-10T21:00:00Z', '**Triage: criteria drafted.**')]]]),
+      { agentLogins: AGENTS, nowMs: NOW },
+    );
+    expect(queue.approve.map((e) => e.number)).toEqual([34]);
+  });
+
+  it('reads an approved epic as a refused card rather than as work waiting on something', () => {
+    const queue = classifyBoard([item({ number: 98, status: 'Approved', labels: ['type:epic'] })], new Map(), {
+      agentLogins: AGENTS,
+      nowMs: NOW,
+      readiness: {
+        focus: null,
+        held: [
+          { number: 98, reason: 'epic', detail: 'type:epic tracks work', milestone: 'POC+ arc', priority: 'P2 - normal' },
+        ],
+      },
+    });
+    expect(queue.notes.join(' ')).toContain('#98');
+    expect(queue.notes.join(' ')).toContain('tracking issues');
+    expect(queue.notes.join(' ')).not.toContain('cannot run yet');
+  });
+
   it('flags an empty Approved column, since the executor can then do nothing', () => {
     const noApproved = classifyBoard([item({ number: 9, status: 'Triaged' })], new Map(), {
       agentLogins: AGENTS,

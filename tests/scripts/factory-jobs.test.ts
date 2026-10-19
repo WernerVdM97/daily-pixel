@@ -29,6 +29,7 @@ import {
   decide,
   deliverCommands,
   drainOnce,
+  EPIC_LABEL,
   feedbackPath,
   findAdoptable,
   focusWindow,
@@ -351,6 +352,23 @@ describe('the gate', () => {
   it('runs an auto:* item ahead of nothing, at Inbox or Triaged', () => {
     const board = [item({ number: 3, status: 'Triaged', labels: ['auto:changelog'], priority: 'P3 - low' })];
     expect(pickCandidate(board, [])?.number).toBe(3);
+  });
+
+  it('refuses an epic whatever its Status or auto:* label, and names the hold', () => {
+    expect(isGated(item({ number: 98, status: 'Approved', labels: [EPIC_LABEL] }))).toBe(false);
+    expect(isGated(item({ number: 98, status: 'Triaged', labels: [EPIC_LABEL, 'auto:docs'] }))).toBe(false);
+    expect(holdReason(item({ number: 98, status: 'Approved', labels: [EPIC_LABEL] }))?.reason).toBe('epic');
+  });
+
+  it('picks past an approved epic, and reports it rather than dropping it', () => {
+    const board = [
+      item({ number: 98, status: 'Approved', priority: 'P1 - high', labels: [EPIC_LABEL] }),
+      item({ number: 34, status: 'Approved', priority: 'P2 - normal' }),
+    ];
+    expect(pickCandidate(board, [])?.number).toBe(34);
+    expect(heldReport(board, []).map((held) => [held.item.number, held.reason])).toEqual([[98, 'epic']]);
+    // A Triaged epic is unclaimed backlog, not work the gate is holding back.
+    expect(heldReport([item({ number: 98, status: 'Triaged', labels: [EPIC_LABEL] })], [])).toEqual([]);
   });
 });
 

@@ -991,8 +991,16 @@ export interface GateCandidate {
   labels: string[];
 }
 
-/** `Approved`, or an `auto:*` item still upstream of execution. `Blocked`/`Done` never. */
+/** The label for an arc-level parent: its work is its sub-issues, so no card carrying it is a unit of work. */
+export const EPIC_LABEL = "type:epic";
+
+export function isEpic(item: { labels: string[] }): boolean {
+  return item.labels.includes(EPIC_LABEL);
+}
+
+/** `Approved`, or an `auto:*` item still upstream of execution. `Blocked`/`Done` never, and never an epic. */
 export function isGated(item: GateCandidate): boolean {
+  if (isEpic(item)) return false;
   if (item.status === "Approved") return true;
   const auto = item.labels.some((label) => (AUTO_LABELS as readonly string[]).includes(label));
   return auto && (item.status === "Inbox" || item.status === "Triaged");
@@ -1033,7 +1041,7 @@ export interface Readiness {
   window?: string[];
 }
 
-export type HoldReason = "needs-decision" | "blocked-by" | "out-of-focus";
+export type HoldReason = "epic" | "needs-decision" | "blocked-by" | "out-of-focus";
 
 export interface Held {
   item: GateCandidate;
@@ -1043,9 +1051,13 @@ export interface Held {
 
 /**
  * Why an item is not runnable yet, or null when it is. `isGated` answers "may this run at
- * all" (approval); this answers "now" (dependencies, owner holds, the sprint's milestone).
+ * all" (approval); this answers "now" (dependencies, owner holds, the sprint's milestone) and
+ * names the epic refusal so the ledger prints a reason rather than dropping the item.
  */
 export function holdReason(item: GateCandidate, readiness: Readiness = {}): Held | null {
+  if (isEpic(item)) {
+    return { item, reason: "epic", detail: `${EPIC_LABEL} tracks work, its sub-issues are the work` };
+  }
   if (item.labels.includes(HELD_LABEL)) {
     return { item, reason: "needs-decision", detail: `carries ${HELD_LABEL}` };
   }
@@ -1087,8 +1099,9 @@ export function heldReport(items: GateCandidate[], jobs: JobRecord[], readiness:
   const held: Held[] = [];
   for (const item of items) {
     if (!REPORTABLE_STATUSES.has(item.status) || hasJobRecord(item.number, jobs)) continue;
-    // In Progress is an orphan the ledger could adopt; the other statuses are gated work.
-    if (item.status !== "In Progress" && !isGated(item)) continue;
+    // In Progress is an orphan the ledger could adopt and Approved is work a human claimed; an
+    // epic at Inbox or Triaged was never claimed, so it is backlog rather than a hold.
+    if (item.status !== "In Progress" && item.status !== "Approved" && !isGated(item)) continue;
     const reason = holdReason(item, readiness);
     if (reason) held.push(reason);
   }
