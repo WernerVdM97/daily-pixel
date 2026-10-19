@@ -31,6 +31,7 @@ import type { DayLogEntry } from './turnContext.js';
 import { Transcript } from './transcript.js';
 import type { GameRouter } from '../protocol/router.js';
 import type { GameResponse } from '../protocol/envelope.js';
+import { isRollVerdict } from '../protocol/envelope.js';
 import type { GameEvent } from '../protocol/events.js';
 
 /** Safety valve on the decision loop: the pipeline's own beat cap is 2, so a run past this many beats
@@ -990,7 +991,8 @@ export class AgentHarness {
    *  next day's recap carries. The envelope's `distilledType` (model-authored, open-vocabulary) becomes the outcome's `verb`, so the histogram reports what the model called the action rather than a guess. */
   private recordOutcome(text: string, facts?: Record<string, unknown>): void {
     const verb = typeof facts?.distilledType === 'string' ? facts.distilledType : undefined;
-    this.transcript.outcome(text, verb);
+    const roll = facts?.roll;
+    this.transcript.outcome(text, verb, isRollVerdict(roll) ? roll : undefined);
     const line = summarizeOutcome(text);
     this.lastOutcomeLine = line;
     this.todayOutcomes.push(line);

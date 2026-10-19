@@ -3,7 +3,7 @@
  * artefact the repro and the critic read. A parallel `protocol` log rides along, one entry per dispatch.
  */
 
-import { PROTOCOL_VERSION, type GameResponse } from '../protocol/envelope.js';
+import { PROTOCOL_VERSION, type GameResponse, type RollVerdict } from '../protocol/envelope.js';
 import type { GameEvent } from '../protocol/events.js';
 import type { AgentMove, LegalMove, Recurrence, ReconScreen } from './AgentPlayerGateway.js';
 import { viewToText } from './viewToText.js';
@@ -28,6 +28,11 @@ export interface OutcomeEvent {
   /** The action model's own label for the action that produced this outcome — the outcome envelope's
    *  `facts.distilledType`, recorded verbatim. MODEL-AUTHORED and open-vocabulary: never keyword-matched from the text. */
   verb?: string;
+  /** Lifted from the outcome envelope's `roll` fact; all three are absent when the action rolled no dice. */
+  d20?: number;
+  dc?: number;
+  /** The item/stat bonus the engine added to the d20, when the roll carried one. */
+  bonus?: number;
 }
 export interface DeadEndEvent { type: 'dead-end'; reason: string; detail?: string }
 export interface DayBoundaryEvent { type: 'day'; dayNumber: number; note: string }
@@ -204,8 +209,13 @@ export class Transcript {
     this.events.push({ type: 'turn', screen, text, offered: offered.map((m) => m.label), chosen });
   }
 
-  outcome(text: string, verb?: string): void {
-    this.events.push({ type: 'outcome', text, ...(verb ? { verb } : {}) });
+  outcome(text: string, verb?: string, roll?: RollVerdict): void {
+    this.events.push({
+      type: 'outcome',
+      text,
+      ...(verb ? { verb } : {}),
+      ...(roll ? { d20: roll.d20, dc: roll.dc, ...(roll.bonus !== undefined ? { bonus: roll.bonus } : {}) } : {}),
+    });
   }
 
   deadEnd(reason: string, detail?: string): void {
