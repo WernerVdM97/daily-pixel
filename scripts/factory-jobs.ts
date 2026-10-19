@@ -991,8 +991,15 @@ export interface GateCandidate {
   labels: string[];
 }
 
+export const EPIC_LABEL = "type:epic";
+
+export function isEpic(item: { labels: string[] }): boolean {
+  return item.labels.includes(EPIC_LABEL);
+}
+
 /** `Approved`, or an `auto:*` item still upstream of execution. `Blocked`/`Done` never. */
 export function isGated(item: GateCandidate): boolean {
+  if (isEpic(item)) return false;
   if (item.status === "Approved") return true;
   const auto = item.labels.some((label) => (AUTO_LABELS as readonly string[]).includes(label));
   return auto && (item.status === "Inbox" || item.status === "Triaged");
@@ -1033,7 +1040,7 @@ export interface Readiness {
   window?: string[];
 }
 
-export type HoldReason = "needs-decision" | "blocked-by" | "out-of-focus";
+export type HoldReason = "epic" | "needs-decision" | "blocked-by" | "out-of-focus";
 
 export interface Held {
   item: GateCandidate;
@@ -1046,6 +1053,9 @@ export interface Held {
  * all" (approval); this answers "now" (dependencies, owner holds, the sprint's milestone).
  */
 export function holdReason(item: GateCandidate, readiness: Readiness = {}): Held | null {
+  if (isEpic(item)) {
+    return { item, reason: "epic", detail: `carries ${EPIC_LABEL}` };
+  }
   if (item.labels.includes(HELD_LABEL)) {
     return { item, reason: "needs-decision", detail: `carries ${HELD_LABEL}` };
   }
@@ -1087,8 +1097,9 @@ export function heldReport(items: GateCandidate[], jobs: JobRecord[], readiness:
   const held: Held[] = [];
   for (const item of items) {
     if (!REPORTABLE_STATUSES.has(item.status) || hasJobRecord(item.number, jobs)) continue;
-    // In Progress is an orphan the ledger could adopt; the other statuses are gated work.
-    if (item.status !== "In Progress" && !isGated(item)) continue;
+    const claimed = item.status === "Approved" || item.status === "In Progress";
+    // An epic at Inbox or Triaged was never claimed, so it is backlog rather than a hold.
+    if (!claimed && !isGated(item)) continue;
     const reason = holdReason(item, readiness);
     if (reason) held.push(reason);
   }

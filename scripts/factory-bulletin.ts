@@ -27,7 +27,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildCtx, type Ctx, type HeldReport, heldReports, readReadiness } from "./factory-jobs.js";
+import { buildCtx, type Ctx, type HeldReport, heldReports, isEpic, readReadiness } from "./factory-jobs.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -402,6 +402,7 @@ function classifyItem(
   const last = lastComment(comments);
   const since = last ? ageMs(last.createdAt, opts.nowMs) : null;
   if (item.status === "Triaged") {
+    if (isEpic(item)) return null;
     return { bucket: "approve", entry: toEntry(item, since, last ? toExcerpt(last.body, 90) : "") };
   }
   if (item.status === "In Review") return { bucket: "merge", entry: toEntry(item, since, "") };
@@ -422,7 +423,13 @@ function buildNotes(queue: Queue): string[] {
     );
   }
   const held = queue.held.filter((entry) => inWindow(entry, queue.window));
-  const blockedHolds = held.filter((entry) => entry.reason !== "out-of-focus");
+  const epics = held.filter((entry) => entry.reason === "epic");
+  if (epics.length > 0) {
+    notes.push(
+      `**${epics.length}** item(s) here are \`type:epic\` tracking issues (${epics.map((entry) => `#${entry.number}`).join(", ")}), which never run as work: approving the parent starts nothing, so approve the sub-issue that carries the change.`,
+    );
+  }
+  const blockedHolds = held.filter((entry) => entry.reason !== "out-of-focus" && entry.reason !== "epic");
   if (blockedHolds.length > 0) {
     notes.push(
       `**${blockedHolds.length}** card(s) shown here cannot run yet: ${describeHolds(blockedHolds)}. The ledger prints the same list; nothing is stalled, it is waiting.`,

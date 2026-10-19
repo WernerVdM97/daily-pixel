@@ -119,15 +119,18 @@ Enforced twice, belt and braces:
 
 Standing-approval classes (the only work that can run without per-item approval): `auto:docs` (docs/ and comments only), `auto:changelog` (CHANGELOG.md upkeep), `auto:tests` (test-only, no `src/`). Anything else always needs Status=`Approved`.
 
+**A `type:epic` is never executable, so it is never approvable.** That label means an arc-level parent whose work is its sub-issues, and a tracking issue is not a scoped change, which is the only thing this gate signs off. So `isGated` refuses an epic whatever its Status and whatever `auto:*` label it carries; the ledger prints the refusal as a hold named `epic` rather than letting an approved one sit silently unstarted; the bulletin keeps an epic out of `Ready to approve`; and triage scopes the sub-issues, never reshaping the parent into a build card. An epic that lands in `Approved` is carrying a status that belongs to its children, so triage moves it back to `Triaged` while a sub-issue is open, or to `Blocked` with the question when the arc itself waits on the owner, and comments why: the cards to approve are the ones underneath it.
+
 **Meta-oil's proposal cards are a third, narrower form of the same thing.** A proposal the owner reacted to on the digest is already decided: the drain resolves the reaction into one verdict per proposal, and meta-oil applies that proposal and files one card per applied proposal with Status `Approved` to _record_ that human decision, not to make one. It must never set `Approved` on work the owner has not voted for, and a proposal the owner did not answer gets no card and no PR — so every card in that column traces back to a tap on a digest the owner was sent. See § The loops.
 
 ### Approval is not readiness
 
-Approval answers "may this ever run"; the ledger also asks "now", and an approved item is held back in three cases:
+Approval answers "may this ever run"; the ledger also asks "now", and an approved item is held back in four cases:
 
 - **It carries `needs-human-decision`.** That label means a human decides first, and `Approved` does not outrank it. An approval set in bulk, or set before triage parked the card, would otherwise start work whose acceptance criteria are still a question for the owner.
 - **One of its dependencies is open.** The ledger reads GitHub's own `blockedBy` relations for the items it is about to consider. Dependencies used to exist only as prose in the loops' memory, which the pick could not read, so a card could be approved while the design it waited on was still open.
 - **It sits outside the focus milestone.** The factory builds one milestone at a time: the open milestone with the earliest due date, read from `gh` and cached at `.pi/factory/focus.json`. The cache is what lets triage order its passes by the sprint without its own API call, and it is the only writer's state, never hand-edited. A milestone with no due date never takes the focus while a dated one is open; when no open milestone is dated the filter switches off and priority order decides. Advancing the sprint is therefore a milestone change — close or re-date one — and not a config edit.
+- **It is a `type:epic`.** That label makes it a tracking card whose work is its sub-issues, so no Status on the parent starts anything; the ledger names the hold `epic` rather than leaving an approved parent silently idle.
 
 Every declined item is named with its reason, in the `start` log and on the pinned bulletin. A factory with nothing runnable is a normal state, since the sprint may be waiting on the owner; what matters is that the bulletin says which, so an idle machine is never indistinguishable from a broken one.
 
