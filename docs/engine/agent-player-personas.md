@@ -191,9 +191,9 @@ Three routes that could quote the dial, cheapest first:
 
 ## The daunting-band reading (2026-10-20)
 
-RA-1's daunting band sat measured-broken and unmeasured-fixed after the P1 prompt fix: finding 5 measured a set-level max DC of 18 over 21 sets, and whether v13's anchor prose now reaches 20-24 had no instrument to ask with. #146 gave an outcome envelope the roll verdict, so `Transcript.difficultyBands()` now bands what a run actually rolled against and `agent:play` prints it beside the RA-2 dial.
+RA-1's daunting band sat measured-broken and unmeasured-fixed after the P1 prompt fix: finding 5 measured a set-level max DC of 18 over 21 sets, and whether the live prompt set's anchor prose now reaches 20-24 had no instrument to ask with. #146 gave an outcome envelope the roll verdict, so `Transcript.difficultyBands()` now bands what a run actually rolled against and `agent:play` prints it beside the RA-2 dial.
 
-The reading prints what it can and names what it cannot. It counts every resolution whose outcome carried the engine's roll header, bands the final DC on v13's ladder (routine 11-13, hard 16-18, daunting 20-24, everything at 14, 15 or 19 off-ladder), and reads the daunting band against its floor of 20. The day-job share prints beside the bands because findings 1-2 of the Release A plan are the trap here: a run whose resolutions are mostly work has not asked DECIDE anything, and a daunting-free reading of one is not evidence about the prompt.
+The reading prints what it can and names what it cannot. It counts every resolution whose outcome envelope carried the roll verdict, so a fight's terminal DC counts even though the combat card renders no text roll header, and bands it on the live set's ladder (v14: routine 11-13, hard 16-18, daunting 20-24), reporting DCs in the ladder's own gaps (14, 15, 19) separately from those outside its ends. It reads the daunting band against its floor of 20. The day-job share prints beside the bands because findings 1-2 of the Release A plan are the trap here: a run whose resolutions are mostly work has not asked DECIDE anything, and a daunting-free reading of one is not evidence about the prompt.
 
 Two properties of the original 24-call probe design do not survive the move to a run, and neither is recoverable inside this instrument:
 
@@ -202,13 +202,15 @@ Two properties of the original 24-call probe design do not survive the move to a
 
 The sample is the second cost. A forced arm returns roughly 2.5 resolutions per played day (see § The RA-2 dial's sample), so the 24 rolled DCs the probe design asked for is about ten played days: workable by hand, not inside a factory stage's 50 minutes.
 
-One live arm off `dev` on 2026-10-20 (session `agent:play-1792469250723`), one process, `AGENT_PERSONA=soldier` (the persona #146 named as the natural probe: it seeks dangerous ground), `AGENT_FORCE_FREE_ACTIONS=1`, `AGENT_DAYS=3`, `AGENT_START_DATE=2026-09-15T12:00:00Z`, harness default model (`deepseek/deepseek-v4.1-flash`, reasoning `low`), 94 calls and 434k tokens. Clean to the day boundary: 0 error findings, every day closed `no-rolls`, exit 0; the single warning is an unsafe night's rest, not a harness fault.
+One live arm off `dev` on 2026-10-20, one process, `AGENT_PERSONA=soldier` (the persona #146 named as the natural probe: it seeks dangerous ground), `AGENT_FORCE_FREE_ACTIONS=1`, `AGENT_DAYS=3`, `AGENT_START_DATE=2026-09-15T12:00:00Z`, harness default model (`deepseek/deepseek-v4.1-flash`, reasoning `low`), 94 calls and 434k tokens. Clean to the day boundary: 0 error findings, every day closed `no-rolls`, exit 0; the single warning is an unsafe night's rest, not a harness fault.
 
-| Rolled DCs | Routine 11-13 | Hard 16-18 | Daunting 20-24 | Off-ladder | Max | Distribution |
+| Rolled DCs | Routine 11-13 | Hard 16-18 | Daunting 20-24 | In a gap | Max | Distribution |
 | --- | --- | --- | --- | --- | --- | --- |
 | 7 of 9 resolutions | 3 | 1 | 2 | 1 (19) | 24 | 11×2, 13×1, 18×1, 19×1, 21×1, 24×1 |
 
-The daunting band is **reachable on v13**: two attempted DCs cleared 20, at 21 and 24, so the anchor-mid-spread instruction in `decide/BASE.md` does produce sets whose extreme option lands there. That answers the pass bar's daunting half at n = 7 and says nothing about the routine half, which a run cannot see. Nor is n = 7 enough to call the distribution measured: the reading is one arm, one persona, three days, and a single rerun could drop the daunting count to zero. What it does establish is the direction the residual lacked — the band is no longer measured-broken.
+The arm predates the DC moving out of the rendered header and onto the envelope, so it was read the old way: a fight's terminal card carries no header, so any fight among the nine resolutions counted as unrolled here. The figures are a floor rather than a full reading.
+
+The daunting band is **reachable on the live set**: two attempted DCs cleared 20, at 21 and 24, so the anchor-mid-spread instruction in `decide/BASE.md` does produce sets whose extreme option lands there. (The arm ran v14, whose `decide/BASE.md` differs from v13 only in its header line, so the reading stands for both.) That answers the pass bar's daunting half at n = 7 and says nothing about the routine half, which a run cannot see. Nor is n = 7 enough to call the distribution measured: the reading is one arm, one persona, three days, and a single rerun could drop the daunting count to zero. What it does establish is the direction the residual lacked — the band is no longer measured-broken.
 
 ---
 
