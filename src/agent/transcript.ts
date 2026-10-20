@@ -141,6 +141,64 @@ export interface TranscriptSummary {
  *  tops out at ~18%, so the band's upper edge (~19% at 3.7 rolls/day) binds. Report count, not a rate. */
 export const QUOTABLE_ELIGIBLE_FLOOR = 50;
 
+export type DcBand = 'routine' | 'hard' | 'daunting';
+
+/** The v13 ladder DECIDE authors each option's FINAL DC into (`assets/prompts/v13/decide/BASE.md`).
+ *  Not `dangerTier`, which bands a DC for display against a different scale. */
+export const DC_LADDER: readonly { band: DcBand; min: number; max: number }[] = [
+  { band: 'routine', min: 11, max: 13 },
+  { band: 'hard', min: 16, max: 18 },
+  { band: 'daunting', min: 20, max: 24 },
+];
+
+/** The daunting band's floor: the bar a re-probe reads a run's highest authored DC against. */
+export const DAUNTING_FLOOR = 20;
+
+/** Which band a final DC lands in, or null for the gaps (14, 15, 19) and the tails outside the ladder. */
+export function dcBand(dc: number): DcBand | null {
+  for (const rung of DC_LADDER) if (dc >= rung.min && dc <= rung.max) return rung.band;
+  return null;
+}
+
+/** A run's authored-DC distribution. Read `work` before the bands: a day-job-dominated run is the
+ *  blind spot findings 1-2 warn about, and a daunting-free reading of one says nothing about DECIDE. */
+export interface DifficultyBandReading {
+  /** Actions the brain completed. */
+  resolutions: number;
+  /** Those whose outcome carried a roll, so a DC exists to band. */
+  rolled: number;
+  /** Rolled DCs on a day-job action — the harness's blind spot, reported so it cannot be read as DECIDE. */
+  work: number;
+  byBand: Record<DcBand, number>;
+  /** Rolled DCs in the gaps between bands, or outside the ladder's ends. */
+  offLadder: number;
+  /** The highest rolled DC and its band; null when nothing rolled. */
+  max: { dc: number; band: DcBand | null } | null;
+  /** Every rolled DC, ascending, with how many resolutions landed on it. */
+  distribution: { dc: number; count: number }[];
+}
+
+/** Format the authored-DC distribution for the run summary. A single set's option list is not visible
+ *  here (only the chosen option's DC reaches the outcome), so this is a per-attempt reading. */
+export function formatDifficultyBands(reading: DifficultyBandReading): string {
+  const heading = '\n── RA-1 difficulty bands (v13 ladder) ──';
+  if (reading.max === null) return `${heading}\n  no rolled DC — nothing to band`;
+  const rung = DC_LADDER.map((r) => `${r.band} ${r.min}-${r.max}: ${reading.byBand[r.band]}`).join('  ');
+  const tally = reading.distribution.map((d) => `${d.dc}×${d.count}`).join(', ');
+  const reached =
+    reading.max.dc >= DAUNTING_FLOOR
+      ? `daunting band reached (floor ${DAUNTING_FLOOR})`
+      : `daunting band NOT reached (floor ${DAUNTING_FLOOR})`;
+  return (
+    `${heading}\n` +
+    `  rolled DCs: ${reading.rolled} of ${reading.resolutions} resolution(s) — ${reading.work} work, ` +
+    `${reading.rolled - reading.work} free\n` +
+    `  ${rung}  off-ladder: ${reading.offLadder}\n` +
+    `  distribution: ${tally}\n` +
+    `  max: ${reading.max.dc} (${reading.max.band ?? 'off-ladder'}) — ${reached}`
+  );
+}
+
 /** One played day of the RA-2 reading. */
 export interface InspirationDay {
   /** 1-based play order. */
@@ -296,6 +354,36 @@ export class Transcript {
     return this.daySlices().map((slice) => resolvedActions(slice).filter((a) => a.kind === 'free').length);
   }
 
+  /** The authored final DCs this run rolled against, banded on the v13 ladder — the reading a
+   *  daunting-band re-probe takes. Derived from the protocol log, so work and free actions split. */
+  difficultyBands(): DifficultyBandReading {
+    const actions = this.daySlices().flatMap((slice) => resolvedActions(slice));
+    const rolled = actions.filter((a) => a.dc !== undefined);
+    const byBand: Record<DcBand, number> = { routine: 0, hard: 0, daunting: 0 };
+    const counts = new Map<number, number>();
+    let offLadder = 0;
+    let max: DifficultyBandReading['max'] = null;
+    for (const action of rolled) {
+      const dc = action.dc!;
+      const band = dcBand(dc);
+      if (band === null) offLadder++;
+      else byBand[band]++;
+      counts.set(dc, (counts.get(dc) ?? 0) + 1);
+      if (max === null || dc > max.dc) max = { dc, band };
+    }
+    return {
+      resolutions: actions.length,
+      rolled: rolled.length,
+      work: rolled.filter((a) => a.kind === 'work').length,
+      byBand,
+      offLadder,
+      max,
+      distribution: [...counts.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([dc, count]) => ({ dc, count })),
+    };
+  }
+
   /** The RA-2 dial's numbers: the grant rate with both denominators, the roll cadence, and the run's
    *  own work/free mix. Derived on demand like every other counter here. */
   inspiration(): InspirationReading {
@@ -304,7 +392,7 @@ export class Transcript {
       return {
         day: i + 1,
         resolutions: actions.length,
-        rolls: actions.filter((a) => a.rolled).length,
+        rolls: actions.filter((a) => a.dc !== undefined).length,
         eligible: actions.filter((a) => a.kind === 'free').length,
         grants: actions.filter((a) => a.granted).length,
       };
@@ -374,11 +462,11 @@ export class Transcript {
   }
 }
 
-/** One action that RESOLVED in a day's dispatch slice: what it was, whether it spent a roll, and whether
- *  the outcome reported a grant. */
+/** One action that RESOLVED in a day's dispatch slice: what it was, the DC it rolled against (absent
+ *  when it spent no roll), and whether the outcome reported a grant. */
 interface ResolvedAction {
   kind: 'work' | 'free';
-  rolled: boolean;
+  dc?: number;
   granted: boolean;
 }
 
@@ -412,17 +500,18 @@ function resolvedActions(slice: ProtocolDispatchEntry[]): ResolvedAction[] {
   return actions;
 }
 
-/** The engine's roll header, `🎲 <d20> [+ bonus]  vs  <dc>` on a line of its own. */
-const ROLL_HEADER = /^.*🎲.* {2}vs {2}\d.*$/m;
+/** The engine's roll header, `🎲 <d20> [+ bonus]  vs  <dc>  →  <verdict>`, capturing the final DC. */
+const ROLL_HEADER = /^.*🎲.* {2}vs {2}(\d+(?:\.\d+)?) {2}→.*$/m;
 /** The engine's named-reward line, rendered whenever a positive `modify_rolls_remaining` landed. */
 const INSPIRED_LINE = /^.*✨ Inspired: \+\d+ rolls?$/m;
 
 /** Read one resolution off the rendered message. The markers are engine-rendered, but the haystack holds
  *  the model's prose too, so a model line shaped like one counts; null is a non-completed outcome or a bail. */
-function readOutcome(response: GameResponse): { rolled: boolean; granted: boolean } | null {
+function readOutcome(response: GameResponse): { dc?: number; granted: boolean } | null {
   if (!response.ok || response.view?.screen !== 'outcome' || response.view.colorIntent === 'bailed') {
     return null;
   }
   const text = viewToText(response.view);
-  return { rolled: ROLL_HEADER.test(text), granted: INSPIRED_LINE.test(text) };
+  const dc = ROLL_HEADER.exec(text)?.[1];
+  return { ...(dc !== undefined ? { dc: Number(dc) } : {}), granted: INSPIRED_LINE.test(text) };
 }
