@@ -1,8 +1,5 @@
-/**
- * The `<AGENT_OUT>.llm-calls.json` dump: every `llm_calls` row a live run recorded, read out of the
- * run's `:memory:` DB before the process exits. DB-in/data-out, so a test proves the dump is whole
- * without paying for a run.
- */
+/** The `<AGENT_OUT>.llm-calls.json` dump: every `llm_calls` row a live run recorded, read out of the
+ *  run's `:memory:` DB before the process exits. DB-in/data-out, so a test can prove it whole. */
 
 import type Database from 'better-sqlite3';
 
@@ -44,8 +41,7 @@ export function buildLlmCallDump(db: Database.Database): LlmCallDumpEntry[] {
     .all() as LlmCallDumpEntry[];
 }
 
-/** Beside the transcript and the protocol log. Derived from `AGENT_OUT` alone, so the dump invents
- *  no path of its own and carries nothing about the host into the run's durable record. */
+/** Beside the transcript and the protocol log; derived from `AGENT_OUT` alone. */
 export function llmCallDumpPath(outPath: string): string {
   return `${outPath}.llm-calls.json`;
 }

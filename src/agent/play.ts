@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
 import { formatInspirationDial } from './transcript.js';
-import { agentCapturePolicy, llmCallsDumpEnabled, parseReasoningEffort } from './harnessEnv.js';
+import { agentCaptureMode, agentCapturePolicy, llmCallsDumpEnabled, parseReasoningEffort } from './harnessEnv.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
 import { REASONING_EFFORTS } from '../llm/chat-transport.js';
@@ -132,10 +132,17 @@ async function main(): Promise<void> {
   // Shares prod's parser, so an arm selected here matches what prod would do with the same env:
   // 'always' gates nothing (the baseline arm), 'anomaly' gates both beats.
   const criticGateMode: CriticGateMode = parseCriticGateMode(process.env.CRITIC_GATE_MODE);
-  // On unless opted out with a literal "false", prod's convention: these rows die with the run's DB.
+  // On unless opted out with a literal "false", prod's convention.
   const llmCallsDump = llmCallsDumpEnabled();
   // Deep capture at this run's expense; the reasoning arrives free with the reply, so it costs disk.
   const capturePolicy = agentCapturePolicy();
+  // A pinned mode leaves the dump thin, so say so rather than let it read as whole.
+  const captureMode = agentCaptureMode();
+  if (captureMode !== 'all') {
+    console.error(
+      `agent:play: LLM_LOG_THINKING=${captureMode} (pinned) — a successful stage or critic row keeps only a reasoning_chars gauge, not its prompt.`,
+    );
+  }
 
   // Pin BEFORE anything that reads the clock is constructed: the wizard session's TTL stamp, the
   // engine's per-action stamps and the greeting all read `new Date()`.
@@ -235,15 +242,8 @@ async function main(): Promise<void> {
       // `<AGENT_OUT>.protocol.json`), the replayable instrument, with the same finally guarantee.
       const protocolOut = process.env.AGENT_PROTOCOL_OUT ?? `${outPath}.protocol.json`;
       writeFileSync(protocolOut, JSON.stringify(harness.transcript.protocol, null, 2));
-      // The run's LLM audit, from this same finally so a throwing run still leaves it; the `:memory:`
-      // DB these rows sit in dies with the process.
-      const callsPath = llmCallDumpPath(outPath);
-      if (llmCallsDump) {
-        writeFileSync(callsPath, JSON.stringify(buildLlmCallDump(agentEngine.db), null, 2));
-      }
       console.error(`\n── transcript written to ${outPath} ──`);
       console.error(`── protocol log written to ${protocolOut} ──`);
-      if (llmCallsDump) console.error(`── llm calls dump written to ${callsPath} ──`);
       console.error('\n── day summaries ──');
       // Criterion 3 reads per day, so the scoreboard the operator reads carries the per-day
       // free-action count, not just the run total.
@@ -347,8 +347,14 @@ async function main(): Promise<void> {
       }
     }
   } finally {
-    // Queried from the SAME `:memory:` db `recordLlmCalls` wrote into, before the process exits and
-    // those `llm_calls` rows are gone for good; printed once and last, from the outer finally.
+    // The run's LLM audit, written from the OUTER finally so the critic's and the persona reviewer's
+    // rows are in it too: the `:memory:` DB dies with the process.
+    if (llmCallsDump) {
+      const callsPath = llmCallDumpPath(outPath);
+      writeFileSync(callsPath, JSON.stringify(buildLlmCallDump(agentEngine.db), null, 2));
+      console.error(`\n── llm calls dump written to ${callsPath} ──`);
+    }
+    // Printed once and last, from the same `:memory:` DB the recorder wrote into.
     console.error(`\n${formatLlmCostSummary(summarizeLlmCosts(agentEngine.db))}`);
     // Unconditional: the pin is process-wide, and restoring only on the success path would leave the
     // global swapped for whatever runs after.

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   DEFAULT_REASONING_EFFORT,
+  agentCaptureMode,
   agentCapturePolicy,
   llmCallsDumpEnabled,
   parseReasoningEffort,
@@ -41,17 +42,29 @@ describe('llmCallsDumpEnabled', () => {
 describe('agentCapturePolicy', () => {
   const successfulCall = { diagnostic: false, reasoningChars: 12 };
 
-  it('captures a successful call, and says so in the process logging contract', () => {
+  it('captures a successful call when the operator pinned nothing', () => {
     const env: NodeJS.ProcessEnv = {};
 
     expect(agentCapturePolicy(env).shouldCapture(successfulCall)).toBe(true);
-    expect(env.LLM_LOG_THINKING).toBe('all');
+    expect(agentCaptureMode(env)).toBe('all');
+    expect(env).toEqual({});
+  });
+
+  it('treats a blank mode as unpinned', () => {
+    const env: NodeJS.ProcessEnv = { LLM_LOG_THINKING: '   ' };
+
+    expect(agentCapturePolicy(env).shouldCapture(successfulCall)).toBe(true);
+    expect(agentCaptureMode(env)).toBe('all');
   });
 
   it('leaves an explicit mode to the operator', () => {
     const env: NodeJS.ProcessEnv = { LLM_LOG_THINKING: 'errors' };
 
     expect(agentCapturePolicy(env).shouldCapture(successfulCall)).toBe(false);
-    expect(env.LLM_LOG_THINKING).toBe('errors');
+    expect(agentCaptureMode(env)).toBe('errors');
+  });
+
+  it('names the mode a fallback value resolved to, so a thinned dump is explained', () => {
+    expect(agentCaptureMode({ LLM_LOG_THINKING: 'bogus' })).toBe('spiral');
   });
 });
