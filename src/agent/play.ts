@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
 import { formatInspirationDial } from './transcript.js';
-import { parseReasoningEffort } from './harnessEnv.js';
+import { agentCapturePolicy, llmCallsDumpEnabled, parseReasoningEffort } from './harnessEnv.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
 import { REASONING_EFFORTS } from '../llm/chat-transport.js';
@@ -21,6 +21,7 @@ import type { CharCreateData } from '../engine/WorldEngine.js';
 import { loadYamlFile } from '../assets/yaml-loader.js';
 import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
+import { buildLlmCallDump, llmCallDumpPath } from './llmCallDump.js';
 import { pinAdvancingClock } from './clock.js';
 import { buildReviewFile, formatPersonaReview, personaReviewInput } from './reviewFile.js';
 import { PERSONA_NAMES } from './agentPrompt.js';
@@ -131,6 +132,10 @@ async function main(): Promise<void> {
   // Shares prod's parser, so an arm selected here matches what prod would do with the same env:
   // 'always' gates nothing (the baseline arm), 'anomaly' gates both beats.
   const criticGateMode: CriticGateMode = parseCriticGateMode(process.env.CRITIC_GATE_MODE);
+  // On unless opted out with a literal "false", prod's convention: these rows die with the run's DB.
+  const llmCallsDump = llmCallsDumpEnabled();
+  // Deep capture at this run's expense; the reasoning arrives free with the reply, so it costs disk.
+  const capturePolicy = agentCapturePolicy();
 
   // Pin BEFORE anything that reads the clock is constructed: the wizard session's TTL stamp, the
   // engine's per-action stamps and the greeting all read `new Date()`.
@@ -145,6 +150,7 @@ async function main(): Promise<void> {
     apiKey,
     ...(model ? { model } : {}),
     recordLlmCalls: true,
+    capturePolicy,
     criticGateMode,
     criticEnabled,
   });
@@ -229,8 +235,15 @@ async function main(): Promise<void> {
       // `<AGENT_OUT>.protocol.json`), the replayable instrument, with the same finally guarantee.
       const protocolOut = process.env.AGENT_PROTOCOL_OUT ?? `${outPath}.protocol.json`;
       writeFileSync(protocolOut, JSON.stringify(harness.transcript.protocol, null, 2));
+      // The run's LLM audit, from this same finally so a throwing run still leaves it; the `:memory:`
+      // DB these rows sit in dies with the process.
+      const callsPath = llmCallDumpPath(outPath);
+      if (llmCallsDump) {
+        writeFileSync(callsPath, JSON.stringify(buildLlmCallDump(agentEngine.db), null, 2));
+      }
       console.error(`\n── transcript written to ${outPath} ──`);
       console.error(`── protocol log written to ${protocolOut} ──`);
+      if (llmCallsDump) console.error(`── llm calls dump written to ${callsPath} ──`);
       console.error('\n── day summaries ──');
       // Criterion 3 reads per day, so the scoreboard the operator reads carries the per-day
       // free-action count, not just the run total.

@@ -44,6 +44,7 @@ Every run's `AGENT_START_DATE` must be a **noon-UTC instant** (`2026-09-15T12:00
 | `AGENT_SKIP_DAYS` | `<n>` = play day 1, advance the world `n` days with no play at all (the absence), then play the remaining `AGENT_DAYS-1` days. The interrupted shape. Only reached when day 1 ends cleanly. |
 | `AGENT_OUT` | Transcript path, one per run. The review lands at `<AGENT_OUT>.reviews.json`. |
 | `AGENT_PROTOCOL_OUT` | Protocol-log path (default `<AGENT_OUT>.protocol.json`); the replayable instrument. |
+| `AGENT_LLM_CALLS_DUMP` | `false` stops the run writing `<AGENT_OUT>.llm-calls.json`. On by default: the dump is the run's whole `llm_calls` audit (every stage's parse result, warnings, tier, critic verdict and reasoning) and the `:memory:` DB that holds it dies with the process. Mining queries: `docs/engine/agent-player-personas.md` § Mining the LLM audit. |
 | `AGENT_FORCE_FREE_ACTIONS` | Diagnostic, not the way: `1` withholds each day's day-job buttons until a free-text action completes. Use only when a question needs the quest loop (e.g. RA-2 inspiration), and note in the report that the arm was forced. |
 | `PLAYER_AGENT_REASONING_EFFORT` | `max`/`high`/`low`, default `low`. How hard the brain, the run critique and the persona review reason, and the run's largest cost lever: every brain move pays it. Anything else exits 1 rather than being silently clamped to a tier the model does serve. Raise it to `high` to run the other arm of an A/B. |
 | `AGENT_PROTOCOL_BEATS`, `AGENT_BRAIN_CHOOSES_CHAR`, `AGENT_USER_ID`, `AGENT_INHERIT`, `AGENT_MODEL` | Unchanged. `AGENT_BRAIN_CHOOSES_CHAR=1` is the token-heavy realism arm; `AGENT_INHERIT=1` needs `AGENT_USER_ID` and exits 1 when no character is found. |
@@ -56,7 +57,7 @@ set -a && . ./.env && set +a && AGENT_OUT=<dir>/<persona>.json AGENT_DAYS=<N> AG
 
 **Make a fresh directory per panel shape** — the panel reads *every* `<AGENT_OUT>.reviews.json` in the directory, and a directory holding two runs of the same persona is read as one persona with doubled days. One review file per persona per directory.
 
-Output split: the **transcript** is clean JSON at `AGENT_OUT`; the **persona review** is at `<AGENT_OUT>.reviews.json` (written only when a persona played); **stderr** (`.log`) carries the transcript path, day summaries, run scoreboard, critic report, persona review in readable form, and the cost summary; **stdout** is engine/gateway/npm noise (ignore). `panel.md` and `panel.json` are written beside the reviews by the aggregator, and the rendered panel also prints to stderr.
+Output split: the **transcript** is clean JSON at `AGENT_OUT`; the **persona review** is at `<AGENT_OUT>.reviews.json` (written only when a persona played); **stderr** (`.log`) carries the transcript path, day summaries, run scoreboard, critic report, persona review in readable form, and the cost summary; the **LLM audit** is at `<AGENT_OUT>.llm-calls.json` (one entry per `llm_calls` row, on unless `AGENT_LLM_CALLS_DUMP=false`); **stdout** is engine/gateway/npm noise (ignore). `panel.md` and `panel.json` are written beside the reviews by the aggregator, and the rendered panel also prints to stderr.
 
 ## Aggregating
 

@@ -30,6 +30,7 @@ import type { PipelineLlmGateway } from '../llm/pipeline/types.js';
 import type { ClassDef, ModifierDef } from '../engine/StatComputer.js';
 import type { CriticGateway } from '../llm/LlmGateway.js';
 import { ProdLlmGateway } from '../llm/ProdLlmGateway.js';
+import type { DeepCapturePolicy } from '../llm/capture-policy.js';
 import type { CriticGateMode } from '../engine/action/critic-gate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +49,10 @@ export interface AgentEngineConfig {
   /** If true, records an `llm_calls` row per pipeline stage on the real path (into the same
    *  in-memory DB). Off by default — the harness DB is ephemeral. */
   recordLlmCalls?: boolean;
+  /** When raw prompt + reasoning are kept on a recorded row, for both the pipeline stages and the
+   *  coherence critic. Resolved by the caller (this library reads no env), so a live run can select
+   *  `LLM_LOG_THINKING`'s deep-capture mode while prod keeps its own. */
+  capturePolicy?: DeepCapturePolicy;
   /** Pre-built coherence-critic gateway for deterministic tests — bypasses the real OpenRouter
    *  transport. Omit on a live (apiKey) run for the real `ProdLlmGateway`; omit otherwise for none. */
   criticGateway?: CriticGateway;
@@ -108,6 +113,7 @@ export function buildAgentEngine(config: AgentEngineConfig): AgentEngine {
             apiKey: config.apiKey,
             ...(config.model ? { model: config.model } : {}),
             ...(config.recordLlmCalls ? { recorder: new LlmCallRepository(db) } : {}),
+            ...(config.capturePolicy ? { capturePolicy: config.capturePolicy } : {}),
           })
         : undefined));
 
@@ -125,6 +131,7 @@ export function buildAgentEngine(config: AgentEngineConfig): AgentEngine {
             apiKey: config.apiKey!,
             ...(config.model ? { model: config.model } : {}),
             ...(config.recordLlmCalls ? { recorder: new LlmCallRepository(db) } : {}),
+            ...(config.capturePolicy ? { capturePolicy: config.capturePolicy } : {}),
           },
         }),
     ...(config.rollD20 ? { rollD20: config.rollD20 } : {}),
