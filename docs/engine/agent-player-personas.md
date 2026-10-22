@@ -213,6 +213,7 @@ Two structural gaps cap what the harness can tell us today, and neither is a pro
 | Scope of the first cut | Full: information surface + recon moves + personas + handbook + friction capture + reviews. |
 | Roster | All ten personas. |
 | Review output | Human-readable on stderr, machine-readable at `<AGENT_OUT>.reviews.json`, aggregated offline by `agent:panel`. |
+| Run audit output | `<AGENT_OUT>.llm-calls.json`, the run's whole `llm_calls` table written beside it, on by default (`AGENT_LLM_CALLS_DUMP=false` opts out), read as a query rather than re-derived with new paid runs. |
 | Review lens | Benchmarked against the long-arc promise above, not against a single session's fun. |
 | Benchmark form | A named rubric derived from the pillars, scored per persona, **plus** the free-form review. |
 | Panel sequencing | The three-persona smoke, then the arc run (the only shape that answers the core goal), then the ten-persona breadth run, then the interrupted shape. |
@@ -352,6 +353,26 @@ After all personas report, one aggregation step prints one matrix and writes it 
 - **Fulfilment signal**: how many personas could name something they were `building`, and how many answered `building: "nothing"`.
 - Per-persona verb histogram, the anti-theatre check from A, plus the `arcNote` and `quitTrigger` distinctiveness table that rides with it.
 - Run cost (the existing `formatLlmCostSummary` already covers this).
+
+---
+
+## Mining the LLM audit
+
+A run's `llm_calls` rows are the only record of what the DM side actually did: the envelopes in the protocol log say the DM returned something odd, never why. Every `agent:play` run therefore writes `<AGENT_OUT>.llm-calls.json` beside the transcript and the protocol log — one entry per `llm_calls` row, whole, in row order — and the dump is a **job artifact like the protocol log**: archived with the run, never committed, and carrying no absolute path (it is derived from `AGENT_OUT` and holds the rows alone). `AGENT_LLM_CALLS_DUMP=false` turns it off; the default is on, because a paid run should not evaporate its own audit trail.
+
+The dump is a plain JSON array, so every reading below is one `jq` query over a run that has already been paid for. Nothing here needs a fresh run.
+
+| Reading | What it tells you | Query |
+| --- | --- | --- |
+| Per-stage parse failures | Where the pipeline misreads its own contract | `jq -r 'group_by(.call_kind)[] \| "\(.[0].call_kind) \(map(select(.parse_ok == 0)) \| length)/\(length) parse-failed"' run.json.llm-calls.json` |
+| Per-stage validation warnings | Contract breaches the parse survived | `jq -r 'group_by(.call_kind)[] \| "\(.[0].call_kind) \(map(select(.validation_warnings != "[]")) \| length) warned"' run.json.llm-calls.json` |
+| `tier=1` retry rate | The stripped-context fallback absorbing confusion silently | `jq -r 'group_by(.call_kind)[] \| "\(.[0].call_kind) \(map(select(.tier == 1)) \| length)/\(length) tier-1"' run.json.llm-calls.json` |
+| Critic severity by beat | Which half of the critic earns its keep (a `major` fires a re-decide on a decide beat, is discarded on a narrate one) | `jq -r '[.[] \| select(.call_kind == "critic")] \| group_by(.beat)[] \| "\(.[0].beat) \(group_by(.critic_severity) \| map("\(.[0].critic_severity)=\(length)") \| join(" "))"' run.json.llm-calls.json` |
+
+- [!] **The rows carry the whole prompt, and the reasoning where a stage asks for it.** A live run selects `LLM_LOG_THINKING=all` for its own process unless the operator pinned a mode, so a successful decide, narrate or critic row keeps its `raw_prompt` instead of a character count. `reasoning` is only there for the beats whose call enables it (`thinking: true` on decide, `reasoning: true` on the critic); classify, mutate and narrate run with reasoning off, so their rows carry none. On DeepSeek the thinking arrives free with a reply that has it enabled, so capturing it costs disk, not tokens: read `reasoning` on the decide and critic beats to see where the DM talked itself into a wrong answer.
+- [I] `created_at` is SQLite's second-resolution stamp, so **file order is the chronology** (`ORDER BY id`), not a sort on that column. `action_id` is null on a row whose action never resolved (a failure or a retry), so join to the protocol log's dispatches by `action_id` where it is set and by order where it is not.
+- [I] A `tier=1` count of zero is the current truth, not a broken query: the v12 pipeline stages and the critic both record `tier: 0` (`src/llm/pipeline/ProdPipelineGateway.ts`, `src/llm/ProdLlmGateway.ts`), and the stripped retry the column exists for belonged to the retired v9 fallback path.
+- [I] The `warned` reading is **brain-only today**: every pipeline stage and both critic calls record `validation_warnings: []` (`src/llm/pipeline/ProdPipelineGateway.ts`, `src/agent/ProdPlaytestCriticGateway.ts`), and the only rows that can carry one are the brain's (`notes.droppedNotes`, `src/agent/ProdAgentPlayerGateway.ts`). So `agent-player` is the one kind that can show a breach, and wiring warnings onto the pipeline stages is an engine-side change outside this instrument's scope.
 
 ---
 

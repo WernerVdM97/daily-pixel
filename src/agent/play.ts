@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
 import { formatInspirationDial } from './transcript.js';
-import { parseReasoningEffort } from './harnessEnv.js';
+import { agentCaptureMode, agentCapturePolicy, llmCallsDumpEnabled, parseReasoningEffort } from './harnessEnv.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
 import { REASONING_EFFORTS } from '../llm/chat-transport.js';
@@ -21,6 +21,7 @@ import type { CharCreateData } from '../engine/WorldEngine.js';
 import { loadYamlFile } from '../assets/yaml-loader.js';
 import { parseCriticGateMode, type CriticGateMode } from '../engine/action/critic-gate.js';
 import { summarizeLlmCosts, formatLlmCostSummary } from './llmCostSummary.js';
+import { buildLlmCallDump, llmCallDumpPath } from './llmCallDump.js';
 import { pinAdvancingClock } from './clock.js';
 import { buildReviewFile, formatPersonaReview, personaReviewInput } from './reviewFile.js';
 import { PERSONA_NAMES } from './agentPrompt.js';
@@ -131,6 +132,17 @@ async function main(): Promise<void> {
   // Shares prod's parser, so an arm selected here matches what prod would do with the same env:
   // 'always' gates nothing (the baseline arm), 'anomaly' gates both beats.
   const criticGateMode: CriticGateMode = parseCriticGateMode(process.env.CRITIC_GATE_MODE);
+  // On unless opted out with a literal "false", prod's convention.
+  const llmCallsDump = llmCallsDumpEnabled();
+  // Deep capture at this run's expense; the reasoning arrives free with the reply, so it costs disk.
+  const capturePolicy = agentCapturePolicy();
+  // A pinned mode leaves the dump thin, so say so rather than let it read as whole.
+  const captureMode = agentCaptureMode();
+  if (captureMode !== 'all') {
+    console.error(
+      `agent:play: LLM_LOG_THINKING=${captureMode} (pinned) — a successful stage or critic row keeps only a reasoning_chars gauge, not its prompt.`,
+    );
+  }
 
   // Pin BEFORE anything that reads the clock is constructed: the wizard session's TTL stamp, the
   // engine's per-action stamps and the greeting all read `new Date()`.
@@ -145,6 +157,7 @@ async function main(): Promise<void> {
     apiKey,
     ...(model ? { model } : {}),
     recordLlmCalls: true,
+    capturePolicy,
     criticGateMode,
     criticEnabled,
   });
@@ -334,8 +347,14 @@ async function main(): Promise<void> {
       }
     }
   } finally {
-    // Queried from the SAME `:memory:` db `recordLlmCalls` wrote into, before the process exits and
-    // those `llm_calls` rows are gone for good; printed once and last, from the outer finally.
+    // The run's LLM audit, written from the OUTER finally so the critic's and the persona reviewer's
+    // rows are in it too: the `:memory:` DB dies with the process.
+    if (llmCallsDump) {
+      const callsPath = llmCallDumpPath(outPath);
+      writeFileSync(callsPath, JSON.stringify(buildLlmCallDump(agentEngine.db), null, 2));
+      console.error(`\n── llm calls dump written to ${callsPath} ──`);
+    }
+    // Printed once and last, from the same `:memory:` DB the recorder wrote into.
     console.error(`\n${formatLlmCostSummary(summarizeLlmCosts(agentEngine.db))}`);
     // Unconditional: the pin is process-wide, and restoring only on the success path would leave the
     // global swapped for whatever runs after.
