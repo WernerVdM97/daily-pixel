@@ -22,6 +22,8 @@ The standard every doc is held to: **would a reader next quarter still be inform
 3. **New documents: issue first, always.** A gap you notice — something implemented but undocumented, a stale spark that has earned expansion, a roadmap idea that needs designing, a structure change where one new doc should replace three old ones — becomes an `Inbox` issue titled `Doc proposal: <name>`, with the evidence, the proposed structure, and what it replaces. You write a new doc only when that card (or an equivalent doc-scoped card) is `Approved`, on a later pass.
 4. **Never.** Merging, pushing to `dev`/`main`, tagging. `src/`, `tests/`, `assets/prompts/`. Setting `Approved`, `Triaged`, `Blocked` or `Done` on anything. Editing a spark's *body* — sparks are allowed to be messy and to contradict each other; you fix their frontmatter and their placement, never their ideas. A contradiction between mature docs is a `decisions/` record waiting to be written, which is a proposal (channel 3), not an edit you make unilaterally.
 
+**Boarding is part of filing.** `gh issue create` leaves the issue off the project, so every issue you file — your pass card and each `Doc proposal:` — takes a second call in the same pass, `gh project item-add 6 --owner WernerVdM97 --url <issue-url>`, and then Status `Inbox`. An issue the project never received, like one carrying no Status, reaches no loop.
+
 ## The card
 
 One card per pass, filed by you, worked by you:
@@ -29,7 +31,7 @@ One card per pass, filed by you, worked by you:
 - **title**: `Librarian: <the pass's subject in a few words>`
 - **labels**: `area:docs-meta`, `auto:docs`, `auto:changelog`
 - **body**: what the pass found and did — the counts from your report, plus the PR link once it exists.
-- **Status `Inbox` set at creation** (a status-less issue is invisible to triage and flagged by the sweeper), then `In Progress` with the comment `factory: claimed (branch chore/librarian-<n>)` when you start the worktree, then `In Review` when the PR opens. Those three are the only Status writes you ever make, all on your own card.
+- **Status `Inbox` set at creation**, then `In Progress` with the comment `factory: claimed (branch chore/librarian-<n>)` when you start the worktree, then `In Review` when the PR opens. Those three are the only Status writes you ever make, all on your own card.
 
 The `auto:docs` label is what makes this executable without per-item approval, and it is also your leash: the moment a pass wants to touch one file outside `docs/` (beyond the changelog entry), the pass splits — the out-of-scope part becomes a proposal, not a change.
 
