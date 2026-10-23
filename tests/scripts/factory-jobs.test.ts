@@ -1023,7 +1023,7 @@ describe('deliver is code', () => {
     h.when('git', ['log', '--no-merges'], ok('- feat(#34): emoji labels\n- fix(#34): frame\n'));
     h.when('gh', ['pr', 'create'], ok('https://github.com/WernerVdM97/daily-pixel/pull/117\n'));
     const commands = deliverCommands(h.ctx(), job({ stage: 'deliver' }));
-    expect(commands[0]).toMatchObject({ cmd: 'git', args: ['push', '-u', 'origin', 'feat/34-last-stand'] });
+    expect(commands[0]).toMatchObject({ cmd: 'git', args: ['push', '--force-with-lease', '-u', 'origin', 'feat/34-last-stand'] });
     expect(commands[1]?.args).toEqual([
       'pr',
       'create',
@@ -1046,7 +1046,7 @@ describe('deliver is code', () => {
     expect(after.pr).toBe(117);
     expect(after.stage).toBe('reconcile');
     expect(after.lastPushAt).toBeDefined();
-    expect(h.called('git', 'push -u origin feat/34-last-stand')).toBe(true);
+    expect(h.called('git', 'push --force-with-lease -u origin feat/34-last-stand')).toBe(true);
     expect(h.called('gh', 'project item-edit')).toBe(true);
     expect(h.logs.join('\n')).toContain('PR opened for review');
     expect(commentBody(h, 34)).toContain('factory: PR opened for review');
@@ -1550,7 +1550,7 @@ describe('the revise cycle', () => {
     const after = h.read(34);
     expect(after).toMatchObject({ pr: PR, stage: 'reconcile', revisions: 1 });
     expect(after.lastPushAt).toBeDefined();
-    expect(h.called('git', 'push -u origin feat/34-last-stand')).toBe(true);
+    expect(h.called('git', 'push --force-with-lease -u origin feat/34-last-stand')).toBe(true);
     expect(h.called('gh', 'pr create')).toBe(false);
     expect(commentBody(h, 34)).toContain("factory: revised per the owner's change requests on PR #117");
     expect(commentBody(h, 34)).not.toContain('PR opened');
@@ -1585,7 +1585,7 @@ describe('the revise cycle', () => {
 
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'deliver' });
     expect(h.read(34).stage).toBe('reconcile');
-    expect(h.called('git', 'push -u origin feat/34-last-stand')).toBe(true);
+    expect(h.called('git', 'push --force-with-lease -u origin feat/34-last-stand')).toBe(true);
     expect(commentBody(h, 34)).toContain('need no code change');
     expect(commentBody(h, 34)).not.toContain('revised per');
     expect(h.logs.join('\n')).toContain('no code change');

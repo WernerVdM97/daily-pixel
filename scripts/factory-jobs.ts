@@ -1324,7 +1324,9 @@ export function deliverBody(ctx: Ctx, job: JobRecord): string {
 /** Pure so the argv can be asserted without a repo: push, then the PR to `dev`. */
 export function deliverCommands(ctx: Ctx, job: JobRecord): Command[] {
   return [
-    { cmd: "git", args: ["push", "-u", "origin", job.branch] },
+    // A revise cycle rebases, so delivery has to be able to rewrite the remote tip; the lease
+    // still refuses when someone else moved it since our last push.
+    { cmd: "git", args: ["push", "--force-with-lease", "-u", "origin", job.branch] },
     {
       cmd: "gh",
       args: ["pr", "create", "--base", job.baseRef, "--head", job.branch, "--title", job.title, "--body-file", "-"],
