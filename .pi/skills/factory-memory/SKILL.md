@@ -96,4 +96,10 @@ rg --no-ignore -l "flaky|retry" .pi/factory/memory
 rg --no-ignore -l "xhigh" .pi/factory/memory
 ```
 
+A topic is a **directory** per leaf, so a glob over one matches nothing: `board/*.md` is empty, and `cat .pi/factory/memory/board/*.md` fails with `Is a directory`. Read a whole branch with:
+
+```bash
+find .pi/factory/memory -name memory.md -path '*/board/*' -exec sh -c 'echo "== $1"; cat "$1"' _ {} \;
+```
+
 Blind spot to know about: a fact that only ever gets written into an ignored file is invisible to repo-wide `rg` searches and to review. If it is durable enough that the repo should know it, it belongs in `docs/engine/dark-factory.md` instead.
