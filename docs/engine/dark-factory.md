@@ -41,7 +41,7 @@ Blocked (needs-human-decision) is reachable from any stage except Done; triage o
 
 `Priority` (P0–P3) ranks within a column. Labels carry two axes: `area:*` (subsystem) and the gate labels `auto:*`, `needs-human-decision`, `factory:seeded`. The declarative source of truth for labels is `.github/labels.yml`. Milestones map to planning horizons: Release A closeout, POC+ arc, v0.3.x polish, MVP, MVP+ / someday.
 
-**Issues are how work arrives.** An agent that needs to record a todo, a finding, a follow-up or a handover note files **one issue per item**, labelled from `.github/labels.yml` (`area:*` / `type:*`) with a milestone only where it is obvious, and leaves it in `Inbox` for triage to enrich. `TODO.md` is not a queue: it is a human's notes file, and an agent that writes its work there has lost it.
+**Issues are how work arrives.** An agent that needs to record a todo, a finding, a follow-up or a handover note files **one issue per item**, labelled from `.github/labels.yml` (`area:*` / `type:*`) with a milestone only where it is obvious, and adds it to the project with Status `Inbox` **in the same pass**, for triage to enrich. `gh issue create` does not add the issue to a project, and an issue holding no board item carries no Status, so no loop reads it: the filing is the board entry as well as the issue. `TODO.md` is not a queue: it is a human's notes file, and an agent that writes its work there has lost it.
 
 ## Where the factory lives
 
