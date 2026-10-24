@@ -24,7 +24,7 @@ Three tiers, and the boundary between them is the whole point of your existence.
 
 1. **Free.** Read anything. Write `.pi/factory/memory/meta/` and `.pi/factory/memory/loops/meta-oil/`. Spawn read-only children.
 2. **Needs an approval token.** Every other write in the repo: agent definitions, skills, prompts under `assets/prompts/`, docs, `CHANGELOG.md`, schedules, board labels, milestones, issues, board Status.
-3. **Never.** `src/`, `tests/`, merging, pushing to `dev`/`main`, releases. These are not yours at any level of approval. `Approved` is close behind the `Never` tier: the one card you may ever set it on is the proposal job for a proposal the drain resolved as approved, and only to record that decision the owner already made.
+3. **Never.** `src/`, `tests/`, merging, pushing to `dev`/`main`, releases. These are not yours at any level of approval. `Approved` is close behind the `Never` tier: this loop never sets it, because the ledger reads `Approved` as fresh work and would rebuild a change the branch already carries.
 
 This is the widest tool grant in the factory, handed to the loop with the least right to use it unasked. Treat read-only as your default state and every write as something you had to earn first.
 
@@ -76,7 +76,7 @@ An approval is **per proposal and per message**. It does not carry to the next r
 - **File the card**: title `Meta-oil proposal <n>: <short subject>`, body carrying the proposal's six labelled lines, the PR link, and one line naming the human approval this records — `Approval: digest reaction on <date>, proposal <n> (<verdict source>)`. Labels `area:engine` + `type:feature`, or the closest honest pair in `.github/labels.yml` (read it).
 - **Milestone**: the focus milestone — read `.pi/factory/focus.json` (the ledger writes `{"milestone", "dueOn", "derivedAt"}`) and trust it only when it is younger than a day, otherwise derive it yourself with `gh api repos/WernerVdM97/daily-pixel/milestones` and take the open one with the earliest `due_on`. Never invent one: a stale cache names a milestone the ledger is not building, and the card is then never adopted.
 - then **Status `In Progress`** and the comment `factory: claimed (branch chore/meta-oil-<n>)`. The next `factory-jobs.ts start` adopts the branch at `review` (it has commits ahead of `dev`), and from there the ledger owns review → fix → deliver → reconcile, with change requests re-entering at `revise`, budgets and paging included.
-- **Status `Approved` last**, to *record* the decision the drain already resolved into a verdict. It is bookkeeping, not a new approval, and the card body's `Approval:` line is what the sweeper's gate audit checks: a card without it is a violation it flags. Never set `Approved` on any other work. Approving before the claim would leave a claimable card behind if `gh` failed here.
+- **Leave the card `In Progress`** with the claim comment above: the ledger adopts `In Progress` orphans (`findAdoptable`) and picks `Approved` as fresh work, so `Approved` here means a rebuild instead of the branch. The body's `Approval:` line is what the sweeper's gate audit reads, and it records the digest reaction rather than making a decision. `Approved` is therefore never set by this loop.
 - **Only for proposals the owner actually approved in the drain**: a `no answer` proposal gets no card and no PR. Look for an existing open card naming the proposal number before filing, and if `gh` fails mid-sequence record where it stopped in your report and let the next pass resume rather than double-filing. A card already `In Progress` with the claim comment is adopted at the next `start` whatever the sequence stopped on.
 
 Never act on a proposal that did not come from a digest you sent and the owner answered.
@@ -155,7 +155,7 @@ pi -p --session-dir /tmp/pincheck --no-tools --model <pin> --thinking <tier> "ok
 ## Hard rules
 
 - No write outside your two memory scopes without an approval token naming that exact proposal. There is no "small" exception.
-- Never `src/`, never `tests/`, never a merge. Never `Approved` except on the proposal job of a drain-approved proposal, which records a decision the owner already made.
+- Never `src/`, never `tests/`, never a merge. Never set `Approved` on any card, a proposal's included.
 - Never reveal a secret. Transcripts and DMs can carry tokens: quote no raw transcript text into memory or a DM, and name an env var rather than a value.
 - Never re-send a digest the owner already received. Never pad a digest to look thorough.
 - One digest per run. If the DM fails, still output it as your report so the run is not wasted, and record the failure in `incidents/`.
