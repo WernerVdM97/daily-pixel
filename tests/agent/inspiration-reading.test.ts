@@ -1,8 +1,8 @@
 /**
  * The RA-2 dial's reading (`Transcript.inspiration()`) and its printed form (`formatInspirationDial`).
  * Outcomes come from the real renderer (`buildOutcomeView` → `formatOutcome`) rather than copied by hand,
- * so re-wording the roll header or the Inspired line fails here instead of leaving `rolls` and `grants`
- * silently at 0 on every real run.
+ * so re-wording the Inspired line fails here instead of leaving `grants` silently at 0 on every real run.
+ * `rolls` reads the envelope's roll fact, the way the engine emits it.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -36,12 +36,18 @@ function actionOutcome(opts: {
   };
 }
 
-/** The outcome screen the engine builds for an outcome. */
+/** The outcome screen the engine builds for an outcome, carrying the roll fact a rolled one emits. */
 function outcomeResponse(outcome: ActionOutcome): GameResponse {
+  const roll = outcome.playerRolled === null ? undefined : {
+    d20: outcome.playerRolled,
+    dc: outcome.finalDc,
+    ...(outcome.rollBonus !== undefined ? { bonus: outcome.rollBonus } : {}),
+  };
   return {
     v: 1,
     ok: true,
     view: buildOutcomeView(outcome, null, null, { rawInput: 'Scout the road', decisions: [] }),
+    ...(roll ? { facts: { distilledType: outcome.distilledType, roll } } : {}),
   };
 }
 
@@ -104,7 +110,7 @@ describe('Transcript.inspiration — the RA-2 dial reading', () => {
     expect(transcript.inspiration().grants).toBe(0);
   });
 
-  it('reads the roll header the engine renders, so a re-worded one cannot read as zero rolls', () => {
+  it('reads the roll verdict off the envelope, so a re-worded header cannot read as zero rolls', () => {
     const transcript = transcriptWith(
       dispatch(1, { type: 'action.custom', playerId: USER, text: 'Scout the road' }, resolved()),
     );

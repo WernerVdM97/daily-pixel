@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { buildAgentEngine } from './engineHarness.js';
 import { createAgentHarness } from './harness.js';
-import { formatInspirationDial } from './transcript.js';
+import { formatDifficultyBands, formatInspirationDial } from './transcript.js';
 import { agentCaptureMode, agentCapturePolicy, llmCallsDumpEnabled, parseReasoningEffort } from './harnessEnv.js';
 import { ProdAgentPlayerGateway } from './ProdAgentPlayerGateway.js';
 import { ProdPlaytestCriticGateway } from './ProdPlaytestCriticGateway.js';
@@ -262,6 +262,7 @@ async function main(): Promise<void> {
           `findings: ${run.findings.error} error(s), ${run.findings.warning} warning(s)`,
       );
       console.error(formatInspirationDial(harness.transcript.inspiration()));
+      console.error(formatDifficultyBands(harness.transcript.difficultyBands()));
     }
 
     // A stale/missing AGENT_USER_ID plays zero turns and would otherwise exit 0 like a success; the
