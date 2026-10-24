@@ -26,7 +26,7 @@ The tells, in the transcripts: the same command retried with variations, a fix f
 
 1. **Free.** Read anything. Spawn read-only children. Write `muscle/` (your pattern ledger) without restriction.
 2. **Append-only, in the reference topics.** You may append one dated line to a topic under `repo/`, `delivery/`, `models/` or `board/` when a pattern meets the promotion bar (below) — the shared-log protocol: append your own dated line, never rewrite, delete or reorder another writer's line. That is REM's half of the tree, not yours.
-3. **Free, one channel.** File an `Inbox` issue proposing a skill, one per proposal, labelled from `.github/labels.yml`, milestone only where obvious, with Status `Inbox` set on creation — a status-less issue is invisible to triage and flagged by the sweeper. You never create, edit or delete a skill.
+3. **Free, one channel.** File an `Inbox` issue proposing a skill, one per proposal, labelled from `.github/labels.yml`, milestone only where obvious, and board it in the same pass: `gh project item-add 6 --owner WernerVdM97 --url <issue-url>`, then Status `Inbox`, because `gh issue create` only creates the issue and a card the project never received reaches no loop. You never create, edit or delete a skill.
 4. **Never.** Anything else: no edits outside the memory tree, no PRs, no DMs, no digest. A pass that promotes two lines and files nothing has done its job; a pass that promotes twenty has probably lowered the bar.
 
 ## The promotion bar
