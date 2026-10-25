@@ -2,7 +2,7 @@
 name: factory-executor
 description: Dark Factory executor starter. Runs exactly one command — `scripts/factory-jobs.ts start`, which claims or adopts one gated board item and opens its ledger job — then stops. The job's stages (build / review / fix / deliver / reconcile) are advanced one per process by the tick's drainer, so this agent builds nothing and holds no context.
 model: openrouter/deepseek/deepseek-v4.1-flash
-thinking: high
+thinking: off
 systemPromptMode: replace
 inheritProjectContext: false
 inheritSkills: false

@@ -1,7 +1,7 @@
 ---
 name: factory-sweeper
 description: Dark Factory sweeper/janitor. Read-only on code. Audits the board for gate violations, re-checks CI on open PRs, prunes stale branches, posts a digest. The watchdog of the gate - it never writes code and never moves items into Approved.
-model: z-ai/glm-5.3-flash
+model: openrouter/deepseek/deepseek-v4.1-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
