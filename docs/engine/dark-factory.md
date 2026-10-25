@@ -26,7 +26,8 @@ Status flow (single-select `Status` field):
 ```text
 Inbox → Triaged → Approved → In Progress → In Review → Done
                   ↑ human only
-Blocked (needs-human-decision) is reachable from any stage except Done; triage or the human sets it.
+Blocked (needs-human-decision) is reachable from any stage except Done; triage or the human sets it, and
+triage clears it once the owner answers: Blocked returns to Triaged, an Approved card keeps its Status.
 ```
 
 | Status | Set by | Meaning |
@@ -36,7 +37,7 @@ Blocked (needs-human-decision) is reachable from any stage except Done; triage o
 | `Approved` | **human only** | Signed off; agents may execute |
 | `In Progress` | job ledger | A job has claimed it: a stage is ready, running or blocked |
 | `In Review` | job ledger (`deliver`) | PR open, awaiting owner review/merge |
-| `Blocked` | triage / human | Needs a human decision (`needs-human-decision` label) |
+| `Blocked` | triage / human | Needs a human decision (`needs-human-decision` label); triage clears it and returns the card to `Triaged` once the owner has answered |
 | `Done` | job ledger (`reconcile`) / sweeper / human | PR merged, linked issue closed |
 
 `Priority` (P0–P3) ranks within a column. Labels carry two axes: `area:*` (subsystem) and the gate labels `auto:*`, `needs-human-decision`, `factory:seeded`. The declarative source of truth for labels is `.github/labels.yml`. Milestones map to planning horizons: Release A closeout, POC+ arc, v0.3.x polish, MVP, MVP+ / someday.
@@ -127,7 +128,7 @@ Standing-approval classes (the only work that can run without per-item approval)
 
 Approval answers "may this ever run"; the ledger also asks "now", and an approved item is held back in four cases:
 
-- **It carries `needs-human-decision`.** That label means a human decides first, and `Approved` does not outrank it. An approval set in bulk, or set before triage parked the card, would otherwise start work whose acceptance criteria are still a question for the owner.
+- **It carries `needs-human-decision`.** That label means a human decides first, and `Approved` does not outrank it. An approval set in bulk, or set before triage parked the card, would otherwise start work whose acceptance criteria are still a question for the owner. It is also the one hold the factory can release by itself: on an `Approved` card the label is the entire gate, so triage clears it once the owner's comment answers the card, and moves a `Blocked` card to `Triaged` at the same time (see § The board).
 - **One of its dependencies is open.** The ledger reads GitHub's own `blockedBy` relations for the items it is about to consider. Dependencies used to exist only as prose in the loops' memory, which the pick could not read, so a card could be approved while the design it waited on was still open.
 - **It sits outside the focus milestone.** The factory builds one milestone at a time: the open milestone with the earliest due date, read from `gh` and cached at `.pi/factory/focus.json`. The cache is what lets triage order its passes by the sprint without its own API call, and it is the only writer's state, never hand-edited. A milestone with no due date never takes the focus while a dated one is open; when no open milestone is dated the filter switches off and priority order decides. Advancing the sprint is therefore a milestone change — close or re-date one — and not a config edit.
 - **It is a `type:epic`.** That label makes it a tracking card whose work is its sub-issues, so no Status on the parent starts anything; the ledger names the hold `epic` rather than leaving an approved parent silently idle.
