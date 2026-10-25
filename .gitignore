@@ -36,6 +36,9 @@ node_modules/
 # Build output
 dist/
 
+# Tests
+.vitest/
+
 # Database
 *.db
 *.db-journal
