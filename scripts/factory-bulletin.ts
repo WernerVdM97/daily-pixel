@@ -152,6 +152,11 @@ export interface Queue {
   approve: Entry[];
   /** In Review, or an open PR to the integration branch. */
   merge: Entry[];
+  /**
+   * `Approved` with no milestone. The ledger compares milestones and null never equals the
+   * focus, so these cannot start while any dated milestone is open, whatever happens to it.
+   */
+  unscoped: Entry[];
   statusCounts: Record<string, number>;
   /**
    * Gated work the ledger will decline to start, and the milestone it is building instead.
@@ -350,7 +355,7 @@ function ageMs(createdAt: string, nowMs: number): number | null {
   return Number.isNaN(parsed) ? null : Math.max(0, nowMs - parsed);
 }
 
-type Bucket = "answer" | "answered" | "neverAsked" | "approve" | "merge";
+type Bucket = "answer" | "answered" | "neverAsked" | "approve" | "merge" | "unscoped";
 
 function lastComment(comments: Comment[]): Comment | null {
   return comments.at(-1) ?? null;
@@ -401,6 +406,11 @@ function classifyItem(
   if (item.status === "Blocked") return classifyBlocked(item, comments, opts);
   const last = lastComment(comments);
   const since = last ? ageMs(last.createdAt, opts.nowMs) : null;
+  if (item.status === "Approved") {
+    // An epic is the epic note's business: its fix is a sub-issue, not a milestone.
+    if (isEpic(item) || item.milestone !== null) return null;
+    return { bucket: "unscoped", entry: toEntry(item, since, "") };
+  }
   if (item.status === "Triaged") {
     if (isEpic(item)) return null;
     return { bucket: "approve", entry: toEntry(item, since, last ? toExcerpt(last.body, 90) : "") };
@@ -435,10 +445,15 @@ function buildNotes(queue: Queue): string[] {
       `**${blockedHolds.length}** card(s) shown here cannot run yet: ${describeHolds(blockedHolds)}. The ledger prints the same list; nothing is stalled, it is waiting.`,
     );
   }
-  const parked = held.filter((entry) => entry.reason === "out-of-focus");
+  const parked = held.filter((entry) => entry.reason === "out-of-focus" && entry.milestone !== null);
   if (queue.focus && parked.length > 0) {
     notes.push(
       `**${parked.length}** card(s) shown here are in a later milestone, so they run when the focus rolls off **${queue.focus}**: ${parked.map((entry) => `#${entry.number}`).join(", ")}. Approving one does not pull it forward.`,
+    );
+  }
+  if (queue.unscoped.length > 0) {
+    notes.push(
+      `**${queue.unscoped.length}** card(s) are \`Approved\` with no milestone (${queue.unscoped.map((entry) => `#${entry.number}`).join(", ")}). The ledger runs only the focus milestone and \`no milestone\` never matches it, so these never start, however long they wait: set a Milestone on the card.`,
     );
   }
   if (queue.outside.length > 0) {
@@ -506,6 +521,7 @@ export function classifyBoard(
     neverAsked: [],
     approve: [],
     merge: [],
+    unscoped: [],
     statusCounts: {},
     held: opts.readiness?.held ?? [],
     focus: opts.readiness?.focus ?? null,
@@ -536,6 +552,7 @@ export function classifyBoard(
   queue.answered.sort(byWindowThenPriority);
   queue.approve.sort(byWindowThenPriority);
   queue.merge.sort(byWindowThenPriority);
+  queue.unscoped.sort(byPriorityThenAge);
   queue.neverAsked.sort((a, b) => a.number - b.number);
   queue.outside = [...outside.entries()]
     .map(([milestone, numbers]) => ({ milestone, numbers: numbers.sort((a, b) => a - b) }))
@@ -595,7 +612,7 @@ export function renderBulletin(queue: Queue, generatedAt: Date): string {
   lines.push(`# ${BULLETIN_TITLE}`);
   lines.push("");
   lines.push(
-    `**Waiting on you: ${queue.answer.length}** · answered, waiting on triage: ${queue.answered.length} · no question written: ${queue.neverAsked.length} · ready to approve: ${queue.approve.length} · ready to merge: ${queue.merge.length}`,
+    `**Waiting on you: ${queue.answer.length}** · answered, waiting on triage: ${queue.answered.length} · no question written: ${queue.neverAsked.length} · ready to approve: ${queue.approve.length} · ready to merge: ${queue.merge.length}${queue.unscoped.length > 0 ? ` · approved but unschedulable: ${queue.unscoped.length}` : ""}`,
   );
   lines.push("");
   lines.push(`_Ledger: building **${queue.focus ?? "no milestone focus"}** · gated work held back: ${queue.held.length}_`);
@@ -678,6 +695,19 @@ export function renderBulletin(queue: Queue, generatedAt: Date): string {
         formatAge(e.sinceMs),
       ]),
     );
+    lines.push("");
+  }
+
+  if (queue.unscoped.length > 0) {
+    lines.push("## Approved with no milestone");
+    lines.push("");
+    lines.push(
+      "Approved, so the gate would take them, but the ledger runs only the focus milestone and a card with no milestone never matches it. Set a Milestone and they queue like any other approved card.",
+    );
+    lines.push("");
+    lines.push("| # | Item | Priority |");
+    lines.push("| --- | --- | --- |");
+    lines.push(...table(queue.unscoped, (e) => [`[#${e.number}](${e.url})`, e.title, e.priority ?? "—"]));
     lines.push("");
   }
 

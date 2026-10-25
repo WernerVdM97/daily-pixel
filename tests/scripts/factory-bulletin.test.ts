@@ -165,6 +165,30 @@ describe('classifyBoard', () => {
     expect(noApproved.notes.join(' ')).toContain('nothing to pick up');
   });
 
+  it('lists an approved card with no milestone, which the ledger can never schedule', () => {
+    const queue = classifyBoard(
+      [
+        item({ number: 242, status: 'Approved', milestone: null, priority: null }),
+        item({ number: 243, status: 'Approved', milestone: null, priority: 'P1 - high' }),
+        item({ number: 244, status: 'Approved', milestone: 'POC+ arc' }),
+        item({ number: 245, status: 'Triaged', milestone: null }),
+      ],
+      new Map(),
+      { agentLogins: AGENTS, nowMs: NOW },
+    );
+    expect(queue.unscoped.map((e) => e.number)).toEqual([243, 242]);
+    expect(queue.approve.map((e) => e.number)).toEqual([245]);
+  });
+
+  it('leaves an approved epic to the epic note, since a milestone is not its fix', () => {
+    const queue = classifyBoard(
+      [item({ number: 98, status: 'Approved', milestone: null, labels: ['type:epic'] })],
+      new Map(),
+      { agentLogins: AGENTS, nowMs: NOW },
+    );
+    expect(queue.unscoped).toEqual([]);
+  });
+
   it('orders by priority, then oldest first, and sorts an unset priority last', () => {
     const sorted = classifyBoard(
       [
@@ -219,6 +243,19 @@ describe('renderBulletin', () => {
   it('omits sections that have nothing in them', () => {
     expect(body).not.toContain('## Ready to merge');
     expect(body).not.toContain('## Answered, waiting on triage');
+    expect(body).not.toContain('## Approved with no milestone');
+  });
+
+  it('gives an approved card with no milestone a section of its own', () => {
+    const unschedulable = classifyBoard(
+      [item({ number: 242, status: 'Approved', milestone: null, title: 'Never runs' })],
+      new Map(),
+      { agentLogins: AGENTS, nowMs: NOW },
+    );
+    const rendered = renderBulletin(unschedulable, new Date(NOW));
+    expect(rendered).toContain('## Approved with no milestone');
+    expect(rendered).toContain('https://example.test/issues/242');
+    expect(rendered).toContain('approved but unschedulable: 1');
   });
 
   it('always prints the status table, with every flow status present', () => {
@@ -279,6 +316,21 @@ describe('the ledger line and its notes', () => {
     const notes = queue.notes.join('\n');
     expect(notes).not.toContain('shown here are in a later milestone');
     expect(notes).not.toContain('cannot run yet');
+  });
+
+  it('never promises a card with no milestone that the focus will reach it', () => {
+    const queue = classifyBoard([item({ number: 242, status: 'Approved', milestone: null })], new Map(), {
+      agentLogins: AGENTS,
+      nowMs: NOW,
+      readiness: {
+        focus: A,
+        window: [A, B],
+        held: [{ number: 242, reason: 'out-of-focus', detail: 'no milestone', milestone: null, priority: null }],
+      },
+    });
+    const notes = queue.notes.join('\n');
+    expect(notes).toContain('with no milestone (#242)');
+    expect(notes).not.toContain('run when the focus rolls off');
   });
 
   it('stays silent about holds when there are none, so the notes stay actionable', () => {
