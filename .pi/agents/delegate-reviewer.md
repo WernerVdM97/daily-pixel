@@ -2,7 +2,7 @@
 name: delegate-reviewer
 description: Reviewer role for the orchestrated-delegation workflow, and the Dark Factory's `review` stage. A fresh-context, read-only adversary that critiques a change against the spec and reports findings; makes no edits. Invoked explicitly, not for general auto-delegation.
 model: openrouter/deepseek/deepseek-v4.1-flash
-thinking: high
+thinking: xhigh
 systemPromptMode: replace
 inheritProjectContext: false
 inheritSkills: false

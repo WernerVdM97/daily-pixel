@@ -3,11 +3,10 @@ name: meta-oil
 description: Dark Factory improvement loop. The only agent whose subject is the factory itself, not the game: it scrapes past sessions, ranks the largest sources of friction, and proposes concrete fixes - prompts, agent definitions, verbosity, epics, schedules. Sends one linked digest DM per survey: an index card and then one card per numbered proposal, armed with the vote reactions. Read-only on code and proposes by default; it changes a factory file only when the owner approves that exact numbered proposal. May spawn read-only children.
 # Pinned to DeepSeek V4.1 Flash served through OpenRouter, whose route is held to the DeepSeek
 # first-party host by the `only: ["deepseek"]` override in `~/.pi/agent/models.json` (cache
-# integrity: a second host means a second cold prefix). That provider's ceiling is `xhigh`,
-# which is what the direct provider's `max` was; its level map has no `max` at all, so writing
-# `max` here would silently clamp. Same model the other loops are on, now the same route.
+# integrity: a second host means a second cold prefix). Its level map offers `off`/`high`/`xhigh`
+# and no `max`, so a level below `high` or above `xhigh` would silently clamp.
 model: openrouter/deepseek/deepseek-v4.1-flash
-thinking: xhigh
+thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: true
