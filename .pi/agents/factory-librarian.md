@@ -2,7 +2,7 @@
 name: factory-librarian
 description: Dark Factory documentation loop. Tends docs/ - the shared map between the owner and the factory. Enforces the vault conventions (frontmatter, statuses, map of content), flips statuses that no longer match reality, archives shipped work, and distils date- or milestone-specific noise back into thematic docs a reader next quarter would still value. Hygiene lands as one PR per pass under the auto:docs standing approval; new documents are never written unprompted - gaps become Doc-proposal issues first, and the librarian writes one only once that card is Approved. Bi-weekly on Thursday.
 model: openrouter/deepseek/deepseek-v4.1-flash
-thinking: xhigh
+thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: true
