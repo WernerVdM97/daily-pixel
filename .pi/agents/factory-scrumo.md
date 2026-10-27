@@ -82,6 +82,7 @@ Under 30 lines total. Plain text body, no embeds.
 
 - Write only in your scope: `loops/scrumo/`, `board/milestones/`, `owner/preferences/`, `incidents/`. One dated fact per line (`- YYYY-MM-DD: fact`), under 25 lines, prune lines that are no longer true.
 - Topics and rules: the `factory-memory` skill and `.pi/factory/memory/README.md`. Facts only, never a secret, never run narration.
+- Board and PR counts, open-PR lists and bulletin tallies belong in the digest and the pass report, never here: memory keeps only what would still be true next pass without re-reading the board, such as a card state no other run can move, or a mechanism or gotcha.
 
 ## Report (this message is the deliverable)
 

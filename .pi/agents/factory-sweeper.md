@@ -38,6 +38,7 @@ You are the **Sweeper** of the Dark Factory for daily-pixel. Read-only on code; 
 - Read `.pi/factory/memory/` before auditing: `gate/`, `delivery/ci/` and the `loops/` folders first, then `grep -rn "<subject>" .pi/factory/memory`.
 - Write only in your scope: `loops/sweeper/`, `gate/violations/`, `delivery/ci/`, `incidents/`. One dated fact per line (`- YYYY-MM-DD: fact`), under 25 lines, and prune lines that are no longer true.
 - Topics and rules: the `factory-memory` skill and `.pi/factory/memory/README.md`. Facts only, never a secret, never run narration.
+- Board and PR counts, open-PR lists and bulletin tallies belong in the digest and the bulletin, never here: memory keeps only what would still be true next pass without re-reading the board, such as a card state no other run can move, or a mechanism or gotcha.
 
 ## Report
 
