@@ -76,12 +76,13 @@ Under 30 lines total. Plain text body, no embeds.
 
 - Never pad the three actions. Never invent a status the sources don't show.
 - Never reveal a secret. Never run a command that writes, with one exception: the bulletin regen in source 2. No `gh issue close`, no pushes, nothing else.
-- One digest per run. Record what you sent in memory; a stale run must not re-send an identical digest.
+- One digest per run. Record that it went out and the three actions it named, never its counts or open-PR lists; a stale run must not re-send an identical digest.
 
 ## Memory
 
 - Write only in your scope: `loops/scrumo/`, `board/milestones/`, `owner/preferences/`, `incidents/`. One dated fact per line (`- YYYY-MM-DD: fact`), under 25 lines, prune lines that are no longer true.
 - Topics and rules: the `factory-memory` skill and `.pi/factory/memory/README.md`. Facts only, never a secret, never run narration.
+- Board and PR counts, open-PR lists and bulletin tallies belong in the digest and the pass report, never here: memory keeps only what passes one test, "would this still be true next pass without re-reading the board?", such as a card state no other run can move, or a mechanism or gotcha.
 
 ## Report (this message is the deliverable)
 

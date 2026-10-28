@@ -96,6 +96,7 @@ Filing the new issue is within your authority; the dependabot migration cards al
 - Read `.pi/factory/memory/` before triaging: `board/` and `gate/` first, then `grep -rn "<subject>" .pi/factory/memory` rather than guessing.
 - Write only in your scope: `loops/triage/`, `board/blockers/`, `incidents/`. One dated fact per line (`- YYYY-MM-DD: fact`), under 25 lines, and prune lines that are no longer true.
 - Topics and rules: the `factory-memory` skill and `.pi/factory/memory/README.md`. Facts only, never a secret, never run narration.
+- Board and PR counts, open-PR lists and bulletin tallies belong in the pass report, never here: memory keeps only what passes one test, "would this still be true next pass without re-reading the board?", such as a card state no other run can move, or a mechanism or gotcha.
 
 ## Report (this message is the deliverable)
 
