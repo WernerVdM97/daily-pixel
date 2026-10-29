@@ -105,7 +105,7 @@ Forced means `AGENT_FORCE_FREE_ACTIONS=1`; unforced is the same command without 
 
 ### Success criteria for this rework
 
-| Baseline behaviour | Target | Read from | Status after the 2026-09-14/15 panels |
+| Baseline behaviour | Target | Read from | What the panels showed |
 | --- | --- | --- | --- |
 | The free-text slot used zero times in an unforced run | Personas whose priors reach for it use it unprompted, and the Grinder still works. The histogram differs **by persona**, which is the test that personas are real | Verb histogram, G | **Met on the smoke, Grinder arm unread.** 0% in the baseline becomes 8% for the unset control and 22% (Soldier) / 33% (Explorer) for the personas whose priors reach for it, while the Homesteader stays on buttons at 0%; the arc panel holds the same divide (32.2% / 24.1% / 4.0% / 0.0%). The Grinder ran the arc, not the smoke, so "the Grinder still works" is unread |
 | Play opens as a scene, then reverts to buttons | The scene-quality divide closes for the personas who want it, without a forcing switch | Reviewer prose + histogram | **Unmeasured.** The reach is real (a third of the Explorer's arc moves are free text, a quarter of the Soldier's), but nobody has scored the critic and persona prose for scenes-versus-buttons the way the baseline snapshot did |
@@ -214,15 +214,15 @@ The daunting band is **reachable on the live set**: two attempted DCs cleared 20
 
 ---
 
-## Why now
+## The two gaps the layer had to close
 
-Two structural gaps cap what the harness can tell us today, and neither is a prompt problem.
+Before it, two structural gaps capped what the harness could say, and neither was a prompt problem.
 
-- [!] **The brain is blind.** `ask()` (`harness.ts`) hands it the current screen, the legal `MOVES`, and a one-line digest (`name/class/hp/stamina/rolls/wealth/location`). Nothing else. `/map`, `/journal`, `/backpack`, `/stats`, `/look` and `/help` already cross the seam as `screen.*` events and route fine (`router.ts`), but their views are **never shown to the brain**. The day-start beats dispatch `hi.open` + `screen.stats` and the look-after-outcome beat dispatches `screen.look`, yet all three land in the transcript, not the context. An explorer persona that "walks the map" cannot see the map.
+- [!] **The brain was blind.** `ask()` (`harness.ts`) handed it the current screen, the legal `MOVES`, and a one-line digest (`name/class/hp/stamina/rolls/wealth/location`). Nothing else. `/map`, `/journal`, `/backpack`, `/stats`, `/look` and `/help` already crossed the seam as `screen.*` events and routed fine (`router.ts`), but their views never reached the brain's context: the day-start beats dispatched `hi.open` + `screen.stats` and the look-after-outcome beat dispatched `screen.look`, and all three landed in the transcript instead. An explorer persona that "walks the map" could not see the map. § C closed this.
 
-- [!] **The brain is amnesiac.** Every turn is stateless. No yesterday, no goal, no thread being chased. Fulfilment is by definition a cross-day property, so a brain with no memory cannot even perceive the thing we are trying to measure. Persona consistency across a day, let alone across weeks, is impossible without a running intent.
+- [!] **The brain was amnesiac.** Every turn was stateless. No yesterday, no goal, no thread being chased. Fulfilment is by definition a cross-day property, so a brain with no memory could not even perceive the thing we are trying to measure, and persona consistency across a day, let alone across weeks, was impossible without a running intent. § B closed this.
 
-- [I] The repo already has the scar: the pre-persona finding that the realism arm did not fix move variety, where the a/b brains still funnelled into `menu-pick 0` — superseded, because the panel has since produced the reading it asked for (a verb histogram that differs by persona). Personas layered onto today's surface produce _flavoured funnel_, not new behaviour. Widening the information and move surfaces is the actual level-up; the persona prompt is what makes the widened surface pay off.
+- [I] **Personas alone would have bought a flavoured funnel.** The pre-persona finding was that the realism arm did not fix move variety: the a/b brains still funnelled into `menu-pick 0`. Layering personas onto that surface produces flavour, not behaviour, which is why the information and move surfaces had to widen first and the persona prompt only makes the widened surface pay off. The panel has since produced the reading that finding asked for: a verb histogram that differs by persona.
 
 - [I] **Second-order win: the RA-2 dial becomes observable.** `stripWorkInspiration` strips inspiration from `kind: 'work'` actions by design, so a work-dominated run measures a structural 0% and the harness "structurally cannot check" RA-2. Explorer, Socialite and Storyteller personas reach for the free-text `custom` slot by character, and those are exactly the non-work actions inspiration can land on. A panel is the first realistic route to a measured grant rate.
 
@@ -302,8 +302,10 @@ One end-of-run review is lossy, and for a long-horizon game it is also the wrong
 | Layer | Shape | Cost |
 | --- | --- | --- |
 | Per-turn friction | Optional `friction` in the brain's existing JSON reply, with a **recurrence** classification (below) | 0 extra calls |
-| Per-day note | Folded into the day's last turn (a `sleep` pick when the brain ends the day itself; see the Build log, the note is day-level rather than sleep-level): an engagement rating 1-5, a fulfilment rating 1-5, one line on the day, and the updated `arcNote` | 0 extra calls |
+| Per-day note | Folded into the day's last turn, whichever turn that is: an engagement rating 1-5, a fulfilment rating 1-5, one line on the day, and the updated `arcNote` | 0 extra calls |
 | Arc review | One call at run end, persona-voiced, over the distilled series | 1 call per run |
+
+- [!] **A note may ride any turn, and the day's last one wins.** The note cannot be sleep-only, because a day usually ends because the rolls ran out: `menu.open` returns `no-rolls` at zero rolls (`SessionController.openActionMenu`), so the brain is never asked again and its last offered turn always has exactly one roll left. Across the four live five-day arc runs, 18 of the 20 persona-days ended `no-rolls` (the other two `slept`) and all 20 still captured a note; a sleep-only note would have lost 18 of them and left the arc panel's headline series empty. `ChooseMoveInput.lastRoll` tells the brain when its last roll is being spent, and a day that closes unrated logs a warning finding.
 
 - [!] **Recurrence is the point.** In a ritual game played daily for a year, the cost of a friction is `severity × how often you meet it`. A once-a-session clunky screen is trivia; a screen you read every single day is a churn driver. So each per-turn friction carries a recurrence tag:
 
@@ -376,7 +378,7 @@ After all personas report, one aggregation step prints one matrix and writes it 
 - **Engagement and fulfilment series** per persona for arc runs, as a text sparkline, so decay is visible at a glance.
 - **Top friction themes by exposure**, ranked with the `ritual`-tagged items separated out. A friction raised by one persona is taste; raised by four, or tagged `ritual` by anyone, is a design finding.
 - **Fulfilment signal**: how many personas could name something they were `building`, and how many answered `building: "nothing"`.
-- Per-persona verb histogram, the anti-theatre check from A, plus the `arcNote` and `quitTrigger` distinctiveness table that rides with it.
+- Per-persona verb histogram, the anti-theatre check from A, plus the `arcNote` and `quitTrigger` distinctiveness table that rides with it. `actionVerbs` is an observed label frequency table, not a classify vocabulary: `facts.distilledType` is the action model's own open-vocabulary label ("one word preferred"), so the priors-versus-behaviour comparison runs on move kinds instead.
 - Run cost (the existing `formatLlmCostSummary` already covers this).
 
 ---
@@ -438,13 +440,7 @@ assets/prompts/agent-critic/v2/{critic.md, persona-review.md}
 - `AGENT_PERSONA=<name>` selects the persona. Read in `play.ts`, the runner, so the harness library stays env-free (the existing DC-S1 rule that `AGENT_PROTOCOL_BEATS` and `AGENT_FORCE_FREE_ACTIONS` already follow). Unset means no persona fragment at all, which is today's behaviour and the baseline arm a panel is read against.
 - Persona identity is stamped on the protocol-log header alongside `brain` and `backend`, so a recorded run is attributable in replay.
 
-Touch points: `AgentPlayerGateway.ts` (`AgentMove` gains `recon`; `ChooseMoveInput` gains recap, recon text, intent and arc note), `agentMoves.ts` (recon legal moves, per-day caps), `harness.ts` (recon dispatch, recap composition, intent and arc persistence, friction capture, the sleep-turn day note, `skipDays`), `ProdAgentPlayerGateway.ts` (user-message sections; `friction`, `dayNote`, `intent` and `arcNote` in the JSON contract), `transcript.ts` (`recon`, `friction`, `day-note` events; persona in the header), `replay.ts` (DC-S5 legality for the new move kind), the two prompt loaders, `panel.ts` (the aggregation entry point), `PlaytestCriticGateway.ts` + `ProdPlaytestCriticGateway.ts` (`PersonaReview` + a `review()` method), `play.ts` (env, reviews file, panel print).
-
----
-
-## What shipped
-
-Shipped in three stacked branches off `dev` (`feat/agent-panel-1-surface`, `-2-feedback`, `-3-panels`), `npx tsc --noEmit`, `npx tsc -p tsconfig.test.json` and `npx vitest run` green before every commit. The instrument as built is the recon surface (§ C) plus the recap, day log and notes (§ B), both prompt families at set version `v2` with the handbook and its roll figures pinned by test (§ D), the ten persona fragments and `AGENT_PERSONA` (§ A, § Roster), the friction and day-note contract (§ E), the review seam (§ F), and `npm run agent:panel` as the aggregator (§ H). The per-slice detail lives in the changelog; the readings the panel has produced are under § Panel evidence, and what has not been run is named at the end of § Build log.
+Touch points: `AgentPlayerGateway.ts` (`AgentMove` gains `recon`; `ChooseMoveInput` gains recap, recon text, intent and arc note), `agentMoves.ts` (recon legal moves, per-day caps), `harness.ts` (recon dispatch, recap composition, intent and arc persistence, friction capture, the day note, `skipDays`), `ProdAgentPlayerGateway.ts` (user-message sections; `friction`, `dayNote`, `intent` and `arcNote` in the JSON contract), `transcript.ts` (`recon`, `friction`, `day-note` events; persona in the header), `replay.ts` (DC-S5 legality for the new move kind), the two prompt loaders, `panel.ts` (the aggregation entry point), `PlaytestCriticGateway.ts` + `ProdPlaytestCriticGateway.ts` (`PersonaReview` + a `review()` method), `play.ts` (env, reviews file, panel print).
 
 ---
 
@@ -459,13 +455,11 @@ Shipped in three stacked branches off `dev` (`feat/agent-panel-1-surface`, `-2-f
 
 ---
 
-## Build log
+## Readings the instrument still owes
 
-Decisions taken during the build, where they diverge from this document:
+What has been run is above; this is what has not, so no reader has to infer it.
 
-- **The day note is day-level, not sleep-level** (this diverges from § E, which folds the note into the `sleep` pick). Reason: a day usually ends because the rolls ran out, and `menu.open` returns `no-rolls` at zero rolls (`SessionController.openActionMenu`), so the brain is never asked again and its last offered turn always has exactly one roll left. Evidence: across the four live five-day arc runs, 18 of the 20 persona-days ended `no-rolls` (the other two ended `slept`) and **all 20 still captured a day note**; the 18 that ended `no-rolls` would each have lost their rating had the note stayed sleep-only, and the arc panel's headline series would have been empty. `ChooseMoveInput.lastRoll` now tells the brain when its last roll is being spent, a note may ride any turn with the last one winning, and a day that closes unrated logs a warning finding. Still zero extra LLM calls.
-- **The prompt asks for fields, so their parsing ships with it.** `friction` and `dayNote` are requested by the `v2` prompt, so the gateway had to carry them in the same change; the surface layer would otherwise have asked for fields its own gateway dropped.
-- **The clock is pinned for all multi-day runs, not only `skipDays`** (owner decision), so the Saturday bonus roll and the five-day absence nudge actually fire instead of reading the real date.
-- **`facts.distilledType` is not the classify vocabulary.** It is the action model's own open-vocabulary label ("one word preferred"), so the panel reports `actionVerbs` as an observed label frequency table and the priors-versus-behaviour comparison runs on move kinds instead.
-
-Still open, and named here rather than left to be inferred: the interrupted shape has not been run live, the ten-persona breadth panel has not been paid for, and the flat fulfilment series (#137) and blind work menu (#134) in § Panel evidence are product tickets on the board, not harness defects.
+- [ ] **The ten-persona breadth panel has never been paid for.** Ten fragments exist and are pinned by test, four of them voiced the arc panel, and the breadth shape's own readings are one day deep by construction.
+- [ ] **The interrupted shape has never been run live.** `AGENT_SKIP_DAYS` builds it; nobody has played the return.
+- [ ] **Two targets are unmeasured rather than missed:** nobody has scored critic and persona prose for scenes-versus-buttons the way the baseline snapshot did, and the per-run dead-end counts have not been scored against "no rejected move is repeated within a day".
+- [>] **Two findings are product tickets, not harness defects:** the flat fulfilment series (#137) and the location- and thread-blind work menu (#134). The harness's job was to make them visible.
