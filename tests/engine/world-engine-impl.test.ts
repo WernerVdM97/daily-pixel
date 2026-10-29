@@ -898,6 +898,39 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
     closeDb();
   });
 
+  it('reads a corrupt persisted props bag as no edge, so a resume still completes', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    seedInCombatEdge(characterId, { enemyName: 'Goblin', enemyHp: 5, enemyMaxHp: 20, round: 2 });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+    await engine.startAction(characterId, 'attack the goblin');
+    // Corrupt the edge only after the start so the read under test is the resume's, not
+    // `pipeline-context`'s own projection of the same column.
+    getDb()
+      .prepare("UPDATE relations SET props = ? WHERE from_type = 'pc' AND from_ref = ? AND rel_type = 'in_combat'")
+      .run('{"enemyName":"Goblin",', String(characterId));
+
+    const resumed = engine.resumeAction(characterId);
+
+    // Nothing behind the unreadable row is trustworthy, so no condition is remembered.
+    expect(resumed.combatEnemyName).toBe('Goblin');
+    expect(resumed.combatEnemyCondition).toBeUndefined();
+
+    closeDb();
+  });
+
+  it('starts a fresh action when the persisted action state is unreadable', async () => {
+    const { userRepo, charRepo, characterId } = seedCharacter();
+    charRepo.update(characterId, { last_action_state: '{"actionType":"combat",' });
+
+    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
+    const startResult = await engine.startAction(characterId, 'attack the goblin');
+
+    expect(startResult.actionType).toBe('combat');
+
+    closeDb();
+  });
+
   it('leaves combatEnemyCondition undefined for a non-combat action even with a matching persisted edge', async () => {
     const { userRepo, charRepo, characterId } = seedCharacter();
     seedInCombatEdge(characterId, { enemyName: 'Goblin', enemyHp: 5, enemyMaxHp: 20, round: 2 });

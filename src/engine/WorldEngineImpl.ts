@@ -38,6 +38,7 @@ import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiri
 import type { CriticGateMode } from "./action/critic-gate.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
 import { readCombatState, type CombatState, type PersistedSceneStateEdge } from "./action/combat-state.js";
+import { parseJsonColumn } from "./action/json-column.js";
 import type { NodeType } from "../db/repositories/relation.js";
 import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
 import { effectiveStats } from "./action/dc.js";
@@ -885,11 +886,13 @@ export class WorldEngineImpl implements WorldEngine {
     }
 
     if (row.last_action_state) {
-      const isStaleResolved = this.isStaleResolvedState(row.last_action_state);
-      if (isStaleResolved) {
+      const stale = this.staleStateReason(row.last_action_state);
+      if (stale) {
         console.warn(
-          `[engine] clearing stale resolved state for character ${characterId} — ` +
-          `options were empty, action never persisted`,
+          stale === 'unreadable'
+            ? `[engine] clearing unreadable action state for character ${characterId}`
+            : `[engine] clearing stale resolved state for character ${characterId} — ` +
+              `options were empty, action never persisted`,
         );
         this.charRepo.update(characterId, { last_action_state: null });
       } else {
@@ -912,17 +915,18 @@ export class WorldEngineImpl implements WorldEngine {
     }
   }
 
-  /** A state the machine resolved whose persistence transaction threw: no options to choose and
-   *  nothing to step, so it is unrecoverable and gets cleared for a fresh start. */
-  private isStaleResolvedState(stateJson: string): boolean {
+  /** Why a persisted state is unrecoverable: it will not parse, or the machine resolved it with no
+   *  options to choose and nothing to step. Both get cleared for a fresh start. */
+  private staleStateReason(stateJson: string): 'unreadable' | 'unresolved' | null {
+    let parsed: PipelineInternalActionState | null;
     try {
-      const parsed = JSON.parse(stateJson);
-      const opts = parsed?.pendingDecision?.options;
-      return Array.isArray(opts) && opts.length === 0 && typeof parsed?.pendingDecision?.prompt === 'string' && parsed.pendingDecision.prompt.length > 0;
+      parsed = JSON.parse(stateJson);
     } catch {
-      // Unparseable state — treat as stale so it gets cleared.
-      return true;
+      return 'unreadable';
     }
+    const opts = parsed?.pendingDecision?.options;
+    const settled = Array.isArray(opts) && opts.length === 0 && typeof parsed?.pendingDecision?.prompt === 'string' && parsed.pendingDecision.prompt.length > 0;
+    return settled ? 'unresolved' : null;
   }
 
   /** Classifies, decides, then auto-finishes or drains a roll. */
@@ -1031,7 +1035,7 @@ export class WorldEngineImpl implements WorldEngine {
       from: { type: row.from_type as NodeType, ref: row.from_ref },
       to: { type: row.to_type as NodeType, ref: row.to_ref },
       relType: row.rel_type,
-      props: JSON.parse(row.props) as Record<string, number | string | boolean>,
+      props: parseJsonColumn<Record<string, number | string | boolean>>('relation.props', row.props) ?? {},
       rowId: row.id,
     }));
 
@@ -1070,9 +1074,12 @@ export class WorldEngineImpl implements WorldEngine {
   ): Promise<ActionStepResult> {
     const row = this.charRepo.findById(characterId);
     if (!row) throw new Error("Character not found");
-    if (!row.last_action_state) throw new Error("No action in progress");
 
-    const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
+    const internalState = parseJsonColumn<PipelineInternalActionState>(
+      'last_action_state',
+      row.last_action_state,
+    );
+    if (!internalState) throw new Error("No action in progress");
 
     // A stale state resolves as an in-voice server-side timeout rather than a bare error.
     const timeout = this.resolveStaleTimeout(internalState, characterId);
@@ -1253,11 +1260,12 @@ export class WorldEngineImpl implements WorldEngine {
   resumeAction(characterId: number): ActionResumeResult {
     const row = this.charRepo.findById(characterId);
     if (!row) throw new Error("Character not found");
-    if (!row.last_action_state) throw new Error("No action to resume");
 
-    const internalState = JSON.parse(
+    const internalState = parseJsonColumn<PipelineInternalActionState>(
+      'last_action_state',
       row.last_action_state,
-    ) as PipelineInternalActionState;
+    );
+    if (!internalState) throw new Error("No action to resume");
 
     // The same timeout, but resume can't return an outcome — throw the player-facing message.
     const timeout = this.resolveStaleTimeout(internalState, characterId);
@@ -1459,12 +1467,12 @@ export class WorldEngineImpl implements WorldEngine {
 
   resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null {
     const row = this.charRepo.findById(characterId);
-    if (!row || !row.last_action_state) {
-      return selector.kind === 'bail' ? 'Bail' : null;
-    }
+    const internalState = row
+      ? parseJsonColumn<PipelineInternalActionState>('last_action_state', row.last_action_state)
+      : null;
+    if (!internalState) return selector.kind === 'bail' ? 'Bail' : null;
 
     // An empty option list stands in for a bare Continue button, so both selectors resolve against it.
-    const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
     const rawOptions = internalState.pendingDecision?.options ?? [];
     const options: ActionOption[] = rawOptions.length > 0
       ? rawOptions
