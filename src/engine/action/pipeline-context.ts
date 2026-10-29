@@ -5,6 +5,7 @@ import type { WorldContextResolver } from './machine.js';
 import type { NodeType } from '../../db/repositories/relation.js';
 import type { RelationRow } from '../../db/repositories/types.js';
 import { itemStatModifier } from './dc.js';
+import { parseJsonColumn } from './json-column.js';
 
 /** The four ability stats, used to build the item-bonus hint. */
 const ALL_STATS = ['physical', 'wisdom', 'intelligence', 'charisma'] as const;
@@ -63,7 +64,7 @@ export function buildPipelineContext(
     from: { type: row.from_type as NodeType, ref: row.from_ref },
     to: { type: row.to_type as NodeType, ref: row.to_ref },
     relType: row.rel_type,
-    props: JSON.parse(row.props) as Record<string, number | string | boolean>,
+    props: parseJsonColumn<Record<string, number | string | boolean>>('relation.props', row.props) ?? {},
     rowId: row.id,
   }));
 

@@ -8,6 +8,7 @@ import { CharacterRepository } from '../../src/db/repositories/character.js';
 import { ItemRepository } from '../../src/db/repositories/item.js';
 import { ActionRepository } from '../../src/db/repositories/action.js';
 import { NpcRepository } from '../../src/db/repositories/npc.js';
+import { RelationRepository } from '../../src/db/repositories/relation.js';
 
 /** A `last_action_state` column cut off mid-value — what a corrupt or truncated write leaves
  *  behind. Every read of it must degrade to "no state" rather than throw a SyntaxError. */
@@ -67,4 +68,52 @@ describe('WorldEngineImpl — an unreadable persisted action state reads as no s
     expect(engine.resolvePendingChoice(characterId, { kind: 'option', index: 0 })).toBeNull();
     expect(engine.resolvePendingChoice(characterId, { kind: 'bail' })).toBe('Bail');
   });
+
+  it('startAction calls a truncated state unreadable rather than blaming empty options', async () => {
+    charRepo.update(characterId, { last_action_state: TRUNCATED_STATE });
+    warn.mockClear();
+
+    await engine.startAction(characterId, 'look around');
+
+    const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
+    expect(logged).toContain('unreadable action state');
+    expect(logged).not.toContain('options were empty');
+  });
+
+  it('starts an action when a persisted edge props bag will not parse', async () => {
+    seedCorruptPropsEdge();
+
+    const started = await engine.startAction(characterId, 'look around');
+
+    expect(started.actionType).toBe('search');
+    expect(warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n')).toContain('relation.props');
+  });
+
+  it('steps an action when a persisted edge props bag will not parse', async () => {
+    await engine.startAction(characterId, 'look around');
+    warn.mockClear();
+    seedCorruptPropsEdge();
+
+    const stepped = await engine.stepAction(characterId, 'Search carefully');
+
+    expect(stepped.resolved).toBe(false);
+    if (stepped.resolved) throw new Error('expected an ongoing action');
+    expect(stepped.actionType).toBe('search');
+    expect(warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n')).toContain('relation.props');
+  });
+
+  /** An `in_combat` edge cut off mid-`props`, as a corrupt write leaves it. */
+  function seedCorruptPropsEdge(): void {
+    new RelationRepository(getDb()).set({
+      fromType: 'pc',
+      fromRef: String(characterId),
+      toType: 'location',
+      toRef: "The Warden's Oak",
+      relType: 'in_combat',
+      props: { enemyName: 'Goblin', enemyHp: 5, enemyMaxHp: 20, round: 2 },
+    });
+    getDb()
+      .prepare("UPDATE relations SET props = ? WHERE from_type = 'pc' AND from_ref = ?")
+      .run('{"enemyName":"Goblin",', String(characterId));
+  }
 });

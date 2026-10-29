@@ -38,6 +38,7 @@ import { persistAuthoredRelations, type NearbyNpc } from "./action/relation-wiri
 import type { CriticGateMode } from "./action/critic-gate.js";
 import { applyMutations, type MutationContext } from "./action/mutations.js";
 import { readCombatState, type CombatState, type PersistedSceneStateEdge } from "./action/combat-state.js";
+import { parseJsonColumn } from "./action/json-column.js";
 import type { NodeType } from "../db/repositories/relation.js";
 import { createGeographyFinalize, HOME_REGION, routeBetween as geographyRouteBetween } from "./geography-finalize.js";
 import { effectiveStats } from "./action/dc.js";
@@ -170,18 +171,6 @@ function summariseMutation(m: WorldMutation): string {
       const amt = Number(m.amount ?? 0);
       return `${stat}${amt >= 0 ? "+" : ""}${amt}`;
     }
-  }
-}
-
-/** Tolerant read of a JSON column the engine itself writes. A corrupt or truncated value reads as
- *  "no state" rather than throwing into an action path, the stance `isStaleResolvedState` takes. */
-function parseJsonColumn<T>(column: string, raw: string | null): T | null {
-  if (raw === null) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    console.warn(`[engine] unreadable JSON in ${column} — treating as no state`);
-    return null;
   }
 }
 
@@ -897,11 +886,13 @@ export class WorldEngineImpl implements WorldEngine {
     }
 
     if (row.last_action_state) {
-      const isStaleResolved = this.isStaleResolvedState(row.last_action_state);
-      if (isStaleResolved) {
+      const stale = this.staleStateReason(row.last_action_state);
+      if (stale) {
         console.warn(
-          `[engine] clearing stale resolved state for character ${characterId} — ` +
-          `options were empty, action never persisted`,
+          stale === 'unreadable'
+            ? `[engine] clearing unreadable action state for character ${characterId}`
+            : `[engine] clearing stale resolved state for character ${characterId} — ` +
+              `options were empty, action never persisted`,
         );
         this.charRepo.update(characterId, { last_action_state: null });
       } else {
@@ -924,17 +915,18 @@ export class WorldEngineImpl implements WorldEngine {
     }
   }
 
-  /** A state the machine resolved whose persistence transaction threw: no options to choose and
-   *  nothing to step, so it is unrecoverable and gets cleared for a fresh start. */
-  private isStaleResolvedState(stateJson: string): boolean {
+  /** Why a persisted state is unrecoverable: it will not parse, or the machine resolved it with no
+   *  options to choose and nothing to step. Both get cleared for a fresh start. */
+  private staleStateReason(stateJson: string): 'unreadable' | 'unresolved' | null {
+    let parsed: PipelineInternalActionState | null;
     try {
-      const parsed = JSON.parse(stateJson);
-      const opts = parsed?.pendingDecision?.options;
-      return Array.isArray(opts) && opts.length === 0 && typeof parsed?.pendingDecision?.prompt === 'string' && parsed.pendingDecision.prompt.length > 0;
+      parsed = JSON.parse(stateJson);
     } catch {
-      // Unparseable state — treat as stale so it gets cleared.
-      return true;
+      return 'unreadable';
     }
+    const opts = parsed?.pendingDecision?.options;
+    const settled = Array.isArray(opts) && opts.length === 0 && typeof parsed?.pendingDecision?.prompt === 'string' && parsed.pendingDecision.prompt.length > 0;
+    return settled ? 'unresolved' : null;
   }
 
   /** Classifies, decides, then auto-finishes or drains a roll. */
