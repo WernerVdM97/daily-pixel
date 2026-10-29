@@ -173,6 +173,18 @@ function summariseMutation(m: WorldMutation): string {
   }
 }
 
+/** Tolerant read of a JSON column the engine itself writes. A corrupt or truncated value reads as
+ *  "no state" rather than throwing into an action path, the stance `isStaleResolvedState` takes. */
+function parseJsonColumn<T>(column: string, raw: string | null): T | null {
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    console.warn(`[engine] unreadable JSON in ${column} — treating as no state`);
+    return null;
+  }
+}
+
 /** The two mutation kinds that read as player-facing journal intel: a location revealed, an NPC met. */
 function journalDiscoveries(appliedMutationsJson: string | null): string[] {
   if (!appliedMutationsJson) return [];
@@ -1031,7 +1043,7 @@ export class WorldEngineImpl implements WorldEngine {
       from: { type: row.from_type as NodeType, ref: row.from_ref },
       to: { type: row.to_type as NodeType, ref: row.to_ref },
       relType: row.rel_type,
-      props: JSON.parse(row.props) as Record<string, number | string | boolean>,
+      props: parseJsonColumn<Record<string, number | string | boolean>>('relation.props', row.props) ?? {},
       rowId: row.id,
     }));
 
@@ -1070,9 +1082,12 @@ export class WorldEngineImpl implements WorldEngine {
   ): Promise<ActionStepResult> {
     const row = this.charRepo.findById(characterId);
     if (!row) throw new Error("Character not found");
-    if (!row.last_action_state) throw new Error("No action in progress");
 
-    const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
+    const internalState = parseJsonColumn<PipelineInternalActionState>(
+      'last_action_state',
+      row.last_action_state,
+    );
+    if (!internalState) throw new Error("No action in progress");
 
     // A stale state resolves as an in-voice server-side timeout rather than a bare error.
     const timeout = this.resolveStaleTimeout(internalState, characterId);
@@ -1253,11 +1268,12 @@ export class WorldEngineImpl implements WorldEngine {
   resumeAction(characterId: number): ActionResumeResult {
     const row = this.charRepo.findById(characterId);
     if (!row) throw new Error("Character not found");
-    if (!row.last_action_state) throw new Error("No action to resume");
 
-    const internalState = JSON.parse(
+    const internalState = parseJsonColumn<PipelineInternalActionState>(
+      'last_action_state',
       row.last_action_state,
-    ) as PipelineInternalActionState;
+    );
+    if (!internalState) throw new Error("No action to resume");
 
     // The same timeout, but resume can't return an outcome — throw the player-facing message.
     const timeout = this.resolveStaleTimeout(internalState, characterId);
@@ -1459,12 +1475,12 @@ export class WorldEngineImpl implements WorldEngine {
 
   resolvePendingChoice(characterId: number, selector: PendingChoiceSelector): string | null {
     const row = this.charRepo.findById(characterId);
-    if (!row || !row.last_action_state) {
-      return selector.kind === 'bail' ? 'Bail' : null;
-    }
+    const internalState = row
+      ? parseJsonColumn<PipelineInternalActionState>('last_action_state', row.last_action_state)
+      : null;
+    if (!internalState) return selector.kind === 'bail' ? 'Bail' : null;
 
     // An empty option list stands in for a bare Continue button, so both selectors resolve against it.
-    const internalState = JSON.parse(row.last_action_state) as PipelineInternalActionState;
     const rawOptions = internalState.pendingDecision?.options ?? [];
     const options: ActionOption[] = rawOptions.length > 0
       ? rawOptions
