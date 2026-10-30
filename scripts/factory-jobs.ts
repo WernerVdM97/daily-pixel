@@ -1984,6 +1984,8 @@ export async function drainOnce(ctx: Ctx): Promise<DrainOutcome> {
       const settled = await checkWaiting(ctx, config, job);
       if (settled) return settled;
     }
+    const retired = retireSettledBlocks(ctx, config, jobs);
+    if (retired) return retired;
     for (const job of jobs) {
       const action = decide(job, ctx.deps.live);
       if (action.kind === "skip") continue;
@@ -2057,6 +2059,32 @@ async function checkWaiting(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pr
   saveJob(ctx, job);
   finishJob(ctx, job);
   return { action: "finished", item: job.item, detail: `PR #${job.pr} merged` };
+}
+
+/**
+ * A block is a question for a human, and the board item going `Done` is the answer: nothing
+ * re-enters a blocked job, so without this the record blocks, and pages once, for ever.
+ */
+function retireSettledBlocks(ctx: Ctx, config: ProjectConfig, jobs: JobRecord[]): DrainOutcome | null {
+  const blocked = jobs.filter((job) => job.stageState === "blocked");
+  if (!blocked.length) return null;
+  let board: BoardItem[];
+  try {
+    board = fetchBoard(ctx, config);
+  } catch (err) {
+    // A board read that fails says nothing about the item: leave the record where it is.
+    ctx.deps.log(
+      `[factory-jobs] board read failed, leaving ${blocked.length} blocked job(s) alone: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
+  for (const job of blocked) {
+    if (board.find((entry) => entry.number === job.item)?.status !== "Done") continue;
+    archiveJob(ctx, job);
+    ctx.deps.log(`[factory-jobs] retired blocked #${job.item} (${job.stage}): its item is Done`);
+    return { action: "finished", item: job.item, detail: "blocked job's item is Done; record archived" };
+  }
+  return null;
 }
 
 /** Worktree removed, record archived, branch kept — the last thing a job ever does. */

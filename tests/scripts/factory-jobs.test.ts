@@ -128,6 +128,8 @@ class Harness {
   nowMs = T0;
   live: Liveness = { startTime: () => null };
   board: BoardItem[] = [];
+  /** The board read fails, as `gh` does when the token or the network is gone. */
+  boardFails = false;
   /** What the fake stage child writes to its report file, per stage. */
   reports: Partial<Record<StageName, string>> = { build: 'built', review: 'VERDICT: findings', fix: 'VERDICT: ok' };
   /** Exit code and timeout the fake stage returns. */
@@ -211,6 +213,7 @@ class Harness {
   private execSync(cmd: string, args: string[], input?: string): ExecResult {
     this.calls.push({ cmd, args, input });
     if (cmd === 'gh' && args.join(' ').startsWith('project item-list')) {
+      if (this.boardFails) return { code: 1, stdout: '', stderr: 'HTTP 502' };
       return ok(JSON.stringify({ items: this.board.map(toRawItem) }));
     }
     if (cmd === 'git' && args.join(' ') === `rev-parse ${this.jobBranch}`) return ok(`${this.branchSha}\n`);
@@ -965,6 +968,29 @@ describe('the failure policy', () => {
     // Paged: a later tick leaves it alone.
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
     expect(h.pages).toHaveLength(1);
+  });
+
+  it('retires a blocked job whose board item is Done, instead of blocking for ever', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'Done' })];
+    h.write(job({ stage: 'reconcile', stageState: 'blocked', pagedAt: '2026-09-11T11:00:00.000Z' }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'finished', item: 34 });
+    expect(h.has(34)).toBe(false);
+    expect(h.archived(34).stageState).toBe('blocked');
+    expect(h.logs.join('\n')).toContain('retired blocked #34');
+  });
+
+  it('leaves a blocked job alone while its item is still open, and when the board cannot be read', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'Blocked' })];
+    h.write(job({ stageState: 'blocked', pagedAt: '2026-09-11T11:00:00.000Z' }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.has(34)).toBe(true);
+
+    h.boardFails = true;
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.has(34)).toBe(true);
+    expect(h.logs.join('\n')).toContain('board read failed');
   });
 
   it('keeps the page even when the board comment fails, and never claims it paged twice', async () => {

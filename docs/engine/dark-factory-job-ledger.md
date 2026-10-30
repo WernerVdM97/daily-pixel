@@ -118,6 +118,7 @@ then:                  drain                          (new)
                                                count one failed attempt, requeue
     running + anything else                 -> died with its drainer: count one
                                                failed attempt, requeue
+    blocked + its board item is Done         -> retire the record to archive/
     blocked                                 -> skip (already paged)
     ready + attempts[stage] >= 2            -> block, page, skip
     ready + spentMs >= cap                  -> block, page, skip
@@ -145,6 +146,8 @@ There is no heartbeat. The first sketch had one, refreshed every 30 s by the dra
 Only the owner unblocks, with `npx tsx scripts/factory-jobs.ts retry <item>`: `stageState` back to `ready`, attempts zeroed, `spentMs` refreshed to a full 100 minutes, Status `Blocked` back to `In Progress`, the old totals kept in `history` for the record. A retry is the same decision an adoption makes: a human looked at the job and decided it gets a fresh budget, which no automatic path is allowed to grant.
 
 The bulletin already sorts `Blocked` items with a written question, so a blocked job surfaces there with no extra work.
+
+A block is a question for a human, and nothing re-enters a blocked job, so the board item going `Done` is that question's answer: the next drain archives the record and logs it, rather than blocking and paging for ever on work the board already records as finished. Nothing short of `Done` retires a block, and a board read that fails leaves the record exactly where it was.
 
 ## Deliver is code
 
