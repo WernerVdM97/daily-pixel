@@ -31,8 +31,7 @@ export const BORDERS: Record<string, BorderStyle> = {
     bottom: ['╚','═','╝'],
     side: '║',
     crest: (p: Palette) => {
-      // Two caps and the 5-wide emblem leave an odd fill at FRAME_WIDTH, so the left run takes the
-      // extra column, as the splash rim does.
+      // Two caps and the 5-wide emblem leave an odd fill, so the left run takes the extra column.
       const fill = FRAME_WIDTH - 7;
       const rim = `o${'═'.repeat(Math.ceil(fill / 2))} ╡@╞ ${'═'.repeat(Math.floor(fill / 2))}o`;
       return paint('chrome', rim, p).replace(/@/, paint('warmth', '@', p));

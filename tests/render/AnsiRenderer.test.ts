@@ -343,9 +343,9 @@ describe("AnsiRenderer", () => {
       expect(crestIdx).toBeLessThan(topBorderIdx);
 
       const body = rendered.split("\n").slice(1, -1).map(stripSgr);
-      const crestLines = body.filter((line) => line.startsWith("o") && line.endsWith("o"));
-      expect(crestLines).toHaveLength(2);
-      for (const line of crestLines) expect(line).toHaveLength(FRAME_WIDTH);
+      expect(body[0]).toContain("╡@╞");
+      expect(body[body.length - 1]).toMatch(/^o═+o$/);
+      for (const line of body) expect(line).toHaveLength(FRAME_WIDTH);
     });
 
     it("a non-default palette actually changes the emitted SGR codes", () => {
