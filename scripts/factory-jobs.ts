@@ -14,7 +14,8 @@
 // and its own slice of a 100-minute budget. This file is that ledger and its CLI.
 //
 //   start            claim or adopt an item, create the worktree, leave the job at `build`
-//   drain            the tick's one action: reap an orphan, block a spent job, run a stage
+//   drain            the tick's one action: retire a settled block, reap an orphan, block a
+//                    spent job, run a stage
 //   retry <item>     the owner's unblock, and the only path that refreshes the budget
 //   list|show|stale  read-only, for humans
 //
@@ -2061,10 +2062,6 @@ async function checkWaiting(ctx: Ctx, config: ProjectConfig, job: JobRecord): Pr
   return { action: "finished", item: job.item, detail: `PR #${job.pr} merged` };
 }
 
-/**
- * A block is a question for a human, and the board item going `Done` is the answer: nothing
- * re-enters a blocked job, so without this the record blocks, and pages once, for ever.
- */
 function retireSettledBlocks(ctx: Ctx, config: ProjectConfig, jobs: JobRecord[]): DrainOutcome | null {
   const blocked = jobs.filter((job) => job.stageState === "blocked");
   if (!blocked.length) return null;
@@ -2072,7 +2069,6 @@ function retireSettledBlocks(ctx: Ctx, config: ProjectConfig, jobs: JobRecord[])
   try {
     board = fetchBoard(ctx, config);
   } catch (err) {
-    // A board read that fails says nothing about the item: leave the record where it is.
     ctx.deps.log(
       `[factory-jobs] board read failed, leaving ${blocked.length} blocked job(s) alone: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -2080,6 +2076,13 @@ function retireSettledBlocks(ctx: Ctx, config: ProjectConfig, jobs: JobRecord[])
   }
   for (const job of blocked) {
     if (board.find((entry) => entry.number === job.item)?.status !== "Done") continue;
+    // A blocked job's checkout may already be gone; the branch is kept, as it is on `done`.
+    if (ctx.dryRun) {
+      ctx.deps.log(`[dry-run] git worktree remove --force ${job.worktree}`);
+    } else if (existsSync(job.worktree)) {
+      const res = git(ctx, ["worktree", "remove", "--force", job.worktree]);
+      if (res.code !== 0) ctx.deps.log(`[factory-jobs] worktree remove failed for #${job.item}: ${res.stderr.trim()}`);
+    }
     archiveJob(ctx, job);
     ctx.deps.log(`[factory-jobs] retired blocked #${job.item} (${job.stage}): its item is Done`);
     return { action: "finished", item: job.item, detail: "blocked job's item is Done; record archived" };
