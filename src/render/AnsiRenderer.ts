@@ -31,11 +31,12 @@ export const BORDERS: Record<string, BorderStyle> = {
     bottom: ['╚','═','╝'],
     side: '║',
     crest: (p: Palette) => {
-      const fill = '═'.repeat(10);
-      const rim = `o${fill} ╡@╞ ${fill}o`;
+      // Two caps and the 5-wide emblem leave an odd fill, so the left run takes the extra column.
+      const fill = FRAME_WIDTH - 7;
+      const rim = `o${'═'.repeat(Math.ceil(fill / 2))} ╡@╞ ${'═'.repeat(Math.floor(fill / 2))}o`;
       return paint('chrome', rim, p).replace(/@/, paint('warmth', '@', p));
     },
-    crestBottom: (p: Palette) => paint('chrome', `o${'═'.repeat(INTERIOR_WIDTH + 2)}o`, p),
+    crestBottom: (p: Palette) => paint('chrome', `o${'═'.repeat(INTERIOR_WIDTH)}o`, p),
   },
 };
 
