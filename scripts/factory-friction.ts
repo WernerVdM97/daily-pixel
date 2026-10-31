@@ -577,7 +577,10 @@ function deriveSignals(s: SessionStats): void {
   // failure mode: the tokens are gone and nothing landed. Editing is required precisely so
   // the read-only loops (triage, sweeper, scrumo, every reviewer child) are not flagged for
   // behaving as designed, and 15 tool calls is the floor below which a session was a question.
-  if (s.toolCalls >= 15 && s.editedFiles.length > 0 && !s.shipped && s.commitExpected) {
+  // `.pi/factory/memory/` is gitignored: a memory loop's edits can never be committed, so
+  // "edited and did not ship" is its deliverable, not a failure.
+  const memoryOnly = s.editedFiles.every((path) => path.includes(".pi/factory/memory/"));
+  if (s.toolCalls >= 15 && s.editedFiles.length > 0 && !s.shipped && s.commitExpected && !memoryOnly) {
     add("dead-end", `${s.toolCalls} tool calls, ${s.editedFiles.length} edits, no commit or PR`);
   }
 }

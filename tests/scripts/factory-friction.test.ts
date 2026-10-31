@@ -61,6 +61,52 @@ describe('commitExpectedFor', () => {
   });
 });
 
+describe('dead-end', () => {
+  const dirs: string[] = [];
+
+  function scratch(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'factory-friction-test-'));
+    dirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Fifteen edit calls and no commit: the floor and the shape `dead-end` is built from. */
+  function editsSession(paths: string[]): string {
+    const lines: unknown[] = [
+      { type: 'session', version: 3, id: '01a0dead-beef-7000-8000-000000000001', timestamp: '2026-10-30T06:00:00Z', cwd: '/repo' },
+      { type: 'message', id: 'u1', timestamp: '2026-10-30T06:00:01Z', message: { role: 'user', content: [{ type: 'text', text: 'consolidate memory' }] } },
+    ];
+    paths.forEach((path, i) => {
+      lines.push({
+        type: 'message',
+        id: `a${i}`,
+        timestamp: '2026-10-30T06:00:02Z',
+        message: { role: 'assistant', content: [{ type: 'toolCall', id: `call-${i}`, name: 'edit', arguments: { path } }] },
+      });
+    });
+    const file = join(scratch(), 'p/memory/session.jsonl');
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    return file;
+  }
+
+  it('does not flag a session whose only edits are the gitignored memory tree', () => {
+    const paths = Array.from({ length: 15 }, (_, i) => `.pi/factory/memory/meta/sessions/2026-10-3${i % 10}.md`);
+    const stats = readSession(editsSession(paths), new Set());
+    expect(stats.signals['dead-end']).toBeUndefined();
+  });
+
+  it('still flags a session that edited a tracked path and never committed', () => {
+    const paths = Array.from({ length: 15 }, (_, i) => (i === 7 ? 'scripts/factory-friction.ts' : `.pi/factory/memory/meta/metrics/x${i}.md`));
+    const stats = readSession(editsSession(paths), new Set());
+    expect(stats.signals['dead-end']).toBe(1);
+  });
+});
+
 describe('SHIPPED', () => {
   it('counts a commit however the command is wrapped', () => {
     expect(SHIPPED.test('git commit -m "feat(factory): x"')).toBe(true);
