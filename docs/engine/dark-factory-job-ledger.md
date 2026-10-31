@@ -113,6 +113,9 @@ guards: mem floor, global flock                       (existing, unchanged)
 if a schedule is due:  pi -p … schedule.run-due       (existing path)
 then:                  drain                          (new)
   take the drain lock (non-blocking; held for the whole run, stage included)
+  blocked + its board item is Done          -> retire the record to archive/, then stop
+                                               (a second settled block, and every other
+                                               record, waits for the next tick)
   for each job record, oldest first:
     running + pid live + start time matches -> orphan: kill its process group,
                                                count one failed attempt, requeue
@@ -145,6 +148,8 @@ There is no heartbeat. The first sketch had one, refreshed every 30 s by the dra
 Only the owner unblocks, with `npx tsx scripts/factory-jobs.ts retry <item>`: `stageState` back to `ready`, attempts zeroed, `spentMs` refreshed to a full 100 minutes, Status `Blocked` back to `In Progress`, the old totals kept in `history` for the record. A retry is the same decision an adoption makes: a human looked at the job and decided it gets a fresh budget, which no automatic path is allowed to grant.
 
 The bulletin already sorts `Blocked` items with a written question, so a blocked job surfaces there with no extra work.
+
+A block is a question for a human, and nothing re-enters a blocked job, so the board item going `Done` is that question's answer: the next drain archives the record and logs it, rather than blocking and paging for ever on work the board already records as finished. Nothing short of `Done` retires a block, and a board read that fails leaves the record exactly where it was. The retire also removes the worktree and its install, keeping the branch the commits live on, the same way `done` does. It runs ahead of the per-record loop, so it costs one board read per tick for as long as any block stands, and settles one block per tick. The archived record keeps `stageState: blocked`: a retirement is work the board finished elsewhere, not a delivery.
 
 ## Deliver is code
 

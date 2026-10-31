@@ -128,6 +128,8 @@ class Harness {
   nowMs = T0;
   live: Liveness = { startTime: () => null };
   board: BoardItem[] = [];
+  /** The board read fails, as `gh` does when the token or the network is gone. */
+  boardFails = false;
   /** What the fake stage child writes to its report file, per stage. */
   reports: Partial<Record<StageName, string>> = { build: 'built', review: 'VERDICT: findings', fix: 'VERDICT: ok' };
   /** Exit code and timeout the fake stage returns. */
@@ -211,6 +213,7 @@ class Harness {
   private execSync(cmd: string, args: string[], input?: string): ExecResult {
     this.calls.push({ cmd, args, input });
     if (cmd === 'gh' && args.join(' ').startsWith('project item-list')) {
+      if (this.boardFails) return { code: 1, stdout: '', stderr: 'HTTP 502' };
       return ok(JSON.stringify({ items: this.board.map(toRawItem) }));
     }
     if (cmd === 'git' && args.join(' ') === `rev-parse ${this.jobBranch}`) return ok(`${this.branchSha}\n`);
@@ -965,6 +968,47 @@ describe('the failure policy', () => {
     // Paged: a later tick leaves it alone.
     expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
     expect(h.pages).toHaveLength(1);
+  });
+
+  it('retires a blocked job whose board item is Done, instead of blocking for ever', async () => {
+    const h = new Harness();
+    const worktree = join(h.worktreeRoot, 'feat-34-last-stand');
+    mkdirSync(worktree, { recursive: true });
+    h.board = [item({ number: 34, status: 'Done' })];
+    h.write(job({ stage: 'reconcile', stageState: 'blocked', worktree, pagedAt: '2026-09-11T11:00:00.000Z' }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'finished', item: 34 });
+    expect(h.has(34)).toBe(false);
+    expect(h.archived(34).stageState).toBe('blocked');
+    expect(h.called('git', 'worktree remove --force')).toBe(true);
+    expect(h.logs.join('\n')).toContain('retired blocked #34');
+  });
+
+  it('leaves a blocked job alone while its item is still open, missing, or unreadable', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'Blocked' })];
+    h.write(job({ stageState: 'blocked', pagedAt: '2026-09-11T11:00:00.000Z' }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.has(34)).toBe(true);
+
+    // An item that is not on the board at all is not a finished one.
+    h.board = [item({ number: 40, status: 'Done' })];
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.has(34)).toBe(true);
+
+    h.boardFails = true;
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'idle' });
+    expect(h.has(34)).toBe(true);
+    expect(h.logs.join('\n')).toContain('board read failed');
+  });
+
+  it('spends one tick on a retirement and still runs the next job on the tick after', async () => {
+    const h = new Harness();
+    h.jobBranch = 'feat/40-next';
+    h.board = [item({ number: 34, status: 'Done' }), item({ number: 40, status: 'In Progress' })];
+    h.write(job({ item: 34, stageState: 'blocked', pagedAt: '2026-09-11T11:00:00.000Z' }));
+    h.write(job({ item: 40, branch: 'feat/40-next', stage: 'build', startedAt: '2026-09-11T11:30:00.000Z' }));
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'finished', item: 34 });
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', item: 40, detail: 'build ok' });
   });
 
   it('keeps the page even when the board comment fails, and never claims it paged twice', async () => {
@@ -2073,6 +2117,13 @@ describe('the ledger read-outs', () => {
     expect(await drainOnce(merged.ctx({ dryRun: true }))).toMatchObject({ action: 'finished' });
     expect(merged.called('git', 'worktree remove')).toBe(false);
     expect(merged.has(34)).toBe(true);
+
+    const retired = new Harness();
+    retired.board = [item({ number: 34, status: 'Done' })];
+    retired.write(job({ stageState: 'blocked', pagedAt: '2026-09-11T11:00:00.000Z' }));
+    expect(await drainOnce(retired.ctx({ dryRun: true }))).toMatchObject({ action: 'finished' });
+    expect(retired.called('git', 'worktree remove')).toBe(false);
+    expect(retired.has(34)).toBe(true);
   });
 });
 
