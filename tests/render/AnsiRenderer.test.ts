@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderFrame, hpBar, BORDERS, PALETTES, type FrameSpec } from "../../src/render/AnsiRenderer.js";
+import { renderFrame, hpBar, BORDERS, PALETTES, FRAME_WIDTH, type FrameSpec } from "../../src/render/AnsiRenderer.js";
 
 const stripSgr = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -333,16 +333,19 @@ describe("AnsiRenderer", () => {
       expect(mono).toContain('║');
     });
 
-    it("renders crit-style crest with @ interrupt above the frame", () => {
+    it("renders crit-style crest with @ interrupt above the frame, both crests at the frame width", () => {
       const rendered = renderFrame(fullCombatFrame(), PALETTES.house, BORDERS.crit);
       const mono = stripSgr(rendered);
-      expect(mono).toContain('@');
-      expect(mono).toContain('╡');
       // The crest line appears before the top border.
       const crestIdx = mono.indexOf('@');
       const topBorderIdx = mono.indexOf('╔');
       expect(crestIdx).toBeGreaterThan(0);
       expect(crestIdx).toBeLessThan(topBorderIdx);
+
+      const body = rendered.split("\n").slice(1, -1).map(stripSgr);
+      expect(body[0]).toContain("╡@╞");
+      expect(body[body.length - 1]).toMatch(/^o═+o$/);
+      for (const line of body) expect(line).toHaveLength(FRAME_WIDTH);
     });
 
     it("a non-default palette actually changes the emitted SGR codes", () => {
