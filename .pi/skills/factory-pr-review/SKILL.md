@@ -48,7 +48,7 @@ Then install dependencies in the worktree, because a fresh worktree has none:
 cd "$WT" && npm ci
 ```
 
-**`npm ci` in the worktree, never a symlink to the primary install.** A symlink resolves the primary's `node_modules`, so the run proves the primary's lockfile: on 2026-10-16 that exact shortcut put `js-yaml` 4 against the PR's `dev`-based 5 and turned four asset tests red for a defect the PR did not have. A leftover `node_modules` from a symlink also makes `git worktree remove` refuse without `--force`. The `cp -al` hardlink copy the ledger uses for job worktrees is not available either once the worktree is off the same filesystem (`Invalid cross-device link`).
+**`npm ci` in the worktree, never a symlink to the primary install.** A symlink resolves the primary's `node_modules`, so the run proves the primary's lockfile: on 2026-10-16 that exact shortcut put `js-yaml` 4 against the PR's `dev`-based 5 and turned four asset tests red for a defect the PR did not have. The `cp -al` hardlink copy the ledger uses for job worktrees is not available either once the worktree is off the same filesystem (`Invalid cross-device link`).
 
 ### 3. Rerun the gates at the head
 
@@ -74,6 +74,7 @@ A test file that exists in the diff but not in the run means the suite is not pi
 The spec is the `CHANGES_REQUESTED` body plus the item's acceptance criteria (`gh issue view <item>`), not the diff's own narrative. Diff against the PR's **own base**:
 
 ```bash
+BASE="origin/$(gh pr view <n> --json baseRefName --jq .baseRefName)"
 git diff --stat "$BASE"...HEAD
 git diff "$BASE"...HEAD -- <path>
 ```
@@ -89,14 +90,17 @@ The repository allows squash merges only, which is checkable rather than remembe
 ```bash
 gh api 'repos/{owner}/{repo}' --jq '{merge: .allow_merge_commit, squash: .allow_squash_merge, rebase: .allow_rebase_merge}'
 gh pr merge <n> --squash          # the only form that works
+gh auth switch --user WernerVdM97
 gh pr review <n> --request-changes --body-file <file>   # or hand it back
 ```
 
 `gh pr merge <n> --merge` fails with merge commits disabled, and a rebase merge is disabled too, so `--squash` is not a style preference.
 
+**A change request has to come from the reviewer's account, not the PR's.** Factory PRs are authored by the agent account that runs these commands here, and GitHub refuses approve and request-changes on your own PR: `gh pr review <n> --request-changes` exits non-zero with `Can not request changes on your own pull request`. The ledger also reads `CHANGES_REQUESTED` only from `FACTORY_REVIEWER_LOGINS` (default `WernerVdM97`), so a review left by the PR's own account would open no revise cycle. Switch first, or have the owner submit it. `gh pr review <n> --comment` is the one form that does work on your own PR, and it is advisory: it carries the spec for the next reader but opens no revise cycle.
+
 **A squash merge leaves the PR head unreachable from `dev`.** `git branch -d` and `git branch --merged` therefore never see a merged branch: prove merged from the PR's own state (`gh pr list --head <branch> --state all`), delete local branches with `-D`, and read pre-merge content off `refs/pull/<n>/head` when the branch itself is gone.
 
-When handing back, the review body is the next reader's spec, so it names the file and the line and the failure, not a general concern. Then clean up: `git worktree remove "$WT"`.
+When handing back, the review body is the next reader's spec, so it names the file and the line and the failure, not a general concern. Then clean up: `git worktree remove --force "$WT"`, since the report and `--body-file` draft you wrote there are untracked and a plain remove refuses them.
 
 ## A blocked stage: diagnose before rescuing
 
@@ -116,7 +120,7 @@ Read the record's own fields:
 | `stage`, `stageState` | where it stopped: `ready`, `running`, `waiting`, `blocked` |
 | `attempts` | failed attempts per stage; two is the block threshold |
 | `spentMs` | the job's cumulative burn against the 100-minute cap |
-| `history[].result` | per attempt: `ok`, `nochange`, `waiting`, `skipped`, `retried`, `failed`, `reaped` |
+| `history[].result` | per attempt: `ok`, `nochange`, `waiting`, `skipped`, `retried`, `failed`, `timeout`, `reaped` |
 | `claim` | `pid` plus `pidStart`, the pair that makes a liveness probe safe |
 | `stageStartedAt` | when the attempt you are looking at began |
 
@@ -130,7 +134,7 @@ ls -t ~/.pi/agent/sessions/*/subagent-artifacts/*_delegate-*_meta.json | head -3
 
 That directory pairs `<runId>_<agent>_<taskIndex>_meta.json` (with a `_transcript.jsonl` beside it) and the meta file carries `exitCode`, `durationMs`, `usage.turns`, `toolCount` and `attemptedModels`. On job #97 the real cause was in that file, and the memory tree's own "probable infrastructure failure, just retry" line sent the next attempt straight back into the identical 37 ms failure.
 
-**`retry` is a budget grant, not a fix.** `npx tsx scripts/factory-jobs.ts retry <item>` resets `stageState` to `ready`, zeroes `attempts`, refills `spentMs` and moves `Blocked` back to `In Progress`. It repairs nothing, so without a change to the cause the same failure recurs and the job blocks for a second time.
+**`retry` is a budget grant, not a fix.** `npx tsx scripts/factory-jobs.ts retry <item>` resets `stageState` to `ready`, zeroes `attempts`, refills `spentMs`, moves `Blocked` back to `In Progress`, and clears `revisions` and `consumedReviews` with it. That last part matters when diagnosing: a still-standing `CHANGES_REQUESTED` review is no longer consumed, so the next tick can open a fresh revise cycle against the same request. It repairs nothing, so without a change to the cause the same failure recurs and the job blocks for a second time.
 
 **An agent-definition fix needs the job branch to carry it.** A stage child discovers `.pi/agents/` from its own working directory, which is the job worktree, so a fix merged to `dev` changes nothing until that branch has it: `git merge origin/dev` onto the job branch (or a rebase) before the retry.
 
@@ -150,6 +154,7 @@ sudo systemctl daemon-reload && sudo systemctl restart factory-run-due.timer
 Check for it before merging rather than after forgetting:
 
 ```bash
+BASE="origin/$(gh pr view <n> --json baseRefName --jq .baseRefName)"
 git diff --name-only "$BASE"...HEAD -- scripts/factory-run-due.sh scripts/factory-run-due.service scripts/factory-run-due.timer
 ```
 
