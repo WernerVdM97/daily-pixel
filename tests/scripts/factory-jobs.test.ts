@@ -2510,3 +2510,50 @@ describe('an agent definition names only tools its child can resolve', () => {
     }
   });
 });
+
+/**
+ * The escalator is the factory's help line, so the roles that may consult it must also be able to
+ * spawn it. A definition that names it without `subagent` aborts the launch at `agent_start` and
+ * costs the job a stage attempt; one that is allowed to consult without naming when is the wish
+ * this pin exists to prevent.
+ */
+const ESCALATOR_CALLERS = [
+  'delegate-executor',
+  'delegate-reviewer',
+  'delegate-fixer',
+  'delegate-coordinator',
+  'factory-triage',
+];
+
+const ESCALATOR_LESS_LOOPS = [
+  'factory-rem',
+  'factory-muscle-memory',
+  'factory-librarian',
+  'meta-oil',
+  'factory-scrumo',
+  'factory-sweeper',
+];
+
+function agentText(name: string): string {
+  return readFileSync(join(REPO_ROOT, '.pi/agents', `${name}.md`), 'utf8');
+}
+
+describe('only the roles that own work in flight can consult the escalator', () => {
+  it('gives every caller the subagent tool and a rule for when to use it', () => {
+    for (const name of ESCALATOR_CALLERS) {
+      expect(agentFrontmatter(name).tools, `${name} may consult the escalator`).toContain('subagent');
+      expect(agentText(name), `${name} holds subagent with no consult rule`).toContain('factory-escalator');
+    }
+  });
+
+  it('keeps the scheduled memory and docs loops away from it', () => {
+    for (const name of ESCALATOR_LESS_LOOPS) {
+      expect(agentText(name), `${name} is not an escalator caller`).not.toContain('factory-escalator');
+    }
+  });
+
+  it('keeps the escalator advisory, and childless so a consult cannot consult', () => {
+    expect(agentText('factory-escalator')).not.toMatch(/binding/i);
+    expect(agentFrontmatter('factory-escalator').tools).not.toContain('subagent');
+  });
+});
