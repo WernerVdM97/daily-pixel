@@ -2510,3 +2510,35 @@ describe('an agent definition names only tools its child can resolve', () => {
     }
   });
 });
+
+/** Derived from `.pi/agents/`: every definition that names the escalator must sit in this allowlist and hold `subagent`. */
+const ESCALATOR_CALLERS = [
+  'delegate-executor',
+  'delegate-reviewer',
+  'delegate-fixer',
+  'delegate-coordinator',
+  'factory-triage',
+];
+
+function agentText(name: string): string {
+  return readFileSync(join(REPO_ROOT, '.pi/agents', `${name}.md`), 'utf8');
+}
+
+describe('only the roles that own work in flight can consult the escalator', () => {
+  it('gives every definition that names the escalator the subagent tool', () => {
+    const naming = readdirSync(join(REPO_ROOT, '.pi/agents'))
+      .filter((entry) => entry.endsWith('.md'))
+      .map((entry) => entry.replace(/\.md$/, ''))
+      .filter((name) => name !== 'factory-escalator' && agentText(name).includes('factory-escalator'))
+      .sort();
+    expect(naming).toEqual([...ESCALATOR_CALLERS].sort());
+    for (const name of naming) {
+      expect(agentFrontmatter(name).tools, `${name} may consult the escalator`).toContain('subagent');
+    }
+  });
+
+  it('keeps the escalator advisory, and childless so a consult cannot consult', () => {
+    expect(agentText('factory-escalator')).not.toMatch(/binding/i);
+    expect(agentFrontmatter('factory-escalator').tools).not.toContain('subagent');
+  });
+});
