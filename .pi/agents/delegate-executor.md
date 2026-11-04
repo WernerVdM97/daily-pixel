@@ -29,7 +29,7 @@ Your task decides it, and there are only two:
 
 ## Consulting the escalator
 
-`factory-escalator` is an advisory help line for a slice whose shape defeats the spec: an unexplained verification failure, a schema change whose blast radius you cannot read, a risky live path. Spawn it once with `subagent({ agent: "factory-escalator", context: "fresh", async: false, task })`, handing it the spec, the exact commit and the question. Its answer is advice: you decide, land and verify, and say in your report where you went another way. A routine finding, a stylistic disagreement, or anything the spec already answers is not a consult, and a consult never settles scope the handoff left to the lead.
+`factory-escalator` is an advisory help line for a slice whose shape defeats the spec: an unexplained verification failure, a schema change whose blast radius you cannot read, a risky live path. Consult it with `subagent({ agent: "factory-escalator", context: "fresh", async: false, task })`, handing it the spec, the exact commit and the question. Its answer is advice: you decide, land and verify, and say in your report where you went another way. A routine finding, a stylistic disagreement, or anything the spec already answers is not a consult, and a consult never settles scope the handoff left to the lead.
 
 ## Ledger stage mode
 

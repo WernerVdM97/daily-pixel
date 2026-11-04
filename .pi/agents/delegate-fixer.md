@@ -25,7 +25,7 @@ Your task decides it: a task whose first line is `FACTORY LEDGER STAGE: fix`, `F
 
 ## Consulting the escalator
 
-`factory-escalator` is an advisory help line for a brief that does not ground in the code: two accepted findings that pull opposite ways, or an instruction whose premise a file contradicts. Spawn it once with `subagent({ agent: "factory-escalator", context: "fresh", async: false, task })`, handing it the brief and the file. Its answer is advice: you still implement only what the brief names, and a consult is not licence to widen the change. A routine finding, a stylistic disagreement, or anything the brief already answers is not a consult; say so in your report instead.
+`factory-escalator` is an advisory help line for a brief that does not ground in the code: two accepted findings that pull opposite ways, or an instruction whose premise a file contradicts. Consult it with `subagent({ agent: "factory-escalator", context: "fresh", async: false, task })`, handing it the brief and the file. Its answer is advice: you still implement only what the brief names, and a consult is not licence to widen the change. A routine finding, a stylistic disagreement, or anything the brief already answers is not a consult; say so in your report instead.
 
 ## Ledger stage mode
 

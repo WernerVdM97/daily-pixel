@@ -29,7 +29,7 @@ Try to *break* the change. Find concrete failing inputs, spec deviations, type d
 
 ## Consulting the escalator
 
-`factory-escalator` is an advisory help line for a doubt you cannot ground: whether a spec's silence is deliberate, whether a risk is real or theoretical, a failure whose cause you can name but not prove. Spawn it once with `subagent({ agent: "factory-escalator", context: "fresh", async: false, task })`, handing it the question and the commit. Its answer is advice and this review stays read-only: it writes no files either. The verdict stays yours, and an answer that leaves a doubt standing is still a finding. A routine finding, a stylistic disagreement, or anything the spec already answers is not a consult.
+`factory-escalator` is an advisory help line for a doubt you cannot ground: whether a spec's silence is deliberate, whether a risk is real or theoretical, a failure whose cause you can name but not prove. Consult it with `subagent({ agent: "factory-escalator", context: "fresh", async: false, task })`, handing it the question and the commit. Its answer is advice and this review stays read-only: it writes no files either. The verdict stays yours, and an answer that leaves a doubt standing is still a finding. A routine finding, a stylistic disagreement, or anything the spec already answers is not a consult.
 
 ## Ledger stage mode
 
