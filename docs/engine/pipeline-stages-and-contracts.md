@@ -14,6 +14,7 @@ related:
   - "[[resolve-difficulty-signal]]"
   - "[[agent-player-personas]]"
   - "[[combat-system-v12]]"
+  - "[[threat-encounter-system]]"
   - "[[layer-boundaries-and-json-seam]]"
 ---
 _The wire detail of `src/llm/pipeline/`: what each of the four stages is handed, what it may author, how its reply is parsed, how a stage fault is told apart from an engine fault, and where its row lands in `llm_calls`. Read this before changing a stage._
@@ -37,12 +38,12 @@ raw input
   │                   ↳ critic (optional, gated) and the single-option validator may each re-decide once
   ▼ DICE            engine only: rollD20 + resolveRoll when flags.needs_roll, else verdict 'success' with d20 0
   ▼ RESOLVE-MUTATE  proposed mutations only
-  ▼ FINALIZE        engine only: travel-coherence gate → geography → collapse → validate → final mutations
+  ▼ FINALIZE        engine only: the machine's travel-coherence gate, then the injected geography → collapse → validate
   ▼ RESOLVE-NARRATE outcome_text, written against the FINAL mutations
   ▼ persist
 ```
 
-The four names in `PipelineStage` (`stamping.ts`) are the LLM stages: `classify · decide · resolve-mutate · resolve-narrate`. DICE and FINALIZE are engine code with no gateway method and no `llm_calls` row of their own, so nothing in this doc constrains them.
+The four names in `PipelineStage` (`stamping.ts`) are the LLM stages: `classify · decide · resolve-mutate · resolve-narrate`. DICE and FINALIZE are engine code with no gateway method and no `llm_calls` row of their own, so nothing in this doc constrains them. The DICE box draws the generic path only: a `required` combat action short-circuits it into `handleCombatStep`, two d20 draws a round with an HP-derived verdict, so read `[[combat-system-v12]]` for what combat actually does.
 
 CLASSIFY is heuristic-first by design: a wide pattern table routes most input at zero cost (`heuristicClassify`), and the LLM is the fallback for a miss, never the first move. The table misses rather than guesses on anything ambiguous, negated or idiomatic, and the fallback is the last stage that can route at all (it has no fallback beneath it).
 
@@ -71,7 +72,7 @@ System prompts come from the prompt set at `assets/prompts/decision-prompts/<PRO
 | resolve-mutate | `resolve[actionType][verdict]` | `buildResolveUserMessage(input, 'RESOLVE-MUTATE')` | `TASK:`, `VERDICT:`, `D20:`, `### Action type`, `### What was decided`, the scene body |
 | resolve-narrate | same template as resolve-mutate | `buildResolveUserMessage(input, 'RESOLVE-NARRATE')` | all of the above, then `### Final mutations` as a fenced JSON block |
 
-The shared builder can also emit a third phase, `RESOLVE_ROLL`, with a `ROLL RESULT:` block claiming the outcome. The pipeline never reaches it: on this path a verdict belongs to DICE and RESOLVE, and the block survives for the legacy single-call gateway. Do not assume a prompt that keys off `RESOLVE_ROLL` is reachable from a stage.
+`buildUserMessage`, the DECIDE builder, can also emit a third phase, `RESOLVE_ROLL`, with a `ROLL RESULT:` block claiming the outcome. The pipeline never reaches it: on this path a verdict belongs to DICE and RESOLVE, and the block survives for the legacy single-call gateway. Do not assume a prompt that keys off `RESOLVE_ROLL` is reachable from a stage.
 
 The scene body is one shared builder (`buildSceneBody`): `## You` and the ability-checks table, `### Inventory`, `## Scene` with the safety tag, `### Present` with ephemeral `[N#]` NPC handles, the Warden GM note when present, `### Story so far`, `### Exits from here`, and `## What you're attempting` (the player's input, blockquoted and fenced as in-world speech). Sharing it is what keeps the decide and resolve prose layouts from drifting apart.
 
@@ -92,12 +93,14 @@ What a stage is forbidden to do, and why the boundary is drawn there:
 
 What each parser requires, and what it does when a field is missing:
 
-| Stage | Required | Defaults when absent or invalid |
+| Stage | Required | Defaults when absent |
 | --- | --- | --- |
 | classify | `actionType` (or `action_type`) must be a member of `ACTION_CATEGORIES` — otherwise the parse throws and the call fails as `validation` | each flag coerced with `Boolean`, so a missing flag is `false` |
 | decide | nothing | `distilledType` → `''`; `stat` → `physical`; `baseDc` → 10; `required` → `false`; `decision` → `[]`; per option `label` → `''`, `dcModifier` → 0 (an explicit `null` survives as `null`), `stat` omitted so the action's applies; `sceneLocation`/`combatEnemy`/`narration` copied only when present and valid |
 | resolve-mutate | nothing | `mutations` → `[]`; `[N#]` handles resolved to `npcId`, an unknown handle becoming `0` plus a warn line |
 | resolve-narrate | nothing | `outcome_text`/`outcomeText` → `''`, and nothing rejects an empty narration |
+
+Only an absent field defaults. A present but non-numeric `baseDc` or `dcModifier` goes through `Number(...)` and gives `NaN`, which is then carried through the DC accumulation into the resolve message (`final dc: NaN`) and into `resolveRoll`. Read the column as absence only.
 
 So the never-guess rule is the **router's**, not the wire's. Only classify fails hard, and only on its routing key: a wrong `ActionType` misroutes the whole action, while a missing `stat` is a default the engine already understands. `decision: []` is a legitimate signal, not a parse failure: the machine reads it as "resolve this outright now" (later beats treat an all-`null` option set the same way), and at NEW_ACTION a combat action synthesises a first option instead of auto-resolving. If you want another field to be mandatory, this table is the thing to change: add the check to that stage's parse in `ProdPipelineGateway.ts`, and the field joins `actionType` as a `validation` failure.
 
@@ -113,12 +116,14 @@ So the never-guess rule is the **router's**, not the wire's. Only classify fails
 | `parse` | content came back but was not JSON |
 | `validation` | valid JSON the stage's own parser rejected |
 
-Two call sites catch them, and both fail **open**:
+Two call sites catch them and resolve the turn, both failing **open**:
 
 - **`PipelineActionStateMachine.start()`, beat 1.** A classify rejection resolves to the typed divine-intervention outcome (the roll was never spent). DECIDE and the first-beat auto-resolve gate on `isLlmStageFailure` and rethrow anything else. The classify catch is a bare `catch` and predates the predicate, so a non-LLM fault on that one call also resolves as divine intervention; the two later catches are gated.
 - **`WorldEngineImpl.stepActionPipeline`, beat 2+.** A failure past the first beat cannot re-serve the decision (the roll is spent), so a gated `isLlmStageFailure` resolves as `timed_out` with the stamina cost and roll refund of a timeout. Anything else rethrows.
 
-The type exists because a bare `catch` at either site would dress a DB error, a bad mutation or a plain programming mistake in the in-voice "the world stutters" card, hiding it from every log and every QA run. Discriminating on the error's type keeps the fail-open surface exactly as wide as the LLM boundary. `isLlmStageFailure` also accepts an `AbortError` (by name or abort wording in the message) as belt-and-braces for a non-pipeline LLM path that forgets to wrap.
+Two further catches are the fail-open surface's loose edge. The bounded re-decides in `PipelineActionStateMachine.critiqueDecide` and `validateSingleOption` are bare `catch`es: each prints one `console.warn` and keeps the previous decision. The turn carries on with the original single option, or the critic-rejected one, and never reaches `stepActionPipeline`'s `isLlmStageFailure` branch, so there is no `timed_out`, no roll refund and no stamina cost. A stage fault on those two paths leaves no trace but the warn.
+
+The type exists because a bare `catch` at either resolving site would dress a DB error, a bad mutation or a plain programming mistake in the in-voice "the world stutters" card, hiding it from every log and every QA run. Discriminating on the error's type keeps the fail-open surface exactly as wide as the LLM boundary. `isLlmStageFailure` also accepts an `AbortError` (by name or abort wording in the message) as belt-and-braces for a non-pipeline LLM path that forgets to wrap.
 
 Mind the two vocabularies when chasing one failure: the error's `stage` is the gateway method (`resolveMutate`, `resolveNarrate`), while `call_kind` and `PipelineStage` are kebab (`resolve-mutate`, `resolve-narrate`). Logs grep one, rows the other.
 
@@ -133,7 +138,7 @@ Mind the two vocabularies when chasing one failure: the error's `stage` is the g
 | resolve-mutate | `<version>/resolve/<actionType>/<verdict>` | `pipeline-resolve-mutate` |
 | resolve-narrate | the same resolve stamp | `pipeline-resolve-narrate` |
 
-Two observations fall out of that table. The two resolve stages share **one** template: the D5b split is at stage level (two calls with FINALIZE between them), not at prompt level, and giving them different prose would be a `PromptSet` shape change rather than something to route around here. And `decide` and the resolve stages have no default template, so the stamp functions throw rather than guess a category when called without an `actionType`.
+Two observations fall out of that table. The two resolve stages share **one** template: the D5b split is at stage level (two calls with FINALIZE between them), not at prompt level, and giving them different prose would be a `PromptSet` shape change rather than something to route around here. And `decide` and the resolve stages have no default template, so the stamp functions throw rather than guess a category when called without an `actionType` and, for the resolve stages, without a `verdict` (that throw names both).
 
 One row per attempt, written in a `finally`, so a failed stage still leaves its row (`error` set, `parse_ok` as § 3 describes). `tier` is always 0: this gateway has no internal retry and is not wrapped by `FallbackLlmGateway`, whose single-method shape structurally cannot wrap four stages. Resilience lives in the machine's fail-open surface instead. A beat can carry more than one `pipeline-decide` row, because a critic-driven or validator-driven re-decide goes through the same `decide` method; critic rows are `call_kind: critic`, not pipeline stages.
 
@@ -151,4 +156,4 @@ One deliberate asymmetry: a script bug throws. The legacy `ScriptedLlmGateway` m
 
 ---
 
-_Where the four citing docs shorten to a link: `[[action-engine-framework]]` for the spine, `[[resolve-difficulty-signal]]` for RESOLVE's difficulty field, `[[agent-player-personas]]` for the audit queries. The prompt prose itself lives in `assets/prompts/decision-prompts/<PROMPT_SET_VERSION>/` and is versioned there, never here._
+_Where the four citing docs shorten to a link: `[[action-engine-framework]]` for the spine, `[[resolve-difficulty-signal]]` for RESOLVE's difficulty field, `[[agent-player-personas]]` for the audit queries, `[[threat-encounter-system]]` for its slice of `types.ts`. The prompt prose itself lives in `assets/prompts/decision-prompts/<PROMPT_SET_VERSION>/` and is versioned there, never here._
