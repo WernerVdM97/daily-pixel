@@ -14,7 +14,7 @@ The factory writes to GitHub and spends tokens, so it is **off unless something 
 
 ## What a tick is
 
-`factory-run-due.timer` (system unit, `/etc/systemd/system/`) fires `factory-run-due.service` every 5 min plus up to 30s jitter. The service runs `/usr/local/bin/factory-run-due`, a copy of `scripts/factory-run-due.sh`, which does three things in order: fire due schedules (one `pi` child each), drain one job stage, then housekeeping (fetch, fast-forward `dev`, prune merged branches). A tick with nothing due still drains and housekeeps — the drain is what advances a job, so "nothing due" is not "nothing happened".
+`factory-run-due.timer` (system unit, `/etc/systemd/system/`) fires `factory-run-due.service` every 5 min plus up to 30s jitter. The service runs `/usr/local/bin/factory-run-due`, a copy of `scripts/factory-run-due.sh`, which does three things in order: fire due schedules (one `pi` child each), drain one job stage, then housekeeping (fetch, fast-forward `dev`, remove merged worktrees, prune merged branches). A tick with nothing due still drains and housekeeps — the drain is what advances a job, so "nothing due" is not "nothing happened".
 
 Ticks are skippable for three reasons besides the switch, and the journal line names which: below `FACTORY_MIN_AVAIL_MB` (default 1000), another launcher holding `/tmp/factory-run-due.lock`, or nothing due. Check the log line before blaming the switch.
 

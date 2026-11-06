@@ -42,6 +42,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -2586,10 +2587,13 @@ export function staleReport(ctx: Ctx): string {
 // ── Housekeeping: a fresh base, no stale branches ─────────────────────────
 
 export interface BranchesReport {
+  /** The branch, or `"(detached)"` for a worktree with no branch: a tree and its ref can both appear. */
   branch: string;
   /** The tip it was deleted (or kept) at, so the operation can be audited or undone. */
   commit: string;
   reason: string;
+  /** Set when the entry is about the worktree holding that commit, not the branch ref itself. */
+  worktree?: string;
 }
 
 export interface HousekeepingOutcome {
@@ -2602,16 +2606,13 @@ export interface HousekeepingOutcome {
 }
 
 /**
- * The one command that tidies the checkout instead of advancing a job. Three things: fetch,
+ * The one command that tidies the checkout instead of advancing a job. Four things: fetch,
  * so nothing forks from a stale base; fast-forward the local `dev` ref when that is provably
- * safe; delete local branches whose work is already in `dev`.
+ * safe; remove a worktree whose work is provably merged; delete local branches whose work is
+ * already in `dev`.
  *
- * It never deletes on ancestry alone. This repo squash-merges, so a merged branch is not an
- * ancestor of dev — `git branch -d` refuses it, and a naive `-D` would delete real work. The
- * predicate is the branch's own **merged PR**, or full containment in `origin/dev`. The
- * exclusions are the current branch, `dev`/`main`/`master`, anything checked out in a
- * worktree, and any branch a live job record names. Nothing remote is touched: deleting the
- * remote branch is the owner's affordance on the PR page, and `git fetch` cannot undo it.
+ * Both deletes are decided by `mergeEvidence`. Exclusions: the current branch, `dev`/`main`/`master`,
+ * worktrees this pass declines, live jobs, and everything on `origin`.
  *
  * Failures here are reported, never thrown: this runs beside the drain, and hygiene must not
  * fail a tick that advanced a job.
@@ -2791,13 +2792,17 @@ function pruneMergedBranches(ctx: Ctx, outcome: HousekeepingOutcome): void {
     if (name) locals.push(name);
   }
   const head = currentBranch(ctx);
-  const checkedOut = new Set(
-    git(ctx, ["worktree", "list", "--porcelain"])
-      .stdout.split("\n")
-      .filter((line) => line.startsWith("branch refs/heads/"))
-      .map((line) => line.replace("branch refs/heads/", "").trim()),
-  );
-  const liveJobBranches = new Set(loadJobs(ctx.jobsDir).map((job) => job.branch));
+  const jobs = loadJobs(ctx.jobsDir);
+  const liveJobBranches = new Set(jobs.map((job) => job.branch));
+  // Worktrees first: a branch left checked out elsewhere is exactly what wedges `start`, and
+  // removing the tree in this pass is what frees its branch to be deleted in the same one.
+  const checkedOut = pruneWorktrees(ctx, outcome, {
+    repo,
+    index,
+    head,
+    live: liveJobBranches,
+    liveWorktrees: new Set(jobs.map((job) => realPath(job.worktree))),
+  });
 
   for (const branch of locals) {
     const keep = (commit: string, reason: string): void => {
@@ -2815,30 +2820,141 @@ function pruneMergedBranches(ctx: Ctx, outcome: HousekeepingOutcome): void {
       continue;
     }
 
-    // Safe on its own: every commit on the branch is already in the tracked ref.
-    if (git(ctx, ["merge-base", "--is-ancestor", branch, UPSTREAM_REF]).code === 0) {
-      removeBranch(ctx, outcome, branch, tip, "-d", `contained in ${UPSTREAM_REF}`);
+    const evidence = mergeEvidence(ctx, repo, index, branch, tip);
+    if (!evidence.merged) {
+      keep(tip, evidence.reason);
       continue;
     }
-
-    // Otherwise its work can only have landed as a squash, and that is proven by a merged PR
-    // whose head was *exactly this tip*. A branch name is not proof: `feat/<item>-<slug>` is
-    // deterministic, so a redone item recreates a name an older merged PR already owns, and
-    // a branch that advanced after its own merge carries commits no PR ever saw.
-    const prs = index.byHead.get(branch) ?? (index.complete ? [] : mergedPrsForHead(ctx, repo, branch));
-    const merged = prs.find((pr) => pr.headOid === tip);
-    if (!merged) {
-      const other = prs[0];
-      keep(
-        tip,
-        other
-          ? `its tip differs from merged PR #${other.number}'s head ${other.headOid.slice(0, 7)}`
-          : "not merged",
-      );
-      continue;
-    }
-    removeBranch(ctx, outcome, branch, tip, "-D", `PR #${merged.number} merged at this exact commit`);
+    removeBranch(ctx, outcome, branch, tip, evidence.ancestor ? "-d" : "-D", evidence.reason);
   }
+}
+
+interface WorktreeRef {
+  path: string;
+  /** null when the worktree's HEAD is detached. */
+  branch: string | null;
+  head: string;
+}
+
+/** `git worktree list --porcelain` as records, detached heads included. */
+function listWorktrees(ctx: Ctx): WorktreeRef[] {
+  const trees: WorktreeRef[] = [];
+  let tree: WorktreeRef | null = null;
+  for (const raw of git(ctx, ["worktree", "list", "--porcelain"]).stdout.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("worktree ")) {
+      if (tree) trees.push(tree);
+      tree = { path: line.slice("worktree ".length), branch: null, head: "" };
+    } else if (!line) {
+      if (tree) trees.push(tree);
+      tree = null;
+    } else if (tree && line.startsWith("HEAD ")) {
+      tree.head = line.slice("HEAD ".length);
+    } else if (tree && line.startsWith("branch refs/heads/")) {
+      tree.branch = line.slice("branch refs/heads/".length);
+    }
+  }
+  if (tree) trees.push(tree);
+  return trees;
+}
+
+/**
+ * Remove the worktrees whose work is provably in the tracked ref, and return the branches the ones
+ * it declines still hold: a branch a worktree holds is what wedges `git worktree add`.
+ */
+function pruneWorktrees(
+  ctx: Ctx,
+  outcome: HousekeepingOutcome,
+  seen: { repo: string; index: MergedPrIndex; head: string; live: Set<string>; liveWorktrees: Set<string> },
+): Set<string> {
+  const held = new Set<string>();
+  for (const tree of listWorktrees(ctx)) {
+    if (realPath(tree.path) === realPath(ctx.root)) continue; // the checkout running the pass
+    const branch = tree.branch;
+    const keep = (reason: string): void => {
+      if (branch) held.add(branch);
+      outcome.kept.push({ branch: branch ?? "(detached)", commit: tree.head, worktree: tree.path, reason });
+    };
+    if (branch && (PROTECTED_BRANCHES.has(branch) || branch === seen.head)) {
+      keep(PROTECTED_BRANCHES.has(branch) ? "protected" : "checked out here");
+      continue;
+    }
+    if ((branch && seen.live.has(branch)) || seen.liveWorktrees.has(realPath(tree.path))) {
+      keep("a live job owns it");
+      continue;
+    }
+    if (porcelain(ctx, tree.path)) {
+      keep("uncommitted changes in its worktree");
+      continue;
+    }
+    const tip = branch
+      ? git(ctx, ["rev-parse", "--verify", `${branch}^{commit}`]).stdout.trim() || tree.head
+      : tree.head;
+    const evidence = branch ? mergeEvidence(ctx, seen.repo, seen.index, branch, tip) : detachedEvidence(ctx, tip);
+    if (!evidence.merged) {
+      keep(evidence.reason);
+      continue;
+    }
+    const report = { branch: branch ?? "(detached)", commit: tip, worktree: tree.path, reason: evidence.reason };
+    if (ctx.dryRun) {
+      ctx.deps.log(`[dry-run] git worktree remove ${tree.path} (${evidence.reason})`);
+      outcome.deleted.push(report);
+      continue;
+    }
+    const res = git(ctx, ["worktree", "remove", tree.path], ctx.root, 2 * MIN);
+    if (res.code !== 0) {
+      keep(`worktree remove failed: ${res.stderr.trim()}`);
+      continue;
+    }
+    outcome.deleted.push(report);
+    ctx.deps.log(`[factory-jobs] removed the worktree at ${tree.path} (${evidence.reason})`);
+  }
+  return held;
+}
+
+/** `git` reports worktree paths as realpaths, so a symlinked root or job record has to meet them there. */
+function realPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** A detached worktree has no branch name to check, so containment is its only claim. */
+function detachedEvidence(ctx: Ctx, tip: string): MergeEvidence {
+  if (git(ctx, ["merge-base", "--is-ancestor", tip, UPSTREAM_REF]).code === 0) {
+    return { merged: true, ancestor: false, reason: `detached and contained in ${UPSTREAM_REF}` };
+  }
+  return { merged: false, reason: `detached at ${tip.slice(0, 7)}, which is not in ${UPSTREAM_REF}` };
+}
+
+/** Whether a tip's work is provably in the tracked ref, and the proof to report with it. */
+type MergeEvidence = { merged: true; ancestor: boolean; reason: string } | { merged: false; reason: string };
+
+function mergeEvidence(
+  ctx: Ctx,
+  repo: string,
+  index: MergedPrIndex,
+  branch: string,
+  tip: string,
+): MergeEvidence {
+  // Safe on its own: every commit on the branch is already in the tracked ref.
+  if (git(ctx, ["merge-base", "--is-ancestor", branch, UPSTREAM_REF]).code === 0) {
+    return { merged: true, ancestor: true, reason: `contained in ${UPSTREAM_REF}` };
+  }
+  // Otherwise the work landed as a squash, which only a merged PR whose head is *exactly this tip*
+  // proves: the branch name is not evidence, since `feat/<item>-<slug>` is deterministic.
+  const prs = index.byHead.get(branch) ?? (index.complete ? [] : mergedPrsForHead(ctx, repo, branch));
+  const merged = prs.find((pr) => pr.headOid === tip);
+  if (merged) return { merged: true, ancestor: false, reason: `PR #${merged.number} merged at this exact commit` };
+  const other = prs[0];
+  return {
+    merged: false,
+    reason: other
+      ? `its tip differs from merged PR #${other.number}'s head ${other.headOid.slice(0, 7)}`
+      : "not merged",
+  };
 }
 
 /** Why a branch is never a pruning candidate, whatever git says about its commits. */
@@ -2905,7 +3021,7 @@ const USAGE = `Dark Factory job ledger
   tsx scripts/factory-jobs.ts show <item>    one job's record
   tsx scripts/factory-jobs.ts agent-dir      the shadow agent dir children run under, if any
   tsx scripts/factory-jobs.ts stale          orphans, and PRs open over a week
-  tsx scripts/factory-jobs.ts housekeeping   fetch, freshen local dev, prune merged branches
+  tsx scripts/factory-jobs.ts housekeeping   fetch, freshen local dev, prune merged branches and their worktrees
 
   FACTORY_DRY_RUN=1        spawn nothing, write nothing
   FACTORY_JOBS_DIR=<dir>   use a scratch ledger instead of .pi/factory/jobs`;
