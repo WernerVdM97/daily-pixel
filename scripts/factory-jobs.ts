@@ -42,6 +42,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -2586,6 +2587,7 @@ export function staleReport(ctx: Ctx): string {
 // ── Housekeeping: a fresh base, no stale branches ─────────────────────────
 
 export interface BranchesReport {
+  /** The branch, or `"(detached)"` for a worktree with no branch: a tree and its ref can both appear. */
   branch: string;
   /** The tip it was deleted (or kept) at, so the operation can be audited or undone. */
   commit: string;
@@ -2609,12 +2611,8 @@ export interface HousekeepingOutcome {
  * safe; remove a worktree whose work is provably merged; delete local branches whose work is
  * already in `dev`.
  *
- * No delete is ever decided on ancestry alone. This repo squash-merges, so a merged branch is not an
- * ancestor of dev — `git branch -d` refuses it, and a naive `-D` would delete real work. The
- * predicate is the branch's own **merged PR**, or full containment in `origin/dev`. The
- * exclusions are the current branch, `dev`/`main`/`master`, any worktree this pass declines to
- * remove, and any branch a live job record names. Nothing remote is touched: deleting the
- * remote branch is the owner's affordance on the PR page, and `git fetch` cannot undo it.
+ * Both deletes are decided by `mergeEvidence`. Exclusions: the current branch, `dev`/`main`/`master`,
+ * worktrees this pass declines, live jobs, and everything on `origin`.
  *
  * Failures here are reported, never thrown: this runs beside the drain, and hygiene must not
  * fail a tick that advanced a job.
@@ -2803,7 +2801,7 @@ function pruneMergedBranches(ctx: Ctx, outcome: HousekeepingOutcome): void {
     index,
     head,
     live: liveJobBranches,
-    liveWorktrees: new Set(jobs.map((job) => resolve(job.worktree))),
+    liveWorktrees: new Set(jobs.map((job) => realPath(job.worktree))),
   });
 
   for (const branch of locals) {
@@ -2861,12 +2859,8 @@ function listWorktrees(ctx: Ctx): WorktreeRef[] {
 }
 
 /**
- * Remove the worktrees the pruner can prove are finished with, and return the branches the ones
- * it declines still hold. `git worktree add` refuses a branch another worktree holds, and `start`
- * answers that with `stuck` for ever, so this is the half of the pruner that un-wedges the loop.
- *
- * The bar is the branch bar, on the tree: clean, and the work provably in the tracked ref — a
- * merged PR whose head was exactly this tip, or a detached HEAD contained in it.
+ * Remove the worktrees whose work is provably in the tracked ref, and return the branches the ones
+ * it declines still hold: a branch a worktree holds is what wedges `git worktree add`.
  */
 function pruneWorktrees(
   ctx: Ctx,
@@ -2875,7 +2869,7 @@ function pruneWorktrees(
 ): Set<string> {
   const held = new Set<string>();
   for (const tree of listWorktrees(ctx)) {
-    if (resolve(tree.path) === resolve(ctx.root)) continue; // the checkout running the pass
+    if (realPath(tree.path) === realPath(ctx.root)) continue; // the checkout running the pass
     const branch = tree.branch;
     const keep = (reason: string): void => {
       if (branch) held.add(branch);
@@ -2885,7 +2879,7 @@ function pruneWorktrees(
       keep(PROTECTED_BRANCHES.has(branch) ? "protected" : "checked out here");
       continue;
     }
-    if ((branch && seen.live.has(branch)) || seen.liveWorktrees.has(resolve(tree.path))) {
+    if ((branch && seen.live.has(branch)) || seen.liveWorktrees.has(realPath(tree.path))) {
       keep("a live job owns it");
       continue;
     }
@@ -2918,6 +2912,15 @@ function pruneWorktrees(
   return held;
 }
 
+/** `git` reports worktree paths as realpaths, so a symlinked root or job record has to meet them there. */
+function realPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
 /** A detached worktree has no branch name to check, so containment is its only claim. */
 function detachedEvidence(ctx: Ctx, tip: string): MergeEvidence {
   if (git(ctx, ["merge-base", "--is-ancestor", tip, UPSTREAM_REF]).code === 0) {
@@ -2940,10 +2943,8 @@ function mergeEvidence(
   if (git(ctx, ["merge-base", "--is-ancestor", branch, UPSTREAM_REF]).code === 0) {
     return { merged: true, ancestor: true, reason: `contained in ${UPSTREAM_REF}` };
   }
-  // Otherwise its work can only have landed as a squash, and that is proven by a merged PR
-  // whose head was *exactly this tip*. A branch name is not proof: `feat/<item>-<slug>` is
-  // deterministic, so a redone item recreates a name an older merged PR already owns, and
-  // a branch that advanced after its own merge carries commits no PR ever saw.
+  // Otherwise the work landed as a squash, which only a merged PR whose head is *exactly this tip*
+  // proves: the branch name is not evidence, since `feat/<item>-<slug>` is deterministic.
   const prs = index.byHead.get(branch) ?? (index.complete ? [] : mergedPrsForHead(ctx, repo, branch));
   const merged = prs.find((pr) => pr.headOid === tip);
   if (merged) return { merged: true, ancestor: false, reason: `PR #${merged.number} merged at this exact commit` };

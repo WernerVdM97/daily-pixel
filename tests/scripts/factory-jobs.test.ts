@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -2056,6 +2056,56 @@ describe('housekeeping', () => {
       worktree,
       reason: 'a live job owns it',
     });
+    expect(h.called('git', 'worktree remove')).toBe(false);
+  });
+
+  it('keeps a worktree a live job record names, matching the path git reports through a symlink', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev'];
+    const real = join(h.dir, 'real/feat-34-last-stand');
+    mkdirSync(real, { recursive: true });
+    symlinkSync(join(h.dir, 'real'), join(h.dir, 'link'));
+    // Detached, and contained: only the path the job record names can save this tree.
+    h.worktrees = [{ path: real, head: 'ddddddd' }];
+    h.contained = new Set(['ddddddd']);
+    h.write(job({ branch: 'feat/34-last-stand', worktree: join(h.dir, 'link/feat-34-last-stand') }));
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([]);
+    expect(out.kept).toContainEqual({
+      branch: '(detached)',
+      commit: 'ddddddd',
+      worktree: real,
+      reason: 'a live job owns it',
+    });
+    expect(h.called('git', 'worktree remove')).toBe(false);
+  });
+
+  it('keeps a worktree that holds a protected branch', () => {
+    const h = new Harness();
+    h.currentBranch = 'feat/34-last-stand';
+    h.branches = ['dev', 'main', 'feat/34-last-stand'];
+    h.worktrees = [{ path: join(h.dir, 'dev-hold'), branch: 'dev' }];
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([]);
+    expect(out.kept).toContainEqual({
+      branch: 'dev',
+      commit: 'aaaaaaa',
+      worktree: join(h.dir, 'dev-hold'),
+      reason: 'protected',
+    });
+    expect(h.called('git', 'worktree remove')).toBe(false);
+  });
+
+  it('never removes the checkout running the pass, even through a symlinked project dir', () => {
+    const h = new Harness();
+    symlinkSync(h.root, join(h.dir, 'repo-link'));
+    // Detached at a commit already in origin/dev, so nothing but the root path can save it.
+    h.currentBranch = '';
+    h.branches = ['dev'];
+    h.contained = new Set([h.branchSha]);
+    const out = housekeeping(h.ctx({ root: join(h.dir, 'repo-link') }));
+    expect(out.deleted).toEqual([]);
     expect(h.called('git', 'worktree remove')).toBe(false);
   });
 
