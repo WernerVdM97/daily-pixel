@@ -113,7 +113,7 @@ function printUsage(): void {
       "  --jobs-dir <dir>   factory job ledger dir (default: <repo>/.pi/factory/jobs)",
       "  --board            add board staleness: Blocked items with an unprocessed owner answer (needs gh)",
       "  --top <n>          instances listed per signal (default: 5)",
-      "  --errors [n]       list failed tool calls (tool, session, first line; default 20)",
+      "  --errors [n]       list failed tool calls (tool, loop, session, first line; default 20)",
       "  --json             machine-readable report instead of the text brief",
     ].join("\n"),
   );
@@ -244,6 +244,8 @@ function ancestorEntryIds(file: string, cache: Map<string, Set<string>>): Set<st
 interface FailedCall {
   tool: string;
   session: string;
+  /** Factory loop that made the call: backfilled once the session's agent is resolved. */
+  agent: string;
   at: number;
   firstLine: string;
   /** True when the nonzero exit was the point of the command: a probe, not friction. */
@@ -505,6 +507,7 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
         stats.failedCalls.push({
           tool: name,
           session: stats.id,
+          agent: "interactive",
           at: Number.isFinite(ts) ? ts : 0,
           firstLine: firstLineOf(parts),
           probe,
@@ -525,6 +528,9 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
   }
   stats.agent = agentOf(subagentName, firstUserText);
   stats.commitExpected = commitExpectedFor(subagentName, firstUserText);
+  // The agent resolves after the parse loop, like the header id: price each failed call on
+  // the loop that made it rather than on the session it landed in.
+  for (const call of stats.failedCalls) call.agent = stats.agent;
 
   deriveSignals(stats);
   return stats;
@@ -1300,7 +1306,7 @@ export function renderText(report: Report, top: number): string {
     lines.push(`Failed tool calls (newest ${calls.length} of ${total}; ${probes} probe exits marked and unranked)`);
     for (const [i, call] of calls.entries()) {
       const marker = call.probe ? "[probe] " : "";
-      lines.push(`  ${i + 1}. ${marker}${call.tool}  [${call.session.slice(0, 36)}]  ${call.firstLine}`);
+      lines.push(`  ${i + 1}. ${marker}${call.tool}  [${call.agent} · ${call.session.slice(0, 12)}]  ${call.firstLine}`);
     }
     lines.push("");
   }

@@ -448,6 +448,21 @@ describe('readSession', () => {
     const stats = readSession(file, new Set());
     expect(stats.failedCalls[0].session).toBe('2026-10-03T06-00-00-000Z_x');
   });
+
+  it('prices each failed call on the loop that made it', () => {
+    // `--errors` lists failed calls: without the agent the census has to be joined to the
+    // offender rows by hand to say which loop burns the failures.
+    const file = join(scratch(), 'p/child/run-0/session.jsonl');
+    mkdirSync(dirname(file), { recursive: true });
+    const rename = JSON.stringify({
+      type: 'session_info',
+      name: 'subagent-factory-muscle-memory-8c1f2b4a-5d6e-4f70-9a11-2c3d4e5f6075-1',
+    });
+    writeFileSync(file, `${transcript('01a07d8c-3df2-727b-9556-872ca909ad6b')}\n${rename}\n`);
+    const stats = readSession(file, new Set());
+    expect(stats.agent).toBe('factory-muscle-memory');
+    expect(stats.failedCalls[0].agent).toBe('factory-muscle-memory');
+  });
 });
 
 describe('runaway failure groups', () => {
