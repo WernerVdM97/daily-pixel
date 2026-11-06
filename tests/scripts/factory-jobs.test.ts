@@ -111,6 +111,8 @@ interface Call {
   args: string[];
   /** What was piped to the command, so a comment body can be asserted. */
   input?: string;
+  /** Where it ran, so a command aimed at one worktree can be told from another. */
+  cwd?: string;
 }
 
 type Handler = (cmd: string, args: string[]) => ExecResult | null;
@@ -140,7 +142,10 @@ class Harness {
   afterSpawn?: (run: StageRun) => void;
   /** Repo shape the housekeeping pass reasons about. */
   branches: string[] = [];
-  worktreeBranches: string[] = [];
+  /** Linked worktrees beside the checkout at `root`, which the pass may remove. */
+  worktrees: { path: string; branch?: string; head?: string; dirty?: boolean }[] = [];
+  /** Commits contained in the tracked ref, for worktrees whose HEAD is detached. */
+  contained = new Set<string>();
   currentBranch = 'feat/34-last-stand';
   devBehind = 0;
   /** Merged PRs as gh reports them: the head ref *and* the commit that head was at. */
@@ -184,7 +189,7 @@ class Harness {
   /** A well-behaved fake child: writes its report, then exits. */
   readonly deps = (): Deps => ({
     now: () => this.nowMs,
-    exec: ((cmd, args, opts) => this.execSync(cmd, args, opts?.input)) as Exec,
+    exec: ((cmd, args, opts) => this.execSync(cmd, args, opts?.input, opts?.cwd)) as Exec,
     live: { startTime: (pid) => this.live.startTime(pid) },
     spawnStage: async (run) => {
       this.spawns.push(run);
@@ -210,8 +215,8 @@ class Harness {
     },
   });
 
-  private execSync(cmd: string, args: string[], input?: string): ExecResult {
-    this.calls.push({ cmd, args, input });
+  private execSync(cmd: string, args: string[], input?: string, cwd?: string): ExecResult {
+    this.calls.push({ cmd, args, input, cwd });
     if (cmd === 'gh' && args.join(' ').startsWith('project item-list')) {
       if (this.boardFails) return { code: 1, stdout: '', stderr: 'HTTP 502' };
       return ok(JSON.stringify({ items: this.board.map(toRawItem) }));
@@ -220,15 +225,30 @@ class Harness {
     if (cmd === 'git' && args.join(' ') === `rev-list --count ${BASE_REF}..${UPSTREAM_REF}`) {
       return ok(`${this.devBehind}\n`);
     }
-    if (cmd === 'git' && args.join(' ') === 'status --porcelain') return ok(this.dirtyWorktree);
+    if (cmd === 'git' && args.join(' ') === 'status --porcelain') {
+      const tree = this.worktrees.find((one) => one.path === cwd);
+      return ok(tree ? (tree.dirty ? ' M file.ts\n' : '') : this.dirtyWorktree);
+    }
     if (cmd === 'git' && args[0] === 'symbolic-ref') return ok(this.currentBranch ? `${this.currentBranch}\n` : '');
     if (cmd === 'git' && args[0] === 'for-each-ref') return ok(this.branches.map((b) => `${b}\n`).join(''));
     if (cmd === 'git' && args.join(' ') === 'worktree list --porcelain') {
-      return ok(this.worktreeBranches.map((b) => `worktree /tmp/wt\nbranch refs/heads/${b}\n\n`).join(''));
+      const primary = { path: this.root, branch: this.currentBranch || undefined, head: this.branchSha };
+      return ok(
+        [primary, ...this.worktrees]
+          .map((tree) => {
+            const head = `HEAD ${tree.head ?? this.branchSha}`;
+            const ref = tree.branch ? `branch refs/heads/${tree.branch}` : 'detached';
+            return `worktree ${tree.path}\n${head}\n${ref}\n\n`;
+          })
+          .join(''),
+      );
     }
-    // A branch containment probe (`merge-base --is-ancestor <branch> origin/dev`).
+    // A branch containment probe (`merge-base --is-ancestor <branch|sha> origin/dev`).
     if (cmd === 'git' && args[0] === 'merge-base') {
-      return this.ancestors.has(args[2] ?? '') ? ok('') : { code: 1, stdout: '', stderr: 'not an ancestor' };
+      const subject = args[2] ?? '';
+      return this.ancestors.has(subject) || this.contained.has(subject)
+        ? ok('')
+        : { code: 1, stdout: '', stderr: 'not an ancestor' };
     }
     if (cmd === 'gh' && args.join(' ').startsWith('pr list') && args.includes('merged')) {
       const heads = args.indexOf('--head');
@@ -1959,7 +1979,7 @@ describe('housekeeping', () => {
     expect(h.called('git', 'branch -D')).toBe(false);
   });
 
-  it('never deletes a branch a live job owns, or one checked out elsewhere', () => {
+  it('never deletes a branch a live job owns, or one a worktree it declines still holds', () => {
     const h = new Harness();
     h.currentBranch = 'dev';
     h.branches = ['dev', 'feat/34-last-stand', 'feat/in-a-worktree'];
@@ -1967,7 +1987,7 @@ describe('housekeeping', () => {
       { branch: 'feat/34-last-stand', oid: h.branchSha, number: 1 },
       { branch: 'feat/in-a-worktree', oid: h.branchSha, number: 2 },
     ];
-    h.worktreeBranches = ['feat/in-a-worktree'];
+    h.worktrees = [{ path: '/tmp/wt/in-a-worktree', branch: 'feat/in-a-worktree', dirty: true }];
     h.write(job({ branch: 'feat/34-last-stand' }));
     const out = housekeeping(h.ctx());
     expect(out.deleted).toEqual([]);
@@ -1976,6 +1996,109 @@ describe('housekeeping', () => {
       branch: 'feat/in-a-worktree',
       commit: '',
       reason: 'checked out in a worktree',
+    });
+  });
+
+  it('removes a clean worktree, then its branch, in one pass', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'feat/34-last-stand'];
+    h.mergedPrs = [{ branch: 'feat/34-last-stand', oid: h.branchSha, number: 5 }];
+    h.worktrees = [{ path: '/tmp/wt/feat-34-last-stand', branch: 'feat/34-last-stand' }];
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toContainEqual({
+      branch: 'feat/34-last-stand',
+      commit: 'aaaaaaa',
+      worktree: '/tmp/wt/feat-34-last-stand',
+      reason: 'PR #5 merged at this exact commit',
+    });
+    expect(out.deleted).toContainEqual({
+      branch: 'feat/34-last-stand',
+      commit: 'aaaaaaa',
+      reason: 'PR #5 merged at this exact commit',
+    });
+    expect(h.called('git', 'worktree remove /tmp/wt/feat-34-last-stand')).toBe(true);
+    expect(h.called('git', 'branch -D feat/34-last-stand')).toBe(true);
+    expect(out.kept).toEqual([{ branch: 'dev', commit: '', reason: 'protected' }]);
+  });
+
+  it('keeps a worktree with uncommitted changes, and its branch with it', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'feat/dirty'];
+    h.mergedPrs = [{ branch: 'feat/dirty', oid: h.branchSha, number: 6 }];
+    h.worktrees = [{ path: '/tmp/wt/feat-dirty', branch: 'feat/dirty', dirty: true }];
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([]);
+    expect(out.kept).toContainEqual({
+      branch: 'feat/dirty',
+      commit: 'aaaaaaa',
+      worktree: '/tmp/wt/feat-dirty',
+      reason: 'uncommitted changes in its worktree',
+    });
+    expect(out.kept).toContainEqual({ branch: 'feat/dirty', commit: '', reason: 'checked out in a worktree' });
+    expect(h.called('git', 'branch -D')).toBe(false);
+  });
+
+  it('keeps a worktree a live job record names', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.branches = ['dev', 'feat/34-last-stand'];
+    h.mergedPrs = [{ branch: 'feat/34-last-stand', oid: h.branchSha, number: 7 }];
+    h.worktrees = [{ path: '/tmp/wt/feat-34-last-stand', branch: 'feat/34-last-stand' }];
+    const worktree = '/tmp/wt/feat-34-last-stand';
+    h.write(job({ branch: 'feat/34-last-stand', worktree }));
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([]);
+    expect(out.kept).toContainEqual({
+      branch: 'feat/34-last-stand',
+      commit: 'aaaaaaa',
+      worktree,
+      reason: 'a live job owns it',
+    });
+    expect(h.called('git', 'worktree remove')).toBe(false);
+  });
+
+  it('removes a detached worktree contained in origin/dev, and keeps one that is not', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.worktrees = [
+      { path: '/tmp/wt/merged-detached', head: 'ddddddd' },
+      { path: '/tmp/wt/stray-detached', head: 'eeeeeee' },
+    ];
+    h.contained = new Set(['ddddddd']);
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([
+      {
+        branch: '(detached)',
+        commit: 'ddddddd',
+        worktree: '/tmp/wt/merged-detached',
+        reason: 'detached and contained in origin/dev',
+      },
+    ]);
+    expect(out.kept).toContainEqual({
+      branch: '(detached)',
+      commit: 'eeeeeee',
+      worktree: '/tmp/wt/stray-detached',
+      reason: 'detached at eeeeeee, which is not in origin/dev',
+    });
+    expect(h.called('git', 'worktree remove /tmp/wt/merged-detached')).toBe(true);
+    expect(h.called('git', 'worktree remove /tmp/wt/stray-detached')).toBe(false);
+  });
+
+  it('reports a worktree it could not remove instead of losing it', () => {
+    const h = new Harness();
+    h.currentBranch = 'dev';
+    h.worktrees = [{ path: '/tmp/wt/locked', head: 'ddddddd' }];
+    h.contained = new Set(['ddddddd']);
+    h.when('git', ['worktree', 'remove'], { code: 1, stdout: '', stderr: "fatal: '/tmp/wt/locked' is locked" });
+    const out = housekeeping(h.ctx());
+    expect(out.deleted).toEqual([]);
+    expect(out.kept).toContainEqual({
+      branch: '(detached)',
+      commit: 'ddddddd',
+      worktree: '/tmp/wt/locked',
+      reason: "worktree remove failed: fatal: '/tmp/wt/locked' is locked",
     });
   });
 
@@ -2026,15 +2149,25 @@ describe('housekeeping', () => {
     h.devBehind = 1;
     h.branches = ['dev', 'feat/merged'];
     h.mergedPrs = [{ branch: 'feat/merged', oid: h.branchSha, number: 5 }];
+    h.worktrees = [{ path: '/tmp/wt/feat-merged', branch: 'feat/merged' }];
     const out = housekeeping(h.ctx({ dryRun: true }));
     expect(h.called('git', 'fetch')).toBe(false);
     expect(h.called('git', 'merge --ff-only')).toBe(false);
     expect(h.called('git', 'branch -D')).toBe(false);
+    expect(h.called('git', 'worktree remove')).toBe(false);
     // Reported as if it had run, so the operator can see what the tick would do.
     expect(out).toMatchObject({
       fetched: true,
       devRef: 'behind-but-unsafe',
-      deleted: [{ branch: 'feat/merged', commit: 'aaaaaaa', reason: 'PR #5 merged at this exact commit' }],
+      deleted: [
+        {
+          branch: 'feat/merged',
+          commit: 'aaaaaaa',
+          worktree: '/tmp/wt/feat-merged',
+          reason: 'PR #5 merged at this exact commit',
+        },
+        { branch: 'feat/merged', commit: 'aaaaaaa', reason: 'PR #5 merged at this exact commit' },
+      ],
     });
   });
 });
