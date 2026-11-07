@@ -371,10 +371,25 @@ function shortCommand(cmd: string): string {
   return one.length > 110 ? `${one.slice(0, 107)}...` : one;
 }
 
-/** The first line of a failed call's text, collapsed and capped: enough to name the cause. */
+const ERROR_AT_START =
+  /^(?:Command exited with code|fatal:|sed:|ls:|cat:|wc:|head:|tail:|comm:|grep:|jq:|gh:|GraphQL:|error:|Error:|TypeError|ReferenceError|SyntaxError|ValueError|KeyError|Traceback|ENOENT|EACCES|usage:|\/bin\/bash:|\/bin\/sh:|npm ERR!)/;
+const ERROR_ANYWHERE =
+  /RETRYABLE|PARTIAL APPLY|Could not find edits|Found \d+ occurrences|expected an object but got|accepts (?:\d+|at most \d+) arg|Unknown agent:|requires agent to be a non-empty string|Execution requires either|failed to parse jq expression|not in sorted order|No such file or directory|command not found/;
+const EXIT_CODE = /^Command exited with code/;
+const NOISE_LINE = /^[-=~_*#\s]+$|^\d+$/;
+
+/** A result echoes the command's own stdout before the failure, so the cause sits below the first
+ *  line; a bare exit code points at the nearest content line above it (meta/sessions 2026-11-06). */
 function firstLineOf(parts: any[]): string {
   const text = parts.find((p) => p?.type === "text" && typeof p.text === "string")?.text ?? "";
-  const line = String(text).split("\n")[0].replace(/\s+/g, " ").trim();
+  const lines = String(text)
+    .split("\n")
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const named = lines.find((l) => !EXIT_CODE.test(l) && (ERROR_AT_START.test(l) || ERROR_ANYWHERE.test(l)));
+  const exitAt = lines.findIndex((l) => EXIT_CODE.test(l));
+  const above = exitAt > 0 ? lines.slice(Math.max(0, exitAt - 8), exitAt).reverse().find((l) => !NOISE_LINE.test(l)) : undefined;
+  const line = named ?? above ?? lines[0] ?? "";
   return line.length > 160 ? `${line.slice(0, 157)}...` : line;
 }
 
