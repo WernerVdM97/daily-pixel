@@ -244,7 +244,7 @@ function ancestorEntryIds(file: string, cache: Map<string, Set<string>>): Set<st
 interface FailedCall {
   tool: string;
   session: string;
-  /** Factory loop that made the call: backfilled once the session's agent is resolved. */
+  /** Factory loop that made the call. */
   agent: string;
   at: number;
   firstLine: string;
@@ -380,6 +380,14 @@ function firstLineOf(parts: any[]): string {
   return line.length > 160 ? `${line.slice(0, 157)}...` : line;
 }
 
+/**
+ * A child run's id is its header uuid; an owner run's is an `<ISO>_<uuid>` basename, whose
+ * leading day names that hour's runs alike. 12 uuid chars, because 8 collides within a month.
+ */
+function shortSessionId(session: string): string {
+  return session.slice(session.lastIndexOf("_") + 1).slice(0, 12);
+}
+
 export function readSession(file: string, ancestorIds: Set<string>): SessionStats {
   const stats: SessionStats = {
     file,
@@ -427,6 +435,9 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
   // even when stderr lands before any echo of it in the result text.
   const callCommands = new Map<string, string>();
   let headerId = "";
+  // Collected without an agent: the loop resolves after the parse loop, so calls are
+  // stamped with it once, below.
+  const calls: Omit<FailedCall, "agent">[] = [];
 
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
@@ -504,10 +515,9 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
           parts.find((p) => p?.type === "text" && typeof p.text === "string")?.text ?? "";
         const probe = isProbeExit(name, callCommands.get(String(msg.toolCallId ?? "")) ?? "", String(resultText));
         if (probe) stats.probeTools[name] = (stats.probeTools[name] ?? 0) + 1;
-        stats.failedCalls.push({
+        calls.push({
           tool: name,
           session: stats.id,
-          agent: "interactive",
           at: Number.isFinite(ts) ? ts : 0,
           firstLine: firstLineOf(parts),
           probe,
@@ -524,13 +534,11 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
     stats.id = headerId;
     // The header id lands after the parse loop, so failed calls collected above still carry the
     // basename: `--errors` could not name the run that failed.
-    for (const call of stats.failedCalls) if (call.session === "session") call.session = headerId;
+    for (const call of calls) if (call.session === "session") call.session = headerId;
   }
   stats.agent = agentOf(subagentName, firstUserText);
   stats.commitExpected = commitExpectedFor(subagentName, firstUserText);
-  // The agent resolves after the parse loop, like the header id: price each failed call on
-  // the loop that made it rather than on the session it landed in.
-  for (const call of stats.failedCalls) call.agent = stats.agent;
+  stats.failedCalls = calls.map((call) => ({ ...call, agent: stats.agent }));
 
   deriveSignals(stats);
   return stats;
@@ -1306,7 +1314,7 @@ export function renderText(report: Report, top: number): string {
     lines.push(`Failed tool calls (newest ${calls.length} of ${total}; ${probes} probe exits marked and unranked)`);
     for (const [i, call] of calls.entries()) {
       const marker = call.probe ? "[probe] " : "";
-      lines.push(`  ${i + 1}. ${marker}${call.tool}  [${call.agent} · ${call.session.slice(0, 12)}]  ${call.firstLine}`);
+      lines.push(`  ${i + 1}. ${marker}${call.tool}  [${call.agent} · ${shortSessionId(call.session)}]  ${call.firstLine}`);
     }
     lines.push("");
   }
@@ -1396,6 +1404,11 @@ function signed(n: number): string {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
+/** `--json` is the whole report plus the sources it was computed from. */
+export function reportJson(report: Report, sources: { root: string; folders: string[]; files: number }): string {
+  return JSON.stringify({ ...report, sources }, null, 2);
+}
+
 function main(): void {
   const opts = parseArgs(process.argv.slice(2));
 
@@ -1438,7 +1451,7 @@ function main(): void {
     };
   }
   if (opts.json) {
-    console.log(JSON.stringify({ ...report, sources: { root: opts.sessionsRoot, folders, files: files.length } }, null, 2));
+    console.log(reportJson(report, { root: opts.sessionsRoot, folders, files: files.length }));
     return;
   }
   console.log(renderText(report, opts.top));
