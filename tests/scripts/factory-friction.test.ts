@@ -463,6 +463,21 @@ describe('readSession', () => {
     expect(stats.agent).toBe('factory-muscle-memory');
     expect(stats.failedCalls[0].agent).toBe('factory-muscle-memory');
   });
+
+  it('names that loop on the printed --errors row and in its --json shape', () => {
+    const file = join(scratch(), 'p/child/run-0/session.jsonl');
+    mkdirSync(dirname(file), { recursive: true });
+    const rename = JSON.stringify({
+      type: 'session_info',
+      name: 'subagent-factory-triage-e0b801ef-9f9c-43f7-8b9e-3d552a5aff24-1',
+    });
+    writeFileSync(file, `${transcript('01a1af58-f4c2-727b-9556-872ca909ad6b')}\n${rename}\n`);
+    const stats = readSession(file, new Set());
+    const report = summarise([stats], [], null);
+    report.errors = { total: 1, probes: 0, calls: stats.failedCalls };
+    expect(renderText(report, 10)).toContain('1. edit  [factory-triage · 01a1af58-f4c]');
+    expect(JSON.parse(JSON.stringify(report.errors.calls[0])).agent).toBe('factory-triage');
+  });
 });
 
 describe('runaway failure groups', () => {
