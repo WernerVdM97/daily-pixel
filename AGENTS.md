@@ -49,6 +49,7 @@ Task- and tool-specific conventions live as auto-discovered skills in [`.pi/skil
 | `agent-smoke`       | spawning live AI-player smoke runs (`npm run agent:play`) via Sonnet subagents for QA + playtest feedback                         |
 | `factory-memory`    | reading/writing the Dark Factory's topic-scoped memory under `.pi/factory/memory/` (triage, executor, sweeper, scrumo, escalator)  |
 | `factory-control`   | stopping/starting/pausing the factory: the switch sources, per-loop schedules, firing one tick or loop by hand                     |
+| `factory-pr-review` | reviewing, verifying, landing or rescuing a factory PR: the review request, a detached worktree at the head, the gates rerun there |
 | `orchestrated-delegation` | the executor's build loop: tier table pinning repo-local `delegate-*` agents behind the Dark Factory gate, worktrees off `dev` |
 
 ## Other Key files
