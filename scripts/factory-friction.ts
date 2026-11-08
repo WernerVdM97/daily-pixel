@@ -371,12 +371,15 @@ function shortCommand(cmd: string): string {
   return one.length > 110 ? `${one.slice(0, 107)}...` : one;
 }
 
+// These markers are other tools' wording (pi's own results, jq, gh, node), so a reword there
+// silently stops matching; the `firstLineOf` cases in factory-friction.test.ts pin the shapes.
 const ERROR_AT_START =
-  /^(?:Command exited with code|fatal:|sed:|ls:|cat:|wc:|head:|tail:|comm:|grep:|jq:|gh:|GraphQL:|error:|Error:|TypeError|ReferenceError|SyntaxError|ValueError|KeyError|Traceback|ENOENT|EACCES|usage:|\/bin\/bash:|\/bin\/sh:|npm ERR!)/;
+  /^(?:Command exited with code|fatal:|sed:|ls:|cat:|wc:|head:|tail:|comm:|grep:|jq:|gh:|GraphQL:|error:|Error:|TypeError|ReferenceError|SyntaxError|ValueError|KeyError|ENOENT|EACCES|usage:|\/bin\/bash:|\/bin\/sh:|npm ERR!)/;
 const ERROR_ANYWHERE =
   /RETRYABLE|PARTIAL APPLY|Could not find edits|Found \d+ occurrences|expected an object but got|accepts (?:\d+|at most \d+) arg|Unknown agent:|requires agent to be a non-empty string|Execution requires either|failed to parse jq expression|not in sorted order|No such file or directory|command not found/;
 const EXIT_CODE = /^Command exited with code/;
-const NOISE_LINE = /^[-=~_*#\s]+$|^\d+$/;
+// A dump ends in `}` or `];`, a probe in `=== section ===`: formatting, never the failure.
+const NOISE_LINE = /^[-=~_*#\s]+$|^\d+$|^[\]\}\)>,;:]+$|^[-=~_*#]{2,}.*[-=~_*#]{2,}$/;
 
 /** A result echoes the command's own stdout before the failure, so the cause sits below the first
  *  line; a bare exit code points at the nearest content line above it (meta/sessions 2026-11-06). */

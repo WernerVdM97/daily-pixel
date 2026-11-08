@@ -594,3 +594,63 @@ describe('runaway failure groups', () => {
     expect(text).toContain('1. tool-error — 46x in 1 session(s) (46 in 2 runaway groups), ');
   });
 });
+
+describe('failed-call label', () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** One failed `bash` call whose result text is `stdout` verbatim. */
+  function labelOf(stdout: string): string {
+    const file = join(mkdtempSync(join(tmpdir(), 'factory-friction-test-')), 'label/session.jsonl');
+    dirs.push(dirname(dirname(file)));
+    mkdirSync(dirname(file), { recursive: true });
+    const lines = [
+      { type: 'session', version: 3, id: '01a1313f-0000-7000-8000-00000000feed', timestamp: '2026-10-12T17:53:00Z', cwd: '/tmp' },
+      {
+        type: 'message',
+        id: 'a0',
+        timestamp: '2026-10-12T17:54:00Z',
+        message: { role: 'assistant', content: [{ type: 'toolCall', id: 'call-0', name: 'bash', arguments: { command: 'make check' } }] },
+      },
+      {
+        type: 'message',
+        id: 'r0',
+        timestamp: '2026-10-12T17:54:01Z',
+        message: { role: 'toolResult', toolName: 'bash', toolCallId: 'call-0', isError: true, content: [{ type: 'text', text: stdout }] },
+      },
+    ];
+    writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    return readSession(file, new Set()).failedCalls[0].firstLine;
+  }
+
+  it('names a cause below the command’s own stdout, not the stdout', () => {
+    expect(labelOf("108 /tmp/open-issues.tsv\ncomm: file 1 is not in sorted order\nCommand exited with code 1")).toBe(
+      'comm: file 1 is not in sorted order',
+    );
+  });
+
+  it('names a traceback’s exception, not its boilerplate header', () => {
+    expect(labelOf('Traceback (most recent call last):\n  File "<stdin>", line 4, in <module>\nKeyError: \'models\'\nCommand exited with code 1')).toBe(
+      "KeyError: 'models'",
+    );
+  });
+
+  it('steps over the closing bracket of a dump to the content above it', () => {
+    expect(labelOf('--- a/configuration.nix\n+++ b/configuration.nix\n     };\n\n\nCommand exited with code 1')).toBe('+++ b/configuration.nix');
+  });
+
+  it('steps over a section heading to the content above it', () => {
+    expect(labelOf('WantedBy=timers.target\n---SCHEDULES---\nCommand exited with code 1')).toBe('WantedBy=timers.target');
+  });
+
+  it('falls back to the content above the exit code when the transcript carries no cause at all', () => {
+    expect(labelOf('total 4\n-rw-r--r-- 1 werner werner 12 notes.md\nCommand exited with code 1')).toBe('-rw-r--r-- 1 werner werner 12 notes.md');
+  });
+
+  it('keeps the old first line when nothing contentful sits above the exit code', () => {
+    expect(labelOf('Command exited with code 1')).toBe('Command exited with code 1');
+  });
+});
