@@ -10,6 +10,7 @@ import {
   readLedger,
   readSession,
   renderText,
+  reportJson,
   RUNAWAY_GROUP_AFTER,
   SHIPPED,
   summarise,
@@ -447,6 +448,50 @@ describe('readSession', () => {
     const file = writeTranscript('p/2026-10-03T06-00-00-000Z_x.jsonl', '01a07d8c-3df2-727b-9556-872ca909ad6b');
     const stats = readSession(file, new Set());
     expect(stats.failedCalls[0].session).toBe('2026-10-03T06-00-00-000Z_x');
+  });
+
+  it('prices each failed call on the loop that made it', () => {
+    // A `session_info` rename is how a child run's loop name reaches the transcript.
+    const file = join(scratch(), 'p/child/run-0/session.jsonl');
+    mkdirSync(dirname(file), { recursive: true });
+    const rename = JSON.stringify({
+      type: 'session_info',
+      name: 'subagent-factory-muscle-memory-8c1f2b4a-5d6e-4f70-9a11-2c3d4e5f6075-1',
+    });
+    writeFileSync(file, `${transcript('01a07d8c-3df2-727b-9556-872ca909ad6b')}\n${rename}\n`);
+    const stats = readSession(file, new Set());
+    expect(stats.agent).toBe('factory-muscle-memory');
+    expect(stats.failedCalls[0].agent).toBe('factory-muscle-memory');
+  });
+
+  it('names that loop on the printed --errors row and in its --json shape', () => {
+    const file = join(scratch(), 'p/child/run-0/session.jsonl');
+    mkdirSync(dirname(file), { recursive: true });
+    const rename = JSON.stringify({
+      type: 'session_info',
+      name: 'subagent-factory-triage-e0b801ef-9f9c-43f7-8b9e-3d552a5aff24-1',
+    });
+    writeFileSync(file, `${transcript('01a1af58-f4c2-727b-9556-872ca909ad6b')}\n${rename}\n`);
+    const stats = readSession(file, new Set());
+    const report = summarise([stats], [], null);
+    report.errors = { total: 1, probes: 0, calls: stats.failedCalls };
+    expect(renderText(report, 10)).toContain('1. edit  [factory-triage · 01a1af58-f4c]');
+    const emitted = JSON.parse(reportJson(report, { root: '/sessions', folders: [], files: 1 }));
+    expect(emitted.errors.calls[0].agent).toBe('factory-triage');
+  });
+
+  it('names the run, not the day, on a row for an owner run', () => {
+    // Owner transcripts are named `<ISO>_<uuid>`, so their first 12 chars are a day bucket
+    // two runs from the same hour share.
+    const stats = [
+      '2026-11-02T16-50-00-354Z_01a19d2a-1111-7000-8000-000000000001',
+      '2026-11-02T17-40-35-465Z_01a19d59-2222-7000-8000-000000000002',
+    ].map((name) => readSession(writeTranscript(`p/${name}.jsonl`, '01a1af58-f4c2-727b-9556-872ca909ad6b'), new Set()));
+    const report = summarise(stats, [], null);
+    report.errors = { total: 2, probes: 0, calls: stats.flatMap((s) => s.failedCalls) };
+    const text = renderText(report, 10);
+    expect(text).toContain('[interactive · 01a19d2a-111]');
+    expect(text).toContain('[interactive · 01a19d59-222]');
   });
 });
 
