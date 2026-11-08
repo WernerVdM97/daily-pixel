@@ -10,6 +10,7 @@ import {
   readLedger,
   readSession,
   renderText,
+  reportJson,
   RUNAWAY_GROUP_AFTER,
   SHIPPED,
   summarise,
@@ -448,6 +449,50 @@ describe('readSession', () => {
     const stats = readSession(file, new Set());
     expect(stats.failedCalls[0].session).toBe('2026-10-03T06-00-00-000Z_x');
   });
+
+  it('prices each failed call on the loop that made it', () => {
+    // A `session_info` rename is how a child run's loop name reaches the transcript.
+    const file = join(scratch(), 'p/child/run-0/session.jsonl');
+    mkdirSync(dirname(file), { recursive: true });
+    const rename = JSON.stringify({
+      type: 'session_info',
+      name: 'subagent-factory-muscle-memory-8c1f2b4a-5d6e-4f70-9a11-2c3d4e5f6075-1',
+    });
+    writeFileSync(file, `${transcript('01a07d8c-3df2-727b-9556-872ca909ad6b')}\n${rename}\n`);
+    const stats = readSession(file, new Set());
+    expect(stats.agent).toBe('factory-muscle-memory');
+    expect(stats.failedCalls[0].agent).toBe('factory-muscle-memory');
+  });
+
+  it('names that loop on the printed --errors row and in its --json shape', () => {
+    const file = join(scratch(), 'p/child/run-0/session.jsonl');
+    mkdirSync(dirname(file), { recursive: true });
+    const rename = JSON.stringify({
+      type: 'session_info',
+      name: 'subagent-factory-triage-e0b801ef-9f9c-43f7-8b9e-3d552a5aff24-1',
+    });
+    writeFileSync(file, `${transcript('01a1af58-f4c2-727b-9556-872ca909ad6b')}\n${rename}\n`);
+    const stats = readSession(file, new Set());
+    const report = summarise([stats], [], null);
+    report.errors = { total: 1, probes: 0, calls: stats.failedCalls };
+    expect(renderText(report, 10)).toContain('1. edit  [factory-triage · 01a1af58-f4c]');
+    const emitted = JSON.parse(reportJson(report, { root: '/sessions', folders: [], files: 1 }));
+    expect(emitted.errors.calls[0].agent).toBe('factory-triage');
+  });
+
+  it('names the run, not the day, on a row for an owner run', () => {
+    // Owner transcripts are named `<ISO>_<uuid>`, so their first 12 chars are a day bucket
+    // two runs from the same hour share.
+    const stats = [
+      '2026-11-02T16-50-00-354Z_01a19d2a-1111-7000-8000-000000000001',
+      '2026-11-02T17-40-35-465Z_01a19d59-2222-7000-8000-000000000002',
+    ].map((name) => readSession(writeTranscript(`p/${name}.jsonl`, '01a1af58-f4c2-727b-9556-872ca909ad6b'), new Set()));
+    const report = summarise(stats, [], null);
+    report.errors = { total: 2, probes: 0, calls: stats.flatMap((s) => s.failedCalls) };
+    const text = renderText(report, 10);
+    expect(text).toContain('[interactive · 01a19d2a-111]');
+    expect(text).toContain('[interactive · 01a19d59-222]');
+  });
 });
 
 describe('runaway failure groups', () => {
@@ -592,5 +637,65 @@ describe('runaway failure groups', () => {
     );
     const text = renderText(summarise([stats], [], null), 10);
     expect(text).toContain('1. tool-error — 46x in 1 session(s) (46 in 2 runaway groups), ');
+  });
+});
+
+describe('failed-call label', () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** One failed `bash` call whose result text is `stdout` verbatim. */
+  function labelOf(stdout: string): string {
+    const file = join(mkdtempSync(join(tmpdir(), 'factory-friction-test-')), 'label/session.jsonl');
+    dirs.push(dirname(dirname(file)));
+    mkdirSync(dirname(file), { recursive: true });
+    const lines = [
+      { type: 'session', version: 3, id: '01a1313f-0000-7000-8000-00000000feed', timestamp: '2026-10-12T17:53:00Z', cwd: '/tmp' },
+      {
+        type: 'message',
+        id: 'a0',
+        timestamp: '2026-10-12T17:54:00Z',
+        message: { role: 'assistant', content: [{ type: 'toolCall', id: 'call-0', name: 'bash', arguments: { command: 'make check' } }] },
+      },
+      {
+        type: 'message',
+        id: 'r0',
+        timestamp: '2026-10-12T17:54:01Z',
+        message: { role: 'toolResult', toolName: 'bash', toolCallId: 'call-0', isError: true, content: [{ type: 'text', text: stdout }] },
+      },
+    ];
+    writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    return readSession(file, new Set()).failedCalls[0].firstLine;
+  }
+
+  it('names a cause below the command’s own stdout, not the stdout', () => {
+    expect(labelOf("108 /tmp/open-issues.tsv\ncomm: file 1 is not in sorted order\nCommand exited with code 1")).toBe(
+      'comm: file 1 is not in sorted order',
+    );
+  });
+
+  it('names a traceback’s exception, not its boilerplate header', () => {
+    expect(labelOf('Traceback (most recent call last):\n  File "<stdin>", line 4, in <module>\nKeyError: \'models\'\nCommand exited with code 1')).toBe(
+      "KeyError: 'models'",
+    );
+  });
+
+  it('steps over the closing bracket of a dump to the content above it', () => {
+    expect(labelOf('--- a/configuration.nix\n+++ b/configuration.nix\n     };\n\n\nCommand exited with code 1')).toBe('+++ b/configuration.nix');
+  });
+
+  it('steps over a section heading to the content above it', () => {
+    expect(labelOf('WantedBy=timers.target\n---SCHEDULES---\nCommand exited with code 1')).toBe('WantedBy=timers.target');
+  });
+
+  it('falls back to the content above the exit code when the transcript carries no cause at all', () => {
+    expect(labelOf('total 4\n-rw-r--r-- 1 werner werner 12 notes.md\nCommand exited with code 1')).toBe('-rw-r--r-- 1 werner werner 12 notes.md');
+  });
+
+  it('keeps the old first line when nothing contentful sits above the exit code', () => {
+    expect(labelOf('Command exited with code 1')).toBe('Command exited with code 1');
   });
 });

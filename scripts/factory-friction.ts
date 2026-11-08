@@ -113,7 +113,7 @@ function printUsage(): void {
       "  --jobs-dir <dir>   factory job ledger dir (default: <repo>/.pi/factory/jobs)",
       "  --board            add board staleness: Blocked items with an unprocessed owner answer (needs gh)",
       "  --top <n>          instances listed per signal (default: 5)",
-      "  --errors [n]       list failed tool calls (tool, session, first line; default 20)",
+      "  --errors [n]       list failed tool calls (tool, loop, session, first line; default 20)",
       "  --json             machine-readable report instead of the text brief",
     ].join("\n"),
   );
@@ -244,6 +244,8 @@ function ancestorEntryIds(file: string, cache: Map<string, Set<string>>): Set<st
 interface FailedCall {
   tool: string;
   session: string;
+  /** Factory loop that made the call. */
+  agent: string;
   at: number;
   firstLine: string;
   /** True when the nonzero exit was the point of the command: a probe, not friction. */
@@ -371,11 +373,37 @@ function shortCommand(cmd: string): string {
   return one.length > 110 ? `${one.slice(0, 107)}...` : one;
 }
 
-/** The first line of a failed call's text, collapsed and capped: enough to name the cause. */
+// These markers are other tools' wording (pi's own results, jq, gh, node), so a reword there
+// silently stops matching; the `firstLineOf` cases in factory-friction.test.ts pin the shapes.
+const ERROR_AT_START =
+  /^(?:Command exited with code|fatal:|sed:|ls:|cat:|wc:|head:|tail:|comm:|grep:|jq:|gh:|GraphQL:|error:|Error:|TypeError|ReferenceError|SyntaxError|ValueError|KeyError|ENOENT|EACCES|usage:|\/bin\/bash:|\/bin\/sh:|npm ERR!)/;
+const ERROR_ANYWHERE =
+  /RETRYABLE|PARTIAL APPLY|Could not find edits|Found \d+ occurrences|expected an object but got|accepts (?:\d+|at most \d+) arg|Unknown agent:|requires agent to be a non-empty string|Execution requires either|failed to parse jq expression|not in sorted order|No such file or directory|command not found/;
+const EXIT_CODE = /^Command exited with code/;
+// A dump ends in `}` or `];`, a probe in `=== section ===`: formatting, never the failure.
+const NOISE_LINE = /^[-=~_*#\s]+$|^\d+$|^[\]\}\)>,;:]+$|^[-=~_*#]{2,}.*[-=~_*#]{2,}$/;
+
+/** A result echoes the command's own stdout before the failure, so the cause sits below the first
+ *  line; a bare exit code points at the nearest content line above it (meta/sessions 2026-11-06). */
 function firstLineOf(parts: any[]): string {
   const text = parts.find((p) => p?.type === "text" && typeof p.text === "string")?.text ?? "";
-  const line = String(text).split("\n")[0].replace(/\s+/g, " ").trim();
+  const lines = String(text)
+    .split("\n")
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const named = lines.find((l) => !EXIT_CODE.test(l) && (ERROR_AT_START.test(l) || ERROR_ANYWHERE.test(l)));
+  const exitAt = lines.findIndex((l) => EXIT_CODE.test(l));
+  const above = exitAt > 0 ? lines.slice(Math.max(0, exitAt - 8), exitAt).reverse().find((l) => !NOISE_LINE.test(l)) : undefined;
+  const line = named ?? above ?? lines[0] ?? "";
   return line.length > 160 ? `${line.slice(0, 157)}...` : line;
+}
+
+/**
+ * A child run's id is its header uuid; an owner run's is an `<ISO>_<uuid>` basename, whose
+ * leading day names that hour's runs alike. 12 uuid chars, because 8 collides within a month.
+ */
+function shortSessionId(session: string): string {
+  return session.slice(session.lastIndexOf("_") + 1).slice(0, 12);
 }
 
 export function readSession(file: string, ancestorIds: Set<string>): SessionStats {
@@ -425,6 +453,9 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
   // even when stderr lands before any echo of it in the result text.
   const callCommands = new Map<string, string>();
   let headerId = "";
+  // Collected without an agent: the loop resolves after the parse loop, so calls are
+  // stamped with it once, below.
+  const calls: Omit<FailedCall, "agent">[] = [];
 
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
@@ -502,7 +533,7 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
           parts.find((p) => p?.type === "text" && typeof p.text === "string")?.text ?? "";
         const probe = isProbeExit(name, callCommands.get(String(msg.toolCallId ?? "")) ?? "", String(resultText));
         if (probe) stats.probeTools[name] = (stats.probeTools[name] ?? 0) + 1;
-        stats.failedCalls.push({
+        calls.push({
           tool: name,
           session: stats.id,
           at: Number.isFinite(ts) ? ts : 0,
@@ -521,10 +552,11 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
     stats.id = headerId;
     // The header id lands after the parse loop, so failed calls collected above still carry the
     // basename: `--errors` could not name the run that failed.
-    for (const call of stats.failedCalls) if (call.session === "session") call.session = headerId;
+    for (const call of calls) if (call.session === "session") call.session = headerId;
   }
   stats.agent = agentOf(subagentName, firstUserText);
   stats.commitExpected = commitExpectedFor(subagentName, firstUserText);
+  stats.failedCalls = calls.map((call) => ({ ...call, agent: stats.agent }));
 
   deriveSignals(stats);
   return stats;
@@ -1300,7 +1332,7 @@ export function renderText(report: Report, top: number): string {
     lines.push(`Failed tool calls (newest ${calls.length} of ${total}; ${probes} probe exits marked and unranked)`);
     for (const [i, call] of calls.entries()) {
       const marker = call.probe ? "[probe] " : "";
-      lines.push(`  ${i + 1}. ${marker}${call.tool}  [${call.session.slice(0, 36)}]  ${call.firstLine}`);
+      lines.push(`  ${i + 1}. ${marker}${call.tool}  [${call.agent} · ${shortSessionId(call.session)}]  ${call.firstLine}`);
     }
     lines.push("");
   }
@@ -1390,6 +1422,11 @@ function signed(n: number): string {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
+/** `--json` is the whole report plus the sources it was computed from. */
+export function reportJson(report: Report, sources: { root: string; folders: string[]; files: number }): string {
+  return JSON.stringify({ ...report, sources }, null, 2);
+}
+
 function main(): void {
   const opts = parseArgs(process.argv.slice(2));
 
@@ -1432,7 +1469,7 @@ function main(): void {
     };
   }
   if (opts.json) {
-    console.log(JSON.stringify({ ...report, sources: { root: opts.sessionsRoot, folders, files: files.length } }, null, 2));
+    console.log(reportJson(report, { root: opts.sessionsRoot, folders, files: files.length }));
     return;
   }
   console.log(renderText(report, opts.top));
