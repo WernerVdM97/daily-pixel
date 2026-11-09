@@ -9,6 +9,7 @@ import {
   type BlockersByItem,
   UPSTREAM_REF,
   type Claim,
+  type ConsultRecord,
   type Ctx,
   type Deps,
   type Exec,
@@ -17,6 +18,7 @@ import {
   JOB_CAP_MS,
   type Liveness,
   MAX_REVISIONS,
+  MAX_CONSULTS,
   SCHEMA_VERSION,
   STAGES,
   type StageName,
@@ -45,6 +47,7 @@ import {
   loadJobs,
   nextStage,
   parseVerdict,
+  parseArgs,
   pickCandidate,
   piAgentDir,
   prepareFactoryAgentDir,
@@ -52,6 +55,7 @@ import {
   publicBody,
   readFocusCache,
   readProjectConfig,
+  recordConsult,
   resolveFocus,
   resolveRepoRoot,
   retryPass,
@@ -1076,6 +1080,121 @@ describe('the failure policy', () => {
     writeFileSync(join(h.jobsDir, '.drain.lock'), `${JSON.stringify({ pid: 4242, pidStart: 'live' })}\n`);
     h.live = { startTime: (pid) => (pid === 4242 ? 'live' : null) };
     expect(retryPass(h.ctx(), 34).ok).toBe(false);
+  });
+});
+
+// ── Escalator consults ──────────────────────────────────────────────
+
+/** One logged consult, as the record holds it. */
+function consult(over: Partial<ConsultRecord> = {}): ConsultRecord {
+  return {
+    at: '2026-09-11T11:00:00.000Z',
+    stage: 'build',
+    agent: 'delegate-executor',
+    question: 'Which schema wins?',
+    answer: 'The new one',
+    action: 'kept both',
+    ...over,
+  };
+}
+
+describe('escalator consults', () => {
+  it('logs the consult against the job, naming the stage, the agent, the question, the answer and the action', () => {
+    const h = new Harness();
+    h.write(job({ stage: 'build' }));
+    const res = recordConsult(h.ctx(), 34, {
+      question: 'Is the spec silence deliberate?',
+      answer: 'Deliberate: the schema keeps both',
+      action: 'kept both and said so in the report',
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.remaining).toBe(MAX_CONSULTS - 1);
+    const logged = h.read(34).consults!;
+    expect(logged).toHaveLength(1);
+    // The stage and the agent come off the job rather than the caller's memory of them.
+    expect(logged[0]).toEqual({
+      at: new Date(T0).toISOString(),
+      stage: 'build',
+      agent: 'delegate-executor',
+      question: 'Is the spec silence deliberate?',
+      answer: 'Deliberate: the schema keeps both',
+      action: 'kept both and said so in the report',
+    });
+  });
+
+  it('refuses the consult past the cap, and the refusal names the cap', () => {
+    const h = new Harness();
+    h.write(job());
+    const ask = (n: number) => {
+      h.nowMs += 1000;
+      return recordConsult(h.ctx(), 34, { question: `question ${n}`, answer: 'gist', action: 'kept' });
+    };
+
+    expect(ask(1).ok).toBe(true);
+    expect(ask(2).ok).toBe(true);
+    const refused = ask(3);
+    expect(refused.ok).toBe(false);
+    expect(refused.remaining).toBe(0);
+    expect(refused.detail).toContain(`cap ${MAX_CONSULTS} per job`);
+    // Refused, not merely reported: nothing was written past the cap.
+    expect(h.read(34).consults).toHaveLength(MAX_CONSULTS);
+  });
+
+  it('refuses a consult with no job, no question, or a stage it does not know', () => {
+    const h = new Harness();
+    expect(recordConsult(h.ctx(), 34, { question: 'q', answer: 'a', action: 'kept' }).ok).toBe(false);
+
+    h.write(job());
+    expect(recordConsult(h.ctx(), 34, { answer: 'a', action: 'kept' }).detail).toContain('--question');
+    expect(recordConsult(h.ctx(), 34, { stage: 'nope', question: 'q', answer: 'a', action: 'kept' }).detail).toContain(
+      'unknown stage',
+    );
+    expect(h.read(34).consults).toBeUndefined();
+  });
+
+  it('keeps a consult logged mid-stage, so the drainer never writes its stale copy back over it', async () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'In Progress' })];
+    h.write(job({ stage: 'build' }));
+    // The stage's own child logs the consult while the drainer holds the record without it.
+    h.afterSpawn = () => {
+      expect(recordConsult(h.ctx(), 34, { question: 'q', answer: 'a', action: 'kept' }).ok).toBe(true);
+    };
+
+    expect(await drainOnce(h.ctx())).toMatchObject({ action: 'ran', detail: 'build ok' });
+    expect(h.read(34).consults).toHaveLength(1);
+  });
+
+  it('tells the stage how much of the consult budget is left, and how to log one', () => {
+    const h = new Harness();
+    const fresh = stageTask(h.ctx(), job({ stage: 'build' }), 'build', '/tmp/artifacts/34/build.md');
+    expect(fresh).toContain(`Escalator consults left for this job: ${MAX_CONSULTS} of ${MAX_CONSULTS}`);
+    expect(fresh).toContain('factory-jobs.ts consult 34 --question');
+    expect(fresh).toContain('the ledger refuses one past the cap');
+
+    const spent = job({ stage: 'review', consults: [consult(), consult({ at: '2026-09-11T11:05:00.000Z' })] });
+    const review = stageTask(h.ctx(), spent, 'review', '/tmp/artifacts/34/review.md');
+    expect(review).toContain(`Escalator consults left for this job: 0 of ${MAX_CONSULTS}`);
+  });
+
+  it('returns the consults with the attempts on retry, and the reset message says so', () => {
+    const h = new Harness();
+    h.board = [item({ number: 34, status: 'Blocked' })];
+    h.write(job({ stage: 'fix', stageState: 'blocked', attempts: { build: 2 }, consults: [consult()] }));
+
+    const res = retryPass(h.ctx(), 34);
+    expect(res.ok).toBe(true);
+    expect(h.read(34).consults).toEqual([]);
+    expect(res.detail).toContain('escalator consults');
+    expect(commentBody(h, 34)).toContain('escalator consults reset');
+  });
+
+  it('reads the item and the flags apart, so a numeric flag value is never the item', () => {
+    const opts = parseArgs(['consult', '34', '--question', 'why 2 schemas?', '--answer', 'one', '--action', 'kept']);
+    expect(opts).toMatchObject({ command: 'consult', item: 34 });
+    expect(opts.flags).toEqual({ question: 'why 2 schemas?', answer: 'one', action: 'kept' });
+    expect(parseArgs(['consult', '--question', '2', '--answer', 'a', '--action', 'b']).item).toBeUndefined();
   });
 });
 

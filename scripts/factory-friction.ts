@@ -17,8 +17,9 @@
 //   - failed bash calls that read as deliberate nonzero-exit probes (grep/diff/test used as
 //     boolean checks) are tallied separately and excluded from the tool-error ranking;
 //   - the job ledger under `.pi/factory/jobs/` is summarised into executor outcome metrics
-//     (first-try stage pass rate, retries, budget burn) — transcripts say how a run felt,
-//     the ledger says whether it delivered;
+//     (first-try stage pass rate, retries, budget burn) and the escalator consults each job
+//     logged, with the stage that needed one — transcripts say how a run felt, the ledger
+//     says whether it delivered and where it needed a second brain;
 //   - `--board` adds the triage outcome proxy: Blocked board items whose latest comment is
 //     the owner's, i.e. an answer sitting unprocessed while triage passes over it.
 //
@@ -37,7 +38,7 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 // The ledger's own budget, imported rather than mirrored: a copy drifts the first time a
 // stage budget moves, and the drainer clamps every stage to what remains of this one.
-import { JOB_CAP_MS } from "./factory-jobs.js";
+import { JOB_CAP_MS, MAX_CONSULTS } from "./factory-jobs.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -863,7 +864,18 @@ interface LedgerJobRow {
   spentMs: number;
   budgetMs: number;
   burnPct: number;
+  /** Escalator consults this job logged in the window: which stage needed the answer, and why. */
+  consults: ConsultRow[];
   updatedAt: string;
+}
+
+interface ConsultRow {
+  at: string;
+  stage: string;
+  agent: string;
+  question: string;
+  answer: string;
+  action: string;
 }
 
 interface LedgerReport {
@@ -871,6 +883,8 @@ interface LedgerReport {
   stages: number;
   firstTryOk: number;
   retries: number;
+  consults: number;
+  consultsByStage: { stage: string; count: number }[];
   spentMs: number;
   budgetMs: number;
   notes: string[];
@@ -895,7 +909,9 @@ const LEDGER_MARKERS = new Set(["skipped", "retried"]);
  * transcripts say how a run felt; the ledger says whether it delivered. A stage's first
  * history row decides first-try ok (the drainer blocks on a stage's second failure, so
  * retries beyond that are ledger bugs, not model behaviour); budget burn compares spent
- * wall-clock against `JOB_CAP_MS`, the ceiling the drainer clamps every stage to.
+ * wall-clock against `JOB_CAP_MS`, the ceiling the drainer clamps every stage to. Each
+ * escalator consult the job logged is kept beside it, because which stage needed a stronger
+ * second brain, and whether it helped, is how the tier gets priced.
  */
 export function readLedger(jobsDir: string, sinceMs: number, now = Date.now()): LedgerReport | null {
   if (!existsSync(jobsDir)) return null;
@@ -951,6 +967,19 @@ export function readLedger(jobsDir: string, sinceMs: number, now = Date.now()): 
       spentMs,
       budgetMs,
       burnPct: budgetMs ? round((spentMs / budgetMs) * 100, 1) : 0,
+      consults: (Array.isArray(job.consults) ? (job.consults as any[]) : [])
+        .map((c) => ({
+          at: String(c?.at ?? ""),
+          stage: String(c?.stage ?? "?"),
+          agent: String(c?.agent ?? ""),
+          question: String(c?.question ?? ""),
+          answer: String(c?.answer ?? ""),
+          action: String(c?.action ?? ""),
+        }))
+        .filter((c) => {
+          const at = Date.parse(c.at);
+          return Number.isFinite(at) && at >= cutoff;
+        }),
       updatedAt: String(job.updatedAt ?? ""),
     });
   }
@@ -958,11 +987,16 @@ export function readLedger(jobsDir: string, sinceMs: number, now = Date.now()): 
   if (!jobs.length) notes.push("No jobs touched the window: the executor has not run in-window.");
   jobs.sort((a, b) => a.item - b.item);
   const stagesTotal = jobs.reduce((a, j) => a + j.stages.length, 0);
+  const consultsByStage = tally(jobs.flatMap((j) => j.consults.map((c) => c.stage)));
   return {
     jobs,
     stages: stagesTotal,
     firstTryOk: jobs.reduce((a, j) => a + j.stages.filter((s) => s.firstTryOk).length, 0),
     retries: jobs.reduce((a, j) => a + j.retries, 0),
+    consults: jobs.reduce((a, j) => a + j.consults.length, 0),
+    consultsByStage: [...consultsByStage.entries()]
+      .map(([stage, count]) => ({ stage, count }))
+      .sort((a, b) => b.count - a.count || a.stage.localeCompare(b.stage)),
     spentMs: jobs.reduce((a, j) => a + j.spentMs, 0),
     // One budget per job: summing only the spend would price five jobs against one job's cap.
     budgetMs: jobs.reduce((a, j) => a + j.budgetMs, 0),
@@ -1348,12 +1382,19 @@ export function renderText(report: Report, top: number): string {
         `  stages: ${l.stages}, first-try ok ${l.firstTryOk} (${pct}%), retries ${l.retries}, ` +
           `budget burn ${(l.budgetMs ? round((l.spentMs / l.budgetMs) * 100, 1) : 0)}%`,
       );
+      lines.push(
+        `  escalator consults: ${l.consults} of ${l.jobs.length * MAX_CONSULTS} (cap ${MAX_CONSULTS}/job)` +
+          (l.consultsByStage.length ? ` — ${l.consultsByStage.map((s) => `${s.stage} ${s.count}`).join(", ")}` : ""),
+      );
       for (const j of l.jobs) {
         const pr = j.pr ? `, PR #${j.pr}` : "";
         lines.push(
           `  #${j.item} ${j.title.slice(0, 48)} — ${j.stages.length} stage(s), ${j.retries} retry(s), ` +
             `${(j.spentMs / 60_000).toFixed(1)}m of ${(j.budgetMs / 60_000).toFixed(0)}m (${j.burnPct}%)${pr}, ${j.done ? "done" : "not done"}`,
         );
+        for (const c of j.consults) {
+          lines.push(`      consult at ${c.stage} (${c.agent}): ${c.question.split("\n")[0]!.slice(0, 100)}`);
+        }
       }
     }
     for (const note of l.notes) lines.push(`  NOTE: ${note}`);
