@@ -17,12 +17,14 @@
 //   drain            the tick's one action: retire a settled block, reap an orphan, block a
 //                    spent job, run a stage
 //   retry <item>     the owner's unblock, and the only path that refreshes the budget
+//   consult <item>   a stage's escalator consult, logged and capped per job
 //   list|show|stale  read-only, for humans
 //
 // Usage:
 //   npx tsx scripts/factory-jobs.ts start
 //   npx tsx scripts/factory-jobs.ts drain
 //   npx tsx scripts/factory-jobs.ts retry 34
+//   npx tsx scripts/factory-jobs.ts consult 34 --question '…' --answer '…' --action '…'
 //   npx tsx scripts/factory-jobs.ts list | show 34 | stale
 //
 //   FACTORY_DRY_RUN=1        decide and log, spawn nothing, write nothing to the board
@@ -90,6 +92,11 @@ const STAGE_ORDER: StageName[] = ["build", "review", "fix", "deliver", "reconcil
 export const JOB_CAP_MS = 100 * MIN;
 /** A third attempt at one stage is blocked rather than run: two failures is a pattern. */
 export const MAX_ATTEMPTS = 2;
+/**
+ * Escalator consults one job may spend, and the reason the cap is per job rather than per stage:
+ * `attempts` is per stage, so a per-stage budget would hand a five-stage job ten consults.
+ */
+export const MAX_CONSULTS = 2;
 /** Consecutive change-request cycles before the branch goes back to the owner. */
 export const MAX_REVISIONS = 3;
 /** A PR open this long is "waiting" that wants a human's attention. `stale` prints it. */
@@ -144,6 +151,19 @@ export interface Claim {
   pidStart: string | null;
 }
 
+/** One escalator consult, written by the caller that made it and capped at `MAX_CONSULTS` a job. */
+export interface ConsultRecord {
+  at: string;
+  stage: StageName;
+  /** The calling agent: the stage's own definition unless the caller names itself. */
+  agent: string;
+  question: string;
+  /** The answer's gist in the caller's words. */
+  answer: string;
+  /** What the caller did with the answer. */
+  action: string;
+}
+
 export interface JobRecord {
   schemaVersion: number;
   item: number;
@@ -157,6 +177,11 @@ export interface JobRecord {
   stageState: StageState;
   /** Failed attempts per stage. A running attempt is not counted until it fails. */
   attempts: Partial<Record<StageName, number>>;
+  /**
+   * Every consult this job has spent, oldest first. The log is the counter: one list, so a
+   * count and its records cannot disagree.
+   */
+  consults?: ConsultRecord[];
   spentMs: number;
   claim: Claim | null;
   /** When the running attempt started, so a reap or a crash charges the right slice. */
@@ -189,6 +214,11 @@ export function nextStage(stage: StageName): StageName | null {
 
 export function remainingMs(job: JobRecord): number {
   return Math.max(0, JOB_CAP_MS - job.spentMs);
+}
+
+/** What the job has left of its consult budget, surfaced to the stage's own prompt. */
+export function remainingConsults(job: Pick<JobRecord, "consults">): number {
+  return Math.max(0, MAX_CONSULTS - (job.consults?.length ?? 0));
 }
 
 /**
@@ -1203,8 +1233,9 @@ export function loadJobs(jobsDir: string): JobRecord[] {
 }
 
 /** Temp file plus rename, so a killed drainer never leaves half a record behind. */
-export function saveJob(ctx: Ctx, job: JobRecord): void {
+export function saveJob(ctx: Ctx, job: JobRecord, opts: { replaceConsults?: boolean } = {}): void {
   job.updatedAt = new Date(ctx.deps.now()).toISOString();
+  if (!opts.replaceConsults) mergeConsultLog(ctx.jobsDir, job);
   if (ctx.dryRun) return void ctx.deps.log(`[dry-run] record #${job.item}: ${job.stage}/${job.stageState}`);
   mkdirSync(ctx.jobsDir, { recursive: true });
   const path = jobPath(ctx.jobsDir, job.item);
@@ -1213,7 +1244,29 @@ export function saveJob(ctx: Ctx, job: JobRecord): void {
   renameSync(tmp, path);
 }
 
+/**
+ * The drainer writes its copy back after the stage returns, so a save merges the log the stage's
+ * child wrote rather than overwriting it; `retry` opts out, because that write means "empty".
+ */
+function mergeConsultLog(jobsDir: string, job: JobRecord): void {
+  const onDisk = readConsults(jobsDir, job.item);
+  if (!onDisk.length) return;
+  const byAt = new Map<string, ConsultRecord>();
+  for (const record of [...onDisk, ...(job.consults ?? [])]) byAt.set(record.at, record);
+  job.consults = [...byAt.values()].sort((a, b) => a.at.localeCompare(b.at));
+}
+
+function readConsults(jobsDir: string, item: number): ConsultRecord[] {
+  try {
+    const job = JSON.parse(readFileSync(jobPath(jobsDir, item), "utf8")) as JobRecord;
+    return Array.isArray(job.consults) ? job.consults : [];
+  } catch {
+    return [];
+  }
+}
+
 export function archiveJob(ctx: Ctx, job: JobRecord): void {
+  mergeConsultLog(ctx.jobsDir, job);
   if (ctx.dryRun) return void ctx.deps.log(`[dry-run] archive #${job.item}`);
   const dir = resolve(ctx.jobsDir, "archive");
   mkdirSync(dir, { recursive: true });
@@ -1359,6 +1412,11 @@ export function stageTask(ctx: Ctx, job: JobRecord, stage: StageName, artifact: 
     `- Worktree (your cwd): ${job.worktree}`,
     `- Branch: ${job.branch} (base \`${job.baseRef}\`)`,
     `- Your report file: ${artifact}`,
+    `- Escalator consults left for this job: ${remainingConsults(job)} of ${MAX_CONSULTS}.`,
+    // The canonical checkout's script, not the worktree's: this stage may be mid-way through
+    // changing its own copy, and the ledger is the same file either way.
+    `  Log one after the escalator answers, with \`npx tsx ${resolve(ctx.root, "scripts/factory-jobs.ts")} consult ${job.item} --question "…" --answer "<the gist>" --action "<what you did with it>"\`:` +
+      ` the ledger refuses one past the cap, and with none left you proceed on your own judgement and say so in your report.`,
     "",
   ];
   if (stage === "build") {
@@ -1480,7 +1538,7 @@ function blockBody(job: JobRecord, reason: string): string {
     `- spent: ${Math.round(job.spentMs / MIN)} of ${Math.round(JOB_CAP_MS / MIN)} minutes`,
     `- attempts: ${JSON.stringify(job.attempts)}`,
     "",
-    `Unblock with \`npx tsx scripts/factory-jobs.ts retry ${job.item}\`, which refreshes the budget and clears the attempts.`,
+    `Unblock with \`npx tsx scripts/factory-jobs.ts retry ${job.item}\`, which refreshes the budget, clears the attempts and returns the escalator consults.`,
   ].join("\n");
 }
 
@@ -2506,6 +2564,81 @@ function newJob(
   return job;
 }
 
+// ── Escalator consults ────────────────────────────────────────────────────
+
+export interface ConsultInput {
+  /** Defaults to the job's own stage, which is the stage whose child is asking. */
+  stage?: string;
+  /** Defaults to that stage's agent definition. */
+  agent?: string;
+  question?: string;
+  answer?: string;
+  action?: string;
+}
+
+export interface ConsultOutcome {
+  ok: boolean;
+  detail: string;
+  /** What is left after the call: 0 once it is spent, or when the cap refused this one. */
+  remaining: number;
+}
+
+/** Logs one escalator consult against a job, or refuses it. No drain lock: the drainer holds it for the whole stage. */
+export function recordConsult(ctx: Ctx, item: number, input: ConsultInput): ConsultOutcome {
+  const path = jobPath(ctx.jobsDir, item);
+  if (!existsSync(path)) {
+    return { ok: false, remaining: 0, detail: `no job record for #${item}: a consult is logged against a job or not at all` };
+  }
+  let job: JobRecord;
+  try {
+    job = JSON.parse(readFileSync(path, "utf8")) as JobRecord;
+  } catch (err) {
+    return { ok: false, remaining: 0, detail: `#${item}'s record is unreadable: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  const spent = job.consults?.length ?? 0;
+  if (spent >= MAX_CONSULTS) {
+    return {
+      ok: false,
+      remaining: 0,
+      detail:
+        `refused: #${item} has spent its ${MAX_CONSULTS} escalator consults (cap ${MAX_CONSULTS} per job). ` +
+        `Proceed on your own judgement and say so in your report.`,
+    };
+  }
+  const stage = (input.stage?.trim() || job.stage) as StageName;
+  if (!Object.hasOwn(STAGES, stage)) {
+    return { ok: false, remaining: MAX_CONSULTS - spent, detail: `unknown stage \`${stage}\`; it is not one of ${Object.keys(STAGES).join(", ")}` };
+  }
+  const missing = (["question", "answer", "action"] as const).filter((field) => !(input[field] ?? "").trim());
+  if (missing.length) {
+    return { ok: false, remaining: MAX_CONSULTS - spent, detail: `a consult record needs ${missing.map((f) => `--${f}`).join(", ")}` };
+  }
+  const record: ConsultRecord = {
+    at: new Date(ctx.deps.now()).toISOString(),
+    stage,
+    agent: input.agent?.trim() || STAGES[stage].agent || "unknown",
+    question: input.question!.trim(),
+    answer: input.answer!.trim(),
+    action: input.action!.trim(),
+  };
+  const consults = [...(job.consults ?? []), record];
+  const logged: JobRecord = { ...job, consults, updatedAt: record.at };
+  if (!ctx.dryRun) {
+    // Pid-suffixed: `saveJob` may be renaming its own copy of this record in the same second.
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(logged, null, 2)}\n`);
+    renameSync(tmp, path);
+  }
+  const remaining = remainingConsults(logged);
+  return {
+    ok: true,
+    remaining,
+    detail: ctx.dryRun
+      ? `[dry-run] would log #${item}'s escalator consult ${consults.length} of ${MAX_CONSULTS} at ${stage} (${record.agent}); ${remaining} left`
+      : `#${item}: escalator consult ${consults.length} of ${MAX_CONSULTS} logged at ${stage} (${record.agent}); ${remaining} left`,
+  };
+}
+
 // ── retry, and the read-only commands ─────────────────────────────────────
 
 export function retryPass(ctx: Ctx, item: number): { ok: boolean; detail: string } {
@@ -2515,12 +2648,19 @@ export function retryPass(ctx: Ctx, item: number): { ok: boolean; detail: string
     const config = readProjectConfig(ctx.root);
     const job = loadJobs(ctx.jobsDir).find((j) => j.item === item);
     if (!job) return { ok: false, detail: `no job record for #${item}` };
-    const before = { attempts: job.attempts, spentMs: job.spentMs, stageState: job.stageState };
+    const before = {
+      attempts: job.attempts,
+      spentMs: job.spentMs,
+      stageState: job.stageState,
+      consults: job.consults?.length ?? 0,
+    };
     job.attempts = {};
     job.spentMs = 0;
     job.stageState = "ready";
     job.claim = null;
     job.waitingSince = undefined;
+    // A fresh budget includes the consults: a human has now looked at the job.
+    job.consults = [];
     // An owner retry grants a fresh budget, so the change-request cycles start over with it.
     job.revisions = 0;
     job.consumedReviews = [];
@@ -2532,15 +2672,18 @@ export function retryPass(ctx: Ctx, item: number): { ok: boolean; detail: string
       exit: null,
       spentMs: 0,
     });
-    saveJob(ctx, job);
+    saveJob(ctx, job, { replaceConsults: true });
     resumeItem(ctx, config, job);
     commentOn(
       ctx,
       config,
       item,
-      `factory: retried by the owner — attempts and budget reset. Was ${JSON.stringify(before)}.`,
+      `factory: retried by the owner — attempts, budget and escalator consults reset. Was ${JSON.stringify(before)}.`,
     );
-    return { ok: true, detail: `#${item} reset at ${job.stage} with a full ${Math.round(JOB_CAP_MS / MIN)} minutes` };
+    return {
+      ok: true,
+      detail: `#${item} reset at ${job.stage} with a full ${Math.round(JOB_CAP_MS / MIN)} minutes and ${MAX_CONSULTS} escalator consults`,
+    };
   } finally {
     lock.release();
   }
@@ -3004,19 +3147,32 @@ function removeBranch(
 export interface Options {
   command: string;
   item?: number;
+  /** `--flag value` pairs. A flag's value is never read as the item number. */
+  flags: Record<string, string>;
 }
 
 export function parseArgs(argv: string[]): Options {
   const [command = "help", ...rest] = argv;
-  const item = rest.find((a) => /^\d+$/.test(a));
-  return item ? { command, item: Number(item) } : { command };
+  const flags: Record<string, string> = {};
+  let item: number | undefined;
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]!;
+    if (arg.startsWith("--")) {
+      flags[arg.slice(2)] = rest[++i] ?? "";
+      continue;
+    }
+    if (item === undefined && /^\d+$/.test(arg)) item = Number(arg);
+  }
+  return item === undefined ? { command, flags } : { command, item, flags };
 }
 
 const USAGE = `Dark Factory job ledger
 
   tsx scripts/factory-jobs.ts start          claim or adopt one item, open its job
   tsx scripts/factory-jobs.ts drain          the tick's one action
-  tsx scripts/factory-jobs.ts retry <item>   owner unblock: attempts and budget reset
+  tsx scripts/factory-jobs.ts retry <item>   owner unblock: attempts, budget and consults reset
+  tsx scripts/factory-jobs.ts consult <item> --question … --answer … --action …
+                                            log one escalator consult (cap ${MAX_CONSULTS} per job)
   tsx scripts/factory-jobs.ts list           every live job, one line each
   tsx scripts/factory-jobs.ts show <item>    one job's record
   tsx scripts/factory-jobs.ts agent-dir      the shadow agent dir children run under, if any
@@ -3051,6 +3207,13 @@ async function main(): Promise<void> {
     case "retry": {
       if (opts.item === undefined) throw new Error("retry needs an item number");
       const res = retryPass(ctx, opts.item);
+      ctx.deps.log(res.detail);
+      if (!res.ok) process.exitCode = 1;
+      break;
+    }
+    case "consult": {
+      if (opts.item === undefined) throw new Error("consult needs an item number");
+      const res = recordConsult(ctx, opts.item, { ...opts.flags });
       ctx.deps.log(res.detail);
       if (!res.ok) process.exitCode = 1;
       break;

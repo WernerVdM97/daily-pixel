@@ -40,6 +40,9 @@ One board item being built, tracked in `.pi/factory/jobs/<item>.json` (runtime, 
   "stage": "review",
   "stageState": "running",
   "attempts": { "build": 0, "review": 1, "fix": 0 },
+  "consults": [
+    { "at": "…", "stage": "build", "agent": "delegate-executor", "question": "…", "answer": "…", "action": "…" }
+  ],
   "spentMs": 1200000,
   "claim": { "pid": 50839, "pidStart": "8123" },
   "artifacts": {},
@@ -132,7 +135,7 @@ then:                  drain                          (new)
                                                no attempt, no budget spent)
 ```
 
-Every command that writes a job record (`start`, `drain`, `retry`) takes the drain lock first: a non-blocking flock on `.pi/factory/jobs/.drain.lock`, held for the whole command, the running stage included. The lock lives in the jobs dir, so a dry run against a scratch dir takes a scratch lock and never fights the real one. The lock is what makes liveness simple: a drain that is executing has already proven no other drainer is alive, because a live one would be holding the lock. A record that still says `running` was therefore left behind by a dead drainer, and the only open question is whether its child survived it. A `start` or `retry` that finds the lock held fails soft and reports rather than waiting; worst case a start colliding with a by-hand drain slips a day, which beats a schedule step blocked on a lock it cannot see.
+Every command that writes a job record (`start`, `drain`, `retry`) takes the drain lock first: a non-blocking flock on `.pi/factory/jobs/.drain.lock`, held for the whole command, the running stage included. `consult` is the deliberate exception: it writes while the drainer holds that lock for the whole stage, so taking it would refuse every consult, and the save path unions the two copies of the consult log instead of writing one over the other (`retry` is the one write that means empty). The lock lives in the jobs dir, so a dry run against a scratch dir takes a scratch lock and never fights the real one. The lock is what makes liveness simple: a drain that is executing has already proven no other drainer is alive, because a live one would be holding the lock. A record that still says `running` was therefore left behind by a dead drainer, and the only open question is whether its child survived it. A `start` or `retry` that finds the lock held fails soft and reports rather than waiting; worst case a start colliding with a by-hand drain slips a day, which beats a schedule step blocked on a lock it cannot see.
 
 `claim` carries `pid` plus `pidStart`, the kernel's process start time from `/proc/<pid>/stat`. The start time is what makes the pid probe safe: a recycled pid has a different start time, so the reaper kills only a process it can prove is the orphan, never an innocent process that reused the number. Stage children run in their own process group (`setsid`), and reaping kills the group (`kill(-pid, SIGKILL)`), because a `pi` child leaves grandchildren behind it (bash tool runs, spawned subagents); the same group-kill runs after a normal wait, so nothing outlives its stage. A live pid with a mismatched start time is just a recycled number: count the attempt and never kill. A reboot reads the same way, which is the right answer, because the stage died with the box.
 
@@ -145,7 +148,7 @@ There is no heartbeat. The first sketch had one, refreshed every 30 s by the dra
 - Cumulatively over budget → blocked and paged the same way, because a job that has spent 100 minutes is not converging.
 - A PR closed without merging blocks the same way; see Reconciling the merge.
 
-Only the owner unblocks, with `npx tsx scripts/factory-jobs.ts retry <item>`: `stageState` back to `ready`, attempts zeroed, `spentMs` refreshed to a full 100 minutes, Status `Blocked` back to `In Progress`, the old totals kept in `history` for the record. A retry is the same decision an adoption makes: a human looked at the job and decided it gets a fresh budget, which no automatic path is allowed to grant.
+Only the owner unblocks, with `npx tsx scripts/factory-jobs.ts retry <item>`: `stageState` back to `ready`, attempts zeroed, `spentMs` refreshed to a full 100 minutes, the escalator consult log emptied, Status `Blocked` back to `In Progress`, the old totals kept in `history` for the record. A retry is the same decision an adoption makes: a human looked at the job and decided it gets a fresh budget, which no automatic path is allowed to grant.
 
 The bulletin already sorts `Blocked` items with a written question, so a blocked job surfaces there with no extra work.
 
@@ -192,7 +195,7 @@ The authoritative data comes from REST, and it is the _code_ that turns it into 
 
 New:
 
-- `scripts/factory-jobs.ts`: the ledger library and CLI. `start` picks or adopts and creates the record; `drain` takes the drain lock and does the oldest job's one action; `retry <item>` is the owner's unblock; `housekeeping` fetches, fast-forwards local `dev` when that is safe, and removes worktrees and deletes local branches whose work is provably in `dev` — wholly contained, or a merged PR whose head was exactly that branch's tip (it is what the tick runs after the drain, and what the sweeper reports); `list`, `show`, `stale` are read-only (`stale` prints jobs whose records say `running` but whose pid is gone, and jobs waiting on a merge for more than a week, for humans).
+- `scripts/factory-jobs.ts`: the ledger library and CLI. `start` picks or adopts and creates the record; `drain` takes the drain lock and does the oldest job's one action; `retry <item>` is the owner's unblock; `consult <item> --question … --answer … --action …` logs one escalator consult against the job, refusing past `MAX_CONSULTS` per job; `housekeeping` fetches, fast-forwards local `dev` when that is safe, and removes worktrees and deletes local branches whose work is provably in `dev` — wholly contained, or a merged PR whose head was exactly that branch's tip (it is what the tick runs after the drain, and what the sweeper reports); `list`, `show`, `stale` are read-only (`stale` prints jobs whose records say `running` but whose pid is gone, and jobs waiting on a merge for more than a week, for humans).
 - A test file beside the existing factory-script tests.
 - `.pi/agents/factory-builder.md`, `factory-reviewer.md`, `factory-fixer.md`. **Not as written:** the stages reuse the repo's existing `delegate-executor`, `delegate-reviewer` and `delegate-fixer`, which gained a ledger-stage mode, so the build loop keeps one set of role definitions instead of two near-identical ones (see the closing note).
 
@@ -231,7 +234,7 @@ Unit tests only, no real `pi` spawn, with an injected clock and an injected runn
 - Meta-oil proposal jobs on the adoption path: a card claiming a `chore/meta-oil-2` branch, in the focus milestone and with no job record, is adopted at `review`; the same card outside the focus milestone stays held as `out-of-focus`.
 - The revise stage behaves like `fix`: `VERDICT: ok` requires the branch to have moved, `VERDICT: nochange` is accepted without one, and the next stage is `deliver`.
 - Delivery: the fresh path pushes, opens the PR and comments the PR link; a revised job pushes again, creates no second PR, records `lastPushAt` and comments the re-review text — or the no-code-change text when the revise stage reported `nochange`; a recorded PR that is no longer open gets no push, no second PR and no comment at all.
-- `retry` clears `revisions` and `consumedReviews` with the attempts and the budget.
+- `retry` clears `revisions`, `consumedReviews` and the escalator consults with the attempts and the budget.
 - Liveness and locking: a second drain exits on the drain lock; a genuine orphan (pid live, start time matches) is killed as a group and counted; a recycled pid (pid live, start time differs) is counted and never killed; a clean crash is counted; `retry` clears `blocked`, zeroes the attempts and refreshes the budget.
 - The gate: only `Approved`, plus `auto:docs`/`auto:changelog`/`auto:tests` within their class, and never a `type:epic` whatever its status or labels; priority then oldest; `Inbox` and `Blocked` never picked. Readiness is a second question on top of approval, and each is its own case here: an item carrying `needs-human-decision`, an item with an open native `blockedBy` dependency, and an item outside the focus milestone are all declined with a reason and reported, never silently skipped; an approved or `In Progress` epic is reported as `epic` for the same reason, since its work is its sub-issues.
 - Focus: the sprint is the open milestone with the earliest due date, cached at `.pi/factory/focus.json`, and no dated open milestone means no filter at all (priority order is the fallback, not the norm). The empty-results and stale-cache paths are asserted, because a silently disabled focus filter looks exactly like a working one.

@@ -385,6 +385,43 @@ describe('readLedger', () => {
     expect(report.budgetMs).toBe(2 * 100 * 60_000);
   });
 
+  it('reports escalator consults per item and per stage, windowed by their own timestamp', () => {
+    const dir = scratch();
+    const at = (daysAgo: number) => new Date(NOW - daysAgo * 86_400_000).toISOString();
+    const consult = (over: Record<string, unknown>) => ({ agent: 'delegate-executor', answer: 'a', action: 'kept', ...over });
+    writeFileSync(
+      join(dir, '92.json'),
+      JSON.stringify(
+        jobRecord(92, {
+          consults: [
+            consult({ at: at(1), stage: 'build', question: 'which schema?' }),
+            consult({ at: at(2), stage: 'build', question: 'and the cap?' }),
+          ],
+        }),
+      ),
+    );
+    writeFileSync(
+      join(dir, '93.json'),
+      JSON.stringify(
+        jobRecord(93, {
+          consults: [
+            consult({ at: at(3), stage: 'review', agent: 'delegate-reviewer', question: 'is the silence deliberate?' }),
+            consult({ at: at(30), stage: 'review', agent: 'delegate-reviewer', question: 'outside the window' }),
+          ],
+        }),
+      ),
+    );
+
+    const report = readLedger(dir, 7 * 86_400_000, NOW)!;
+    expect(report.consults).toBe(3);
+    expect(report.consultsByStage).toEqual([
+      { stage: 'build', count: 2 },
+      { stage: 'review', count: 1 },
+    ]);
+    expect(report.jobs.find((j) => j.item === 92)!.consults.map((c) => c.question)).toEqual(['which schema?', 'and the cap?']);
+    expect(report.jobs.find((j) => j.item === 93)!.consults.map((c) => c.question)).toEqual(['is the silence deliberate?']);
+  });
+
   it('survives an unparseable record by noting it', () => {
     const dir = scratch();
     writeFileSync(join(dir, 'broken.json'), '{not json');
