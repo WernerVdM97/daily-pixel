@@ -158,8 +158,9 @@ export interface ConsultRecord {
   /** The calling agent: the stage's own definition unless the caller names itself. */
   agent: string;
   question: string;
-  /** The answer's gist in the caller's words, and what the caller then did with it. */
+  /** The answer's gist in the caller's words. */
   answer: string;
+  /** What the caller did with the answer. */
   action: string;
 }
 
@@ -1244,9 +1245,8 @@ export function saveJob(ctx: Ctx, job: JobRecord, opts: { replaceConsults?: bool
 }
 
 /**
- * The stage's own child logs a consult by rewriting the record the drainer is holding in memory,
- * and the drainer writes its copy back after the stage returns. So a save merges the log rather
- * than writing the shorter one over the other; `retry` is the one write that means "empty".
+ * The drainer writes its copy back after the stage returns, so a save merges the log the stage's
+ * child wrote rather than overwriting it; `retry` opts out, because that write means "empty".
  */
 function mergeConsultLog(jobsDir: string, job: JobRecord): void {
   const onDisk = readConsults(jobsDir, job.item);
@@ -1415,7 +1415,7 @@ export function stageTask(ctx: Ctx, job: JobRecord, stage: StageName, artifact: 
     `- Escalator consults left for this job: ${remainingConsults(job)} of ${MAX_CONSULTS}.`,
     // The canonical checkout's script, not the worktree's: this stage may be mid-way through
     // changing its own copy, and the ledger is the same file either way.
-    `  Log one after the escalator answers, with \`npx tsx ${resolve(ctx.root, "scripts/factory-jobs.ts")} consult ${job.item} --question "…" --answer "…" --action "…"\`:` +
+    `  Log one after the escalator answers, with \`npx tsx ${resolve(ctx.root, "scripts/factory-jobs.ts")} consult ${job.item} --question "…" --answer "<the gist>" --action "<what you did with it>"\`:` +
       ` the ledger refuses one past the cap, and with none left you proceed on your own judgement and say so in your report.`,
     "",
   ];
@@ -2579,15 +2579,11 @@ export interface ConsultInput {
 export interface ConsultOutcome {
   ok: boolean;
   detail: string;
-  /** The budget left after this call: 0 when it was refused. */
+  /** What is left after the call: 0 once it is spent, or when the cap refused this one. */
   remaining: number;
 }
 
-/**
- * Logs one escalator consult against a job, or refuses it. No drain lock: a stage's child consults
- * while the drainer holds that lock for the whole stage, so taking it here would refuse every
- * consult. `saveJob` merges the two copies of the log for the same reason.
- */
+/** Logs one escalator consult against a job, or refuses it. No drain lock: the drainer holds it for the whole stage. */
 export function recordConsult(ctx: Ctx, item: number, input: ConsultInput): ConsultOutcome {
   const path = jobPath(ctx.jobsDir, item);
   if (!existsSync(path)) {
@@ -2610,7 +2606,7 @@ export function recordConsult(ctx: Ctx, item: number, input: ConsultInput): Cons
     };
   }
   const stage = (input.stage?.trim() || job.stage) as StageName;
-  if (!(stage in STAGES)) {
+  if (!Object.hasOwn(STAGES, stage)) {
     return { ok: false, remaining: MAX_CONSULTS - spent, detail: `unknown stage \`${stage}\`; it is not one of ${Object.keys(STAGES).join(", ")}` };
   }
   const missing = (["question", "answer", "action"] as const).filter((field) => !(input[field] ?? "").trim());
@@ -2628,7 +2624,8 @@ export function recordConsult(ctx: Ctx, item: number, input: ConsultInput): Cons
   const consults = [...(job.consults ?? []), record];
   const logged: JobRecord = { ...job, consults, updatedAt: record.at };
   if (!ctx.dryRun) {
-    const tmp = `${path}.tmp`;
+    // Pid-suffixed: `saveJob` may be renaming its own copy of this record in the same second.
+    const tmp = `${path}.${process.pid}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(logged, null, 2)}\n`);
     renameSync(tmp, path);
   }
@@ -2636,7 +2633,9 @@ export function recordConsult(ctx: Ctx, item: number, input: ConsultInput): Cons
   return {
     ok: true,
     remaining,
-    detail: `#${item}: escalator consult ${consults.length} of ${MAX_CONSULTS} logged at ${stage} (${record.agent}); ${remaining} left`,
+    detail: ctx.dryRun
+      ? `[dry-run] would log #${item}'s escalator consult ${consults.length} of ${MAX_CONSULTS} at ${stage} (${record.agent}); ${remaining} left`
+      : `#${item}: escalator consult ${consults.length} of ${MAX_CONSULTS} logged at ${stage} (${record.agent}); ${remaining} left`,
   };
 }
 
@@ -2660,8 +2659,7 @@ export function retryPass(ctx: Ctx, item: number): { ok: boolean; detail: string
     job.stageState = "ready";
     job.claim = null;
     job.waitingSince = undefined;
-    // A fresh budget includes the consult budget: the ceiling exists so one confused job cannot
-    // spend it asking, and a human has now looked at the job.
+    // A fresh budget includes the consults: a human has now looked at the job.
     job.consults = [];
     // An owner retry grants a fresh budget, so the change-request cycles start over with it.
     job.revisions = 0;

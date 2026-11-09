@@ -1146,11 +1146,28 @@ describe('escalator consults', () => {
     expect(recordConsult(h.ctx(), 34, { question: 'q', answer: 'a', action: 'kept' }).ok).toBe(false);
 
     h.write(job());
-    expect(recordConsult(h.ctx(), 34, { answer: 'a', action: 'kept' }).detail).toContain('--question');
-    expect(recordConsult(h.ctx(), 34, { stage: 'nope', question: 'q', answer: 'a', action: 'kept' }).detail).toContain(
-      'unknown stage',
-    );
+    const noQuestion = recordConsult(h.ctx(), 34, { answer: 'a', action: 'kept' });
+    expect(noQuestion.detail).toContain('--question');
+    // Refused for its shape, not by the cap: the budget is untouched and still reported.
+    expect(noQuestion.remaining).toBe(MAX_CONSULTS);
+    // `in` would walk the prototype chain, so these keys would be logged as a stage.
+    for (const stage of ['nope', 'constructor', '__proto__']) {
+      expect(recordConsult(h.ctx(), 34, { stage, question: 'q', answer: 'a', action: 'kept' }).detail).toContain(
+        'unknown stage',
+      );
+    }
     expect(h.read(34).consults).toBeUndefined();
+  });
+
+  it('logs nothing in a dry run, and says the consult would have been logged', () => {
+    const h = new Harness();
+    h.write(job());
+    const before = readFileSync(join(h.jobsDir, '34.json'), 'utf8');
+    const res = recordConsult(h.ctx({ dryRun: true }), 34, { question: 'q', answer: 'a', action: 'kept' });
+
+    expect(res).toMatchObject({ ok: true, remaining: MAX_CONSULTS - 1 });
+    expect(res.detail).toContain('[dry-run] would log');
+    expect(readFileSync(join(h.jobsDir, '34.json'), 'utf8')).toBe(before);
   });
 
   it('keeps a consult logged mid-stage, so the drainer never writes its stale copy back over it', async () => {

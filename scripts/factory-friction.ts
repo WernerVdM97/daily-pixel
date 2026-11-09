@@ -38,7 +38,7 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 // The ledger's own budget, imported rather than mirrored: a copy drifts the first time a
 // stage budget moves, and the drainer clamps every stage to what remains of this one.
-import { JOB_CAP_MS, MAX_CONSULTS } from "./factory-jobs.js";
+import { JOB_CAP_MS, MAX_CONSULTS, type ConsultRecord } from "./factory-jobs.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -869,14 +869,8 @@ interface LedgerJobRow {
   updatedAt: string;
 }
 
-interface ConsultRow {
-  at: string;
-  stage: string;
-  agent: string;
-  question: string;
-  answer: string;
-  action: string;
-}
+/** The record's own fields, but a plain stage name: a hand-edited record must not throw. */
+type ConsultRow = Pick<ConsultRecord, "at" | "agent" | "question" | "answer" | "action"> & { stage: string };
 
 interface LedgerReport {
   jobs: LedgerJobRow[];
