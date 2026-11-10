@@ -12,7 +12,7 @@
 import type { WorldEngine, CharacterData, PendingChoiceSelector, ActionStartResult, ActionOutcome, CharCreateData } from '../engine/WorldEngine.js';
 import type { NoticeViewState, DecisionViewState, OutcomeViewState, MenuViewState, WizardViewState } from '../view/viewState.js';
 import { buildDecisionView, buildOutcomeView } from '../view/actionViewState.js';
-import { composeActionMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
+import { composeActionMenu, composeDayDoneMenu, getDayJobActions, getWorkplaceLocation, type DayJobDef } from './dayJob.js';
 import { dayJobEmoji } from '../render/format.js';
 import { composeHiScreen } from './hiScreen.js';
 import { composeWizardView, isValidWizardChoice, type CharDefs } from './joinWizard.js';
@@ -59,12 +59,11 @@ export type StepChoiceResult =
   | { kind: 'outcome'; view: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; characterClass?: string | null; char: CharacterData | null; prevChar: CharacterData; roll?: RollVerdict };
 
 /** Outcome of `openActionMenu` — mirrors the pre-M3.3b `nav:action` leaf's branch order
- *  exactly (char guard -> rolls guard -> resume-in-progress -> fresh menu). The "⏳ Stale
- *  Action" embed stays an inline adapter embed (M3.3 design call DC-I) — `resume-stale`
+ *  exactly (char guard -> zero-roll day-done menu -> resume-in-progress -> fresh menu). The
+ *  "⏳ Stale Action" embed stays an inline adapter embed (M3.3 design call DC-I) — `resume-stale`
  *  carries the raw prompt/narration so the adapter can paint it, not a view-state. */
 export type ActionMenuResult =
   | { kind: 'no-character' }
-  | { kind: 'no-rolls' }
   | { kind: 'resume-stale'; prompt: string; narration?: string }
   | { kind: 'resume-decision'; view: DecisionViewState }
   | { kind: 'resume-error'; message: string }
@@ -283,15 +282,17 @@ export class SessionController {
     return { kind: 'decision', view };
   }
 
-  /** Reproduces the pre-M3.3b `nav:action` leaf's guard/resume/menu order exactly (DC-I) —
-   *  char guard -> rolls guard -> resume-in-progress (stale/decision/error) -> fresh menu.
-   *  Shared by the slash `/action` no-description path too via `composeActionMenu`. */
+  /** Reproduces the pre-M3.3b `nav:action` leaf's guard/resume/menu order (DC-I) — char guard ->
+   *  zero rolls -> resume-in-progress (stale/decision/error) -> fresh menu. The zero-roll arm is a
+   *  MENU, not a refusal: the day's work is spent, but the free reads and rest are still legal, and
+   *  answering `no-rolls` here left the player nothing to do but back out. Shared by the slash
+   *  `/action` no-description path too via `composeActionMenu`. */
   openActionMenu(userId: string): ActionMenuResult {
     const character = this.engine.getCharacter(userId);
     if (!character) return { kind: 'no-character' };
 
     if (character.rollsRemaining <= 0 && !character.lastActionState) {
-      return { kind: 'no-rolls' };
+      return { kind: 'menu', view: composeDayDoneMenu(character) };
     }
 
     if (character.lastActionState) {

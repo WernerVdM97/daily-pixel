@@ -318,14 +318,27 @@ describe('AgentHarness — full-day + multi-day loop (M6 protocol)', () => {
     { kind: 'choice', index: 0 },
   ];
 
-  it('plays down to no-rolls without asking the brain past the last roll', async () => {
-    const { harness, brain, agentEngine, seed } = buildHarness([...goblinAction, ...goblinAction, ...goblinAction]);
+  it('asks the brain again once the rolls are spent, and closes the day on its own sleep', async () => {
+    const { harness, brain, agentEngine, seed } = buildHarness([
+      ...goblinAction,
+      ...goblinAction,
+      ...goblinAction,
+      { kind: 'recon', screen: 'look' },
+      { kind: 'sleep' },
+    ]);
     await seed();
 
     const summary = await harness.playDay();
 
-    expect(summary).toEqual({ dayNumber: 1, outcomes: 3, ended: 'no-rolls' });
-    expect(brain.calls).toHaveLength(9); // 3 actions × 3 calls
+    expect(summary).toEqual({ dayNumber: 1, outcomes: 3, ended: 'slept' });
+    expect(brain.calls).toHaveLength(11); // 3 actions × 3 calls, then the recon and the sleep
+    // The zero-roll turn is offered the free reads and the sleep — never a roll-costing move —
+    // so the day ends deliberately rather than by the player backing out of a dead screen.
+    expect(brain.calls[9].character.rollsRemaining).toBe(0);
+    expect(brain.calls[9].moves.map((m) => m.move.kind)).toEqual([
+      'recon', 'recon', 'recon', 'recon', 'recon', 'recon', 'sleep',
+    ]);
+    expect(harness.transcript.events.some((e) => e.type === 'recon' && e.screen === 'look')).toBe(true);
     expect(agentEngine.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(0);
   });
 
@@ -738,7 +751,7 @@ function stubBackend(character: CharacterData, opts: StubBackendConfig): RouterB
     stampLastPlayed: () => {},
     openActionMenu: () => {
       if (opts.throwOn === 'openActionMenu') throw new Error('kaboom');
-      return opts.menu ?? { kind: 'no-rolls' };
+      return opts.menu ?? { kind: 'no-character' };
     },
     beginDayJob: () => opts.dayJob ?? { kind: 'invalid-job' },
     commuteForWork: () => ({ kind: 'none' }),
@@ -1079,12 +1092,12 @@ describe('AgentHarness — faithful endDay (M7.1, rest through the protocol)', (
   });
 
   it('rests to the Oak once every roll is spent', async () => {
-    const { harness, agentEngine, seed } = buildHarness([...dayJobAction, ...dayJobAction, ...dayJobAction]);
+    const { harness, agentEngine, seed } = buildHarness([...dayJobAction, ...dayJobAction, ...dayJobAction, { kind: 'sleep' }]);
     await seed();
 
     const summaries = await harness.playDays(1);
 
-    expect(summaries[0].ended).toBe('no-rolls');
+    expect(summaries[0].ended).toBe('slept');
     expect(agentEngine.engine.getCharacter(USER_ID)!.location).toBe("The Warden's Oak");
   });
 
@@ -1472,11 +1485,9 @@ describe('AgentHarness — recon and working memory (T1)', () => {
     ]);
   });
 
-  it("writes the note captured on the day's LAST turn when the day ends as no-rolls", async () => {
-    // The headline path (A1): a day that spends its rolls ends `no-rolls` because
-    // `SessionController.openActionMenu` answers that at ZERO rolls, so the brain is never asked a
-    // further question. Its last asked turn has exactly one roll left, and that is the turn the
-    // note has to ride — otherwise the series silently loses the commonest kind of day there is.
+  it("writes the note captured on the day's last rated turn, not the sleep turn that closes it", async () => {
+    // A day usually ends because the rolls ran out, and the note rides whichever turn last rated
+    // it: the sleep on the day-done menu carries none, and a sleep-only note would lose the day.
     const last: BrainTurn = {
       move: { kind: 'custom', text: 'polish my boots' },
       dayNote: { engagement: 3, fulfilment: 2, line: 'Three actions, no note till the last.', arcNote: 'boots; three left' },
@@ -1489,20 +1500,24 @@ describe('AgentHarness — recon and working memory (T1)', () => {
         },
         { move: { kind: 'custom', text: 'mend the fence' } },
         last,
+        { move: { kind: 'sleep' } },
       ],
       immediateScript,
     );
     await seed();
 
-    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 3, ended: 'no-rolls' });
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 3, ended: 'slept' });
 
-    // The brain is told which pick is the day's last, and only on that pick.
+    // The brain is told which pick is the day's last ROLL, and only on that pick.
     expect(brain.calls[0].lastRoll).toBeUndefined();
     expect(brain.calls[1].lastRoll).toBeUndefined();
     expect(brain.calls[2].lastRoll).toBe(true);
+    expect(brain.calls[3].lastRoll).toBeUndefined();
+    // The closing turn is the day-done menu at zero rolls, asked after the last roll was spent.
+    expect(brain.calls[3].character.rollsRemaining).toBe(0);
 
     // The LAST note of the day is the one that counts, written against the closing day's number
-    // whatever the disposition — here `no-rolls`.
+    // whatever the disposition — here `slept`.
     expect(harness.transcript.events.filter((e) => e.type === 'day-note')).toEqual([
       { type: 'day-note', dayNumber: 1, ...(last.dayNote as DayNote) },
     ]);

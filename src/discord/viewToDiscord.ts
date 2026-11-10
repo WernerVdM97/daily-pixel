@@ -125,14 +125,21 @@ export function menuViewToDiscord(view: MenuViewState): {
     .setColor(0xdaa520)
     .toJSON();
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    ...view.buttons.map(b => new ButtonBuilder()
-      .setCustomId(b.customId)
-      .setLabel(b.label)
-      .setStyle(b.style === 'primary' ? ButtonStyle.Primary : ButtonStyle.Secondary)),
-  );
+  // Discord caps a button row at five, and the day-done menu offers six free reads plus rest, so
+  // the row is chunked rather than assumed to fit (every other menu here has four).
+  const rows: ReturnType<ActionRowBuilder<ButtonBuilder>['toJSON']>[] = [];
+  for (let i = 0; i < view.buttons.length; i += 5) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        ...view.buttons.slice(i, i + 5).map(b => new ButtonBuilder()
+          .setCustomId(b.customId)
+          .setLabel(b.label)
+          .setStyle(b.style === 'primary' ? ButtonStyle.Primary : ButtonStyle.Secondary)),
+      )
+      .toJSON());
+  }
 
-  return { embeds: [embed], components: [row.toJSON()] };
+  return { embeds: [embed], components: rows };
 }
 
 export function noticeViewToDiscord(view: NoticeViewState): { content: string; flags?: MessageFlags.Ephemeral } {

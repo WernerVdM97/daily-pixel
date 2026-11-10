@@ -215,3 +215,24 @@ export function composeActionMenu(engine: WorldEngine, dayJobs: DayJobDef[], cha
     ],
   };
 }
+
+/** The zero-roll menu: the day's rolls are spent, so it offers only what costs nothing and says so,
+ *  instead of advertising work the engine refuses. The buttons are the six free reads in
+ *  `RECON_SCREENS` order, then rest — `nav:` ids hand the click to the command's own handler, and
+ *  the day-job pool and `Custom…` are absent because both spend a roll the player no longer has. */
+export function composeDayDoneMenu(character: CharacterData): MenuViewState {
+  return {
+    screen: 'menu',
+    title: { emoji: dayJobEmoji(character.dayJob), text: `${character.dayJob} — The day is done` },
+    description: 'Your rolls are spent for today. Everything below is free: look something up, or rest to end the day.',
+    buttons: [
+      { label: 'Look', customId: 'nav:look', style: 'secondary' },
+      { label: 'Map', customId: 'nav:map', style: 'secondary' },
+      { label: 'Stats', customId: 'nav:stats', style: 'secondary' },
+      { label: 'Backpack', customId: 'nav:backpack', style: 'secondary' },
+      { label: 'Journal', customId: 'nav:journal', style: 'secondary' },
+      { label: 'Help', customId: 'nav:help', style: 'secondary' },
+      { label: 'Rest', customId: 'nav:sleep', style: 'primary' },
+    ],
+  };
+}

@@ -961,8 +961,7 @@ export async function dispatchInteraction(
               flags: MessageFlags.Ephemeral,
             });
           } else {
-            // no-character / no-rolls: the router owns this copy (NO_CHARACTER_MENU_COPY /
-            // NO_ROLLS_COPY).
+            // no-character: the router owns this copy (NO_CHARACTER_MENU_COPY).
             await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
           }
           return;

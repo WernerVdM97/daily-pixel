@@ -83,9 +83,9 @@ export function makeActionCommand(router: GameRouter, engine: WorldEngine) {
       }
 
       // Guard rejections — no defer, a single ephemeral reply.
-      if (response.error.code === 'no-character' || response.error.code === 'no-rolls') {
+      if (response.error.code === 'no-character') {
         await interaction.reply({ content: response.error.message, flags: MessageFlags.Ephemeral });
-        return response.error.code === 'no-character' ? 'action_guard_no_character' : 'action_no_rolls';
+        return 'action_guard_no_character';
       }
 
       // Resume outcomes (stale / a resume that failed) — both defer first, mirroring the

@@ -1078,15 +1078,85 @@ What shall the songs call you?",
 ]
 `;
 
-exports[`action oracle — slash /action guards + gate > 2 · with-char, 0 rolls, no description → 🛌 Out of actions, ephemeral reply, no defer, no nav bar, no stamp 1`] = `
+exports[`action oracle — slash /action guards + gate > 2 · with-char, 0 rolls, no description → the day-done menu: the six free reads + rest, no job option, ephemeral, stamp first 1`] = `
 [
   {
     "arg": {
-      "content": "🛌 **Out of actions for today.**
-Rest by the Oak (\`/sleep\`) and try again tomorrow.",
+      "components": [
+        {
+          "components": [
+            {
+              "custom_id": "nav:look",
+              "emoji": undefined,
+              "label": "Look",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:map",
+              "emoji": undefined,
+              "label": "Map",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:stats",
+              "emoji": undefined,
+              "label": "Stats",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:backpack",
+              "emoji": undefined,
+              "label": "Backpack",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:journal",
+              "emoji": undefined,
+              "label": "Journal",
+              "style": 2,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+        {
+          "components": [
+            {
+              "custom_id": "nav:help",
+              "emoji": undefined,
+              "label": "Help",
+              "style": 2,
+              "type": 2,
+            },
+            {
+              "custom_id": "nav:sleep",
+              "emoji": undefined,
+              "label": "Rest",
+              "style": 1,
+              "type": 2,
+            },
+          ],
+          "type": 1,
+        },
+      ],
+      "embeds": [
+        {
+          "color": 14329120,
+          "description": "Your rolls are spent for today. Everything below is free: look something up, or rest to end the day.",
+          "title": "🛡️ Town Guard — The day is done",
+        },
+      ],
       "flags": 64,
     },
     "method": "reply",
+  },
+  {
+    "arg": null,
+    "method": "fetchReply",
   },
 ]
 `;

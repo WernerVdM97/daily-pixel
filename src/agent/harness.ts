@@ -71,7 +71,8 @@ function formatError(e: unknown): string {
   return String(e);
 }
 
-/** The disposition of a single `playOneAction`. `slept`/`no-rolls` end the day, `dead-end`/`illegal-move` are non-fatal, `outcome` is a completed action, and `recon` is a free read of one of the six read-only screens,
+/** The disposition of a single `playOneAction`. `slept`/`no-rolls` end the day (the zero-roll day-done
+ *  menu offers sleep, so `no-rolls` survives only as a refused roll-costing dispatch), `dead-end`/`illegal-move` are non-fatal, `outcome` is a completed action, and `recon` is a free read of one of the six read-only screens,
  *  bounded by the per-day caps rather than by the roll allowance. `crashed` is fatal to the run, though the transcript survives as a repro. */
 export type PlayResult =
   | { kind: 'outcome'; bailed?: boolean }

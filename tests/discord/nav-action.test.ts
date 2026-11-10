@@ -10,11 +10,11 @@ import { makeActionCommand } from "../../src/discord/commands/action.js";
  * C2 — coverage for the "action" entry-point routing.
  *
  * The `nav:action` button handler in index.ts and the `/action` slash command
- * share the same three-way branch: out-of-actions (no rolls, not mid-action) →
- * resume (mid-action) → day-job menu (idle). We test that branch logic through
- * `makeActionCommand`, the exported, dependency-injected form of it, so the
- * routing the nav button relies on is guarded without standing up the whole
- * Discord client closure.
+ * share the same three-way branch: zero rolls (the day-done menu, no rolls and
+ * not mid-action) → resume (mid-action) → day-job menu (rolls left). We test that
+ * branch logic through `makeActionCommand`, the exported, dependency-injected form
+ * of it, so the routing the nav button relies on is guarded without standing up the
+ * whole Discord client closure.
  *
  * M9.2 (DC-M9.4): the handler crosses the seam onto `menu.open` — rehomed onto the
  * router-backed factory (the sleep.test.ts/hi.test.ts pattern): a GameRouter over a
@@ -88,16 +88,19 @@ describe("action entry-point routing (nav:action / /action)", () => {
     );
   });
 
-  it("blocks with 'out of actions' when no rolls remain and not mid-action", async () => {
+  it("offers the day-done menu when no rolls remain and not mid-action", async () => {
     engine.setCharacter(baseChar({ rollsRemaining: 0, lastActionState: null }));
     const handler = makeHandler(engine);
     const intr = mockChatInteraction("spent");
     const result = await handler(intr as never);
 
-    expect(result).toBe("action_no_rolls");
-    expect(intr.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining("Out of actions") }),
-    );
+    expect(result).toBe("action_dayjob_menu");
+    const payload = intr.reply.mock.calls[0][0] as any;
+    expect(payload.embeds[0].title).toContain("The day is done");
+    // Nothing that costs a roll, and the rest that ends the day is on the screen.
+    const ids = (payload.components as Array<{ components: Array<{ custom_id: string }> }>)
+      .flatMap((row) => row.components.map((b) => b.custom_id));
+    expect(ids).toEqual(["nav:look", "nav:map", "nav:stats", "nav:backpack", "nav:journal", "nav:help", "nav:sleep"]);
   });
 
   it("resumes the pending decision when mid-action, even with no rolls left", async () => {
