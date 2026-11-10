@@ -332,14 +332,70 @@ describe('AgentHarness — full-day + multi-day loop (M6 protocol)', () => {
 
     expect(summary).toEqual({ dayNumber: 1, outcomes: 3, ended: 'slept' });
     expect(brain.calls).toHaveLength(11); // 3 actions × 3 calls, then the recon and the sleep
-    // The zero-roll turn is offered the free reads and the sleep — never a roll-costing move —
-    // so the day ends deliberately rather than by the player backing out of a dead screen.
+    // The zero-roll turn offers the free reads and sleep, never a roll-costing move.
     expect(brain.calls[9].character.rollsRemaining).toBe(0);
     expect(brain.calls[9].moves.map((m) => m.move.kind)).toEqual([
       'recon', 'recon', 'recon', 'recon', 'recon', 'recon', 'sleep',
     ]);
     expect(harness.transcript.events.some((e) => e.type === 'recon' && e.screen === 'look')).toBe(true);
     expect(agentEngine.engine.getCharacter(USER_ID)!.rollsRemaining).toBe(0);
+  });
+
+  /** Answers the SCREEN's bracketed numbering for a label pick — how a live model reads `viewToText` —
+   *  and range-checks the index like `resolveMove` does, so a desynced screen crashes the turn rather
+   *  than quietly taking the wrong move. */
+  class ScreenPickBrain implements AgentPlayerGateway {
+    readonly calls: ChooseMoveInput[] = [];
+
+    constructor(private readonly plan: Array<AgentMove | string>) {}
+
+    async chooseMove(input: ChooseMoveInput): Promise<BrainTurn> {
+      this.calls.push(input);
+      const step = this.plan[this.calls.length - 1];
+      if (step === undefined) throw new Error('ScreenPickBrain: plan exhausted');
+      if (typeof step !== 'string') return { move: step };
+      const line = input.screenText.split('\n').find((l) => /^\[\d+\]/.test(l) && l.includes(step));
+      if (!line) throw new Error(`ScreenPickBrain: the screen shows no "${step}" line`);
+      const choice = Number(line.slice(1, line.indexOf(']')));
+      if (choice < 0 || choice >= input.moves.length) {
+        throw new Error(`ScreenPickBrain: choice ${choice} is not a legal move index (0..${input.moves.length - 1})`);
+      }
+      return { move: input.moves[choice].move };
+    }
+  }
+
+  it('withholds a capped read from the day-done screen and its moves alike', async () => {
+    // Two /map reads spend the per-screen cap before the rolls run out, and on the day-done menu the
+    // screen's own buttons ARE the recon slots — so a move withheld alone shifts every `[i]`.
+    const agentEngine = buildAgentEngine({
+      pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
+      rollD20: () => 20,
+    });
+    const brain = new ScreenPickBrain([
+      { kind: 'recon', screen: 'map' },
+      { kind: 'recon', screen: 'map' },
+      ...goblinAction,
+      ...goblinAction,
+      ...goblinAction,
+      'Stats',
+      { kind: 'sleep' },
+    ]);
+    const harness = createAgentHarness(agentEngine.engine, buildDeterministicRouter(agentEngine), brain, USER_ID);
+    await harness.createCharacter(SEED);
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 3, ended: 'slept' });
+
+    const dayDone = brain.calls.find((c) => c.screenText.includes('The day is done'));
+    expect(dayDone).toBeDefined();
+    const lines = dayDone!.screenText.split('\n').filter((l) => /^\[\d+\]/.test(l));
+    expect(lines).toHaveLength(dayDone!.moves.length);
+    expect(lines.join('\n')).not.toContain('/map');
+    const statsIndex = lines.findIndex((l) => l.includes('Stats'));
+    expect(dayDone!.moves[statsIndex].move).toEqual({ kind: 'recon', screen: 'stats' });
+
+    // The screen-numbered pick is the screen it dispatches — not the move that slid into its index.
+    const recons = harness.transcript.events.flatMap((e) => (e.type === 'recon' ? [e.screen] : []));
+    expect(recons).toEqual(['map', 'map', 'stats']);
   });
 
   it('runs multiple days, advancing the day and refilling rolls each night', async () => {
@@ -1732,7 +1788,7 @@ describe('the working memory reaches the prompt the brain reads (the seam, end t
   /** One refused day job, one free recon, then sleep — so the final turn carries a day log, a recon
    *  render handed back, and the last-roll flag, all at once. */
   async function playAndCapture(): Promise<ChooseMoveInput[]> {
-    // One roll left for the whole day, so every turn is flagged as the day's final action.
+    // One roll left for the whole day, so every turn is flagged as the last that costs a roll.
     const character = stubChar({ rollsRemaining: 1 });
     const router = new GameRouter(
       stubBackend(character, {
@@ -1771,7 +1827,7 @@ describe('the working memory reaches the prompt the brain reads (the seam, end t
     const message = buildUserMessage(last);
     expect(message).toContain(`TODAY SO FAR:\n${last.dayLog}`);
     expect(message).toContain('LAST LOOK: /map\n/map render');
-    expect(message).toContain("LAST ROLL: this is the day's final action; include your dayNote with this pick.");
+    expect(message).toContain("LAST ROLL: this is the last pick that costs a roll; include your dayNote with this pick.");
 
     // Absent memory renders nothing at all, rather than an empty heading: the first turn of a run
     // has no day log, and the baseline arm's prompt depends on that.

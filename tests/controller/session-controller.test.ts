@@ -92,9 +92,8 @@ describe('SessionController — beginCustomAction', () => {
   });
 });
 
-// ── openActionMenu at zero rolls — the day-done arm. The engine refuses a roll-costing action
-// once the rolls are gone (`beginCustomAction` still answers no-rolls), so the menu must stop
-// advertising one and offer what is still legal: the six free reads and rest. ──
+// ── openActionMenu at zero rolls — the day-done arm, where `beginCustomAction` still answers
+// `no-rolls`. ──
 
 describe('SessionController — the day-done menu at zero rolls', () => {
   const makeController = (engine: MockWorldEngine) =>
@@ -137,6 +136,17 @@ describe('SessionController — the day-done menu at zero rolls', () => {
     });
 
     expect(makeController(engine).openActionMenu('user-1').kind).toBe('resume-decision');
+  });
+
+  it('warns that the ground is unsafe — a rest away from the Oak costs HP', () => {
+    const engine = new MockWorldEngine();
+    engine.setCharacter(MockWorldEngine.defaultCharacter({ id: 1, rollsRemaining: 0, lastActionState: null }));
+    engine.setLocation({ name: 'The Bog', description: 'Mire.', tags: [], isSafe: false, emoji: '📍' });
+
+    const result = makeController(engine).openActionMenu('user-1');
+    if (result.kind !== 'menu') throw new Error('unreachable');
+
+    expect(result.view.description).toContain("isn't safe");
   });
 
   it('keeps /sleep refusing while rolls remain — the mirror of the zero-roll arm', () => {

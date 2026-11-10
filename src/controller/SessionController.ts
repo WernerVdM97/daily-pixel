@@ -283,16 +283,16 @@ export class SessionController {
   }
 
   /** Reproduces the pre-M3.3b `nav:action` leaf's guard/resume/menu order (DC-I) — char guard ->
-   *  zero rolls -> resume-in-progress (stale/decision/error) -> fresh menu. The zero-roll arm is a
-   *  MENU, not a refusal: the day's work is spent, but the free reads and rest are still legal, and
-   *  answering `no-rolls` here left the player nothing to do but back out. Shared by the slash
-   *  `/action` no-description path too via `composeActionMenu`. */
+   *  zero rolls -> resume-in-progress (stale/decision/error) -> fresh menu. The zero-roll arm is a MENU,
+   *  not a refusal: `composeDayDoneMenu` owns its copy. Shared by the slash `/action` no-description
+   *  path too via `composeActionMenu`. */
   openActionMenu(userId: string): ActionMenuResult {
     const character = this.engine.getCharacter(userId);
     if (!character) return { kind: 'no-character' };
 
     if (character.rollsRemaining <= 0 && !character.lastActionState) {
-      return { kind: 'menu', view: composeDayDoneMenu(character) };
+      const isSafe = this.engine.getLocation(character.location)?.isSafe ?? true;
+      return { kind: 'menu', view: composeDayDoneMenu(character, isSafe) };
     }
 
     if (character.lastActionState) {

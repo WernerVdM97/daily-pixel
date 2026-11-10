@@ -240,7 +240,7 @@ describe('buildUserMessage — working memory (T2)', () => {
       lastRecon: { screen: 'map', text: '🗺️ The World Map' },
       lastRoll: true,
     });
-    expect(msg).toContain("LAST ROLL: this is the day's final action; include your dayNote with this pick.");
+    expect(msg).toContain("LAST ROLL: this is the last pick that costs a roll; include your dayNote with this pick.");
 
     const offsets = ['LAST LOOK: /map', 'LAST ROLL:', 'SCREEN:'].map((h) => msg.indexOf(h));
     expect(offsets.every((i) => i >= 0)).toBe(true);

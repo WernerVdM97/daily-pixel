@@ -91,7 +91,7 @@ export interface ChooseMoveInput {
   /** The recon screen rendered on the PREVIOUS turn because the brain asked for it. Delivered
    *  for exactly one turn, then cleared (it stays readable in the day log / on re-request). */
   lastRecon?: { screen: ReconScreen; text: string };
-  /** True when the character has exactly ONE roll left, so this turn's action is the day's last and
+  /** True when the character has exactly ONE roll left, so this pick is the last that costs a roll and
    *  the day note rides it. Spread in only when true, so any other turn renders exactly as before. */
   lastRoll?: boolean;
 }

@@ -1132,8 +1132,7 @@ runCaseBlock('conformance — menu.open', [
     assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_MENU_COPY); expect(o.beats).toEqual([]); },
   },
   {
-    // The zero-roll arm answers a MENU, not a refusal: the day's work is spent, but the free
-    // reads and rest are still legal, so the surface must not advertise work the engine refuses.
+    // The zero-roll arm answers a MENU (`composeDayDoneMenu`), not a refusal.
     name: 'zero rolls → ok:true with the day-done menu, no roll-costing option',
     event: MENU_OPEN,
     real: () => realRouter(realChar({ rollsRemaining: 0 })),
@@ -1468,8 +1467,8 @@ runCaseBlock('conformance — action.custom', [
   },
   {
     // DC-M9.2 fix: the pre-port top guard (rollsRemaining <= 0 && !lastActionState) never
-    // crossed the seam — moved behind beginCustomAction. Precedes the loading beat, exactly
-    // like menu.open's own no-rolls arm above.
+    // crossed the seam — moved behind beginCustomAction. Precedes the loading beat, and stays
+    // the only place a bare `no-rolls` copies out now that menu.open answers the day-done menu.
     name: 'no-rolls, no pending action → the 🛌 copy, no beat',
     event: ACTION_CUSTOM,
     real: () => realRouter(realChar({ rollsRemaining: 0, lastActionState: null })),
