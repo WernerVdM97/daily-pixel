@@ -59,6 +59,7 @@ discord presentation
 | ------ | --- | ------- |
 | 🔭 | [Discord UX](./ui/poc-discord-ux.md) | Mobile constraints, buttons-only, one-message-per-action, emoji signals, threads, accessibility, command list |
 | ✅ | [Discord Window Size Reference](./ui/discord-window-size.md) | The measured screen budget: 60 × 32 as the code-block ceiling on the phone client, ~30 columns as the safe portrait width for scene text |
+| 🔭 | [Journal Payout Layout](./ui/journal-payout-layout.md) | Three mock layouts for a day-job payout on the outcome view — right-aligned table rows, an indented subline under the entry, and a ledger line under the headline — each drawn at the 30-col safe width for a like-for-like read, with mobile legibility, scan-ability and rendering cost (in `OutcomeRenderer` and `outcomeToText`) traded off per option. The owner's pick decides the shape #241 builds. |
 
 ## 📐 decisions
 
