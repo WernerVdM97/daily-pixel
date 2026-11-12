@@ -24,10 +24,10 @@ _Thread B of the v12 spark: the world sizes itself to whoever faces it (stronger
 
 ---
 
-The roll math is **unchanged**: `d20 + stat + itemBonus ≥ DC` (`resolveRoll`, `dc.ts:72`), with **no player-side buff** — a player's power *is* their stats + gear (`effectiveStats`, `dc.ts:45`); we never inflate the dice. What changes is the **world**, sized by two inputs:
+The roll math is **unchanged**: `d20 + stat + itemBonus ≥ DC` (`resolveRoll`, `dc.ts`), with **no player-side buff** — a player's power *is* their stats + gear (`effectiveStats`, `dc.ts`); we never inflate the dice. What changes is the **world**, sized by two inputs:
 
 1. The player's **effective strength** (`effectiveStats`).
-2. A **World Tier** `T` climbing over the year (weekly cadence exists — `weeklyThreatIndex`, `afternoon.ts:82`; game time is `day_number` meta).
+2. A **World Tier** `T` climbing over the year (weekly cadence exists — `weeklyThreatIndex`, `afternoon.ts`; game time is `day_number` meta).
 
 - [I] **Stronger player → stronger foes.** A week-20 ranger meets tougher beasts, higher DCs, and deadlier brigands than a week-2 recruit in the *same* clearing — steepest in unsafe locations (`is_safe = 0`, including the off-map wilds from [[roll-economy-timeouts-and-world-growth]]).
 - [I] **Daunting challenge → bigger reward.** Beating a tougher foe pays proportionally more (rarer loot, `modify_wealth`, `modify_max_stamina`, unlocks). Thread C ([[prompt-v12-combat]]) scales reward to the *encounter's own* difficulty; Thread B adds the **cross-session World Tier** on top (a week-20 kill worth more than an identical week-2 one).

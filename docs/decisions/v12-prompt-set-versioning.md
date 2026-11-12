@@ -46,7 +46,7 @@ assets/prompts/decision-prompts/v12/
     └── other/    {success,failure}.md
 ```
 
-`classify` is a reserved bookend name. Per-type **decide** templates live under `decide/`, named for their `ActionCategory` (`src/llm/LlmGateway.ts:48` — `combat · travel · social · skill · search · rest · other`). Per-type-per-verdict **resolve** templates live under `resolve/<category>/`, split into `success.md` and `failure.md`.
+`classify` is a reserved bookend name. Per-type **decide** templates live under `decide/`, named for their `ActionCategory` (`src/llm/LlmGateway.ts` — `combat · travel · social · skill · search · rest · other`). Per-type-per-verdict **resolve** templates live under `resolve/<category>/`, split into `success.md` and `failure.md`.
 
 **Phase splitting (decide only):** `decide/phases/NEW_ACTION.md` and `decide/phases/CONTINUE.md` separate the opening-beat rules from the chaining-beat rules so the model sees only what's relevant to its current task. Both are optional — a set without phase files just uses the shared BASE.
 
@@ -70,7 +70,7 @@ Independent per-template constants (`CLASSIFY_VERSION`, `RESOLVE_VERSION`, …) 
 
 ### 3. Row stamping — no migration
 
-Both `actions.prompt_version` and `llm_calls.prompt_version` are free-form `TEXT` (`src/db/schema.sql:45,82`) and already carry mixed values (`'v11'`, `'critic-v1'`). Per-stage stamps like `'v12/classify'` need **no schema change**. Wiring the gateway to emit them is Stage 1's job (the calls don't fire until the orchestrator exists); this stage only defines the `stampFor` helper and the convention.
+Both `actions.prompt_version` and `llm_calls.prompt_version` are free-form `TEXT` (`src/db/schema.sql`, on both tables) and already carry mixed values (`'v11'`, `'critic-v1'`). Per-stage stamps like `'v12/classify'` need **no schema change**. Wiring the gateway to emit them is Stage 1's job (the calls don't fire until the orchestrator exists); this stage only defines the `stampFor` helper and the convention.
 
 ### 4. `current_source.md` mirror — N/A for sets
 

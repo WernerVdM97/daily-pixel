@@ -39,7 +39,7 @@ Rationale:
 - [c] In-memory state is lost on process restart (same as today — the wizard is resumable only within its 10-min TTL anyway) and assumes a single process (already assumed by in-process transport, parent decision 3).
 - [?] The TTL stays 10 minutes; the durable record is the character row the engine writes at confirm. The draft is disposable by design.
 
-The store module physically remains `src/discord/WizardSession.ts` — a pure-TS module with no discord.js import, so the controller may cross into it exactly as it already crosses into `src/discord/format.js` via the `dayJob.ts` precedent (DC-M7.2.1). Ownership is who drives the state, not where the file sits; M9's dispatcher rebuild may relocate the file as housekeeping, which needs no further record.
+The store module is `src/controller/WizardSession.ts` — a pure-TS module with no discord.js import, so the controller may cross into it exactly as it already crosses into `src/discord/format.ts` via the `dayJob.ts` precedent (DC-M7.2.1). Ownership is who drives the state, not where the file sits; M9's dispatcher rebuild did relocate the file out of `src/discord/` as housekeeping, which needed no further record.
 
 ## Acceptance
 
