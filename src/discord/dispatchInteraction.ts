@@ -836,6 +836,21 @@ export async function dispatchInteraction(
             .catch(() => {});
           return;
         }
+        // A divine intervention on a later beat is the same system fault the start path paints
+        // (⚠️ System), not the Action Failed card a stepChoice throw earns.
+        if (response.error.code === "divine-intervention") {
+          await interaction.webhook.editMessage(interaction.message.id, {
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("⚠️ System")
+                .setDescription(response.error.message)
+                .setColor(0x95a5a6)
+                .toJSON(),
+            ],
+            components: [],
+          });
+          return;
+        }
         // Post-beat 'internal': console.error only, no notifyAdmin, repaint Action Failed. A
         // stepChoice throw lands on the same code, so it must not reach the outer funnel.
         console.error("[action] stepAction error:", new Error(response.error.message));

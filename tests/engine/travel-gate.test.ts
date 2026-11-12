@@ -98,6 +98,16 @@ describe('applyTravelCoherenceGate', () => {
     expect(result).toEqual({ kind: 'ok', mutations });
   });
 
+  it('accepts a frontier whose authored name only matches the scene once sanitized', () => {
+    // Finalize mints `sanitizeAuthored(name)`, so markdown or a whitespace run in the authored
+    // name must not void a beat that would have arrived at exactly the declared scene.
+    const mutations: WorldMutation[] = [
+      { type: 'cross_frontier', direction: 'north', name: 'The **Ashen**  Reach' },
+    ];
+    const result = applyTravelCoherenceGate(mutations, 'The Ashen Reach', 'The Town Forge', graph);
+    expect(result).toEqual({ kind: 'ok', mutations });
+  });
+
   it('takes any name on trust when the gate has no graph to check against', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mutations: WorldMutation[] = [];

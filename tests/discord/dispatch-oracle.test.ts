@@ -176,6 +176,26 @@ const DIVINE_WORK_RESULT: ActionStartResult = {
   actionType: "other",
 };
 
+/** M9.1 (DC-M9.3) on a later beat: the travel gate refuses the scene, so the step resolves
+ *  divine instead of an outcome. The roll was drained at start and refunded here. */
+const DIVINE_STEP_RESULT: ActionStepResult = {
+  resolved: true,
+  state: {
+    rawInput: "Walk the rounds",
+    decisions: [
+      {
+        prompt: "The gate creaks. What do you do?",
+        options: [],
+        chosen: "Advance carefully",
+        dcModifier: 0,
+        distilledType: "scout",
+      },
+    ],
+    accumulatedDc: 11,
+  },
+  outcome: DIVINE_OUTCOME,
+};
+
 /** True when any ack carried the outcome service buttons (`outcome:feedback`/`outcome:bug`),
  *  the tell that the resolved/outcome path rendered rather than a decision prompt. */
 function hasOutcomeButtons(acks: Recorded[]): boolean {
@@ -748,6 +768,45 @@ describe("dispatch oracle — divine intervention (M9.1, DC-M9.3)", () => {
     );
     expect((paint!.arg as any).embeds[0].color).toBe(0x95a5a6);
     expect((paint!.arg as any).components).toEqual([]);
+    expect(hasOutcomeButtons(_acks)).toBe(false);
+    expect(broadcastOutcomeSpy).not.toHaveBeenCalled();
+    expect(announceCollapseSpy).not.toHaveBeenCalled();
+    expect(snapshotAcks(_acks)).toMatchSnapshot();
+  });
+
+  it("action:<choice> → a later-beat divine intervention paints the grey System embed, no broadcast", async () => {
+    const h = makeHarness();
+    h.engine.setCharacter(oracleChar());
+    h.engine.setStepActionResult(DIVINE_STEP_RESULT as never);
+    h.engine.setPendingChoiceOptions(DECISION_RESULT.firstDecision.options as never);
+    broadcastOutcomeSpy.mockClear();
+    announceCollapseSpy.mockClear();
+    const { intr, _acks } = buttonInteraction("cid-choice-divine", "action:choice:0:0");
+    await dispatchInteraction(intr as never, h.deps);
+
+    nonEmpty(_acks);
+    expect(h.engine.calls.stepAction[0].choice).toBe("Advance carefully");
+    // Webhook edit, not editReply: the thinking beat already deferred and painted here.
+    const paint = _acks.find(
+      (a) =>
+        a.method === "webhook.editMessage" &&
+        (a.arg as any)?.embeds?.[0]?.title === "⚠️ System",
+    );
+    expect(paint).toBeTruthy();
+    expect((paint!.arg as any).embeds[0].description).toBe(
+      "The warden intervenes — your roll is refunded.",
+    );
+    expect((paint!.arg as any).embeds[0].color).toBe(0x95a5a6);
+    expect((paint!.arg as any).components).toEqual([]);
+    // Neither the Action Failed repaint nor the outer funnel fires.
+    expect(
+      _acks.some(
+        (a) =>
+          (a.arg as { embeds?: Array<{ title?: string }> } | undefined)?.embeds?.[0]?.title ===
+          "⚔️ Action Failed",
+      ),
+    ).toBe(false);
+    expect(h.notifyAdmin).not.toHaveBeenCalled();
     expect(hasOutcomeButtons(_acks)).toBe(false);
     expect(broadcastOutcomeSpy).not.toHaveBeenCalled();
     expect(announceCollapseSpy).not.toHaveBeenCalled();

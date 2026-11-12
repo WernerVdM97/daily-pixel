@@ -1124,10 +1124,10 @@ export class WorldEngineImpl implements WorldEngine {
 
       if (result.resolved) {
         // Divine intervention: a system fault, not a real action — the roll it drained at start is
-        // given back, matching the beat-1 path where the roll is never spent.
+        // given back exactly, and (like the beat-1 path) no `actions` row is written.
         if (result.outcome.isDivineIntervention) {
           this.charRepo.update(characterId, { last_action_state: null });
-          this.refundRoll(characterId);
+          this.restoreDrainedRoll(characterId);
           result.outcome.rollsDelta = 0;
           result.outcome.rollRefunded = true;
           return {
@@ -1956,6 +1956,13 @@ export class WorldEngineImpl implements WorldEngine {
     day: number,
   ): void {
     this.charRepo.update(characterId, { [column]: day });
+  }
+
+  /** Hand back the roll the start drained. Uncapped on purpose: `refundRoll`'s allowance ceiling
+   *  is a grace for the bail/timeout paths, where an over-allowance row is a bug, not a holding. */
+  private restoreDrainedRoll(characterId: number): void {
+    const row = this.charRepo.findById(characterId)!;
+    this.charRepo.update(characterId, { rolls_remaining: row.rolls_remaining + 1 });
   }
 
   /** Refund one roll, capped at today's allowance (Saturday bonus included). Used by the bail,

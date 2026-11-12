@@ -421,6 +421,10 @@ export class GameRouter {
         return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: stepped.view, facts: this.addCharacterFacts(e.playerId) });
       case 'outcome':
         return this.finalize({ v: PROTOCOL_VERSION, ok: true, view: stepped.view, facts: this.addCharacterFacts(e.playerId, this.outcomeFacts(stepped)) });
+      case 'divine':
+        // Same dead-edge fallback as the start path's `divine` arm: the validator rejects an
+        // empty error message, and the engine's divine outcomeText is never empty.
+        return this.error('divine-intervention', stepped.text || 'Your roll has been refunded.');
     }
   }
 

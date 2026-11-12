@@ -1747,6 +1747,28 @@ describe('WorldEngineImpl — pipeline stage failures fail open (0.3.4)', () => 
     expect(charRepo.findById(characterId)!.last_action_state).toBeNull();
   });
 
+  it('restores the drained roll exactly on a divine step, even above the allowance', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({
+        decide: (nth) => jsonResponse(nth === 1
+          ? withOneOption
+          : { ...withOneOption, required: false, decision: [], sceneLocation: 'Town Square · The Vale' }),
+      }),
+    );
+    // `modify_rolls_remaining` may leave a character holding more than the daily allowance, so a
+    // capped refund would report `rollRefunded` while keeping a roll it was handed.
+    charRepo.update(characterId, { rolls_remaining: 4 });
+
+    await engine.startAction(characterId, 'inspect the lockup');
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3); // drained at start
+
+    const result = await engine.stepAction(characterId, 'Look closer');
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) expect(result.outcome.rollRefunded).toBe(true);
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(4);
+  });
+
   it('resolves a step as timed_out (roll refunded) when RESOLVE-NARRATE comes back unparseable', async () => {
     const { engine, charRepo, characterId } = makeEngine(
       stageRouter({

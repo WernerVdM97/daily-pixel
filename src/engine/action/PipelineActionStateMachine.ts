@@ -886,7 +886,7 @@ export class PipelineActionStateMachine {
     const proposedMutations = combatMutate.mutations;
     const combatResolveCallIds: number[] = combatMutateCallId !== 0 ? [combatMutateCallId] : [];
 
-    // Travel-coherence gate: structural backstop, injects intent only.
+    // Travel-coherence gate: injects the missing relocate, or refuses a name the graph cannot place.
     const gate = applyTravelCoherenceGate(
       proposedMutations as WorldMutation[],
       decisionForHandoff.sceneLocation,
@@ -1074,8 +1074,7 @@ export class PipelineActionStateMachine {
     const proposedMutations = mutateResult.mutations;
     const resolveCallIds: number[] = resolveMutateCallId !== 0 ? [resolveMutateCallId] : [];
 
-    // Travel-coherence gate: backstop against a scene narrated elsewhere with no relocate
-    // mutation. It injects intent only; geography enforces feasibility in finalize below.
+    // Travel-coherence gate: injects the missing relocate, or refuses a name the graph cannot place.
     const gate = applyTravelCoherenceGate(
       proposedMutations as WorldMutation[],
       decisionForHandoff.sceneLocation,
@@ -1307,8 +1306,8 @@ export class PipelineActionStateMachine {
     return this.resolveDivineIntervention(rawInput, kind, wage);
   }
 
-  /** DECIDE named a place the graph cannot resolve — the model's own fault, not the player's — so the
-   *  beat lands on the same refunded path a stage failure takes, with the mutation set dropped whole. */
+  /** The model authored a place no graph can resolve, so the beat lands on the same refunded path a
+   *  stage failure takes, with the mutation set dropped whole. */
   private divineOnUnresolvableScene(
     state: PipelineInternalActionState,
     sceneLocation: string,
