@@ -1123,10 +1123,13 @@ export class WorldEngineImpl implements WorldEngine {
       const result = await machine.step(internalState, choice, char, items);
 
       if (result.resolved) {
-        // Divine intervention: the roll was drained at start, so clearing the state resolves it.
+        // Divine intervention: a system fault, not a real action — the roll it drained at start is
+        // given back, matching the beat-1 path where the roll is never spent.
         if (result.outcome.isDivineIntervention) {
           this.charRepo.update(characterId, { last_action_state: null });
-          result.outcome.rollsDelta = -1;
+          this.refundRoll(characterId);
+          result.outcome.rollsDelta = 0;
+          result.outcome.rollRefunded = true;
           return {
             resolved: true,
             state: this.toPublicState(result.state),

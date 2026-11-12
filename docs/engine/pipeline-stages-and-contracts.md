@@ -127,6 +127,8 @@ The type exists because a bare `catch` at either resolving site would dress a DB
 
 Mind the two vocabularies when chasing one failure: the error's `stage` is the gateway method (`resolveMutate`, `resolveNarrate`), while `call_kind` and `PipelineStage` are kebab (`resolve-mutate`, `resolve-narrate`). Logs grep one, rows the other.
 
+One divine intervention is not a stage error and is worth knowing about when reading a run: `applyTravelCoherenceGate` (`src/engine/action/travel-gate.ts`) reports a `scene_location` that names no location the graph knows and that no same-beat `cross_frontier` mints, and the machine resolves the beat through the same refunded outcome rather than injecting travel to it. The model authored a name nothing can place — usually the `Location: Name · Region` display label echoed back — so the beat's mutations are dropped whole rather than landing against a scene the engine refused.
+
 ## 5. Stamping and observability
 
 `stampForPipelineStage` derives every stamp through the prompt set's own `stampFor`, so a row and the template it came from cannot drift apart. `callKindForPipelineStage` derives the label the audit groups by. `<version>` below is `PROMPT_SET_VERSION`, the same constant `loadPromptSet` reads.

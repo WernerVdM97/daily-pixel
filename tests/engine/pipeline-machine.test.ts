@@ -1172,6 +1172,8 @@ describe('PipelineActionStateMachine — D6 x T5b: the gate injects intent, geog
     const locationRepo = new LocationRepository(db);
     const edgeRepo = new LocationEdgeRepository(db);
     const finalize = createGeographyFinalize({ locationRepo, edgeRepo });
+    // A charted name with no edges: the gate can resolve it, geography still cannot reach it.
+    locationRepo.create({ name: 'The Frozen Wastes', description: 'Off every road.', isSafe: 0, region: 'Elsewhere' });
 
     const resolver = {
       getNearbyNpcs: () => [],
@@ -1183,9 +1185,8 @@ describe('PipelineActionStateMachine — D6 x T5b: the gate injects intent, geog
     };
 
     const llm = new MockPipelineLlmGateway();
-    // "The Frozen Wastes" is neither a seeded location nor reachable from the Oak (assets/world/
-    // {locations,edges}.yml) — an unknown/dark place, contrast with the identity-finalize D6
-    // tests above where the gate's injected move always survives.
+    // A charted but unreachable node — contrast with the identity-finalize D6 tests above where
+    // the gate's injected move is never feasibility-checked.
     llm.decideResult = combatDecideResult({ sceneLocation: 'The Frozen Wastes' });
     // resolveMutate authors no relocate mutation — the D6 gate must inject one, which real
     // geography then has to feasibility-check.
@@ -1211,6 +1212,59 @@ describe('PipelineActionStateMachine — D6 x T5b: the gate injects intent, geog
       // intent, geography enforces feasibility.
       expect(stepResult.outcome.mutations).toEqual([{ type: 'modify_health', amount: -3 }]);
     }
+  });
+
+  it('resolves an out-of-graph scene_location as divine intervention instead of relocating', async () => {
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    seedWorld(db, SEEDED_LOCATIONS, SEEDED_EDGES);
+    const locationRepo = new LocationRepository(db);
+    const edgeRepo = new LocationEdgeRepository(db);
+    const finalize = createGeographyFinalize({ locationRepo, edgeRepo });
+    const resolver = {
+      getNearbyNpcs: () => [],
+      getNearbyPcs: () => [],
+      getRecentActions: () => [],
+      getKnownLocations: () => locationRepo.findAll().map((l) => l.name),
+      isLocationSafe: () => true,
+      getLocalGeography: () => ({ region: null, neighbours: [], frontiers: [] }),
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const llm = new MockPipelineLlmGateway();
+    // The M4 echo: the model reads the `Place · Region` display label off the Scene line and
+    // hands the whole string back as the location's name.
+    llm.decideResult = combatDecideResult({ sceneLocation: 'Town Square · The Vale' });
+    llm.resolveMutateResult = { mutations: [{ type: 'modify_health', amount: -3 }] };
+    llm.resolveNarrateResult = { outcomeText: 'You arrive somewhere the map does not have.' };
+
+    const machine = new PipelineActionStateMachine(llm, () => 20, resolver, finalize);
+    const char = testChar({ location: "The Warden's Oak" });
+    const started = await machine.start(char, 'go to the marketplace and brawl', testItems);
+    if (started.resolved) throw new Error('expected unresolved start');
+
+    llm.decideResult = {
+      ...combatDecideResult({ sceneLocation: 'Town Square · The Vale' }),
+      decision: [{ label: 'Step back', dcModifier: null }],
+    };
+    const stepResult = await machine.step(started.state, 'Strike hard', char, testItems);
+    const gateLogs = warn.mock.calls.map((c) => String(c[0]));
+    const pipelineLogs = error.mock.calls.map((c) => String(c[0]));
+    error.mockRestore();
+    warn.mockRestore();
+
+    expect(stepResult.resolved).toBe(true);
+    if (stepResult.resolved) {
+      expect(stepResult.outcome.isDivineIntervention).toBe(true);
+      // Neither the injected relocate nor the beat's own mutations survive a divine intervention.
+      expect(stepResult.outcome.mutations).toEqual([]);
+    }
+    // Nothing is narrated against a scene the engine refused: the narration call never runs.
+    expect(llm.resolveNarrateCalls).toHaveLength(0);
+    expect(gateLogs.some((line) => line.includes('[travel-gate]'))).toBe(true);
+    expect(pipelineLogs.some((line) => line.includes('Town Square · The Vale'))).toBe(true);
   });
 });
 
