@@ -139,7 +139,7 @@ The seven current entries, with `allowedMutations` quoted exactly from `CATEGORY
 
 ## Diagram 3 — the mutation vocabulary, grouped by target entity
 
-Fifteen ops today, grouped by *what they touch*. Every op is **LLM-proposed, engine-disposed** — the LLM emits a typed delta; the engine validates against the whitelist (`validateMutations`, `src/engine/action/mutations.ts`), clamps numerics, and writes. The LLM never emits SQL. Grouping by entity is what makes the extension seam obvious: **item interaction is already a live group** (`add_item`/`remove_item`), so the future verbs (dashed) extend it without new machinery.
+Seventeen ops today, grouped by *what they touch*. Every op is **LLM-proposed, engine-disposed** — the LLM emits a typed delta; the engine validates against the whitelist (`validateMutations`, `src/engine/action/mutations.ts`), clamps numerics, and writes. The LLM never emits SQL. Grouping by entity is what makes the extension seam obvious: **item interaction is already a live group** (`add_item`/`remove_item`), so the future verbs (dashed) extend it without new machinery.
 
 ```mermaid
 flowchart LR
@@ -169,11 +169,15 @@ flowchart LR
     m14[update_npc]
     m15[remove_npc]
   end
+  subgraph EDGE["🔗 Scene-state edges"]
+    m16[set_relation]
+    m17[update_relation]
+  end
   classDef future stroke-dasharray:5 5,opacity:0.55
 ```
 
 - [p] **Failure-filter is deterministic and central** (`applyOutcomeToMutations`, `src/engine/action/machine.ts`): on failure, beneficial ops (`add_item`, `cross_frontier`, `reveal_location`) are stripped, costs kept, a −2 stamina penalty added.
-- [>] **v12 extends the vocabulary to be edge-shaped** (`set_relation` / `update_relation`, [[prompt-v12-scene-state]]) so combat/conversation/puzzle state lives on graph edges — same proposed→disposed rule, new op shape. The ops are in `src/engine/action/relation-wiring.ts` today.
+- [p] **The vocabulary is already edge-shaped** — `set_relation` / `update_relation` ([[prompt-v12-scene-state]]) carry combat, conversation and puzzle state on graph edges under the same proposed→disposed rule, and a combat round is one `set_relation` carrying the edge's full absolute prop set. The writers live in `src/engine/action/relation-wiring.ts` and `combat-state.ts`.
 
 ## Diagram 4 — the scene-state graph shape
 

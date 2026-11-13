@@ -33,7 +33,7 @@ Two findings from the thinking-analysis pass collided:
   > "if I make a wisdom-based option, it would still roll against physical … the model doesn't support per-option stats."
 
 - [!] **The roll has no ability check.** The resolution is `d20 + computeItemBonus(items, stat) ≥ dc`
-  (`dc.ts:44`). The character's own ability score (`char.stats[stat]`) is **not in the
+  (`dc.ts`). The character's own ability score (`char.stats[stat]`) is **not in the
   formula**. A Warrior with `physical 3` rolls identically to one with `physical 0` holding
   the same gear. `stat` today is really an *item-category selector*, not an ability check —
   yet the model already *assumes* it's an ability check (call ID 86 reasoned "wisdom 2 + item +2").
@@ -98,4 +98,4 @@ These interact: per-option stat is cosmetic while `stat` only toggles item bonus
   skewed. Re-run `scripts/llm-thinking-analysis.mjs` + the cohort aggregate to confirm the
   digression is gone.
 - [>] Implementation lands in `decision-v6.md`, `dc.ts`, `machine.ts`, `prompt-builder.ts`,
-  `LlmGateway.ts`, `WorldEngine.ts`, `DeepseekLlmGateway.ts`.
+  `LlmGateway.ts`, `WorldEngine.ts`, `ProdLlmGateway.ts` (then `DeepseekLlmGateway`, after the OpenRouter move).

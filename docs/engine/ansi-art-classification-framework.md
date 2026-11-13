@@ -17,7 +17,7 @@ related:
 ---
 _A classification framework that maps every player-facing scenario to an ANSI art **register** — a fixed structural template with deterministic (engine-owned) and generative (LLM-authored) slots. Defines the full taxonomy of registers, their chrome/slot budgets, colour-role conventions, and the slot-binding rules that keep every frame structurally sound regardless of whether its content came from dice math or an LLM._
 
-> **Scope:** the classification taxonomy (register shapes, slot contracts, colour vocabulary) is MVP — it guides the `AnsiRenderer` architecture from day one. Individual registers are phased: COMBAT_FRAME, COMBAT_CRIT, DATA_CARD, BROADCAST_CARD, and DIALOGUE_MODAL are MVP-tier (core-loop surfaces); the remaining nine registers are mvp+ depth and deferred. Each register in §3 carries a `phase` tag so the implementation order is explicit.
+> **Scope:** the classification taxonomy (register shapes, slot contracts, colour vocabulary) is MVP — it guides the `AnsiRenderer` architecture from day one. Individual registers are phased: OPENING, COMBAT_FRAME, COMBAT_CRIT, DATA_CARD, BROADCAST_CARD, and DIALOGUE_MODAL are MVP-tier (core-loop surfaces); the remaining nine registers are mvp+ depth and deferred. Each register in §3 carries a `phase` tag so the implementation order is explicit.
 
 ---
 

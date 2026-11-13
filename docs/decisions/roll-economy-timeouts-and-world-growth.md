@@ -26,11 +26,11 @@ Decided with Werner, 2026-06-21. The prod evidence (8 players, 67 actions, 216 L
 
 ## Context
 
-The action loop debits **1 of 3 daily rolls** in `WorldEngineImpl.startAction` (`:565`) the moment an action starts, before any dice or choice. Three failure modes fall out of that, all live on v0.2.3:
+The action loop debits **1 of 3 daily rolls** in `WorldEngineImpl.startAction` the moment an action starts, before any dice or choice. Three failure modes fall out of that, all live on v0.2.3:
 
-- **Auto-resolve** (`machine.ts:79-111`): when the LLM returns no rollable option, the action resolves `done` / `playerRolled:null` — but the roll is already spent. 28% of v0.2.3 actions; top complaint volume.
-- **Timeout** (`isStateStale`, `WorldEngineImpl.ts:173-205`): a stale action writes `timed_out`, applies no mutations (intended travel lost), **does not refund**, renders a grey ghost card.
-- **Off-map travel** (`set_location`): the decision prompt never sends the location list (`prompt-builder.ts:42` sends only the *current* location), so the LLM invents place names. The resolution-path mutation context (`WorldEngineImpl.ts:414-422`) omits `knownLocations`, so the unknown-location guard in `mutations.ts:77` is **inactive** — unknown `set_location` is *accepted*, leaving the player at an unrenderable spot the day-work gating then refuses.
+- **Auto-resolve** (`machine.ts`, the auto-resolve path): when the LLM returns no rollable option, the action resolves `done` / `playerRolled:null` — but the roll is already spent. 28% of v0.2.3 actions; top complaint volume.
+- **Timeout** (`isStateStale`, `WorldEngineImpl.ts`): a stale action writes `timed_out`, applies no mutations (intended travel lost), **does not refund**, renders a grey ghost card.
+- **Off-map travel** (`set_location`): the decision prompt never sends the location list (`prompt-builder.ts` sends only the *current* location), so the LLM invents place names. `WorldEngineImpl.ts`'s resolution-path mutation context omits `knownLocations`, so the unknown-location guard in `mutations.ts` is **inactive** — unknown `set_location` is *accepted*, leaving the player at an unrenderable spot the day-work gating then refuses.
 
 Shared design principle adopted across all three: **a roll is the price of a resolved action that changes the world or offers a real choice — not the price of starting one.**
 
@@ -45,7 +45,7 @@ Shared design principle adopted across all three: **a roll is the price of a res
 - [c] Adds per-day bookkeeping (one column) and a "what counts as a no-op" rule the engine must apply consistently.
 - [?] Resolved: travel/rest auto-resolves **do** change the world (location/stamina), so they legitimately cost a roll — they are *not* no-ops.
 
-**Also (prompt side, v8):** tighten the prompt so a paragraph of substantive player intent must yield **≥1 rollable decision** unless it is genuinely pure travel/rest. Reject empty-decision / no-mutation / no-outcome responses at the gateway (`DeepseekLlmGateway.ts:264` currently only *warns*) and retry instead of surfacing a dead turn. This shrinks how often the no-op path is hit at all; the refund handles the residue.
+**Also (prompt side, v8):** tighten the prompt so a paragraph of substantive player intent must yield **≥1 rollable decision** unless it is genuinely pure travel/rest. Reject empty-decision / no-mutation / no-outcome responses at the gateway (`ProdLlmGateway.validateDecision`, then `DeepseekLlmGateway`, only *warns*) and retry instead of surfacing a dead turn. This shrinks how often the no-op path is hit at all; the refund handles the residue.
 
 **Acceptance.** A no-op action: first per day → roll count unchanged (refunded), footer/telemetry reflect no spend; second+ per day → roll spent. A world-changing auto-resolve (travel/rest) → roll spent every time. Covered by engine tests against `MockLlmGateway` no-op vs mutation-bearing responses.
 
@@ -93,5 +93,5 @@ Shared design principle adopted across all three: **a roll is the price of a res
 - [I] **`decision-v8.md` bump owns:** the D1 "substantive intent → ≥1 rollable decision" rule; the D3 `KNOWN LOCATIONS` injection + creation rule; **plus** the cosmetic fixes relocated from [[polish-pass-v0.2.4]] — P1 ("expendale"→"expendable"), P2 (inventory-reference wording), and the E3 `done`-flag contract call (re-document or strip the engine's reliance). All land in the **one** new version. Per `AGENTS.md`: add `decision-v8.md`, bump `PROMPT_VERSION`, copy to `current_source.md` byte-identical.
 - [I] **DB migration (new columns on `player_characters`):** `last_noop_refund_day` and `last_timeout_refund_day` (INTEGER game-day, same pattern as `last_rested_day`); plus `enrichment_pending` on `locations` (INTEGER 0|1). Migration framework is additive/guarded (see [[bug-analysis-v0.2.2]]).
 - [I] **Gateway:** a new async "cartographer" path (its own focused prompt + a small structured schema: `{ matchesExisting?: string, is_safe?: 0|1, description?: string }`), separate from the decision gateway. Reuses the existing transport (clean at 216/216 calls).
-- [I] **Touches `WorldEngineImpl.ts`** in `startAction`/`isStateStale` and the mutation-context builder (`:414`) — *not* `countSoulsInUnsafe`, which stays owned by [[polish-pass-v0.2.4]] §E1. With D3 live, unknown locations stop existing, so §E1's guard becomes belt-and-braces (still wanted).
+- [I] **Touches `WorldEngineImpl.ts`** in `startAction`/`isStateStale` and the mutation-context builder — *not* `countSoulsInUnsafe`, which stays owned by [[polish-pass-v0.2.4]] §E1. With D3 live, unknown locations stop existing, so §E1's guard becomes belt-and-braces (still wanted).
 - [c] **Scope honesty:** D3 is the most ambitious POC item — a second LLM agent and emergent world state. Justified by prod demand, but it is the first toe into MVP-shaped world-growth; the rejections above keep it from sliding fully into MVP.
