@@ -217,7 +217,7 @@ describe("action oracle — slash /action guards + gate", () => {
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });
 
-  it("2 · with-char, 0 rolls, no description → 🛌 Out of actions, ephemeral reply, no defer, no nav bar, no stamp", async () => {
+  it("2 · with-char, 0 rolls, no description → the day-done menu: the six free reads + rest, no job option, ephemeral, stamp first", async () => {
     const h = makeHarness();
     h.engine.setCharacterExists(true);
     h.engine.setCharacter(oracleChar({ rollsRemaining: 0, lastActionState: null }));
@@ -227,15 +227,21 @@ describe("action oracle — slash /action guards + gate", () => {
     nonEmpty(_acks);
     expect(h.engine.calls.characterExists).toContain("action-2-norolls");
     const methods = _acks.map((a) => a.method);
-    expect(methods).toEqual(["reply"]);
-    const reply = _acks[0];
-    expect((reply.arg as any).content).toBe(
-      "🛌 **Out of actions for today.**\nRest by the Oak (`/sleep`) and try again tomorrow.",
-    );
+    expect(methods).toContain("reply");
+    expect(methods).toContain("fetchReply"); // the menu-message stash
+    const reply = _acks.find((a) => a.method === "reply")!;
     expect((reply.arg as any).flags).toBe(64); // MessageFlags.Ephemeral
-    expect((reply.arg as any).components).toBeUndefined();
+    const embed = (reply.arg as any).embeds[0];
+    expect(embed.title).toContain("Town Guard — The day is done");
+    // Seven buttons is two rows — Discord caps a row at five.
+    const rows = (reply.arg as any).components as Array<{ components: Array<{ custom_id: string; label: string }> }>;
+    expect(rows.map((r) => r.components.length)).toEqual([5, 2]);
+    const ids = rows.flatMap((r) => r.components.map((b) => b.custom_id));
+    expect(ids).toEqual(["nav:look", "nav:map", "nav:stats", "nav:backpack", "nav:journal", "nav:help", "nav:sleep"]);
+    // Nothing on this screen spends a roll the player does not have.
+    expect(ids.some((id) => id.startsWith("action:dayjob"))).toBe(false);
     // DC-M9.2.4 class 3 (inverted from M9.0): the router's menu.open flow stamps FIRST on
-    // EVERY arm, including this guard rejection — a call-log change the byte gate can't see.
+    // EVERY arm, including this one — a call-log change the byte gate can't see.
     expect(h.engine.calls.updateLastPlayed).toEqual([1]);
     expect(snapshotAcks(_acks)).toMatchSnapshot();
   });

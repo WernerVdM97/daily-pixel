@@ -308,8 +308,6 @@ export class GameRouter {
     switch (result.kind) {
       case 'no-character':
         return this.error('no-character', NO_CHARACTER_MENU_COPY);
-      case 'no-rolls':
-        return this.error('no-rolls', NO_ROLLS_COPY);
       case 'resume-stale':
         // The stale-session narration rides `facts` (DC-P1) — present only when the
         // controller returned one; the slash /action stale paint's withNarration reads it.

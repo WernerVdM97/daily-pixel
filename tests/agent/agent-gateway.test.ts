@@ -233,15 +233,14 @@ describe('buildUserMessage — working memory (T2)', () => {
   });
 
   it('renders the LAST ROLL block between LAST LOOK and SCREEN, and only when lastRoll is set', () => {
-    // The day note rides the day's last turn: at zero rolls `menu.open` returns `no-rolls` and the
-    // brain is never asked another question, so it has to know this pick is its last chance to
-    // rate the day.
+    // The day note rides the day's last ROLL: the zero-roll menu costs nothing, so the note has to
+    // ride a turn that does, and this flag marks the last one that will.
     const msg = buildUserMessage({
       ...BASE,
       lastRecon: { screen: 'map', text: '🗺️ The World Map' },
       lastRoll: true,
     });
-    expect(msg).toContain("LAST ROLL: this is the day's final action; include your dayNote with this pick.");
+    expect(msg).toContain("LAST ROLL: this is the last pick that costs a roll; include your dayNote with this pick.");
 
     const offsets = ['LAST LOOK: /map', 'LAST ROLL:', 'SCREEN:'].map((h) => msg.indexOf(h));
     expect(offsets.every((i) => i >= 0)).toBe(true);

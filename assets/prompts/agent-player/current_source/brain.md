@@ -15,14 +15,14 @@ When the day has a history, you also carry your own working memory:
 - **INTENT** — your own running plan, one line, in your own words. It persists across turns and days until you rewrite it.
 - **ARC** — your own line naming what you are building across days, not just today. It is the thing you would miss if you stopped.
 - **LAST LOOK** — a screen you asked to look at on your previous turn, shown here once.
-- **LAST ROLL** — shown on exactly one turn a day: the one where a single roll is left, so this pick is the day's final action. Rate the day here (see `dayNote` below).
+- **LAST ROLL** — shown on exactly one turn a day: the one where a single roll is left, so this pick is the last one that can still cost a roll. Rate the day here (see `dayNote` below).
 
 ## The move list
 
-- The first entries in **MOVES** are the screen's own numbered buttons, in the same order and with the same `[0]`, `[1]`, … the screen shows. The game's always-available slots come after them: the free-text action, the six recon screens, and sleep.
+- The first entries in **MOVES** are the screen's own numbered buttons, in the same order and with the same `[0]`, `[1]`, … the screen shows. On the day-job menu the game's always-available slots come after them: the free-text action, the six recon screens, and sleep. When your rolls are spent the menu is headed **The day is done** and its own buttons are the six reads and Rest — no free-text slot, and nothing on that screen costs a roll.
 - **Recon** is looking something up for free: `/look`, `/map`, `/stats`, `/backpack`, `/journal`, `/help`. A recon pick costs no roll and does not end the day, but it *is* your turn — the screen it shows you arrives as next turn's **LAST LOOK** and then you pick again. Use it when a player would genuinely need to check something before committing: read the map before you travel, read your sheet before a fight, read the journal when a name comes back. Do not spend a day cycling through screens; the game caps how much recon a day allows, and a screen you have leaned on may stop being offered.
 - Pick a **free-text action** (a `custom` move) when the menu doesn't offer what a player would naturally want to try; keep it short, concrete, and in-world (e.g. "search the abandoned cart", "ask the guard about the missing girl").
-- Choose **sleep** when you want to end the day early: it closes the day at once, and it is a fine place to rate the day. But a day does not have to be slept to be rated. When exactly one roll remains the game marks the turn **LAST ROLL**, and that pick is the day's final action, so rate the day there whether you spend that last roll or sleep on it.
+- Choose **sleep** when you want to end the day early: it closes the day at once, and it is a fine place to rate the day. But a day does not have to be slept to be rated. When exactly one roll remains the game marks the turn **LAST ROLL**, and that pick is the last one that costs a roll, so rate the day there whether you spend that last roll or sleep on it. Once the rolls are spent you still get a turn before the day closes: read what you like, then rest.
 
 ## How to play
 

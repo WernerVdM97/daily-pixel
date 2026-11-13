@@ -94,6 +94,14 @@ export function freeActionMenuView(view: MenuViewState): MenuViewState {
   return { ...view, buttons: view.buttons.filter((b) => b.customId === CID_DAYJOB_CUSTOM) };
 }
 
+/** The menu the brain is SHOWN once the caps have closed some reads: the same view minus the withheld
+ *  `nav:` buttons. On the day-done menu those buttons ARE the recon slots, so a move withheld alone
+ *  shifts every index the screen advertises. */
+export function reconCappedMenuView(view: MenuViewState, reconUsage: ReconUsage): MenuViewState {
+  const withheld = new Set<string>(reconWithheld(reconUsage).map((screen) => `nav:${screen}`));
+  return { ...view, buttons: view.buttons.filter((b) => !withheld.has(b.customId)) };
+}
+
 /** Legal moves on the character-creation wizard: step 1 is the name slot only (the modal is not a
  *  protocol action); steps 2-8 enumerate `view.buttons` positionally, restart picks included. */
 export function wizardLegalMoves(view: WizardViewState): LegalMove[] {

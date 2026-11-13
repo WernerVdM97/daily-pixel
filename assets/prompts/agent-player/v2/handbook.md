@@ -38,7 +38,7 @@ A ledger down the side keeps your answers so far and the footer counts the steps
 
 ## Rolls: what a day costs
 
-You have **3 rolls a day**, and **4 rolls on Saturdays**. Each `/action` — work, travel, fight, search, talk — spends one roll and rolls a visible d20 against a difficulty the warden sets for that option. When your rolls run out the day is done; `/sleep` ends it, and the rolls refresh at nightfall (or on the nightly world tick, whether you were there or not).
+You have **3 rolls a day**, and **4 rolls on Saturdays**. Each `/action` — work, travel, fight, search, talk — spends one roll and rolls a visible d20 against a difficulty the warden sets for that option. When your rolls run out the doing is over but the day is not: `/action` then offers only the free reads and Rest, and `/sleep` (or Rest) ends the day and refreshes your rolls at nightfall (or on the nightly world tick, whether you were there or not).
 
 Reading is free. `/look`, `/map`, `/stats`, `/backpack`, `/journal` and `/help` never cost a roll and never advance the day, and neither does `/hi`. So a day is a small budget: three things you actually do, and as much looking as you like.
 

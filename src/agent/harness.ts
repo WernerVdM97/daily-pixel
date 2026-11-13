@@ -20,6 +20,7 @@ import {
   wizardLegalMoves,
   freeActionLegalMoves,
   freeActionMenuView,
+  reconCappedMenuView,
   isLegal,
   reconWithheld,
   RECON_PER_DAY_CAP,
@@ -71,8 +72,11 @@ function formatError(e: unknown): string {
   return String(e);
 }
 
-/** The disposition of a single `playOneAction`. `slept`/`no-rolls` end the day, `dead-end`/`illegal-move` are non-fatal, `outcome` is a completed action, and `recon` is a free read of one of the six read-only screens,
- *  bounded by the per-day caps rather than by the roll allowance. `crashed` is fatal to the run, though the transcript survives as a repro. */
+/** The disposition of a single `playOneAction`. `slept` ends the day, `dead-end`/`illegal-move` are
+ *  non-fatal, `outcome` is a completed action, and `recon` is a free read of one of the six read-only
+ *  screens, bounded by the per-day caps rather than by the roll allowance. `crashed` is fatal to the run,
+ *  though the transcript survives as a repro. `no-rolls` is a dead-but-cheap arm here — no offered move
+ *  costs a roll — kept for non-harness clients, where `action.custom` can still answer it. */
 export type PlayResult =
   | { kind: 'outcome'; bailed?: boolean }
   | { kind: 'decision-abandoned' }
@@ -637,9 +641,9 @@ export class AgentHarness {
     if (!charView) return { kind: 'no-character' };
 
     // AGENT_FORCE_FREE_ACTIONS: while the day still owes a free action, offer the free-text slot ONLY — no day-job buttons (whose work outcomes are inspiration-stripped) and no `sleep`, which would end the day
-    // short of taking one. The VIEW is filtered with the moves, so the screen's `[i]` numbering still addresses exactly the list offered, and a menu with no custom button falls back to the full list.
+    // short of taking one. Either way the VIEW is filtered with the moves, so the screen's `[i]` numbering still addresses exactly the list offered.
     const forced = this.freeActionPending ? freeActionLegalMoves(view) : [];
-    const offer = forced.length > 0 ? freeActionMenuView(view) : view;
+    const offer = forced.length > 0 ? freeActionMenuView(view) : reconCappedMenuView(view, this.reconUsage);
     const moves = forced.length > 0 ? forced : menuLegalMoves(view, this.reconUsage);
     const turn = await this.ask(offer, charView, moves);
     if (turn === null) return this.brainFailed();

@@ -157,6 +157,8 @@ export interface ActionHintContext {
 const LOW_STAMINA_RATIO = 0.25;
 const LOW_STAMINA_FLOOR = 2;
 
+const UNSAFE_HINT = "⚠️ This place isn't safe — trouble may find you.";
+
 /** Contextual hints for the bare `/action` day-job menu — shared by the slash
  *  path (action.ts) and the `nav:action` button path (index.ts) so they can't drift. */
 export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }: ActionHintContext): string[] {
@@ -177,7 +179,7 @@ export function buildActionHints({ rollsRemaining, stamina, maxStamina, isSafe }
   }
 
   if (!isSafe) {
-    hints.push("⚠️ This place isn't safe — trouble may find you.");
+    hints.push(UNSAFE_HINT);
   }
 
   return hints;
@@ -212,6 +214,27 @@ export function composeActionMenu(engine: WorldEngine, dayJobs: DayJobDef[], cha
     buttons: [
       ...jobActions.map((action, i) => ({ label: action.label, customId: CID_DAYJOB + i, style: 'secondary' as const })),
       { label: 'Custom…', customId: CID_DAYJOB_CUSTOM, style: 'primary' as const },
+    ],
+  };
+}
+
+/** The zero-roll menu: the day's rolls are spent, so it offers only what costs nothing — the six free
+ *  reads in `RECON_SCREENS` order, then rest — rather than work the engine would refuse. */
+export function composeDayDoneMenu(character: CharacterData, isSafe = true): MenuViewState {
+  const offer = 'Your rolls are spent for today. Everything below is free: look something up, or rest to end the day.';
+  return {
+    screen: 'menu',
+    title: { emoji: dayJobEmoji(character.dayJob), text: `${character.dayJob} — The day is done` },
+    // Resting away from the Oak costs HP, and this is the last moment the player can be told.
+    description: isSafe ? offer : `${offer}\n\n${UNSAFE_HINT}`,
+    buttons: [
+      { label: 'Look', customId: 'nav:look', style: 'secondary' },
+      { label: 'Map', customId: 'nav:map', style: 'secondary' },
+      { label: 'Stats', customId: 'nav:stats', style: 'secondary' },
+      { label: 'Backpack', customId: 'nav:backpack', style: 'secondary' },
+      { label: 'Journal', customId: 'nav:journal', style: 'secondary' },
+      { label: 'Help', customId: 'nav:help', style: 'secondary' },
+      { label: 'Rest', customId: 'nav:sleep', style: 'primary' },
     ],
   };
 }

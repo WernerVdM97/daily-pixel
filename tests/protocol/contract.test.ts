@@ -9,7 +9,7 @@ import { SessionController } from '../../src/controller/SessionController.js';
 import type { HiOpenResult, RestBeginResult, StartRenderResult, StepChoiceResult, WizardConfirmResult } from '../../src/controller/SessionController.js';
 import { MockWorldEngine } from '../../src/engine/MockWorldEngine.js';
 import type { ActionOutcome, CharCreateData } from '../../src/engine/WorldEngine.js';
-import { getDayJobActions, type DayJobDef } from '../../src/controller/dayJob.js';
+import { composeDayDoneMenu, getDayJobActions, type DayJobDef } from '../../src/controller/dayJob.js';
 import type { DecisionViewState, MenuViewState, NoticeViewState, ViewState, WizardViewState } from '../../src/view/viewState.js';
 import { loadYamlFile } from '../../src/assets/yaml-loader.js';
 import { WizardSession } from '../../src/controller/WizardSession.js';
@@ -254,6 +254,10 @@ const menuView: MenuViewState = {
     { label: 'Custom…', customId: 'action:dayjob:custom', style: 'primary' },
   ],
 };
+
+/** The zero-roll view the stub hands back — composed by the controller, so both backends answer
+ *  the same screen the real one composes from the same day job. */
+const DAY_DONE_MENU: MenuViewState = composeDayDoneMenu(MockWorldEngine.defaultCharacter({ dayJob: 'Town Guard' }));
 
 // ── M8.1 screens (DC-M8.3/4) — fixtures for the six screen.* events. The stub's view arms
 // are canned notice texts observably equivalent to the real compositions (screen
@@ -1128,11 +1132,18 @@ runCaseBlock('conformance — menu.open', [
     assert: (o) => { expectError(o.response, 'no-character', NO_CHARACTER_MENU_COPY); expect(o.beats).toEqual([]); },
   },
   {
-    name: 'no-rolls → the 🛌 copy',
+    // The zero-roll arm answers a MENU (`composeDayDoneMenu`), not a refusal.
+    name: 'zero rolls → ok:true with the day-done menu, no roll-costing option',
     event: MENU_OPEN,
     real: () => realRouter(realChar({ rollsRemaining: 0 })),
-    stub: () => stubRouter((s) => { s.menuResult = { kind: 'no-rolls' }; }),
-    assert: (o) => { expectError(o.response, 'no-rolls', NO_ROLLS_COPY); expect(o.beats).toEqual([]); },
+    stub: () => stubRouter((s) => { s.menuResult = { kind: 'menu', view: DAY_DONE_MENU }; }),
+    assert: (o) => {
+      const view = expectOkView(o.response, 'menu') as MenuViewState;
+      expect(view.title.text).toContain('The day is done');
+      expect(view.buttons.some((b) => b.customId.startsWith('action:dayjob'))).toBe(false);
+      expect(view.buttons.some((b) => b.customId === 'nav:sleep')).toBe(true);
+      expect(o.beats).toEqual([]);
+    },
   },
   {
     name: 'fresh menu view',
@@ -1456,8 +1467,8 @@ runCaseBlock('conformance — action.custom', [
   },
   {
     // DC-M9.2 fix: the pre-port top guard (rollsRemaining <= 0 && !lastActionState) never
-    // crossed the seam — moved behind beginCustomAction. Precedes the loading beat, exactly
-    // like menu.open's own no-rolls arm above.
+    // crossed the seam — moved behind beginCustomAction. Precedes the loading beat, and stays
+    // the only place a bare `no-rolls` copies out now that menu.open answers the day-done menu.
     name: 'no-rolls, no pending action → the 🛌 copy, no beat',
     event: ACTION_CUSTOM,
     real: () => realRouter(realChar({ rollsRemaining: 0, lastActionState: null })),
@@ -2579,7 +2590,9 @@ describe('barrier coverage (M5.1 checklist)', () => {
     const codes = new Set<GameErrorCode>();
 
     codes.add(errorCodeOf(await drive(realRouter(new MockWorldEngine()), MENU_OPEN))); // no-character
-    codes.add(errorCodeOf(await drive(realRouter(realChar({ rollsRemaining: 0 })), MENU_OPEN))); // no-rolls
+    // The menu refuses nothing at zero rolls any more (it answers the day-done menu), so
+    // `no-rolls` is reached through the roll-costing events that still guard on it.
+    codes.add(errorCodeOf(await drive(realRouter(realChar({ rollsRemaining: 0 })), ACTION_CUSTOM))); // no-rolls
 
     const staleEngine = realChar({ lastActionState: IN_FLIGHT as never });
     staleEngine.setResumeResult({

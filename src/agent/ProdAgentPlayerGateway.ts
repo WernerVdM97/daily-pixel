@@ -403,7 +403,7 @@ export function buildUserMessage(input: ChooseMoveInput): string {
   if (input.arcNote !== undefined) sections.push('ARC:', input.arcNote, '');
   if (input.lastRecon !== undefined) sections.push(`LAST LOOK: /${input.lastRecon.screen}`, input.lastRecon.text, '');
   if (input.lastRoll) {
-    sections.push("LAST ROLL: this is the day's final action; include your dayNote with this pick.", '');
+    sections.push("LAST ROLL: this is the last pick that costs a roll; include your dayNote with this pick.", '');
   }
 
   const moveLines = input.moves.map((m, i) => `${i}. ${m.label}`).join('\n');
