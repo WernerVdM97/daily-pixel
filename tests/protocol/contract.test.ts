@@ -232,6 +232,18 @@ const RESOLVED_STEP: Parameters<MockWorldEngine['setStepActionResult']>[0] = {
   outcome: RESOLVED_OUTCOME,
 };
 
+/** stepAction → a later beat the travel gate refused, resolving divine (M9.1 on the step path). */
+const DIVINE_STEP: Parameters<MockWorldEngine['setStepActionResult']>[0] = {
+  ...RESOLVED_STEP,
+  outcome: {
+    ...RESOLVED_OUTCOME,
+    playerRolled: null,
+    mutations: [],
+    outcomeText: DIVINE_TEXT,
+    isDivineIntervention: true,
+  },
+};
+
 /** The pending-decision option list resolvePendingChoice resolves against — the real
  *  engine's last_action_state.pendingDecision.options (M3.2 DC-F). */
 const PENDING_OPTIONS = [
@@ -1771,6 +1783,28 @@ runCaseBlock('conformance — action.choose', [
       s.stepResult = 'throw';
     }),
     assert: (o) => expectInternal(o.response),
+  },
+  {
+    // M9.1 (DC-M9.3) on a later beat: same tenth code as the start path, ahead of the outcome
+    // branch. The thinking beat precedes stepChoice, so it still fires.
+    name: 'divine intervention → divine-intervention error after the thinking beat only',
+    event: ACTION_CHOOSE,
+    real: () => {
+      const engine = realChar();
+      engine.setPendingChoiceOptions(PENDING_OPTIONS);
+      engine.setStepActionResult(DIVINE_STEP);
+      return realRouter(engine);
+    },
+    stub: () => stubRouter((s) => {
+      s.choiceResult = { kind: 'ok', character: stubChar };
+      s.resolveResult = 'Advance carefully';
+      s.stepResult = { kind: 'divine', text: DIVINE_TEXT };
+    }),
+    assert: (o) => {
+      expectError(o.response, 'divine-intervention', DIVINE_TEXT);
+      expect(o.beats).toHaveLength(1);
+      expect(okView(o.beats[0])).toMatchObject({ screen: 'loading' });
+    },
   },
 ]);
 

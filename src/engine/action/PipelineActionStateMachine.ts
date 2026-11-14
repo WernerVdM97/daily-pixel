@@ -886,12 +886,17 @@ export class PipelineActionStateMachine {
     const proposedMutations = combatMutate.mutations;
     const combatResolveCallIds: number[] = combatMutateCallId !== 0 ? [combatMutateCallId] : [];
 
-    // Travel-coherence gate: structural backstop, injects intent only.
-    const gatedMutations = applyTravelCoherenceGate(
+    // Travel-coherence gate: injects the missing relocate, or refuses a name the graph cannot place.
+    const gate = applyTravelCoherenceGate(
       proposedMutations as WorldMutation[],
       decisionForHandoff.sceneLocation,
       char.location,
+      this.resolver.getKnownLocations(),
     );
+    if (gate.kind === 'unresolvable') {
+      return this.divineOnUnresolvableScene(state, gate.sceneLocation, char.location);
+    }
+    const gatedMutations = gate.mutations;
 
     // Inject the engine-authored combat mutations: the final combat edge plus the player HP delta.
     const finalRound = cs.round + 1;
@@ -1069,13 +1074,17 @@ export class PipelineActionStateMachine {
     const proposedMutations = mutateResult.mutations;
     const resolveCallIds: number[] = resolveMutateCallId !== 0 ? [resolveMutateCallId] : [];
 
-    // Travel-coherence gate: backstop against a scene narrated elsewhere with no relocate
-    // mutation. It injects intent only; geography enforces feasibility in finalize below.
-    const gatedMutations = applyTravelCoherenceGate(
+    // Travel-coherence gate: injects the missing relocate, or refuses a name the graph cannot place.
+    const gate = applyTravelCoherenceGate(
       proposedMutations as WorldMutation[],
       decisionForHandoff.sceneLocation,
       char.location,
+      this.resolver.getKnownLocations(),
     );
+    if (gate.kind === 'unresolvable') {
+      return this.divineOnUnresolvableScene(state, gate.sceneLocation, char.location);
+    }
+    const gatedMutations = gate.mutations;
 
     // The inversion point: finalize (geography → collapse → validate) runs between
     // mutation-authoring and text-authoring, so RESOLVE-NARRATE sees what actually landed.
@@ -1297,13 +1306,26 @@ export class PipelineActionStateMachine {
     return this.resolveDivineIntervention(rawInput, kind, wage);
   }
 
+  /** The model authored a place no graph can resolve, so the beat lands on the same refunded path a
+   *  stage failure takes, with the mutation set dropped whole. */
+  private divineOnUnresolvableScene(
+    state: PipelineInternalActionState,
+    sceneLocation: string,
+    currentLocation: string,
+  ): { resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome } {
+    console.error(
+      `[pipeline] scene_location "${sceneLocation}" names no known place (character at "${currentLocation}") — resolving as divine intervention`,
+    );
+    return this.resolveDivineIntervention(state.rawInput, state.kind, state.wage ?? 0);
+  }
+
   /**
    * The beat-1 system-fault path, typed rather than a `distilledType` sentinel:
    * `isDivineIntervention` on the outcome is the only signal; the rejection never escapes `start()`.
    */
   private resolveDivineIntervention(
     rawInput: string,
-    kind: ActionKind,
+    kind: ActionKind | undefined,
     wage: number,
   ): { resolved: true; state: PipelineInternalActionState; outcome: ActionOutcome } {
     const state: PipelineInternalActionState = {

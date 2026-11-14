@@ -56,7 +56,9 @@ function outcomeRoll(outcome: ActionOutcome): RollVerdict | undefined {
  *  like the pre-M3.2 handler's one inner try. */
 export type StepChoiceResult =
   | { kind: 'decision'; view: DecisionViewState }
-  | { kind: 'outcome'; view: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; characterClass?: string | null; char: CharacterData | null; prevChar: CharacterData; roll?: RollVerdict };
+  | { kind: 'outcome'; view: OutcomeViewState; distilledType: string; actionId?: number; characterName: string; characterClass?: string | null; char: CharacterData | null; prevChar: CharacterData; roll?: RollVerdict }
+  // DC-M9.3: a refunded divine-intervention roll — a system fault, not a real outcome.
+  | { kind: 'divine'; text: string };
 
 /** Outcome of `openActionMenu` — mirrors the pre-M3.3b `nav:action` leaf's branch order
  *  exactly (char guard -> zero-roll day-done menu -> resume-in-progress -> fresh menu). The
@@ -254,6 +256,9 @@ export class SessionController {
   async stepChoice(userId: string, label: string, prevChar: CharacterData): Promise<StepChoiceResult> {
     const result = await this.engine.stepAction(prevChar.id, label);
     if (result.resolved) {
+      // Same short-circuit as `renderStartResult`'s divine arm: a later beat can now take the
+      // refunded system fault, which must not be repainted as a done card.
+      if (result.outcome.isDivineIntervention) return { kind: 'divine', text: result.outcome.outcomeText };
       const char = this.engine.getCharacter(userId);
       const view = buildOutcomeView(result.outcome, char, this.getCurrentScene(userId), result.state, this.engine);
       return {

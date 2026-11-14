@@ -1700,6 +1700,75 @@ describe('WorldEngineImpl — pipeline stage failures fail open (0.3.4)', () => 
 
   });
 
+  it('resolves an out-of-graph scene_location as divine intervention, refunding the roll', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({
+        // No options → start() auto-resolves inline, where the travel gate judges the scene. The
+        // value is the `Place · Region` display label echoed back, as in the M4 smoke run.
+        decide: () => jsonResponse({
+          distilledType: 'travel', stat: 'physical', baseDc: 10, required: false, decision: [],
+          sceneLocation: 'Town Square · The Vale',
+        }),
+      }),
+    );
+
+    const result = await engine.startAction(characterId, 'walk to the town square');
+
+    expect(result.outcome?.isDivineIntervention).toBe(true);
+    expect(result.outcome?.rollRefunded).toBe(true);
+    expect(result.outcome?.rollsDelta).toBe(0);
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+    expect(charRepo.findById(characterId)!.last_action_state).toBeNull();
+  });
+
+  it('refunds the roll when an out-of-graph scene_location surfaces on a later beat', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({
+        // Beat 1 keeps the action open; the continue beat declares the compound label with no
+        // options, which routes straight into the resolve the guard judges.
+        decide: (nth) => jsonResponse(nth === 1
+          ? withOneOption
+          : { ...withOneOption, required: false, decision: [], sceneLocation: 'Town Square · The Vale' }),
+      }),
+    );
+
+    await engine.startAction(characterId, 'inspect the lockup');
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(2); // drained at start
+
+    const result = await engine.stepAction(characterId, 'Look closer');
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) {
+      expect(result.outcome.isDivineIntervention).toBe(true);
+      expect(result.outcome.rollRefunded).toBe(true);
+      expect(result.outcome.rollsDelta).toBe(0);
+    }
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3);
+    expect(charRepo.findById(characterId)!.last_action_state).toBeNull();
+  });
+
+  it('restores the drained roll exactly on a divine step, even above the allowance', async () => {
+    const { engine, charRepo, characterId } = makeEngine(
+      stageRouter({
+        decide: (nth) => jsonResponse(nth === 1
+          ? withOneOption
+          : { ...withOneOption, required: false, decision: [], sceneLocation: 'Town Square · The Vale' }),
+      }),
+    );
+    // `modify_rolls_remaining` may leave a character holding more than the daily allowance, so a
+    // capped refund would report `rollRefunded` while keeping a roll it was handed.
+    charRepo.update(characterId, { rolls_remaining: 4 });
+
+    await engine.startAction(characterId, 'inspect the lockup');
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(3); // drained at start
+
+    const result = await engine.stepAction(characterId, 'Look closer');
+
+    expect(result.resolved).toBe(true);
+    if (result.resolved) expect(result.outcome.rollRefunded).toBe(true);
+    expect(charRepo.findById(characterId)!.rolls_remaining).toBe(4);
+  });
+
   it('resolves a step as timed_out (roll refunded) when RESOLVE-NARRATE comes back unparseable', async () => {
     const { engine, charRepo, characterId } = makeEngine(
       stageRouter({
