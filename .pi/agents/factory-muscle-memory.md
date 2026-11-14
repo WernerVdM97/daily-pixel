@@ -60,7 +60,7 @@ You never write the skill. The proposal goes through triage and the gate like an
 
 1. **Read your ledger first**: `muscle/patterns/` (which candidates are waiting for a second sighting) and `loops/` topics are not yours to write, but `grep -rn` the tree for what is already known.
 2. **Index.** `npx tsx scripts/factory-friction.ts --since 28d --top 12`. Note the window: a pattern needs repetition across weeks, so candidates from earlier passes count toward the bar — that is what the ledger is for.
-3. **Read.** Spawn one to three read-only children (`context: "fresh"`, cheap tier, `read`/`grep`/`bash` only), each with the exact session paths for one signal. Each returns the task family, its gotchas and red herrings, and the evidence — not a narrative of the session. Do not read forty transcripts in your own context.
+3. **Read.** Spawn one to three read-only children, cheap tier, one call per child, each with the exact session paths for one signal: `subagent({ agent: "delegate-reviewer", context: "fresh", task: "<one signal, the exact session paths>" })`. It has no edit or write tools. Each returns the task family, its gotchas and red herrings, and the evidence — not a narrative of the session. Do not read forty transcripts in your own context.
 4. **Dedupe.** Skills, docs, the memory tree, open issues.
 5. **Promote.** Append the lines that meet the bar, one topic at a time. Update the ledger for everything else.
 6. **Propose.** File skill-proposal issues where a family has outgrown notes.
