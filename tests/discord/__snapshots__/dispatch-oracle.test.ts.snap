@@ -802,6 +802,43 @@ exports[`dispatch oracle — customId branches > sleep:feedback:modal → thanks
 ]
 `;
 
+exports[`dispatch oracle — divine intervention (M9.1, DC-M9.3) > action:<choice> → a later-beat divine intervention paints the grey System embed, no broadcast 1`] = `
+[
+  {
+    "arg": null,
+    "method": "deferUpdate",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "**You:** Advance carefully
+
+⏳ **Thinking…**
+_The warden tends the fire._",
+        },
+      ],
+    },
+    "method": "editReply",
+  },
+  {
+    "arg": {
+      "components": [],
+      "embeds": [
+        {
+          "color": 9807270,
+          "description": "The warden intervenes — your roll is refunded.",
+          "title": "⚠️ System",
+        },
+      ],
+    },
+    "method": "webhook.editMessage",
+  },
+]
+`;
+
 exports[`dispatch oracle — divine intervention (M9.1, DC-M9.3) > action:custom:modal → divine intervention paints the grey System embed, no broadcast 1`] = `
 [
   {
