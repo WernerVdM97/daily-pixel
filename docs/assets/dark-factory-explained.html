@@ -300,7 +300,7 @@
     <span class="arrow">→</span>
     <div class="node">Drain<span class="who">advance one stage of the oldest job</span></div>
   </div>
-  <p>A tick with nothing due exits in milliseconds and costs nothing. The clock times are phases, not appointments: a loop "anchored at 07:30" actually starts somewhere in the 07:30 to 07:35 window.</p>
+  <p>A tick with nothing due exits in milliseconds and costs nothing. The clock times are phases, not appointments: a loop "anchored at 06:30" actually starts somewhere in the 06:30 to 06:35 window.</p>
 
   <h2><span class="num">05</span>A job: one card, six steps, a hard budget</h2>
   <p>The redefined executor turns one approved card into a <em>job</em>: a small JSON file on disk (<code>.pi/factory/jobs/</code>) that tracks exactly where the work is. Each step runs as its own short-lived process, so a crash costs one retry, not the whole job. State lives in the file, never in a process's memory. A one-command <em>start</em> opens the job first — branch, isolated workspace, card claimed — and the six stages below then run one process at a time.</p>
