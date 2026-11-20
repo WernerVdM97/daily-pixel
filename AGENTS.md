@@ -51,6 +51,7 @@ Task- and tool-specific conventions live as auto-discovered skills in [`.pi/skil
 | `factory-control`   | stopping/starting/pausing the factory: the switch sources, per-loop schedules, firing one tick or loop by hand                     |
 | `factory-pr-review` | reviewing, verifying, landing or rescuing a factory PR: the review request, a detached worktree at the head, the gates rerun there |
 | `orchestrated-delegation` | the executor's build loop: tier table pinning repo-local `delegate-*` agents behind the Dark Factory gate, worktrees off `dev` |
+| `agent-model-fit`      | judging whether each agent is pinned to the right model: token shape first, then output/cache/input order and the swap threshold                  |
 
 ## Other Key files
 
