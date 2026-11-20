@@ -51,6 +51,7 @@ interface Options {
   cacheShards: string;
   jobsDir: string;
   board: boolean;
+  byAgent: boolean;
   sinceMs: number;
   top: number;
   json: boolean;
@@ -65,6 +66,7 @@ function parseArgs(argv: string[]): Options {
     cacheShards: join(homedir(), ".pi", "agent", "pi-cache-optimizer-stats.d", "shards"),
     jobsDir: join(REPO_ROOT, ".pi", "factory", "jobs"),
     board: false,
+    byAgent: false,
     sinceMs: 7 * 24 * 60 * 60 * 1000,
     top: 5,
     json: false,
@@ -78,6 +80,7 @@ function parseArgs(argv: string[]): Options {
     else if (a === "--cache-shards") opts.cacheShards = resolve(argv[++i]);
     else if (a === "--jobs-dir") opts.jobsDir = resolve(argv[++i]);
     else if (a === "--board") opts.board = true;
+    else if (a === "--by-agent") opts.byAgent = true;
     else if (a === "--since") opts.sinceMs = parseSpan(argv[++i]);
     else if (a === "--top") opts.top = Number.parseInt(argv[++i], 10);
     else if (a === "--json") opts.json = true;
@@ -113,6 +116,7 @@ function printUsage(): void {
       "  --cache-shards <dir>  pi-cache-optimizer shard dir (default: the agent dir's)",
       "  --jobs-dir <dir>   factory job ledger dir (default: <repo>/.pi/factory/jobs)",
       "  --board            add board staleness: Blocked items with an unprocessed owner answer (needs gh)",
+      "  --by-agent         add the per-agent token split (input vs cached vs output, by model family)",
       "  --top <n>          instances listed per signal (default: 5)",
       "  --errors [n]       list failed tool calls (tool, loop, session, first line; default 20)",
       "  --json             machine-readable report instead of the text brief",
@@ -290,6 +294,13 @@ interface SessionStats {
   runaway: RunawayGroup[];
   aborts: number;
   providerErrors: number;
+  /** Assistant messages that carried usage: the model-call count, not the turn count. */
+  requests: number;
+  /** Prompt tokens billed at the full input rate. */
+  inputTokens: number;
+  /** Prompt tokens served from cache (`cacheRead`): the expensive default, cheap here. */
+  cachedTokens: number;
+  cacheWriteTokens: number;
   reasoningTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -425,6 +436,10 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
     runaway: [],
     aborts: 0,
     providerErrors: 0,
+    requests: 0,
+    inputTokens: 0,
+    cachedTokens: 0,
+    cacheWriteTokens: 0,
     reasoningTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
@@ -516,6 +531,10 @@ export function readSession(file: string, ancestorIds: Set<string>): SessionStat
       }
       const usage = msg.usage;
       if (usage && typeof usage === "object") {
+        stats.requests++;
+        stats.inputTokens += Number(usage.input ?? 0) || 0;
+        stats.cachedTokens += Number(usage.cacheRead ?? 0) || 0;
+        stats.cacheWriteTokens += Number(usage.cacheWrite ?? 0) || 0;
         stats.reasoningTokens += Number(usage.reasoning ?? 0) || 0;
         stats.outputTokens += Number(usage.output ?? 0) || 0;
         stats.totalTokens += Number(usage.totalTokens ?? 0) || 0;
@@ -661,6 +680,27 @@ interface AgentRollup {
   costUsd: number;
 }
 
+/**
+ * An agent's token shape, which is what a model choice has to be made against: the three
+ * rate columns are priced independently, so the split matters more than the total.
+ */
+interface AgentTokenRollup {
+  agent: string;
+  sessions: number;
+  requests: number;
+  /** input + cached: everything the model read. */
+  promptTokens: number;
+  inputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  /** cached / prompt, 0 until the prefix is warm. */
+  cachedShare: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  /** Model families this agent ran on in the window, most-trafficked first. */
+  models: string[];
+}
+
 interface Report {
   window: { since: string; until: string; days: number };
   totals: {
@@ -679,6 +719,8 @@ interface Report {
     costUsd: number;
   };
   agents: AgentRollup[];
+  /** Null unless `--by-agent`: the per-agent token split, cheapest-model-choice input. */
+  byAgent: AgentTokenRollup[] | null;
   models: { model: string; turns: number; reasoningTokens: number }[];
   signals: SignalRollup[];
   /** Populated only when `--errors` is passed: the failed calls behind the ranking. */
@@ -699,7 +741,77 @@ export function rawOccurrences(sig: { occurrences: number; runaway: { groups: nu
 
 const SIGNAL_WINDOW_FLOOR = 1; // kept named so the ranking formula reads as intended
 
-export function summarise(sessions: SessionStats[], previous: SessionStats[], cache: CacheReport | null): Report {
+/**
+ * Legacy ids that resolve to the same weights: `deepseek-flash`, `deepseek-v4-flash` and the
+ * vision experiment are all V4.1 Flash, so the family is what a model choice is made against.
+ */
+const MODEL_ALIASES: Record<string, string> = {
+  "deepseek-flash": "deepseek-v4.1-flash",
+  "deepseek-v4-flash": "deepseek-v4.1-flash",
+  "deepseek-v4-flash-vision-exp": "deepseek-v4.1-flash",
+};
+
+export function modelFamily(model: string): string {
+  const leaf = model.split("/").pop() || model;
+  if (MODEL_ALIASES[leaf]) return MODEL_ALIASES[leaf];
+  if (model.startsWith("deepseek/") || leaf.startsWith("deepseek-")) return "deepseek-v4.1-flash";
+  return leaf;
+}
+
+/**
+ * The per-agent token split: the three columns are priced independently, so an agent that
+ * reads a huge cached prefix and an agent that writes prose want different models even when
+ * their token totals match. Sorted by prompt tokens, the column most bills are made of.
+ */
+export function agentTokens(sessions: SessionStats[]): AgentTokenRollup[] {
+  interface Row extends AgentTokenRollup {
+    families: Map<string, number>;
+  }
+  const rows = new Map<string, Row>();
+  for (const s of sessions) {
+    const row: Row = rows.get(s.agent) ?? {
+      agent: s.agent,
+      sessions: 0,
+      requests: 0,
+      promptTokens: 0,
+      inputTokens: 0,
+      cachedTokens: 0,
+      cacheWriteTokens: 0,
+      cachedShare: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      models: [],
+      families: new Map(),
+    };
+    row.sessions++;
+    row.requests += s.requests;
+    row.inputTokens += s.inputTokens;
+    row.cachedTokens += s.cachedTokens;
+    row.cacheWriteTokens += s.cacheWriteTokens;
+    row.outputTokens += s.outputTokens;
+    row.reasoningTokens += s.reasoningTokens;
+    for (const [model, turns] of Object.entries(s.models)) {
+      const family = modelFamily(model);
+      row.families.set(family, (row.families.get(family) ?? 0) + turns);
+    }
+    rows.set(s.agent, row);
+  }
+  return [...rows.values()]
+    .map(({ families, ...row }) => ({
+      ...row,
+      promptTokens: row.inputTokens + row.cachedTokens,
+      cachedShare: row.inputTokens + row.cachedTokens ? row.cachedTokens / (row.inputTokens + row.cachedTokens) : 0,
+      models: [...families.entries()].sort((a, b) => b[1] - a[1]).map(([f]) => f),
+    }))
+    .sort((a, b) => b.promptTokens - a.promptTokens);
+}
+
+export function summarise(
+  sessions: SessionStats[],
+  previous: SessionStats[],
+  cache: CacheReport | null,
+  opts: { byAgent?: boolean } = {},
+): Report {
   const range = sessionRange(sessions);
   const totalTokens = sum(sessions, (s) => s.totalTokens);
   const totalToolCalls = sum(sessions, (s) => s.toolCalls);
@@ -831,6 +943,7 @@ export function summarise(sessions: SessionStats[], previous: SessionStats[], ca
       costUsd: round(sum(sessions, (s) => s.costUsd), 4),
     },
     agents,
+    byAgent: opts.byAgent ? agentTokens(sessions) : null,
     models: [...perModel.entries()]
       .map(([model, v]) => ({ model, ...v }))
       .sort((a, b) => b.reasoningTokens - a.reasoningTokens),
@@ -1355,6 +1468,30 @@ export function renderText(report: Report, top: number): string {
   }
   lines.push("");
 
+  if (report.byAgent) {
+    lines.push("Tokens by agent (input = full-rate prompt, cached = cacheRead, cached% = cached/prompt)");
+    if (!report.byAgent.length) lines.push("  none");
+    else {
+      const head =
+        `  ${pad("agent", 24)} ${pad("sess", 5, true)} ${pad("reqs", 6, true)} ${pad("prompt", 9, true)} ` +
+        `${pad("input", 9, true)} ${pad("cached", 9, true)} ${pad("cached%", 8, true)} ${pad("output", 8, true)} ${pad("reason", 8, true)}  models`;
+      lines.push(head);
+      for (const a of report.byAgent) {
+        lines.push(
+          `  ${pad(a.agent, 24)} ${pad(a.sessions, 5, true)} ${pad(a.requests, 6, true)} ${pad(formatTokens(a.promptTokens), 9, true)} ` +
+            `${pad(formatTokens(a.inputTokens), 9, true)} ${pad(formatTokens(a.cachedTokens), 9, true)} ` +
+            `${pad(`${(a.cachedShare * 100).toFixed(1)}%`, 8, true)} ${pad(formatTokens(a.outputTokens), 8, true)} ` +
+            `${pad(formatTokens(a.reasoningTokens), 8, true)}  ${a.models.join(",")}`,
+        );
+      }
+      lines.push(
+        "  A cache-heavy agent is priced by the cache-read column, a prose-heavy one by output:" +
+          " the split, not the total, is what a model pin is chosen against.",
+      );
+    }
+    lines.push("");
+  }
+
   if (report.errors) {
     const { total, probes, calls } = report.errors;
     lines.push(`Failed tool calls (newest ${calls.length} of ${total}; ${probes} probe exits marked and unranked)`);
@@ -1451,6 +1588,11 @@ function formatTokens(n: number): string {
   return String(Math.round(n));
 }
 
+function pad(v: string | number, width: number, right = false): string {
+  const s = String(v);
+  return right ? s.padStart(width) : s.padEnd(width);
+}
+
 function signed(n: number): string {
   return n > 0 ? `+${n}` : String(n);
 }
@@ -1488,7 +1630,7 @@ function main(): void {
   const current = all.filter((s) => s.endedAt >= cutoff);
   const previous = all.filter((s) => s.endedAt >= priorCutoff && s.endedAt < cutoff);
 
-  const report = summarise(current, previous, readCacheReport(opts.cacheShards, opts.sinceMs));
+  const report = summarise(current, previous, readCacheReport(opts.cacheShards, opts.sinceMs), { byAgent: opts.byAgent });
   report.ledger = readLedger(opts.jobsDir, opts.sinceMs);
   if (opts.board) {
     report.board = readBoardStaleness();
