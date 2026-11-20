@@ -1,7 +1,7 @@
 ---
 name: factory-muscle-memory
 description: Dark Factory procedural-memory loop. The other half of the factory's sleep - REM prunes what is no longer true, muscle-memory encodes what keeps being relearned. Mines this repo's session transcripts (interactive and factory, equally) for task families that recur and are hard to follow - red herrings, gotchas, repeated re-derivations - and turns them into one-line notes appended to the reference topic where a reader would look, gated on repetition evidence. When a task family's notes accumulate into a procedure, it files an Inbox issue proposing a skill. Never creates the skill itself.
-model: z-ai/glm-5.3-flash
+model: tencent/hy4-flash
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true

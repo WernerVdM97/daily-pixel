@@ -1,7 +1,7 @@
 ---
 name: delegate-judge
 description: Judge role for the orchestrated-delegation workflow. The lead spawns this as a second-opinion, fresh-context, read-only acceptance gate for risky changes. Verdict is binding for what it reviews. Spawned deliberately, never by default.
-model: z-ai/glm-5.3
+model: moonshotai/kimi-k3.1-pro
 thinking: max
 systemPromptMode: replace
 inheritProjectContext: false

@@ -1,11 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import {
   agentOf,
+  agentTokens,
   commitExpectedFor,
   isProbeExit,
+  modelFamily,
+  projectFolderCandidates,
   rawOccurrences,
   readLedger,
   readSession,
@@ -41,6 +44,18 @@ describe('agentOf', () => {
 
   it('does not mistake a non-subagent session_info name for an agent', () => {
     expect(agentOf('my custom session name', '')).toBe('interactive');
+  });
+
+  it('labels a ledger stage relay as stage-wrapper, not as owner chatter', () => {
+    const relay =
+      'Spawn exactly one child agent, then stop.\n\nCall subagent({ agent: "delegate-fixer", context: "fresh", async: false, task: <the task text between the markers below> }) exactly once, and wait for it.';
+    expect(agentOf(null, relay)).toBe('stage-wrapper');
+  });
+
+  it('keeps the launcher label ahead of the relay label, and the child name ahead of both', () => {
+    const both = "Call subagent({action:'schedule.run-due'}) exactly once. Spawn exactly one child agent";
+    expect(agentOf(null, both)).toBe('scheduler-run');
+    expect(agentOf(EXECUTOR_CHILD, 'Spawn exactly one child agent, then stop.')).toBe('delegate-executor');
   });
 });
 
@@ -734,5 +749,105 @@ describe('failed-call label', () => {
 
   it('keeps the old first line when nothing contentful sits above the exit code', () => {
     expect(labelOf('Command exited with code 1')).toBe('Command exited with code 1');
+  });
+});
+
+describe('per-agent tokens', () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** One assistant message per usage row: the granularity pi writes a usage block at. */
+  function usageSession(
+    agent: string,
+    rows: { model: string; input: number; cacheRead?: number; cacheWrite?: number; output: number; reasoning?: number }[],
+  ): string {
+    const lines: unknown[] = [
+      { type: 'session_info', name: `subagent-${agent}-8c1f2b4a-5d6e-4f70-9a11-2c3d4e5f6071-1`, timestamp: '2026-11-01T00:00:00Z' },
+      { type: 'message', id: 'u1', timestamp: '2026-11-01T00:00:01Z', message: { role: 'user', content: [{ type: 'text', text: 'run a pass' }] } },
+    ];
+    rows.forEach((row, i) => {
+      lines.push({
+        type: 'message',
+        id: `a${i}`,
+        timestamp: `2026-11-01T00:00:0${i + 2}Z`,
+        message: {
+          role: 'assistant',
+          provider: 'openrouter',
+          model: row.model,
+          content: [{ type: 'text', text: 'ok' }],
+          usage: {
+            input: row.input,
+            cacheRead: row.cacheRead ?? 0,
+            cacheWrite: row.cacheWrite ?? 0,
+            output: row.output,
+            reasoning: row.reasoning ?? 0,
+          },
+        },
+      });
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'factory-friction-tokens-'));
+    dirs.push(dir);
+    const file = join(dir, 'session.jsonl');
+    writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    return file;
+  }
+
+  it('sums input, cached and output per agent and derives the cached share', () => {
+    const file = usageSession('factory-librarian', [
+      { model: 'deepseek/deepseek-v4.1-flash', input: 1_000, cacheRead: 9_000, output: 200, reasoning: 50 },
+      { model: 'deepseek/deepseek-v4.1-flash', input: 500, cacheRead: 4_500, output: 100 },
+    ]);
+    const [row] = agentTokens([readSession(file, new Set())]);
+    expect(row.agent).toBe('factory-librarian');
+    expect(row.requests).toBe(2);
+    expect(row.inputTokens).toBe(1_500);
+    expect(row.cachedTokens).toBe(13_500);
+    expect(row.promptTokens).toBe(15_000);
+    expect(row.cachedShare).toBeCloseTo(0.9);
+    expect(row.outputTokens).toBe(300);
+    expect(row.reasoningTokens).toBe(50);
+  });
+
+  it('collapses the legacy deepseek ids into one family, listed by traffic', () => {
+    expect(modelFamily('openrouter/deepseek-flash')).toBe('deepseek-v4.1-flash');
+    expect(modelFamily('openrouter/deepseek/deepseek-v4-flash-vision-exp')).toBe('deepseek-v4.1-flash');
+    expect(modelFamily('openrouter/z-ai/glm-5.3-flash')).toBe('glm-5.3-flash');
+    const file = usageSession('factory-sweeper', [
+      { model: 'glm-5.3-flash', input: 10, output: 1 },
+      { model: 'deepseek-flash', input: 10, output: 1 },
+      { model: 'deepseek-v4-flash', input: 10, output: 1 },
+    ]);
+    expect(agentTokens([readSession(file, new Set())])[0].models).toEqual(['deepseek-v4.1-flash', 'glm-5.3-flash']);
+  });
+
+  it('ranks agents by prompt tokens and stays null unless asked', () => {
+    const big = readSession(usageSession('factory-triage', [{ model: 'deepseek-flash', input: 10, cacheRead: 100_000, output: 5 }]), new Set());
+    const small = readSession(usageSession('factory-scrumo', [{ model: 'deepseek-flash', input: 10, output: 5 }]), new Set());
+    expect(agentTokens([small, big]).map((row) => row.agent)).toEqual(['factory-triage', 'factory-scrumo']);
+    expect(summarise([big, small], [], null).byAgent).toBeNull();
+    expect(summarise([big, small], [], null, { byAgent: true }).byAgent?.map((row) => row.agent)).toEqual([
+      'factory-triage',
+      'factory-scrumo',
+    ]);
+  });
+});
+
+describe('projectFolderCandidates', () => {
+  it('reads the repo folder and its worktrees, because a ledger stage runs in one', () => {
+    const root = mkdtempSync(join(tmpdir(), 'factory-friction-folders-'));
+    const repo = process.cwd();
+    const escaped = repo.replace(/\//g, '-');
+    const worktreeRoot = join(dirname(repo), 'worktrees', basename(repo)).replace(/\//g, '-');
+    for (const name of [`-${escaped}--`, `-${worktreeRoot}-feat-1-a-card--`, '--home-someone-other-project--']) {
+      mkdirSync(join(root, name));
+    }
+    const folders = projectFolderCandidates(root);
+    expect(folders).toContain(`-${escaped}--`);
+    expect(folders.some((f) => f.startsWith(`-${worktreeRoot}-`))).toBe(true);
+    expect(folders.some((f) => f.includes('other-project'))).toBe(false);
+    rmSync(root, { recursive: true, force: true });
   });
 });
