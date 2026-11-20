@@ -1,7 +1,7 @@
 ---
 name: factory-escalator
 description: Dark Factory advisory consult. Spawned by a stage agent, the coordinator or triage when a pass meets a problem a stronger second brain could unstick - a schema change, an unexplained verification failure, a risky live path, a spec whose silence may be deliberate. Read-only on code. Returns an answer and a recommended next move, never a decision - the caller decides, lands the work and verifies it.
-model: z-ai/glm-5.3
+model: moonshotai/kimi-k3.1-pro
 thinking: max
 systemPromptMode: replace
 inheritProjectContext: true
