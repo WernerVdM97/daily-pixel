@@ -1,13 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import {
   agentOf,
   agentTokens,
   commitExpectedFor,
   isProbeExit,
   modelFamily,
+  projectFolderCandidates,
   rawOccurrences,
   readLedger,
   readSession,
@@ -43,6 +44,18 @@ describe('agentOf', () => {
 
   it('does not mistake a non-subagent session_info name for an agent', () => {
     expect(agentOf('my custom session name', '')).toBe('interactive');
+  });
+
+  it('labels a ledger stage relay as stage-wrapper, not as owner chatter', () => {
+    const relay =
+      'Spawn exactly one child agent, then stop.\n\nCall subagent({ agent: "delegate-fixer", context: "fresh", async: false, task: <the task text between the markers below> }) exactly once, and wait for it.';
+    expect(agentOf(null, relay)).toBe('stage-wrapper');
+  });
+
+  it('keeps the launcher label ahead of the relay label, and the child name ahead of both', () => {
+    const both = "Call subagent({action:'schedule.run-due'}) exactly once. Spawn exactly one child agent";
+    expect(agentOf(null, both)).toBe('scheduler-run');
+    expect(agentOf(EXECUTOR_CHILD, 'Spawn exactly one child agent, then stop.')).toBe('delegate-executor');
   });
 });
 
@@ -819,5 +832,22 @@ describe('per-agent tokens', () => {
       'factory-triage',
       'factory-scrumo',
     ]);
+  });
+});
+
+describe('projectFolderCandidates', () => {
+  it('reads the repo folder and its worktrees, because a ledger stage runs in one', () => {
+    const root = mkdtempSync(join(tmpdir(), 'factory-friction-folders-'));
+    const repo = process.cwd();
+    const escaped = repo.replace(/\//g, '-');
+    const worktreeRoot = join(dirname(repo), 'worktrees', basename(repo)).replace(/\//g, '-');
+    for (const name of [`-${escaped}--`, `-${worktreeRoot}-feat-1-a-card--`, '--home-someone-other-project--']) {
+      mkdirSync(join(root, name));
+    }
+    const folders = projectFolderCandidates(root);
+    expect(folders).toContain(`-${escaped}--`);
+    expect(folders.some((f) => f.startsWith(`-${worktreeRoot}-`))).toBe(true);
+    expect(folders.some((f) => f.includes('other-project'))).toBe(false);
+    rmSync(root, { recursive: true, force: true });
   });
 });

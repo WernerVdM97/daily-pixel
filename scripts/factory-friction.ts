@@ -144,14 +144,23 @@ function parseSpan(raw: string | undefined): number {
  * ends with the repo basename, so a rename upstream degrades to a match instead of a
  * silently empty report.
  */
-function projectFolderCandidates(root: string): string[] {
+/**
+ * The folders this repo's sessions can live in: its own, plus its worktrees, because a ledger
+ * stage runs in one and the building happens there. Worktrees sit beside the repo by convention
+ * (`<projects>/worktrees/<repo>/<branch>`), so the prefix is derived rather than hardcoded, and
+ * reading only the repo's own folder makes the report blind to most stage sessions.
+ */
+export function projectFolderCandidates(root: string): string[] {
   const escaped = REPO_ROOT.replace(/\//g, "-");
   const exact = `-${escaped}--`;
   const loose = `${escaped}--`;
-  if (existsSync(join(root, exact))) return [exact];
-  if (existsSync(join(root, loose))) return [loose];
+  const trees = `-${join(dirname(REPO_ROOT), "worktrees", basename(REPO_ROOT)).replace(/\//g, "-")}-`;
+  const folders = readdirSync(root);
+  const own = folders.filter((d) => d === exact || d === loose);
+  const worktrees = folders.filter((d) => d.startsWith(trees) && d.endsWith("--"));
+  if (own.length || worktrees.length) return [...own, ...worktrees];
   const tail = `-${basename(REPO_ROOT)}--`;
-  const matches = readdirSync(root).filter((d) => d.endsWith(tail));
+  const matches = folders.filter((d) => d.endsWith(tail));
   return matches.length ? matches : [exact];
 }
 
@@ -325,13 +334,21 @@ export const SHIPPED =
 /** A scheduled loop's launcher brief: the headless session that fires `schedule.run-due`. */
 const SCHEDULE_LAUNCHER = /schedule\.run-due/;
 
+/**
+ * A ledger stage's relay brief (scripts/factory-jobs.ts writes it): the wrapper spawns one
+ * child and stops, so the child's own session carries the work and its agent name. Without
+ * this rule the relay's tokens land on `interactive`, where they look like owner chatter.
+ */
+const STAGE_WRAPPER = /Spawn exactly one child agent/;
+
 /** `subagent-<agent>-<runUuid>-<n>`: the run id is a strict hex group, so a hyphenated agent name parses. */
 const SUBAGENT_NAME = /^subagent-([a-z0-9][a-z0-9-]*?)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-\d+$/i;
 
 /**
  * Which loop ran a session. Priority: the run's own subagent name (the agent frontmatter
- * pi stamps into `session_info`), then the scheduler launcher brief, else an interactive
- * owner session. A fork replays its parent's entries, so it inherits the parent's label.
+ * pi stamps into `session_info`), then the scheduler launcher brief, then a ledger stage's
+ * relay brief, else an interactive owner session. A fork replays its parent's entries, so
+ * it inherits the parent's label.
  */
 export function agentOf(subagentName: string | null, firstUserText: string): string {
   if (subagentName) {
@@ -339,6 +356,7 @@ export function agentOf(subagentName: string | null, firstUserText: string): str
     if (m) return m[1];
   }
   if (SCHEDULE_LAUNCHER.test(firstUserText)) return "scheduler-run";
+  if (STAGE_WRAPPER.test(firstUserText)) return "stage-wrapper";
   return "interactive";
 }
 
