@@ -1190,9 +1190,21 @@ describe('cost, composition and the assembled report', () => {
       { reAsked: 3, abandoned: 1 },
       { reAsked: 0, abandoned: 0 },
     ]);
-    const markdown = renderPanelMarkdown(aggregatePanel([reviewFile({ persona: 'a', summary: { brainCalls: { reAsked: 3, abandoned: 1 } } })]));
+    const markdown = renderPanelMarkdown(
+      aggregatePanel([reviewFile({ persona: 'a', summary: { brainCalls: { reAsked: 3, abandoned: 1 } } })]),
+    );
     expect(markdown).toContain('re-asks');
-    expect(markdown).toContain('| a |');
+    // The row's own cells: a dropped or swapped column must not pass on the header label alone.
+    const lines = markdown.split('\n');
+    const rows = lines
+      .slice(lines.findIndex((l) => l === '## Runs and cost'))
+      .filter((l) => l.startsWith('| '));
+    const cell = (field: string): string => {
+      const headers = rows[0].split('|').map((c) => c.trim());
+      expect(headers).toContain(field);
+      return rows[2].split('|').map((c) => c.trim())[headers.indexOf(field)];
+    };
+    expect([cell('re-asks'), cell('abandoned')]).toEqual(['3', '1']);
   });
 
   it('assembles every section, and refuses to aggregate nothing at all', () => {
@@ -1292,7 +1304,7 @@ describe('review-file input (contract §9)', () => {
   it('rejects a reviews file whose `v` this panel does not read', () => {
     const file = reviewFile({ persona: 'explorer' });
     expect(() => parseReviewFile({ ...file, v: REVIEW_FILE_VERSION + 1 }, 'x.reviews.json')).toThrow(PanelInputError);
-    expect(() => parseReviewFile({ ...file, v: REVIEW_FILE_VERSION + 1 }, 'x.reviews.json')).toThrow(/version 2/);
+    expect(() => parseReviewFile({ ...file, v: REVIEW_FILE_VERSION + 1 }, 'x.reviews.json')).toThrow(/version 3/);
     expect(parseReviewFile(file, 'x.reviews.json')).toBe(file);
   });
 
@@ -1327,7 +1339,7 @@ describe('review-file input (contract §9)', () => {
 
       // A version mismatch is named, with both versions, so the reader knows what to do.
       writeFileSync(path.join(dir, 'b.json.reviews.json'), JSON.stringify({ ...reviewFile({ persona: 'casual' }), v: 9 }));
-      expect(() => readReviewDirectory(dir)).toThrow(/reviews-file version 9 but this panel reads version 1/);
+      expect(() => readReviewDirectory(dir)).toThrow(/reviews-file version 9 but this panel reads version 2/);
 
       // A malformed CELL stops the panel too, and the message names the file it came from.
       writeFileSync(

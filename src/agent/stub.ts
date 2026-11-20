@@ -301,7 +301,8 @@ async function main(): Promise<void> {
   console.error(
     `\n── run summary ──\n  ${run.turns} turns, ${run.outcomes} outcomes, ${run.deadEnds} dead-ends, ` +
       `${run.commutes} commutes, ${run.greetings} greeting(s), ${run.dayBoundaries} nights\n  findings: ${run.findings.error} error(s), ` +
-      `${run.findings.warning} warning(s)`,
+      `${run.findings.warning} warning(s)\n  ` +
+      `brain call failures: ${run.brainCalls.reAsked} re-asked, ${run.brainCalls.abandoned} abandoned`,
   );
 
   // The inherit-mode asymmetry (the play.ts convention): the stub always has a character,

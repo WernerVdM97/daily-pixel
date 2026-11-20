@@ -1,4 +1,4 @@
-# agent v2 · player handbook
+# agent v3 · player handbook
 
 You are about to play The Warden's Oak for the first time. This is everything a new player is told before their first day.
 

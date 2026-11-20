@@ -135,9 +135,8 @@ export interface TranscriptSummary {
   /** Frictions the brain reported. */
   frictions: number;
   findings: { error: number; warning: number };
-  /** Brain calls the gateway could not resolve: `reAsked` failed once and got the retry, `abandoned`
-   *  failed both attempts and lost the turn. Split out of `findings`, where a warning also means
-   *  other things, so a panel run can read the flush rate without parsing the event stream. */
+  /** Brain calls the gateway could not resolve: `reAsked` failed once and got the retry,
+   *  `abandoned` lost the turn. */
   brainCalls: { reAsked: number; abandoned: number };
 }
 

@@ -1083,7 +1083,7 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
   });
 });
 
-// ── #144 — the widest menu the game builds: the day-job screen before any recon is spent, where the
+// ── The widest menu the game builds: the day-job screen before any recon is spent, where the
 // engine's free-text slot, six reads and sleep follow the screen's own buttons for eleven MOVES. It is
 // the weekend menu too — the /hi weekend greeting adds no buttons and the Saturday bonus roll no slot —
 // and it is the list the live arc run died on, on day 3. Nothing else in the suite exercises that width.
