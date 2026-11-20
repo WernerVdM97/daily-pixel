@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
  * The agent-player brain family is SET-BASED: the runtime unit is the whole version directory — brain,
  * handbook and the persona fragment `AGENT_PERSONA` selects, loaded and stamped together.
  */
-export const AGENT_PLAYER_SET_VERSION = 'v2';
+export const AGENT_PLAYER_SET_VERSION = 'v3';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,8 +15,8 @@ function setDir(): string {
   return path.join(__dirname, '..', '..', 'assets', 'prompts', 'agent-player', AGENT_PLAYER_SET_VERSION);
 }
 
-/** `promptVersion` stamp for an `llm_calls` row produced by the agent brain. `agent-v2`, or
- *  `agent-v2/<persona>` when a persona fragment rode the turn. Derived, never hand-written. */
+/** `promptVersion` stamp for an `llm_calls` row produced by the agent brain. `agent-v3`, or
+ *  `agent-v3/<persona>` when a persona fragment rode the turn. Derived, never hand-written. */
 export function agentPlayerStamp(persona?: string): string {
   const base = `agent-${AGENT_PLAYER_SET_VERSION}`;
   return persona ? `${base}/${persona}` : base;

@@ -318,6 +318,7 @@ describe('Transcript — greeting plumbing (DC-S3, type-level only)', () => {
       recons: 0,
       frictions: 0,
       findings: { error: 0, warning: 0 },
+      brainCalls: { reAsked: 0, abandoned: 0 },
     });
   });
 });

@@ -700,7 +700,9 @@ class FlakyBrain implements AgentPlayerGateway {
   async chooseMove(input: ChooseMoveInput): Promise<BrainTurn> {
     this.calls.push(input);
     if (this.calls.length <= this.failures) {
-      throw new Error('ProdAgentPlayerGateway: choice undefined is not a legal move index (0..3)');
+      throw new Error(
+        `ProdAgentPlayerGateway: choice undefined is not a legal move index (0..${input.moves.length - 1})`,
+      );
     }
     return this.inner.chooseMove(input);
   }
@@ -1012,6 +1014,7 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
       // One warning: the day closed with no dayNote captured, which is the series-hole guard
       // (`closeDay`) — the scripted brain never rates its days.
       findings: { error: 0, warning: 1 },
+      brainCalls: { reAsked: 0, abandoned: 0 },
     });
   });
 
@@ -1077,6 +1080,68 @@ describe('AgentHarness — QA capture (M6 protocol)', () => {
     expect(harness.transcript.events.some((e) => e.type === 'finding' && e.severity === 'error')).toBe(false);
     // The recovered turn is still exactly one turn for the day's accounting.
     expect(harness.transcript.summary().turns).toBe(1);
+  });
+});
+
+// ── #144 — the widest menu the game builds: the day-job screen before any recon is spent, where the
+// engine's free-text slot, six reads and sleep follow the screen's own buttons for eleven MOVES. It is
+// the weekend menu too — the /hi weekend greeting adds no buttons and the Saturday bonus roll no slot —
+// and it is the list the live arc run died on, on day 3. Nothing else in the suite exercises that width.
+
+describe('AgentHarness — a dropped choice on the widest menu', () => {
+  /** A real-backend harness (the panel path) whose first brain call is the eleven-option day-job menu. */
+  async function widestMenuHarness(brain: AgentPlayerGateway) {
+    const agentEngine = buildAgentEngine({
+      pipelineLlmGateway: new PipelineScriptedGateway(pipelineScript),
+      rollD20: () => 20,
+    });
+    const harness = createAgentHarness(
+      agentEngine.engine,
+      buildDeterministicRouter(agentEngine),
+      brain,
+      USER_ID,
+    );
+    await harness.createCharacter(SEED);
+    return harness;
+  }
+
+  it('re-asks on the widest menu and recovers in one turn', async () => {
+    const brain = new FlakyBrain(1, new ScriptedAgentPlayerGateway([{ kind: 'sleep' }]));
+    const harness = await widestMenuHarness(brain);
+
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+
+    // The list the model was handed: the screen's three buttons, the free-text slot, six reads, sleep.
+    const first = brain.calls[0];
+    expect(first.moves).toHaveLength(11);
+    expect(buildUserMessage(first)).toContain('10. Go to sleep — end the day');
+
+    expect(brain.calls).toHaveLength(2);
+    const s = harness.transcript.summary();
+    expect(s.turns).toBe(1);
+    // The re-ask is countable from the summary, which is what a panel run reads.
+    expect(s.brainCalls).toEqual({ reAsked: 1, abandoned: 0 });
+    expect(s.findings.error).toBe(0);
+  });
+
+  it('abandons the turn when both attempts drop the choice, and the day survives', async () => {
+    const brain = new FlakyBrain(2, new ScriptedAgentPlayerGateway([{ kind: 'sleep' }]));
+    const harness = await widestMenuHarness(brain);
+
+    // Both attempts on turn 1 fail (the live crash); turn 2 answers and sleeps the day — a stumble,
+    // never a dead run.
+    expect(await harness.playDay()).toEqual({ dayNumber: 1, outcomes: 0, ended: 'slept' });
+    expect(brain.calls).toHaveLength(3);
+    expect(brain.calls[0].moves).toHaveLength(11);
+    expect(brain.calls[1].moves).toHaveLength(11);
+
+    const s = harness.transcript.summary();
+    expect(s.brainCalls).toEqual({ reAsked: 1, abandoned: 1 });
+    expect(
+      harness.transcript.events.some(
+        (e) => e.type === 'finding' && e.severity === 'error' && e.summary.includes('abandoning the turn'),
+      ),
+    ).toBe(true);
   });
 });
 

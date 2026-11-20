@@ -83,8 +83,8 @@ describe('prompt-set mirrors (T2)', () => {
 
 describe('prompt-set stamps (T2)', () => {
   it('derives the agent-player stamp, with and without a persona', () => {
-    expect(agentPlayerStamp()).toBe('agent-v2');
-    expect(agentPlayerStamp('soldier')).toBe('agent-v2/soldier');
+    expect(agentPlayerStamp()).toBe('agent-v3');
+    expect(agentPlayerStamp('soldier')).toBe('agent-v3/soldier');
   });
 
   it('derives the critic stamp per template', () => {
@@ -92,8 +92,8 @@ describe('prompt-set stamps (T2)', () => {
     expect(agentCriticStamp('persona-review')).toBe('agent-critic-v2/persona-review');
   });
 
-  it('names v2 as the active set for both families', () => {
-    expect(AGENT_PLAYER_SET_VERSION).toBe('v2');
+  it('names the active set for both families', () => {
+    expect(AGENT_PLAYER_SET_VERSION).toBe('v3');
     expect(AGENT_CRITIC_SET_VERSION).toBe('v2');
   });
 });

@@ -658,12 +658,12 @@ describe('ProdAgentPlayerGateway — notes (T4)', () => {
 // ── ProdAgentPlayerGateway — audit recording ──
 
 describe('ProdAgentPlayerGateway — recording', () => {
-  it('records one row stamped agent-v2 / agent-player on success', async () => {
+  it('records one row stamped agent-v3 / agent-player on success', async () => {
     const { records, recorder } = capture();
     await makeGateway(mockFetch(apiResponse({ choice: 0 })), recorder).chooseMove(menuInput());
 
     expect(records).toHaveLength(1);
-    expect(records[0].promptVersion).toBe('agent-v2');
+    expect(records[0].promptVersion).toBe('agent-v3');
     expect(records[0].callKind).toBe('agent-player');
     expect(records[0].parseOk).toBe(true);
     expect(records[0].error).toBeNull();

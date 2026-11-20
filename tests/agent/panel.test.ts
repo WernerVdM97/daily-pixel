@@ -119,6 +119,7 @@ function reviewFile(options: ReviewFileOptions): ReviewFile {
       recons: 2,
       frictions: frictions.length,
       findings: { error: 0, warning: 1 },
+      brainCalls: { reAsked: 0, abandoned: 0 },
       ...options.summary,
     },
     review: {
@@ -1178,6 +1179,20 @@ describe('cost, composition and the assembled report', () => {
     ]));
     expect(markdown).toContain('1 persona(s) over 1 persona-day(s): 1 breadth (1 day each)');
     expect(markdown).toContain('no memory, no co-play and no content exhaustion');
+  });
+
+  it('reports the brain-call failures per run, so a panel reads them without the event stream', () => {
+    const runs = aggregateRuns([
+      reviewFile({ persona: 'a', summary: { brainCalls: { reAsked: 3, abandoned: 1 } } }),
+      reviewFile({ persona: 'b' }),
+    ]);
+    expect(runs.map((r) => r.brainCalls)).toEqual([
+      { reAsked: 3, abandoned: 1 },
+      { reAsked: 0, abandoned: 0 },
+    ]);
+    const markdown = renderPanelMarkdown(aggregatePanel([reviewFile({ persona: 'a', summary: { brainCalls: { reAsked: 3, abandoned: 1 } } })]));
+    expect(markdown).toContain('re-asks');
+    expect(markdown).toContain('| a |');
   });
 
   it('assembles every section, and refuses to aggregate nothing at all', () => {
