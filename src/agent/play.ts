@@ -259,7 +259,8 @@ async function main(): Promise<void> {
       console.error(
         `\n── run summary ──\n  ${run.turns} turns, ${run.outcomes} outcomes, ${run.deadEnds} dead-ends, ` +
           `${run.commutes} commutes, ${run.dayBoundaries} nights, ${freeActions} free action(s)\n  ` +
-          `findings: ${run.findings.error} error(s), ${run.findings.warning} warning(s)`,
+          `findings: ${run.findings.error} error(s), ${run.findings.warning} warning(s)\n  ` +
+          `brain call failures: ${run.brainCalls.reAsked} re-asked, ${run.brainCalls.abandoned} abandoned`,
       );
       console.error(formatInspirationDial(harness.transcript.inspiration()));
       console.error(formatDifficultyBands(harness.transcript.difficultyBands()));

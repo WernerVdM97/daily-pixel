@@ -555,7 +555,7 @@ describe('buildReviewFile (contract §9)', () => {
       arcNotes: ['the temple'],
       cost: COST,
     });
-    expect(file.v).toBe(1);
+    expect(file.v).toBe(2);
   });
 
   it('carries no header when there is no protocol log, rather than inventing one', () => {

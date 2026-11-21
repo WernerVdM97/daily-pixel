@@ -83,7 +83,7 @@ export class ProdAgentPlayerGateway implements AgentPlayerGateway {
   private systemPrompt: string;
   private verbose: boolean;
   private reasoningEffort?: ReasoningEffort;
-  /** Stamps `llm_calls.promptVersion`: `agent-v2`, or `agent-v2/<persona>` when set. */
+  /** Stamps `llm_calls.promptVersion`: `agent-v3`, or `agent-v3/<persona>` when set. */
   private persona?: string;
 
   constructor(config: ProdAgentPlayerGatewayConfig) {

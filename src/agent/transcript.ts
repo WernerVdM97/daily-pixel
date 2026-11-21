@@ -135,7 +135,15 @@ export interface TranscriptSummary {
   /** Frictions the brain reported. */
   frictions: number;
   findings: { error: number; warning: number };
+  /** Brain calls the gateway could not resolve: `reAsked` failed once and got the retry,
+   *  `abandoned` lost the turn. */
+  brainCalls: { reAsked: number; abandoned: number };
 }
+
+/** The two findings a failed brain call leaves, as constants: `summary()` counts them by identity, and
+ *  the harness emits them from here, so the counter cannot drift from the prose it counts. */
+export const BRAIN_REASK_FINDING = 'brain call failed; re-asking once';
+export const BRAIN_ABANDON_FINDING = 'brain call failed on both attempts; abandoning the turn';
 
 /** Below this many non-work resolutions a grant rate is not quotable: at n = 50 a 10% reading's 95% CI
  *  tops out at ~18%, so the band's upper edge (~19% at 3.7 rolls/day) binds. Report count, not a rate. */
@@ -452,6 +460,7 @@ export class Transcript {
       recons: 0,
       frictions: 0,
       findings: { error: 0, warning: 0 },
+      brainCalls: { reAsked: 0, abandoned: 0 },
     };
     for (const e of this.events) {
       switch (e.type) {
@@ -460,7 +469,11 @@ export class Transcript {
         case 'dead-end': s.deadEnds++; break;
         case 'commute': s.commutes++; break;
         case 'day': s.dayBoundaries++; break;
-        case 'finding': s.findings[e.severity]++; break;
+        case 'finding':
+          s.findings[e.severity]++;
+          if (e.summary === BRAIN_REASK_FINDING) s.brainCalls.reAsked++;
+          else if (e.summary === BRAIN_ABANDON_FINDING) s.brainCalls.abandoned++;
+          break;
         case 'greeting': s.greetings++; break;
         case 'recon': s.recons++; break;
         case 'friction': s.frictions++; break;
