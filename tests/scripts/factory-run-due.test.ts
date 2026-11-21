@@ -22,12 +22,13 @@ function tick(env: Record<string, string>): string {
     FACTORY_LOCK_FILE: join(dir, 'lock'),
     FACTORY_MIN_AVAIL_MB: '1',
     PI_BIN: '/bin/true',
-    // Never inherit the switch, a manual fire, the factory credential, or the curl it would be
-    // read with, from the ambient shell.
+    // Never inherit the switch, a manual fire, the factory credential, the curl it would be read
+    // with, or the agent dir a factory-spawned session sets, from the ambient shell.
     FACTORY_ENABLED: '',
     FACTORY_FIRE: '',
     FACTORY_OPENROUTER_API_KEY: '',
     CURL_BIN: '',
+    PI_CODING_AGENT_DIR: '',
     ...env,
   };
   // stderr is folded in: the launcher logs its fallback and rejection warnings there, and they
