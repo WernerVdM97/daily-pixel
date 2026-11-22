@@ -106,6 +106,8 @@ export interface PanelRunSummary {
   outcomes: number;
   deadEnds: number;
   findings: { error: number; warning: number };
+  /** Brain calls that came back unresolvable: retried once, then lost the turn. */
+  brainCalls: { reAsked: number; abandoned: number };
   costCalls: number;
   costTokens: number;
 }
@@ -438,6 +440,7 @@ export function aggregateRuns(reviews: readonly ReviewFile[]): PanelRunSummary[]
       outcomes: file.summary.outcomes,
       deadEnds: file.summary.deadEnds,
       findings: { error: file.summary.findings.error, warning: file.summary.findings.warning },
+      brainCalls: { reAsked: file.summary.brainCalls.reAsked, abandoned: file.summary.brainCalls.abandoned },
       costCalls: file.cost.totalCalls,
       costTokens: file.cost.totalTokens,
     };
@@ -1159,7 +1162,7 @@ export function renderPanelMarkdown(report: PanelReport): string {
   out.push('');
   out.push(
     table(
-      ['persona', 'recordedAt', 'days', 'rated', 'turns', 'outcomes', 'dead-ends', 'warnings', 'errors', 'calls', 'tokens'],
+      ['persona', 'recordedAt', 'days', 'rated', 'turns', 'outcomes', 'dead-ends', 'warnings', 'errors', 're-asks', 'abandoned', 'calls', 'tokens'],
       report.runs.map((r) => [
         r.persona,
         r.recordedAt ?? '—',
@@ -1170,6 +1173,8 @@ export function renderPanelMarkdown(report: PanelReport): string {
         r.deadEnds,
         r.findings.warning,
         r.findings.error,
+        r.brainCalls.reAsked,
+        r.brainCalls.abandoned,
         r.costCalls,
         r.costTokens,
       ]),
@@ -1278,6 +1283,10 @@ export function parseReviewFile(raw: unknown, source: string): ReviewFile {
   const findings = summary.findings as Record<string, unknown>;
   requireCount(findings.error, source, 'summary.findings.error');
   requireCount(findings.warning, source, 'summary.findings.warning');
+  require(isRecord(summary.brainCalls), source, 'missing "summary.brainCalls"');
+  const brainCalls = summary.brainCalls as Record<string, unknown>;
+  requireCount(brainCalls.reAsked, source, 'summary.brainCalls.reAsked');
+  requireCount(brainCalls.abandoned, source, 'summary.brainCalls.abandoned');
 
   require(Array.isArray(record.dayNotes), source, 'missing "dayNotes" array');
   (record.dayNotes as unknown[]).forEach((raw, i) => {

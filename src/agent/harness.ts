@@ -29,7 +29,7 @@ import {
 import type { ReconUsage } from './agentMoves.js';
 import { summarizeOutcome, buildDayLog, buildRecap } from './turnContext.js';
 import type { DayLogEntry } from './turnContext.js';
-import { Transcript } from './transcript.js';
+import { Transcript, BRAIN_REASK_FINDING, BRAIN_ABANDON_FINDING } from './transcript.js';
 import type { GameRouter } from '../protocol/router.js';
 import type { GameResponse } from '../protocol/envelope.js';
 import { isRollVerdict } from '../protocol/envelope.js';
@@ -976,10 +976,10 @@ export class AgentHarness {
       } catch (e) {
         const detail = formatError(e);
         if (attempt === 2) {
-          this.transcript.finding('error', 'brain call failed on both attempts; abandoning the turn', detail);
+          this.transcript.finding('error', BRAIN_ABANDON_FINDING, detail);
           return null;
         }
-        this.transcript.finding('warning', 'brain call failed; re-asking once', detail);
+        this.transcript.finding('warning', BRAIN_REASK_FINDING, detail);
       }
     }
     return null;

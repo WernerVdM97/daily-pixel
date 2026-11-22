@@ -302,7 +302,7 @@ describe('the persona rides the system prompt and the stamp (spec § Versioning 
     expect(systemPromptOf(fetchFn)).not.toContain('Persona:');
   });
 
-  it('stamps agent-v2/<persona>, and plain agent-v2 when unset', async () => {
+  it('stamps agent-v3/<persona>, and plain agent-v3 when unset', async () => {
     const records: LlmCallRecord[] = [];
     const recorder = {
       record: (r: LlmCallRecord) => {
@@ -316,11 +316,11 @@ describe('the persona rides the system prompt and the stamp (spec § Versioning 
 
     await new ProdAgentPlayerGateway({ apiKey: 'k', fetch: mockFetch({ choice: 0 }), recorder, persona: 'soldier' })
       .chooseMove(menuInput());
-    expect(records[0].promptVersion).toBe('agent-v2/soldier');
+    expect(records[0].promptVersion).toBe('agent-v3/soldier');
 
     await new ProdAgentPlayerGateway({ apiKey: 'k', fetch: mockFetch({ choice: 0 }), recorder })
       .chooseMove(menuInput());
-    expect(records[1].promptVersion).toBe('agent-v2');
+    expect(records[1].promptVersion).toBe('agent-v3');
 
     // The literals above are the contract; this pins the derivation they must keep matching.
     expect(agentPlayerStamp('soldier')).toBe(`agent-${AGENT_PLAYER_SET_VERSION}/soldier`);

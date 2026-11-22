@@ -17,7 +17,7 @@ import type {
 
 /** The reviews-file FORMAT version, bumped when the payload's shape changes incompatibly so a panel
  *  can refuse a file it does not understand. Not a prompt version — that rides the `llm_calls` row. */
-export const REVIEW_FILE_VERSION = 1;
+export const REVIEW_FILE_VERSION = 2;
 
 /** The `<AGENT_OUT>.reviews.json` payload. Every field is either a whole transcript
  *  value type or a derived slice of one, so the panel needs nothing but this file. */

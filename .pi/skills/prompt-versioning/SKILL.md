@@ -21,7 +21,7 @@ Each family lives in `assets/prompts/<family>/`, loaded from the file matching i
 | -------- | -------- | ------------------ | --------------- | ---------------- | ------------ |
 | Decision | `assets/prompts/decision-prompts/` | `PROMPT_SET_VERSION` | `src/llm/prompt-builder.ts` | the set directory `v14/` (`classify.md`, `decide/*.md`, `resolve/**/*.md`) | `<vN>/<template>` |
 | Critic | `assets/prompts/critic/` | `CRITIC_VERSION` | `src/llm/prompt-builder.ts` | `critic-<vN>.md` | `critic-<vN>` |
-| Agent brain | `assets/prompts/agent-player/` | `AGENT_PLAYER_SET_VERSION` | `src/agent/agentPrompt.ts` | the set directory `v2/` (`brain.md`, `handbook.md`, `personas/<name>.md`) | `agent-<vN>` / `agent-<vN>/<persona>` |
+| Agent brain | `assets/prompts/agent-player/` | `AGENT_PLAYER_SET_VERSION` | `src/agent/agentPrompt.ts` | the set directory `v3/` (`brain.md`, `handbook.md`, `personas/<name>.md`) | `agent-<vN>` / `agent-<vN>/<persona>` |
 | Playtest critic | `assets/prompts/agent-critic/` | `AGENT_CRITIC_SET_VERSION` | `src/agent/criticPrompt.ts` | the set directory `v2/` (`<template>.md`: `critic.md`, `persona-review.md`) | `agent-critic-<vN>/<template>` |
 
 New families follow the same shape: own folder, a `*_VERSION` constant for a single-file family or a `*_SET_VERSION` constant for a set-based one, `<family>-<vN>.md` files in the first case or a `<vN>/` directory in the second, and a `current_source.md` mirror (single-file) or a `current_source/` directory mirror (set-based — see below).
