@@ -27,6 +27,7 @@ You are the **Scrumo** agent of the Dark Factory for daily-pixel (The Warden's O
 5. Roadmap: `docs/game/poc-plus-roadmap.md` for the intended arc.
 6. `CHANGELOG.md` and `VERSION` for what just landed.
 7. Memory: `.pi/factory/memory/` — `board/`, `gate/`, `loops/`, `delivery/` first, then `grep -rn "<subject>" .pi/factory/memory`.
+8. **Recent owner Q&A**, so you neither re-ask a decision the owner has already made nor recommend what he just decided against: `gh api "repos/WernerVdM97/daily-pixel/issues/comments?per_page=100&sort=created&direction=desc" --jq '.[] | [(.issue_url|split("/")|last), .user.login, .created_at] | @tsv'`. One page, newest first, and the author tells you who spoke last; an answer no loop has picked up yet is a card waiting, not a card decided.
 
 ## The digest (your deliverable)
 
@@ -69,6 +70,7 @@ Rules that make the difference between a digest he reads and one he skims:
 4. **Exactly three decisions**, each an action with a link the owner can click — "Merge [PR #107](…)", "Approve [#34](…)", "Kill or defer the [v0.3.x polish](…) milestone". Fewer than three real decisions: say so rather than padding.
 5. **Drop empty sections.** "landed: none" is a bullet, not a section.
 6. No keycaps (`1️⃣`, `✅`): those are the vote vocabulary the inbox watcher reads on reaction, and seeing them in the body invites a reaction that means nothing.
+7. **Read the owner's last word on a card before recommending it.** If the newest comment is his, the card is not waiting on him, and a decision you recommend there repeats a call he already made: name it under "Since the last digest" instead (`• answered: [#37](…) re-scoped`), and recommend the loop step that follows his answer, not the answer itself.
 
 Under 30 lines total. Plain text body, no embeds.
 

@@ -8,10 +8,11 @@
 // apart trains the owner to ignore the column, which is worse than no filter.
 //
 // So the bulletin splits the human-gated work by *what the owner can actually do*:
-// answer (a question exists), re-read (the owner already answered and triage has not
-// looked), fix the factory (nobody ever asked), approve, merge. It is regenerated in
-// place on one pinned issue, so the pin cannot go stale, and it needs no Discord token,
-// so it works headless on a host where the DM path is broken.
+// answer (a question exists), re-read (the owner already answered and the loop that owes
+// the next move has not made it, on a Blocked hold or on a Triaged card whose direction
+// changed while it waited for an approval), fix the factory (nobody ever asked), approve,
+// merge. It is regenerated in place on one pinned issue, so the pin cannot go stale, and it
+// needs no Discord token, so it works headless on a host where the DM path is broken.
 //
 // Usage:
 //   tsx scripts/factory-bulletin.ts                    # print the bulletin, no writes
@@ -134,6 +135,8 @@ export interface Entry {
   number: number;
   title: string;
   url: string;
+  /** The board Status this row was classified from; null for a row that is not a card (a PR). */
+  status: string | null;
   milestone: string | null;
   priority: string | null;
   /** Age of the thing that is now waiting, in ms. Null when the item carries no clock. */
@@ -144,7 +147,7 @@ export interface Entry {
 export interface Queue {
   /** Blocked, question written, no human reply since. The owner's answer queue. */
   answer: Entry[];
-  /** Blocked, the human spoke last: triage has not processed the answer yet. */
+  /** The owner spoke last on a `Blocked` or `Triaged` card, so the loop that owes the next move has not made it. */
   answered: Entry[];
   /** Blocked with `needs-human-decision` and no comments at all: nothing to answer. */
   neverAsked: Entry[];
@@ -366,6 +369,7 @@ function toEntry(item: BoardItem, sinceMs: number | null, excerpt: string): Entr
     number: item.number,
     title: item.title,
     url: item.url,
+    status: item.status,
     milestone: item.milestone,
     priority: item.priority,
     sinceMs,
@@ -413,6 +417,11 @@ function classifyItem(
   }
   if (item.status === "Triaged") {
     if (isEpic(item)) return null;
+    // The owner spoke last: triage owes this card a re-read, so an approval taken now would
+    // approve criteria he has just changed.
+    if (last && !opts.agentLogins.has(last.author)) {
+      return { bucket: "answered", entry: toEntry(item, since, toExcerpt(last.body, 90)) };
+    }
     return { bucket: "approve", entry: toEntry(item, since, last ? toExcerpt(last.body, 90) : "") };
   }
   if (item.status === "In Review") return { bucket: "merge", entry: toEntry(item, since, "") };
@@ -641,14 +650,15 @@ export function renderBulletin(queue: Queue, generatedAt: Date): string {
   if (queue.answered.length > 0) {
     lines.push("## Answered, waiting on triage");
     lines.push("");
-    lines.push("You have replied; triage has not re-read these yet. Nothing more is needed from you.");
+    lines.push("You have replied and triage has not re-read these yet, so nothing here is waiting on you. A `Triaged` card comes back for approval once triage has re-scoped it.");
     lines.push("");
-    lines.push("| # | Item | Your reply | Replied |");
-    lines.push("| --- | --- | --- | --- |");
+    lines.push("| # | Item | Status | Your reply | Replied |");
+    lines.push("| --- | --- | --- | --- | --- |");
     lines.push(
       ...table(queue.answered, (e) => [
         `[#${e.number}](${e.url})`,
         e.title,
+        e.status ?? "—",
         e.excerpt,
         formatAge(e.sinceMs),
       ]),
@@ -826,6 +836,7 @@ function main(): void {
       number: pr.number,
       title: pr.title,
       url: pr.url,
+      status: null,
       milestone: null,
       priority: null,
       sinceMs: null,
