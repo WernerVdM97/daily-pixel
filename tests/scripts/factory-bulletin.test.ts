@@ -141,6 +141,30 @@ describe('classifyBoard', () => {
     expect(queue.approve.map((e) => e.number)).toEqual([34]);
   });
 
+  it('sends a Triaged card the owner re-directed to be re-read, not to approval', () => {
+    // #147: the owner added new direction while the card waited for an approval, and nothing
+    // in the factory re-read a Triaged card, so it sat unread for four days.
+    const queue = classifyBoard(
+      [item({ number: 147, status: 'Triaged', priority: 'P1 - high' })],
+      new Map([[147, [comment('agent97eth', '2026-09-24T05:35:00Z', '**Triage: criteria drafted.**'), comment(OWNER, '2026-09-25T09:00:00Z', 'let us A/B the cap')]]]),
+      { agentLogins: AGENTS, nowMs: NOW },
+    );
+    expect(queue.approve).toHaveLength(0);
+    expect(queue.answered.map((e) => e.number)).toEqual([147]);
+    expect(queue.answered[0]?.excerpt).toBe('let us A/B the cap');
+    expect(queue.answered[0]?.status).toBe('Triaged');
+  });
+
+  it('keeps a Triaged card in the approval queue when the factory spoke last', () => {
+    const queue = classifyBoard(
+      [item({ number: 200, status: 'Triaged' })],
+      new Map([[200, [comment(OWNER, '2026-09-10T20:00:00Z', 'approved-ish'), comment('agent97eth', '2026-09-10T21:00:00Z', '**Triage: criteria drafted.**')]]]),
+      { agentLogins: AGENTS, nowMs: NOW },
+    );
+    expect(queue.approve.map((e) => e.number)).toEqual([200]);
+    expect(queue.answered).toHaveLength(0);
+  });
+
   it('reads an approved epic as a refused card rather than as work waiting on something', () => {
     const queue = classifyBoard([item({ number: 98, status: 'Approved', labels: ['type:epic'] })], new Map(), {
       agentLogins: AGENTS,
@@ -256,6 +280,19 @@ describe('renderBulletin', () => {
     expect(rendered).toContain('## Approved with no milestone');
     expect(rendered).toContain('https://example.test/issues/242');
     expect(rendered).toContain('approved but unschedulable: 1');
+  });
+
+  it('names the Status of every row it says is waiting on triage', () => {
+    const redirected = classifyBoard(
+      [item({ number: 147, status: 'Triaged', title: 'Re-directed item' })],
+      new Map([[147, [comment(OWNER, '2026-09-10T21:00:00Z', 'cap it at four rounds')]]]),
+      { agentLogins: AGENTS, nowMs: NOW },
+    );
+    const rendered = renderBulletin(redirected, new Date(NOW));
+    expect(rendered).toContain('## Answered, waiting on triage');
+    expect(rendered).toContain('| # | Item | Status | Your reply | Replied |');
+    expect(rendered).toContain('| Triaged |');
+    expect(rendered).not.toContain('## Ready to approve');
   });
 
   it('always prints the status table, with every flow status present', () => {
