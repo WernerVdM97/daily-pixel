@@ -11,6 +11,8 @@ tags:
   - state-machine
 related:
   - "[[action-engine-framework]]"
+  - "[[combat-framework]]"
+  - "[[combat-length-and-tempo]]"
   - "[[prompt-v12-combat]]"
   - "[[prompt-v12-pipeline]]"
   - "[[prompt-v12-scene-state]]"

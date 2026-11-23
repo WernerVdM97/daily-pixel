@@ -1,12 +1,14 @@
 ---
 title: Combat — Core Mechanic
-status: spark
+status: superseded
 domain: spark
+superseded_by: "[[combat-framework]]"
 tags:
 - combat
 - mechanics
 - engine
 related:
+- '[[combat-framework]]'
 - '[[mvp-core-loop]]'
 - '[[mvp-character-drivers]]'
 - '[[hazard-map]]'
@@ -15,6 +17,8 @@ phase: mvp
 ---
 
 # Combat — Core Mechanic
+
+> **Superseded by [[combat-framework]].** Its locked constraints (roll-resolution only, one evolving mobile message, combat as a stakes layer on the existing spine rather than a parallel engine) were migrated into that doc before this one was archived. The *Open shape* questions below are either settled or carried forward as explicit open questions there; the body is kept as the record of what combat was asked to be before it existed.
 
 > *The POC has no combat. A survival game about a rising Threat needs one. Roll-resolution, never twitch — per [[hazard-map]] ("Real-time combat: Discord latency + mobile = terrible UX").*
 

@@ -15,6 +15,7 @@ related:
   - "[[prompt-v12-pipeline]]"
   - "[[prompt-v12-scene-state]]"
   - "[[mvp-combat]]"
+  - "[[combat-length-and-tempo]]"
   - "[[per-option-stat-and-ability-checks]]"
   - "[[roll-economy-timeouts-and-world-growth]]"
 ---
@@ -23,6 +24,8 @@ _Thread C of the v12 spark: make combat a frequent, long, richly-rewarded wilds 
 > **Part of the [[prompt-separation-of-concerns]] spark** (Thread C). Siblings: [[prompt-v12-world-scaling]] (B) · [[prompt-v12-pipeline]] (D) · [[prompt-v12-scene-state]] (D1/D2/D6).
 
 ---
+
+> **Tempo reversed.** The "frequent, long, richly rewarded" premise here no longer holds; [[combat-length-and-tempo]] settles combat as short and bounded. The spine this thread shipped, including the no-one-shot floor, geographic danger and magnitude-not-variance rule, is unchanged.
 
 Combat today is a generic `/action` roll the prompt pushes to _end fast_ (`decision-v11.md:44` — "prefer resolving in two or three beats"). For a survival game with a rising Threat that's backwards — combat should be **frequent in the wilds, long, and richly rewarded** (see [[mvp-combat]] for the locked constraint: roll-resolution, never twitch).
 

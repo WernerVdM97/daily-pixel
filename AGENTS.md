@@ -60,3 +60,4 @@ Task- and tool-specific conventions live as auto-discovered skills in [`.pi/skil
 | [`TODO.md`](./TODO.md)                           | Human notes only — agents file issues on the Dark Factory board.                           |
 | [`docs/README.md`](./docs/README.md)             | Map of content for the design vault — index of every design doc.                           |
 | [`db-backups/README.md`](./db-backups/README.md) | Read-only tooling for pulling & inspecting a prod DB snapshot (snapshots never committed). |
+| `.pi/handover/`                                  | Local handover notes between sessions. Gitignored, so a clone will not have them.          |
