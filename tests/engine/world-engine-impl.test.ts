@@ -830,7 +830,7 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
    *  current location, mirroring `combat-state.ts`'s location-anchor shape). */
   function seedInCombatEdge(
     characterId: number,
-    props: { enemyName: string; enemyHp: number; enemyMaxHp: number; round: number; unnamedFoe?: boolean },
+    props: { enemyName: string; enemyHp: number; enemyMaxHp: number; round: number },
   ): void {
     new RelationRepository(getDb()).set({
       fromType: 'pc',
@@ -893,34 +893,6 @@ describe('WorldEngineImpl — startAction surfaces a persisted enemy condition o
     const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat', { name: 'Goblin', anchor: 'location' }));
     const startResult = await engine.startAction(characterId, 'attack the goblin');
 
-    expect(startResult.combatEnemyCondition).toBeUndefined();
-
-    closeDb();
-  });
-
-  // A round can leave the foe untouched, so a full-HP edge bands nothing — but it still names the
-  // foe the engine remembers, and the opener must not fall back to "Unknown foe" (#43).
-  it('names the remembered foe off a full-HP edge while banding nothing', async () => {
-    const { userRepo, charRepo, characterId } = seedCharacter();
-    seedInCombatEdge(characterId, { enemyName: 'Goblin', enemyHp: 20, enemyMaxHp: 20, round: 2 });
-
-    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat'));
-    const startResult = await engine.startAction(characterId, 'resume fight');
-
-    expect(startResult.combatEnemyName).toBe('Goblin');
-    expect(startResult.combatEnemyCondition).toBeUndefined();
-
-    closeDb();
-  });
-
-  it('keeps a full-HP unnamed-foe edge anonymous (the engine placeholder is never a name)', async () => {
-    const { userRepo, charRepo, characterId } = seedCharacter();
-    seedInCombatEdge(characterId, { enemyName: 'Minion', enemyHp: 20, enemyMaxHp: 20, round: 2, unnamedFoe: true });
-
-    const engine = makeEngine(userRepo, charRepo, new ScriptedGateway('combat'));
-    const startResult = await engine.startAction(characterId, 'resume fight');
-
-    expect(startResult.combatEnemyName).toBeUndefined();
     expect(startResult.combatEnemyCondition).toBeUndefined();
 
     closeDb();

@@ -1686,9 +1686,6 @@ it('DC-M9.2.2 threading proof — action.custom\'s decision view carries the com
   expect(view.openingFrame).not.toContain('?/?');
 });
 
-// #43 — the decision's own `combatStatus` outranks the caller's slots for the enemy *band*, but an
-// unnamed-foe beat carries no name of its own: wiping the name here renders the placeholder on a
-// frame whose foe the engine named.
 it('a continue beat whose combatStatus carries no name keeps the name the caller supplied (#43)', async () => {
   const engine = realChar();
   engine.setPendingChoiceOptions(PENDING_OPTIONS);

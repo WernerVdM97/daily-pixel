@@ -1018,14 +1018,13 @@ export class WorldEngineImpl implements WorldEngine {
     };
   }
 
-  /** Reads the persisted `in_combat` edge to name a remembered foe and band its condition on the
-   *  opening frame: a prior bail's re-entry, or the foe a resumed mid-fight is still locked to. A
-   *  spare closes that edge, so the `undefined` after one is by design — don't re-open it. */
+  /** Reads the persisted `in_combat` edge to band the remembered foe on the opening frame — a prior
+   *  bail's re-entry or a resumed mid-fight. A spare closes it, so `undefined` there is by design. */
   private readPersistedCombatFoe(
     characterId: number,
     internalState: PipelineInternalActionState,
     currentLocation: string,
-  ): { name?: string; condition?: { woundWord: string; filled: number; total: number } } | undefined {
+  ): { name?: string; condition: { woundWord: string; filled: number; total: number } } | undefined {
     if (internalState.actionType !== 'combat') return undefined;
 
     // The DB row shape back into the edge shape `readCombatState` expects, mirroring
@@ -1042,6 +1041,7 @@ export class WorldEngineImpl implements WorldEngine {
     const cs = readCombatState(edges);
     if (!cs) return undefined;
     if (cs.enemyHp <= 0 || cs.enemyMaxHp <= 0) return undefined;   // dead foe: nothing to remember
+    if (cs.enemyHp >= cs.enemyMaxHp) return undefined;              // full HP reads identical to a fresh fight
 
     const llmName = internalState.lastDecideResult.combatEnemy?.name;
     const matches = llmName
@@ -1049,14 +1049,9 @@ export class WorldEngineImpl implements WorldEngine {
       : this.combatAnchorIsHere(cs, currentLocation);
     if (!matches) return undefined;
 
-    // The name and the band answer different questions: a round can leave the foe untouched, so a
-    // full-HP edge still names it even though there is no damage to band.
-    const name = cs.unnamedFoe ? undefined : cs.enemyName;
-    if (cs.enemyHp >= cs.enemyMaxHp) return name ? { name } : undefined;
-
     const { filled, woundWord } = enemyConditionBand(cs.enemyHp / cs.enemyMaxHp);
     return {
-      ...(name ? { name } : {}),
+      ...(cs.unnamedFoe ? {} : { name: cs.enemyName }),
       condition: { woundWord, filled, total: 5 },
     };
   }
