@@ -213,6 +213,30 @@ const NEXT_DECISION_STEP: Parameters<MockWorldEngine['setStepActionResult']>[0] 
   },
 };
 
+/** A continue beat on an unnamed-foe fight: `combatStatus` carries no name (the engine withholds its
+ *  own placeholder), while DECIDE named the foe this beat. The opener must keep the named one. */
+const CONTINUE_COMBAT_UNNAMED: Parameters<MockWorldEngine['setStepActionResult']>[0] = {
+  resolved: false,
+  actionType: 'combat',
+  state: { rawInput: 'fight the wolves', decisions: [], accumulatedDc: 12 },
+  nextDecision: {
+    prompt: 'The beast circles, hackles raised. What do you do?',
+    options: [
+      { label: 'Press the attack', dcModifier: 0 },
+      { label: 'Step back', dcModifier: null },
+    ],
+    combatStatus: {
+      woundWord: 'Healthy',
+      pips: { filled: 5, total: 5 },
+      playerHp: 8,
+      playerMaxHp: 10,
+      playerHpDelta: -2,
+    },
+  },
+  combatEnemyName: 'Grey Wolf',
+  combatEnemyCondition: { woundWord: 'Healthy', filled: 5, total: 5 },
+};
+
 /** stepAction → resolved straight to an outcome. */
 const RESOLVED_STEP: Parameters<MockWorldEngine['setStepActionResult']>[0] = {
   resolved: true,
@@ -1658,6 +1682,22 @@ it('DC-M9.2.2 threading proof — action.custom\'s decision view carries the com
   expect(view.openingFrame).toBeDefined();
   expect(view.openingFrame).toContain('Ironback Boar');
   expect(view.openingFrame).toContain('Bloodied');
+  expect(view.openingFrame).not.toContain('Unknown foe');
+  expect(view.openingFrame).not.toContain('?/?');
+});
+
+// #43 — the decision's own `combatStatus` outranks the caller's slots for the enemy *band*, but an
+// unnamed-foe beat carries no name of its own: wiping the name here renders the placeholder on a
+// frame whose foe the engine named.
+it('a continue beat whose combatStatus carries no name keeps the name the caller supplied (#43)', async () => {
+  const engine = realChar();
+  engine.setPendingChoiceOptions(PENDING_OPTIONS);
+  engine.setStepActionResult(CONTINUE_COMBAT_UNNAMED);
+  const response = await realRouter(engine).dispatch(ACTION_CHOOSE);
+  expect(response.ok).toBe(true);
+  if (!response.ok) throw new Error('unreachable');
+  const view = response.view as DecisionViewState;
+  expect(view.openingFrame).toContain('Grey Wolf');
   expect(view.openingFrame).not.toContain('Unknown foe');
   expect(view.openingFrame).not.toContain('?/?');
 });
