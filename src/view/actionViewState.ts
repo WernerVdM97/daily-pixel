@@ -232,9 +232,10 @@ export function buildDecisionView(
   };
   if (combatEnemyName) openingFrameSlots.enemyName = combatEnemyName;
   if (combatEnemyCondition) openingFrameSlots.enemyCondition = combatEnemyCondition;
-  // The decision's own band is this beat's truth, outranking the slots the caller read before it.
+  // The decision's own band is this beat's truth, outranking the slots the caller read before it. Its
+  // name is not: an unnamed-foe beat carries none, and a caller-supplied name must survive that.
   if (combat) {
-    openingFrameSlots.enemyName = combat.enemyName;
+    if (combat.enemyName) openingFrameSlots.enemyName = combat.enemyName;
     openingFrameSlots.enemyCondition = {
       woundWord: combat.woundWord,
       filled: combat.pips.filled,

@@ -1018,9 +1018,8 @@ export class WorldEngineImpl implements WorldEngine {
     };
   }
 
-  /** Reads the persisted `in_combat` edge to band a remembered foe's condition on the opening
-   *  frame: a prior bail's re-entry, or the foe a resumed mid-fight is still locked to. A spare
-   *  closes that edge, so the `undefined` after one is by design — don't re-open it. */
+  /** Reads the persisted `in_combat` edge to band the remembered foe on the opening frame — a prior
+   *  bail's re-entry or a resumed mid-fight. A spare closes it, so `undefined` there is by design. */
   private readPersistedCombatFoe(
     characterId: number,
     internalState: PipelineInternalActionState,
