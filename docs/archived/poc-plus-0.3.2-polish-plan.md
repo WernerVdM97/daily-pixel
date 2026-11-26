@@ -1,6 +1,7 @@
 ---
 title: "POC+ 0.3.2 — combat-correctness & prod-bug release (build plan)"
 status: shipped
+superseded_by: "implemented in code (0.3.2)"
 domain: engine
 phase: poc
 tags:

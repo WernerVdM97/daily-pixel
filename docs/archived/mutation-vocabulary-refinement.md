@@ -1,6 +1,7 @@
 ---
 title: Mutation Vocabulary Refinement — Verb Cleanup, NPC Lifecycle & Action-Category Map
 status: shipped
+superseded_by: "implemented in code"
 domain: engine
 phase: poc
 tags:

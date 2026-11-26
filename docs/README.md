@@ -78,12 +78,6 @@ resolved cross-cutting trade-offs (ADRs)
 
 ---
 
-## 🎯 POC
-
-| Status | Doc | Summary |
-| ------ | --- | ------- |
-| 🌱 | [Improved Item Features](./sparks/improved-item-features.md) | Placeholder for giving items depth — item kinds/layers, use/equip/drop verbs, quest coupling, real inventory management, and an economy tie-in (personal vs. communal coin). Collects the "loot is noise" thread (feedback #11) + soft-cap enforcement deferred from the backpack short-fix. Not yet a direction. |
-
 ## 🔥 MVP
 
 core game loop
@@ -101,6 +95,8 @@ core game loop
 | 🌱 | [Discord UX — MVP+](./sparks/mvp-discord-ux.md) | Reactions, free text, select menus, batch strategy |
 | 🌱 | [Discord Interaction Layer](./sparks/discord-interaction-layer.md) | Standardise & optimise the interaction _plumbing_ (ack/defer, loading envelope, shared component+embed builders, error funnel, in-flight guard) into one shared layer so correctness is by-construction, not per-button. `DiscordAPIError[10062]` is the symptom that exposed it; the crash-stop slice is an ASAP bug report, this is the MVP layer underneath. Orthogonal to _Discord UX — MVP+_ (that's input modalities; this is plumbing). |
 | 🌱 | [Example Scenes — MVP](./sparks/mvp-example-scenes.md) | Co-op scouting, NPC talk, travel convergence |
+| 🌱 | [Improved Item Features](./sparks/improved-item-features.md) | Placeholder for giving items depth — item kinds/layers, use/equip/drop verbs, quest coupling, real inventory management, and an economy tie-in (personal vs. communal coin). Collects the "loot is noise" thread (feedback #11) + soft-cap enforcement deferred from the backpack short-fix. Not yet a direction. |
+| 🌱 | [ANSI Hand-Drawn Designs](./sparks/ansi-handdrawn-designs.md) | Sketches for frames and components the ANSI work has not built yet, kept next to their images (the health-bar families so far) |
 
 ## 🚀 MVP+
 
@@ -113,7 +109,6 @@ deferred depth & polish
 | 🌱 | [Moral Drift](./sparks/mvp+moral-drift.md) | Continuous moral vector, derived alignment, governor loop |
 | 🌱 | [Login Streaks](./sparks/mvp+login-streaks.md) | Retention incentives, bonus rolls |
 | 🌱 | [ANSI Art — Coloured Frames & Splash](./sparks/mvp+ansi-art.md) | Discord `ansi` colour: tested constraints, colour roles, frame slots, splash |
-| 🌱 | [ANSI Hand-Drawn Designs](./sparks/ansi-handdrawn-designs.md) | Sketches for frames and components the ANSI work has not built yet, kept next to their images (the health-bar families so far) |
 
 ---
 
