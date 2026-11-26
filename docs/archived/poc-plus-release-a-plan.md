@@ -1,6 +1,7 @@
 ---
 title: "POC+ Release A — worth-returning-to (build plan)"
 status: shipped
+superseded_by: "implemented in code (0.3.3)"
 domain: engine
 phase: poc
 tags:

@@ -98,4 +98,4 @@ These interact: per-option stat is cosmetic while `stat` only toggles item bonus
   skewed. Re-run `scripts/llm-thinking-analysis.mjs` + the cohort aggregate to confirm the
   digression is gone.
 - [>] Implementation lands in `decision-v6.md`, `dc.ts`, `machine.ts`, `prompt-builder.ts`,
-  `LlmGateway.ts`, `WorldEngine.ts`, `ProdLlmGateway.ts` (then `DeepseekLlmGateway`, after the OpenRouter move).
+  `LlmGateway.ts`, `WorldEngine.ts`, `ProdLlmGateway.ts` (renamed from `DeepseekLlmGateway` in the OpenRouter move).

@@ -23,7 +23,7 @@ _Everything the v12 cutover deliberately shipped without, collected as the roadm
 
 # Prompt v13 — Post-Cutover Roadmap
 
-Each remaining thread changes templates, so per [[v12-prompt-set-versioning]] it lands as a new prompt set (`decision-prompts/v14/`) or bumps it further; the engine halves ride the same stages. Every thread below is _designed_ (its v12 sibling doc carries the detail) but has **no build plan yet** — each needs a `stage-N`-style handoff doc before an implementing session starts. Several threads want live-data telemetry, which has been accumulating since the `0.3.0` flip.
+Each remaining thread changes templates, so per [[v12-prompt-set-versioning]] it lands as a new prompt set — v14 already landed ahead of these threads (the favoured-option fix, #227), so the set they need is `decision-prompts/v15/`; the engine halves ride the same stages. Every thread below is _designed_ (its v12 sibling doc carries the detail) but has **no build plan yet** — each needs a `stage-N`-style handoff doc before an implementing session starts. Several threads want live-data telemetry, which has been accumulating since the `0.3.0` flip.
 
 ## Threads
 
