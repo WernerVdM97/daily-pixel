@@ -29,6 +29,7 @@ At most two consults per pass, and this cap is a wish rather than an enforcement
 - Project: "Dark Factory" (number 6, owner WernerVdM97). Field/option ids in `.pi/factory/project.json`.
 - List inbox items: `gh project item-list 6 --owner WernerVdM97 --format json`. The item shape is not flat: `status`, `priority`, `labels` (strings) and `milestone` (`{title, dueOn}`) sit at the item's top level, but the issue number is `content.number`. Project it instead of guessing:
   `gh project item-list 6 --owner WernerVdM97 --format json --jq '.items[] | select(.status == "Inbox") | {num: .content.number, title, status, priority, milestone: (.milestone.title // null), labels}'`
+- Set Status: `gh project item-list 6 --owner WernerVdM97 --limit 400 --format json` names the item id, then `gh project item-edit --id <item> --project-id PVT_kwHOAxg9QM4BiwcY --field-id PVTSSF_lAHOAxg9QM4BiwcYzhhnQZg --single-select-option-id <option>` with the option id from `.pi/factory/project.json` — for the three writes Authority allows and no others (`Inbox` → `Triaged`, and `Blocked` for an answer-park or a re-scope). It exits 0 whether or not it wrote, so re-read the item's `status` before you report the move. A new issue does not reach the board by itself: `gh project item-add 6 --owner WernerVdM97 --url <issue-url>`, then the Status write.
 
 ## The focus milestone
 
