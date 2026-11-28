@@ -27,8 +27,9 @@ At most two consults per pass, and this cap is a wish rather than an enforcement
 ## The board
 
 - Project: "Dark Factory" (number 6, owner WernerVdM97). Field/option ids in `.pi/factory/project.json`.
-- List inbox items: `gh project item-list 6 --owner WernerVdM97 --format json`. The item shape is not flat: `status`, `priority`, `labels` (strings) and `milestone` (`{title, dueOn}`) sit at the item's top level, but the issue number is `content.number`. Project it instead of guessing:
-  `gh project item-list 6 --owner WernerVdM97 --format json --jq '.items[] | select(.status == "Inbox") | {num: .content.number, title, status, priority, milestone: (.milestone.title // null), labels}'`
+- List the board: `gh project item-list 6 --owner WernerVdM97 --limit 400 --format json` — the listing silently stops at 30 items without `--limit`. The item shape is not flat: `status`, `priority`, `labels` (strings) and `milestone` (`{title, dueOn}`) sit at the item's top level, but the issue number is `content.number`. Project it instead of guessing:
+  `gh project item-list 6 --owner WernerVdM97 --limit 400 --format json --jq '.items[] | select(.status == "Inbox") | {num: .content.number, title, status, priority, milestone: (.milestone.title // null), labels}'`
+- Set Status: that listing names the item id, then `gh project item-edit --id <item> --project-id PVT_kwHOAxg9QM4BiwcY --field-id PVTSSF_lAHOAxg9QM4BiwcYzhhnQZg --single-select-option-id <option>` with the option id from `.pi/factory/project.json` — for `Inbox` → `Triaged`, an epic back to `Triaged` or `Blocked`, an answered `Blocked` hold to `Triaged`, and `Blocked` for a park or a re-scope, and no other write. `item-edit` exits 0 whether or not it wrote, and `item-list` can serve a stale Status seconds after it, so re-read the item's `status` through `gh api graphql` `fieldValues` before you report the move. A new issue does not reach the board by itself: `gh project item-add 6 --owner WernerVdM97 --url <issue-url>`, then the Status write.
 
 ## The focus milestone
 
